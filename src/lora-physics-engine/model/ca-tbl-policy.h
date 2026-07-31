@@ -93,6 +93,21 @@ struct CaTblPolicyConfig
     //! nDeescalate = 5, and 141 of 189 blind runs were exactly 5 cycles long -- the
     //! counter's signature. Default false preserves the pre-existing baseline.
     bool fastDemoteOnZeroNeighbours;
+    //! On a blind demotion, drop to the highest tier BELOW the current one that is
+    //! known to be populated, rather than stepping down one tier at a time. A node
+    //! leaving a blind UWB tier otherwise spends further blind cycles at tier 2
+    //! before reaching the floor.
+    //!
+    //! THE EVIDENCE MUST NOT COME FROM THE LIVE NEIGHBOUR TABLE. ClearNeighbours()
+    //! runs on every sleeping tier every cycle, so for a node on UWB the tier-2
+    //! table is empty because its radio is off, not because tier 2 is absent.
+    //! Driving this off the live table would evaluate to "demote to 868" always --
+    //! skipping tier 2 unconditionally and trading tier 2's 4.59 m median fix error
+    //! for tier 1's 11.33 m at boxHalf 3000, i.e. the exact opposite of the intent.
+    //! The caller therefore supplies a mask built from a per-tier last-non-empty
+    //! timestamp that survives sleep. Reachability (can I range now?) stays with the
+    //! live table; existence (was anything ever there?) comes from the timestamp.
+    bool multiStepDemote;
 
     double mahalanobisThreshold; //!< chi-square gate, 2 DOF
     //! Use the correctly specified integrity gate: weighted multilateration for the
@@ -261,12 +276,19 @@ class CaTblPolicy
      *                  addressed nobody, whereas zero ranges from a non-empty table
      *                  means it asked and got no answer. Only read when
      *                  CaTblPolicyConfig::fastDemoteOnZeroNeighbours is set.
+     * \param tierEvidenceMask
+     *                  Bit k set if tier k is believed to be populated. Must be
+     *                  built from a last-non-empty timestamp that survives sleep,
+     *                  NOT from the live neighbour table -- see the note on
+     *                  CaTblPolicyConfig::multiStepDemote. Zero means no evidence,
+     *                  which reduces multi-step demotion to one-step.
      */
     CaTblDecision Step(double dt,
                        const std::vector<CaTblRangeMeasurement>& meas,
                        uint32_t hopCount = 0,
                        int32_t activeTierRanges = -1,
-                       int32_t activeTierNeighbours = -1);
+                       int32_t activeTierNeighbours = -1,
+                       uint32_t tierEvidenceMask = 0);
 
     uint64_t GetEscalationCount() const { return m_escalations; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }

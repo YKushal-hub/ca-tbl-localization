@@ -52,6 +52,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
 
     nDeescalate = 5;
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
+    multiStepDemote = false;            // default preserves the pre-existing baseline
 
     mahalanobisThreshold = 9.21; // chi-square 99%, 2 DOF
     mahalUseR = false;           // default preserves the pre-existing baseline
@@ -607,7 +608,8 @@ CaTblPolicy::Step(double dt,
                   const std::vector<CaTblRangeMeasurement>& meas,
                   uint32_t hopCount,
                   int32_t activeTierRanges,
-                  int32_t activeTierNeighbours)
+                  int32_t activeTierNeighbours,
+                  uint32_t tierEvidenceMask)
 {
     CaTblDecision d;
     d.activeTier = m_tier;
@@ -833,7 +835,28 @@ CaTblPolicy::Step(double dt,
         {
             if (m_tier > CA_TBL_TIER_868)
             {
-                m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) - 1);
+                // Applied on the BLIND path only. The healthy-demotion branch below
+                // steps down because things are going well, and stepping one tier at
+                // a time is the correct energy taper there; skipping tiers would give
+                // up precision the node is currently earning. Here the active tier
+                // has nothing, so any intermediate tier that also has nothing is pure
+                // blind cost on the way to the floor.
+                int target = static_cast<int>(m_tier) - 1;
+                if (m_config.multiStepDemote)
+                {
+                    target = static_cast<int>(CA_TBL_TIER_868);
+                    for (int k = static_cast<int>(m_tier) - 1;
+                         k > static_cast<int>(CA_TBL_TIER_868);
+                         --k)
+                    {
+                        if (tierEvidenceMask & (1u << k))
+                        {
+                            target = k;
+                            break;
+                        }
+                    }
+                }
+                m_tier = static_cast<CaTblTier>(target);
                 m_deescalations++;
                 d.deescalated = true;
             }

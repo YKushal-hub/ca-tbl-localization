@@ -1628,7 +1628,9 @@ RunArm(CaTblPolicyMode mode,
        const std::string& traceDir,
        bool writeTrace,
        int fastDemoteMode,
-       bool mahalUseR)
+       bool mahalUseR,
+       int multiStepMode,
+       double demoteStalenessS)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1722,6 +1724,19 @@ RunArm(CaTblPolicyMode mode,
     else if (fastDemoteMode == 1)
     {
         pcfg.fastDemoteOnZeroNeighbours =
+            (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
+    }
+    // Separate axis from fastDemote deliberately: demoting SOONER and demoting
+    // FURTHER are different mechanisms, and fast demotion already turned out to have
+    // opposite signs at the two geometries and to favour the baseline. Conflating
+    // them into one switch would make that unattributable.
+    if (multiStepMode == 2)
+    {
+        pcfg.multiStepDemote = true;
+    }
+    else if (multiStepMode == 1)
+    {
+        pcfg.multiStepDemote =
             (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
     }
     CaTblPolicy policy;
@@ -1864,6 +1879,15 @@ RunArm(CaTblPolicyMode mode,
                                                                 1);
     }
     uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
+
+    // Last simulated time at which each tier's neighbour table was non-empty.
+    // This SURVIVES ClearNeighbours(), and that is the entire point: the live table
+    // answers "can I range against this tier right now", which is false for any
+    // sleeping tier by construction. Multi-step demotion needs the different
+    // question "was anything ever there", and reading the live table for it would
+    // make every sleeping tier look absent and collapse every demotion to 868.
+    // -1.0 means "never seen populated".
+    double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
     double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
     uint64_t blindCycles = 0;
 
@@ -2126,11 +2150,25 @@ RunArm(CaTblPolicyMode mode,
         // "the active tier delivered" from "we got a fix from somewhere". Without it
         // the tier-1 fallback hides every coverage failure from the de-escalation
         // logic and the policy latches on the top tier.
+        // Evidence that a tier EXISTS here, as distinct from being reachable right
+        // now. Built from lastNonEmptyAtS, which survives ClearNeighbours(), bounded
+        // by demoteStalenessS. Tier 1 is always awake and is the floor, so it never
+        // needs evidence.
+        uint32_t tierEvidenceMask = 0;
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            if (lastNonEmptyAtS[k] >= 0.0 && (t - lastNonEmptyAtS[k]) <= demoteStalenessS)
+            {
+                tierEvidenceMask |= (1u << k);
+            }
+        }
+
         const CaTblDecision d = policy.Step(dt,
                                             meas,
                                             0,
                                             static_cast<int32_t>(activeMeas.size()),
-                                            static_cast<int32_t>(activeMeasAddressed));
+                                            static_cast<int32_t>(activeMeasAddressed),
+                                            tierEvidenceMask);
 
         if (d.escalated || d.deescalated)
         {
@@ -2246,8 +2284,13 @@ RunArm(CaTblPolicyMode mode,
 
         for (int tierIdx = 0; tierIdx < CA_TBL_TIER_COUNT; ++tierIdx)
         {
-            nbrSum[tierIdx] += static_cast<double>(
-                nodeMac[tierIdx]->GetNeighbourCount(static_cast<CaTblTier>(tierIdx), t));
+            const size_t n =
+                nodeMac[tierIdx]->GetNeighbourCount(static_cast<CaTblTier>(tierIdx), t);
+            nbrSum[tierIdx] += static_cast<double>(n);
+            if (n > 0)
+            {
+                lastNonEmptyAtS[tierIdx] = t;
+            }
         }
         const uint32_t polledCount = static_cast<uint32_t>(activeMeasAddressed);
         const bool blind = (polledCount == 0);
@@ -2472,6 +2515,10 @@ main(int argc, char* argv[])
     double searchDutyFrac = 1.0;
     std::string fastDemote = "off";
     bool mahalUseR = false;
+    std::string multiStepDemote = "off";
+    // OURS AND UNCITED, like neighbourTtlS. How long a tier stays "known populated"
+    // after its radio sleeps. A new free parameter -- sweep it, do not choose it.
+    double demoteStalenessS = 60.0;
     cmd.AddValue("duration", "Simulated seconds per arm", durationS);
     cmd.AddValue("dt", "Cycle period in seconds", dt);
     cmd.AddValue("seed", "Single seed (alias for seedStart)", seedStart);
@@ -2511,6 +2558,15 @@ main(int argc, char* argv[])
                  "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
                  "for the distance. false reproduces the pre-existing baseline.",
                  mahalUseR);
+    cmd.AddValue("multiStepDemote",
+                 "On a blind demotion, drop to the highest tier known populated "
+                 "rather than one step: off|proposed|all. Separate axis from "
+                 "fastDemote. off reproduces the pre-existing baseline.",
+                 multiStepDemote);
+    cmd.AddValue("demoteStalenessS",
+                 "How long a tier stays 'known populated' after sleeping, seconds. "
+                 "OURS AND UNCITED -- sweep it.",
+                 demoteStalenessS);
     cmd.AddValue("searchDuty",
                  "Receiver-open fraction of a beacon period while a tier is awake "
                  "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
@@ -2587,6 +2643,21 @@ main(int argc, char* argv[])
               << "  uwb anchors=" << dep.anchors[CA_TBL_TIER_UWB].size() << "\n"
               << "  mobility: facility tour, " << walkSpeedMps << " m/s, dwell " << dwellS << "s\n\n";
 
+    int multiStepMode = 0;
+    if (multiStepDemote == "proposed")
+    {
+        multiStepMode = 1;
+    }
+    else if (multiStepDemote == "all")
+    {
+        multiStepMode = 2;
+    }
+    else if (multiStepDemote != "off")
+    {
+        std::cerr << "--multiStepDemote must be one of: off, proposed, all\n";
+        return 1;
+    }
+
     int fastDemoteMode = 0;
     if (fastDemote == "proposed")
     {
@@ -2632,7 +2703,9 @@ main(int argc, char* argv[])
                                        outdir,
                                        writeTrace,
                                        fastDemoteMode,
-                                       mahalUseR);
+                                       mahalUseR,
+                                       multiStepMode,
+                                       demoteStalenessS);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
