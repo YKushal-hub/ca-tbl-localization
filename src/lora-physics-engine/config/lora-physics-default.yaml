@@ -1,0 +1,627 @@
+# ==============================================================================
+# LoRa Physics Engine Standard Default Configuration
+# ==============================================================================
+# This configuration file defines the default physical layer impairment parameters
+# across all submodules (Propagation, Shadowing, Fading, NLOS, Atmospheric, Foliage,
+# Interference, Hardware, Mobility, and Terrain).
+
+general:
+  verboseLogging: false
+  randomSeed: 42
+  environment: 2      # 2 = ENV_SUBURBAN (0=RURAL_OPEN, 1=RURAL_FORESTED, 2=SUBURBAN, 3=URBAN_MODERATE, 4=URBAN_DENSE, 5=MOUNTAINOUS, 6=TUNNEL, 7=EDGE)
+  initialWeather: 0   # 0 = WEATHER_CLEAR_DRY (0=CLEAR_DRY, 1=HUMID_HOT, 2=LIGHT_RAIN, 3=HEAVY_RAIN, 4=FOG, 5=WINDY_DRY, 6=WINDY_WET)
+
+propagation:
+  frequencyHz: 868000000.0
+  referenceDistanceM: 1.0
+  pathLossExponent_type: NORMAL
+  pathLossExponent_min: 3.0
+  pathLossExponent_max: 4.0
+  pathLossExponent_mean: 3.5
+  pathLossExponent_stddev: 0.3
+  pathLossExponent_lambda: 0.0
+  pathLossExponent_shape: 0.0
+  gatewayHeightM_type: NORMAL
+  gatewayHeightM_min: 10.0
+  gatewayHeightM_max: 50.0
+  gatewayHeightM_mean: 30.0
+  gatewayHeightM_stddev: 10.0
+  gatewayHeightM_lambda: 0.0
+  gatewayHeightM_shape: 0.0
+  nodeHeightM_type: NORMAL
+  nodeHeightM_min: 0.5
+  nodeHeightM_max: 2.0
+  nodeHeightM_mean: 1.0
+  nodeHeightM_stddev: 0.3
+  nodeHeightM_lambda: 0.0
+  nodeHeightM_shape: 0.0
+
+shadowing:
+  enabled: true
+  spatialCorrelationEnabled: true
+  updateIntervalS: 0.0
+  shadowingStddevDb_type: NORMAL
+  shadowingStddevDb_min: 5.0
+  shadowingStddevDb_max: 11.0
+  shadowingStddevDb_mean: 8.0
+  shadowingStddevDb_stddev: 1.5
+  shadowingStddevDb_lambda: 0.0
+  shadowingStddevDb_shape: 0.0
+  correlationDistanceM_type: NORMAL
+  correlationDistanceM_min: 5.0
+  correlationDistanceM_max: 35.0
+  correlationDistanceM_mean: 20.0
+  correlationDistanceM_stddev: 5.0
+  correlationDistanceM_lambda: 0.0
+  correlationDistanceM_shape: 0.0
+
+fading:
+  enabled: true
+  model: 2            # 2 = FADING_RICIAN (0=NONE, 1=RAYLEIGH, 2=RICIAN, 3=NAKAGAMI)
+  ricianKFactor_type: NORMAL
+  ricianKFactor_min: 1.0
+  ricianKFactor_max: 8.0
+  ricianKFactor_mean: 3.5
+  ricianKFactor_stddev: 1.5
+  ricianKFactor_lambda: 0.0
+  ricianKFactor_shape: 0.0
+  nakagamiM_type: DETERMINISTIC
+  nakagamiM_min: 1.0
+  nakagamiM_max: 1.0
+  nakagamiM_mean: 1.0
+  nakagamiM_stddev: 0.0
+  nakagamiM_lambda: 0.0
+  nakagamiM_shape: 0.0
+  coherenceTimeMs_type: LOGNORMAL
+  coherenceTimeMs_min: 50.0
+  coherenceTimeMs_max: 10000.0
+  coherenceTimeMs_mean: 6.214608098422191
+  coherenceTimeMs_stddev: 0.4
+  coherenceTimeMs_lambda: 0.0
+  coherenceTimeMs_shape: 0.0
+
+nlos:
+  enabled: true
+  defaultNumberOfFloors: 1
+  nlosScaleDistanceM_type: DETERMINISTIC
+  nlosScaleDistanceM_min: 200.0
+  nlosScaleDistanceM_max: 200.0
+  nlosScaleDistanceM_mean: 200.0
+  nlosScaleDistanceM_stddev: 0.0
+  nlosScaleDistanceM_lambda: 0.0
+  nlosScaleDistanceM_shape: 0.0
+  nlosAttenuationDb_type: NORMAL
+  nlosAttenuationDb_min: 5.0
+  nlosAttenuationDb_max: 30.0
+  nlosAttenuationDb_mean: 15.0
+  nlosAttenuationDb_stddev: 5.0
+  nlosAttenuationDb_lambda: 0.0
+  nlosAttenuationDb_shape: 0.0
+  diffractionLossDb_type: NORMAL
+  diffractionLossDb_min: 1.0
+  diffractionLossDb_max: 14.0
+  diffractionLossDb_mean: 6.0
+  diffractionLossDb_stddev: 3.0
+  diffractionLossDb_lambda: 0.0
+  diffractionLossDb_shape: 0.0
+  buildingPenetrationDb_type: NORMAL
+  buildingPenetrationDb_min: 8.0
+  buildingPenetrationDb_max: 20.0
+  buildingPenetrationDb_mean: 12.0
+  buildingPenetrationDb_stddev: 3.0
+  buildingPenetrationDb_lambda: 0.0
+  buildingPenetrationDb_shape: 0.0
+  floorLossDbPerFloor_type: NORMAL
+  floorLossDbPerFloor_min: 1.5
+  floorLossDbPerFloor_max: 4.0
+  floorLossDbPerFloor_mean: 2.5
+  floorLossDbPerFloor_stddev: 0.5
+  floorLossDbPerFloor_lambda: 0.0
+  floorLossDbPerFloor_shape: 0.0
+
+atmospheric:
+  enabled: true
+  rainAttenuationK: 0.000065
+  rainAttenuationAlpha: 0.7
+  rainRateMmPerHr_type: DETERMINISTIC
+  rainRateMmPerHr_min: 0.0
+  rainRateMmPerHr_max: 0.0
+  rainRateMmPerHr_mean: 0.0
+  rainRateMmPerHr_stddev: 0.0
+  rainRateMmPerHr_lambda: 0.0
+  rainRateMmPerHr_shape: 0.0
+  waterVaporDensityGPerM3_type: NORMAL
+  waterVaporDensityGPerM3_min: 1.0
+  waterVaporDensityGPerM3_max: 20.0
+  waterVaporDensityGPerM3_mean: 8.0
+  waterVaporDensityGPerM3_stddev: 3.0
+  waterVaporDensityGPerM3_lambda: 0.0
+  waterVaporDensityGPerM3_shape: 0.0
+  temperatureCelsius_type: NORMAL
+  temperatureCelsius_min: -10.0
+  temperatureCelsius_max: 45.0
+  temperatureCelsius_mean: 25.0
+  temperatureCelsius_stddev: 8.0
+  temperatureCelsius_lambda: 0.0
+  temperatureCelsius_shape: 0.0
+  fogAttenuationDbPerKm_type: DETERMINISTIC
+  fogAttenuationDbPerKm_min: 0.0
+  fogAttenuationDbPerKm_max: 0.0
+  fogAttenuationDbPerKm_mean: 0.0
+  fogAttenuationDbPerKm_stddev: 0.0
+  fogAttenuationDbPerKm_lambda: 0.0
+  fogAttenuationDbPerKm_shape: 0.0
+
+foliage:
+  enabled: false
+  type: 0
+  specificAttenuationDbPerM_type: DETERMINISTIC
+  specificAttenuationDbPerM_min: 0.0
+  specificAttenuationDbPerM_max: 0.0
+  specificAttenuationDbPerM_mean: 0.0
+  specificAttenuationDbPerM_stddev: 0.0
+  specificAttenuationDbPerM_lambda: 0.0
+  specificAttenuationDbPerM_shape: 0.0
+  maxAttenuationDb_type: DETERMINISTIC
+  maxAttenuationDb_min: 0.0
+  maxAttenuationDb_max: 0.0
+  maxAttenuationDb_mean: 0.0
+  maxAttenuationDb_stddev: 0.0
+  maxAttenuationDb_lambda: 0.0
+  maxAttenuationDb_shape: 0.0
+  vegetationDepthM_type: LOGNORMAL
+  vegetationDepthM_min: 0.0
+  vegetationDepthM_max: 500.0
+  vegetationDepthM_mean: 4.605170185988092
+  vegetationDepthM_stddev: 0.6
+  vegetationDepthM_lambda: 0.0
+  vegetationDepthM_shape: 0.0
+  seasonalMultiplier_type: NORMAL
+  seasonalMultiplier_min: 0.3
+  seasonalMultiplier_max: 1.0
+  seasonalMultiplier_mean: 0.75
+  seasonalMultiplier_stddev: 0.1
+  seasonalMultiplier_lambda: 0.0
+  seasonalMultiplier_shape: 0.0
+  wetFoliageAddDb_type: NORMAL
+  wetFoliageAddDb_min: 0.0
+  wetFoliageAddDb_max: 6.0
+  wetFoliageAddDb_mean: 2.0
+  wetFoliageAddDb_stddev: 1.0
+  wetFoliageAddDb_lambda: 0.0
+  wetFoliageAddDb_shape: 0.0
+
+interference:
+  enabled: true
+  captureEffectEnabled: true
+  captureThresholdSF7Db: 6.0
+  captureThresholdSF8Db: 6.0
+  captureThresholdSF9Db: 6.0
+  captureThresholdSF10Db: 6.0
+  captureThresholdSF11Db: 6.0
+  captureThresholdSF12Db: 6.0
+
+receiver:
+  softThresholdEnabled: true
+  softThresholdWidthDb: 0.35
+  sensitivitySF7Dbm: -123.0
+  sensitivitySF8Dbm: -126.0
+  sensitivitySF9Dbm: -129.0
+  sensitivitySF10Dbm: -132.0
+  sensitivitySF11Dbm: -134.5
+  sensitivitySF12Dbm: -137.0
+  codingRateOffsetCr45Db: 0.0
+  codingRateOffsetCr46Db: -1.0
+  codingRateOffsetCr47Db: -2.0
+  codingRateOffsetCr48Db: -3.0
+  linkHysteresisMarginDb: 1.5
+  preambleUnlockPenaltyDb: 5.0
+  pllUnlockPenaltyDb: 4.0
+  evmPenaltyThresholdPercent: 10.0
+  evmPenaltyDbPerPercent: 0.2
+  cfoPenaltyThresholdHz: 1000.0
+  cfoPenaltyDbPerHz: 0.002
+  crcFailurePenaltyDb: 6.0
+
+hardware:
+  enabled: true
+  perNodeVariationEnabled: true
+  fineTimestampMode: false
+  codingRateDenom: 5
+  rssiResolutionDb: 1.0
+  carrierFrequencyOffsetHz_type: NORMAL
+  carrierFrequencyOffsetHz_min: -8680.0
+  carrierFrequencyOffsetHz_max: 8680.0
+  carrierFrequencyOffsetHz_mean: 0.0
+  carrierFrequencyOffsetHz_stddev: 2000.0
+  carrierFrequencyOffsetHz_lambda: 0.0
+  carrierFrequencyOffsetHz_shape: 0.0
+  phaseNoiseRad_type: NORMAL
+  phaseNoiseRad_min: 0.01
+  phaseNoiseRad_max: 0.2
+  phaseNoiseRad_mean: 0.08
+  phaseNoiseRad_stddev: 0.03
+  phaseNoiseRad_lambda: 0.0
+  phaseNoiseRad_shape: 0.0
+  timestampJitterNs_type: LOGNORMAL
+  timestampJitterNs_min: 500.0
+  timestampJitterNs_max: 50000.0
+  timestampJitterNs_mean: 9.210340371976184
+  timestampJitterNs_stddev: 0.5
+  timestampJitterNs_lambda: 0.0
+  timestampJitterNs_shape: 0.0
+  timestampQuantizationNs_type: UNIFORM
+  timestampQuantizationNs_min: 500.0
+  timestampQuantizationNs_max: 2000.0
+  timestampQuantizationNs_mean: 0.0
+  timestampQuantizationNs_stddev: 0.0
+  timestampQuantizationNs_lambda: 0.0
+  timestampQuantizationNs_shape: 0.0
+  rssiHardwareVariationDb_type: NORMAL
+  rssiHardwareVariationDb_min: -5.0
+  rssiHardwareVariationDb_max: 5.0
+  rssiHardwareVariationDb_mean: 0.0
+  rssiHardwareVariationDb_stddev: 2.0
+  rssiHardwareVariationDb_lambda: 0.0
+  rssiHardwareVariationDb_shape: 0.0
+  sensitivityVariationDb_type: NORMAL
+  sensitivityVariationDb_min: -3.0
+  sensitivityVariationDb_max: 3.0
+  sensitivityVariationDb_mean: 0.0
+  sensitivityVariationDb_stddev: 1.0
+  sensitivityVariationDb_lambda: 0.0
+  sensitivityVariationDb_shape: 0.0
+  txPowerAccuracyDb_type: NORMAL
+  txPowerAccuracyDb_min: -2.0
+  txPowerAccuracyDb_max: 2.0
+  txPowerAccuracyDb_mean: 0.0
+  txPowerAccuracyDb_stddev: 0.8
+  txPowerAccuracyDb_lambda: 0.0
+  txPowerAccuracyDb_shape: 0.0
+
+mobility:
+  enabled: true
+  mobilityModel: 0
+  directionUpdateIntervalS: 30.0
+  dopplerDegradationEnabled: true
+  nodeDistribution: 0
+  nClusters: 3
+  velocityMps_type: DETERMINISTIC
+  velocityMps_min: 0.0
+  velocityMps_max: 0.0
+  velocityMps_mean: 0.0
+  velocityMps_stddev: 0.0
+  velocityMps_lambda: 0.0
+  velocityMps_shape: 0.0
+  dopplerSNRPenaltyDbPerHz_type: NORMAL
+  dopplerSNRPenaltyDbPerHz_min: 0.01
+  dopplerSNRPenaltyDbPerHz_max: 0.1
+  dopplerSNRPenaltyDbPerHz_mean: 0.05
+  dopplerSNRPenaltyDbPerHz_stddev: 0.02
+  dopplerSNRPenaltyDbPerHz_lambda: 0.0
+  dopplerSNRPenaltyDbPerHz_shape: 0.0
+  clusterRadiusM_type: NORMAL
+  clusterRadiusM_min: 500.0
+  clusterRadiusM_max: 3000.0
+  clusterRadiusM_mean: 1500.0
+  clusterRadiusM_stddev: 500.0
+  clusterRadiusM_lambda: 0.0
+  clusterRadiusM_shape: 0.0
+  nodesPerCluster_type: NORMAL
+  nodesPerCluster_min: 5.0
+  nodesPerCluster_max: 200.0
+  nodesPerCluster_mean: 50.0
+  nodesPerCluster_stddev: 15.0
+  nodesPerCluster_lambda: 0.0
+  nodesPerCluster_shape: 0.0
+
+terrain:
+  enabled: true
+  fresnelClearanceFraction: 0.6
+  effectiveEarthRadiusFactor: 1.3333333333333333
+  terrainIrregularityM_type: NORMAL
+  terrainIrregularityM_min: 0.0
+  terrainIrregularityM_max: 100.0
+  terrainIrregularityM_mean: 15.0
+  terrainIrregularityM_stddev: 10.0
+  terrainIrregularityM_lambda: 0.0
+  terrainIrregularityM_shape: 0.0
+  losScaleDistanceM_type: NORMAL
+  losScaleDistanceM_min: 100.0
+  losScaleDistanceM_max: 5000.0
+  losScaleDistanceM_mean: 1000.0
+  losScaleDistanceM_stddev: 300.0
+  losScaleDistanceM_lambda: 0.0
+  losScaleDistanceM_shape: 0.0
+
+# ==============================================================================
+# Feature Extension Parameters (10 New Physical Features)
+# ==============================================================================
+
+delay_spread:
+  enabled: true
+  losDelaySpreadNs_type: NORMAL
+  losDelaySpreadNs_mean: 100.0
+  losDelaySpreadNs_stddev: 40.0
+  losDelaySpreadNs_min: 30.0
+  losDelaySpreadNs_max: 250.0
+  nlosDelaySpreadNs_type: NORMAL
+  nlosDelaySpreadNs_mean: 200.0
+  nlosDelaySpreadNs_stddev: 80.0
+  nlosDelaySpreadNs_min: 80.0
+  nlosDelaySpreadNs_max: 500.0
+  coherenceBandwidthScaleFactor_type: UNIFORM
+  coherenceBandwidthScaleFactor_min: 0.8
+  coherenceBandwidthScaleFactor_max: 1.2
+
+snow:
+  enabled: false
+  snowNLOSScaleFactor: 0.6
+  snowfallRateMmHrEquiv_type: NORMAL
+  snowfallRateMmHrEquiv_mean: 3.0
+  snowfallRateMmHrEquiv_stddev: 1.0
+  snowfallRateMmHrEquiv_min: 1.0
+  snowfallRateMmHrEquiv_max: 5.0
+  snowTemperatureCelsius_type: NORMAL
+  snowTemperatureCelsius_mean: -10.0
+  snowTemperatureCelsius_stddev: 5.0
+  snowTemperatureCelsius_min: -25.0
+  snowTemperatureCelsius_max: -5.0
+
+atmospheric_pressure:
+  enableTroposphericRefraction: false
+  atmosphericPressureHPa_type: NORMAL
+  atmosphericPressureHPa_mean: 1013.0
+  atmosphericPressureHPa_stddev: 15.0
+  atmosphericPressureHPa_min: 960.0
+  atmosphericPressureHPa_max: 1050.0
+
+wind_variation:
+  windVariationEnabled: false
+  windSpeedMps_type: NORMAL
+  windSpeedMps_mean: 3.0
+  windSpeedMps_stddev: 2.0
+  windSpeedMps_min: 0.0
+  windSpeedMps_max: 20.0
+  windAmplitudeDb_type: NORMAL
+  windAmplitudeDb_mean: 2.0
+  windAmplitudeDb_stddev: 0.5
+  windAmplitudeDb_min: 0.0
+  windAmplitudeDb_max: 6.0
+
+temperature_cfo:
+  referenceTemperatureC: 25.0
+  temperatureCoefficientHzPerC_type: NORMAL
+  temperatureCoefficientHzPerC_mean: 1.5
+  temperatureCoefficientHzPerC_stddev: 0.5
+  temperatureCoefficientHzPerC_min: 0.5
+  temperatureCoefficientHzPerC_max: 3.0
+  jitterTempSensitivity_type: NORMAL
+  jitterTempSensitivity_mean: 0.005
+  jitterTempSensitivity_stddev: 0.002
+  jitterTempSensitivity_min: 0.001
+  jitterTempSensitivity_max: 0.02
+
+humidity_dielectric:
+  enableHumidityDielectric: false
+
+adr:
+  adrEnabled: false
+  adrSnrMarginThresholdDb: 10.0
+
+fresnel_terrain:
+  freshnelCalculationEnabled: true
+  frequencyHz: 868000000.0
+
+# ==============================================================================
+# Existing Submodule Parameters (Complete Distribution Definitions)
+# ==============================================================================
+# Note: These sections complete the YAML as single source of truth for ALL parameters
+# Each parameter has type (DETERMINISTIC/UNIFORM/NORMAL/LOGNORMAL/EXPONENTIAL/NAKAGAMI)
+# and required fields for that distribution type
+
+propagation_detailed:
+  frequencyHz_type: DETERMINISTIC
+  frequencyHz_value: 868000000.0
+  referenceDistanceM_type: DETERMINISTIC
+  referenceDistanceM_value: 1.0
+  pathLossExponent_type: NORMAL
+  pathLossExponent_mean: 3.5
+  pathLossExponent_stddev: 0.3
+  pathLossExponent_min: 2.5
+  pathLossExponent_max: 4.5
+  shadowingStddevDb_type: DETERMINISTIC
+  shadowingStddevDb_value: 4.0
+
+shadowing_detailed:
+  enabled: true
+  shadowingStddevDb_type: NORMAL
+  shadowingStddevDb_mean: 4.0
+  shadowingStddevDb_stddev: 1.0
+  shadowingStddevDb_min: 2.0
+  shadowingStddevDb_max: 8.0
+  correlationDistanceM_type: NORMAL
+  correlationDistanceM_mean: 50.0
+  correlationDistanceM_stddev: 10.0
+  correlationDistanceM_min: 20.0
+  correlationDistanceM_max: 100.0
+  updateIntervalS_type: DETERMINISTIC
+  updateIntervalS_value: 1.0
+  spatialCorrelationEnabled: true
+  gudmundsonRho_type: DETERMINISTIC
+  gudmundsonRho_value: 1.0
+
+fading_detailed:
+  enabled: true
+  model: 1  # 1 = FADING_RICIAN
+  ricianKFactor_type: LOGNORMAL
+  ricianKFactor_mean: 1.0
+  ricianKFactor_stddev: 0.5
+  ricianKFactor_min: 0.1
+  ricianKFactor_max: 10.0
+  rayleighScale_type: NORMAL
+  rayleighScale_mean: 1.0
+  rayleighScale_stddev: 0.2
+  rayleighScale_min: 0.5
+  rayleighScale_max: 2.0
+  nakagamiShapeK_type: NORMAL
+  nakagamiShapeK_mean: 2.0
+  nakagamiShapeK_stddev: 0.5
+  nakagamiShapeK_min: 1.0
+  nakagamiShapeK_max: 5.0
+  fadingUpdateIntervalS_type: DETERMINISTIC
+  fadingUpdateIntervalS_value: 0.01
+
+nlos_detailed:
+  enabled: true
+  nlosAttenuationDb_type: NORMAL
+  nlosAttenuationDb_mean: 20.0
+  nlosAttenuationDb_stddev: 5.0
+  nlosAttenuationDb_min: 10.0
+  nlosAttenuationDb_max: 40.0
+  diffractionLossDb_type: NORMAL
+  diffractionLossDb_mean: 15.0
+  diffractionLossDb_stddev: 3.0
+  diffractionLossDb_min: 5.0
+  diffractionLossDb_max: 30.0
+  nlosScaleDistanceM_type: NORMAL
+  nlosScaleDistanceM_mean: 500.0
+  nlosScaleDistanceM_stddev: 100.0
+  nlosScaleDistanceM_min: 200.0
+  nlosScaleDistanceM_max: 1000.0
+  buildingPenetrationDb_type: NORMAL
+  buildingPenetrationDb_mean: 10.0
+  buildingPenetrationDb_stddev: 2.0
+  buildingPenetrationDb_min: 5.0
+  buildingPenetrationDb_max: 20.0
+  floorLossDbPerFloor_type: NORMAL
+  floorLossDbPerFloor_mean: 3.0
+  floorLossDbPerFloor_stddev: 0.5
+  floorLossDbPerFloor_min: 1.5
+  floorLossDbPerFloor_max: 6.0
+  defaultNumberOfFloors_type: DETERMINISTIC
+  defaultNumberOfFloors_value: 1
+
+atmospheric_detailed:
+  enabled: true
+  rainRateMmPerHr_type: LOGNORMAL
+  rainRateMmPerHr_mean: 2.0
+  rainRateMmPerHr_stddev: 1.0
+  rainRateMmPerHr_min: 0.5
+  rainRateMmPerHr_max: 10.0
+  rainAttenuationDbPerKm_type: NORMAL
+  rainAttenuationDbPerKm_mean: 0.05
+  rainAttenuationDbPerKm_stddev: 0.01
+  rainAttenuationDbPerKm_min: 0.02
+  rainAttenuationDbPerKm_max: 0.15
+  fogAttenuationDbPerKm_type: NORMAL
+  fogAttenuationDbPerKm_mean: 0.03
+  fogAttenuationDbPerKm_stddev: 0.01
+  fogAttenuationDbPerKm_min: 0.01
+  fogAttenuationDbPerKm_max: 0.1
+  temperatureCelsius_type: NORMAL
+  temperatureCelsius_mean: 20.0
+  temperatureCelsius_stddev: 10.0
+  temperatureCelsius_min: -20.0
+  temperatureCelsius_max: 45.0
+  waterVaporDensityGPerM3_type: NORMAL
+  waterVaporDensityGPerM3_mean: 10.0
+  waterVaporDensityGPerM3_stddev: 3.0
+  waterVaporDensityGPerM3_min: 3.0
+  waterVaporDensityGPerM3_max: 20.0
+  relativeHumidityPercent_type: NORMAL
+  relativeHumidityPercent_mean: 50.0
+  relativeHumidityPercent_stddev: 15.0
+  relativeHumidityPercent_min: 20.0
+  relativeHumidityPercent_max: 95.0
+  weatherUpdateIntervalS_type: DETERMINISTIC
+  weatherUpdateIntervalS_value: 60.0
+
+foliage_detailed:
+  enabled: true
+  vegetationDepthM_type: LOGNORMAL
+  vegetationDepthM_mean: 10.0
+  vegetationDepthM_stddev: 5.0
+  vegetationDepthM_min: 1.0
+  vegetationDepthM_max: 100.0
+  specificAttenuationDbPerM_type: NORMAL
+  specificAttenuationDbPerM_mean: 0.4
+  specificAttenuationDbPerM_stddev: 0.1
+  specificAttenuationDbPerM_min: 0.1
+  specificAttenuationDbPerM_max: 1.0
+  maxAttenuationDb_type: NORMAL
+  maxAttenuationDb_mean: 20.0
+  maxAttenuationDb_stddev: 3.0
+  maxAttenuationDb_min: 10.0
+  maxAttenuationDb_max: 40.0
+  wetFoliageAddDb_type: NORMAL
+  wetFoliageAddDb_mean: 5.0
+  wetFoliageAddDb_stddev: 1.0
+  wetFoliageAddDb_min: 2.0
+  wetFoliageAddDb_max: 10.0
+  seasonalMultiplier_type: UNIFORM
+  seasonalMultiplier_min: 0.5
+  seasonalMultiplier_max: 1.5
+
+interference_detailed:
+  enabled: true
+  cochannel1_enabled: true
+  cochannel1_powerDb_type: NORMAL
+  cochannel1_powerDb_mean: -80.0
+  cochannel1_powerDb_stddev: 5.0
+  cochannel1_powerDb_min: -100.0
+  cochannel1_powerDb_max: -60.0
+  adjacentChannel1_enabled: true
+  adjacentChannel1_powerDb_type: NORMAL
+  adjacentChannel1_powerDb_mean: -60.0
+  adjacentChannel1_powerDb_stddev: 5.0
+  adjacentChannel1_powerDb_min: -80.0
+  adjacentChannel1_powerDb_max: -40.0
+
+hardware_detailed:
+  enabled: true
+  txPowerAccuracyDb_type: NORMAL
+  txPowerAccuracyDb_mean: 0.0
+  txPowerAccuracyDb_stddev: 1.0
+  txPowerAccuracyDb_min: -3.0
+  txPowerAccuracyDb_max: 3.0
+  rssiHardwareVariationDb_type: NORMAL
+  rssiHardwareVariationDb_mean: 0.0
+  rssiHardwareVariationDb_stddev: 0.5
+  rssiHardwareVariationDb_min: -2.0
+  rssiHardwareVariationDb_max: 2.0
+  sensitivityVariationDb_type: NORMAL
+  sensitivityVariationDb_mean: 0.0
+  sensitivityVariationDb_stddev: 1.0
+  sensitivityVariationDb_min: -2.0
+  sensitivityVariationDb_max: 2.0
+  timestampJitterNs_type: NORMAL
+  timestampJitterNs_mean: 0.0
+  timestampJitterNs_stddev: 100.0
+  timestampJitterNs_min: -500.0
+  timestampJitterNs_max: 500.0
+  rssiResolutionDb_type: DETERMINISTIC
+  rssiResolutionDb_value: 0.5
+  phaseNoisePowerDb_type: NORMAL
+  phaseNoisePowerDb_mean: -50.0
+  phaseNoisePowerDb_stddev: 5.0
+  phaseNoisePowerDb_min: -70.0
+  phaseNoisePowerDb_max: -30.0
+  fineTimestampMode: false
+
+mobility_detailed:
+  enabled: true
+  enableMobility: false
+  velocityMps_type: NORMAL
+  velocityMps_mean: 1.0
+  velocityMps_stddev: 0.5
+  velocityMps_min: 0.0
+  velocityMps_max: 10.0
+  doppler_enabled: true
+
+terrain_detailed:
+  enabled: true
+  fresnelClearanceFraction_type: DETERMINISTIC
+  fresnelClearanceFraction_value: 0.6
+  diffraction_enabled: true
+  knifeEdgeModel: 1  # 1 = BULLINGTON_MODEL

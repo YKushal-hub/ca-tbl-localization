@@ -1,0 +1,26 @@
+==================================================
+LoRa Physics Engine Validation Agreement Report
+==================================================
+
+Dataset A (Petäjäjärvi 2015):
+  Data not found.
+
+Dataset B (Cattani 2017):
+  Data not found.
+
+Dataset C (Sáez 2019):
+  Data not found.
+
+Dataset C2 (Urban Cross-Validation):
+  Data not found.
+
+Dataset D (Podevijn 2018):
+  Data not found or TDOA solver output NaN.
+
+Dataset E (Oliveira 2017):
+  Data not found.
+
+==================================================
+Extended Empirical Metrics
+==================================================
+

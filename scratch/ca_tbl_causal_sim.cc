@@ -1,0 +1,2659 @@
+/**
+ * \file ca_tbl_causal_sim.cc
+ * \brief CA-TBL Phase S1 + S2 + S2.5 -- causal tri-tier simulation with baseline arms.
+ *
+ * S1 (causal decision) and S2 (energy accounting)
+ * ----------------------------------------------
+ * Exactly one tier transmits per cycle -- the one the policy selected on the
+ * previous cycle -- and only that tier is charged energy. An arm that never
+ * escalates accrues exactly zero UWB joules, because no UWB packet was ever
+ * generated. That is what makes the energy comparison mean anything.
+ *
+ * Escalation takes effect on the NEXT cycle and costs a request/grant round-trip
+ * on the current tier. Both are deliberate: a real handoff has latency, and if
+ * thrashing is free the hysteresis parameters cannot be shown to do any work.
+ *
+ * S2.5 (tiered deployment geometry) -- WHY THIS REWRITE HAPPENED
+ * -------------------------------------------------------------
+ * The first version placed ONE set of three anchors in a 100 m equilateral
+ * triangle and let all three tiers range against it, while the node random-walked
+ * inside a 1.2 km box. That produced results/causal/arm_summary.csv, in which:
+ *
+ *   - static_uwb had noFixCycles = 600/600. UWB's ceiling is ~100 m LOS / 30 m
+ *     NLOS, so it could essentially never see three anchors 100 m apart from
+ *     anywhere in a 1.2 km box. Its 288 m RMSE was pure dead reckoning.
+ *   - static_uwb was consequently the energy FLOOR (0.68 J) rather than the
+ *     ceiling, because a radio that never completes a ranging exchange is never
+ *     charged for one. The energy axis of the architectural claim was inverted.
+ *   - 497-600 of 600 cycles produced no fix in five of six arms, so every RMSE
+ *     was dominated by EKF coasting rather than by localisation.
+ *   - static_2p4 beat the proposed system 3.8x on accuracy-per-joule.
+ *
+ * None of that measured the policy. It measured a geometry in which two of the
+ * three tiers were physically inoperable. A tier can only be shown to be worth
+ * escalating to if there exist places where it works and places where it does
+ * not; a single flat anchor triangle cannot express that.
+ *
+ * The deployment is now tiered, which is also what the design document actually
+ * specifies:
+ *
+ *   Tier 1, 868 MHz  -- 5 wide-area gateways over the whole 3 km box.
+ *                       Always available, coarse, cheap. The coverage floor.
+ *   Tier 2, 2.4 GHz  -- 3-anchor triads at each facility site, ~150 m triad
+ *                       radius. Usable within a few hundred metres of a site.
+ *   Tier 3, UWB      -- dense 3-anchor triads co-located at the same sites,
+ *                       ~35 m triad radius. Usable only inside a site.
+ *
+ * and the trajectory is now a facility tour rather than an unconstrained random
+ * walk, so the node repeatedly enters and leaves tier-2 and tier-3 coverage.
+ * That transit is the regime the escalation decision exists to handle. Without
+ * it there is nothing for the policy to be right or wrong about.
+ *
+ * Ground-truth coverage labels
+ * ----------------------------
+ * Each step also records how many anchors of each tier lie within that tier's
+ * nominal range (vis868 / vis2p4 / visUwb). These are pure geometry, computed
+ * independently of the physics outcome, and they are the substrate for claim (3):
+ * "should have escalated to UWB" is definable as visUwb >= 3, which gives the
+ * trigger a confusion matrix instead of an assertion. See S7 in
+ * CA_TBL_SIM_AUDIT.md.
+ *
+ * Arms
+ * ----
+ *   static_868          never escalates -- long range, coarse, cheap
+ *   static_2p4          pinned to tier 2
+ *   static_uwb          always-on UWB -- accuracy ceiling, energy ceiling
+ *   fixed_threshold     flat variance trigger -- the prior-art baseline
+ *   ca_tbl_no_integrity PCS escalation only -- isolates the integrity check
+ *   ca_tbl_full         proposed system
+ *
+ * Usage:
+ *   # 1. Check the geometry against the physics BEFORE trusting any arm result.
+ *   ./ns3 run "ca_tbl_causal_sim --probe=true"
+ *
+ *   # 2. Single seed, all six arms.
+ *   ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
+ *
+ *   # 3. Seed sweep once the invariants pass.
+ *   ./ns3 run "ca_tbl_causal_sim --seedStart=1 --seedCount=20 --duration=3600 \
+ *              --outdir=results/causal --trace=false"
+ */
+
+#include "ns3/core-module.h"
+#include "ns3/ca-tbl-energy-model.h"
+#include "ns3/ca-tbl-header.h"
+#include "ns3/ca-tbl-mac.h"
+#include "ns3/ca-tbl-policy.h"
+#include "ns3/lora-physics-engine.h"
+#include "ns3/lora-2p4-physics-engine.h"
+#include "ns3/lora-uwb-physics-engine.h"
+#include "ns3/lora-physics-parameters.h"
+#include "ns3/lora-2p4-physics-parameters.h"
+#include "ns3/lora-uwb-physics-parameters.h"
+
+#include <algorithm>
+#include <cmath>
+#include <deque>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
+
+using namespace ns3;
+
+namespace
+{
+
+struct AnchorDef
+{
+    uint32_t id;
+    Vector pos;
+};
+
+/** Per-tier PHY settings, kept identical to the previous generator so physics
+ *  results remain comparable with the datasets already collected. */
+struct TierPhy
+{
+    uint8_t sf;
+    double bandwidthHz;
+    double txPowerDbm;
+};
+
+/**
+ * \brief Tiered anchor infrastructure.
+ *
+ * Each tier owns its own anchor set. This is the S2.5 fix: previously a single
+ * anchor list was shared by all three tiers, which forced every tier into the
+ * same spatial scale and made two of them inoperable.
+ *
+ * \c nominalRangeM is NOT used to gate reception -- the physics engines decide
+ * that. It is used only to compute the geometric visibility labels that claim (3)
+ * scores the trigger against. Keeping the two separate is deliberate: if the
+ * label were derived from the physics outcome it would be circular.
+ */
+struct Deployment
+{
+    std::vector<AnchorDef> anchors[CA_TBL_TIER_COUNT];
+    double nominalRangeM[CA_TBL_TIER_COUNT];
+    std::vector<Vector> facilities;
+    double boxHalfM;
+    /** How far the node may wander from a site centre while dwelling there.
+     *  Tied to the UWB ring radius so "at a facility" and "in UWB range" cannot
+     *  drift apart. */
+    double dwellRadiusM;
+};
+
+/**
+ * \brief Build the tiered deployment.
+ *
+ * Distances are chosen from this repo's own measured PDR-vs-distance data
+ * (results/metric2_pdr_distance_seed7.csv) and from the UWB range figures the
+ * validation journey settled on (100 m LOS / 30 m NLOS, corrected in Bug #9 of
+ * simstatus.md), not from assumption:
+ *
+ *   - SF7 at 868 MHz holds PDR >= 0.945 at 3 km in Suburban (PLE 2.75). Forest
+ *     (PLE 2.3) is less lossy than Suburban, so gateways at up to ~1.9 km
+ *     slant range are comfortably inside the reliable regime.
+ *   - Note SF12 is NOT used: in the same dataset SF12 PDR is 0.255-0.355 even at
+ *     500 m, far below SF7. That inversion is collision-dominated (SF12 airtime
+ *     is ~30x SF7, so it is exposed to far more interferer overlap) and is worth
+ *     investigating separately, but it means SF12 is not a usable tier-1 setting
+ *     in this simulator today.
+ *   - UWB triad radius 35 m gives a ~60 m side length, so a node anywhere inside
+ *     a site is within ~70 m of all three anchors -- inside the 100 m LOS
+ *     ceiling with margin for the fuzzy edge, and NOT inside the 30 m NLOS
+ *     ceiling, which is the point: UWB must sometimes fail even at a site.
+ *
+ * If --probe disagrees with any of this, change the geometry, not the claim.
+ */
+Deployment
+BuildDeployment(double boxHalfM,
+                double uwbTriadRadiusM,
+                double t2TriadRadiusM,
+                uint32_t uwbAnchorsPerSite,
+                uint32_t t2AnchorsPerSite)
+{
+    Deployment dep;
+    dep.boxHalfM = boxHalfM;
+    dep.dwellRadiusM = uwbTriadRadiusM;
+
+    // Nominal ranges for the geometric visibility labels only (NOT reception
+    // gates -- the engines decide that).
+    //
+    // These are r50, and an earlier attempt to "correct" them to r80 was WRONG in a
+    // way worth recording, because it silently zeroed the entire trigger metric.
+    //
+    // The mistaken argument was: the label means "could this tier plausibly have
+    // solved here", a ranging exchange needs most attempts to land, so r50 labels as
+    // covered a distance at which half the links fail. That reasoning treats a fix
+    // as needing ONE good link. It needs THREE, out of N anchors, and this
+    // deployment deliberately sites N > 3 (5 UWB, 3 tier-2 per site, 9 tier-1). At
+    // per-link p = 0.5 with N = 5 and 3 required,
+    //     P(>=3 of 5) = (10 + 5 + 1)/32 = 0.5
+    // so r50 IS the boundary at which a fix becomes a coin flip. That is exactly
+    // what "could plausibly have solved" means. At r80 the same geometry gives
+    // P(>=3 of 5) = 0.94, i.e. "would reliably solve" -- a different question, and
+    // the wrong one for a ground-truth coverage label.
+    //
+    // The r80 version also had a second, fatal defect: setting the UWB label radius
+    // to 10.0 m while --uwbTriad is also 10.0 m makes the label unsatisfiable. The
+    // anchors sit ON a 10 m ring at z = 2.5 and the node is at z = 1.5, so even at
+    // the exact facility centre the slant range is sqrt(10^2 + 1^2) = 10.0499 m,
+    // just outside. VisibleCount() returned 0 at every step of every arm, visUwb was
+    // identically zero, and trigF1 was therefore 0.000 on all six arms. A label
+    // radius must never be set equal to the anchor ring radius it is labelling.
+    //
+    // Values from the 64-site decorrelated probe (2000 trials/point):
+    //   868  r80 1522 m, r50 3217 m. 3000 m labels the whole +/-1000 m box as
+    //        covered, which the physics agrees with: static_868 records 0 nofix
+    //        cycles out of 1440, i.e. tier 1 solves every cycle everywhere.
+    //   2p4  r80 >= 900 m -- CENSORED, the sweep ends at 900 m with PDR 0.804 and
+    //        the tier has not fallen off. 900 m is a LOWER BOUND, not a measurement.
+    //        Extend dists2p4 past 900 m before treating this as tier-2's range.
+    //   UWB  r80 12.9 m, r50 29.5 m. Near-pure-LOS run (nlos_frac <= 0.004) yet r80
+    //        is a tenth of the 100 m LOS reference spec in simstatus.md Bug #9: the
+    //        facility UWB link budget is the constraint, not NLOS.
+    dep.nominalRangeM[CA_TBL_TIER_868] = 3000.0;
+    dep.nominalRangeM[CA_TBL_TIER_2P4] = 900.0;
+    dep.nominalRangeM[CA_TBL_TIER_UWB] = 30.0;
+
+    // ---- Tier 1: wide-area gateways on a 3x3 grid. -------------------------
+    // Previously 4 corners + centre at 0.9 * boxHalf. With the measured 868 r80
+    // of 1000 m that put most of the box outside reliable range of any three
+    // gateways, so tier 1 -- the coverage floor the whole architecture rests on --
+    // would have been intermittent and every arm would have been measuring
+    // dead reckoning again.
+    //
+    // A 3x3 grid spanning +/-0.9*boxHalf gives a cell pitch of 0.9*boxHalf, so the
+    // worst-case point (a cell centre) is 0.64 * pitch from its three nearest
+    // gateways. At the default boxHalf of 1000 m that is ~640 m, where measured
+    // PDR is ~0.95.
+    //
+    // This is not a free parameter choice: it says the tier-1 gateway density
+    // needed for reliable 3-gateway coverage at SF7 in forest is ~9 gateways per
+    // 4 km^2. That is a derived deployment-cost result and it belongs in the
+    // report -- it is the "gateway density dominates everything downstream"
+    // conclusion of simstatus.md 8.5, now grounded in measured PDR instead of
+    // assumed range. Sweep --boxHalf to trace the sensitivity curve.
+    const double g = boxHalfM * 0.9;
+    const double gwH = 15.0;
+    uint32_t id = 101;
+    for (int gx = -1; gx <= 1; ++gx)
+    {
+        for (int gy = -1; gy <= 1; ++gy)
+        {
+            dep.anchors[CA_TBL_TIER_868].push_back(
+                {id++, Vector(g * static_cast<double>(gx), g * static_cast<double>(gy), gwH)});
+        }
+    }
+
+    // ---- Facility sites: where short-range infrastructure actually exists. --
+    // Anchors are not spread uniformly over 9 km^2 -- that is not how anyone
+    // deploys. They cluster at gates, huts, checkpoints. The gaps between sites
+    // are what force the policy to decide rather than to always escalate.
+    const double f = boxHalfM * 0.47;
+    dep.facilities.push_back(Vector(-f, -f, 0.0));
+    dep.facilities.push_back(Vector(f, -f, 0.0));
+    dep.facilities.push_back(Vector(f, f, 0.0));
+    dep.facilities.push_back(Vector(-f, f, 0.0));
+
+    // ---- Tiers 2 and 3: anchor rings at each site. -------------------------
+    // Co-location is deliberate. If tier-2 and tier-3 coverage were in different
+    // places, an escalation failure could be a siting artefact rather than a
+    // decision error, and the comparison between the two refinement tiers would
+    // be confounded.
+    //
+    // UWB gets MORE than three anchors per site by default. A fix needs three
+    // ranges; with exactly three anchors that means needing all three, so at the
+    // measured r80 per-anchor PDR of 0.885 the probability of solving is
+    // 0.885^3 = 0.69 -- the tier would be intermittent at its own best range. With
+    // five anchors, three-of-five succeeds far more often at the same per-link
+    // PDR, and it is also the more realistic siting: a facility gate would have
+    // several anchors, not exactly the mathematical minimum. This raises
+    // reliability without inflating the assumed range, which is the distinction
+    // that matters -- range is measured, redundancy is a design choice.
+    id = 201;
+    uint32_t idUwb = 301;
+    for (size_t s = 0; s < dep.facilities.size(); ++s)
+    {
+        const Vector c = dep.facilities[s];
+
+        for (uint32_t k = 0; k < t2AnchorsPerSite; ++k)
+        {
+            const double th =
+                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(t2AnchorsPerSite) + 0.3;
+            dep.anchors[CA_TBL_TIER_2P4].push_back(
+                {id++,
+                 Vector(c.x + t2TriadRadiusM * std::cos(th),
+                        c.y + t2TriadRadiusM * std::sin(th),
+                        6.0)});
+        }
+
+        for (uint32_t k = 0; k < uwbAnchorsPerSite; ++k)
+        {
+            const double th =
+                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(uwbAnchorsPerSite) + 0.3;
+            dep.anchors[CA_TBL_TIER_UWB].push_back(
+                {idUwb++,
+                 Vector(c.x + uwbTriadRadiusM * std::cos(th),
+                        c.y + uwbTriadRadiusM * std::sin(th),
+                        2.5)});
+        }
+    }
+
+    return dep;
+}
+
+/** Anchors of \p tier whose slant range to \p p is within the tier's nominal
+ *  range. Pure geometry -- the ground-truth coverage label, not a physics
+ *  outcome. */
+uint32_t
+VisibleCount(const Deployment& dep, CaTblTier tier, const Vector& p)
+{
+    uint32_t n = 0;
+    for (size_t i = 0; i < dep.anchors[tier].size(); ++i)
+    {
+        const Vector& a = dep.anchors[tier][i].pos;
+        const double d =
+            std::sqrt((a.x - p.x) * (a.x - p.x) + (a.y - p.y) * (a.y - p.y) +
+                      (a.z - p.z) * (a.z - p.z));
+        if (d <= dep.nominalRangeM[tier])
+        {
+            ++n;
+        }
+    }
+    return n;
+}
+
+/**
+ * \brief CaTblPhyProvider backed by the three real physics engines.
+ *
+ * This is the wiring the S4 MAC was written against and never had: until now the
+ * only implementation was StubPhy in ca_tbl_packet_validator.cc, which returns a
+ * fixed power for every link. Everything the validator reports about contention is
+ * therefore true of a channel where all links are identical -- which is why it
+ * measured 1129 collision events and ZERO captures. Capture arbitration needs a
+ * power spread to arbitrate over, and a stub cannot supply one.
+ *
+ * Three modelling decisions here are approximations, and each is a limitation of
+ * the result rather than of the code:
+ *
+ * 1. RECIPROCITY. The engines expose ProcessTransmission(node, gateway, ...) and
+ *    are directional in their argument names but not in their physics: the two-ray
+ *    crossover is dc = 4*pi*txH*rxH/lambda, which is symmetric in the two heights,
+ *    and shadowing/foliage/terrain are keyed on the link's endpoints. An anchor ->
+ *    node beacon is therefore evaluated with the same call as a node -> anchor
+ *    poll. This is standard for a link-budget model and it is stated, not assumed
+ *    away: it means antenna-pattern asymmetry and TX-power asymmetry between the
+ *    two ends are NOT modelled.
+ *
+ * 2. ANCHOR-TO-ANCHOR LINKS DO NOT EXIST. Only the field node is registered as a
+ *    node on the engines; anchors are registered as gateways on their own tier's
+ *    engine only. A pair of anchors has no evaluable link, so Evaluate() returns
+ *    "not received" for it. The consequence is specific and worth stating: every
+ *    anchor is a HIDDEN TERMINAL to every other anchor. Their CAD never detects
+ *    each other, so they transmit into each other freely and collisions at the
+ *    node are decided purely by arrival overlap and capture. That is a harsher
+ *    contention regime than a real deployment with inter-anchor audibility, so
+ *    beacon loss here is an upper bound, not an estimate.
+ *
+ * 3. HOPS. hopsTraversed is forwarded to the engines, which previously always
+ *    received 0 from this scenario. Any per-hop degradation the engines model now
+ *    actually engages on relayed frames.
+ */
+class EnginePhyProvider : public CaTblPhyProvider
+{
+  public:
+    EnginePhyProvider(LoRaPhysicsEngine& e868,
+                      LoRa2p4PhysicsEngine& e2p4,
+                      LoRaUWBPhysicsEngine& eUwb,
+                      const TierPhy* phy,
+                      uint16_t fieldNodeId)
+        : m_e868(e868),
+          m_e2p4(e2p4),
+          m_eUwb(eUwb),
+          m_phy(phy),
+          m_nodeId(fieldNodeId),
+          m_nodePos(0.0, 0.0, 0.0),
+          m_evaluations(0),
+          m_skipped(0)
+    {
+    }
+
+    void RegisterAnchor(CaTblTier tier, uint16_t id, const Vector& p)
+    {
+        m_anchorTier[id] = tier;
+        m_anchorPos[id] = p;
+    }
+
+    void SetNodePosition(const Vector& p) { m_nodePos = p; }
+
+    CaTblLinkOutcome Evaluate(uint16_t txId,
+                              uint16_t rxId,
+                              CaTblTier tier,
+                              double txPowerDbm,
+                              uint8_t hopsTraversed) override
+    {
+        CaTblLinkOutcome o;
+
+        // Exactly one endpoint must be the field node -- see limitation 2 above.
+        uint16_t anchor = 0;
+        if (txId == m_nodeId)
+        {
+            anchor = rxId;
+        }
+        else if (rxId == m_nodeId)
+        {
+            anchor = txId;
+        }
+        else
+        {
+            ++m_skipped;
+            return o;
+        }
+
+        // The anchor must belong to THIS tier. The channel iterates every
+        // registered MAC on a completed transmission, so without this an 868
+        // frame would be handed to the 2.4 GHz engine with a gateway id that
+        // engine has never seen registered.
+        std::map<uint16_t, CaTblTier>::const_iterator at = m_anchorTier.find(anchor);
+        if (at == m_anchorTier.end() || at->second != tier)
+        {
+            ++m_skipped;
+            return o;
+        }
+        const Vector& anchorPos = m_anchorPos[anchor];
+        const Time now = Simulator::Now();
+        const int t = static_cast<int>(tier);
+        ++m_evaluations;
+
+        if (tier == CA_TBL_TIER_868)
+        {
+            PhysicsResult r = m_e868.ProcessTransmission(m_nodeId,
+                                                         anchor,
+                                                         m_nodePos,
+                                                         anchorPos,
+                                                         txPowerDbm,
+                                                         m_phy[t].sf,
+                                                         m_phy[t].bandwidthHz,
+                                                         hopsTraversed,
+                                                         now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else if (tier == CA_TBL_TIER_2P4)
+        {
+            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(m_nodeId,
+                                                            anchor,
+                                                            m_nodePos,
+                                                            anchorPos,
+                                                            txPowerDbm,
+                                                            m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed,
+                                                            now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else
+        {
+            PhysicsResultUWB r = m_eUwb.ProcessTransmission(m_nodeId,
+                                                            anchor,
+                                                            m_nodePos,
+                                                            anchorPos,
+                                                            txPowerDbm,
+                                                            m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed,
+                                                            now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        return o;
+    }
+
+    double SensitivityDbm(CaTblTier tier, uint8_t sf) override
+    {
+        // codingRateDenom 5 == CR 4/5, matching m_codingRate = 1 elsewhere.
+        if (tier == CA_TBL_TIER_868)
+        {
+            return m_e868.GetSensitivityThreshold(sf, 5);
+        }
+        if (tier == CA_TBL_TIER_2P4)
+        {
+            return m_e2p4.GetSensitivityThreshold(sf, 5);
+        }
+        return m_eUwb.GetSensitivityThreshold(sf, 5);
+    }
+
+    uint64_t GetEvaluations() const { return m_evaluations; }
+    uint64_t GetSkipped() const { return m_skipped; }
+
+  private:
+    LoRaPhysicsEngine& m_e868;
+    LoRa2p4PhysicsEngine& m_e2p4;
+    LoRaUWBPhysicsEngine& m_eUwb;
+    const TierPhy* m_phy;
+    uint16_t m_nodeId;
+    Vector m_nodePos;
+    std::map<uint16_t, CaTblTier> m_anchorTier;
+    std::map<uint16_t, Vector> m_anchorPos;
+    uint64_t m_evaluations;
+    uint64_t m_skipped;
+};
+
+/**
+ * \brief Self-rescheduling beacon source for one anchor.
+ *
+ * Beacon phase is drawn from the RNG rather than spread on a fixed lattice. An
+ * evenly-spaced lattice would make simultaneous transmission impossible by
+ * construction, and collisions would then be an artefact of the schedule rather
+ * than an emergent property -- which is the thing claim 6 is supposed to be
+ * measuring. Real unsynchronised anchors have random phase; so do these.
+ */
+struct BeaconDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->Send(CA_TBL_MSG_DISCOVERY, tier, 1, 0);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &BeaconDriver::Fire, this);
+        }
+    }
+};
+
+/** Everything one arm produced, for the summary table. */
+struct ArmResult
+{
+    std::string arm;
+    uint32_t seed;
+    double rmseM;
+    double cep50M;
+    double cep95M;
+    double maxErrM;
+    //! RMSE and CEP50 over ONLY the cycles that produced a fix.
+    //!
+    //! The unconditional rmseM mixes localisation with dead reckoning, in a ratio that
+    //! differs per arm, so it cannot answer "is this tier's ranging precise". For an
+    //! arm whose tier is spot-coverage by construction the unconditional figure is
+    //! dominated by coasting: static_uwb fixes on 11.6% of cycles and reports 150.6 m
+    //! unconditional against a cep50 of 55.2 m. The fix-conditional figure is what the
+    //! "UWB is the most accurate tier" check was always trying to test.
+    //!
+    //! Report BOTH. The conditional number alone would flatter every arm by hiding how
+    //! often it had nothing to work with.
+    double rmseFixedM;
+    double cep50FixedM;
+    uint64_t fixCycles;
+    double totalJ;
+    double tierJ[CA_TBL_TIER_COUNT];
+    uint64_t tierCycles[CA_TBL_TIER_COUNT];
+    double airtimeS[CA_TBL_TIER_COUNT];
+    uint64_t escalations;
+    uint64_t deescalations;
+    uint64_t suspects;
+    uint64_t noFixCycles;
+    uint64_t steps;
+    double durationS;
+
+    // Trigger scoring against the geometric ground truth (claim 3).
+    // "Should be on UWB" is defined as visUwb >= 3: the tier is geometrically
+    // solvable. Confusion counts are accumulated per cycle over the active tier.
+    uint64_t tp; //!< on UWB while visUwb >= 3
+    uint64_t fp; //!< on UWB while visUwb <  3  -- escalated into dead air
+    uint64_t fn; //!< not on UWB while visUwb >= 3 -- missed a free refinement
+    uint64_t tn;
+    uint64_t cyclesInUwbCoverage;
+
+    // ---- S4 discovery / energy-axis diagnostics ----------------------------
+    //
+    // The energy breakdown is emitted because the §6 blocking defect could not be
+    // diagnosed without it, and first-principles arithmetic on the old totals left
+    // a ~9% residual on both static_868 and static_2p4 that nobody could attribute.
+    // A single totalJ scalar is not enough to tell "this tier is expensive" from
+    // "this tier is polling too many anchors": the first shows up in txJ, the
+    // second almost entirely in rxJ. Both were previously invisible.
+    double txJ[CA_TBL_TIER_COUNT];
+    double rxJ[CA_TBL_TIER_COUNT];
+    double cadJ[CA_TBL_TIER_COUNT];
+    double idleJ[CA_TBL_TIER_COUNT];
+    double sleepJ[CA_TBL_TIER_COUNT];
+
+    //! Mean size of the one-hop neighbour table on each tier, over all cycles.
+    //! This is the denominator the ranging poll now uses, so it is the number
+    //! that replaced "every anchor in the deployment". If it equals the anchor
+    //! count, the gate is not gating and the energy axis is unchanged.
+    double meanNeighbours[CA_TBL_TIER_COUNT];
+    //! Cycles on which the ACTIVE tier had an empty neighbour table, so no poll
+    //! was issued at all. A large number here means escalation is landing in
+    //! undiscovered space, which is a policy finding, not a bug.
+    uint64_t blindCycles;
+    //! Total first-time insertions into the neighbour tables -- discovery churn.
+    uint64_t neighbourInsertions;
+
+    // Emergent MAC outcomes at the node's receivers (claim 6). Zero captures with
+    // nonzero collisions means the capture path is untested, not that capture
+    // never happens -- read them together.
+    uint64_t macTx;
+    uint64_t macCollisions;
+    uint64_t macCaptures;
+    uint64_t macDeliveries;
+};
+
+/**
+ * \brief Node trajectory: a tour of the facility sites.
+ *
+ * The previous version used an unconstrained random walk. That is the wrong
+ * mobility model for this claim, not merely a less realistic one: with
+ * short-range coverage confined to a few small sites, a random walk almost never
+ * enters one, so the escalation decision is never posed. A tour poses it
+ * repeatedly and in both directions (entering and leaving), which is what makes
+ * hysteresis and de-escalation observable.
+ *
+ * Heading noise is retained so the path is not a clean straight line between
+ * sites -- a perfectly straight approach would give the constant-velocity filter
+ * an unrealistically easy prediction and flatter every arm equally.
+ */
+class Tourist
+{
+  public:
+    Tourist(const std::vector<Vector>& sites,
+            double speedMps,
+            double dwellS,
+            double boxHalfM,
+            double dwellRadiusM,
+            Ptr<UniformRandomVariable> rng)
+        : m_sites(sites),
+          m_speed(speedMps),
+          m_dwellS(dwellS),
+          m_boxHalf(boxHalfM),
+          m_dwellRadius(dwellRadiusM),
+          m_rng(rng),
+          m_target(0),
+          m_dwellLeft(0.0),
+          m_heading(0.0)
+    {
+        // Start off-site so the run begins in the tier-1-only regime.
+        m_x = m_rng->GetValue(-boxHalfM * 0.2, boxHalfM * 0.2);
+        m_y = m_rng->GetValue(-boxHalfM * 0.2, boxHalfM * 0.2);
+        PickTarget();
+    }
+
+    void Step(double dt)
+    {
+        if (m_dwellLeft > 0.0)
+        {
+            // Milling about inside a site rather than standing perfectly still.
+            m_dwellLeft -= dt;
+            m_heading += m_rng->GetValue(-1.2, 1.2) * dt;
+            m_x += 0.3 * m_speed * std::cos(m_heading) * dt;
+            m_y += 0.3 * m_speed * std::sin(m_heading) * dt;
+
+            // Keep the mill-about inside the site. Unbounded, 0.36 m/s over a 90 s
+            // dwell wanders up to ~32 m, which walks straight out of a 10 m UWB
+            // anchor ring -- the node would be "at a facility" by the scenario's
+            // logic while being out of range of the tier that facility exists to
+            // provide. Someone waiting at a gate stays at the gate.
+            const Vector site = m_sites[m_target];
+            const double dr = std::hypot(m_x - site.x, m_y - site.y);
+            if (dr > m_dwellRadius && dr > 1e-9)
+            {
+                const double s = m_dwellRadius / dr;
+                m_x = site.x + (m_x - site.x) * s;
+                m_y = site.y + (m_y - site.y) * s;
+                m_heading += M_PI; // turn back inward rather than pressing the edge
+            }
+
+            if (m_dwellLeft <= 0.0)
+            {
+                PickTarget();
+            }
+            Clamp();
+            return;
+        }
+
+        const Vector t = m_sites[m_target];
+        const double bearing = std::atan2(t.y - m_y, t.x - m_x);
+
+        // Steer toward the bearing but do not snap to it: correlated wander
+        // around the intended course.
+        double diff = bearing - m_heading;
+        while (diff > M_PI)
+        {
+            diff -= 2.0 * M_PI;
+        }
+        while (diff < -M_PI)
+        {
+            diff += 2.0 * M_PI;
+        }
+        m_heading += std::max(-0.35 * dt, std::min(0.35 * dt, diff)) +
+                     m_rng->GetValue(-0.10, 0.10) * dt;
+
+        m_x += m_speed * std::cos(m_heading) * dt;
+        m_y += m_speed * std::sin(m_heading) * dt;
+
+        if (std::hypot(t.x - m_x, t.y - m_y) < 25.0)
+        {
+            m_dwellLeft = m_dwellS * m_rng->GetValue(0.6, 1.4);
+        }
+        Clamp();
+    }
+
+    Vector Position() const { return Vector(m_x, m_y, 1.5); }
+
+  private:
+    void PickTarget()
+    {
+        if (m_sites.size() <= 1)
+        {
+            m_target = 0;
+            return;
+        }
+        size_t next = m_target;
+        while (next == m_target)
+        {
+            next = static_cast<size_t>(m_rng->GetValue(0.0, static_cast<double>(m_sites.size())));
+            if (next >= m_sites.size())
+            {
+                next = m_sites.size() - 1;
+            }
+        }
+        m_target = next;
+    }
+
+    void Clamp()
+    {
+        if (m_x < -m_boxHalf || m_x > m_boxHalf || m_y < -m_boxHalf || m_y > m_boxHalf)
+        {
+            m_heading += M_PI;
+            m_x = std::max(-m_boxHalf, std::min(m_boxHalf, m_x));
+            m_y = std::max(-m_boxHalf, std::min(m_boxHalf, m_y));
+        }
+    }
+
+    std::vector<Vector> m_sites;
+    double m_speed;
+    double m_dwellS;
+    double m_boxHalf;
+    double m_dwellRadius;
+    Ptr<UniformRandomVariable> m_rng;
+    size_t m_target;
+    double m_dwellLeft;
+    double m_heading;
+    double m_x;
+    double m_y;
+};
+
+double
+Percentile(std::vector<double> v, double p)
+{
+    if (v.empty())
+    {
+        return 0.0;
+    }
+    std::sort(v.begin(), v.end());
+    const double idx = p * (static_cast<double>(v.size()) - 1.0);
+    const size_t lo = static_cast<size_t>(std::floor(idx));
+    const size_t hi = static_cast<size_t>(std::ceil(idx));
+    if (lo == hi)
+    {
+        return v[lo];
+    }
+    const double frac = idx - static_cast<double>(lo);
+    return v[lo] * (1.0 - frac) + v[hi] * frac;
+}
+
+/**
+ * \brief Cramer-Rao lower bound on ToF ranging std-dev, in metres.
+ *
+ *   sigma_t     = 1 / (2*pi * beta_rms * sqrt(2*SNR))
+ *   beta_rms    = BW / sqrt(12)
+ *   sigma_range = c * sigma_t          (/ sqrt(2) for a symmetric two-way exchange)
+ *
+ * snrDb here is E/N0 at the correlator output. Callers must add the coherent
+ * integration gain first -- see CoherentGainDb(). Passing raw in-band SNR is the
+ * bug this check itself used to contain.
+ *
+ * This is the project's own established formula, not a new one: beta_rms =
+ * 125e3/sqrt(12) = 36 084 Hz reproduces the figure simstatus.md 4.1 used to
+ * calibrate the 868 MHz timing jitter.
+ *
+ * Why it is now checked rather than trusted. A ranging model reporting precision
+ * BELOW this bound is not optimistic, it is impossible -- and the consequence is
+ * not cosmetic. A tier with unphysical precision silently dominates every
+ * architectural comparison. That is precisely what the first S2.5 arm run showed:
+ * 2.4 GHz reported a flat 0.24 m mean range error at every distance, because the
+ * tier-2 and tier-3 ranging branches used a configured sigma with no bandwidth,
+ * SNR or distance term in them at all, and it consequently beat the proposed
+ * hybrid on accuracy-per-joule, making claim 1 look false. Bugs #10 and #15 in
+ * simstatus.md are the same class of defect -- a ranging or jitter figure not
+ * traceable to the physics that must produce it.
+ *
+ * Reference arithmetic at the measured 900 m tier-2 operating point (BW 800 kHz,
+ * beta_rms = 230 940 Hz, in-band SNR 16.9 dB, two-way): with the SF7 dechirp gain
+ * of 21.07 dB the bound is 1.30 m; without it, 14.76 m. The measured 0.24 m
+ * violated both. The engine now floors tier 2 at the SX1280's specified
+ * meter-level hardware limit, so 1.30 m is the value this check should see the
+ * model approach at that range, not beat.
+ *
+ * Duplicated deliberately from CrlbRangeStdM() in lora-ranging-submodule.cc. This
+ * is the audit of that model; sharing one implementation would let a wrong formula
+ * agree with itself.
+ */
+double
+CrlbRangeStdM(double bandwidthHz, double snrDb, bool twoWay)
+{
+    if (bandwidthHz <= 0.0)
+    {
+        return -1.0;
+    }
+    const double snrLin = std::pow(10.0, snrDb / 10.0);
+    if (snrLin <= 0.0)
+    {
+        return -1.0;
+    }
+    const double betaRms = bandwidthHz / std::sqrt(12.0);
+    const double sigmaT = 1.0 / (2.0 * M_PI * betaRms * std::sqrt(2.0 * snrLin));
+    const double sigmaM = 299792458.0 * sigmaT;
+    return twoWay ? sigmaM / std::sqrt(2.0) : sigmaM;
+}
+
+/**
+ * \brief Coherent integration gain, dB, to convert in-band SNR to E/N0.
+ *
+ * The previous version of this check fed result.snr_db straight into
+ * CrlbRangeStdM(). That is wrong in a direction that matters: result.snr_db is
+ * rxPowerDbm - noiseFloorDbm, and noiseFloorDbm is computed over the OCCUPIED
+ * bandwidth, so it is a pre-integration figure. The ToA Cramer-Rao bound is a
+ * function of E/N0 at the correlator output.
+ *
+ * The consequence was a false verdict on UWB specifically. Raw UWB SNR is negative
+ * (about -17 dB at 2 m), so the un-gained bound came out at metres, and a measured
+ * 0.04 m was reported as a 156.8x violation. With the 30.1 dB accumulation gain the
+ * bound is 0.038 m and 0.04 m is legitimate. The 2.4 GHz violation was real; the
+ * UWB one was an artefact of this function's own omission.
+ *
+ *   tier 1  0 dB. RSSI-inversion ranging is not a ToA estimator, so the bound does
+ *           not apply to it at all. The column is retained only because tier-1
+ *           error (52 m at 100 m) sits far above any bound and so cannot mask a
+ *           defect; read it as "not applicable", not as "passing".
+ *   tier 2  10*log10(2^SF), the LoRa CSS dechirp gain.
+ *   tier 3  10*log10(PSR), DW3000 preamble accumulation. Must match
+ *           RangingParams::uwbPreambleSymbols or this check audits a different
+ *           model than the engine runs.
+ */
+double
+CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
+{
+    if (tier == CA_TBL_TIER_2P4)
+    {
+        return 10.0 * std::log10(std::pow(2.0, static_cast<double>(sf)));
+    }
+    if (tier == CA_TBL_TIER_UWB)
+    {
+        return 10.0 * std::log10(uwbPreambleSymbols > 0.0 ? uwbPreambleSymbols : 1.0);
+    }
+    return 0.0;
+}
+
+// The three engine configs are built with the same copy-initialisation pattern the
+// previous version used (ForScenario at the point of declaration) rather than being
+// default-constructed and assigned in a helper, because these config types are not
+// guaranteed to be default-constructible. Kept as a macro-free duplication in the
+// two call sites deliberately -- a helper here would trade a compile guarantee for
+// six saved lines.
+// Vegetation is per-tier, and that is a statement about WHERE each tier's
+// infrastructure is, not a tuning knob:
+//
+//   vegWide     -- tier 1. The 868 MHz mesh spans kilometres of the search area
+//                  and genuinely crosses canopy. VEG_DENSE_FOREST.
+//   vegFacility -- tiers 2 and 3. Their anchors sit AT a facility site (gate,
+//                  hut, checkpoint), which is a clearing by construction of the
+//                  deployment. lora-uwb-physics-parameters.cc scales foliage
+//                  specific attenuation by 5.28x for 7.99 GHz; at dense-forest
+//                  levels (~2 dB/m) that consumes the entire UWB link budget
+//                  inside ~15 m, which is why the first probe showed UWB deaf at
+//                  2 m. Applying canopy loss to a 35 m intra-facility link is a
+//                  category error about anchor siting.
+//
+// Default VEG_SPARSE_SHRUBS rather than VEG_NONE: a real clearing has scrub, and
+// VEG_NONE would be an idealisation. Exposed as --facilityVeg so it can be swept;
+// if the architectural conclusion depends on this value, that dependence is a
+// result and must be reported, not hidden.
+// Environment class is per-tier for the same reason vegetation is: it describes
+// where the tier's infrastructure sits.
+//
+//   envWide/vegWide         -- tier 1 spans kilometres of search area and crosses
+//                              canopy. ENV_RURAL_FORESTED + VEG_DENSE_FOREST.
+//   envFacility/vegFacility -- tiers 2 and 3 range against anchors AT a facility
+//                              site. ENV_RURAL_OPEN + VEG_SPARSE_SHRUBS.
+//
+// Leaving these global was a real error and it produced a real artefact: the
+// first probe showed UWB at 17.7% PDR at 2 m, and after the vegetation fix it
+// still collapsed by 10 m, because a 7.99 GHz link over 35 m of open ground was
+// being charged forested-PLE (2.3) plus canopy loss. Both are correct physics for
+// the wide-area mesh and wrong physics for an intra-facility link.
+#define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
+    LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
+                                                           WEATHER_CLEAR_DRY,                      \
+                                                           FADING_RICIAN,                          \
+                                                           (vegWide),                              \
+                                                           MOB_CONSTANT_VELOCITY,                  \
+                                                           false);                                 \
+    c868.randomSeed = (seed);                                                                      \
+    c868.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
+    LoRa2p4PhysicsConfig c2p4 = LoRa2p4PhysicsConfig::ForScenario((envFacility),                   \
+                                                                 WEATHER_CLEAR_DRY,                \
+                                                                 FADING_RICIAN,                    \
+                                                                 (vegFacility),                    \
+                                                                 MOB_CONSTANT_VELOCITY,            \
+                                                                 false);                           \
+    c2p4.randomSeed = (seed);                                                                      \
+    c2p4.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
+    LoRaUWBPhysicsConfig cUwb = LoRaUWBPhysicsConfig::ForScenario((envFacility),                   \
+                                                                 WEATHER_CLEAR_DRY,                \
+                                                                 FADING_RICIAN,                    \
+                                                                 (vegFacility),                    \
+                                                                 MOB_CONSTANT_VELOCITY,            \
+                                                                 false);                           \
+    cUwb.randomSeed = (seed);                                                                      \
+    cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;
+
+/**
+ * \brief Pre-flight geometry check.
+ *
+ * Sweeps distance per tier and reports reception rate and ranging error. Run
+ * this before believing any arm result. The point is that the anchor spacing in
+ * BuildDeployment() is a claim about the physics, and this is the measurement
+ * that either supports it or refutes it.
+ *
+ * What must be true for the arm comparison to mean anything:
+ *   - tier 1 usable out to at least ~2 km   (else tier-1 GDOP is the story)
+ *   - tier 2 usable to a few hundred metres (else the middle tier is decoration)
+ *   - tier 3 usable to ~100 m and NOT beyond (else there is no coverage gap to
+ *     decide about, and escalation is unconditionally correct)
+ */
+void
+RunProbe(EnvironmentClass envWide,
+         EnvironmentClass envFacility,
+         uint32_t seed,
+         VegetationType vegWide,
+         VegetationType vegFacility,
+         const TierPhy phy[CA_TBL_TIER_COUNT],
+         const std::string& outdir)
+{
+    RngSeedManager::SetSeed(seed);
+    RngSeedManager::SetRun(1);
+    // Same reason as RunArm(): the probe's engines must not inherit a stream index
+    // left behind by anything constructed before them.
+    RngSeedManager::ResetNextStreamIndex();
+
+    CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)
+
+    LoRaPhysicsEngine e868;
+    e868.Initialize(c868);
+    LoRa2p4PhysicsEngine e2p4;
+    e2p4.Initialize(c2p4);
+    LoRaUWBPhysicsEngine eUwb;
+    eUwb.Initialize(cUwb);
+
+    const uint32_t gwId = 9001;
+    const uint32_t nodeId = 1;
+
+    // Anchor heights MUST match BuildDeployment(), per tier. They previously did
+    // not: the probe used 6.0 m for all three tiers while the deployment uses
+    // 15.0 m for tier-1 gateways, 6.0 m for tier-2 anchors and 2.5 m for UWB
+    // anchors. Height is not a cosmetic difference here -- the two-ray ground
+    // submodule's crossover distance is dc = 4*pi*txH*rxH/lambda, so the probe was
+    // measuring a different propagation regime than the arms run in, and the r80
+    // values the deployment geometry is SIZED FROM came from the wrong geometry.
+    //
+    // Node height stays 1.5 m, matching FieldNode::Position().
+    const double nodeH = 1.5;
+    const double anchorH[CA_TBL_TIER_COUNT] = {15.0, 6.0, 2.5};
+
+    // ---- Spatial decorrelation sites --------------------------------------
+    //
+    // Rotating the azimuth at fixed radius d moves the node 2*pi*d/trials per
+    // trial, so the path swept is proportional to d. The instrumented run showed
+    // this is too weak at short range: the realised sample stddev of the shadowing
+    // draws was 0.21x the effective sigma at UWB 10 m and 0.39x at 2.4 GHz 10 m,
+    // i.e. on the order of 7 to 23 independent draws instead of 2000. UWB r80 is
+    // computed entirely from points in that regime, which is why it moved 10 m to
+    // 5 m between two runs of the same seed.
+    //
+    // Fix: sweep the azimuth AND cycle the link across kSites well-separated
+    // gateway sites. Each site is a distinct gateway id, so each gets its own
+    // Gudmundson cache and its own absolute position in the shadowing, foliage and
+    // terrain fields. Site spacing is kilometres, far beyond any shadowing
+    // correlation length, so consecutive trials at the same radius are drawn from
+    // genuinely different channel realisations.
+    //
+    // Sites are placed on a 2D additive-recurrence (plastic-number) low-discrepancy
+    // lattice rather than a grid: a grid at fixed pitch could itself alias against
+    // the procedural terrain's spatial period.
+    //
+    // kSites = 64 and trials = 2000 gives 31-32 trials per site, and because
+    // 2*pi*64/2000 = 11.5 degrees of azimuth advance per site revisit, each site
+    // still sees a nearly complete azimuth sweep. The two sequences do not lock.
+    const uint32_t kSites = 64;
+    const double siteHalfM = 2000.0;
+    const double kPlastic1 = 0.7548776662466927;
+    const double kPlastic2 = 0.5698402909980532;
+
+    std::vector<Vector> siteXY;
+    siteXY.reserve(kSites);
+    for (uint32_t s = 0; s < kSites; ++s)
+    {
+        const double u = std::fmod(0.5 + kPlastic1 * static_cast<double>(s + 1), 1.0);
+        const double v = std::fmod(0.5 + kPlastic2 * static_cast<double>(s + 1), 1.0);
+        siteXY.push_back(Vector((u - 0.5) * 2.0 * siteHalfM, (v - 0.5) * 2.0 * siteHalfM, 0.0));
+    }
+
+    // Gateway ids are per-site and per-tier so no two engines share a link id.
+    for (uint32_t s = 0; s < kSites; ++s)
+    {
+        e868.RegisterGateway(gwId + s, Vector(siteXY[s].x, siteXY[s].y, anchorH[0]), true);
+        e2p4.RegisterGateway(gwId + s, Vector(siteXY[s].x, siteXY[s].y, anchorH[1]), true);
+        eUwb.RegisterGateway(gwId + s, Vector(siteXY[s].x, siteXY[s].y, anchorH[2]), true);
+    }
+    e868.RegisterNode(nodeId, Vector(siteXY[0].x, siteXY[0].y, nodeH));
+    e2p4.RegisterNode(nodeId, Vector(siteXY[0].x, siteXY[0].y, nodeH));
+    eUwb.RegisterNode(nodeId, Vector(siteXY[0].x, siteXY[0].y, nodeH));
+
+    const double dists868[] = {100, 250, 500, 1000, 1500, 2000, 3000, 4000, 6000};
+    // Extended past 900 m. The previous array ended at 900 m with PDR 0.804 and no
+    // falloff, so tier-2 r80 was CENSORED -- a lower bound printed as if it were a
+    // measurement. That number is what claim 1 turns on: static_2p4 beats the
+    // proposed system on accuracy-per-joule, and whether that is an artefact of an
+    // undersized tier-2 triad (150 m against an unknown reach) or a real result
+    // cannot be decided without knowing where tier 2 actually stops.
+    //
+    // Top end is 6000 m, matching dists868, so the question is closed rather than
+    // pushed one grid step further out. Tier-2 anchors sit in the FACILITY
+    // environment (RURAL_OPEN / SPARSE_SHRUBS), not the wide-area forest, which is
+    // why the tier reaches further than the 8.83 dB of extra free-space loss at
+    // 2.4 GHz vs 868 MHz would suggest -- 20*log10(2400/868) = 8.83 dB.
+    const double dists2p4[] = {10,   25,   50,   100,  150,  200,  300,  430, 600,
+                               900,  1200, 1600, 2000, 2500, 3000, 4000, 6000};
+    const double distsUwb[] = {2, 5, 10, 20, 30, 50, 70, 100, 130, 180};
+    const int n868 = static_cast<int>(sizeof(dists868) / sizeof(double));
+    const int n2p4 = static_cast<int>(sizeof(dists2p4) / sizeof(double));
+    const int nUwb = static_cast<int>(sizeof(distsUwb) / sizeof(double));
+    // 2000, not 400. At 400 the UWB r80 estimate moved from 10 m to 5 m between
+    // two runs of the same seed -- i.e. the statistic the deployment geometry is
+    // being sized from was not stable to within a factor of two. Binomial
+    // standard error at pdr=0.5 is 0.025 at n=400 and 0.011 at n=2000.
+    const int trials = 2000;
+
+    std::ofstream out((outdir + "/probe_range_sweep.csv").c_str());
+    // Columns after n are diagnostic, added to resolve the UWB PDR
+    // non-monotonicity (0.099 at 30 m rising to 0.385 at 50 m). They are here
+    // because the mechanism was being guessed at from the PDR column alone.
+    //
+    //   coherent_gain_db  what was added to mean_snr_db before computing the bound
+    //   two_ray_frac      fraction of ALL trials with result.isTwoRay set
+    //   nlos_frac         fraction of ALL trials with result.isNLOS set
+    //
+    // NOTE: these two were documented here as "fraction of RECEIVED trials". They
+    // are not, and the extended tier-2 sweep made that visible: the 6000 m row
+    // reports pdr 0.000 with two_ray_frac 0.889 and nlos_frac 0.111, which is only
+    // possible if the accumulator counts every trial rather than every decode. The
+    // columns are still the right diagnostic -- channel state does not depend on
+    // whether the frame happened to decode -- but do not read them as conditioned
+    // on reception. Unlike mean_abs_range_err_m, which IS so conditioned, and which
+    // is therefore survivorship-biased wherever pdr is low. See the PDR floor on
+    // the CRLB gate below.
+    //   mean_pl_db        mean result.pathLossDb
+    //   mean_margin_db    mean result.sensitivityMarginDb
+    //   shadow_sd_db      SAMPLE stddev of result.shadowingDb ACROSS trials
+    //   shadow_sd_eff_db  mean result.shadowingStdEff, i.e. what that sample
+    //                     stddev should converge to if the trials are independent
+    //
+    // The last two are the decisive pair. The engine's shadowing is Gudmundson
+    // spatially correlated, and the azimuth rotation only moves the node by an arc
+    // of 2*pi*d/trials per trial. At d = 30 m the whole 2000-trial circle is 188 m
+    // of path, so if the correlation length is tens of metres the point averages
+    // over a handful of effectively independent draws, not 2000. If shadow_sd_db is
+    // well below shadow_sd_eff_db then the trials at that distance are NOT
+    // independent, the binomial standard error of 0.011 quoted for n=2000 does not
+    // apply, and the "26 sigma" reading of the 30-to-50 m rise is not supported.
+    // That is Bug #1 from simstatus.md recurring at short range, where the azimuth
+    // fix is geometrically too weak to decorrelate anything.
+    out << "tier,distance_m,pdr,mean_abs_range_err_m,mean_snr_db,crlb_floor_m,"
+        << "measured_over_crlb,n,coherent_gain_db,two_ray_frac,nlos_frac,"
+        << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db\n";
+
+    std::cout << "\nPre-flight probe: reception and ranging error vs distance\n"
+              << "  (" << trials << " trials per point)\n"
+              << "  tier 1 (wide area): env=" << static_cast<int>(envWide)
+              << " veg=" << static_cast<int>(vegWide) << "\n"
+              << "  tiers 2/3 (facility): env=" << static_cast<int>(envFacility)
+              << " veg=" << static_cast<int>(vegFacility) << "\n\n";
+
+    for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
+    {
+        const CaTblTier tier = static_cast<CaTblTier>(t);
+        const double* ds = (t == 0) ? dists868 : (t == 1) ? dists2p4 : distsUwb;
+        const int nd = (t == 0) ? n868 : (t == 1) ? n2p4 : nUwb;
+
+        const double gainDb = CoherentGainDb(tier, phy[t].sf, cUwb.ranging.uwbPreambleSymbols);
+        const double gwH = anchorH[t];
+
+        std::cout << "  " << CaTblTierName(tier) << "  (BW=" << phy[t].bandwidthHz / 1e3
+                  << " kHz, anchor h=" << std::fixed << std::setprecision(1) << gwH
+                  << " m, coherent gain=" << std::setprecision(2) << gainDb << " dB, "
+                  << kSites << " sites)\n"
+                  << "    " << std::right << std::setw(10) << "dist_m" << std::setw(10) << "pdr"
+                  << std::setw(16) << "range_err_m" << std::setw(10) << "snr_dB" << std::setw(14)
+                  << "crlb_floor_m" << std::setw(10) << "meas/crlb" << std::setw(10) << "2ray"
+                  << std::setw(9) << "nlos" << std::setw(11) << "shadowSD" << std::setw(11)
+                  << "shadowEff\n";
+
+        std::vector<double> pdrSeries;
+        std::vector<double> shadowSdSeries;
+        std::vector<double> shadowEffSeries;
+        double worstCrlbRatio = 1e18;
+        double worstCrlbDist = 0.0;
+        double worstCrlbMae = 0.0;
+        double worstCrlbFloor = 0.0;
+        double worstCrlbSnr = 0.0;
+
+        for (int i = 0; i < nd; ++i)
+        {
+            uint32_t rx = 0;
+            double errSum = 0.0;
+            uint32_t errN = 0;
+            double snrSum = 0.0;
+            uint32_t snrN = 0;
+
+            // Diagnostic accumulators. shadowSum/shadowSqSum give the sample
+            // variance of the shadowing draws actually realised at this distance.
+            uint32_t twoRayN = 0;
+            uint32_t nlosN = 0;
+            double plSum = 0.0;
+            double marginSum = 0.0;
+            double shadowSum = 0.0;
+            double shadowSqSum = 0.0;
+            double shadowEffSum = 0.0;
+            uint32_t diagN = 0;
+
+            for (int k = 0; k < trials; ++k)
+            {
+                const Time now = Seconds(static_cast<double>(k) * 1.0);
+                bool received = false;
+                double range = 0.0;
+                double snr = 0.0;
+                bool twoRay = false;
+                bool nlos = false;
+                double plDb = 0.0;
+                double marginDb = 0.0;
+                double shadowDb = 0.0;
+                double shadowEffDb = 0.0;
+
+                // Each trial samples a DIFFERENT position at the same range, by
+                // rotating the azimuth. This is not cosmetic.
+                //
+                // The engine's shadowing is Gudmundson spatially-correlated. Held
+                // at one fixed position, 400 trials share essentially one
+                // shadowing draw -- only fast fading and the interferer coin
+                // re-roll -- so each distance point inherits a single arbitrary
+                // fade offset of 7-11 dB (x1.25-1.5 under NLOS). That offset
+                // swamps the distance trend and produces a PDR curve that RISES
+                // with distance, which is what the first probe run showed on all
+                // three tiers. Rotating the azimuth decorrelates the shadowing
+                // field between trials so the point is an average over positions
+                // at that range, which is what a PDR-vs-distance figure means.
+                const double az = 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(trials);
+
+                // Azimuth decorrelates the local channel; the site cycle
+                // decorrelates the large-scale field. Both are needed -- see the
+                // kSites comment above.
+                const uint32_t site = static_cast<uint32_t>(k) % kSites;
+                const uint32_t gwIdK = gwId + site;
+                const Vector gwPos(siteXY[site].x, siteXY[site].y, gwH);
+                const Vector pk(siteXY[site].x + ds[i] * std::cos(az),
+                                siteXY[site].y + ds[i] * std::sin(az),
+                                nodeH);
+
+                if (tier == CA_TBL_TIER_868)
+                {
+                    e868.UpdateNodePosition(nodeId, pk);
+                    PhysicsResult r = e868.ProcessTransmission(
+                        nodeId, gwIdK, pk, gwPos, phy[0].txPowerDbm, phy[0].sf, phy[0].bandwidthHz, 0, now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    snr = r.snr_db;
+                    twoRay = r.isTwoRay;
+                    nlos = r.isNLOS;
+                    plDb = r.pathLossDb;
+                    marginDb = r.sensitivityMarginDb;
+                    shadowDb = r.shadowingDb;
+                    shadowEffDb = r.shadowingStdEff;
+                }
+                else if (tier == CA_TBL_TIER_2P4)
+                {
+                    e2p4.UpdateNodePosition(nodeId, pk);
+                    PhysicsResult2p4 r = e2p4.ProcessTransmission(
+                        nodeId, gwIdK, pk, gwPos, phy[1].txPowerDbm, phy[1].sf, phy[1].bandwidthHz, 0, now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    snr = r.snr_db;
+                    twoRay = r.isTwoRay;
+                    nlos = r.isNLOS;
+                    plDb = r.pathLossDb;
+                    marginDb = r.sensitivityMarginDb;
+                    shadowDb = r.shadowingDb;
+                    shadowEffDb = r.shadowingStdEff;
+                }
+                else
+                {
+                    eUwb.UpdateNodePosition(nodeId, pk);
+                    PhysicsResultUWB r = eUwb.ProcessTransmission(
+                        nodeId, gwIdK, pk, gwPos, phy[2].txPowerDbm, phy[2].sf, phy[2].bandwidthHz, 0, now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    snr = r.snr_db;
+                    twoRay = r.isTwoRay;
+                    nlos = r.isNLOS;
+                    plDb = r.pathLossDb;
+                    marginDb = r.sensitivityMarginDb;
+                    shadowDb = r.shadowingDb;
+                    shadowEffDb = r.shadowingStdEff;
+                }
+
+                // Channel diagnostics are accumulated over ALL trials, not only
+                // received ones. Conditioning them on reception would select
+                // exactly the favourable draws and hide the mechanism being looked
+                // for: a distance point whose PDR is low BECAUSE its shadowing
+                // draws were unlucky would report a healthy mean shadowing.
+                if (std::isfinite(plDb))
+                {
+                    ++diagN;
+                    twoRayN += twoRay ? 1u : 0u;
+                    nlosN += nlos ? 1u : 0u;
+                    plSum += plDb;
+                    marginSum += marginDb;
+                    shadowSum += shadowDb;
+                    shadowSqSum += shadowDb * shadowDb;
+                    shadowEffSum += shadowEffDb;
+                }
+
+                if (received)
+                {
+                    ++rx;
+                    if (std::isfinite(snr))
+                    {
+                        snrSum += snr;
+                        ++snrN;
+                    }
+                    if (std::isfinite(range) && range > 0.0)
+                    {
+                        const double trueD =
+                            std::sqrt(ds[i] * ds[i] + (gwPos.z - nodeH) * (gwPos.z - nodeH));
+                        errSum += std::fabs(range - trueD);
+                        ++errN;
+                    }
+                }
+            }
+
+            const double pdr = static_cast<double>(rx) / static_cast<double>(trials);
+            const double mae = (errN > 0) ? errSum / static_cast<double>(errN) : -1.0;
+            const double meanSnr = (snrN > 0) ? snrSum / static_cast<double>(snrN) : 0.0;
+
+            const double dN = static_cast<double>(diagN);
+            const double twoRayFrac = (diagN > 0) ? static_cast<double>(twoRayN) / dN : -1.0;
+            const double nlosFrac = (diagN > 0) ? static_cast<double>(nlosN) / dN : -1.0;
+            const double meanPl = (diagN > 0) ? plSum / dN : 0.0;
+            const double meanMargin = (diagN > 0) ? marginSum / dN : 0.0;
+            const double meanShadowEff = (diagN > 0) ? shadowEffSum / dN : 0.0;
+            double shadowSd = -1.0;
+            if (diagN > 1)
+            {
+                const double m = shadowSum / dN;
+                const double var = std::max(0.0, shadowSqSum / dN - m * m);
+                shadowSd = std::sqrt(var);
+            }
+
+            // 868 broadcasts one frame that anchors timestamp (one-way TDoA);
+            // 2.4 GHz and UWB run symmetric two-way exchanges.
+            const bool twoWay = (tier != CA_TBL_TIER_868);
+            // meanSnr + gainDb, not meanSnr. See CoherentGainDb().
+            const double crlb =
+                (snrN > 0) ? CrlbRangeStdM(phy[t].bandwidthHz, meanSnr + gainDb, twoWay) : -1.0;
+            const double ratio = (crlb > 0.0 && mae > 0.0) ? mae / crlb : -1.0;
+
+            // PDR floor on the CRLB gate. The mean range error at a point is
+            // conditioned on the trials that DECODED, and at low PDR that is a
+            // survivorship-biased sample: a link whose shadowing draw was
+            // favourable enough to decode at the edge of coverage also ranges
+            // better than a typical link at that distance. The ratio measured/floor
+            // is then not a statement about the ranging model.
+            //
+            // This became load-bearing when dists2p4 was extended from 900 m to
+            // 6000 m to un-censor r80. The gate's reported worst case moved from
+            // 900 m at pdr 0.804 to 4000 m at essentially zero pdr, and reported
+            // 0.612 -- a pass, computed on a sample that cannot support the claim.
+            // Extending the sweep was correct; letting the gate follow it into the
+            // tail was not.
+            //
+            // 0.20 is OURS. It is not a physical threshold, it is the point below
+            // which the conditioning is severe enough that the number stops meaning
+            // what the gate reads it as meaning.
+            const double kCrlbMinPdr = 0.20;
+            if (ratio > 0.0 && pdr >= kCrlbMinPdr && ratio < worstCrlbRatio)
+            {
+                worstCrlbRatio = ratio;
+                worstCrlbDist = ds[i];
+                worstCrlbMae = mae;
+                worstCrlbFloor = crlb;
+                worstCrlbSnr = meanSnr;
+            }
+
+            out << CaTblTierName(tier) << "," << std::fixed << std::setprecision(1) << ds[i] << ","
+                << std::setprecision(4) << pdr << "," << std::setprecision(3) << mae << ","
+                << std::setprecision(2) << meanSnr << "," << std::setprecision(3) << crlb << ","
+                << std::setprecision(4) << ratio << "," << trials << ","
+                << std::setprecision(2) << gainDb << "," << std::setprecision(4) << twoRayFrac
+                << "," << nlosFrac << "," << std::setprecision(2) << meanPl << "," << meanMargin
+                << "," << std::setprecision(3) << shadowSd << "," << meanShadowEff << "\n";
+            std::cout << "    " << std::right << std::fixed << std::setprecision(1) << std::setw(10)
+                      << ds[i] << std::setprecision(3) << std::setw(10) << pdr << std::setw(16)
+                      << mae << std::setprecision(1) << std::setw(10) << meanSnr
+                      << std::setprecision(3) << std::setw(14) << crlb << std::setw(10) << ratio
+                      << std::setprecision(3) << std::setw(10) << twoRayFrac << std::setw(9)
+                      << nlosFrac << std::setprecision(2) << std::setw(11) << shadowSd
+                      << std::setw(11) << meanShadowEff << "\n";
+            pdrSeries.push_back(pdr);
+            shadowSdSeries.push_back(shadowSd);
+            shadowEffSeries.push_back(meanShadowEff);
+        }
+
+        // Monotonicity gate. PDR must not rise materially with distance. When it
+        // does, the sweep is not measuring distance -- it is measuring whatever
+        // per-point state failed to re-randomise. The first probe run violated
+        // this on all three tiers because each distance point reused one
+        // spatially-correlated shadowing draw; that is a real class of defect and
+        // it must fail loudly rather than be eyeballed off a table.
+        //
+        // Tolerance is 0.10 absolute: with 400 trials the binomial standard error
+        // near pdr=0.5 is ~0.025, so 0.10 is ~4 sigma and will not fire on noise.
+        uint32_t violations = 0;
+        double worst = 0.0;
+        for (size_t i = 1; i < pdrSeries.size(); ++i)
+        {
+            const double rise = pdrSeries[i] - pdrSeries[i - 1];
+            if (rise > 0.10)
+            {
+                ++violations;
+                worst = std::max(worst, rise);
+            }
+        }
+        if (violations > 0)
+        {
+            std::cout << "    *** MONOTONICITY VIOLATION: " << violations
+                      << " distance step(s) where PDR ROSE by >0.10 (worst +" << std::fixed
+                      << std::setprecision(3) << worst << ").\n"
+                      << "        This sweep is not measuring distance. Do not read the\n"
+                      << "        range gates below until it is fixed.\n";
+        }
+        else
+        {
+            std::cout << "    monotonicity OK (no distance step raises PDR by >0.10)\n";
+        }
+
+        // ---- Shadowing independence gate -----------------------------------
+        // A monotonicity verdict is only meaningful if the per-point PDRs have the
+        // precision the trial count implies. They do not if the trials at a point
+        // share shadowing draws.
+        //
+        // The azimuth rotation decorrelates the Gudmundson field by moving the node
+        // 2*pi*d/trials per trial, which is proportional to d. It is therefore
+        // strong at tier-1 ranges and weak at UWB ranges: at d = 2 m the entire
+        // 2000-trial circle is 12.6 m of path. If the realised sample stddev of the
+        // shadowing draws is far below the effective sigma the engine thinks it is
+        // applying, the effective sample size is not 2000 and no sigma-based
+        // reading of a PDR difference is defensible.
+        //
+        // Threshold 0.5: a sample stddev below half the effective sigma means the
+        // point is averaging over roughly four or fewer independent draws.
+        uint32_t shadowFlags = 0;
+        double worstShadowRatio = 1e18;
+        double worstShadowDist = 0.0;
+        for (size_t i = 0; i < shadowSdSeries.size(); ++i)
+        {
+            if (shadowEffSeries[i] <= 0.0 || shadowSdSeries[i] < 0.0)
+            {
+                continue;
+            }
+            const double rho = shadowSdSeries[i] / shadowEffSeries[i];
+            if (rho < worstShadowRatio)
+            {
+                worstShadowRatio = rho;
+                worstShadowDist = ds[i];
+            }
+            if (rho < 0.5)
+            {
+                ++shadowFlags;
+            }
+        }
+        if (shadowFlags > 0)
+        {
+            const double nEff = (worstShadowRatio > 0.0)
+                                    ? 1.0 / (worstShadowRatio * worstShadowRatio)
+                                    : 0.0;
+            std::cout << "    *** SHADOWING NOT DECORRELATED at " << shadowFlags
+                      << " distance point(s). Worst: realised stddev is "
+                      << std::fixed << std::setprecision(2) << worstShadowRatio
+                      << "x the effective sigma at " << std::setprecision(1) << worstShadowDist
+                      << " m,\n"
+                      << "        implying on the order of " << std::setprecision(0) << nEff
+                      << " independent draws rather than " << trials << ".\n"
+                      << "        The azimuth rotation moves the node only 2*pi*d/trials per\n"
+                      << "        trial, so it is geometrically too weak at short range. PDR at\n"
+                      << "        these points is a few arbitrary shadowing draws, NOT a\n"
+                      << "        2000-trial average, and the binomial standard error of 0.011\n"
+                      << "        does not apply. Do not attribute a PDR step at these\n"
+                      << "        distances to distance.\n";
+        }
+        else if (worstShadowRatio < 1e17)
+        {
+            std::cout << "    shadowing decorrelation OK (worst realised/effective sigma = "
+                      << std::fixed << std::setprecision(2) << worstShadowRatio << ")\n";
+        }
+
+        // ---- CRLB verdict --------------------------------------------------
+        // Flagged at ratio < 1/3: beating the single-shot bound by up to ~3x is
+        // explainable by averaging (N samples buys sqrt(N), so 3x needs N~9), but
+        // below that the model is claiming information its bandwidth does not
+        // carry. A tier reporting unphysical precision silently wins every
+        // architectural comparison, so this must be loud.
+        if (worstCrlbRatio < 1e17)
+        {
+            std::cout << "    CRLB (points with pdr >= 0.20 only): worst measured/floor = "
+                      << std::fixed << std::setprecision(3)
+                      << worstCrlbRatio << " at " << std::setprecision(1) << worstCrlbDist
+                      << " m (measured " << std::setprecision(3) << worstCrlbMae << " m vs floor "
+                      << worstCrlbFloor << " m at " << std::setprecision(1) << worstCrlbSnr
+                      << " dB SNR)\n";
+            if (worstCrlbRatio < 0.333)
+            {
+                const double impliedN = 1.0 / (worstCrlbRatio * worstCrlbRatio);
+                std::cout << "    *** CRLB VIOLATION on " << CaTblTierName(tier) << ": reported "
+                          << "precision is " << std::setprecision(1) << (1.0 / worstCrlbRatio)
+                          << "x better than the\n"
+                          << "        Cramer-Rao bound for " << phy[t].bandwidthHz / 1e3
+                          << " kHz at " << std::setprecision(2) << gainDb
+                          << " dB coherent gain. Explaining it would\n"
+                          << "        need ~" << std::setprecision(0) << impliedN
+                          << " independent\n"
+                          << "        averaged samples per fix. This tier's ranging model is not\n"
+                          << "        traceable to its bandwidth -- it will dominate every\n"
+                          << "        architectural comparison for a non-physical reason.\n"
+                          << "        DO NOT read the arm table until this is resolved.\n";
+            }
+            else
+            {
+                std::cout << "    CRLB OK (within 3x of the single-shot bound)\n";
+            }
+        }
+
+        // Measured usable range, so anchor spacing is sized from this sweep rather
+        // than from an assumed datasheet figure. r80 is the planning number (a
+        // ranging exchange needs most attempts to land); r50 is where the tier is
+        // already unreliable.
+        // Grid-snapped r80 was unstable: two runs of the identical configuration gave
+        // tier-1 r80 = 1500 m and 1000 m, because PDR at 1500 m straddles 0.80
+        // (0.813 vs 0.797). At n=2000 the binomial SE near pdr=0.8 is 0.0089, so a
+        // 0.016 difference is 1.8 sigma -- ordinary noise, but a hard threshold on a
+        // coarse grid turns it into a factor-of-1.5 jump in the number the deployment
+        // geometry is sized from.
+        //
+        // Linear interpolation on the bracketing pair instead. It does not remove the
+        // sampling noise, but it converts a discontinuous estimator into a continuous
+        // one, so the noise shows up as a few percent rather than a whole grid step.
+        // Still censored at the sweep edge: if the last point is above the threshold
+        // the returned value is that last distance and is a LOWER BOUND.
+        //
+        // Censoring is now RETURNED, not left as a comment. The previous version
+        // printed a censored lower bound in exactly the same format as a measured
+        // crossing, and the consequence is on record: tier-2 "r80 = 900 m" was read
+        // and quoted as a measurement for a whole session when the sweep had simply
+        // run out of distance points. A bound and a measurement must not print the
+        // same. This is the same failure mode as the grid-snapping bug above, one
+        // level up: the estimator was fine, its reporting was not.
+        auto interpRange = [&](double thresh, bool& censored) {
+            censored = false;
+            double last = 0.0;
+            for (int i = 0; i < nd; ++i)
+            {
+                const double p = pdrSeries[static_cast<size_t>(i)];
+                if (p >= thresh)
+                {
+                    last = ds[i];
+                    continue;
+                }
+                if (i == 0)
+                {
+                    return 0.0;
+                }
+                const double pPrev = pdrSeries[static_cast<size_t>(i - 1)];
+                const double denom = pPrev - p;
+                if (denom <= 0.0)
+                {
+                    return last;
+                }
+                return ds[i - 1] + (ds[i] - ds[i - 1]) * (pPrev - thresh) / denom;
+            }
+            // Never fell below the threshold anywhere in the sweep.
+            censored = true;
+            return last;
+        };
+        bool r80Censored = false;
+        bool r50Censored = false;
+        const double r80 = interpRange(0.80, r80Censored);
+        const double r50 = interpRange(0.50, r50Censored);
+        std::cout << "    usable range: r80" << (r80Censored ? ">=" : "=") << std::fixed
+                  << std::setprecision(1) << r80 << " m   r50" << (r50Censored ? ">=" : "=") << r50
+                  << " m\n";
+        if (r80Censored || r50Censored)
+        {
+            std::cout << "    *** CENSORED: PDR is still above the threshold at the last swept\n"
+                      << "        distance (" << std::setprecision(1) << ds[nd - 1]
+                      << " m). The value above is a LOWER BOUND, not a\n"
+                      << "        measurement. Extend this tier's distance array before sizing\n"
+                      << "        any geometry, or quoting any range, from it.\n";
+        }
+        if (tier == CA_TBL_TIER_UWB)
+        {
+            // A node inside a facility sits at roughly the triad radius from each
+            // anchor, and needs 3 of 3 to solve. Sizing rule: triad radius must be
+            // inside r80, not merely inside r50, or the tier will be intermittent
+            // exactly where it is supposed to be the accuracy ceiling.
+            std::cout << "    => set --uwbTriad no larger than r80 (" << r80
+                      << " m). Reference spec is 100 m LOS / 30 m NLOS\n"
+                      << "       (simstatus.md Bug #9); which of those this run "
+                         "resembles tells you\n"
+                      << "       whether the facility model is behaving as LOS or NLOS.\n";
+        }
+        if (tier == CA_TBL_TIER_2P4)
+        {
+            std::cout << "    => set --t2Triad no larger than r80 (" << r80 << " m).\n";
+        }
+        std::cout << "\n";
+    }
+
+    out.close();
+    std::cout << "Wrote " << outdir << "/probe_range_sweep.csv\n\n"
+              << "How to act on this:\n"
+              << "  1. Monotonicity must be OK on all three tiers. If not, nothing below\n"
+              << "     is measuring distance -- fix that first.\n"
+              << "  2. Size the anchor triads from the measured r80 values, not from\n"
+              << "     datasheet range figures. --uwbTriad <= uwb r80, --t2Triad <= 2p4 r80.\n"
+              << "  3. Tier 1 needs r80 to cover the gateway spacing that BuildDeployment()\n"
+              << "     uses (0.9 * boxHalf, so ~1900 m diagonal at the default 3 km box).\n"
+              << "     If 868 r80 is well below that, reduce --boxHalf rather than pretend\n"
+              << "     the link closes.\n"
+              << "  4. Ranging error is reported alongside PDR for a reason. A tier whose\n"
+              << "     mean range error is a large fraction of the true distance is not\n"
+              << "     contributing ranging information even when its PDR is 1.0 -- its\n"
+              << "     fixes come from multilateration geometry, not from link ranging.\n"
+              << "     Read the 868 column with that in mind before reading any RMSE.\n";
+}
+
+/**
+ * \brief Run one arm end to end.
+ *
+ * The engines are re-created per arm from the same seed, and Tourist draws from an
+ * explicitly-streamed RNG, so every arm walks the IDENTICAL TRAJECTORY.
+ *
+ * It does NOT follow that every arm sees the identical channel realisation, and
+ * the previous version of this comment claimed that it did. The engines seed a
+ * private LoRaDistributionSampler from config.randomSeed, so all arms read the
+ * SAME STREAM -- but they consume it at arm-dependent RATES, because which tier is
+ * polled, how many anchors are addressed, and (since the MAC was wired) how much
+ * beacon traffic is evaluated all depend on the arm's own behaviour. Arm A's tenth
+ * draw and arm B's tenth draw are the same number; they are not applied to the
+ * same link at the same time.
+ *
+ * Consequence, and it is not small: a cross-arm RMSE difference has ALWAYS carried
+ * a channel-draw component, so no single-seed comparison between arms isolates the
+ * policy. The 20-seed sweep is not a refinement of the single-seed table, it is
+ * the minimum evidence for any claim that compares two arms.
+ *
+ * Note also that ns-3's RngSeedManager::SetSeed() does NOT reset the automatic
+ * stream index -- ResetNextStreamIndex() is a separate call that nothing here
+ * makes (rng-seed-manager.cc). Any RandomVariableStream created without an
+ * explicit SetStream() would therefore land on a different substream on every arm.
+ * Every such object in this file sets its stream explicitly, before first use, for
+ * exactly that reason. Do not add one that does not.
+ */
+ArmResult
+RunArm(CaTblPolicyMode mode,
+       uint32_t seed,
+       double durationS,
+       double dt,
+       EnvironmentClass envWide,
+       EnvironmentClass envFacility,
+       VegetationType vegWide,
+       VegetationType vegFacility,
+       const Deployment& dep,
+       const TierPhy phy[CA_TBL_TIER_COUNT],
+       double walkSpeedMps,
+       double dwellS,
+       const double* beaconPeriodS,
+       double nbrTtlMult,
+       double searchDutyFrac,
+       const std::string& traceDir,
+       bool writeTrace)
+{
+    RngSeedManager::SetSeed(seed);
+    RngSeedManager::SetRun(1);
+    // WITHOUT THIS LINE NO TWO ARMS SHARE A CHANNEL REALISATION, AND NONE EVER DID.
+    //
+    // LoRaDistributionSampler's constructor takes a uint32_t seed and never uses it
+    // (lora-distribution-sampler.cc:8). It creates five CreateObject<...
+    // RandomVariable>() objects with no SetStream() call anywhere in the file, so
+    // each one takes the next automatic stream index. RngSeedManager::SetSeed()
+    // does NOT reset that counter -- ResetNextStreamIndex() is a separate call
+    // (rng-seed-manager.cc:71 vs 104) -- so arm 6's engines begin where arm 5's
+    // engines stopped, and every arm draws from different substreams.
+    //
+    // Measured: ca_tbl_full and ca_tbl_no_integrity, identical EKF state and
+    // identical poll counts, reached 334 vs 336 engine evaluations by t=2.5 -- the
+    // first cycle, before either arm's policy had executed a single decision. At
+    // t=7.5 the same six anchors returned 6 decodes on one arm and 2 on the other.
+    //
+    // This invalidated every cross-arm comparison the project has made, including
+    // the integrity ablation, whose two arms differ by 8.1% RMSE while the check
+    // itself fires zero times. Resetting the index makes the automatic assignments
+    // identical per arm; the explicit streams below are far above the automatic
+    // range and cannot collide with them.
+    //
+    // NOT SUFFICIENT ON ITS OWN. Two file-scope caches also survive across arms --
+    // g_fadingComponents (lora-fading-submodule.cc:6) and g_foliageDynamicCache
+    // (lora-foliage-submodule.cc:8) -- and the second stores a Time, which
+    // Simulator::Destroy() resets to zero underneath it.
+    RngSeedManager::ResetNextStreamIndex();
+
+    CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, cfg868, cfg2p4, cfgUwb)
+
+    LoRaPhysicsEngine engine868;
+    engine868.Initialize(cfg868);
+    LoRa2p4PhysicsEngine engine2p4;
+    engine2p4.Initialize(cfg2p4);
+    LoRaUWBPhysicsEngine engineUwb;
+    engineUwb.Initialize(cfgUwb);
+
+    const uint32_t nodeId = 1;
+
+    // Each tier's anchors are registered only on that tier's engine. Registering
+    // all anchors on all engines would put UWB anchors kilometres out of range
+    // into the 868 solver's geometry and vice versa.
+    for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_868].size(); ++i)
+    {
+        engine868.RegisterGateway(dep.anchors[CA_TBL_TIER_868][i].id,
+                                  dep.anchors[CA_TBL_TIER_868][i].pos,
+                                  true);
+    }
+    for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_2P4].size(); ++i)
+    {
+        engine2p4.RegisterGateway(dep.anchors[CA_TBL_TIER_2P4][i].id,
+                                  dep.anchors[CA_TBL_TIER_2P4][i].pos,
+                                  true);
+    }
+    for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_UWB].size(); ++i)
+    {
+        engineUwb.RegisterGateway(dep.anchors[CA_TBL_TIER_UWB][i].id,
+                                  dep.anchors[CA_TBL_TIER_UWB][i].pos,
+                                  true);
+    }
+
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
+
+    Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    Vector pos = walker.Position();
+    engine868.RegisterNode(nodeId, pos);
+    engine2p4.RegisterNode(nodeId, pos);
+    engineUwb.RegisterNode(nodeId, pos);
+
+    CaTblEnergyModel energy;
+    for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
+    {
+        energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
+    }
+
+    CaTblPolicyConfig pcfg;
+    pcfg.mode = mode;
+    CaTblPolicy policy;
+    policy.Configure(pcfg);
+    // Seeded at the true start position with a deliberately loose covariance:
+    // the tag knows roughly where it deployed, not exactly.
+    policy.Initialize(pos.x, pos.y, 100.0, 5.0);
+
+    // ---- S4 MAC substrate ---------------------------------------------------
+    //
+    // Until now CaTblPhyProvider had exactly one implementation, StubPhy in the
+    // packet validator, and ca_tbl_causal_sim never instantiated the MAC at all --
+    // it called ProcessTransmission() directly in a sequential loop and never
+    // entered the discrete-event scheduler. Claims 4, 5 and 6 were therefore
+    // "substrate done, not wired", and the ranging poll addressed every anchor in
+    // the deployment because there was no protocol layer to tell it which anchors
+    // existed.
+    //
+    // WHAT THIS CHANGES ABOUT COMPARABILITY -- read before comparing to any table
+    // taken before this commit. The MAC issues real beacon transmissions, and each
+    // one calls into the physics engines. Those calls draw from the engines' RNG
+    // streams. Every channel realisation therefore differs from the pre-MAC runs,
+    // on every arm, for a reason that has nothing to do with the policy. The
+    // arm_summary.csv produced after this change is a NEW baseline, not a delta
+    // against the old one. Determinism from a seed is preserved (and must be
+    // re-verified); comparability with the previous numbers is not.
+    //
+    // Energy is deliberately NOT charged through the MAC. CaTblMac only ever calls
+    // AccountCad() and NoteDeferred(); it does not charge TX or RX joules. Leaving
+    // SetEnergyModel() unset on every MAC here keeps all energy in the explicit
+    // AccountRangingExchange / AccountEscalationHandshake / AccountListen path, so
+    // the ONLY intended changes to the energy axis are (a) the poll addresses the
+    // neighbour table instead of the deployment and (b) beacon reception is now
+    // charged. If CAD were also charged by the MAC it would be double-counted
+    // against rangeTier()'s own AccountCad(), and the energy delta would stop being
+    // attributable to the gating -- which is the entire point of the change.
+    Ptr<UniformRandomVariable> macRng = CreateObject<UniformRandomVariable>();
+    // Explicit stream, set before first use, so no global stream index is consumed
+    // and the engines' and Tourist's existing streams are not shifted underneath
+    // them. Same value on every arm: arms must differ in how many draws they
+    // consume, not in which sequence they consume from.
+    macRng->SetStream(static_cast<int64_t>(seed) * 7919 + 104729);
+
+    EnginePhyProvider provider(engine868,
+                               engine2p4,
+                               engineUwb,
+                               phy,
+                               static_cast<uint16_t>(nodeId));
+    provider.SetNodePosition(pos);
+
+    // One channel per tier. CaTblMac holds a single channel pointer, so a node
+    // that must exist on all three tiers needs one MAC per tier -- which it needs
+    // anyway, because CaTblMacConfig carries a single sf/bandwidth pair and a
+    // shared MAC would compute a 2.4 GHz frame's time-on-air at 125 kHz: 51.5 ms
+    // instead of 8.0 ms, a factor of 6.4 straight into the duty-cycle governor and
+    // the collision overlap test.
+    CaTblChannel chan[CA_TBL_TIER_COUNT];
+    std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
+    std::deque<BeaconDriver> beacons;
+    CaTblMac* nodeMac[CA_TBL_TIER_COUNT];
+    std::map<uint16_t, Vector> anchorPosById;
+
+    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+    {
+        chan[ti].SetPhyProvider(&provider);
+
+        CaTblMacConfig mc;
+        mc.nodeId = static_cast<uint16_t>(nodeId);
+        mc.identityClass = CA_TBL_ID_TARGET;
+        mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
+        mc.sf = phy[ti].sf;
+        mc.bandwidthHz = phy[ti].bandwidthHz;
+        mc.txPowerDbm = phy[ti].txPowerDbm;
+        mc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+        macs.emplace_back();
+        nodeMac[ti] = &macs.back();
+        nodeMac[ti]->Configure(mc);
+        nodeMac[ti]->SetRng(macRng);
+        chan[ti].Register(nodeMac[ti]);
+    }
+
+    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+    {
+        const CaTblTier tier = static_cast<CaTblTier>(ti);
+        for (size_t a = 0; a < dep.anchors[ti].size(); ++a)
+        {
+            const AnchorDef& ad = dep.anchors[ti][a];
+            const uint16_t aid = static_cast<uint16_t>(ad.id);
+            provider.RegisterAnchor(tier, aid, ad.pos);
+            anchorPosById[aid] = ad.pos;
+
+            CaTblMacConfig mc;
+            mc.nodeId = aid;
+            mc.identityClass = CA_TBL_ID_ANCHOR;
+            // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
+            // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
+            // tier-1 beacon period one gateway occupies 51.5 ms / 10 s = 0.51%,
+            // comfortably compliant; nine of them occupy 4.6% of the CHANNEL,
+            // which is a contention statement, not a regulatory one.
+            mc.isAccessPoint = true;
+            mc.sf = phy[ti].sf;
+            mc.bandwidthHz = phy[ti].bandwidthHz;
+            mc.txPowerDbm = phy[ti].txPowerDbm;
+            mc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+            macs.emplace_back();
+            CaTblMac* am = &macs.back();
+            am->Configure(mc);
+            am->SetRng(macRng);
+            chan[ti].Register(am);
+
+            BeaconDriver bd;
+            bd.mac = am;
+            bd.tier = tier;
+            bd.periodS = beaconPeriodS[ti];
+            bd.jitterMaxS = beaconPeriodS[ti] * 0.25;
+            bd.untilS = durationS;
+            bd.rng = macRng;
+            beacons.push_back(bd);
+        }
+    }
+    // Scheduled only after every push_back, so the addresses are final.
+    for (size_t b = 0; b < beacons.size(); ++b)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, beacons[b].periodS)),
+                            &BeaconDriver::Fire,
+                            &beacons[b]);
+    }
+
+    // Airtime of one DISCOVERY beacon per tier, for the listen charge below.
+    double beaconToaS[CA_TBL_TIER_COUNT];
+    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+    {
+        const uint32_t payload =
+            CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(CA_TBL_MSG_DISCOVERY, 1);
+        beaconToaS[ti] = (ti == static_cast<int>(CA_TBL_TIER_UWB))
+                             ? CaTblEnergyModel::UwbFrameTimeS(payload)
+                             : CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf,
+                                                                phy[ti].bandwidthHz,
+                                                                payload,
+                                                                1);
+    }
+    uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+    uint64_t blindCycles = 0;
+
+    // Divergence instrument. ca_tbl_full and ca_tbl_no_integrity are identical
+    // through t=5.0 and differ from t=7.5 onward, with suspect=0 on every cycle of
+    // both -- so the integrity check cannot be the cause, and the policy is
+    // provably mode-independent when it does not fire. The two arms polled the SAME
+    // six anchors at t=7.5 and got 6 decodes versus 2.
+    //
+    // Two arms reading one sampler diverge only if one consumes a draw the other
+    // does not. These counters say whether that is what happened. If the cumulative
+    // counts are equal at the cycle where nAnchors first differs, the sampler is
+    // NOT the mechanism and the fault is per-link cached state inside the engines.
+    // If they differ, the extra consumer is between here and there.
+    uint64_t directEngineCalls = 0;
+
+    std::ofstream trace;
+    if (writeTrace)
+    {
+        std::ostringstream fn;
+        fn << traceDir << "/trace_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        trace.open(fn.str().c_str());
+        // fixTier / usedFloor expose the concurrent-tier fallback. activeTier is what
+        // the policy selected; fixTier is which radio actually produced the fix. On a
+        // hybrid arm they differ whenever the escalated tier returned fewer than three
+        // ranges, and the fraction of steps with usedFloor=1 is the measure of how
+        // often escalation was attempted into no coverage.
+        trace << "t,arm,seed,activeTier,nextTier,fixTier,usedFloor,trueX,trueY,estX,estY,errM,"
+              << "pcs,gdop,traceSigma,mahalanobis,nAnchors,nNlos,hadFix,"
+              << "escalated,deescalated,suspect,rejected,"
+              << "vis868,vis2p4,visUwb,shouldUwb,cumJ,"
+              // nbr* is the size of the one-hop neighbour table on each tier at the
+              // moment the poll was issued. Read it against vis*: vis is geometric
+              // ground truth ("could this tier have solved here"), nbr is what the
+              // node had actually DISCOVERED. The gap between them is the cost of
+              // discovery, and it is a quantity the simulation could not previously
+              // express at all -- the poll addressed every anchor unconditionally,
+              // so the node behaved as if it had perfect prior knowledge of a
+              // deployment map nobody gave it.
+              << "nbr868,nbr2p4,nbrUwb,polled,blind,"
+              // Divergence instrument -- see the counters in RunArm(). directCalls
+              // is cumulative ProcessTransmission() calls from the ranging poll,
+              // macEvals is cumulative calls from the MAC/channel layer. estXhp and
+              // estYhp are the same numbers as estX/estY at 12 significant figures,
+              // because estX prints at 4 decimals and a divergence of 1e-5 m is
+              // invisible there -- which is precisely how a divergence that began
+              // earlier could look like one that began at t=7.5.
+              << "directCalls,macEvals,estXhp,estYhp\n";
+    }
+
+    std::vector<double> errors;
+    std::vector<double> errorsFixed;
+    uint64_t steps = 0;
+    uint64_t tp = 0;
+    uint64_t fp = 0;
+    uint64_t fn = 0;
+    uint64_t tn = 0;
+    uint64_t inCov = 0;
+
+    // Step count is fixed up front and time is read back from the scheduler rather
+    // than accumulated in the loop variable. With an event layer running, the
+    // authoritative clock is Simulator::Now(); keeping a parallel float counter is
+    // how the two silently drift apart.
+    const uint64_t nSteps = static_cast<uint64_t>(std::floor(durationS / dt));
+    for (uint64_t stepIdx = 0; stepIdx < nSteps; ++stepIdx)
+    {
+        walker.Step(dt);
+        pos = walker.Position();
+
+        // Every engine tracks position so its internal correlation/mobility
+        // state stays continuous. This costs nothing physically -- no packet is
+        // generated -- but keeps a tier's channel coherent across a gap in which
+        // it was not selected. Without it, re-escalating to UWB after 200 s
+        // would resume from a stale spatial correlation state.
+        engine868.UpdateNodePosition(nodeId, pos);
+        engine2p4.UpdateNodePosition(nodeId, pos);
+        engineUwb.UpdateNodePosition(nodeId, pos);
+        provider.SetNodePosition(pos);
+
+        // Advance the discrete-event layer across this cycle BEFORE the ranging
+        // decision that consumes its output: anchors beacon, CSMA backoff and
+        // capture arbitration run at the node's receivers, and the one-hop
+        // neighbour tables are updated. Simulator::Run() returns at the stop event
+        // and may be re-entered -- Stop(delay) is relative to Now().
+        Simulator::Stop(Seconds(dt));
+        Simulator::Run();
+
+        const Time now = Simulator::Now();
+        const double t = now.GetSeconds();
+
+        const CaTblTier active = policy.GetActiveTier();
+
+        // ---- Which radios this arm physically has ---------------------------
+        //
+        // Tier 1 runs CONTINUOUSLY on the hybrid arms. The design specifies a field
+        // node that "runs tier 1 continuously and escalates to tier 2 or 3 only when
+        // its position confidence justifies the energy", i.e. tier 1 is a coverage
+        // FLOOR, not one of three mutually exclusive choices. The previous loop
+        // ranged against the active tier only, with no within-cycle fallback, and the
+        // consequence was measured: static_868 recorded 0 nofix cycles out of 1440
+        // while ca_tbl_full recorded 1070. A hybrid arm cannot fix less often than
+        // the pure tier-1 arm if tier 1 is always on. It was dead-reckoning 74% of
+        // steps, and its RMSE was therefore not a localisation result.
+        //
+        // The static arms do NOT get this. static_2p4 and static_uwb are single-band
+        // baselines -- the point of the comparison is that they have one radio. Giving
+        // them a concurrent 868 radio would make them hybrids and destroy claim 1's
+        // meaning. static_868's active tier is already tier 1.
+        const bool hybridArm = (mode == CA_TBL_MODE_FULL ||
+                                mode == CA_TBL_MODE_NO_INTEGRITY ||
+                                mode == CA_TBL_MODE_FIXED_THRESHOLD);
+        const bool runFloor = hybridArm && (active != CA_TBL_TIER_868);
+
+        // Range against one tier and return its measurement set. Charges CAD and the
+        // ranging exchange, including the RX-timeout cost of anchors that did not
+        // answer -- which is why escalating into a tier that is out of range is
+        // expensive rather than merely useless.
+        auto rangeTier = [&](CaTblTier tier) {
+            std::vector<CaTblRangeMeasurement> out;
+
+            // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
+            //
+            // This one substitution is the §6 fix. Previously every anchor of the
+            // tier was addressed every cycle -- including, on UWB, the 15 anchors
+            // sited at the three facilities the node was not at, kilometres away.
+            // The energy model correctly charges the full rxTimeoutS for each
+            // non-responder (0.93 mJ on UWB, about 3x a SUCCESSFUL exchange), so
+            // total energy tracked anchor count: 9 / 12 / 20 anchors gave
+            // 12.19 / 16.44 / 28.35 J. totalJ is the denominator of every
+            // accuracy-per-joule figure, so claims 1 and 2 both rested on it.
+            //
+            // A node cannot address a peer it has never heard from. It ranges
+            // against what it has discovered, which is what this now does.
+            const std::vector<CaTblNeighbour> nb = nodeMac[tier]->GetNeighbours(tier, t);
+
+            energy.AccountCad(tier);
+
+            if (nb.empty())
+            {
+                // Nothing discovered on this tier this cycle: no poll is issued and
+                // no RX timeouts are burnt, because none were physically incurred.
+                // Note the incentive this creates and do NOT tune it away -- it
+                // makes escalating into undiscovered space cheap-but-useless
+                // rather than expensive-and-useless, which weakens the energy
+                // penalty the hysteresis parameters were supposed to be earning
+                // their keep against. Whether the policy still behaves is now an
+                // empirical question with a different answer than before.
+                return out;
+            }
+            out.reserve(nb.size());
+
+            for (size_t a = 0; a < nb.size(); ++a)
+            {
+                const uint16_t anchorId = nb[a].id;
+                const Vector& anchorPos = anchorPosById[anchorId];
+                ++directEngineCalls;
+
+                bool received = false;
+                double range = 0.0;
+                bool nlos = false;
+                double sigmaM = 0.0;
+
+                if (tier == CA_TBL_TIER_868)
+                {
+                    PhysicsResult r = engine868.ProcessTransmission(nodeId,
+                                                                    anchorId,
+                                                                    pos,
+                                                                    anchorPos,
+                                                                    phy[0].txPowerDbm,
+                                                                    phy[0].sf,
+                                                                    phy[0].bandwidthHz,
+                                                                    0,
+                                                                    now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    sigmaM = r.rangingSigmaM;
+                }
+                else if (tier == CA_TBL_TIER_2P4)
+                {
+                    PhysicsResult2p4 r = engine2p4.ProcessTransmission(nodeId,
+                                                                       anchorId,
+                                                                       pos,
+                                                                       anchorPos,
+                                                                       phy[1].txPowerDbm,
+                                                                       phy[1].sf,
+                                                                       phy[1].bandwidthHz,
+                                                                       0,
+                                                                       now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    sigmaM = r.rangingSigmaM;
+                }
+                else
+                {
+                    PhysicsResultUWB r = engineUwb.ProcessTransmission(nodeId,
+                                                                       anchorId,
+                                                                       pos,
+                                                                       anchorPos,
+                                                                       phy[2].txPowerDbm,
+                                                                       phy[2].sf,
+                                                                       phy[2].bandwidthHz,
+                                                                       0,
+                                                                       now);
+                    received = r.packetReceived;
+                    range = r.estimatedRangeM;
+                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    sigmaM = r.rangingSigmaM;
+                }
+
+                if (received && std::isfinite(range) && range > 0.0)
+                {
+                    CaTblRangeMeasurement m;
+                    m.anchorX = anchorPos.x;
+                    m.anchorY = anchorPos.y;
+                    m.rangeM = range;
+                    m.nlos = nlos;
+                    m.sigmaM = sigmaM;
+                    out.push_back(m);
+                }
+            }
+
+            // nAnchorsAddressed is now the DISCOVERED count. An entry that has gone
+            // stale within its TTL but is no longer reachable still costs a full RX
+            // timeout here, which is correct and is the price of the TTL being
+            // finite rather than clairvoyant.
+            energy.AccountRangingExchange(tier,
+                                          static_cast<uint32_t>(nb.size()),
+                                          static_cast<uint32_t>(out.size()),
+                                          t);
+            return out;
+        };
+
+        // ---- Run the radios this arm has, in this cycle ---------------------
+        // How many anchors the active tier ADDRESSED, as distinct from how many
+        // answered. Zero means the node had discovered nothing on that tier and did
+        // not transmit at all -- a state that could not exist before, because the
+        // poll was unconditional.
+        const size_t activeMeasAddressed = nodeMac[active]->GetNeighbourCount(active, t);
+
+        std::vector<CaTblRangeMeasurement> activeMeas = rangeTier(active);
+        std::vector<CaTblRangeMeasurement> floorMeas;
+        if (runFloor)
+        {
+            floorMeas = rangeTier(CA_TBL_TIER_868);
+        }
+
+        // Fix selection: prefer the escalated tier when it solved, fall back to the
+        // tier-1 floor otherwise. Preference rather than fusion is deliberate -- it
+        // keeps each cycle's fix attributable to exactly one tier, which the ablation
+        // between arms depends on. Cross-tier fusion would produce a better number and
+        // a worse experiment.
+        const bool activeSolved = (activeMeas.size() >= 3);
+        const bool usedFloor = (!activeSolved && floorMeas.size() >= 3);
+        const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
+        const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
+
+        // activeMeas.size() is passed separately from meas so the policy can tell
+        // "the active tier delivered" from "we got a fix from somewhere". Without it
+        // the tier-1 fallback hides every coverage failure from the de-escalation
+        // logic and the policy latches on the top tier.
+        const CaTblDecision d =
+            policy.Step(dt, meas, 0, static_cast<int32_t>(activeMeas.size()));
+
+        if (d.escalated || d.deescalated)
+        {
+            energy.AccountEscalationHandshake(active, t);
+        }
+
+        // §2.9 handshake, on the tier being LEFT -- the request/grant exchange has
+        // to ride a link that still exists. This is claim 4's "custom handshake"
+        // actually executing on the wire for the first time: Beacon -> Digest ->
+        // targeted Entry-Push, with the access category and therefore the
+        // contention window selected per message type.
+        //
+        // HALF-TESTED, and say so. StartHandshake() branches on mobility state, and
+        // the RECEDING branch -- skip the digest, one-shot urgent push at CW_high --
+        // is the interesting half. Nothing here sets mobility state, so every node
+        // reports STATIONARY and the receding branch never runs. Claim 4 is
+        // exercised for its stationary path only until a mobility estimator exists.
+        if (d.escalated)
+        {
+            const std::vector<CaTblNeighbour> peers = nodeMac[active]->GetNeighbours(active, t);
+            if (!peers.empty())
+            {
+                nodeMac[active]->StartHandshake(active, peers[0].id, 4);
+            }
+        }
+
+        // Radios that transmitted this cycle are not also charged sleep. On a hybrid
+        // arm that is two radios, and that cost is the honest price of the
+        // architecture: the comparison against a single-band baseline is only fair if
+        // the hybrid pays for the second radio it is using.
+        for (int tierIdx = 0; tierIdx < CA_TBL_TIER_COUNT; ++tierIdx)
+        {
+            const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
+            const bool wasAwake = (tr == active) || (runFloor && tr == CA_TBL_TIER_868);
+            const uint64_t rxNow = nodeMac[tierIdx]->GetTotals().received;
+
+            if (wasAwake)
+            {
+                // Discovery listening. SCOPE LIMIT, and it is a real one: this
+                // charges RECEPTION, not SEARCHING. A physical receiver also burns
+                // current through windows in which no beacon arrives, and modelling
+                // that honestly needs a wake-up schedule the design document does
+                // not specify. Discovery energy here is therefore a LOWER BOUND,
+                // and the only search cost charged is the single AccountCad() probe
+                // in rangeTier(). Do not present the post-gating energy figure as
+                // the true cost of discovery -- present it as the floor.
+                const uint64_t delivered = rxNow - lastRx[tierIdx];
+                if (delivered > 0)
+                {
+                    energy.AccountListen(tr,
+                                         static_cast<double>(delivered) * beaconToaS[tierIdx]);
+                }
+
+                // ---- SEARCH: the receiver is open and nothing is arriving -----
+                //
+                // This is the defect the first MAC-wired run exposed, and it is
+                // worth stating in full because it is the same inversion the S2.5
+                // rewrite was supposed to have killed.
+                //
+                // With the poll gated on the neighbour table, a UWB radio that is
+                // awake and out of coverage issued no poll, and AccountCad() is a
+                // no-op on UWB because DW3000 has no CAD primitive. It was
+                // therefore charged EXACTLY ZERO on the 1305 of 1440 cycles it
+                // spent finding nothing -- and static_uwb fell from 28.35 J, the
+                // most expensive arm, to 0.7618 J, the cheapest. Verifier check 12
+                // caught it and named the mechanism: "a radio that never ranges is
+                // never charged, which inverts the axis".
+                //
+                // Charging the window is not a correction factor, it is the
+                // consistency requirement. Discovery in this model is
+                // deterministic-on-reception: if a beacon is transmitted in range,
+                // the node hears it. Guaranteed detection requires the receiver to
+                // be open across a full beacon period. Charging less than that buys
+                // certain discovery at partial cost, which is not a cheaper model,
+                // it is an inconsistent one.
+                //
+                // The consequence is large and it is a RESULT, not a problem: at
+                // 94 mA and 3.3 V a 2.0 s UWB window is 0.620 J, so an always-on
+                // UWB arm out of coverage costs roughly 60x the 868 arm rather than
+                // 1/18th of it. That is precisely the argument for triggering the
+                // precision tier from a cheaper one instead of leaving it on, i.e.
+                // it is the project's own thesis appearing in the energy column.
+                //
+                // searchDutyFrac exists so the bracket is reportable rather than
+                // asserted: 0.0 reproduces the zero-charge run exactly, 1.0 is the
+                // consistent model, and the span between them is how much of
+                // static_uwb's energy is a modelling assumption. Sweep it and
+                // publish the curve; do not quote a single number.
+                if (nodeMac[tierIdx]->GetNeighbourCount(tr, t) == 0)
+                {
+                    const double window =
+                        std::min(dt, beaconPeriodS[tierIdx]) * searchDutyFrac;
+                    if (window > 0.0)
+                    {
+                        energy.AccountListen(tr, window);
+                    }
+                }
+            }
+            else
+            {
+                energy.AccountSleep(tr, dt);
+                // A radio in deep sleep hears nothing, so its neighbour table does
+                // not survive the gap. Keeping it would hand the policy free
+                // knowledge of a tier it had switched off and make re-escalation
+                // instantaneous, when in reality it costs a discovery window. That
+                // window is the mechanism by which escalation has latency at all
+                // now, and it is measured rather than asserted: see the blind
+                // column in the trace.
+                nodeMac[tierIdx]->ClearNeighbours();
+            }
+            lastRx[tierIdx] = rxNow;
+        }
+
+        for (int tierIdx = 0; tierIdx < CA_TBL_TIER_COUNT; ++tierIdx)
+        {
+            nbrSum[tierIdx] += static_cast<double>(
+                nodeMac[tierIdx]->GetNeighbourCount(static_cast<CaTblTier>(tierIdx), t));
+        }
+        const uint32_t polledCount = static_cast<uint32_t>(activeMeasAddressed);
+        const bool blind = (polledCount == 0);
+        if (blind)
+        {
+            ++blindCycles;
+        }
+
+        // ---- Ground-truth coverage labels and trigger confusion matrix -----
+        const uint32_t vis868 = VisibleCount(dep, CA_TBL_TIER_868, pos);
+        const uint32_t vis2p4 = VisibleCount(dep, CA_TBL_TIER_2P4, pos);
+        const uint32_t visUwb = VisibleCount(dep, CA_TBL_TIER_UWB, pos);
+        const bool shouldUwb = (visUwb >= 3);
+        const bool onUwb = (active == CA_TBL_TIER_UWB);
+        if (shouldUwb)
+        {
+            ++inCov;
+            if (onUwb)
+            {
+                ++tp;
+            }
+            else
+            {
+                ++fn;
+            }
+        }
+        else
+        {
+            if (onUwb)
+            {
+                ++fp;
+            }
+            else
+            {
+                ++tn;
+            }
+        }
+
+        const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
+        errors.push_back(err);
+        if (d.hadFix)
+        {
+            errorsFixed.push_back(err);
+        }
+        steps++;
+
+        if (writeTrace)
+        {
+            trace << std::fixed << std::setprecision(4) << t << "," << CaTblPolicyModeName(mode)
+                  << "," << seed << "," << CaTblTierName(d.activeTier) << ","
+                  << CaTblTierName(d.nextTier) << "," << CaTblTierName(fixTier) << ","
+                  << (usedFloor ? 1 : 0) << "," << pos.x << "," << pos.y << "," << d.estX
+                  << "," << d.estY << "," << err << "," << d.pcs << "," << d.gdop << ","
+                  << d.traceSigma << "," << d.mahalanobis << "," << d.nAnchorsUsed << ","
+                  << d.nNlos << "," << (d.hadFix ? 1 : 0) << "," << (d.escalated ? 1 : 0) << ","
+                  << (d.deescalated ? 1 : 0) << "," << (d.suspect ? 1 : 0) << ","
+                  << (d.measurementRejected ? 1 : 0) << "," << vis868 << "," << vis2p4 << ","
+                  << visUwb << "," << (shouldUwb ? 1 : 0) << "," << std::setprecision(9)
+                  << energy.GetTotalJ() << ","
+                  << nodeMac[0]->GetNeighbourCount(CA_TBL_TIER_868, t) << ","
+                  << nodeMac[1]->GetNeighbourCount(CA_TBL_TIER_2P4, t) << ","
+                  << nodeMac[2]->GetNeighbourCount(CA_TBL_TIER_UWB, t) << ","
+                  << polledCount << "," << (blind ? 1 : 0) << "," << directEngineCalls << ","
+                  << provider.GetEvaluations() << "," << std::setprecision(12) << d.estX << ","
+                  << d.estY << "\n";
+        }
+    }
+
+    if (writeTrace)
+    {
+        trace.close();
+    }
+
+    ArmResult res;
+    res.arm = CaTblPolicyModeName(mode);
+    res.seed = seed;
+    res.steps = steps;
+    res.durationS = durationS;
+
+    double sumSq = 0.0;
+    for (size_t i = 0; i < errors.size(); ++i)
+    {
+        sumSq += errors[i] * errors[i];
+    }
+    res.rmseM = errors.empty() ? 0.0 : std::sqrt(sumSq / static_cast<double>(errors.size()));
+    res.cep50M = Percentile(errors, 0.50);
+    res.cep95M = Percentile(errors, 0.95);
+    res.maxErrM = errors.empty() ? 0.0 : *std::max_element(errors.begin(), errors.end());
+
+    double sumSqFixed = 0.0;
+    for (size_t i = 0; i < errorsFixed.size(); ++i)
+    {
+        sumSqFixed += errorsFixed[i] * errorsFixed[i];
+    }
+    res.rmseFixedM =
+        errorsFixed.empty() ? 0.0
+                            : std::sqrt(sumSqFixed / static_cast<double>(errorsFixed.size()));
+    res.cep50FixedM = Percentile(errorsFixed, 0.50);
+    res.fixCycles = static_cast<uint64_t>(errorsFixed.size());
+
+    res.totalJ = energy.GetTotalJ();
+    for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+    {
+        const CaTblTier tt = static_cast<CaTblTier>(i);
+        const TierEnergyAccount& acc = energy.GetAccount(tt);
+        res.tierJ[i] = energy.GetTierJ(tt);
+        res.tierCycles[i] = policy.GetTierCycles(tt);
+        res.airtimeS[i] = acc.txTimeS;
+        res.txJ[i] = acc.txJ;
+        res.rxJ[i] = acc.rxJ;
+        res.cadJ[i] = acc.cadJ;
+        res.idleJ[i] = acc.idleJ;
+        res.sleepJ[i] = acc.sleepJ;
+        res.meanNeighbours[i] =
+            (steps > 0) ? nbrSum[i] / static_cast<double>(steps) : 0.0;
+    }
+    res.blindCycles = blindCycles;
+    res.neighbourInsertions = nodeMac[0]->GetNeighbourInsertions() +
+                              nodeMac[1]->GetNeighbourInsertions() +
+                              nodeMac[2]->GetNeighbourInsertions();
+    res.macTx = 0;
+    res.macCollisions = 0;
+    res.macCaptures = 0;
+    res.macDeliveries = 0;
+    for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+    {
+        res.macTx += chan[i].GetTotalTransmissions();
+        res.macCollisions += chan[i].GetTotalCollisions();
+        res.macCaptures += chan[i].GetTotalCaptures();
+        res.macDeliveries += chan[i].GetTotalDeliveries();
+    }
+    res.escalations = policy.GetEscalationCount();
+    res.deescalations = policy.GetDeescalationCount();
+    res.suspects = policy.GetSuspectCount();
+    res.noFixCycles = policy.GetNoFixCount();
+    res.tp = tp;
+    res.fp = fp;
+    res.fn = fn;
+    res.tn = tn;
+    res.cyclesInUwbCoverage = inCov;
+
+    // Must run while macs/beacons are still alive: it cancels the events that hold
+    // raw pointers into them. Destroying the deques first would leave the scheduler
+    // holding dangling this-pointers.
+    Simulator::Destroy();
+
+    return res;
+}
+
+} // namespace
+
+int
+main(int argc, char* argv[])
+{
+    uint32_t envInt = 1;         // ENV_RURAL_FORESTED -- the wide-area SAR scenario
+    uint32_t envFacilityInt = 0; // ENV_RURAL_OPEN -- facility sites are clearings
+    double durationS = 3600.0;
+    // 2.5 s, not 1.0 s. WPC G.S.R. 853(E) Table-II caps a field node at a 2.5%
+    // transmit duty cycle in the 865-867 MHz band. Tier-1 airtime is ~0.056 s per
+    // cycle at SF7/125 kHz, so dt = 1.0 s is a 5.6% duty cycle -- illegal, and every
+    // arm previously ran at it. The minimum compliant period is 0.056/0.025 = 2.24 s;
+    // 2.5 s gives 2.24% with margin for the ToA variation across payload sizes.
+    //
+    // This is a CONSTRAINT the architecture has to state, not a tuning knob: it caps
+    // the achievable tier-1 fix rate at 0.4 Hz and it more than halves the number of
+    // cycles in a 3600 s run (3600 -> 1440), which changes energy totals and fix
+    // counts on every arm. Results taken at dt = 1.0 are not comparable to these.
+    double dt = 2.5;
+    uint32_t seedStart = 7;
+    uint32_t seedCount = 1;
+    std::string outdir = "results/causal";
+    bool writeTrace = true;
+    bool probe = false;
+    // All four defaults below are set from results/causal/probe_range_sweep.csv,
+    // not chosen. See BuildDeployment() for the derivation of each.
+    double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
+    double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
+    double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
+    uint32_t uwbAnchorsPerSite = 5;
+    uint32_t t2AnchorsPerSite = 3;
+    double walkSpeedMps = 1.2;
+    double dwellS = 90.0;
+    uint32_t vegWideInt = static_cast<uint32_t>(VEG_DENSE_FOREST);
+    uint32_t vegFacilityInt = static_cast<uint32_t>(VEG_SPARSE_SHRUBS);
+
+    CommandLine cmd;
+    cmd.AddValue("env",
+                 "EnvironmentClass for the wide-area 868 tier (0=RuralOpen "
+                 "1=RuralForested 2=Suburban 3=UrbanModerate 4=UrbanDense)",
+                 envInt);
+    cmd.AddValue("envFacility",
+                 "EnvironmentClass at facility sites, for the 2.4 GHz and UWB tiers",
+                 envFacilityInt);
+    // ---- Anchor beacon cadence ---------------------------------------------
+    //
+    // Per tier, and NOT a free choice on tier 1. Tier-1 airtime is rationed by
+    // WPC G.S.R. 853(E) Table-II (10% for an access point), and one SF7/125 kHz
+    // beacon is 51.5 ms, so a 10 s period puts each gateway at 0.51% duty and the
+    // nine-gateway grid at 4.6% CHANNEL occupancy. Dropping tier 1 to the tier-2
+    // period would put the grid at 23% occupancy and make CAD deferral, not path
+    // loss, the thing tier-1 discovery is measuring.
+    //
+    // Tiers 2 and 3 are unrationed ISM/UWB, and they need to be fast: the node
+    // crosses the measured UWB r80 of ~13.5 m in about 9 s at the default 1.5 m/s
+    // walking speed, so a discovery period comparable to that would mean the node
+    // has left before it has finished discovering. 2 s is ~4.5 discovery
+    // opportunities per transit.
+    //
+    // These three numbers are OURS. They are bracketed by regulation and by
+    // transit time, not determined by them. Sweep them -- the trade between
+    // discovery latency and beacon-collision load is a result.
+    double beacon868S = 10.0;
+    double beacon2p4S = 2.0;
+    double beaconUwbS = 2.0;
+    double nbrTtlMult = 3.0;
+    // Fraction of a full beacon period the receiver is held open on an awake tier
+    // that has discovered nothing. 1.0 is the only value consistent with discovery
+    // being deterministic-on-reception; 0.0 reproduces the zero-charge run that
+    // inverted the energy axis. Sweep it and report the bracket -- the span is how
+    // much of an out-of-coverage arm's energy is a modelling assumption rather than
+    // a measurement.
+    double searchDutyFrac = 1.0;
+    cmd.AddValue("duration", "Simulated seconds per arm", durationS);
+    cmd.AddValue("dt", "Cycle period in seconds", dt);
+    cmd.AddValue("seed", "Single seed (alias for seedStart)", seedStart);
+    cmd.AddValue("seedStart", "First seed", seedStart);
+    cmd.AddValue("seedCount", "Number of consecutive seeds to run", seedCount);
+    cmd.AddValue("outdir", "Output directory (must already exist)", outdir);
+    cmd.AddValue("trace", "Write per-step trace CSVs", writeTrace);
+    cmd.AddValue("probe", "Run the pre-flight range sweep and exit", probe);
+    cmd.AddValue("boxHalf", "Half-width of the deployment box, metres", boxHalfM);
+    cmd.AddValue("uwbTriad", "UWB triad radius at each facility, metres", uwbTriadRadiusM);
+    cmd.AddValue("t2Triad", "2.4 GHz triad radius at each facility, metres", t2TriadRadiusM);
+    cmd.AddValue("uwbAnchors", "UWB anchors per facility site (>=3)", uwbAnchorsPerSite);
+    cmd.AddValue("t2Anchors", "2.4 GHz anchors per facility site (>=3)", t2AnchorsPerSite);
+    cmd.AddValue("speed", "Walking speed, m/s", walkSpeedMps);
+    cmd.AddValue("dwell", "Mean dwell time at a facility, seconds", dwellS);
+    cmd.AddValue("vegWide",
+                 "VegetationType for the wide-area 868 tier (0=none 1=sparse 2=light "
+                 "3=dense 4=tropical 5=crop 6=orchard)",
+                 vegWideInt);
+    cmd.AddValue("vegFacility",
+                 "VegetationType at facility sites, for the 2.4 GHz and UWB tiers",
+                 vegFacilityInt);
+    cmd.AddValue("beacon868", "Anchor DISCOVERY beacon period on tier 1, seconds", beacon868S);
+    cmd.AddValue("beacon2p4", "Anchor DISCOVERY beacon period on tier 2, seconds", beacon2p4S);
+    cmd.AddValue("beaconUwb", "Anchor DISCOVERY beacon period on tier 3, seconds", beaconUwbS);
+    cmd.AddValue("nbrTtlMult",
+                 "Neighbour table TTL as a multiple of that tier's beacon period",
+                 nbrTtlMult);
+    cmd.AddValue("searchDuty",
+                 "Receiver-open fraction of a beacon period while a tier is awake "
+                 "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
+                 searchDutyFrac);
+    cmd.Parse(argc, argv);
+
+    const EnvironmentClass env = static_cast<EnvironmentClass>(envInt);
+    const EnvironmentClass envFacility = static_cast<EnvironmentClass>(envFacilityInt);
+    const VegetationType vegWide = static_cast<VegetationType>(vegWideInt);
+    const VegetationType vegFacility = static_cast<VegetationType>(vegFacilityInt);
+
+    TierPhy phy[CA_TBL_TIER_COUNT];
+    phy[CA_TBL_TIER_868] = {7, 125e3, 14.0};
+    phy[CA_TBL_TIER_2P4] = {7, 800e3, 12.5};
+    phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+
+    if (probe)
+    {
+        RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir);
+        return 0;
+    }
+
+    if (uwbAnchorsPerSite < 3 || t2AnchorsPerSite < 3)
+    {
+        std::cout << "ERROR: at least 3 anchors per site are needed for a 2D fix.\n";
+        return 1;
+    }
+
+    const Deployment dep = BuildDeployment(boxHalfM,
+                                           uwbTriadRadiusM,
+                                           t2TriadRadiusM,
+                                           uwbAnchorsPerSite,
+                                           t2AnchorsPerSite);
+
+    const CaTblPolicyMode arms[] = {CA_TBL_MODE_STATIC_868,
+                                    CA_TBL_MODE_STATIC_2P4,
+                                    CA_TBL_MODE_STATIC_UWB,
+                                    CA_TBL_MODE_FIXED_THRESHOLD,
+                                    CA_TBL_MODE_NO_INTEGRITY,
+                                    CA_TBL_MODE_FULL};
+    const int nArms = static_cast<int>(sizeof(arms) / sizeof(arms[0]));
+
+    const double beaconPeriodS[CA_TBL_TIER_COUNT] = {beacon868S, beacon2p4S, beaconUwbS};
+
+    const std::string summaryPath = outdir + "/arm_summary.csv";
+    std::ofstream summary(summaryPath.c_str());
+    summary << "arm,seed,steps,durationS,rmseM,cep50M,cep95M,maxErrM,"
+            << "rmseFixedM,cep50FixedM,fixCycles,totalJ,"
+            << "j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,"
+            << "airtime_868,airtime_2p4,airtime_uwb,duty_868,"
+            << "escalations,deescalations,suspects,noFixCycles,"
+            << "trig_tp,trig_fp,trig_fn,trig_tn,trig_precision,trig_recall,trig_f1,"
+            << "cyclesInUwbCoverage,accuracyPerJoule,"
+            // Energy broken down by radio state, per tier. Emitted because the §6
+            // blocking defect was not diagnosable from totalJ: "this radio is
+            // expensive" lands in tx_*, "this tier is addressing too many anchors"
+            // lands almost entirely in rx_*, and a single scalar cannot separate
+            // them. It is also the check on whether the neighbour gate did
+            // anything -- if rx_uwb has not fallen, it did not.
+            << "tx_868,tx_2p4,tx_uwb,rx_868,rx_2p4,rx_uwb,"
+            << "cad_868,cad_2p4,cad_uwb,idle_868,idle_2p4,idle_uwb,"
+            << "sleep_868,sleep_2p4,sleep_uwb,"
+            << "meanNbr_868,meanNbr_2p4,meanNbr_uwb,blindCycles,nbrInsertions,"
+            << "mac_tx,mac_collisions,mac_captures,mac_deliveries\n";
+
+    std::cout << "CA-TBL causal simulation (S1 + S2 + S2.5)\n"
+              << "  envWide=" << envInt << " vegWide=" << vegWideInt
+              << "  envFacility=" << envFacilityInt << " vegFacility=" << vegFacilityInt << "\n"
+              << "  duration=" << durationS << "s  dt=" << dt
+              << "s  seeds=" << seedStart << ".." << (seedStart + seedCount - 1) << "\n"
+              << "  deployment: box=" << (2.0 * boxHalfM) << "m  868 gateways="
+              << dep.anchors[CA_TBL_TIER_868].size() << "  facilities=" << dep.facilities.size()
+              << "  2p4 anchors=" << dep.anchors[CA_TBL_TIER_2P4].size()
+              << "  uwb anchors=" << dep.anchors[CA_TBL_TIER_UWB].size() << "\n"
+              << "  mobility: facility tour, " << walkSpeedMps << " m/s, dwell " << dwellS << "s\n\n";
+
+    for (uint32_t s = 0; s < seedCount; ++s)
+    {
+        const uint32_t seed = seedStart + s;
+        std::cout << "seed " << seed << "\n";
+        std::cout << "  " << std::left << std::setw(22) << "arm" << std::right << std::setw(11)
+                  << "rmse_m" << std::setw(11) << "rmseFix_m" << std::setw(11) << "cep50_m"
+                  << std::setw(11) << "cep95_m" << std::setw(13) << "energy_J" << std::setw(8)
+                  << "esc" << std::setw(8) << "susp" << std::setw(10) << "nofix" << std::setw(9)
+                  << "trigF1" << std::setw(11) << "acc/J\n";
+
+        for (int a = 0; a < nArms; ++a)
+        {
+            const ArmResult r = RunArm(arms[a],
+                                       seed,
+                                       durationS,
+                                       dt,
+                                       env,
+                                       envFacility,
+                                       vegWide,
+                                       vegFacility,
+                                       dep,
+                                       phy,
+                                       walkSpeedMps,
+                                       dwellS,
+                                       beaconPeriodS,
+                                       nbrTtlMult,
+                                       searchDutyFrac,
+                                       outdir,
+                                       writeTrace);
+
+            // The headline comparison metric. Higher is better: it rewards an
+            // arm for being accurate AND cheap, which is exactly the trade the
+            // architecture claims to win. RMSE alone always picks static_uwb;
+            // joules alone always picks static_868. Neither is the claim.
+            const double accPerJ =
+                (r.rmseM > 0.0 && r.totalJ > 0.0) ? 1.0 / (r.rmseM * r.totalJ) : 0.0;
+
+            const double prec =
+                (r.tp + r.fp > 0) ? static_cast<double>(r.tp) / static_cast<double>(r.tp + r.fp) : 0.0;
+            const double rec =
+                (r.tp + r.fn > 0) ? static_cast<double>(r.tp) / static_cast<double>(r.tp + r.fn) : 0.0;
+            const double f1 = (prec + rec > 0.0) ? 2.0 * prec * rec / (prec + rec) : 0.0;
+
+            summary << r.arm << "," << r.seed << "," << r.steps << "," << std::fixed
+                    << std::setprecision(4) << r.durationS << "," << r.rmseM << "," << r.cep50M
+                    << "," << r.cep95M << "," << r.maxErrM << "," << r.rmseFixedM << ","
+                    << r.cep50FixedM << "," << r.fixCycles << "," << std::setprecision(9)
+                    << r.totalJ << "," << r.tierJ[0] << "," << r.tierJ[1] << "," << r.tierJ[2]
+                    << "," << r.tierCycles[0] << "," << r.tierCycles[1] << "," << r.tierCycles[2]
+                    << "," << r.airtimeS[0] << "," << r.airtimeS[1] << "," << r.airtimeS[2] << ","
+                    << (r.durationS > 0.0 ? r.airtimeS[0] / r.durationS : 0.0) << ","
+                    << r.escalations << "," << r.deescalations << "," << r.suspects << ","
+                    << r.noFixCycles << "," << r.tp << "," << r.fp << "," << r.fn << "," << r.tn
+                    << "," << std::setprecision(4) << prec << "," << rec << "," << f1 << ","
+                    << r.cyclesInUwbCoverage << "," << std::setprecision(9) << accPerJ << ","
+                    << r.txJ[0] << "," << r.txJ[1] << "," << r.txJ[2] << "," << r.rxJ[0] << ","
+                    << r.rxJ[1] << "," << r.rxJ[2] << "," << r.cadJ[0] << "," << r.cadJ[1] << ","
+                    << r.cadJ[2] << "," << r.idleJ[0] << "," << r.idleJ[1] << "," << r.idleJ[2]
+                    << "," << r.sleepJ[0] << "," << r.sleepJ[1] << "," << r.sleepJ[2] << ","
+                    << std::setprecision(4) << r.meanNeighbours[0] << "," << r.meanNeighbours[1]
+                    << "," << r.meanNeighbours[2] << "," << r.blindCycles << ","
+                    << r.neighbourInsertions << "," << r.macTx << "," << r.macCollisions << ","
+                    << r.macCaptures << "," << r.macDeliveries << "\n";
+
+            std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
+                      << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
+                      << r.rmseFixedM << std::setw(11) << r.cep50M << std::setw(11) << r.cep95M
+                      << std::setprecision(4) << std::setw(13) << r.totalJ << std::setw(8)
+                      << r.escalations << std::setw(8) << r.suspects << std::setw(10)
+                      << r.noFixCycles << std::setprecision(3) << std::setw(9) << f1
+                      << std::scientific << std::setprecision(3) << std::setw(11) << accPerJ
+                      << std::defaultfloat << "\n";
+        }
+        std::cout << "\n";
+    }
+
+    summary.close();
+    std::cout << "Wrote " << summaryPath << "\n";
+    if (writeTrace)
+    {
+        std::cout << "Wrote per-step traces to " << outdir << "/trace_<arm>_seed<N>.csv\n";
+    }
+
+    std::cout << "\nRead the summary this way:\n"
+              << "  - Check noFixCycles FIRST. If it is a large fraction of steps for any\n"
+              << "    arm, that arm is measuring dead reckoning, not localisation, and its\n"
+              << "    RMSE means nothing. This is what invalidated the pre-S2.5 results.\n"
+              << "  - static_uwb should now have the best RMSE and the WORST energy. If it\n"
+              << "    is still the cheapest arm, it is still failing to range and the\n"
+              << "    geometry is still wrong -- run --probe.\n"
+              << "  - static_868 should have the worst RMSE among arms that get fixes.\n"
+              << "  - cyclesInUwbCoverage should be a meaningful minority of steps (roughly\n"
+              << "    10-30%). At 0 there is nothing to escalate to; at ~100% escalation is\n"
+              << "    unconditionally correct and the policy is not being tested.\n"
+              << "  - trig_f1 scores the tier choice against geometric ground truth.\n"
+              << "    static_uwb gets high recall and low precision by construction;\n"
+              << "    static_868 gets zero. The policy arms are the only interesting rows.\n"
+              << "  - If ca_tbl_full does not beat fixed_threshold on accuracyPerJoule,\n"
+              << "    the policy is not earning its complexity -- that is a real result,\n"
+              << "    not a bug to tune away.\n";
+
+    return 0;
+}
