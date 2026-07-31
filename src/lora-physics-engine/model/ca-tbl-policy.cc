@@ -51,8 +51,10 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     pcsThresholdDown[CA_TBL_TIER_UWB] = 2.55;
 
     nDeescalate = 5;
+    fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
 
     mahalanobisThreshold = 9.21; // chi-square 99%, 2 DOF
+    mahalUseR = false;           // default preserves the pre-existing baseline
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
     fixedVarThresholdM2 = 100.0;
@@ -304,6 +306,34 @@ CaTblEkf::MahalanobisFromPrior(double zx, double zy) const
     return dx * (i00 * dx + i01 * dy) + dy * (i10 * dx + i11 * dy);
 }
 
+double
+CaTblEkf::MahalanobisFromPriorWithR(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    const double dx = zx - m_xPrior[0];
+    const double dy = zy - m_xPrior[1];
+
+    // S = H P H^T + R. H is the 2x4 position selector, so H P H^T is just the
+    // position block of the prior, and R is the covariance of the raw fix being
+    // tested. MahalanobisFromPrior() omits the second term entirely, which is what
+    // makes the statistic scale with the measurement noise it exists to discount.
+    const double a = m_PPrior[0][0] + rxx;
+    const double b = m_PPrior[0][1] + rxy;
+    const double c = m_PPrior[1][0] + rxy;
+    const double d = m_PPrior[1][1] + ryy;
+    const double det = a * d - b * c;
+    if (std::fabs(det) < 1e-12)
+    {
+        return 0.0; // singular: cannot judge, so do not flag
+    }
+
+    const double i00 = d / det;
+    const double i01 = -b / det;
+    const double i10 = -c / det;
+    const double i11 = a / det;
+
+    return dx * (i00 * dx + i01 * dy) + dy * (i10 * dx + i11 * dy);
+}
+
 // ---------------------------------------------------------------------------
 // Policy
 // ---------------------------------------------------------------------------
@@ -452,6 +482,97 @@ CaTblPolicy::RawMultilateration(const std::vector<CaTblRangeMeasurement>& meas,
     return true;
 }
 
+bool
+CaTblPolicy::RawMultilaterationWeighted(const std::vector<CaTblRangeMeasurement>& meas,
+                                        const std::vector<double>& varM2,
+                                        double x0,
+                                        double y0,
+                                        double& outX,
+                                        double& outY,
+                                        double& outRxx,
+                                        double& outRxy,
+                                        double& outRyy)
+{
+    const size_t n = std::min(meas.size(), varM2.size());
+    if (n < 3)
+    {
+        return false;
+    }
+
+    double px = x0;
+    double py = y0;
+    double jtj00 = 0.0;
+    double jtj01 = 0.0;
+    double jtj11 = 0.0;
+
+    for (int iter = 0; iter < 8; ++iter)
+    {
+        jtj00 = 0.0;
+        jtj01 = 0.0;
+        jtj11 = 0.0;
+        double jtr0 = 0.0;
+        double jtr1 = 0.0;
+
+        for (size_t i = 0; i < n; ++i)
+        {
+            const double dx = px - meas[i].anchorX;
+            const double dy = py - meas[i].anchorY;
+            const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
+            const double ux = dx / r;
+            const double uy = dy / r;
+            const double residual = r - meas[i].rangeM;
+
+            // The only change from the unweighted solver: each range contributes in
+            // proportion to its precision. Without this, a 2500 m tier-1 range whose
+            // variance is ~40x that of a 400 m one pulls the solution equally hard.
+            const double w = 1.0 / std::max(varM2[i], 1e-12);
+
+            jtj00 += w * ux * ux;
+            jtj01 += w * ux * uy;
+            jtj11 += w * uy * uy;
+            jtr0 += w * ux * residual;
+            jtr1 += w * uy * residual;
+        }
+
+        const double det = jtj00 * jtj11 - jtj01 * jtj01;
+        if (std::fabs(det) < 1e-12)
+        {
+            return false;
+        }
+
+        const double dxStep = -(jtj11 * jtr0 - jtj01 * jtr1) / det;
+        const double dyStep = -(-jtj01 * jtr0 + jtj00 * jtr1) / det;
+
+        px += dxStep;
+        py += dyStep;
+
+        if (!std::isfinite(px) || !std::isfinite(py))
+        {
+            return false;
+        }
+        if (std::fabs(dxStep) < 1e-3 && std::fabs(dyStep) < 1e-3)
+        {
+            break;
+        }
+    }
+
+    // (J^T R^-1 J)^-1 is the covariance of the weighted least-squares fix, which is
+    // exactly the R the integrity gate needs. Recovered from the final accumulators
+    // at no extra cost -- this is why weighting and the S fix are one change.
+    const double det = jtj00 * jtj11 - jtj01 * jtj01;
+    if (std::fabs(det) < 1e-12)
+    {
+        return false;
+    }
+    outRxx = jtj11 / det;
+    outRxy = -jtj01 / det;
+    outRyy = jtj00 / det;
+
+    outX = px;
+    outY = py;
+    return true;
+}
+
 double
 CaTblPolicy::ComputePcs(double traceSigma,
                         double gdop,
@@ -485,7 +606,8 @@ CaTblDecision
 CaTblPolicy::Step(double dt,
                   const std::vector<CaTblRangeMeasurement>& meas,
                   uint32_t hopCount,
-                  int32_t activeTierRanges)
+                  int32_t activeTierRanges,
+                  int32_t activeTierNeighbours)
 {
     CaTblDecision d;
     d.activeTier = m_tier;
@@ -596,9 +718,39 @@ CaTblPolicy::Step(double dt,
     {
         double zx = 0.0;
         double zy = 0.0;
-        if (RawMultilateration(meas, m_ekf.PriorX(), m_ekf.PriorY(), zx, zy))
+        bool haveFix = false;
+        double mahal = 0.0;
+
+        if (m_config.mahalUseR)
         {
-            const double mahal = m_ekf.MahalanobisFromPrior(zx, zy);
+            double rxx = 0.0;
+            double rxy = 0.0;
+            double ryy = 0.0;
+            haveFix = RawMultilaterationWeighted(meas,
+                                                 varM2,
+                                                 m_ekf.PriorX(),
+                                                 m_ekf.PriorY(),
+                                                 zx,
+                                                 zy,
+                                                 rxx,
+                                                 rxy,
+                                                 ryy);
+            if (haveFix)
+            {
+                mahal = m_ekf.MahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
+            }
+        }
+        else
+        {
+            haveFix = RawMultilateration(meas, m_ekf.PriorX(), m_ekf.PriorY(), zx, zy);
+            if (haveFix)
+            {
+                mahal = m_ekf.MahalanobisFromPrior(zx, zy);
+            }
+        }
+
+        if (haveFix)
+        {
             d.mahalanobis = mahal;
             const bool allLos = (d.nNlos == 0);
             if (mahal > m_config.mahalanobisThreshold && allLos)
@@ -669,8 +821,15 @@ CaTblPolicy::Step(double dt,
         // nominally on, would compare a tier-1 confidence against a UWB threshold.
         // Low PCS would then read as "escalate further" at the exact moment the
         // correct action is to come down.
+        // A cycle in which the active tier addressed ZERO anchors is categorically
+        // different from one whose anchors were addressed and failed to answer: it
+        // means the tier has nothing here at all, after a full discovery window.
+        // Waiting nDeescalate cycles to learn that costs 0.6299 J each on UWB.
+        const bool nothingThere =
+            m_config.fastDemoteOnZeroNeighbours && activeTierNeighbours == 0;
+
         m_deescalateCounter++;
-        if (m_deescalateCounter >= m_config.nDeescalate)
+        if (nothingThere || m_deescalateCounter >= m_config.nDeescalate)
         {
             if (m_tier > CA_TBL_TIER_868)
             {

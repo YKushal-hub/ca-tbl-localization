@@ -1626,7 +1626,9 @@ RunArm(CaTblPolicyMode mode,
        double nbrTtlMult,
        double searchDutyFrac,
        const std::string& traceDir,
-       bool writeTrace)
+       bool writeTrace,
+       int fastDemoteMode,
+       bool mahalUseR)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1707,6 +1709,21 @@ RunArm(CaTblPolicyMode mode,
 
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
+    pcfg.mahalUseR = mahalUseR;
+    // fastDemoteMode: 0 = nobody, 1 = the proposed arms only, 2 = every dynamic arm.
+    // The three-way split exists because the verdict depends on how the baseline is
+    // credited: fixed_threshold is ALSO burning ~98% of its energy on blind UWB
+    // discovery at boxHalf 3000, so giving the fix only to the proposed system and
+    // giving it to both are different experiments. Report the matrix, do not choose.
+    if (fastDemoteMode == 2)
+    {
+        pcfg.fastDemoteOnZeroNeighbours = true;
+    }
+    else if (fastDemoteMode == 1)
+    {
+        pcfg.fastDemoteOnZeroNeighbours =
+            (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
+    }
     CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
@@ -2109,8 +2126,11 @@ RunArm(CaTblPolicyMode mode,
         // "the active tier delivered" from "we got a fix from somewhere". Without it
         // the tier-1 fallback hides every coverage failure from the de-escalation
         // logic and the policy latches on the top tier.
-        const CaTblDecision d =
-            policy.Step(dt, meas, 0, static_cast<int32_t>(activeMeas.size()));
+        const CaTblDecision d = policy.Step(dt,
+                                            meas,
+                                            0,
+                                            static_cast<int32_t>(activeMeas.size()),
+                                            static_cast<int32_t>(activeMeasAddressed));
 
         if (d.escalated || d.deescalated)
         {
@@ -2450,6 +2470,8 @@ main(int argc, char* argv[])
     // much of an out-of-coverage arm's energy is a modelling assumption rather than
     // a measurement.
     double searchDutyFrac = 1.0;
+    std::string fastDemote = "off";
+    bool mahalUseR = false;
     cmd.AddValue("duration", "Simulated seconds per arm", durationS);
     cmd.AddValue("dt", "Cycle period in seconds", dt);
     cmd.AddValue("seed", "Single seed (alias for seedStart)", seedStart);
@@ -2478,6 +2500,17 @@ main(int argc, char* argv[])
     cmd.AddValue("nbrTtlMult",
                  "Neighbour table TTL as a multiple of that tier's beacon period",
                  nbrTtlMult);
+    cmd.AddValue("fastDemote",
+                 "Demote on the first zero-neighbour cycle: off|proposed|all. "
+                 "'proposed' applies it to ca_tbl_full/ca_tbl_no_integrity only; "
+                 "'all' also gives it to fixed_threshold, which is the fair-baseline "
+                 "control. off reproduces the pre-existing baseline byte-identically.",
+                 fastDemote);
+    cmd.AddValue("mahalUseR",
+                 "Use the correctly specified integrity gate: weighted "
+                 "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
+                 "for the distance. false reproduces the pre-existing baseline.",
+                 mahalUseR);
     cmd.AddValue("searchDuty",
                  "Receiver-open fraction of a beacon period while a tier is awake "
                  "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
@@ -2554,6 +2587,21 @@ main(int argc, char* argv[])
               << "  uwb anchors=" << dep.anchors[CA_TBL_TIER_UWB].size() << "\n"
               << "  mobility: facility tour, " << walkSpeedMps << " m/s, dwell " << dwellS << "s\n\n";
 
+    int fastDemoteMode = 0;
+    if (fastDemote == "proposed")
+    {
+        fastDemoteMode = 1;
+    }
+    else if (fastDemote == "all")
+    {
+        fastDemoteMode = 2;
+    }
+    else if (fastDemote != "off")
+    {
+        std::cerr << "--fastDemote must be one of: off, proposed, all\n";
+        return 1;
+    }
+
     for (uint32_t s = 0; s < seedCount; ++s)
     {
         const uint32_t seed = seedStart + s;
@@ -2582,7 +2630,9 @@ main(int argc, char* argv[])
                                        nbrTtlMult,
                                        searchDutyFrac,
                                        outdir,
-                                       writeTrace);
+                                       writeTrace,
+                                       fastDemoteMode,
+                                       mahalUseR);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

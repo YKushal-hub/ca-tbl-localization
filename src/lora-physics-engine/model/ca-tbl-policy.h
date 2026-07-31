@@ -86,8 +86,21 @@ struct CaTblPolicyConfig
     double pcsThresholdUp[CA_TBL_TIER_COUNT];   //!< escalate when PCS falls below this
     double pcsThresholdDown[CA_TBL_TIER_COUNT]; //!< candidate for de-escalation above this
     uint32_t nDeescalate;                       //!< consecutive good cycles before demoting
+    //! Demote on the FIRST cycle where the active tier addressed zero anchors. A
+    //! cycle with no anchors addressed is categorically different from one whose
+    //! anchors failed to answer: it means the tier has nothing there at all, after a
+    //! full discovery window. Measured 4.12 blind cycles per escalation against
+    //! nDeescalate = 5, and 141 of 189 blind runs were exactly 5 cycles long -- the
+    //! counter's signature. Default false preserves the pre-existing baseline.
+    bool fastDemoteOnZeroNeighbours;
 
     double mahalanobisThreshold; //!< chi-square gate, 2 DOF
+    //! Use the correctly specified integrity gate: weighted multilateration for the
+    //! test point, and S = P_prior_pos + (J^T R^-1 J)^-1 for the distance. Both
+    //! defects are one mechanism -- a biased numerator against a denominator missing
+    //! R -- so they are fixed under a single flag. Default false so the pre-existing
+    //! baseline reproduces byte-identically.
+    bool mahalUseR;
     double traceRef;             //!< PCS term-1 reference, metres^2
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
@@ -165,8 +178,25 @@ class CaTblEkf
     double PriorX() const { return m_xPrior[0]; }
     double PriorY() const { return m_xPrior[1]; }
 
-    /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF. */
+    /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF.
+     *
+     *  MIS-SPECIFIED: normalises by the prior covariance alone. A validation gate
+     *  must normalise by the innovation covariance S = H P H^T + R; this omits R
+     *  entirely, so the statistic scales with the measurement noise it is supposed
+     *  to be discounting. Tier 1 has by far the largest R in the system (range
+     *  error ~50% of true distance), which is why every firing observed at
+     *  boxHalf 3000 was on a tier-1 fallback fix. Kept as the default only so the
+     *  pre-existing baseline remains reproducible -- see MahalanobisFromPriorWithR. */
     double MahalanobisFromPrior(double zx, double zy) const;
+
+    /** As above but forming S = P_prior_pos + Rfix, with \p rxx/rxy/ryy the
+     *  covariance of the raw multilateration fix. This is the correctly specified
+     *  gate; select it with CaTblPolicyConfig::mahalUseR. */
+    double MahalanobisFromPriorWithR(double zx,
+                                     double zy,
+                                     double rxx,
+                                     double rxy,
+                                     double ryy) const;
 
   private:
     double m_x[4];
@@ -224,11 +254,19 @@ class CaTblPolicy
      *                  while UWB was in coverage only 10.6% of the time -- paying UWB
      *                  energy every cycle, falling back to tier 1 for the fix, and
      *                  landing at tier-1 accuracy (121 m RMSE) for 3.3x tier-1 energy.
+     * \param activeTierNeighbours
+     *                  How many neighbours the ACTIVE tier currently has in its
+     *                  table, or -1 for unknown (the legacy behaviour). Distinct
+     *                  from activeTierRanges: zero neighbours means the tier
+     *                  addressed nobody, whereas zero ranges from a non-empty table
+     *                  means it asked and got no answer. Only read when
+     *                  CaTblPolicyConfig::fastDemoteOnZeroNeighbours is set.
      */
     CaTblDecision Step(double dt,
                        const std::vector<CaTblRangeMeasurement>& meas,
                        uint32_t hopCount = 0,
-                       int32_t activeTierRanges = -1);
+                       int32_t activeTierRanges = -1,
+                       int32_t activeTierNeighbours = -1);
 
     uint64_t GetEscalationCount() const { return m_escalations; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
@@ -243,12 +281,33 @@ class CaTblPolicy
     /** GDOP from anchor geometry about \p (x,y). Returns 100 on singular geometry. */
     static double ComputeGdop(double x, double y, const std::vector<CaTblRangeMeasurement>& meas);
 
-    /** Gauss-Newton range-only least squares. Filter-free reference fix. */
+    /** Gauss-Newton range-only least squares. Filter-free reference fix.
+     *
+     *  UNWEIGHTED: every range gets equal say regardless of its sigma. On tier 1,
+     *  where sigma is ~50% of true distance, an anchor at 400 m and one at 2500 m
+     *  differ by ~6x in sigma and ~40x in variance, and this solver treats them
+     *  identically -- so the point being tested by the integrity gate is itself
+     *  biased, not merely its covariance. Kept as the default only for baseline
+     *  reproducibility; prefer RawMultilaterationWeighted. */
     static bool RawMultilateration(const std::vector<CaTblRangeMeasurement>& meas,
                                    double x0,
                                    double y0,
                                    double& outX,
                                    double& outY);
+
+    /** Weighted Gauss-Newton: normal equations scaled by R^-1. Also returns the
+     *  fix covariance (J^T R^-1 J)^-1, which is exactly the R the integrity gate
+     *  needs to form S. Preferred over going via ComputeGdop(), because GDOP is
+     *  defined for equal per-range sigma -- the assumption tier 1 violates hardest. */
+    static bool RawMultilaterationWeighted(const std::vector<CaTblRangeMeasurement>& meas,
+                                           const std::vector<double>& varM2,
+                                           double x0,
+                                           double y0,
+                                           double& outX,
+                                           double& outY,
+                                           double& outRxx,
+                                           double& outRxy,
+                                           double& outRyy);
 
   private:
     double ComputePcs(double traceSigma, double gdop, uint32_t nLos, uint32_t nTotal, uint32_t hopCount) const;
