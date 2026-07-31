@@ -170,7 +170,8 @@ struct Deployment
  * If --probe disagrees with any of this, change the geometry, not the claim.
  */
 Deployment
-BuildDeployment(double boxHalfM,
+BuildDeployment(uint32_t gwGrid,
+                double boxHalfM,
                 double uwbTriadRadiusM,
                 double t2TriadRadiusM,
                 uint32_t uwbAnchorsPerSite,
@@ -238,15 +239,25 @@ BuildDeployment(double boxHalfM,
     // report -- it is the "gateway density dominates everything downstream"
     // conclusion of simstatus.md 8.5, now grounded in measured PDR instead of
     // assumed range. Sweep --boxHalf to trace the sensitivity curve.
+    // gwGrid generalises the 3x3 above. THE GRID IS FIXED WHILE THE AREA IS NOT,
+    // so sweeping --boxHalf at gwGrid=3 varies gateway DENSITY as well as tier-2
+    // coverage: 9 gateways over (2*boxHalf)^2 is 2.25/km^2 at boxHalf 1000 -- the
+    // ~9-per-4km^2 the comment above derives as the requirement -- but 0.25/km^2 at
+    // boxHalf 3000, one ninth of it. Measured consequence: a typical tier-1 fix at
+    // boxHalf 3000 uses 3.70 of the 9 gateways, barely above the minimum of three.
+    // Hold density constant with gwGrid = 3 * (boxHalf/1000) to separate "tier-2
+    // coverage became spotty" from "tier-1 redundancy collapsed".
     const double g = boxHalfM * 0.9;
     const double gwH = 15.0;
     uint32_t id = 101;
-    for (int gx = -1; gx <= 1; ++gx)
+    const int gw = std::max(2, static_cast<int>(gwGrid));
+    for (int gx = 0; gx < gw; ++gx)
     {
-        for (int gy = -1; gy <= 1; ++gy)
+        for (int gy = 0; gy < gw; ++gy)
         {
-            dep.anchors[CA_TBL_TIER_868].push_back(
-                {id++, Vector(g * static_cast<double>(gx), g * static_cast<double>(gy), gwH)});
+            const double fx = -g + 2.0 * g * static_cast<double>(gx) / (gw - 1);
+            const double fy = -g + 2.0 * g * static_cast<double>(gy) / (gw - 1);
+            dep.anchors[CA_TBL_TIER_868].push_back({id++, Vector(fx, fy, gwH)});
         }
     }
 
@@ -2516,6 +2527,11 @@ main(int argc, char* argv[])
     std::string fastDemote = "off";
     bool mahalUseR = false;
     std::string multiStepDemote = "off";
+    // Gateways per side of the tier-1 grid. 3 reproduces the historical 3x3.
+    // Density is gwGrid^2 / (2*boxHalf/1000)^2 per km^2; the derivation in
+    // BuildDeployment() puts the requirement at ~2.25/km^2, i.e. gwGrid = 3 at
+    // boxHalf 1000. Hold density constant with gwGrid = 3*boxHalf/1000.
+    uint32_t gwGrid = 3;
     // OURS AND UNCITED, like neighbourTtlS. How long a tier stays "known populated"
     // after its radio sleeps. A new free parameter -- sweep it, do not choose it.
     double demoteStalenessS = 60.0;
@@ -2558,6 +2574,11 @@ main(int argc, char* argv[])
                  "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
                  "for the distance. false reproduces the pre-existing baseline.",
                  mahalUseR);
+    cmd.AddValue("gwGrid",
+                 "Tier-1 gateways per grid side (3 = the historical 3x3). Sweeping "
+                 "--boxHalf at fixed gwGrid varies gateway DENSITY as well as tier-2 "
+                 "coverage; use gwGrid=3*boxHalf/1000 to hold density constant.",
+                 gwGrid);
     cmd.AddValue("multiStepDemote",
                  "On a blind demotion, drop to the highest tier known populated "
                  "rather than one step: off|proposed|all. Separate axis from "
@@ -2595,7 +2616,8 @@ main(int argc, char* argv[])
         return 1;
     }
 
-    const Deployment dep = BuildDeployment(boxHalfM,
+    const Deployment dep = BuildDeployment(gwGrid,
+                                           boxHalfM,
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
