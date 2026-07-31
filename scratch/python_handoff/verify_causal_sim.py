@@ -20,6 +20,7 @@ import csv
 
 FAIL = []
 WARN = []
+WARN_OK = []
 PASSED = []
 # Documented findings: a check whose failure is the measured result rather than a
 # defect. Separate from WARN so that "expected, understood, reported" cannot be
@@ -37,7 +38,17 @@ def check(name, condition, detail=""):
 
 
 def warn(name, condition, detail=""):
-    if not condition:
+    # WARN_OK exists because this function used to record nothing on success, which
+    # made the reported gate total a non-conserved quantity: a warning that started
+    # passing simply vanished. That is how "77 gates two sessions ago, 76 now" was
+    # read as a check having been deleted, when in fact all 72 check() gates were
+    # still present and one WARNING had merely started passing -- specifically
+    # "ca_tbl_full cheaper than always-on UWB", which flipped when the AccountListen()
+    # search charge raised static_uwb from 0.7618 J to 630.51 J. A gate that becomes
+    # invisible the moment it is satisfied cannot be audited for still being wired up.
+    if condition:
+        WARN_OK.append(name)
+    else:
         WARN.append(f"{name}: {detail}")
 
 
@@ -349,7 +360,11 @@ def main():
     verify_traces(outdir)
     verify_summary(outdir)
 
+    total = len(PASSED) + len(WARN_OK) + len(NOTE) + len(WARN) + len(FAIL)
     print(f"\n{len(PASSED)} checks passed")
+    print(f"{len(WARN_OK)}/{len(WARN_OK) + len(WARN)} warning gates clear")
+    print(f"{total} gates evaluated "
+          f"({len(PASSED)} check + {len(WARN_OK) + len(WARN)} warn + {len(NOTE)} note)")
 
     if NOTE:
         print(f"\n{len(NOTE)} DOCUMENTED FINDINGS (a gate whose failure is the measured "
