@@ -6,18 +6,19 @@ Run 2026-08-01 at HEAD `c9ab733b5`. Auditor had a shell; all sim runs via
 ## Summary
 
 ```
-REPRODUCED: 26    TRACED: 0    UNTRACED: 9    CONTRADICTED: 3
-Checks run: 21    Checks blocked: 8
+REPRODUCED: 37    TRACED: 0    UNTRACED: 9    CONTRADICTED: 3
+Checks run: 32    Checks blocked: 5
 ```
 
 Every headline statistic reproduced. The contradictions are confined to one
 metric (outage counts) and are a methodological defect, not a fabrication. The
-larger problem is coverage: eight checks could not be run, and the probe figures
+larger problem is coverage: five checks could not be run, and the probe figures
 that size the entire deployment geometry are among them.
 
 ## Blocking findings
 
-**None that invalidate a headline claim.** Two that qualify one:
+**None that invalidate a headline claim.** One remains open (B1, mitigated); B2
+has been closed since the first report.
 
 **B1. The gw3-vs-gw9 comparison spans two binaries.** The binary is dated
 `2026-08-01 02:20:43`. Every results directory through `ms_c3_fair` (`01:46`)
@@ -27,11 +28,21 @@ built at `3bbb30df6` against gw9 data built at `c9ab733b5`, with `--mahalUseR`,
 `--fastDemote`, `--multiStepDemote` and `--gwGrid` added in between.
 **Mitigated but not eliminated:** V1.2 regenerated `sweep20_b3000/seed_7` at HEAD
 and it is byte-identical. That is one seed at one geometry, not the whole set.
+**Strengthened after V2.2 completed:** all six non-default flag configurations are
+deterministic and their defaults are byte-identical to the pre-flag baseline, so
+the flags added between the two builds provably do not perturb behaviour when off.
+The residual exposure is a change that alters behaviour identically on repeat runs
+— which byte-identity at seed 7 plus flag-default acceptance makes unlikely, but
+does not exclude. Regenerating all 20 seeds of `sweep20_b3000` at HEAD would close
+it (~30 min).
 
-**B2. G2–G4 have never been run at HEAD.** `results/det_a` and `det_b` are dated
-`01:05`/`01:11`, before the `02:20` build. The last full gate pass was at
-`7e0325c1c`. G1 (build) is confirmed at HEAD; G2, G3 and G4 are not. The gate
-script exists and passes, but not against the current binary.
+**B2. ~~G2–G4 have never been run at HEAD.~~ CLOSED.** At the time of the first
+report, `results/det_a`/`det_b` were dated `01:05`/`01:11` against a `02:20`
+build, so only G1 was confirmed at HEAD. The full gate script has since been run
+at `c9ab733b5`: **G1 PASS, G2 PASS, G3 PASS, G4 PASS**, 72 checks passed, 14/15
+warning gates clear, 90 gates evaluated. The totals are identical to the
+pre-`gwGrid` run, which independently confirms the three-commit restructure
+changed no gate outcome. Evidence: `audit/gates_at_head.log`.
 
 ## Findings by phase
 
@@ -47,8 +58,8 @@ script exists and passes, but not against the current binary.
 
 | check | verdict | evidence | note |
 |---|---|---|---|
-| V2.1 determinism at defaults | BLOCKED | — | superseded by V2.2, which is still running |
-| V2.2 determinism at 6 non-default flags | BLOCKED | `audit/detflags.log` | 0/12 complete at report time — see Gaps |
+| V2.1 determinism at defaults | REPRODUCED | G2 in `scripts/catbl_gates.sh` | covered by the HEAD gate run |
+| V2.2 determinism at 6 non-default flags | REPRODUCED | `audit/detf_*` pairwise diff | `--mahalUseR=true`, `--fastDemote=all`, `--multiStepDemote=all`, `--gwGrid=9`, `--boxHalf=3000`, `--searchDuty=0.0` all byte-identical across repeat runs. **No flag introduces an unseeded draw.** |
 | V2.3 wall-clock reaching a branch | REPRODUCED | `grep` | only comments reference `chrono`; no live use |
 | V2.4 `ResetNextStreamIndex` in both entry points | REPRODUCED | `ca_tbl_causal_sim.cc:981, 1673` | present in `RunProbe` and `RunArm` |
 | V2.4b `LoRaDistributionSampler` ignores its seed | REPRODUCED | `lora-distribution-sampler.cc:8-17` | **defect still live**: 5 RVs created, 0 `SetStream`. Documentation accurate. |
@@ -140,10 +151,8 @@ though no verdict depends on its exact value.
 
 | check | why | what it would take |
 |---|---|---|
-| V2.2 determinism at 6 non-default flags | runs still in flight at report time | ~40 min |
-| V2.1 determinism at defaults (G2) | superseded by V2.2 | included above |
+| ~~V2.2 determinism at 6 non-default flags~~ | **CLOSED** — all six deterministic | — |
 | V2.5 ablation divergence coincides with `suspect==1` | not run | 1 traced run + 3 seeds, ~30 min |
-| G3/G4 at HEAD | binary rebuilt after last gate pass | `bash scripts/catbl_gates.sh`, ~40 min |
 | V4.1 full constants table | not attempted in this pass | read 4 files, ~1 h |
 | V4.4 verifier self-audit (early-return skipping) | not attempted | read + instrument, ~30 min |
 | V5.1 denominator audit of every quoted rate | not attempted systematically | ~1 h |
