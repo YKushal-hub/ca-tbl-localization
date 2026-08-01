@@ -15,26 +15,41 @@ probe range figures (0.4% and 5% off, both hedged with "≈" in the source
 document) and one under-specified statistic. **This audit's first pass recorded
 two further contradictions that were themselves wrong** — see Contradictions.
 
-The most consequential finding is B3, a gate whose pass message asserts a bound
-it never tests, found only because the probe output was captured to a file for
-the first time.
+The most consequential finding is B3: the CRLB gate is applied to tier 1, whose
+estimator is RSSI inversion, not time-of-arrival — a comparison the ranging
+submodule's own comment calls a category error. Found only because the probe
+output was captured to a file for the first time.
 
 ## Blocking findings
 
 **None that invalidate a headline claim.** B1 and B2 are both CLOSED. One NEW
 finding (B3) was opened by the probe capture and is not closed.
 
-**B3. The CRLB gate is one-sided and its pass message asserts a bound it never
-tests.** `ca_tbl_causal_sim.cc:1471` tests only `worstCrlbRatio < 0.333` — the
-physically-impossible case where measured precision beats the Cramer-Rao floor by
-3x. Every other value falls through to an `else` printing *"CRLB OK (within 3x of
-the single-shot bound)"*. **The measured tier-1 ratio is 3.319**, so the gate is
-currently printing a statement that is arithmetically false, and it would print
-the same at a ratio of 1000. There is no upper bound in the gate at all.
-Being worse than the CRLB is expected of a real system, so this is not
-necessarily a physics defect — but v3 section 3.8 quotes "within 3x" as though a
-two-sided check had passed, and no such check exists. Evidence:
-`results/probe_audit/probe_stdout.txt`, `ca_tbl_causal_sim.cc:1462-1490`.
+**B3. The CRLB gate is applied to a tier whose estimator it does not describe.**
+Two layers, and the second is the real one.
+
+*Reporting defect (minor).* `ca_tbl_causal_sim.cc:1471` tracks `worstCrlbRatio` as
+a **minimum** and tests only `< 0.333`. That is correct by design — only
+`ratio < 1` is physically impossible, and real estimators routinely sit 1.5-3x
+above CRLB. But every other value falls to an `else` printing *"CRLB OK (within
+3x of the single-shot bound)"*, which asserts a two-sided property from a
+one-sided test. Minimal fix is the string: *"no point beats the bound by more
+than 3x"*, plus a separate `bestCrlbRatio` tracked as a maximum if the upper side
+is wanted. v3 section 3.8 quotes "within 3x" as though a two-sided check passed.
+
+*Category error (the real finding).* The gate runs on **tier 1**, and
+`lora-ranging-submodule.cc:151` states in its own comment that this is invalid:
+*"RSSI-inversion ranging. bandwidthHz, snrDbInBand and spreadingFactor are unused
+here by design: this is not a time-of-arrival estimator, so the ToA Cramer-Rao
+bound does not apply to it and applying one would be a category error."*
+The tier-1 estimator inverts `propagationLossDb` and its sigma is
+`estD * ln10/(10n) * shadowingStdEff` — proportional to range, which is the
+~50%-of-distance signature v3 section 5.4 records. **The measured tier-1 ratio of
+3.319 therefore compares unrelated quantities**, and the probe has been reporting
+it for that tier throughout. The gate should not run on tier 1 at all.
+Tiers 2 and UWB are ToA estimators and the gate is meaningful there.
+Evidence: `results/probe_audit/probe_stdout.txt`,
+`ca_tbl_causal_sim.cc:1462-1490`, `lora-ranging-submodule.cc:151-188`.
 
 **B1. The gw3-vs-gw9 comparison spans two binaries.** The binary is dated
 `2026-08-01 02:20:43`. Every results directory through `ms_c3_fair` (`01:46`)
@@ -133,16 +148,27 @@ All recomputed with an independent implementation that does not import
 | CRLB tier-2 gate | 1.105 at 1600 m, 3.272 vs 2.962 | identical | REPRODUCED |
 | shadowing decorrelation (tier 2) | 0.90 | 0.90 | REPRODUCED |
 | no `*** CENSORED` on tier 2 | absent | absent | REPRODUCED |
-| **tier-1 r80** | **≈1522 m** | **1515.3 m** | **CONTRADICTED (0.4%)** |
-| **UWB r80** | **≈13.5 m** | **12.8 m** | **CONTRADICTED (5%)** |
+| **tier-1 r80** | **1522 m** | **1515.3 m** | **CONTRADICTED — stale carry-forward** |
+| **UWB r80** | **13.5 m** | **12.8 m** | **CONTRADICTED — stale carry-forward** |
 
 ## Contradictions
 
 | documented | measured | file | which is right |
 |---|---|---|---|
-| tier-1 r80 ≈1522 m | 1515.3 m | `results/probe_audit/probe_stdout.txt` | **1515.3** — v3 hedged with "≈" |
-| UWB r80 ≈13.5 m | 12.8 m | same | **12.8** — 5% optimistic as documented |
+| tier-1 r80 1522 m | 1515.3 m | `results/probe_audit/probe_stdout.txt` | **1515.3** |
+| UWB r80 13.5 m | 12.8 m | same | **12.8** |
 | 2820 outages | 2812 completed + 8 censored | `results/tracegw9/.../trace_static_2p4_*.csv` | **both defensible** — see below |
+
+**On the two probe figures.** These are not "approximately" tolerances. The probe
+is deterministic at a fixed seed, so identical code gives identical values, and
+**tier-2 r80 reproduces to 909.5 m exactly** while tier-1 and UWB drift. A changed
+channel realisation would have moved all three. The likelier cause is that v3
+section 3.1 measured tier-2 r80 freshly that session (after the censoring fix)
+while section 5.4's tier-1 and UWB figures were carried forward from an earlier
+build. Remedy: update v3 to the captured values and name the build they came from.
+Neither verdict moves at 12.8 m, but `uwbTriad = 10 m` was sized against 13.5 and
+the `uwbTriad <= 15` guard derived from it, so the sizing rationale should quote
+the current number.
 
 **A CORRECTION TO THIS AUDIT'S OWN FIRST REPORT.** The first pass recorded
 `>60 s` and `>300 s` as CONTRADICTED. That was wrong, and the error was mine:
@@ -246,3 +272,17 @@ it. Widened form now in the table above.
 — a truncated observation still settles any threshold it has already crossed.*
 Applying a symmetric "recount without the censored" produced two false
 contradictions in the first pass.
+
+## Note on the remaining two gaps
+
+**V5.1 (denominator audit)** has the stronger yield argument: the censoring defect
+above is literally a V5.1-class finding, surfaced by accident in V8.3. A phase
+that would have found it deliberately is worth running.
+
+**V4.4 (verifier self-audit)** is supported by analogy only, and the report should
+not overstate it. B3 was found in the *probe's* gate in `ca_tbl_causal_sim.cc`,
+not in `verify_causal_sim.py`. Different code, different author-moment. It raises
+the prior — a project that ships one gate whose message overstates its test
+plausibly ships two — but `verify_causal_sim.py` has **not** been shown defective
+by this audit. The one hole previously found in it (`warn()` recording nothing on
+success) was found and fixed earlier in the session, not here.
