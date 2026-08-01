@@ -6,8 +6,10 @@ Run 2026-08-01 at HEAD `c9ab733b5`. Auditor had a shell; all sim runs via
 ## Summary
 
 ```
-REPRODUCED: 42    TRACED: 0    UNTRACED: 1    CONTRADICTED: 3
-Checks run: 36    Checks blocked: 3
+REPRODUCED: 47    TRACED: 0    UNTRACED: 1    CONTRADICTED: 3
+Checks run: 43    Checks blocked: 3
+Defects found: 4  (B3 category error, V4.4-D1 missing-arm, V4.4-D2 staleness,
+                   tier-1 estimator gate absent — now added and passing)
 ```
 
 Every headline statistic reproduced. The three remaining contradictions are two
@@ -305,6 +307,47 @@ path-loss model.
 the code implements its own formula. It says nothing about whether RSSI-inversion
 ranging with a 7-9 dB shadowing sigma is the right model for forest at 868 MHz;
 that needs field data.
+
+### V4.4 Verifier self-audit — RUN, two holes found
+
+| check | verdict | evidence |
+|---|---|---|
+| gate-count arithmetic matches call sites | REPRODUCED | 19 `check()` + 5 `warn()` sites, multiplied by arm/seed loops, give 72/15 |
+| early exits are loud, not silent | REPRODUCED | every `return`/`continue`/`break` is preceded by a `FAIL.append` |
+| **missing-arm detection** | **DEFECT** | see below |
+| **trace-vs-summary staleness** | **DEFECT** | no `getmtime`/`st_mtime`/staleness logic anywhere in the file |
+
+**V4.4-D1. The verifier passes while auditing an arbitrary subset of arms.**
+Deleting 2 of 6 trace files from a directory and re-running:
+
+| | checks | gates | verdict | exit |
+|---|---|---|---|---|
+| all 6 traces | 72 | 90 | "All invariants hold" | 0 |
+| 2 traces deleted | **54** | **68** | **"All invariants hold"** | **0** |
+
+Nothing asserts which arms should be present. A batch that silently produced four
+arms would pass cleanly. **This directly undermines "72 checks passed" as a
+load-bearing statement** — 54 checks passed prints the same conclusion, and the
+gate count is the only signal, compared against nothing. Same class as the
+`warn()` hole found earlier in the session: a gate that stops protecting when its
+input changes shape.
+
+**V4.4-D2. No staleness check.** v3 section 3.10 (verifier read a previous
+session's traces alongside a fresh summary) was caught by an internal
+contradiction, not by a gate, and there is still no gate. The only protection is
+run ordering inside `catbl_gates.sh`, which protects that script's runs and not a
+direct invocation.
+
+### V5.1 Denominator audit — RUN, two under-stated rates
+
+| rate | issue |
+|---|---|
+| firings "61% -> 3.2% of eligible" | denominators differ: 146 (trace3000) vs 157 (mahalR3000). Defensible — each run has its own eligible population — but never stated. |
+| `blind/esc` "4.15 -> 0.96" | both terms moved: blindCycles 16188 -> 8142 *and* escalations 3900 -> 8488 (aggregate over 20 seeds). The ratio is sound; it was reported as though only the numerator moved. |
+
+Neither changes a verdict. Both are instances of the rule-4 family and support the
+widened form. The escalations-per-fix-cycle catch earlier in the session was the
+same defect found by accident, which is why this phase was worth running.
 
 ## Note on the remaining two gaps
 
