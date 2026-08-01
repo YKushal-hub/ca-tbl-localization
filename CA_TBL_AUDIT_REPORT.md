@@ -273,6 +273,39 @@ it. Widened form now in the table above.
 Applying a symmetric "recount without the censored" produced two false
 contradictions in the first pass.
 
+## B3's consequence — and the gate that was missing
+
+The probe runs three gates: monotonicity and shadowing decorrelation (channel),
+and CRLB (estimator). Since the CRLB gate is a category error on tier 1, **tier 1
+had no estimator check at all** — the tier supplying 77% of fixes at boxHalf 3000
+and acting as the coverage floor for the whole architecture had never been
+validated against anything.
+
+Added here as a self-consistency check, from columns already in
+`probe_range_sweep.csv`. Tier-1 sigma is closed-form:
+`sigma = estD * ln(10)/(10n) * shadowingStdEff`, with `n = 2.3` for
+`ENV_RURAL_FORESTED` (`lora-physics-parameters.cc:27`, `Normal(2.3, 0.1, 2.1, 2.6)`).
+Predicted fractional error is `0.1001 * shadow_sd_eff`.
+
+| region | n | mean measured/predicted | CV |
+|---|---|---|---|
+| PDR >= 0.90 (unbiased) | 4 | **0.696** | **2.6%** |
+| PDR < 0.90 (survivorship-biased) | 5 | 0.578 | 6.4% |
+
+**PASS.** The ratio is flat to 2.6% wherever `mean_abs_range_err_m` is unbiased.
+The monotone decline beyond (0.728 -> 0.524 across the full sweep) is confined to
+the low-PDR tail where v3 section 3.9 documents survivorship conditioning, and its
+direction — measured error too LOW — is what that bias predicts, since a link that
+decodes at 6 km had a favourable shadowing draw that also makes it range better.
+The constant 0.696 offset is the mean-abs-vs-sigma factor, below the ~0.80
+Gaussian expectation as it should be for a log-normal inverted through the
+path-loss model.
+
+**Stated limit: this is self-consistency, not physical validation.** It confirms
+the code implements its own formula. It says nothing about whether RSSI-inversion
+ranging with a 7-9 dB shadowing sigma is the right model for forest at 868 MHz;
+that needs field data.
+
 ## Note on the remaining two gaps
 
 **V5.1 (denominator audit)** has the stronger yield argument: the censoring defect
