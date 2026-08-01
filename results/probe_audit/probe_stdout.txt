@@ -1,0 +1,86 @@
+
+Pre-flight probe: reception and ranging error vs distance
+  (2000 trials per point)
+  tier 1 (wide area): env=1 veg=3
+  tiers 2/3 (facility): env=0 veg=1
+
+  868MHz  (BW=125 kHz, anchor h=15.0 m, coherent gain=0.00 dB, 64 sites)
+        dist_m       pdr     range_err_m    snr_dB  crlb_floor_m meas/crlb      2ray     nlos   shadowSD shadowEff
+         100.0     1.000          51.218      39.7         9.638     5.314     0.000    0.013       6.88       7.03
+         250.0     0.995         121.940      30.2        28.802     4.234     0.000    0.030       6.98       7.06
+         500.0     0.967         243.456      23.2        64.413     3.780     0.000    0.054       6.91       7.11
+        1000.0     0.904         496.581      16.3       143.696     3.456     0.000    0.111       7.29       7.25
+        1500.0     0.803         696.900      13.0       209.963     3.319     0.000    0.161       7.39       7.41
+        2000.0     0.705         934.407      11.0       263.355     3.548     0.000    0.222       7.62       7.62
+        3000.0     0.531        1367.225       8.5       351.752     3.887     0.000    0.315       7.87       8.02
+        4000.0     0.399        1883.498       6.4       446.765     4.216     0.000    0.418       8.17       8.43
+        6000.0     0.261        2794.263       5.2       510.901     5.469     0.000    0.534       8.79       8.88
+    monotonicity OK (no distance step raises PDR by >0.10)
+    shadowing decorrelation OK (worst realised/effective sigma = 0.97)
+    CRLB (points with pdr >= 0.20 only): worst measured/floor = 3.319 at 1500.0 m (measured 696.900 m vs floor 209.963 m at 13.0 dB SNR)
+    CRLB OK (within 3x of the single-shot bound)
+    usable range: r80=1515.3 m   r50=3237.7 m
+
+  2.4GHz  (BW=800.0 kHz, anchor h=6.0 m, coherent gain=21.07 dB, 64 sites)
+        dist_m       pdr     range_err_m    snr_dB  crlb_floor_m meas/crlb      2ray     nlos   shadowSD shadowEff
+          10.0     1.000           2.457      54.6         0.017   144.813     1.000    0.000       4.51       5.00
+          25.0     1.000           2.401      47.5         0.039    62.313     1.000    0.000       4.83       5.00
+          50.0     1.000           2.451      41.8         0.074    33.197     0.999    0.002       4.85       5.00
+         100.0     0.999           2.366      36.2         0.142    16.661     0.998    0.002       4.95       5.00
+         150.0     0.999           2.390      32.6         0.214    11.177     0.999    0.001       5.01       5.00
+         200.0     0.996           2.386      29.9         0.291     8.208     0.996    0.004       4.92       5.00
+         300.0     0.983           2.356      26.6         0.429     5.495     0.992    0.009       4.81       5.01
+         430.0     0.971           2.389      23.6         0.603     3.959     0.990    0.010       4.95       5.02
+         600.0     0.919           2.347      20.5         0.859     2.734     0.994    0.006       4.92       5.05
+         900.0     0.808           2.525      17.3         1.245     2.028     0.981    0.019       5.15       5.18
+        1200.0     0.554           2.790      13.0         2.055     1.358     0.981    0.019       5.05       5.28
+        1600.0     0.261           3.272       9.8         2.962     1.105     0.969    0.031       5.35       5.42
+        2000.0     0.109           3.799       7.2         4.003     0.949     0.968    0.033       5.48       5.50
+        2500.0     0.032           5.910       4.4         5.484     1.078     0.957    0.043       5.67       5.62
+        3000.0     0.012           9.116      -0.0         9.138     0.998     0.945    0.055       5.58       5.69
+        4000.0     0.001          12.262      -6.8        20.039     0.612     0.928    0.072       5.69       5.83
+        6000.0     0.000          -1.000       0.0        -1.000    -1.000     0.889    0.111       5.97       5.96
+    monotonicity OK (no distance step raises PDR by >0.10)
+    shadowing decorrelation OK (worst realised/effective sigma = 0.90)
+    CRLB (points with pdr >= 0.20 only): worst measured/floor = 1.105 at 1600.0 m (measured 3.272 m vs floor 2.962 m at 9.8 dB SNR)
+    CRLB OK (within 3x of the single-shot bound)
+    usable range: r80=909.5 m   r50=1274.3 m
+    => set --t2Triad no larger than r80 (909.5 m).
+
+  UWB  (BW=499200.0 kHz, anchor h=2.5 m, coherent gain=30.10 dB, 64 sites)
+        dist_m       pdr     range_err_m    snr_dB  crlb_floor_m meas/crlb      2ray     nlos   shadowSD shadowEff
+           2.0     0.996           0.080       0.8         0.005    16.885     1.000    0.000       5.20       5.00
+           5.0     0.974           0.077      -8.0         0.013     5.963     1.000    0.001       4.58       5.00
+          10.0     0.872           0.080     -14.5         0.028     2.913     1.000    0.001       4.89       5.00
+          20.0     0.620           0.081     -19.2         0.047     1.719     1.000    0.001       5.24       5.00
+          30.0     0.466           0.083     -21.4         0.061     1.372     0.999    0.002       4.72       5.00
+          50.0     0.246           0.091     -23.9         0.081     1.117     1.000    0.000       5.14       5.00
+          70.0     0.131           0.099     -26.1         0.104     0.945     0.999    0.001       4.88       5.00
+         100.0     0.064           0.117     -28.1         0.132     0.891     0.998    0.003       5.05       5.00
+         130.0     0.035           0.147     -30.2         0.168     0.874     0.999    0.001       4.81       5.00
+         180.0     0.016           0.342     -34.9         0.287     1.192     0.996    0.004       4.93       5.00
+    monotonicity OK (no distance step raises PDR by >0.10)
+    shadowing decorrelation OK (worst realised/effective sigma = 0.92)
+    CRLB (points with pdr >= 0.20 only): worst measured/floor = 1.117 at 50.0 m (measured 0.091 m vs floor 0.081 m at -23.9 dB SNR)
+    CRLB OK (within 3x of the single-shot bound)
+    usable range: r80=12.8 m   r50=27.8 m
+    => set --uwbTriad no larger than r80 (12.8 m). Reference spec is 100 m LOS / 30 m NLOS
+       (simstatus.md Bug #9); which of those this run resembles tells you
+       whether the facility model is behaving as LOS or NLOS.
+
+Wrote results/probe_audit/probe_range_sweep.csv
+
+How to act on this:
+  1. Monotonicity must be OK on all three tiers. If not, nothing below
+     is measuring distance -- fix that first.
+  2. Size the anchor triads from the measured r80 values, not from
+     datasheet range figures. --uwbTriad <= uwb r80, --t2Triad <= 2p4 r80.
+  3. Tier 1 needs r80 to cover the gateway spacing that BuildDeployment()
+     uses (0.9 * boxHalf, so ~1900 m diagonal at the default 3 km box).
+     If 868 r80 is well below that, reduce --boxHalf rather than pretend
+     the link closes.
+  4. Ranging error is reported alongside PDR for a reason. A tier whose
+     mean range error is a large fraction of the true distance is not
+     contributing ranging information even when its PDR is 1.0 -- its
+     fixes come from multilateration geometry, not from link ranging.
+     Read the 868 column with that in mind before reading any RMSE.

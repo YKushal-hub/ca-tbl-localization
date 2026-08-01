@@ -6,19 +6,35 @@ Run 2026-08-01 at HEAD `c9ab733b5`. Auditor had a shell; all sim runs via
 ## Summary
 
 ```
-REPRODUCED: 37    TRACED: 0    UNTRACED: 9    CONTRADICTED: 3
-Checks run: 32    Checks blocked: 5
+REPRODUCED: 42    TRACED: 0    UNTRACED: 1    CONTRADICTED: 3
+Checks run: 36    Checks blocked: 3
 ```
 
-Every headline statistic reproduced. The contradictions are confined to one
-metric (outage counts) and are a methodological defect, not a fabrication. The
-larger problem is coverage: five checks could not be run, and the probe figures
-that size the entire deployment geometry are among them.
+Every headline statistic reproduced. The three remaining contradictions are two
+probe range figures (0.4% and 5% off, both hedged with "≈" in the source
+document) and one under-specified statistic. **This audit's first pass recorded
+two further contradictions that were themselves wrong** — see Contradictions.
+
+The most consequential finding is B3, a gate whose pass message asserts a bound
+it never tests, found only because the probe output was captured to a file for
+the first time.
 
 ## Blocking findings
 
-**None that invalidate a headline claim.** One remains open (B1, mitigated); B2
-has been closed since the first report.
+**None that invalidate a headline claim.** B1 and B2 are both CLOSED. One NEW
+finding (B3) was opened by the probe capture and is not closed.
+
+**B3. The CRLB gate is one-sided and its pass message asserts a bound it never
+tests.** `ca_tbl_causal_sim.cc:1471` tests only `worstCrlbRatio < 0.333` — the
+physically-impossible case where measured precision beats the Cramer-Rao floor by
+3x. Every other value falls through to an `else` printing *"CRLB OK (within 3x of
+the single-shot bound)"*. **The measured tier-1 ratio is 3.319**, so the gate is
+currently printing a statement that is arithmetically false, and it would print
+the same at a ratio of 1000. There is no upper bound in the gate at all.
+Being worse than the CRLB is expected of a real system, so this is not
+necessarily a physics defect — but v3 section 3.8 quotes "within 3x" as though a
+two-sided check had passed, and no such check exists. Evidence:
+`results/probe_audit/probe_stdout.txt`, `ca_tbl_causal_sim.cc:1462-1490`.
 
 **B1. The gw3-vs-gw9 comparison spans two binaries.** The binary is dated
 `2026-08-01 02:20:43`. Every results directory through `ms_c3_fair` (`01:46`)
@@ -26,15 +42,23 @@ predates it; `gw9_b3000` onward postdates it. The headline finding — that clai
 2's parity at boxHalf 3000 was a tier-1 redundancy artefact — compares gw3 data
 built at `3bbb30df6` against gw9 data built at `c9ab733b5`, with `--mahalUseR`,
 `--fastDemote`, `--multiStepDemote` and `--gwGrid` added in between.
-**Mitigated but not eliminated:** V1.2 regenerated `sweep20_b3000/seed_7` at HEAD
-and it is byte-identical. That is one seed at one geometry, not the whole set.
-**Strengthened after V2.2 completed:** all six non-default flag configurations are
-deterministic and their defaults are byte-identical to the pre-flag baseline, so
-the flags added between the two builds provably do not perturb behaviour when off.
-The residual exposure is a change that alters behaviour identically on repeat runs
-— which byte-identity at seed 7 plus flag-default acceptance makes unlikely, but
-does not exclude. Regenerating all 20 seeds of `sweep20_b3000` at HEAD would close
-it (~30 min).
+**CLOSED ANALYTICALLY.** Regenerating seeds samples the question; reading the diff
+settles it. `git diff 3bbb30df6..HEAD` over `ca-tbl-policy.{h,cc}` and
+`ca_tbl_causal_sim.cc` contains only three kinds of change:
+1. **Flag-gated, default-off** — `mahalUseR`, `fastDemoteMode`, `multiStepMode`
+   leave `pcfg` at its constructor defaults when unset.
+2. **Computed but consumed only under a flag** — `lastNonEmptyAtS` and
+   `tierEvidenceMask` are written unconditionally, read only inside
+   `if (m_config.multiStepDemote)`. No RNG draw, no control-flow effect.
+3. **An algebraic identity** — the grid rewrite. At `gw=3`,
+   `fx = -g + 2g*gx/(gw-1)` yields `-g, 0, +g` for `gx = 0,1,2`, matching the old
+   `g*gx` for `gx = -1,0,1` in the same iteration order, so `id++` assigns
+   identical anchor IDs.
+No plumbing running regardless of flag state, no changed initialisation order, no
+new RNG object, no moved call site. **The pre-build results are therefore valid by
+construction, for all seeds and all geometries** — strictly stronger than the
+20-seed sample. Corroborated by two independent byte-identity checks
+(`accept_gw` vs `baseline_v3`; `repro_b3000_s7` vs `sweep20_b3000/seed_7`).
 
 **B2. ~~G2–G4 have never been run at HEAD.~~ CLOSED.** At the time of the first
 report, `results/det_a`/`det_b` were dated `01:05`/`01:11` against a `02:20`
@@ -102,31 +126,53 @@ All recomputed with an independent implementation that does not import
 | mean nAnchors by tier | 3.70 / 3.12 / 3.91 | 3.70 / 3.12 / 3.91 | REPRODUCED |
 | outage max, static_2p4 | 962.5 s | 962.5 s | REPRODUCED |
 | outages, tier-1-floor arms | exactly 2 each | 2 / 2 / 2 | REPRODUCED |
-| **outage count, static_2p4** | **2820** | **2812** | **CONTRADICTED** |
-| **outages > 60 s** | **90** | **87** | **CONTRADICTED** |
-| **outages > 300 s** | **7** | **6** | **CONTRADICTED** |
+| outage count, static_2p4 | 2820 | 2812 completed + 8 censored | SPEC DEFECT (see below) |
+| outages > 60 s | 90 | 87 completed + 3 censored-already-past = **90** | **REPRODUCED** |
+| outages > 300 s | 7 | 6 completed + 1 censored-already-past = **7** | **REPRODUCED** |
+| tier-2 r80 / r50 | 909.5 / 1274.3 m | 909.5 / 1274.3 m | REPRODUCED |
+| CRLB tier-2 gate | 1.105 at 1600 m, 3.272 vs 2.962 | identical | REPRODUCED |
+| shadowing decorrelation (tier 2) | 0.90 | 0.90 | REPRODUCED |
+| no `*** CENSORED` on tier 2 | absent | absent | REPRODUCED |
+| **tier-1 r80** | **≈1522 m** | **1515.3 m** | **CONTRADICTED (0.4%)** |
+| **UWB r80** | **≈13.5 m** | **12.8 m** | **CONTRADICTED (5%)** |
 
 ## Contradictions
 
 | documented | measured | file | which is right |
 |---|---|---|---|
-| 2820 outages | 2812 | `results/tracegw9/seed_*/trace_static_2p4_*.csv` | **2812**, with 8 censored |
-| 90 outages > 60 s | 87 | same | **87** completed, 3 censored |
-| 7 outages > 300 s | 6 | same | **6** completed, 1 censored |
+| tier-1 r80 ≈1522 m | 1515.3 m | `results/probe_audit/probe_stdout.txt` | **1515.3** — v3 hedged with "≈" |
+| UWB r80 ≈13.5 m | 12.8 m | same | **12.8** — 5% optimistic as documented |
+| 2820 outages | 2812 completed + 8 censored | `results/tracegw9/.../trace_static_2p4_*.csv` | **both defensible** — see below |
 
-**Cause, confirmed:** exactly **8** of the 20 `static_2p4` traces end with
-`hadFix = 0`, and 2820 − 2812 = 8. The summariser's trailing `if cur:
-runs.append(cur)` counted each right-censored outage as a completed one of its
-observed length. This both inflates the count and *understates* the durations of
-those 8, because a censored outage is at least as long as observed.
+**A CORRECTION TO THIS AUDIT'S OWN FIRST REPORT.** The first pass recorded
+`>60 s` and `>300 s` as CONTRADICTED. That was wrong, and the error was mine:
+**right-censoring is asymmetric for threshold counts.** An outage still in
+progress at the window edge has observed duration `d_obs` and true duration
+`d_true >= d_obs`, so `d_obs > T` settles the question — when it ends is
+irrelevant. Only `d_obs <= T` is unknown.
 
-**Impact:** the claim "one outage exceeding five minutes roughly every three
-hours" rests on 7, of which 6 are complete. The qualitative finding (the tail is
-severe; 16-minute worst case) survives — the max is a completed outage. The
-counts should be restated as "87 completed outages over 60 s, plus 3 censored".
+Measured censored durations: **2.5, 15.0, 17.5, 47.5, 55.0, 100.0, 142.5, 712.5 s**.
+Three already exceed 60 s; one already exceeds 300 s; none exceeds 962.5 s.
 
-This is failure mode #12-adjacent and a new one: **a duration distribution
-computed over an observation window treats truncation as an event.**
+- `>60 s`: 87 completed + 3 censored-already-past = **90. Documented figure correct.**
+- `>300 s`: 6 completed + 1 censored-already-past = **7. Documented figure correct.**
+- max 962.5 s stands as an *observed* maximum, though seed 14's censored 712.5 s
+  outage could in truth have exceeded it, so it is a lower bound.
+
+**What remains is a specification defect, not a computation error.** Nobody
+stated whether an in-progress outage counts as an outage. "2820 outages" and
+"2812 completed outages" are both correct answers to different questions. The
+statistic was under-specified.
+
+| statistic | censoring-biased? |
+|---|---|
+| threshold counts (>60 s, >300 s) | **no** — exceedances already observed are certain |
+| total count (2820 vs 2812) | label ambiguity only |
+| median, p95 | **yes** — truncated durations bias both downward |
+| max | yes in principle; not in fact here (no `d_obs` > 962.5 s) |
+
+New failure mode: **a duration statistic computed over a finite window without a
+stated rule for observations truncated by that window.**
 
 ## Untraceable numbers
 
@@ -189,9 +235,14 @@ the shared-code check would have missed.
 | 1. Uniform token-count job lines | YES | all 6 post-incident scripts in `scripts/sweeps/` use 4-field lines |
 | 2. Measure an unused quantity after a back-derivation | YES | this audit's V8.3 is an instance, and it found the contradiction |
 | 3. Exact zero = control-flow claim | YES | the `+0.000` multi-step result was withdrawn after a reachability check |
-| 4. A count needs a fixed denominator | **VIOLATED** | the outage *count* 2820 was quoted against a 3600 s window without stating that 8 observations were censored by the window edge |
+| 4. A count needs a fixed denominator, a stated observation window, **and a stated rule for observations truncated by that window** | **VIOLATED on the third clause** | the outage count was quoted without stating whether an in-progress outage counts. The first two clauses held; only the truncation rule was missing, and that alone produced the 2820/2812 discrepancy |
 | 5. Check every arm before claiming uniqueness | YES | the "only configuration delivering both" claim was withdrawn after checking `fixed_threshold` |
 
-Rule 4's violation is the same defect as the contradiction above, which suggests
-the rule as stated is too narrow: it should read **a count needs a fixed
-denominator *and* a stated observation window.**
+Rule 4 as originally stated was too narrow twice over. The window *was* fixed
+(3600 s, 20 seeds); what was missing was the rule for observations truncated by
+it. Widened form now in the table above.
+
+**A sixth rule is warranted by this audit's own error:** *censoring is asymmetric
+— a truncated observation still settles any threshold it has already crossed.*
+Applying a symmetric "recount without the censored" produced two false
+contradictions in the first pass.
