@@ -20,6 +20,8 @@ import csv
 
 FAIL = []
 WARN = []
+ARMS_AUDITED = 0
+ARMS_IN_SUMMARY = 0
 WARN_OK = []
 PASSED = []
 # Documented findings: a check whose failure is the measured result rather than a
@@ -55,6 +57,95 @@ def warn(name, condition, detail=""):
 def load_csv(path):
     with open(path, newline="") as f:
         return list(csv.DictReader(f))
+
+
+def verify_coverage(outdir):
+    """Does the evidence on disk cover what arm_summary.csv says was run?
+
+    Two holes this closes, both found by audit rather than by a gate.
+
+    D1: nothing asserted WHICH arms should be present. Deleting 2 of 6 trace files
+    took the report from 72 checks / 90 gates to 54 / 68 and still printed "All
+    invariants hold" with exit 0. A batch that silently produced four arms passed
+    cleanly, and the gate count -- the only signal -- was compared against nothing.
+    The expected set is derived from arm_summary.csv rather than hardcoded to six,
+    because arms are still being added (fixed_threshold_gated, the E.2 matrix) and
+    a `== 6` assertion would break on the first of those and get deleted.
+
+    D2: nothing related trace mtimes to the summary. The v3 section 3.10 incident --
+    the verifier reading a previous session's traces alongside a fresh summary --
+    was caught by an internal contradiction, not by a gate, and stayed ungated.
+
+    LIMITATION, stated deliberately: mtime survives a copy, so this catches the
+    accident that actually happened (a stale file left in place by a --trace=false
+    run) and not a deliberate reconstruction.
+    """
+    spath = os.path.join(outdir, "arm_summary.csv")
+    traces = sorted(glob.glob(os.path.join(outdir, "trace_*.csv")))
+    if not os.path.exists(spath) or not traces:
+        return  # verify_summary / verify_traces already FAIL on these
+
+    with open(spath, newline="") as f:
+        expected = {(r["arm"], r["seed"]) for r in csv.DictReader(f)}
+
+    present = set()
+    for p in traces:
+        base = os.path.basename(p)[len("trace_"):-len(".csv")]
+        arm, _, seed = base.rpartition("_seed")
+        if arm:
+            present.add((arm, seed))
+
+    missing = expected - present
+    check("evidence coverage: every arm/seed in arm_summary has a trace",
+          not missing,
+          f"{len(missing)} of {len(expected)} missing: {sorted(missing)[:6]}")
+
+    # Freshness must compare the summary against the NEWEST trace, not against each
+    # trace. Arms run sequentially, so within one legitimate run the traces span the
+    # whole run (measured: 283 s spread) while the summary is written 0.128 s after
+    # the last one. A per-trace comparison therefore flags every healthy run.
+    #
+    # The failure this catches is the v3 section 3.10 incident: a later --trace=false
+    # pass rewrites arm_summary.csv into a directory whose traces are from an earlier
+    # run, leaving the summary many minutes newer than the newest trace. Any full run
+    # takes minutes, so 60 s separates the two cases cleanly.
+    #
+    # LIMITATION, stated deliberately: mtime survives a copy, so this catches the
+    # accident that actually happened and not a deliberate reconstruction. It also
+    # cannot detect a partial regeneration in which only some traces were rewritten.
+    smt = os.path.getmtime(spath)
+    mts = [os.path.getmtime(p) for p in traces]
+    newest, oldest = max(mts), min(mts)
+    lag = smt - newest
+
+    # Mode 1 (the incident that happened): a later --trace=false run rewrites the
+    # summary into a directory whose traces are from an earlier run.
+    check("evidence freshness: arm_summary is not newer than the traces it describes",
+          lag <= 60.0,
+          f"arm_summary.csv is {lag:.0f} s newer than the newest trace -- a later "
+          f"--trace=false run almost certainly rewrote it over stale traces")
+
+    # Mode 2: the reverse. A run wrote traces and died before writing the summary,
+    # leaving a stale summary to be read against fresh traces. Within a healthy run
+    # the summary is written LAST, so it is never meaningfully older.
+    check("evidence freshness: arm_summary is not older than the traces it describes",
+          lag >= -60.0,
+          f"arm_summary.csv is {-lag:.0f} s OLDER than the newest trace -- the run "
+          f"that produced these traces did not write a summary")
+
+    # Mode 3: traces mixed from two runs, e.g. a batch resumed after a crash that
+    # regenerated some traces and not others. A legitimate run writes all arms
+    # sequentially -- measured spread 283 s for six arms -- so anything past a
+    # couple of hours is two runs, not one.
+    spread = newest - oldest
+    check("evidence consistency: all traces come from a single run",
+          spread <= 7200.0,
+          f"traces span {spread / 3600.0:.1f} h (measured single-run spread is ~283 s) "
+          f"-- this directory mixes output from more than one run")
+
+    global ARMS_AUDITED, ARMS_IN_SUMMARY
+    ARMS_IN_SUMMARY = len({a for a, _ in expected})
+    ARMS_AUDITED = len({a for a, _ in present & expected})
 
 
 def verify_traces(outdir):
@@ -357,6 +448,7 @@ def _finite(s):
 
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "results/causal"
+    verify_coverage(outdir)
     verify_traces(outdir)
     verify_summary(outdir)
 
@@ -365,6 +457,9 @@ def main():
     print(f"{len(WARN_OK)}/{len(WARN_OK) + len(WARN)} warning gates clear")
     print(f"{total} gates evaluated "
           f"({len(PASSED)} check + {len(WARN_OK) + len(WARN)} warn + {len(NOTE)} note)")
+    # Printed rather than left implicit: the gate count alone cannot distinguish
+    # "all arms checked" from "some arms had no trace and were silently skipped".
+    print(f"arms_audited {ARMS_AUDITED}/{ARMS_IN_SUMMARY}")
 
     if NOTE:
         print(f"\n{len(NOTE)} DOCUMENTED FINDINGS (a gate whose failure is the measured "
