@@ -95,6 +95,7 @@
 #include <cmath>
 #include <deque>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -2593,6 +2594,38 @@ main(int argc, char* argv[])
                  "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
                  searchDutyFrac);
     cmd.Parse(argc, argv);
+
+    // Run identifier, written as a SIDECAR rather than a CSV column. A column would
+    // change arm_summary.csv and break byte-identity against results/baseline_v3,
+    // which is the acceptance test protecting every commit in the NLOS chain.
+    //
+    // Identifies the INVOCATION, not the instant: hash of the full command line plus
+    // the build stamp. No wall-clock read and no pid, deliberately -- this project
+    // has already had one defect where a clock value reached a branch and shifted
+    // the RNG stream whenever the OS preempted the thread.
+    //
+    // Two identical invocations share an id, which is correct: their outputs are
+    // byte-identical, so mixing them is harmless. A --trace=false run has a
+    // different command line and therefore a different id, which is exactly the
+    // staleness case of v3 section 3.10 -- the one mtime only partially covers,
+    // because a run-id survives cp and touch.
+    {
+        std::ostringstream inv;
+        inv << "build " << __DATE__ << " " << __TIME__ << " |";
+        for (int i = 0; i < argc; ++i)
+        {
+            inv << ' ' << argv[i];
+        }
+        const std::string invStr = inv.str();
+        std::ostringstream rid;
+        rid << std::hex << std::setw(16) << std::setfill('0')
+            << std::hash<std::string>{}(invStr);
+        std::ofstream ridFile((outdir + "/run_id.txt").c_str());
+        if (ridFile)
+        {
+            ridFile << rid.str() << "\n" << invStr << "\n";
+        }
+    }
 
     const EnvironmentClass env = static_cast<EnvironmentClass>(envInt);
     const EnvironmentClass envFacility = static_cast<EnvironmentClass>(envFacilityInt);

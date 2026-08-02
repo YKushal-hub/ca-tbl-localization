@@ -116,7 +116,20 @@ struct CaTblPolicyConfig
     //! R -- so they are fixed under a single flag. Default false so the pre-existing
     //! baseline reproduces byte-identically.
     bool mahalUseR;
-    double traceRef;             //!< PCS term-1 reference, metres^2
+    /**
+     * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
+     *
+     * A SPECIFICATION, not a tuned constant, and stating it as the target rather
+     * than the square is the point -- a reader can disagree with 3.162 m and cannot
+     * disagree with 10.0.
+     *
+     * Its consequence is measured, not asserted. PCS clears its own escalation
+     * threshold on 95.8% of UWB fixes (mean radial sigma 0.23 m) and on 0.3% of
+     * tier-1 fixes (53.87 m). So the confidence model reduces to "escalate unless
+     * already on UWB" BY DESIGN: the behaviour follows from this number, and it was
+     * never written down. If the target should be tier-dependent, say so here.
+     */
+    double traceRef;
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 

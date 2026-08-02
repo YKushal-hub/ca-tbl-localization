@@ -143,6 +143,21 @@ def verify_coverage(outdir):
           f"traces span {spread / 3600.0:.1f} h (measured single-run spread is ~283 s) "
           f"-- this directory mixes output from more than one run")
 
+    # Run-id sidecar. Unlike mtime, a run id survives cp and touch, so it closes the
+    # staleness class rather than the two modes the mtime checks cover. Absent is a
+    # WARNING not a FAILURE, so results produced before the sidecar existed still
+    # audit -- a gate that refuses to run on historical data gets bypassed.
+    ridp = os.path.join(outdir, "run_id.txt")
+    warn("provenance: run_id.txt sidecar present",
+         os.path.exists(ridp),
+         "no run_id.txt -- produced before the sidecar existed, or by a different tool")
+    if os.path.exists(ridp):
+        with open(ridp) as f:
+            rid = f.readline().strip()
+        check("provenance: run id is well formed", len(rid) == 16 and all(
+                  c in "0123456789abcdef" for c in rid),
+              f"run_id.txt first line is {rid!r}, expected 16 hex digits")
+
     global ARMS_AUDITED, ARMS_IN_SUMMARY
     ARMS_IN_SUMMARY = len({a for a, _ in expected})
     ARMS_AUDITED = len({a for a, _ in present & expected})
