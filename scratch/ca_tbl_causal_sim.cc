@@ -2400,10 +2400,20 @@ RunArm(CaTblPolicyMode mode,
                 // cyber-physical coupling worth measuring: a legal airtime constraint
                 // propagating into handoff latency and therefore into position error.
                 //
-                // Behind a flag, default OFF, because it changes the tier trajectory
-                // rather than only the accounting, and results/baseline_v4 has already
-                // been established on the accounting-only behaviour. Demotion is never
-                // deferred: a node must be able to abandon a tier it cannot reach.
+                // DEFAULT ON. Leaving it off is not the conservative choice it looks
+                // like. With gating on but deferral off the tier change still commits
+                // inside Step(), so an arm performs the escalation and pays for none
+                // of it -- and the size of that free ride is correlated with which arm
+                // is under test: 100% of fixed_threshold's 200 handshakes go unpaid
+                // against 1 of ca_tbl's 193, because fixed_threshold always departs
+                // tier 1. The bias therefore runs in the BASELINE's favour, which is
+                // exactly as wrong as the opposite and is the first thing a reviewer
+                // finds: the baseline's handoffs are free, so of course it wins on
+                // energy. Deferring removes the bias by making the escalation not
+                // happen rather than happen for free.
+                //
+                // Demotion is never deferred: a node must be able to abandon a tier it
+                // cannot reach.
                 if (deferEscalationOnDutyLimit && d.escalated)
                 {
                     policy.AbortTierChange(active);
@@ -2760,7 +2770,14 @@ main(int argc, char* argv[])
     bool mahalUseR = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
-    bool deferEscalationOnDutyLimit = false;
+    // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
+    // off, an arm still performs the escalation while paying for none of it, and
+    // the size of that free ride is correlated with which arm is under test --
+    // 100% of fixed_threshold's handshakes against 1% of ca_tbl's. That bias runs
+    // in the BASELINE's favour, which feels conservative and is not: it makes the
+    // baseline's handoffs free. "No signal, no handoff" removes the bias by making
+    // the escalation not happen rather than happen for free.
+    bool deferEscalationOnDutyLimit = true;
     // <= 0 means "leave the CaTblPolicyConfig default untouched", so the flags are
     // inert unless set and baseline reproduction does not depend on their values.
     double fixedVarThresholdM2 = -1.0;
@@ -2861,7 +2878,11 @@ main(int argc, char* argv[])
                  "skipping its energy charge -- a handoff that cannot be signalled "
                  "has not happened. Measures the coupling from a regulatory airtime "
                  "limit into handoff latency and hence position error. Demotion is "
-                 "never deferred. false (default) preserves results/baseline_v4.",
+                 "never deferred. Default TRUE: with it false the tier change still "
+                 "commits while the handshake goes uncharged, and the size of that "
+                 "free ride is arm-correlated (100% of fixed_threshold's handshakes "
+                 "vs 1% of ca_tbl's), biasing energy in the BASELINE's favour. Set "
+                 "false to reach the biased mode for comparison.",
                  deferEscalationOnDutyLimit);
     cmd.AddValue("pcsForm",
                  "Position Confidence Score functional form: legacy|v2. 'legacy' "

@@ -19,28 +19,85 @@ dated by its commit, not by its content.
 
 ### 0.1 The form
 
-```
-sigma_ref = sqrt(traceRef) = sqrt(10.0) = 3.1623 m
-sigma_post = sqrt(traceSigma)                     -- EKF posterior radial sigma
-sigma_geo  = sqrt(rxx + ryy) from (J^T R^-1 J)^-1 -- this cycle's measurement-only
-                                                     radial sigma
-losFrac    = nLos / nTotal                        -- meaningful only after item 1
+**AMENDED before any v2 run — see §0.1.1 for the amendment and the measurement
+that forced it. The form below is the amended one; the superseded three-term
+version is shown in §0.1.1 so the change is auditable rather than silent.**
 
-pcs_v2 = log10(sigma_ref / sigma_post)
-       + log10(sigma_ref / sigma_geo)
-       + losFrac
+```
+sigma_ref  = sqrt(traceRef) = sqrt(10.0) = 3.1623 m   -- the SPECIFICATION
+sigma_post = sqrt(traceSigma)                          -- EKF posterior radial sigma
+sigma_geo  = sqrt(rxx + ryy) from (J^T R^-1 J)^-1      -- this cycle's
+                                                          measurement-only radial sigma
+
+sigma_eff  = sqrt(sigma_post * sigma_geo)              -- geometric mean
+
+pcs_v2     = log10(sigma_ref / sigma_eff)
 ```
 
-Both leading terms are log-ratios of a length to a length: dimensionless,
-unbounded in both directions, and therefore retaining resolution across the
-three orders of magnitude that separate UWB from tier 1 — which is exactly what
-the saturating `traceRef/(traceRef+traceSigma)` form destroys.
+Equivalently `0.5 * [log10(sigma_ref/sigma_post) + log10(sigma_ref/sigma_geo)]`:
+a log-ratio of a length to a length. Dimensionless, unbounded in both directions,
+retaining resolution across the three orders of magnitude that separate UWB from
+tier 1 — which is exactly what the saturating `traceRef/(traceRef+traceSigma)`
+form destroys.
+
+Read plainly: **the score is how many decades of position uncertainty separate
+the current fix from the stated accuracy target.**
 
 `sigma_geo` is the exact `(J^T R^-1 J)^-1`, not the `gdop × sigma` approximation.
 `RawMultilaterationWeighted()` already returns it, it costs no additional RNG
 draw, and GDOP is defined for equal per-range sigma — the assumption tier 1
-violates hardest. There is no reason to approximate a quantity that is already
-computed exactly.
+violates hardest. There is no reason to approximate a quantity already computed
+exactly.
+
+#### 0.1.1 Amendment: term 3 removed from the operative score
+
+**Superseded form:**
+
+```
+pcs_v2_superseded = log10(sigma_ref/sigma_post) + log10(sigma_ref/sigma_geo) + losFrac
+```
+
+The original pre-registration retained `losFrac = nLos/nTotal` on the grounds
+that it was "meaningful only after item 1". **Item 1 has now shown it is not
+meaningful after item 1 either.** Measured under `--nlosSource=propagation`,
+seed 7, fix cycles, from the pinned single-band arms:
+
+| tier | `losFrac` mean | sd | distinct values observed |
+|---|---|---|---|
+| 1 — 868 MHz | 0.9303 | 0.1008 | 14 |
+| 2 — 2.4 GHz | 0.9992 | **0.0097** | 6 |
+| 3 — UWB | 1.0000 | **0.0000** | **1** |
+
+Term 3 has not been revived by fixing defect A — it has been **inverted**. It was
+pinned near 0; it is now pinned near 1. On tier 3 it is exactly constant across
+every fix cycle in the run. On tier 2 its standard deviation is 0.0097 against
+leading terms that span decades.
+
+A near-constant term contributes an **offset**, and an offset compared against a
+threshold is absorbed by the threshold. It carries no decision information. On
+tier 1 it takes a handful of discrete values drawn from roughly
+`Binomial(3.7, 0.07)/3.7`, which is the only place it varies at all, and even
+there its spread is ~3% of the score's range. It is also dimensionally
+incoherent with the other two — a bare fraction added to log-ratios.
+
+**It is therefore removed from the operative sum and retained as a reported
+diagnostic** (§0.4a). This is an amendment made before the sweep, with the
+measurement stated, not a term quietly dropped after seeing a result.
+
+#### 0.1.2 Why the leading factor changed from a sum to a mean
+
+The superseded form summed two log-ratios; the amended form averages them
+(`sqrt` of the product inside the log). **This changes no decision at threshold
+0** — `0.5x > 0` and `x > 0` are the same condition — so it is not a tuning move.
+
+It is a fidelity fix to the pre-registered hysteresis rule. The rule is "a factor
+of 2 in sigma, 0.301 on a log10 scale". Under the summed form, a factor of 2 in
+the underlying uncertainty moves the score by `2 × log10(2) = 0.602`, so the
+constant 0.301 would have silently meant a factor of 1.41, not 2. Under the
+averaged form one unit of score is exactly one decade of `sigma_eff`, so 0.301
+means a factor of 2 as stated. The formula was corrected to match the
+pre-registered intent rather than the intent quietly restated to match the
+formula.
 
 ### 0.2 The escalation threshold — derived, not chosen
 
@@ -48,15 +105,15 @@ computed exactly.
 the target radial position accuracy, `(3.162 m)²`. It is not a tuned constant and
 predates this work.
 
-The form above is constructed so that `log10(sigma_ref / sigma_post) = 0` exactly
-when the posterior radial sigma equals that target. Taking the geometry term at
-its own reference and the LOS term at its clean value, the escalation threshold
-is therefore
+The amended form is constructed so that `pcs_v2 = 0` exactly when
+`sigma_eff = sigma_ref`, i.e. when the geometric mean of the posterior and
+geometric position uncertainty equals that target. The escalation threshold is
+therefore
 
 > **`pcsThresholdUp = 0.0`, for every tier.**
 
-Read plainly: *escalate while the fix is worse than the stated accuracy target,
-stop when it is met or when tiers run out.* The threshold is not a free
+Read plainly: *escalate while position uncertainty exceeds the stated accuracy
+target, stop when it is met or when tiers run out.* The threshold is not a free
 parameter — it is the specification restated on a log scale.
 
 **One target for all three tiers**, not three. An accuracy requirement does not
@@ -72,11 +129,14 @@ before the run, at **a factor of 2 in sigma**:
 
 > **`pcsThresholdDown = 0.301` (= log10 2), for every tier.**
 
-One octave of position uncertainty. A round, principled choice, committed in
-advance; not the best of several tried. The direction preserves the legacy
-design's deliberate bias — the down threshold sits above the up threshold, so a
-missed escalation costs more than a wasted one, which is the correct asymmetry
-for search and rescue.
+One octave of position uncertainty: the node demotes only once `sigma_eff` is
+better than **half** the target. A round, principled choice, committed in
+advance; not the best of several tried. Under the amended form one score unit is
+exactly one decade of `sigma_eff`, so this constant means a factor of 2 as
+intended — see §0.1.2. The direction preserves the legacy design's deliberate
+bias: the down threshold sits above the up threshold, so a missed escalation
+costs more than a wasted one, which is the correct asymmetry for search and
+rescue.
 
 `nDeescalate = 5` is unchanged from the legacy configuration.
 
@@ -109,6 +169,27 @@ Two controls are therefore pre-registered alongside v2:
 correlation with error while still escalating on 96% of cycles, and if it does,
 the energy conclusion does not move however good ρ looks. Neither number is
 sufficient alone.
+
+### 0.4a Per-term evaluation — pre-registered
+
+Reporting only the correlation of the sum would hide a one-term score wearing
+decoration: a sum can correlate well because a single component does all the
+work, and that is exactly the failure the baseline comparison is meant to expose.
+So the following are reported per term, over fix cycles, per tier and pooled:
+
+1. **Variance contributed.** `Var(term_i)` and `Var(term_i)/Var(pcs)` for each
+   term, plus the covariance cross-terms, so the decomposition closes.
+2. **Range and distinct-value count**, which is what caught term 3: a term with
+   one distinct value on a tier is a constant, whatever its mean.
+3. **ρ of each term alone** against realised error, next to ρ of the sum. If a
+   single term's ρ matches the sum's, the other terms are decoration.
+4. **`losFrac` is reported under all of the above despite being removed from the
+   operative score**, so its exclusion stays visible and reversible rather than
+   becoming an undocumented assumption of the next session.
+
+A v2 that beats legacy on ρ but whose variance is >90% attributable to
+`sigma_post` alone will be reported as what it is: the `fixed_threshold`
+statistic on a log scale.
 
 ### 0.5 The threshold-parity problem
 
@@ -356,6 +437,103 @@ variance inflation keyed to a variable with no physical effect. This makes the
 
 The report states it is accurate as of `7e23ad903`.
 
+### 3.-1 The architecture cannot afford to signal its own handoffs — NEW RESULT, AND THE STRONGEST ONE IN THE PROJECT
+
+This began as a bug fix (§3.7) and is not a bug. It is a regulatory constraint
+dictating an architectural parameter, and it is stated here as a finding in its
+own right.
+
+**The arithmetic.** Tier 1 is SF7, BW 125 kHz, CR 4/5. Semtech time-on-air:
+
+| quantity | value | source |
+|---|---|---|
+| WPC G.S.R. 853(E) Table-II budget | 2.5% | cited regulation |
+| budget per `dt` = 2.5 s cycle | **62.50 ms** | `0.025 × 2.5` |
+| ToA, 20-byte ranging frame | **56.58 ms** | Semtech ToA, SF7/125 kHz/CR4/5 |
+| measured tier-1 airtime per cycle | **56.58 ms** | `airtime_868 / steps`, `static_868`, seed 7 |
+| remaining budget | **5.92 ms** | 62.50 − 56.58 |
+| ToA, 12-byte handshake frame (TX alone) | **41.22 ms** | same formula, `AccountEscalationHandshake` default payload |
+
+The measured per-cycle airtime equals the computed ToA of a single 20-byte frame
+to five significant figures, which independently confirms that the tier-1 budget
+is spent on exactly one ranging exchange per cycle and nothing else.
+
+**The escalation handshake needs 41.22 ms and 5.92 ms remain. It does not fit,
+by a factor of 7.0.** This is not an artefact of ordering within the cycle — no
+scheduling change can fit a 41 ms frame into a 6 ms budget. The request/grant
+exchange also charges a guarded RX window on top of the TX, so 7.0× is a lower
+bound on the shortfall.
+
+**Consequence, stated as an architectural requirement:**
+
+> At `dt` = 2.5 s, a field node under Indian WPC Table-II cannot transmit the
+> escalation request that a tier-1 → tier-2 handoff requires. Either the cycle
+> period rises to **3.91 s** (`(56.58 + 41.22)/0.025`), a 1.56× slower fix
+> cadence, or the tier-1 ranging payload shrinks, or handoffs departing tier 1
+> must be rare by design.
+
+§3.1 of the report already documents `dt = 2.5 s` as **REGULATORY**, derived as
+"0.056 s tier-1 airtime / 0.025 duty cap = 2.24 s minimum". That derivation
+budgets for **ranging only**. It omits the handoff signalling the architecture
+is built around. The correct floor for a system that must also signal handoffs
+from tier 1 is 3.91 s, not 2.24 s, and the configured 2.5 s sits between them —
+which is precisely why the defect was invisible: the system was compliant for
+ranging and silently non-compliant the moment it tried to hand off.
+
+This is a chain from a legal constraint, through a protocol parameter, to
+handoff latency, to metres of position error. It is stronger than anything the
+confidence model has produced, and it did not require the confidence model to
+work.
+
+**Scope and honesty about what is not yet measured.** The position-error cost of
+the induced latency is quantified in §2b from `baseline_v5`. The claim above is
+about signalling capacity under one regulation at one cadence; it does not
+generalise to bands without a duty-cycle cap (2.4 GHz and UWB have none in this
+model, which is why escalations *between* those tiers are unaffected).
+
+### 3.0 §6 and §8's hybrid-arm accuracy figures were produced by a bug — CONFIRMED, AND THIS IS THE LARGEST ITEM ON THE LIST
+
+The bogus NLOS inflation was **load-bearing**, not incidental. The causal chain,
+measured end to end:
+
+```
+hiddenChannelState > 0 on ~75% of links   (a fading regime with no physical effect)
+  -> R inflated 2.6-2.7x on essentially every link
+  -> traceSigma inflated
+  -> PCS suppressed below its escalation threshold
+  -> escalation fires on ~96% of fix cycles
+  -> the node sits on tier 2/3
+  -> good median accuracy
+```
+
+Remove the defect and the escalation signal disappears — because **there never
+was one**. `ca_tbl_no_integrity` falls from 193 escalations to 12 and from
+4.56 m to 97.04 m RMSE. The defect was doing the work the confidence model was
+credited with.
+
+Therefore: **the ~8 m median accuracy that report §8.1 and §8.2 attribute to
+`ca_tbl_full` and to `fixed_threshold` was reached via a 2.6× variance error, not
+via a working confidence model.** Every hybrid-arm accuracy figure in §6 and §8
+is affected. This is a larger contradiction than the two hardcoded ρ values,
+because those misreport a diagnostic while this one misattributes the central
+result's mechanism.
+
+**What this does to PCS's diagnosis.** §10.4 says PCS is uninformative — ρ =
+−0.09. The sharper statement is that PCS is **miscalibrated in a measurable
+direction, and the direction reverses with the defect**:
+
+| condition | PCS behaviour | realised error |
+|---|---|---|
+| legacy (R inflated 2.6×) | pinned low, escalates on ~96% of cycles | good, ~4.6 m |
+| propagation (R correct) | pinned high, escalates on 12 of 1434 | bad, ~97 m |
+
+In the first it reports low confidence when error is low; in the second it
+reports high confidence when error is 97 m. **Uninformative in both directions
+under opposite conditions** — it does not track error in either regime, and the
+appearance of competence in the legacy regime was an artefact of a compensating
+error. That is a considerably harder finding to wave away than a weak
+correlation coefficient, and it is what item 2 exists to address.
+
 ### 3.1 §10.2's mechanism is understated — CONFIRMED AND EXTENDED
 Correct that the flag is a category error. Does not state that the hidden
 channel state has **no physical effect at all** under the fidelity mode actually
@@ -407,6 +585,43 @@ fidelity gating.
 §10.2 and the kickoff brief describe three occurrences. There are six; three
 are write-only. Not result-affecting, but a reader auditing the fix would have
 found three of six sites and believed the job done.
+
+### 3.7 The duty-cycle governor was never consulted for the escalation handshake — NEW DEFECT, FIXED
+`ca_tbl_causal_sim.cc` charged `AccountEscalationHandshake()` unconditionally.
+`CaTblEnergyModel`'s governor is **advisory** — it exposes
+`CanTransmit()`/`NoteDeferred()` and requires the caller to ask — and this call
+site did not, nor did it call `NoteDeferred()` on the failing path. The
+request/grant round-trip therefore burnt tier-1 airtime outside the regulatory
+budget.
+
+Surfaced as `duty_868 = 0.02511` against the WPC G.S.R. 853(E) Table-II cap of
+0.025 under `--nlosSource=propagation` — about 0.4 s of excess airtime over
+3600 s, a handful of SF7 frames, consistent with tier-1 escalations at the
+observed rate. It was latent under legacy only because escalation happened to
+land differently, not because the code was correct there.
+
+This contradicts report §7.5, "Regulatory compliance: `duty_868` = 0.0226 against
+the 0.025 Table-II cap; **the governor is enforced, not assumed**." For the
+escalation handshake it was assumed, not enforced. The compliant number in §7.5
+is real but was reached by luck of the operating point rather than by the
+mechanism claimed.
+
+Fixed: the handshake is now gated on `CanTransmit()` with `NoteDeferred()` on the
+failing path. **This changes `arm_summary.csv` for every arm that escalates**, so
+it establishes `results/baseline_v4` as a new reference (see §2a).
+
+### 3.8 The validation harness was effectively untracked — NEW DEFECT, FIXED
+`scratch/.gitignore` ignores `/*`, which matches `scratch/python_handoff/`. Git
+does not descend into an ignored directory, so every new file there was silently
+untracked — `verify_causal_sim.py` itself required `git add -f` during this
+session, and any validation script added beside it would simply not have existed
+in the repository.
+
+A validation harness that can quietly fail to exist is a worse failure mode than
+anything it checks for: the gates would appear to pass on a checkout that never
+contained them. Fixed with a directory negation, plus two new verifier gates that
+fail if anything under that directory is untracked or ignored — a gate on the
+gates. Both were confirmed to bite by planting a stray file.
 
 ---
 
