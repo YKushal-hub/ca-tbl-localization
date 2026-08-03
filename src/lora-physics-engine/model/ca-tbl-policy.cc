@@ -95,7 +95,9 @@ CaTblDecision::CaTblDecision()
       estX(0.0),
       estY(0.0),
       nAnchorsUsed(0),
-      nNlos(0)
+      nNlos(0),
+      meanSigmaM(0.0),
+      meanSigmaRawM(0.0)
 {
 }
 
@@ -670,6 +672,7 @@ CaTblPolicy::Step(double dt,
     // NLOS-adaptive R the design calls for.
     std::vector<double> varM2;
     varM2.reserve(meas.size());
+    double sumVarRaw = 0.0;
     uint32_t nLos = 0;
     for (size_t i = 0; i < meas.size(); ++i)
     {
@@ -696,6 +699,15 @@ CaTblPolicy::Step(double dt,
             sigma = meas[i].nlos ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
         }
         varM2.push_back(sigma * sigma);
+        // Raw = pre-inflation. Recomputed rather than captured above so the two
+        // branches of the sigma selection stay legible.
+        {
+            const double raw = (meas[i].sigmaM > 0.0)
+                                   ? meas[i].sigmaM
+                                   : (meas[i].nlos ? m_config.nlosSigmaM[m_tier]
+                                                   : m_config.losSigmaM[m_tier]);
+            sumVarRaw += raw * raw;
+        }
         if (!meas[i].nlos)
         {
             nLos++;
@@ -776,6 +788,15 @@ CaTblPolicy::Step(double dt,
     }
 
     const double traceSigma = m_ekf.TracePos();
+    double sumVar = 0.0;
+    for (size_t i = 0; i < varM2.size(); ++i)
+    {
+        sumVar += varM2[i];
+    }
+    d.meanSigmaM = varM2.empty() ? 0.0 : std::sqrt(sumVar / static_cast<double>(varM2.size()));
+    d.meanSigmaRawM =
+        varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
+
     const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
     const double pcs = ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount);
 

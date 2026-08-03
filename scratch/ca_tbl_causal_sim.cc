@@ -1947,7 +1947,7 @@ RunArm(CaTblPolicyMode mode,
               // because estX prints at 4 decimals and a divergence of 1e-5 m is
               // invisible there -- which is precisely how a divergence that began
               // earlier could look like one that began at t=7.5.
-              << "directCalls,macEvals,estXhp,estYhp\n";
+              << "directCalls,macEvals,estXhp,estYhp,meanSigmaM,meanSigmaRawM\n";
     }
 
     std::vector<double> errors;
@@ -2367,7 +2367,7 @@ RunArm(CaTblPolicyMode mode,
                   << nodeMac[2]->GetNeighbourCount(CA_TBL_TIER_UWB, t) << ","
                   << polledCount << "," << (blind ? 1 : 0) << "," << directEngineCalls << ","
                   << provider.GetEvaluations() << "," << std::setprecision(12) << d.estX << ","
-                  << d.estY << "\n";
+                  << d.estY << "," << d.meanSigmaM << "," << d.meanSigmaRawM << "\n";
         }
     }
 

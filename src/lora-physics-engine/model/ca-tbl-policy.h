@@ -169,6 +169,16 @@ struct CaTblDecision
     double estY;
     uint32_t nAnchorsUsed;
     uint32_t nNlos;
+    //! sqrt(mean(varM2)) -- exactly what a scaled ComputePcs would receive.
+    //! CONTAMINATED by nlosSigmaInflation, which is applied to ~75% of links
+    //! because meas[i].nlos reads a 4-state Markov regime and not an NLOS flag.
+    double meanSigmaM;
+    //! The same before nlosSigmaInflation. Emitting both separates the question
+    //! "does gdop * sigma order the tiers correctly" from the NLOS defect, so the
+    //! premise behind a scaled PCS term can be tested now rather than after the
+    //! NLOS chain lands. Their ratio measures the inflation's effect on the
+    //! confidence model as a by-product.
+    double meanSigmaRawM;
 
     CaTblDecision();
 };
