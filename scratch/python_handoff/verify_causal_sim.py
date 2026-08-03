@@ -163,6 +163,126 @@ def verify_coverage(outdir):
     ARMS_AUDITED = len({a for a, _ in present & expected})
 
 
+def read_nlos_source(outdir):
+    """Which --nlosSource produced this directory, from the run_id sidecar.
+
+    The mode is NOT a column in arm_summary.csv and must not become one: that file
+    is byte-compared against results/baseline_v3 as the acceptance test for every
+    flag in the project, so adding a column would break the very gate the NLOS
+    work is being held to. run_id.txt line 2 is the full invocation, which already
+    carries the flag, and it is written by the run itself -- so this reads
+    provenance rather than inferring the mode from the data it is about to check.
+
+    Absent sidecar means legacy: results produced before the flag existed are
+    legacy by definition.
+    """
+    ridp = os.path.join(outdir, "run_id.txt")
+    if not os.path.exists(ridp):
+        return "legacy"
+    with open(ridp) as f:
+        lines = f.read().splitlines()
+    inv = lines[1] if len(lines) > 1 else ""
+    for tok in inv.split():
+        if tok.startswith("--nlosSource="):
+            return tok.split("=", 1)[1]
+    return "legacy"
+
+
+def verify_nlos_columns(arm, rows):
+    """The NLOS populations must be internally consistent and correctly keyed.
+
+    Gates the defect fixed in this change: nNlos used to be
+    (nlosDb > 0 || hiddenChannelState > 0), and hiddenChannelState is a 4-state
+    Markov FADING REGIME uniform on [0, 3.99), so '> 0' tagged ~75% of links as
+    obstructed. nNlosPropagation and nHiddenChannel are now emitted separately so
+    that the composition of the operative flag is checkable rather than arguable.
+    """
+    if "nNlosPropagation" not in rows[0] or "nHiddenChannel" not in rows[0]:
+        FAIL.append(f"{arm}: missing NLOS population columns "
+                    f"(nNlosPropagation/nHiddenChannel) -- rebuild the simulation")
+        return
+
+    fix = [r for r in rows if int(r["hadFix"]) == 1]
+    if not fix:
+        return
+
+    # Each population is a subset of the links actually fused, so none can exceed
+    # nAnchors. Catches a count taken over the wrong measurement set -- e.g. over
+    # the polled set rather than the set that survived to the EKF.
+    bad = sum(1 for r in fix
+              if not (int(r["nNlos"]) <= int(r["nAnchors"])
+                      and int(r["nNlosPropagation"]) <= int(r["nAnchors"])
+                      and int(r["nHiddenChannel"]) <= int(r["nAnchors"])))
+    check(f"{arm}: NLOS counts never exceed the fused link count", bad == 0,
+          f"{bad} rows where a population count exceeds nAnchors")
+
+    # Anti-regression, and it applies in BOTH modes: the hidden-channel population
+    # must still be observed and recorded. The cheap wrong way to make the NLOS
+    # numbers look right is to stop counting the Markov regime rather than to stop
+    # keying the R matrix to it -- that would silence the evidence while leaving
+    # the defect in place. This gate makes the population's disappearance a
+    # failure. It is deliberately mode-independent so the two modes carry the same
+    # number of gates and a mode change cannot quietly reduce coverage.
+    hidden_total = sum(int(r["nHiddenChannel"]) for r in fix)
+    check(f"{arm}: hidden-channel population is still recorded", hidden_total > 0,
+          "nHiddenChannel is zero on every fix cycle -- the Markov regime is no "
+          "longer being observed, so the size of the legacy defect can no longer "
+          "be measured from this trace")
+
+    if read_nlos_source_cache["mode"] == "legacy":
+        # The legacy flag is an OR of the two populations, so per row it is bounded
+        # below by the larger of them and above by their sum (capped at nAnchors).
+        # Catches a flag keyed to neither population, which is what a partially
+        # applied re-keying would look like.
+        under = sum(1 for r in fix
+                    if int(r["nNlos"]) < max(int(r["nNlosPropagation"]),
+                                             int(r["nHiddenChannel"])))
+        check(f"{arm}: legacy NLOS flag is at least the larger population",
+              under == 0,
+              f"{under} rows where nNlos < max(nNlosPropagation, nHiddenChannel) -- "
+              f"an OR cannot be smaller than either of its operands")
+        over = sum(1 for r in fix
+                   if int(r["nNlos"]) > min(int(r["nAnchors"]),
+                                            int(r["nNlosPropagation"])
+                                            + int(r["nHiddenChannel"])))
+        check(f"{arm}: legacy NLOS flag never exceeds the union bound", over == 0,
+              f"{over} rows where nNlos exceeds nNlosPropagation + nHiddenChannel")
+    else:
+        # Under --nlosSource=propagation the operative flag IS the propagation
+        # population, exactly. This is the gate that the flag was actually re-keyed
+        # rather than merely documented as re-keyed.
+        mism = sum(1 for r in fix
+                   if int(r["nNlos"]) != int(r["nNlosPropagation"]))
+        check(f"{arm}: --nlosSource=propagation keys the flag to the propagation "
+              f"population", mism == 0,
+              f"{mism} rows where nNlos != nNlosPropagation despite "
+              f"--nlosSource=propagation -- the flag was not re-keyed")
+
+        # The re-keying must actually CHANGE something. If the operative flag still
+        # matched the hidden-channel population on every row, --nlosSource would be
+        # an inert flag that merely renamed the defect -- which is precisely the
+        # failure mode a flag-gated "fix" invites.
+        same_as_hidden = all(int(r["nNlos"]) == int(r["nHiddenChannel"]) for r in fix)
+        check(f"{arm}: propagation flag is distinguishable from the Markov regime",
+              not same_as_hidden,
+              "nNlos equals nHiddenChannel on every fix cycle even under "
+              "--nlosSource=propagation -- the flag was renamed, not re-keyed")
+
+    links = sum(int(r["nAnchors"]) for r in fix)
+    if links:
+        NOTE.append(
+            f"{arm}: NLOS populations over {links} fused links -- "
+            f"operative {sum(int(r['nNlos']) for r in fix) / links:.1%}, "
+            f"propagation {sum(int(r['nNlosPropagation']) for r in fix) / links:.1%}, "
+            f"hiddenChannel {sum(int(r['nHiddenChannel']) for r in fix) / links:.1%}; "
+            f"all-LOS on {sum(1 for r in fix if int(r['nNlos']) == 0)}/{len(fix)} "
+            f"fix cycles ({sum(1 for r in fix if int(r['nNlos']) == 0) / len(fix):.2%}). "
+            f"The all-LOS rate is the integrity gate's eligible population")
+
+
+read_nlos_source_cache = {"mode": "legacy"}
+
+
 def verify_traces(outdir):
     traces = sorted(glob.glob(os.path.join(outdir, "trace_*.csv")))
     if not traces:
@@ -297,6 +417,9 @@ def verify_traces(outdir):
                         if (int(r["visUwb"]) >= 3) != (int(r["shouldUwb"]) == 1))
         check(f"{arm}: shouldUwb == (visUwb >= 3)", bad_label == 0,
               f"{bad_label} rows where the ground-truth label disagrees with the geometry")
+
+        # 9b. NLOS populations (the --nlosSource chain).
+        verify_nlos_columns(arm, rows)
 
         # 10. The scenario must actually pose the escalation question. If the node
         #     is never inside UWB coverage there is nothing to escalate to and the
@@ -463,6 +586,8 @@ def _finite(s):
 
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "results/causal"
+    read_nlos_source_cache["mode"] = read_nlos_source(outdir)
+    print(f"nlos_source {read_nlos_source_cache['mode']} (from run_id.txt provenance)")
     verify_coverage(outdir)
     verify_traces(outdir)
     verify_summary(outdir)

@@ -341,6 +341,86 @@ VisibleCount(const Deployment& dep, CaTblTier tier, const Vector& p)
 }
 
 /**
+ * \brief Which physical quantity the operative NLOS tag is built from.
+ *
+ * THE DEFECT THIS EXISTS TO FIX
+ * -----------------------------
+ * The tag was `(nlosDb > 0.0) || (hiddenChannelState > 0)`. hiddenChannelState is
+ * a 4-state Markov FADING REGIME, drawn as
+ *
+ *     newState = (uint32_t) Sample(Uniform(0.0, 3.99));
+ *
+ * so `> 0` selects three of four regimes. Measured over seed 7, all six arms, fix
+ * cycles only: 41018 of 54174 links tagged, 75.7%, with 2 of 7338 cycles all-LOS.
+ * That is not a mis-set threshold, it is a category error -- "fading regime 1" is
+ * not "there is an obstruction". The consequences were all load-bearing:
+ * nlosSigmaInflation (3.0x) became an effectively global variance multiplier on
+ * the EKF, PCS term 3 was pinned near a constant, and the integrity gate's
+ * all-LOS precondition was satisfiable essentially never.
+ *
+ * WHY THE MARKOV STATE IS NOT AN ACCEPTABLE PROXY EITHER
+ * -----------------------------------------------------
+ * A `severe` mode keyed on `hiddenChannelState >= 2` was considered and
+ * deliberately NOT implemented. In this scenario the hidden state has no physical
+ * effect whatsoever: every coupling from it into the channel is gated behind
+ * FIDELITY_SDR_GRADE_REALISM -- the +6/+18 dB obstruction penalties
+ * (lora-physics-engine.cc:352-355), the terrain reflection count (406-411) and
+ * the delay-spread expansion (483) -- while LoRaPhysicsConfig::ForScenario()
+ * sets FIDELITY_ULTRA_FAST_STATISTICAL (lora-physics-parameters.cc:625) and
+ * nothing here overrides it. The state attenuates nothing, delays nothing and
+ * biases nothing. Inflating measurement variance on it would be inflating noise
+ * on the basis of a variable that does not affect the measurement -- the same
+ * defect at half strength. The population is still emitted (nHiddenChannel) so
+ * this judgement stays checkable rather than merely asserted.
+ *
+ * BEWARE when grepping: lora-physics-engine.cc:273 sets
+ * `result.fidelitySchedulerState = FIDELITY_SDR_GRADE_REALISM` as an unrelated
+ * telemetry constant. It is not m_config.fidelityMode and does not gate anything.
+ *
+ * NEITHER MODE PERTURBS THE CHANNEL. Both read fields off an already-computed
+ * PhysicsResult and consume no RNG draw, so all sources share one channel
+ * realisation and differ only in how the EKF weights it. That is what makes
+ * legacy byte-identical and makes the comparison between sources clean.
+ */
+enum CaTblNlosSource
+{
+    //! (nlosDb > 0) || (hiddenChannelState > 0). The defect, retained as the
+    //! default so results/baseline_v3 reproduces byte-identically.
+    CA_TBL_NLOS_LEGACY = 0,
+    //! The propagation layer's own determination: PhysicsResult::isNLOS, which is
+    //! exactly `nlosDb > 0.01` and is set from ComputeNLOSPenaltyDb(). This is the
+    //! same field the pre-flight probe already reports as nlos_frac, so the probe
+    //! and the arms finally agree on what the word means.
+    CA_TBL_NLOS_PROPAGATION
+};
+
+/**
+ * \brief Build the operative NLOS tag from the two candidate populations.
+ *
+ * \param src         selected source
+ * \param nlosDb      PhysicsResult::nlosDb -- the obstruction penalty in dB
+ * \param propNlos    PhysicsResult::isNLOS -- the engine's own LOS/NLOS verdict
+ * \param hiddenState PhysicsResult::hiddenChannelState -- the fading regime
+ *
+ * LEGACY IS SPELLED OUT LITERALLY, on nlosDb rather than on isNLOS, even though
+ * the two are the same event in every practical case. isNLOS is `nlosDb > 0.01`,
+ * so the two verdicts can differ when 0 < nlosDb <= 0.01 dB -- reachable in
+ * principle because both ComputeNLOSPenaltyDb() draws are truncated at zero.
+ * Byte-identical reproduction of results/baseline_v3 is the acceptance test for
+ * this whole change, and it should hold by construction rather than by an
+ * argument about how improbable a sub-0.01 dB obstruction is.
+ */
+inline bool
+CaTblNlosFlag(CaTblNlosSource src, double nlosDb, bool propNlos, uint32_t hiddenState)
+{
+    if (src == CA_TBL_NLOS_PROPAGATION)
+    {
+        return propNlos;
+    }
+    return (nlosDb > 0.0) || (hiddenState > 0);
+}
+
+/**
  * \brief CaTblPhyProvider backed by the three real physics engines.
  *
  * This is the wiring the S4 MAC was written against and never had: until now the
@@ -391,9 +471,17 @@ class EnginePhyProvider : public CaTblPhyProvider
           m_nodeId(fieldNodeId),
           m_nodePos(0.0, 0.0, 0.0),
           m_evaluations(0),
-          m_skipped(0)
+          m_skipped(0),
+          m_nlosSource(CA_TBL_NLOS_LEGACY)
     {
     }
+
+    //! CaTblLinkOutcome::nlos is currently WRITE-ONLY -- nothing in the MAC or the
+    //! channel reads it -- so this cannot change any result. It is routed through
+    //! the same selector anyway so the field does not sit here quietly
+    //! contradicting the definition the policy uses, which is how a dead field
+    //! becomes a live defect the day someone wires it up.
+    void SetNlosSource(CaTblNlosSource src) { m_nlosSource = src; }
 
     void RegisterAnchor(CaTblTier tier, uint16_t id, const Vector& p)
     {
@@ -456,7 +544,7 @@ class EnginePhyProvider : public CaTblPhyProvider
             o.received = r.packetReceived;
             o.rxPowerDbm = r.rxPowerDbm;
             o.snrDb = r.snr_db;
-            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
             o.estimatedRangeM = r.estimatedRangeM;
         }
         else if (tier == CA_TBL_TIER_2P4)
@@ -473,7 +561,7 @@ class EnginePhyProvider : public CaTblPhyProvider
             o.received = r.packetReceived;
             o.rxPowerDbm = r.rxPowerDbm;
             o.snrDb = r.snr_db;
-            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
             o.estimatedRangeM = r.estimatedRangeM;
         }
         else
@@ -490,7 +578,7 @@ class EnginePhyProvider : public CaTblPhyProvider
             o.received = r.packetReceived;
             o.rxPowerDbm = r.rxPowerDbm;
             o.snrDb = r.snr_db;
-            o.nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
             o.estimatedRangeM = r.estimatedRangeM;
         }
         return o;
@@ -524,6 +612,7 @@ class EnginePhyProvider : public CaTblPhyProvider
     std::map<uint16_t, Vector> m_anchorPos;
     uint64_t m_evaluations;
     uint64_t m_skipped;
+    CaTblNlosSource m_nlosSource;
 };
 
 /**
@@ -1642,7 +1731,8 @@ RunArm(CaTblPolicyMode mode,
        int fastDemoteMode,
        bool mahalUseR,
        int multiStepMode,
-       double demoteStalenessS)
+       double demoteStalenessS,
+       CaTblNlosSource nlosSource)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1797,6 +1887,7 @@ RunArm(CaTblPolicyMode mode,
                                engineUwb,
                                phy,
                                static_cast<uint16_t>(nodeId));
+    provider.SetNlosSource(nlosSource);
     provider.SetNodePosition(pos);
 
     // One channel per tier. CaTblMac holds a single channel pointer, so a node
@@ -1928,7 +2019,15 @@ RunArm(CaTblPolicyMode mode,
         // ranges, and the fraction of steps with usedFloor=1 is the measure of how
         // often escalation was attempted into no coverage.
         trace << "t,arm,seed,activeTier,nextTier,fixTier,usedFloor,trueX,trueY,estX,estY,errM,"
-              << "pcs,gdop,traceSigma,mahalanobis,nAnchors,nNlos,hadFix,"
+              << "pcs,gdop,traceSigma,mahalanobis,nAnchors,nNlos,"
+              // nNlos is the OPERATIVE count -- the one that drove R, the LOS
+              // fraction and the all-LOS gate, under whichever --nlosSource was
+              // selected. The next two are the underlying populations, emitted
+              // unconditionally so the legacy flag's composition is a
+              // measurement rather than an argument: under legacy,
+              // nNlos == |propagation UNION hidden|, and the gap between
+              // nNlosPropagation and nHiddenChannel is the entire defect.
+              << "nNlosPropagation,nHiddenChannel,hadFix,"
               << "escalated,deescalated,suspect,rejected,"
               << "vis868,vis2p4,visUwb,shouldUwb,cumJ,"
               // nbr* is the size of the one-hop neighbour table on each tier at the
@@ -2060,6 +2159,10 @@ RunArm(CaTblPolicyMode mode,
                 bool received = false;
                 double range = 0.0;
                 bool nlos = false;
+                // Both candidate populations are captured on every link whichever
+                // source is operative, so the trace can compare them directly.
+                bool nlosProp = false;
+                bool hiddenActive = false;
                 double sigmaM = 0.0;
 
                 if (tier == CA_TBL_TIER_868)
@@ -2075,7 +2178,9 @@ RunArm(CaTblPolicyMode mode,
                                                                     now);
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
-                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+                    nlosProp = r.isNLOS;
+                    hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
                 }
                 else if (tier == CA_TBL_TIER_2P4)
@@ -2091,7 +2196,9 @@ RunArm(CaTblPolicyMode mode,
                                                                        now);
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
-                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+                    nlosProp = r.isNLOS;
+                    hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
                 }
                 else
@@ -2107,7 +2214,9 @@ RunArm(CaTblPolicyMode mode,
                                                                        now);
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
-                    nlos = (r.nlosDb > 0.0) || (r.hiddenChannelState > 0);
+                    nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+                    nlosProp = r.isNLOS;
+                    hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
                 }
 
@@ -2118,6 +2227,8 @@ RunArm(CaTblPolicyMode mode,
                     m.anchorY = anchorPos.y;
                     m.rangeM = range;
                     m.nlos = nlos;
+                    m.nlosPropagation = nlosProp;
+                    m.hiddenChannelActive = hiddenActive;
                     m.sigmaM = sigmaM;
                     out.push_back(m);
                 }
@@ -2357,7 +2468,8 @@ RunArm(CaTblPolicyMode mode,
                   << (usedFloor ? 1 : 0) << "," << pos.x << "," << pos.y << "," << d.estX
                   << "," << d.estY << "," << err << "," << d.pcs << "," << d.gdop << ","
                   << d.traceSigma << "," << d.mahalanobis << "," << d.nAnchorsUsed << ","
-                  << d.nNlos << "," << (d.hadFix ? 1 : 0) << "," << (d.escalated ? 1 : 0) << ","
+                  << d.nNlos << "," << d.nNlosPropagation << "," << d.nHiddenChannel
+                  << "," << (d.hadFix ? 1 : 0) << "," << (d.escalated ? 1 : 0) << ","
                   << (d.deescalated ? 1 : 0) << "," << (d.suspect ? 1 : 0) << ","
                   << (d.measurementRejected ? 1 : 0) << "," << vis868 << "," << vis2p4 << ","
                   << visUwb << "," << (shouldUwb ? 1 : 0) << "," << std::setprecision(9)
@@ -2525,6 +2637,7 @@ main(int argc, char* argv[])
     // much of an out-of-coverage arm's energy is a modelling assumption rather than
     // a measurement.
     double searchDutyFrac = 1.0;
+    std::string nlosSourceArg = "legacy";
     std::string fastDemote = "off";
     bool mahalUseR = false;
     std::string multiStepDemote = "off";
@@ -2593,7 +2706,32 @@ main(int argc, char* argv[])
                  "Receiver-open fraction of a beacon period while a tier is awake "
                  "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
                  searchDutyFrac);
+    cmd.AddValue("nlosSource",
+                 "Which physical quantity the NLOS tag is built from: "
+                 "legacy|propagation. 'legacy' is (nlosDb > 0 || hiddenChannelState "
+                 "> 0), which tags ~75% of links because hiddenChannelState is a "
+                 "4-state Markov FADING REGIME and not an obstruction indicator; it "
+                 "remains the default so results/baseline_v3 reproduces "
+                 "byte-identically. 'propagation' uses the engine's own NLOS "
+                 "determination (PhysicsResult::isNLOS) alone. Both emit "
+                 "nNlosPropagation and nHiddenChannel so the populations can be "
+                 "compared. No mode consumes an RNG draw, so all share one channel "
+                 "realisation. A 'severe' mode keyed on the Markov state was "
+                 "deliberately NOT added -- see the CaTblNlosSource comment.",
+                 nlosSourceArg);
     cmd.Parse(argc, argv);
+
+    CaTblNlosSource nlosSource = CA_TBL_NLOS_LEGACY;
+    if (nlosSourceArg == "propagation")
+    {
+        nlosSource = CA_TBL_NLOS_PROPAGATION;
+    }
+    else if (nlosSourceArg != "legacy")
+    {
+        std::cout << "ERROR: --nlosSource must be 'legacy' or 'propagation', got '"
+                  << nlosSourceArg << "'\n";
+        return 1;
+    }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would
     // change arm_summary.csv and break byte-identity against results/baseline_v3,
@@ -2760,7 +2898,8 @@ main(int argc, char* argv[])
                                        fastDemoteMode,
                                        mahalUseR,
                                        multiStepMode,
-                                       demoteStalenessS);
+                                       demoteStalenessS,
+                                       nlosSource);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

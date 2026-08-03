@@ -53,7 +53,26 @@ struct CaTblRangeMeasurement
     double anchorX;
     double anchorY;
     double rangeM; //!< measured range (EstimatedRangeM from the physics engine)
-    bool nlos;     //!< NLOS-tagged (NlosDb > 0 or HiddenChannelState > 0)
+    //! The OPERATIVE NLOS tag: what the R matrix, the LOS fraction in PCS and the
+    //! integrity gate's all-LOS condition all key off. Which physical quantity it
+    //! is built from is the caller's choice, selected by --nlosSource; see
+    //! nlosPropagation / hiddenChannelActive below for the two candidate
+    //! populations, which are always both recorded regardless of the selection.
+    bool nlos;
+    //! The propagation layer's own NLOS determination (PhysicsResult::isNLOS,
+    //! i.e. nlosDb > 0.01) -- an obstruction between these two endpoints.
+    bool nlosPropagation;
+    //! Whether the link's 4-state Markov fading regime is nonzero.
+    //!
+    //! NOT an obstruction indicator, and recorded only so the two populations can
+    //! be compared numerically rather than argued about. Under the fidelity mode
+    //! this scenario actually runs (FIDELITY_ULTRA_FAST_STATISTICAL, set by
+    //! ForScenario()), the state attenuates nothing, delays nothing and biases
+    //! nothing: every coupling from it into the channel is gated behind
+    //! FIDELITY_SDR_GRADE_REALISM. It is a free-running label. Keying measurement
+    //! variance to it inflates noise on the basis of a variable that does not
+    //! affect the measurement.
+    bool hiddenChannelActive;
     //! Ranging 1-sigma in metres for this measurement, from the physics engine's
     //! rangingSigmaM. 0.0 means unavailable, in which case the policy falls back to
     //! the per-tier losSigmaM/nlosSigmaM constants.
@@ -63,6 +82,8 @@ struct CaTblRangeMeasurement
     //! submits ranges whose sigmas span four orders of magnitude, so a single
     //! tier-keyed constant cannot weight them.
     double sigmaM;
+
+    CaTblRangeMeasurement();
 };
 
 /** Which tier-selection strategy an experimental arm uses. */
@@ -168,7 +189,15 @@ struct CaTblDecision
     double estX;
     double estY;
     uint32_t nAnchorsUsed;
+    //! Links tagged NLOS by the OPERATIVE flag -- i.e. under --nlosSource. This is
+    //! what actually drove R, the LOS fraction and the all-LOS gate this cycle.
     uint32_t nNlos;
+    //! The two candidate populations, counted over the same measurement set, and
+    //! always both emitted whichever source is selected. Under --nlosSource=legacy
+    //! nNlos is their union; under =propagation it equals nNlosPropagation. Emitting
+    //! all three makes the size of the defect a measurement rather than an argument.
+    uint32_t nNlosPropagation;
+    uint32_t nHiddenChannel;
     //! sqrt(mean(varM2)) -- exactly what a scaled ComputePcs would receive.
     //! CONTAMINATED by nlosSigmaInflation, which is applied to ~75% of links
     //! because meas[i].nlos reads a 4-state Markov regime and not an NLOS flag.

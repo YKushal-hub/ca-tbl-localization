@@ -28,6 +28,17 @@ CaTblPolicyModeName(CaTblPolicyMode mode)
     }
 }
 
+CaTblRangeMeasurement::CaTblRangeMeasurement()
+    : anchorX(0.0),
+      anchorY(0.0),
+      rangeM(0.0),
+      nlos(false),
+      nlosPropagation(false),
+      hiddenChannelActive(false),
+      sigmaM(0.0)
+{
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -96,6 +107,8 @@ CaTblDecision::CaTblDecision()
       estY(0.0),
       nAnchorsUsed(0),
       nNlos(0),
+      nNlosPropagation(0),
+      nHiddenChannel(0),
       meanSigmaM(0.0),
       meanSigmaRawM(0.0)
 {
@@ -674,6 +687,8 @@ CaTblPolicy::Step(double dt,
     varM2.reserve(meas.size());
     double sumVarRaw = 0.0;
     uint32_t nLos = 0;
+    uint32_t nNlosProp = 0;
+    uint32_t nHidden = 0;
     for (size_t i = 0; i < meas.size(); ++i)
     {
         // Prefer the physics engine's per-measurement sigma. The per-tier constants
@@ -712,8 +727,20 @@ CaTblPolicy::Step(double dt,
         {
             nLos++;
         }
+        // Counted regardless of which source is operative, so the two populations
+        // are always directly comparable in the trace.
+        if (meas[i].nlosPropagation)
+        {
+            nNlosProp++;
+        }
+        if (meas[i].hiddenChannelActive)
+        {
+            nHidden++;
+        }
     }
     d.nNlos = static_cast<uint32_t>(meas.size()) - nLos;
+    d.nNlosPropagation = nNlosProp;
+    d.nHiddenChannel = nHidden;
 
     // Integrity check, evaluated on the PRIOR, before the measurement is fused.
     //
