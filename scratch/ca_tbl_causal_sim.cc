@@ -675,6 +675,13 @@ struct ArmResult
     uint64_t deescalations;
     uint64_t suspects;
     uint64_t noFixCycles;
+    //! Escalation handshakes suppressed by the tier-1 duty-cycle governor, and the
+    //! total wait for the airtime budget to refill. Emitted because the regulation
+    //! delaying a handoff propagates into position error -- a legal constraint
+    //! reaching the localisation result.
+    uint64_t handshakeDeferrals;
+    double handshakeDeferralDelayS;
+    uint64_t escalationsDeferredAway;
     uint64_t steps;
     double durationS;
 
@@ -1732,7 +1739,12 @@ RunArm(CaTblPolicyMode mode,
        bool mahalUseR,
        int multiStepMode,
        double demoteStalenessS,
-       CaTblNlosSource nlosSource)
+       CaTblNlosSource nlosSource,
+       bool suspectForcesEscalation,
+       CaTblPcsForm pcsForm,
+       bool deferEscalationOnDutyLimit,
+       double fixedVarThresholdM2,
+       double pcsSigmaTargetM)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1814,6 +1826,31 @@ RunArm(CaTblPolicyMode mode,
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.suspectForcesEscalation = suspectForcesEscalation;
+    pcfg.pcsForm = pcsForm;
+    // Operating-point knobs for the Pareto sweep. Both express the SAME physical
+    // quantity -- how much position uncertainty is tolerated before energy is
+    // spent -- so the two decision rules can be swept over a common grid and
+    // compared as fronts rather than as two arbitrarily-placed points.
+    if (fixedVarThresholdM2 > 0.0)
+    {
+        pcfg.fixedVarThresholdM2 = fixedVarThresholdM2;
+    }
+    if (pcsSigmaTargetM > 0.0)
+    {
+        // traceRef IS the target, as a variance. Setting it here keeps the single
+        // source of truth: the v2 threshold stays derived at 0.0 and the operating
+        // point moves by moving the specification, not by hand-placing a threshold.
+        pcfg.traceRef = pcsSigmaTargetM * pcsSigmaTargetM;
+    }
+    if (pcsForm == CA_TBL_PCS_V2)
+    {
+        // Pre-registered thresholds, derived from traceRef -- see
+        // CaTblPolicyConfig::ApplyV2Thresholds() and
+        // report/PCS_REDESIGN_RESULTS.md §0.2/§0.3. The legacy 1.55/1.70/2.30 are
+        // deliberately NOT carried onto a differently-scaled score.
+        pcfg.ApplyV2Thresholds();
+    }
     // fastDemoteMode: 0 = nobody, 1 = the proposed arms only, 2 = every dynamic arm.
     // The three-way split exists because the verdict depends on how the baseline is
     // credited: fixed_threshold is ALSO burning ~98% of its energy on blind UWB
@@ -1993,6 +2030,16 @@ RunArm(CaTblPolicyMode mode,
     double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
     double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
     uint64_t blindCycles = 0;
+    // Escalation handshakes suppressed by the tier-1 duty-cycle governor, and the
+    // total time the node had to wait for the budget to refill. The regulation
+    // delaying a handoff is a cyber-physical coupling, not an accounting detail:
+    // it converts a legal constraint into position error.
+    uint64_t handshakeDeferrals = 0;
+    double handshakeDeferralDelayS = 0.0;
+    //! Escalations rolled back because the handshake could not be sent. Distinct
+    //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
+    //! those defer the charge but never the transition.
+    uint64_t escalationsDeferredAway = 0;
 
     // Divergence instrument. ca_tbl_full and ca_tbl_no_integrity are identical
     // through t=5.0 and differ from t=7.5 onward, with suspect=0 on every cycle of
@@ -2046,7 +2093,12 @@ RunArm(CaTblPolicyMode mode,
               // because estX prints at 4 decimals and a divergence of 1e-5 m is
               // invisible there -- which is precisely how a divergence that began
               // earlier could look like one that began at t=7.5.
-              << "directCalls,macEvals,estXhp,estYhp,meanSigmaM,meanSigmaRawM\n";
+              << "directCalls,macEvals,estXhp,estYhp,meanSigmaM,meanSigmaRawM,"
+              // sigmaGeoM is the exact sqrt(trace((J^T R^-1 J)^-1)), PCS v2's
+              // second input. Negative under the legacy form, where it is never
+              // computed. Emitted so §0.4a's per-term variance decomposition can
+              // be done from the trace without re-deriving the solve.
+              << "sigmaGeoM\n";
     }
 
     std::vector<double> errors;
@@ -2295,7 +2347,69 @@ RunArm(CaTblPolicyMode mode,
 
         if (d.escalated || d.deescalated)
         {
-            energy.AccountEscalationHandshake(active, t);
+            // THE GOVERNOR IS ADVISORY -- THE CALLER MUST CONSULT IT.
+            //
+            // This call site previously charged the handshake unconditionally.
+            // CaTblEnergyModel does not enforce the duty cycle; it exposes
+            // CanTransmit()/NoteDeferred() and expects the caller to ask. So the
+            // request/grant round-trip burnt tier-1 airtime outside the regulatory
+            // budget, and duty_868 reached 0.02511 against the WPC G.S.R. 853(E)
+            // Table-II cap of 0.025 -- about 0.4 s of excess airtime over 3600 s,
+            // a handful of SF7 frames, which is what tier-1 escalations at the
+            // observed rate come to.
+            //
+            // The consequence is not only the compliance number. An escalation that
+            // cannot be signalled must WAIT for the budget to refill, so the
+            // regulation propagates directly into handoff latency and therefore
+            // into position error. That coupling -- a legal constraint reaching the
+            // localisation result -- only exists once the governor is actually
+            // consulted here. The deferral count is emitted so its size is a
+            // measurement rather than an assumption.
+            //
+            // NOTE: this changes arm_summary.csv for every arm that escalates, and
+            // is therefore a NEW BASELINE (results/baseline_v4), not a delta against
+            // baseline_v3 -- treated exactly as the MAC change was. Determinism from
+            // a seed is preserved and re-verified; comparability with the previous
+            // numbers is not. Static arms never escalate and are unchanged, which is
+            // itself a check on the scope of this fix.
+            if (energy.CanTransmit(active, t))
+            {
+                energy.AccountEscalationHandshake(active, t);
+            }
+            else
+            {
+                energy.NoteDeferred(active);
+                ++handshakeDeferrals;
+                handshakeDeferralDelayS += std::max(0.0, energy.GetNextAllowedTxS(active) - t);
+
+                // MEASURED: 100% of fixed_threshold's 200 escalations are deferred,
+                // against 1 of 193 for the ca_tbl arms. The asymmetry is structural,
+                // not statistical -- fixed_threshold escalates 868 -> 2.4 every time,
+                // so its handshake is charged on TIER 1, whose 2.5% WPC budget the
+                // ranging exchange has already spent this cycle. The ca_tbl arms
+                // mostly escalate from tier 2/3, which carry no duty limit.
+                //
+                // So an escalation handshake DEPARTING TIER 1 essentially never fits
+                // the regulatory budget at dt = 2.5 s. Gating alone therefore trades
+                // one error for another: the airtime becomes compliant, but the
+                // handshake stops being charged at all and its energy is understated.
+                //
+                // Deferring the escalation itself is the physically coherent
+                // resolution -- a handoff that cannot be signalled has not happened,
+                // so the node stays put and retries -- and it is what produces the
+                // cyber-physical coupling worth measuring: a legal airtime constraint
+                // propagating into handoff latency and therefore into position error.
+                //
+                // Behind a flag, default OFF, because it changes the tier trajectory
+                // rather than only the accounting, and results/baseline_v4 has already
+                // been established on the accounting-only behaviour. Demotion is never
+                // deferred: a node must be able to abandon a tier it cannot reach.
+                if (deferEscalationOnDutyLimit && d.escalated)
+                {
+                    policy.AbortTierChange(active);
+                    ++escalationsDeferredAway;
+                }
+            }
         }
 
         // §2.9 handshake, on the tier being LEFT -- the request/grant exchange has
@@ -2479,7 +2593,8 @@ RunArm(CaTblPolicyMode mode,
                   << nodeMac[2]->GetNeighbourCount(CA_TBL_TIER_UWB, t) << ","
                   << polledCount << "," << (blind ? 1 : 0) << "," << directEngineCalls << ","
                   << provider.GetEvaluations() << "," << std::setprecision(12) << d.estX << ","
-                  << d.estY << "," << d.meanSigmaM << "," << d.meanSigmaRawM << "\n";
+                  << d.estY << "," << d.meanSigmaM << "," << d.meanSigmaRawM << ","
+                  << d.sigmaGeoM << "\n";
         }
     }
 
@@ -2550,6 +2665,9 @@ RunArm(CaTblPolicyMode mode,
     res.deescalations = policy.GetDeescalationCount();
     res.suspects = policy.GetSuspectCount();
     res.noFixCycles = policy.GetNoFixCount();
+    res.handshakeDeferrals = handshakeDeferrals;
+    res.handshakeDeferralDelayS = handshakeDeferralDelayS;
+    res.escalationsDeferredAway = escalationsDeferredAway;
     res.tp = tp;
     res.fp = fp;
     res.fn = fn;
@@ -2640,6 +2758,14 @@ main(int argc, char* argv[])
     std::string nlosSourceArg = "legacy";
     std::string fastDemote = "off";
     bool mahalUseR = false;
+    bool suspectForcesEscalation = true;
+    std::string pcsFormArg = "legacy";
+    bool deferEscalationOnDutyLimit = false;
+    // <= 0 means "leave the CaTblPolicyConfig default untouched", so the flags are
+    // inert unless set and baseline reproduction does not depend on their values.
+    double fixedVarThresholdM2 = -1.0;
+    double pcsSigmaTargetM = -1.0;
+    std::string armsArg = "all";
     std::string multiStepDemote = "off";
     // Gateways per side of the tier-1 grid. 3 reproduces the historical 3x3.
     // Density is gwGrid^2 / (2*boxHalf/1000)^2 per km^2; the derivation in
@@ -2706,6 +2832,60 @@ main(int argc, char* argv[])
                  "Receiver-open fraction of a beacon period while a tier is awake "
                  "with an empty neighbour table (1.0 = consistent, 0.0 = free search)",
                  searchDutyFrac);
+    cmd.AddValue("arms",
+                 "Comma-separated arms to run, or 'all' (default). Sound only "
+                 "because RunArm() resets the RNG stream index per arm, so an "
+                 "arm's channel realisation does not depend on which arms ran "
+                 "before it; a filtered run's row is byte-identical to the full "
+                 "run's. Exists for the operating-point sweep, where four of the "
+                 "six arms are pure runtime.",
+                 armsArg);
+    cmd.AddValue("fixedVarThreshold",
+                 "fixed_threshold's escalation trigger, as a position VARIANCE in "
+                 "m^2 (default 100.0, i.e. sigma = 10 m). Exposed so the literature "
+                 "baseline can be swept across operating points: comparing it to "
+                 "CA-TBL at one arbitrary point is unfair in whichever direction "
+                 "the two constants happen to fall. <= 0 leaves the default.",
+                 fixedVarThresholdM2);
+    cmd.AddValue("pcsSigmaTargetM",
+                 "PCS v2's target radial accuracy in metres (default 3.1623, i.e. "
+                 "traceRef = 10 m^2). Moves the v2 operating point by moving the "
+                 "SPECIFICATION rather than by hand-placing a threshold -- the "
+                 "threshold stays derived at 0.0. The sweep counterpart of "
+                 "--fixedVarThreshold, in the same physical quantity. <= 0 leaves "
+                 "the default.",
+                 pcsSigmaTargetM);
+    cmd.AddValue("deferEscalationOnDutyLimit",
+                 "If the escalation handshake cannot be transmitted within the "
+                 "duty-cycle budget, defer the ESCALATION rather than merely "
+                 "skipping its energy charge -- a handoff that cannot be signalled "
+                 "has not happened. Measures the coupling from a regulatory airtime "
+                 "limit into handoff latency and hence position error. Demotion is "
+                 "never deferred. false (default) preserves results/baseline_v4.",
+                 deferEscalationOnDutyLimit);
+    cmd.AddValue("pcsForm",
+                 "Position Confidence Score functional form: legacy|v2. 'legacy' "
+                 "is traceRef/(traceRef+traceSigma) + 1/max(gdop,1) + losFrac, "
+                 "whose term 1 saturates, term 2 is inverted across tiers and "
+                 "term 3 is a near-constant offset; it remains the default so "
+                 "results/baseline_v4 reproduces byte-identically. 'v2' is "
+                 "log10(sigma_ref / sqrt(sigma_post * sigma_geo)) -- decades of "
+                 "position uncertainty from the 3.1623 m target traceRef already "
+                 "specifies -- and carries its own pre-registered thresholds "
+                 "(up 0.0, down log10(2), one target for all tiers). See "
+                 "report/PCS_REDESIGN_RESULTS.md §0.",
+                 pcsFormArg);
+    cmd.AddValue("suspectForcesEscalation",
+                 "Whether a suspect fix also forces an escalation. true (default) "
+                 "preserves the pre-existing baseline, in which `suspect` sets "
+                 "wantEscalate unconditionally. That side effect dominates any "
+                 "accuracy effect the gate has, so it makes the integrity check "
+                 "unmeasurable AS an integrity check -- ca_tbl_full vs "
+                 "ca_tbl_no_integrity then measures the escalation, not the "
+                 "rejection. Set false to isolate the mechanism report §2.3/§10.5 "
+                 "actually claim: a suspect fix is rejected and nothing else "
+                 "happens.",
+                 suspectForcesEscalation);
     cmd.AddValue("nlosSource",
                  "Which physical quantity the NLOS tag is built from: "
                  "legacy|propagation. 'legacy' is (nlosDb > 0 || hiddenChannelState "
@@ -2720,6 +2900,18 @@ main(int argc, char* argv[])
                  "deliberately NOT added -- see the CaTblNlosSource comment.",
                  nlosSourceArg);
     cmd.Parse(argc, argv);
+
+    CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
+    if (pcsFormArg == "v2")
+    {
+        pcsForm = CA_TBL_PCS_V2;
+    }
+    else if (pcsFormArg != "legacy")
+    {
+        std::cout << "ERROR: --pcsForm must be 'legacy' or 'v2', got '" << pcsFormArg
+                  << "'\n";
+        return 1;
+    }
 
     CaTblNlosSource nlosSource = CA_TBL_NLOS_LEGACY;
     if (nlosSourceArg == "propagation")
@@ -2794,13 +2986,60 @@ main(int argc, char* argv[])
                                            uwbAnchorsPerSite,
                                            t2AnchorsPerSite);
 
-    const CaTblPolicyMode arms[] = {CA_TBL_MODE_STATIC_868,
-                                    CA_TBL_MODE_STATIC_2P4,
-                                    CA_TBL_MODE_STATIC_UWB,
-                                    CA_TBL_MODE_FIXED_THRESHOLD,
-                                    CA_TBL_MODE_NO_INTEGRITY,
-                                    CA_TBL_MODE_FULL};
-    const int nArms = static_cast<int>(sizeof(arms) / sizeof(arms[0]));
+    const CaTblPolicyMode allArms[] = {CA_TBL_MODE_STATIC_868,
+                                       CA_TBL_MODE_STATIC_2P4,
+                                       CA_TBL_MODE_STATIC_UWB,
+                                       CA_TBL_MODE_FIXED_THRESHOLD,
+                                       CA_TBL_MODE_NO_INTEGRITY,
+                                       CA_TBL_MODE_FULL};
+    const int nAllArms = static_cast<int>(sizeof(allArms) / sizeof(allArms[0]));
+
+    // ARM SELECTION. Safe because RunArm() calls ResetNextStreamIndex() before
+    // building its engines, so an arm's channel realisation depends only on the
+    // seed and not on which other arms ran before it -- that reset is the fix
+    // documented at the top of RunArm(), and this filter is only sound because of
+    // it. Verified empirically, not assumed: a filtered run's row for an arm is
+    // byte-identical to the same arm's row in the full run.
+    //
+    // Exists for the operating-point sweep, where only fixed_threshold and
+    // ca_tbl_no_integrity are needed and the four other arms -- static_uwb above
+    // all, which polls a tier it cannot reach -- are most of the runtime.
+    std::vector<CaTblPolicyMode> arms;
+    if (armsArg.empty() || armsArg == "all")
+    {
+        arms.assign(allArms, allArms + nAllArms);
+    }
+    else
+    {
+        std::string rest = armsArg;
+        while (!rest.empty())
+        {
+            const size_t comma = rest.find(',');
+            const std::string name = rest.substr(0, comma);
+            rest = (comma == std::string::npos) ? "" : rest.substr(comma + 1);
+            bool found = false;
+            for (int k = 0; k < nAllArms; ++k)
+            {
+                if (name == CaTblPolicyModeName(allArms[k]))
+                {
+                    arms.push_back(allArms[k]);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && !name.empty())
+            {
+                std::cout << "ERROR: --arms: unknown arm '" << name << "'\n";
+                return 1;
+            }
+        }
+        if (arms.empty())
+        {
+            std::cout << "ERROR: --arms selected no arms\n";
+            return 1;
+        }
+    }
+    const int nArms = static_cast<int>(arms.size());
 
     const double beaconPeriodS[CA_TBL_TIER_COUNT] = {beacon868S, beacon2p4S, beaconUwbS};
 
@@ -2811,6 +3050,7 @@ main(int argc, char* argv[])
             << "j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,"
             << "airtime_868,airtime_2p4,airtime_uwb,duty_868,"
             << "escalations,deescalations,suspects,noFixCycles,"
+            << "handshakeDeferrals,handshakeDeferralDelayS,escalationsDeferredAway,"
             << "trig_tp,trig_fp,trig_fn,trig_tn,trig_precision,trig_recall,trig_f1,"
             << "cyclesInUwbCoverage,accuracyPerJoule,"
             // Energy broken down by radio state, per tier. Emitted because the §6
@@ -2899,7 +3139,12 @@ main(int argc, char* argv[])
                                        mahalUseR,
                                        multiStepMode,
                                        demoteStalenessS,
-                                       nlosSource);
+                                       nlosSource,
+                                       suspectForcesEscalation,
+                                       pcsForm,
+                                       deferEscalationOnDutyLimit,
+                                       fixedVarThresholdM2,
+                                       pcsSigmaTargetM);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -2923,7 +3168,9 @@ main(int argc, char* argv[])
                     << "," << r.airtimeS[0] << "," << r.airtimeS[1] << "," << r.airtimeS[2] << ","
                     << (r.durationS > 0.0 ? r.airtimeS[0] / r.durationS : 0.0) << ","
                     << r.escalations << "," << r.deescalations << "," << r.suspects << ","
-                    << r.noFixCycles << "," << r.tp << "," << r.fp << "," << r.fn << "," << r.tn
+                    << r.noFixCycles << "," << r.handshakeDeferrals << ","
+                    << r.handshakeDeferralDelayS << "," << r.escalationsDeferredAway << ","
+                    << r.tp << "," << r.fp << "," << r.fn << "," << r.tn
                     << "," << std::setprecision(4) << prec << "," << rec << "," << f1 << ","
                     << r.cyclesInUwbCoverage << "," << std::setprecision(9) << accPerJ << ","
                     << r.txJ[0] << "," << r.txJ[1] << "," << r.txJ[2] << "," << r.rxJ[0] << ","

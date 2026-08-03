@@ -163,6 +163,70 @@ def verify_coverage(outdir):
     ARMS_AUDITED = len({a for a, _ in present & expected})
 
 
+def verify_harness_tracked():
+    """Is every file of the validation harness actually under version control?
+
+    scratch/.gitignore ignores `/*`, which matched this directory. Git does not
+    descend into an ignored directory, so every new file here was silently
+    untracked -- verify_causal_sim.py itself had to be added with `git add -f`,
+    and the next validation script dropped in beside it would simply not have
+    existed as far as the repository was concerned.
+
+    A validation harness that can quietly fail to exist is a worse failure mode
+    than any it checks for: the gates would appear to pass on a checkout that
+    never contained them. Hence a gate on the gates.
+
+    Not being in a git checkout is a WARNING, not a failure, so the verifier
+    still runs against an exported results directory.
+    """
+    import subprocess
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", here],
+            cwd=here, capture_output=True, text=True, timeout=30)
+        ignored = subprocess.run(
+            ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "--", here],
+            cwd=here, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        warn("harness: version-control status checkable", False,
+             "git not available -- cannot confirm the validation harness is tracked")
+        return
+
+    if untracked.returncode != 0 or ignored.returncode != 0:
+        warn("harness: version-control status checkable", False,
+             "not inside a git checkout -- cannot confirm the harness is tracked")
+        return
+
+    stray = [p for p in untracked.stdout.split() if p.endswith(".py")]
+    check("harness: no untracked files in scratch/python_handoff",
+          not stray,
+          f"{len(stray)} untracked: {stray[:5]} -- these exist on this machine and "
+          f"nowhere else; commit them or the gates they implement are not in the repo")
+
+    hidden = [p for p in ignored.stdout.split() if p.endswith(".py")]
+    check("harness: no IGNORED files in scratch/python_handoff",
+          not hidden,
+          f"{len(hidden)} ignored by .gitignore: {hidden[:5]} -- scratch/.gitignore "
+          f"has regressed to swallowing the validation harness")
+
+
+def read_pcs_form(outdir):
+    """Which --pcsForm produced this directory, from the run_id.txt invocation.
+
+    Read from provenance rather than guessed from the data: gating the legacy
+    form's "sigmaGeoM must be absent" check on a value inferred FROM sigmaGeoM
+    would make the check vacuous.
+    """
+    p = os.path.join(outdir, "run_id.txt")
+    if not os.path.exists(p):
+        return "legacy"
+    with open(p) as f:
+        txt = f.read()
+    return "v2" if "--pcsForm=v2" in txt else "legacy"
+
+
 def read_nlos_source(outdir):
     """Which --nlosSource produced this directory, from the run_id sidecar.
 
@@ -186,6 +250,54 @@ def read_nlos_source(outdir):
         if tok.startswith("--nlosSource="):
             return tok.split("=", 1)[1]
     return "legacy"
+
+
+def verify_pcs_columns(arm, rows, pcs_form):
+    """PCS v2's inputs must be present and physically sane.
+
+    sigmaGeoM is the exact sqrt(trace((J^T R^-1 J)^-1)) -- the measurement-only
+    radial position sigma that PCS v2 uses in place of the legacy 1/max(gdop,1)
+    term. It is emitted so the pre-registered per-term variance decomposition
+    (report/PCS_REDESIGN_RESULTS.md §0.4a) can be computed from the trace alone,
+    rather than by re-deriving the weighted solve in a second implementation that
+    could drift from the first.
+
+    Negative means "not computed": the legacy form never solves for it, and the v2
+    form leaves it negative when the weighted solve fails on degenerate geometry.
+    Those are different conditions, so they are gated differently.
+    """
+    if "sigmaGeoM" not in rows[0]:
+        FAIL.append(f"{arm}: missing sigmaGeoM column -- rebuild the simulation")
+        return
+
+    fix = [r for r in rows if int(r["hadFix"]) == 1]
+    if not fix:
+        return
+    vals = [float(r["sigmaGeoM"]) for r in fix]
+
+    if pcs_form == "legacy":
+        # The legacy path must not have gained a weighted solve it never had, or
+        # baseline reproduction becomes an argument rather than a diff.
+        check(f"{arm}: legacy PCS form does not compute sigmaGeoM",
+              all(v < 0.0 for v in vals),
+              f"{sum(1 for v in vals if v >= 0.0)} fix cycles carry a sigmaGeoM "
+              f"under --pcsForm=legacy -- the legacy path has gained a solve")
+        return
+
+    solved = [v for v in vals if v > 0.0]
+    frac = len(solved) / len(vals)
+    # A degenerate solve is legitimate but must be rare; if most cycles fail it,
+    # PCS v2 is running on its maximally-unconfident fallback and the score is not
+    # being tested at all.
+    check(f"{arm}: PCS v2 has a valid weighted solve on most fix cycles",
+          frac >= 0.90,
+          f"only {frac:.1%} of fix cycles produced a positive sigmaGeoM -- v2 is "
+          f"mostly running on its degenerate-geometry fallback, so the score under "
+          f"test is the fallback, not the form")
+    if solved:
+        check(f"{arm}: sigmaGeoM is finite and physically bounded",
+              all(v == v and v < 1e5 for v in solved),
+              "a measurement-only radial sigma exceeded 100 km or was NaN")
 
 
 def verify_nlos_columns(arm, rows):
@@ -421,6 +533,9 @@ def verify_traces(outdir):
         # 9b. NLOS populations (the --nlosSource chain).
         verify_nlos_columns(arm, rows)
 
+        # 9c. PCS v2 inputs (the --pcsForm chain).
+        verify_pcs_columns(arm, rows, read_nlos_source_cache.get("pcsForm", "legacy"))
+
         # 10. The scenario must actually pose the escalation question. If the node
         #     is never inside UWB coverage there is nothing to escalate to and the
         #     policy is untested; if it is always inside, escalating is
@@ -552,10 +667,54 @@ def verify_summary(outdir):
         # 16. Duty-cycle compliance: WPC G.S.R. 853(E) Table-II allows 2.5% for
         #     non-access-point devices. Exceeding it is a regulatory violation,
         #     not a tuning preference, and must be caught here rather than in review.
+        #
+        # PROMOTED FROM warn() TO check(). It was a warning while the governor was
+        # only partially consulted, so a breach was ambiguous between "the scenario
+        # is pushing the budget" and "a call site does not ask". That ambiguity is
+        # now gone: every transmitting call site consults CanTransmit(), so a breach
+        # can only mean a NEW call site was added without asking. The gate is not
+        # deleted or weakened -- it is made decisive, which is what the change to
+        # the code underneath it now supports.
+        #
+        # This will FAIL on results produced before the escalation handshake was
+        # gated (results/nlos_propagation reaches 0.02511). That is correct and
+        # deliberate: those runs violated the airtime budget, and a gate that passes
+        # on them would be asserting something false.
         for name, a in arms.items():
             duty = float(a["duty_868"])
-            warn(f"seed {seed}/{name}: 868 duty cycle within WPC 2.5%", duty <= 0.025,
-                 f"duty={duty:.4%} exceeds the Table-II field-node budget")
+            check(f"seed {seed}/{name}: 868 duty cycle within WPC 2.5%", duty <= 0.025,
+                  f"duty={duty:.4%} exceeds the Table-II field-node budget -- some "
+                  f"transmitting call site is not consulting CanTransmit()")
+
+        # 16b. Escalation-handshake deferral bookkeeping.
+        #
+        # The cheap way to make the duty-cycle gate above pass is to stop charging
+        # the handshake at all. These gates make that visible instead of silent:
+        # every deferral is counted, and an escalation rolled back for want of
+        # airtime must correspond to a deferral that was recorded.
+        for name, a in arms.items():
+            if "handshakeDeferrals" not in a:
+                continue
+            defer = int(a["handshakeDeferrals"])
+            wait = float(a["handshakeDeferralDelayS"])
+            check(f"seed {seed}/{name}: deferral wait is non-negative and finite",
+                  wait >= 0.0 and wait == wait,
+                  f"handshakeDeferralDelayS={wait}")
+            check(f"seed {seed}/{name}: a deferral count implies a recorded wait",
+                  (defer == 0) == (wait == 0.0),
+                  f"{defer} deferrals but {wait:.3f} s of recorded wait -- the "
+                  f"counter and the latency it is supposed to explain disagree")
+            if "escalationsDeferredAway" in a:
+                away = int(a["escalationsDeferredAway"])
+                check(f"seed {seed}/{name}: rolled-back escalations are a subset of deferrals",
+                      away <= defer,
+                      f"{away} escalations rolled back against only {defer} deferred "
+                      f"handshakes -- bookkeeping does not conserve")
+                # Static arms never escalate, so they can never defer one.
+                if name.startswith("static_"):
+                    check(f"seed {seed}/{name}: a static arm defers no escalation",
+                          away == 0 and defer == 0,
+                          f"a pinned-tier arm recorded {defer} handshake deferrals")
 
         # 17. Sanity: the proposed arm should sit strictly between the two
         #     extremes on both axes. If it does not, say so -- do not tune until
@@ -586,8 +745,11 @@ def _finite(s):
 
 def main():
     outdir = sys.argv[1] if len(sys.argv) > 1 else "results/causal"
+    verify_harness_tracked()
     read_nlos_source_cache["mode"] = read_nlos_source(outdir)
-    print(f"nlos_source {read_nlos_source_cache['mode']} (from run_id.txt provenance)")
+    read_nlos_source_cache["pcsForm"] = read_pcs_form(outdir)
+    print(f"nlos_source {read_nlos_source_cache['mode']}  "
+          f"pcs_form {read_nlos_source_cache['pcsForm']}  (from run_id.txt provenance)")
     verify_coverage(outdir)
     verify_traces(outdir)
     verify_summary(outdir)

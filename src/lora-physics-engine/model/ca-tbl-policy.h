@@ -99,10 +99,60 @@ enum CaTblPolicyMode
 
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);
 
+/**
+ * \brief Which functional form the Position Confidence Score uses.
+ *
+ * See report/PCS_REDESIGN_RESULTS.md §0 for the pre-registration, which was
+ * committed before any v2 run.
+ */
+enum CaTblPcsForm
+{
+    /**
+     * traceRef/(traceRef+traceSigma) + 1/max(gdop,1) + nLos/nTotal.
+     *
+     * Three defects, all measured. Term 1 SATURATES, spanning 0.061 across tiers
+     * 1-2 where the underlying uncertainty spans three orders of magnitude. Term 2
+     * is INVERTED across tiers: GDOP is worse for the tightly clustered facility
+     * triads (tiers 2/3) than for spread gateways (tier 1), so the geometry term
+     * rewards the coarse tier. Term 3 was PINNED near 0 by the NLOS defect and is
+     * pinned near 1 once that is fixed -- an offset either way.
+     *
+     * Retained as the default so results/baseline_v4 reproduces byte-identically.
+     */
+    CA_TBL_PCS_LEGACY = 0,
+    /**
+     * log10(sigma_ref / sqrt(sigma_post * sigma_geo)).
+     *
+     * How many DECADES of position uncertainty separate the current fix from the
+     * stated accuracy target. Dimensionally a length ratio, unbounded in both
+     * directions, so it retains resolution across the whole tier range instead of
+     * saturating.
+     *
+     *   sigma_ref  = sqrt(traceRef) = 3.1623 m -- the SPECIFICATION, not a tuned
+     *                constant; it predates this work and is documented as the
+     *                target radial accuracy.
+     *   sigma_post = sqrt(traceSigma)          -- EKF posterior radial sigma
+     *   sigma_geo  = sqrt(trace((J^T R^-1 J)^-1)) -- this cycle's measurement-only
+     *                radial sigma. The EXACT quantity, not the gdop*sigma
+     *                approximation: RawMultilaterationWeighted() already returns
+     *                it at no extra cost and no RNG draw, and GDOP is defined for
+     *                equal per-range sigma, which is the assumption tier 1
+     *                violates hardest.
+     *
+     * The LOS fraction is deliberately ABSENT. It was measured, after the NLOS fix,
+     * at sd 0.0097 on tier 2 and EXACTLY CONSTANT on tier 3 -- a near-constant term
+     * is an offset, and an offset compared against a threshold is absorbed by the
+     * threshold. It is still emitted as a diagnostic so the exclusion stays visible.
+     * See §0.1.1 of the pre-registration.
+     */
+    CA_TBL_PCS_V2
+};
+
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */
 struct CaTblPolicyConfig
 {
     CaTblPolicyMode mode;
+    CaTblPcsForm pcsForm;
 
     double pcsThresholdUp[CA_TBL_TIER_COUNT];   //!< escalate when PCS falls below this
     double pcsThresholdDown[CA_TBL_TIER_COUNT]; //!< candidate for de-escalation above this
@@ -129,6 +179,36 @@ struct CaTblPolicyConfig
     //! timestamp that survives sleep. Reachability (can I range now?) stays with the
     //! live table; existence (was anything ever there?) comes from the timestamp.
     bool multiStepDemote;
+
+    /**
+     * Whether a suspect fix also forces an escalation.
+     *
+     * When true (the default, and the pre-existing behaviour), `suspect` sets
+     * `wantEscalate = true` unconditionally: the argument is that a distrusted fix
+     * is itself grounds to escalate, because the coarse tier has stopped being
+     * believable exactly when the precision tier earns its energy. That is
+     * defensible as a POLICY.
+     *
+     * It also makes the integrity check unmeasurable AS AN INTEGRITY CHECK. The
+     * gate's escalation side effect dominates any accuracy effect it has, so every
+     * comparison of ca_tbl_full against ca_tbl_no_integrity is measuring the
+     * escalation, not the rejection. The confound is small when the gate fires 5
+     * times in 28,800 cycles; it is large now that the all-LOS precondition is
+     * satisfiable and firings have risen by two orders of magnitude.
+     *
+     * Set false to isolate the mechanism the report actually claims in §2.3 and
+     * §10.5: a suspect fix is REJECTED (the prior is kept) and nothing else
+     * happens. With this flag the three arms separate cleanly --
+     *
+     *   PCS alone                 ca_tbl_no_integrity
+     *   PCS + gate as rejector    ca_tbl_full, suspectForcesEscalation = false
+     *   PCS + gate as trigger     ca_tbl_full, suspectForcesEscalation = true
+     *
+     * -- and §10.5 becomes measurable at all. Without it the gate's effect always
+     * arrives mixed with an escalation it caused, however good the eventual S7
+     * fault injection is.
+     */
+    bool suspectForcesEscalation;
 
     double mahalanobisThreshold; //!< chi-square gate, 2 DOF
     //! Use the correctly specified integrity gate: weighted multilateration for the
@@ -167,6 +247,34 @@ struct CaTblPolicyConfig
     double processNoiseStdVel;
 
     bool instantEscalate; //!< if true, a new tier takes effect the same cycle
+
+    /**
+     * \brief Apply the pre-registered v2 thresholds.
+     *
+     * Kept beside the form itself rather than in the scenario so that the
+     * derivation cannot drift away from the score it belongs to.
+     *
+     * UP = 0.0, every tier. The score is zero exactly when sigma_eff equals the
+     * 3.1623 m target that traceRef already documents as a SPECIFICATION, so the
+     * threshold is that specification restated on a log scale, not a free
+     * parameter. ONE target for all three tiers: an accuracy requirement does not
+     * change according to which radio is being used to meet it, and per-tier
+     * thresholds would reintroduce the two free parameters the redesign exists to
+     * remove.
+     *
+     * DOWN = log10(2) = 0.301, every tier. Demote only once uncertainty is better
+     * than HALF the target -- one octave of hysteresis, a round choice fixed in
+     * advance rather than the best of several tried. One score unit is one decade
+     * of sigma_eff, so this constant means a factor of 2 as stated. Down above up
+     * preserves the deliberate SAR bias that a missed escalation costs more than a
+     * wasted one.
+     *
+     * The legacy 1.55/1.70/2.30 and 1.75/1.90/2.55 are NOT carried across: they
+     * were hand-set for a differently-scaled score and were never calibrated even
+     * for that.
+     */
+    void ApplyV2Thresholds();
+
 
     CaTblPolicyConfig();
 };
@@ -208,6 +316,12 @@ struct CaTblDecision
     //! NLOS chain lands. Their ratio measures the inflation's effect on the
     //! confidence model as a by-product.
     double meanSigmaRawM;
+    //! This cycle's measurement-only radial position sigma, the exact
+    //! sqrt(trace((J^T R^-1 J)^-1)). Negative when the weighted solve failed
+    //! (degenerate geometry) or when the legacy form is active and it was never
+    //! computed. Emitted so the v2 per-term variance decomposition required by
+    //! pre-registration §0.4a can be done from the trace alone.
+    double sigmaGeoM;
 
     CaTblDecision();
 };
@@ -342,6 +456,28 @@ class CaTblPolicy
                        int32_t activeTierNeighbours = -1,
                        uint32_t tierEvidenceMask = 0);
 
+    /**
+     * \brief Undo the tier change the last Step() made, because the escalation
+     *        handshake could not be transmitted inside the duty-cycle budget.
+     *
+     * The escalation request/grant is an ACK'd exchange on the tier being LEFT. If
+     * the regulator will not permit that transmission, the handoff cannot be
+     * signalled, and a handoff that cannot be signalled has not happened -- the
+     * node must stay where it is and retry. Without this the simulation would let
+     * the tier change take effect while quietly not sending the message that
+     * effects it.
+     *
+     * Restores the tier and un-counts the escalation, so `escalations` keeps
+     * meaning "handoffs that occurred" rather than "handoffs attempted"; the
+     * attempts are counted separately as deferrals by the caller.
+     *
+     * DEMOTION IS DELIBERATELY NOT ROLLED BACK by the caller. A node must be able
+     * to abandon a tier it cannot reach; requiring a successful handshake to leave
+     * would strand it on a dead tier, which is precisely the failure the
+     * fastDemote/multiStepDemote work exists to prevent.
+     */
+    void AbortTierChange(CaTblTier restoreTo);
+
     uint64_t GetEscalationCount() const { return m_escalations; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
     uint64_t GetSuspectCount() const { return m_suspects; }
@@ -384,7 +520,13 @@ class CaTblPolicy
                                            double& outRyy);
 
   private:
-    double ComputePcs(double traceSigma, double gdop, uint32_t nLos, uint32_t nTotal, uint32_t hopCount) const;
+  private:
+    double ComputePcs(double traceSigma,
+                      double gdop,
+                      uint32_t nLos,
+                      uint32_t nTotal,
+                      uint32_t hopCount,
+                      double sigmaGeoM) const;
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;

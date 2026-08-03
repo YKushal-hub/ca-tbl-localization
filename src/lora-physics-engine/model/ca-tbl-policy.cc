@@ -46,6 +46,7 @@ CaTblRangeMeasurement::CaTblRangeMeasurement()
 CaTblPolicyConfig::CaTblPolicyConfig()
 {
     mode = CA_TBL_MODE_FULL;
+    pcsForm = CA_TBL_PCS_LEGACY; // default preserves the pre-existing baseline
 
     // NOTE: these thresholds are carried over verbatim from ca_tbl_fusion.py so
     // that the C++ port can be validated against the Python oracle. They are
@@ -64,6 +65,10 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nDeescalate = 5;
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
     multiStepDemote = false;            // default preserves the pre-existing baseline
+
+    // true preserves the pre-existing baseline. See the header note: this is what
+    // makes the integrity gate measurable as a gate rather than as a trigger.
+    suspectForcesEscalation = true;
 
     mahalanobisThreshold = 9.21; // chi-square 99%, 2 DOF
     mahalUseR = false;           // default preserves the pre-existing baseline
@@ -110,7 +115,8 @@ CaTblDecision::CaTblDecision()
       nNlosPropagation(0),
       nHiddenChannel(0),
       meanSigmaM(0.0),
-      meanSigmaRawM(0.0)
+      meanSigmaRawM(0.0),
+      sigmaGeoM(-1.0)
 {
 }
 
@@ -589,13 +595,63 @@ CaTblPolicy::RawMultilaterationWeighted(const std::vector<CaTblRangeMeasurement>
     return true;
 }
 
+void
+CaTblPolicyConfig::ApplyV2Thresholds()
+{
+    // Pre-registered in report/PCS_REDESIGN_RESULTS.md §0.2/§0.3, committed before
+    // any v2 run. Derived, not chosen -- see the header note.
+    for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+    {
+        pcsThresholdUp[k] = 0.0;   // sigma_eff == sigma_ref == 3.1623 m, the target
+        pcsThresholdDown[k] = 0.301029995663981; // log10(2): one octave of hysteresis
+    }
+}
+
 double
 CaTblPolicy::ComputePcs(double traceSigma,
                         double gdop,
                         uint32_t nLos,
                         uint32_t nTotal,
-                        uint32_t hopCount) const
+                        uint32_t hopCount,
+                        double sigmaGeoM) const
 {
+    if (m_config.pcsForm == CA_TBL_PCS_V2)
+    {
+        // pcs = log10(sigma_ref / sqrt(sigma_post * sigma_geo))
+        //
+        // "How many decades of position uncertainty separate this fix from the
+        // stated 3.1623 m target." Zero at the target, negative when worse.
+        //
+        // The geometric mean rather than the sum of two log terms: it makes one
+        // score unit exactly one decade of uncertainty, so the pre-registered
+        // hysteresis constant log10(2) means a factor of 2 as stated. Summing
+        // would have made it a factor of 1.41. This changes no decision at
+        // threshold 0 (0.5x > 0 iff x > 0) -- it is a fidelity fix to the
+        // pre-registered rule, not a tuning knob.
+        const double sigmaRef = std::sqrt(std::max(m_config.traceRef, 1e-12));
+        const double sigmaPost = std::sqrt(std::max(traceSigma, 1e-12));
+
+        // A failed weighted solve (collinear or degenerate anchor geometry) means
+        // the fix quality is unknown. Treat that as maximally unconfident rather
+        // than silently substituting an optimistic value: for SAR a missed
+        // escalation costs more than a wasted one, and the caller signals the
+        // condition by passing a non-positive sigmaGeoM.
+        const double sigmaGeo = (sigmaGeoM > 0.0 && std::isfinite(sigmaGeoM))
+                                    ? sigmaGeoM
+                                    : 1e6;
+
+        const double sigmaEff = std::sqrt(sigmaPost * sigmaGeo);
+        double pcs = std::log10(sigmaRef / std::max(sigmaEff, 1e-12));
+
+        // Hop-provenance penalty, still inert (hopWeight = 0, no mesh). Applied
+        // on the same scale as the rest of the score.
+        if (m_config.hopWeight > 0.0 && hopCount > 0)
+        {
+            pcs -= m_config.hopWeight * static_cast<double>(hopCount);
+        }
+        return pcs;
+    }
+
     // Term 1: filter uncertainty, mapped to (0,1] so it cannot dominate.
     const double term1 = m_config.traceRef / (m_config.traceRef + std::max(traceSigma, 0.0));
     // Term 2: geometric quality.
@@ -616,6 +672,19 @@ CaTblPolicy::ComputePcs(double traceSigma,
     }
 
     return pcs;
+}
+
+void
+CaTblPolicy::AbortTierChange(CaTblTier restoreTo)
+{
+    m_tier = restoreTo;
+    if (m_escalations > 0)
+    {
+        m_escalations--;
+    }
+    // The de-escalation counter was zeroed on escalation; leaving it zeroed is
+    // correct -- the node has not accumulated evidence for demotion either.
+    m_deescalateCounter = 0;
 }
 
 CaTblDecision
@@ -742,6 +811,36 @@ CaTblPolicy::Step(double dt,
     d.nNlosPropagation = nNlosProp;
     d.nHiddenChannel = nHidden;
 
+    // sigma_geo: this cycle's measurement-only radial position sigma, the exact
+    // sqrt(trace((J^T R^-1 J)^-1)). Needed only by CA_TBL_PCS_V2, so it is computed
+    // only for that form -- the legacy path must not gain a solve it never had, or
+    // baseline reproduction becomes an argument rather than a diff.
+    //
+    // This is pure arithmetic over varM2 and the anchor geometry: NO RNG DRAW, so
+    // computing it cannot perturb the channel realisation.
+    //
+    // Non-positive means the weighted solve failed (collinear or degenerate
+    // geometry). ComputePcs treats that as maximally unconfident rather than
+    // substituting an optimistic default.
+    double sigmaGeoM = -1.0;
+    if (m_config.pcsForm == CA_TBL_PCS_V2)
+    {
+        double gzx = 0.0;
+        double gzy = 0.0;
+        double grxx = 0.0;
+        double grxy = 0.0;
+        double gryy = 0.0;
+        if (RawMultilaterationWeighted(meas, varM2, m_ekf.PriorX(), m_ekf.PriorY(),
+                                       gzx, gzy, grxx, grxy, gryy))
+        {
+            const double tr = grxx + gryy;
+            if (tr > 0.0 && std::isfinite(tr))
+            {
+                sigmaGeoM = std::sqrt(tr);
+            }
+        }
+    }
+
     // Integrity check, evaluated on the PRIOR, before the measurement is fused.
     //
     // The mechanism: solve a filter-free fix from this cycle's ranges and ask
@@ -825,11 +924,13 @@ CaTblPolicy::Step(double dt,
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
     const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
-    const double pcs = ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount);
+    const double pcs =
+        ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount, sigmaGeoM);
 
     d.traceSigma = traceSigma;
     d.gdop = gdop;
     d.pcs = pcs;
+    d.sigmaGeoM = sigmaGeoM;
     d.estX = m_ekf.X();
     d.estY = m_ekf.Y();
 
@@ -849,11 +950,17 @@ CaTblPolicy::Step(double dt,
     else if (m_config.mode == CA_TBL_MODE_FULL || m_config.mode == CA_TBL_MODE_NO_INTEGRITY)
     {
         wantEscalate = (pcs < m_config.pcsThresholdUp[m_tier]);
-        if (suspect)
+        if (suspect && m_config.suspectForcesEscalation)
         {
             // A distrusted fix is itself grounds to escalate: the coarse tier
             // has stopped being believable, which is precisely when the
             // precision tier earns its energy.
+            //
+            // Gated because this side effect otherwise dominates the gate's
+            // accuracy effect and makes the integrity check unmeasurable as an
+            // integrity check -- see CaTblPolicyConfig::suspectForcesEscalation.
+            // With the flag off, a suspect fix is rejected and nothing else
+            // happens, which is the mechanism report §2.3 and §10.5 claim.
             wantEscalate = true;
         }
     }
