@@ -6,3 +6,12 @@
 !subdir/
 !scratch-simulator.cc
 !CMakeLists.txt
+
+# The validation harness is NOT scratch work. `/*` above matches this directory,
+# and because git does not descend into an ignored directory, every new file
+# under it was silently untracked -- verify_causal_sim.py itself needed `git add
+# -f`. A validation harness that can quietly not exist is a worse failure mode
+# than anything it checks for, so the directory is un-ignored wholesale rather
+# than file by file, and verify_causal_sim.py fails if anything under it is
+# untracked.
+!python_handoff/
