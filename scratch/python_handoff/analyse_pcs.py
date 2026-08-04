@@ -115,9 +115,19 @@ def variance(v):
 # ------------------------------------------------------------------- loading --
 
 def load_dir(d):
-    """{arm: {seed: [row, ...]}} over fix cycles only."""
+    """{arm: {seed: [row, ...]}} over fix cycles only.
+
+    Recurses one level into chunk subdirectories. A 20-seed set is run as five
+    4-seed chunks in parallel -- the seeds are independent by construction, and
+    RunArm() resets the RNG stream index per arm, so chunking changes no result.
+    Merging here rather than concatenating files on disk keeps each chunk's
+    run_id.txt provenance intact.
+    """
     out = {}
-    for p in sorted(glob.glob(os.path.join(d, "trace_*.csv"))):
+    pats = sorted(glob.glob(os.path.join(d, "trace_*.csv")))
+    if not pats:
+        pats = sorted(glob.glob(os.path.join(d, "*", "trace_*.csv")))
+    for p in pats:
         base = os.path.basename(p)[len("trace_"):-len(".csv")]
         arm, _, seed = base.rpartition("_seed")
         with open(p, newline="") as f:
