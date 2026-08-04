@@ -682,13 +682,16 @@ struct ArmResult
     uint64_t handshakeDeferrals;
     double handshakeDeferralDelayS;
     uint64_t escalationsDeferredAway;
-    //! Cycles where the node sacrificed its ranging exchange so that a pending
-    //! escalation handshake could use the duty-cycle budget instead. The EKF
-    //! coasts for these cycles. This implements the access-category priority
-    //! the MAC spec already defines (escalation at CW_high above ranging at
-    //! CW_normal) in the duty-cycle governor, where the budget is the binding
-    //! constraint. The cost — one fewer fix, EKF coasting, resulting position
-    //! error — is the honest price of the handoff.
+    //! Cycles where the node sacrificed a ranging exchange so that a pending
+    //! escalation handshake could use the duty-cycle budget instead. The slot
+    //! surrendered is the one on the CAPPED tier the handshake departs from
+    //! (tier 1), not the active tier — tiers 2 and 3 carry no duty cap, so
+    //! surrendering their ranging would free nothing the handshake can use.
+    //! This implements the access-category priority the MAC spec already
+    //! defines (escalation at CW_high above ranging at CW_normal) in the
+    //! duty-cycle governor, where the budget is the binding constraint. The
+    //! cost — this cycle's tier-1 measurements, and the position error that
+    //! follows — is the honest price of the handoff.
     uint64_t handshakePreemptions;
     uint64_t steps;
     double durationS;
@@ -2049,8 +2052,9 @@ RunArm(CaTblPolicyMode mode,
     //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
     //! those defer the charge but never the transition.
     uint64_t escalationsDeferredAway = 0;
-    //! Cycles where ranging was pre-empted so a pending handshake could use the
-    //! duty budget. The cost is one fewer fix and EKF coasting for that cycle.
+    //! Cycles where ranging on the CAPPED tier was pre-empted so a pending
+    //! handshake could use the duty budget. The cost is this cycle's tier-1
+    //! measurements.
     uint64_t handshakePreemptions = 0;
     //! Set when an escalation is deferred this cycle; the NEXT cycle will
     //! pre-empt ranging to send the handshake (if arbitrateDutyBudget is on).
@@ -2324,16 +2328,16 @@ RunArm(CaTblPolicyMode mode,
         //
         // When the previous cycle's escalation was deferred because the tier-1
         // duty budget was exhausted, and arbitrateDutyBudget is on, this cycle
-        // skips its ranging exchange on the active tier.  The freed budget means
-        // CanTransmit() returns true when Step() re-decides to escalate, and
-        // the normal handshake flow commits the tier change.
+        // gives up its ranging exchange on the tier whose budget the handshake
+        // needs.  The freed budget means CanTransmit() returns true when Step()
+        // re-decides to escalate, and the normal handshake flow commits the
+        // tier change.
         //
         // Rationale (derivable, not asserted): a node escalates precisely because
         // the current tier's fix quality is inadequate.  Spending this cycle's
         // one transmission on another inadequate fix, rather than on the handoff
         // that would end the inadequacy, is strictly dominated.  The arbiter's
         // ordering falls out of the policy's own premise.
-        bool preemptedThisCycle = false;
         std::vector<CaTblRangeMeasurement> activeMeas;
         std::vector<CaTblRangeMeasurement> floorMeas;
 
@@ -2341,20 +2345,55 @@ RunArm(CaTblPolicyMode mode,
         {
             // Pre-empt: the tier change committed last cycle but the handshake
             // energy was not charged (the tier-1 budget was exhausted by ranging).
-            // This cycle skips ranging on the current active tier and charges the
-            // handshake on the OLD tier (pendingHandshakeTier) where it was sent.
-            // The EKF coasts this cycle — that is the honest cost of the handoff.
+            // This cycle surrenders the ranging exchange on pendingHandshakeTier
+            // -- the CAPPED tier being left, where the handshake must be sent --
+            // and charges the handshake there instead.
+            //
+            // IT MUST BE THAT TIER AND NOT THE ACTIVE ONE. Once the tier change
+            // has committed, `active` is the NEW, higher tier, and tiers 2 and 3
+            // carry no duty-cycle cap in this model, so surrendering their
+            // ranging frees nothing the handshake can use.
+            //
+            // MEASURED, before this was keyed correctly (results/v6_ladder,
+            // seed 7): excess tier-1 airtime over static_868 equalled
+            // handshakePreemptions x 41.22 ms to four decimal places on all three
+            // escalating arms -- the handshake was charged strictly ON TOP OF a
+            // full tier-1 ranging load. ca_tbl_full reached duty_868 = 2.5080%
+            // against the WPC G.S.R. 853(E) Table-II 2.5% cap while holding tier 1
+            // for only 362 of 1440 cycles, and the verifier failed the run. The
+            // arbiter was sacrificing an uncapped transmission to make room on
+            // the capped one.
+            //
+            // The cost is real and is still charged: the node loses this cycle's
+            // tier-1 measurements. It keeps the new tier's, which is the point --
+            // the tier-1 fix is the inadequate one the escalation exists to
+            // escape, so it is the correct thing to surrender under the rationale
+            // above.
             energy.AccountEscalationHandshake(pendingHandshakeTier, t);
-            preemptedThisCycle = true;
             ++handshakePreemptions;
             pendingHandshake = false;
 
-            // CAD is still charged on the current active tier.
-            energy.AccountCad(active);
-            // The floor still ranges if applicable.
+            // Ranging proceeds on every tier EXCEPT the one surrendering its slot.
+            // rangeTier() charges CAD itself, so charge it directly for the
+            // skipped tier: the node still listens even when it does not poll.
+            if (active != pendingHandshakeTier)
+            {
+                activeMeas = rangeTier(active);
+            }
+            else
+            {
+                energy.AccountCad(active);
+            }
             if (runFloor)
             {
-                floorMeas = rangeTier(CA_TBL_TIER_868);
+                if (pendingHandshakeTier != CA_TBL_TIER_868)
+                {
+                    floorMeas = rangeTier(CA_TBL_TIER_868);
+                }
+                else
+                {
+                    energy.AccountCad(CA_TBL_TIER_868);
+                }
             }
         }
         else
@@ -2477,14 +2516,15 @@ RunArm(CaTblPolicyMode mode,
                         // ARBITRATED: the tier change COMMITS now -- the node
                         // moves to the new tier -- but the handshake energy
                         // cannot be charged this cycle (the budget is spent on
-                        // ranging). The next cycle will pre-empt its ranging
-                        // exchange so the handshake frame fits the budget, and
-                        // the energy is charged there.
+                        // ranging). The next cycle will pre-empt the ranging
+                        // exchange ON THIS TIER -- the capped one -- so the
+                        // handshake frame fits the budget, and the energy is
+                        // charged there.
                         //
                         // This implements the access-category priority the MAC
                         // spec already defines (CW_high above CW_normal) in the
-                        // duty-cycle governor. The cost is real: one fewer fix
-                        // on the next cycle (EKF coasts).
+                        // duty-cycle governor. The cost is real: the next cycle
+                        // loses its tier-1 measurements.
                         pendingHandshake = true;
                         pendingHandshakeTier = active;
                         // DO NOT abort the tier change -- it commits.
@@ -2974,9 +3014,12 @@ main(int argc, char* argv[])
                  deferEscalationOnDutyLimit);
     cmd.AddValue("arbitrateDutyBudget",
                  "When an escalation handshake is deferred by the duty-cycle "
-                 "governor, pre-empt the next cycle's ranging exchange and use "
-                 "the freed budget for the handshake instead. The node sacrifices "
-                 "one fix (EKF coasts); the cost is real and charged. Implements "
+                 "governor, pre-empt the next cycle's ranging exchange ON THE "
+                 "CAPPED TIER THE HANDSHAKE DEPARTS (tier 1, not the active "
+                 "tier -- tiers 2/3 have no duty cap, so surrendering their "
+                 "ranging frees nothing) and use the freed budget for the "
+                 "handshake. The node loses that cycle's tier-1 measurements; "
+                 "the cost is real and charged. Implements "
                  "the access-category priority the MAC spec already defines "
                  "(CW_high above CW_normal) in the duty-cycle governor — closing "
                  "an omission, not adding a new rule. Default TRUE.",
