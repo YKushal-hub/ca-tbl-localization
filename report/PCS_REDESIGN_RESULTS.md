@@ -998,6 +998,32 @@ on (24.1%). It is not retuned. What hysteresis would damp this is `UNMEASURED`.
 **3. The integrity gate's effect is form-dependent, and Part 5 overstated its
 scope.** See §6.9.
 
+### 6.0a CAVEAT ON EVERY b3000 NUMBER IN THIS PART — READ BEFORE QUOTING ONE
+
+**`sweep20_v7_v2_b3000` was run at the default `gwGrid=3`, which is the confounded
+density, and this caveat is written here *before* the corrected run exists.**
+
+The gateway grid is fixed while the area is not (`ca_tbl_causal_sim.cc:243`), so
+density falls as `1/boxHalf²`: **2.25 gw/km² at b1000, 0.25 gw/km² at b3000** — a 9×
+reduction. Report §10.7 voided the entire `box_*` sweep for exactly this reason, and
+Part 5 §5.3 measured the effect directly: the constant-density `gw9` control moved
+Claim 1's failure from 84.5× to 48.3×, i.e. **roughly half the apparent degradation
+with scale was falling gateway density, not scale.**
+
+Therefore every b3000 v2 figure in §6.3, §6.4 and §6.5 — the 4.0× loss to
+`fixed_threshold`, the 204× loss to `static_2p4`, the 51.60% UWB residency, the 29.1%
+thrash rate, the 96.5% `rx_uwb` share — is measured **at `gwGrid=3`, i.e. 0.25
+gw/km², a density this project's own evidence shows is inadequate.** They may be
+measuring density collapse rather than scale. They are reported because they were
+run, not because they are de-confounded.
+
+The corrected run (`gwGrid=9` at `boxHalf=3000`, 20 seeds) is queued as the
+highest-priority item of the long-run queue. **Until it lands, no b3000 v2 statement
+here should be quoted without this caveat attached.** The b1000 results carry no such
+confound — `gwGrid=3` at `boxHalf=1000` is 2.25 gw/km², the density
+`BuildDeployment()` derives as adequate — so §6.1's verdict, which rests on b1000,
+is unaffected.
+
 ### 6.1 Verdict on v2, in the form Part 0 pre-committed to
 
 > **PCS v2 fails.** It does not beat the flat variance threshold at matched seeds
@@ -1008,10 +1034,16 @@ scope.** See §6.9.
 > tier-1 floor it pays for. At b3000 it does not reduce to a static assignment; it
 > thrashes, and 96.5% of its energy is UWB blind search.
 
-`[PENDING: whether Part 0's specific pre-committed verdict — "a v2 that beats legacy
-on ρ but whose variance is >90% attributable to sigma_post alone is the
-fixed_threshold statistic on a log scale" — applies. Requires the §0.4a variance
-decomposition, still running.]`
+Part 0's specific pre-committed verdict — "a v2 that beats legacy on ρ but whose
+variance is >90% attributable to `sigma_post` alone is the `fixed_threshold`
+statistic on a log scale" — **does not apply**: `term_post` carries 11.0% of the
+variance, not >90%, and v2 does not beat legacy on ρ in the first place. It is not
+stretched to fit. A different pre-registered instrument catches the failure instead
+(§6.8), and v2 fails criterion 2 outright at ρ = −0.199 against a monotone control of
+−0.200.
+
+A further finding that subsumes the whole comparison: at matched operating points,
+**`static_2p4` dominates all 12 points of both Pareto fronts** (§6.10a).
 
 ### 6.2 The n=1 signal that did not replicate
 
@@ -1202,11 +1234,66 @@ defect.
 
 ### 6.8 The §0.4 criteria
 
-`[PENDING: ρ table — criterion 2, both pre-registered controls (monotone
-−log10(sigma_post), and incremental information over traceSigma alone), and the
-§0.4a per-term decomposition with variance shares, covariance cross-terms, range,
-distinct-value counts, per-term ρ, and losFrac reported despite exclusion.
-analyse_pcs.py is running; n_boot = 2000 at ~1.5–3 h.]`
+**Criterion 2 — ρ(PCS, realised error) over 20 seeds. FAILS.**
+
+`scratch/python_handoff/analyse_pcs.py`, Spearman, fix cycles only, 20 seeds pooled,
+seed-level bootstrap, `n_boot = 2000`. **Escalation rate is printed beside every row
+because neither number means anything alone.**
+
+| arm | esc/fix | ρ(pcs) [95% CI] | ρ(traceSigma) | **ρ(control) = −log10(σ_post)** | ρ(losFrac) |
+|---|---|---|---|---|---|
+| `ca_tbl_full` v2 | **0.0062** | **−0.199 [−0.232, −0.165]** | +0.200 | **−0.200 [−0.235, −0.166]** | −0.071 |
+| `ca_tbl_no_integrity` v2 | 0.0047 | −0.181 [−0.214, −0.151] | +0.182 | −0.182 [−0.215, −0.151] | −0.065 |
+| `fixed_threshold` | 0.1254 | −0.531 [−0.544, −0.518] | +0.539 | −0.539 [−0.552, −0.526] | −0.250 |
+| `static_2p4` | 0.0000 | −0.154 [−0.168, −0.137] | +0.154 | −0.154 [−0.168, −0.137] | −0.008 |
+| `static_868` | 0.0000 | −0.112 [−0.146, −0.074] | +0.140 | −0.140 [−0.188, −0.089] | — |
+
+§0.4 requires ρ "materially closer to −0.78 than to −0.09". **v2 scores −0.199, which
+is far closer to −0.09. Criterion 2 fails.**
+
+**Both pre-registered controls also fail, and the second is decisive.** v2's −0.199
+sits against the monotone-of-`traceSigma` control's −0.200 — identical to within
+noise and marginally *worse*. On incremental information over `traceSigma` alone, v2
+adds nothing. §0.4 states the conclusion in advance: *"the honest conclusion is that
+the confidence model reduces to the baseline's statistic."* It does.
+
+**Do not rank arms by these ρ values.** `fixed_threshold` scores −0.531 against
+`ca_tbl_full`'s −0.199, and that is largely **range restriction**, not a better
+score: `fixed_threshold` spends 37.35% of fix cycles on tier 1 and therefore spans
+far more position uncertainty, while v2 parks on tier 2 (§6.4). Cross-arm ρ
+comparison is not like-for-like and is not presented as a ranking here.
+
+**§0.4a per-term decomposition**, v2 form, over fix cycles, with the covariance
+cross-term so the shares close:
+
+| arm | Var(term_post) | share | Var(term_geo) | share | 2·Cov share | ρ(post) | ρ(geo) | **ρ(sum)** |
+|---|---|---|---|---|---|---|---|---|
+| `ca_tbl_full` | 0.03043 | 11.0% | 0.1317 | 47.7% | 41.3% | −0.200 | −0.195 | **−0.198** |
+| `ca_tbl_no_integrity` | 0.02036 | 9.2% | 0.1109 | 50.2% | 40.5% | −0.181 | −0.180 | **−0.181** |
+| `fixed_threshold` | 0.1089 | 5.2% | 1.285 | 61.4% | 33.4% | −0.539 | −0.491 | **−0.531** |
+| `static_2p4` | 0.002381 | 20.4% | 0.003538 | 30.3% | 49.3% | −0.154 | −0.153 | **−0.154** |
+
+Valid weighted solve on 28766/28770 fix cycles for `ca_tbl_full` (99.99%), consistent
+with the `sigma_geo` availability of §6.7.
+
+**Part 0's specific pre-committed verdict does NOT fire, and it is not stretched to
+fit.** §0.4a pre-commits: *">90% of variance attributable to `sigma_post` alone =
+the `fixed_threshold` statistic on a log scale."* Measured, `term_post` is **11.0%**,
+not >90%. That verdict does not apply and is not invoked.
+
+**A different pre-registered instrument catches it instead.** §0.4a item 3: *"If a
+single term's ρ matches the sum's, the other terms are decoration."* Here **both**
+terms match the sum — −0.200 and −0.195 against −0.198 — so the two terms are not
+decoration on each other but *redundant*, tracking the same underlying quantity. And
+`term_post`'s ρ equals the monotone control's exactly. v2 therefore fails on
+information content while passing the variance-share test on a technicality. The
+pre-registration caught the failure through a different one of its own instruments
+than the one expected to catch it, which is an argument for having specified several.
+
+**`losFrac`, reported despite exclusion** (§0.4a item 4, so the exclusion stays
+visible and reversible): ρ = −0.071, variance 4.137×10⁻⁴, **17 distinct values** over
+28,770 cycles on `ca_tbl_full`; 11 distinct values on `static_2p4`. Its exclusion in
+§0.1.1 is confirmed rather than merely asserted — it remains a near-constant.
 
 **Criterion 1 — `--pcsForm=legacy` still reproduces the legacy baseline
 byte-identically: PASSES.** The rebuilt binary reproduces `results/baseline_v6` on
@@ -1256,9 +1343,73 @@ The defensible cross-form statement:
 
 ### 6.10 Pareto fronts at matched operating points
 
-`[PENDING: §0.5 fronts and which of the three readings applies — one front dominates,
-the other dominates, or the fronts overlap ("equivalent to a flat threshold at
-matched operating points"). 18 points x 20 seeds, in flight.]`
+18 operating points (9 per family) on the shared sigma grid, 20 seeds each,
+`boxHalf=1000`, `results/pareto/`. Fronts in (median error, joules).
+
+| sigma_m | `fixed_threshold` cep50 / J / esc-per-fix | | `ca_tbl_no_integrity` v2 cep50 / J / esc-per-fix | |
+|---|---|---|---|---|
+| 1 | 2.787 / 575.94 / 0.1678 | | 2.779 / 577.66 / 0.1677 | |
+| 1.78 | 2.791 / 575.81 / 0.1677 | | 2.775 / 575.36 / 0.1677 | |
+| 3.16 | 1.648 / 43.06 / 0.1347 | front | 1.538 / 45.99 / **0.0047** | front |
+| 5.62 | 1.822 / 26.01 / 0.1438 | front | 1.663 / 27.18 / 0.1588 | front |
+| 10 | 1.982 / 23.46 / 0.1254 | front | 1.671 / 26.72 / 0.1668 | |
+| 17.8 | 2.160 / 22.34 / 0.1112 | front | 1.665 / 26.72 / 0.1669 | front |
+| 31.6 | 2.853 / 20.19 / 0.0837 | front | 1.665 / 26.72 / 0.1669 | front |
+| 56.2 | 4.059 / 18.70 / 0.0651 | front | 1.813 / 24.92 / 0.1443 | front |
+| 100 | 8.979 / 16.97 / 0.0430 | front | 2.337 / 21.63 / 0.1022 | front |
+
+**Which of §0.5's three readings applies: technically the third-and-a-half.**
+`pareto_sweep.py` reports 0% of the v2 front dominated by any flat-threshold point
+and 14% (1 of 7) of the flat-threshold front dominated by a v2 point — its built-in
+verdict string is "the PCS-v2 front dominates". **That string must not be quoted
+without the three qualifications below**, and taken together they make it a far
+weaker statement than it sounds.
+
+1. **The fronts are in `cep50M`, not `rmseM`.** §0.6 pre-registered that these two
+   diverge for the escalating arms specifically, and they do: v2 wins on median
+   (1.5334 against `fixed_threshold`'s 1.9819 at the operating points of §6.3) and
+   *loses or ties* on the RMSE-based accuracy-per-joule (0.8131 [0.6399, 1.0332],
+   point estimate against). The front comparison and §6.3 are not in conflict — they
+   are measuring the two halves of a bimodal distribution. v2 has the better typical
+   fix and the worse tail.
+2. **The dominance is weak and rests on one point.** Exactly one flat-threshold front
+   point, (1.822 m, 26.01 J), is dominated, by v2's (1.813 m, 24.92 J) — margins of
+   0.9 cm and 1.1 J.
+3. **It is moot, because of §6.10a.**
+
+#### 6.10a `static_2p4` dominates both fronts entirely
+
+Plotted as a **single fixed point**, because it has no operating-point parameter to
+sweep. Same configuration as the Pareto runs (`boxHalf=1000`, `propagation`,
+arbitration on), read from `results/sweep20_v7_v2_b1000/`, n=20:
+
+> **`static_2p4`: cep50 = 1.5066 m, totalJ = 16.6773 J**
+
+Against every point on both fronts:
+
+| front | points dominated by `static_2p4` |
+|---|---|
+| `fixed_threshold` | **7 / 7** |
+| PCS v2 | **5 / 5** |
+| **both fronts** | **12 / 12** |
+
+Not a single operating point of either decision rule achieves both a better median
+error and a lower energy than statically pinning the radio to 2.4 GHz. This includes
+the flat threshold's cheapest point (8.979 m, 16.97 J), which `static_2p4` beats on
+*both* axes simultaneously.
+
+**Static provisioning dominates the entire decision-layer design space explored
+here.** That is the strongest and most compact statement this project has produced,
+and it subsumes the front comparison above: arguing about which decision rule has the
+better front is arguing about the ordering of two dominated sets.
+
+**Scope, stated so this is not over-read.** One geometry (`boxHalf=1000`), one
+gateway density, one mobility model, and `cep50`/`totalJ` as the axes. It says
+nothing about the *continuity* conjunction of §6.6 of the technical report, where
+`static_2p4` loses badly — at `gw9` it is in outage 46.25% of the time against
+`ca_tbl_full`'s 1.54% (Part 5 §5.3). The honest combined statement is: **where tier 2
+has coverage, pin the radio to it; the hybrid's case rests entirely on the geometries
+where it does not.**
 
 Two notes recorded now so a later reader does not mistake either for a bug:
 
