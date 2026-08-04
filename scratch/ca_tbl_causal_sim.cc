@@ -682,6 +682,14 @@ struct ArmResult
     uint64_t handshakeDeferrals;
     double handshakeDeferralDelayS;
     uint64_t escalationsDeferredAway;
+    //! Cycles where the node sacrificed its ranging exchange so that a pending
+    //! escalation handshake could use the duty-cycle budget instead. The EKF
+    //! coasts for these cycles. This implements the access-category priority
+    //! the MAC spec already defines (escalation at CW_high above ranging at
+    //! CW_normal) in the duty-cycle governor, where the budget is the binding
+    //! constraint. The cost — one fewer fix, EKF coasting, resulting position
+    //! error — is the honest price of the handoff.
+    uint64_t handshakePreemptions;
     uint64_t steps;
     double durationS;
 
@@ -1743,6 +1751,7 @@ RunArm(CaTblPolicyMode mode,
        bool suspectForcesEscalation,
        CaTblPcsForm pcsForm,
        bool deferEscalationOnDutyLimit,
+       bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM)
 {
@@ -2040,6 +2049,13 @@ RunArm(CaTblPolicyMode mode,
     //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
     //! those defer the charge but never the transition.
     uint64_t escalationsDeferredAway = 0;
+    //! Cycles where ranging was pre-empted so a pending handshake could use the
+    //! duty budget. The cost is one fewer fix and EKF coasting for that cycle.
+    uint64_t handshakePreemptions = 0;
+    //! Set when an escalation is deferred this cycle; the NEXT cycle will
+    //! pre-empt ranging to send the handshake (if arbitrateDutyBudget is on).
+    bool pendingHandshake = false;
+    CaTblTier pendingHandshakeTier = CA_TBL_TIER_868;
 
     // Divergence instrument. ca_tbl_full and ca_tbl_no_integrity are identical
     // through t=5.0 and differ from t=7.5 onward, with suspect=0 on every cycle of
@@ -2304,11 +2320,51 @@ RunArm(CaTblPolicyMode mode,
         // poll was unconditional.
         const size_t activeMeasAddressed = nodeMac[active]->GetNeighbourCount(active, t);
 
-        std::vector<CaTblRangeMeasurement> activeMeas = rangeTier(active);
+        // ---- ARBITRATION: pre-empt ranging for a pending handshake ----------
+        //
+        // When the previous cycle's escalation was deferred because the tier-1
+        // duty budget was exhausted, and arbitrateDutyBudget is on, this cycle
+        // skips its ranging exchange on the active tier.  The freed budget means
+        // CanTransmit() returns true when Step() re-decides to escalate, and
+        // the normal handshake flow commits the tier change.
+        //
+        // Rationale (derivable, not asserted): a node escalates precisely because
+        // the current tier's fix quality is inadequate.  Spending this cycle's
+        // one transmission on another inadequate fix, rather than on the handoff
+        // that would end the inadequacy, is strictly dominated.  The arbiter's
+        // ordering falls out of the policy's own premise.
+        bool preemptedThisCycle = false;
+        std::vector<CaTblRangeMeasurement> activeMeas;
         std::vector<CaTblRangeMeasurement> floorMeas;
-        if (runFloor)
+
+        if (pendingHandshake && arbitrateDutyBudget)
         {
-            floorMeas = rangeTier(CA_TBL_TIER_868);
+            // Pre-empt: the tier change committed last cycle but the handshake
+            // energy was not charged (the tier-1 budget was exhausted by ranging).
+            // This cycle skips ranging on the current active tier and charges the
+            // handshake on the OLD tier (pendingHandshakeTier) where it was sent.
+            // The EKF coasts this cycle — that is the honest cost of the handoff.
+            energy.AccountEscalationHandshake(pendingHandshakeTier, t);
+            preemptedThisCycle = true;
+            ++handshakePreemptions;
+            pendingHandshake = false;
+
+            // CAD is still charged on the current active tier.
+            energy.AccountCad(active);
+            // The floor still ranges if applicable.
+            if (runFloor)
+            {
+                floorMeas = rangeTier(CA_TBL_TIER_868);
+            }
+        }
+        else
+        {
+            pendingHandshake = false;  // consumed or stale
+            activeMeas = rangeTier(active);
+            if (runFloor)
+            {
+                floorMeas = rangeTier(CA_TBL_TIER_868);
+            }
         }
 
         // Fix selection: prefer the escalated tier when it solved, fall back to the
@@ -2338,7 +2394,7 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
-        const CaTblDecision d = policy.Step(dt,
+        CaTblDecision d = policy.Step(dt,
                                             meas,
                                             0,
                                             static_cast<int32_t>(activeMeas.size()),
@@ -2416,8 +2472,34 @@ RunArm(CaTblPolicyMode mode,
                 // cannot reach.
                 if (deferEscalationOnDutyLimit && d.escalated)
                 {
-                    policy.AbortTierChange(active);
-                    ++escalationsDeferredAway;
+                    if (arbitrateDutyBudget)
+                    {
+                        // ARBITRATED: the tier change COMMITS now -- the node
+                        // moves to the new tier -- but the handshake energy
+                        // cannot be charged this cycle (the budget is spent on
+                        // ranging). The next cycle will pre-empt its ranging
+                        // exchange so the handshake frame fits the budget, and
+                        // the energy is charged there.
+                        //
+                        // This implements the access-category priority the MAC
+                        // spec already defines (CW_high above CW_normal) in the
+                        // duty-cycle governor. The cost is real: one fewer fix
+                        // on the next cycle (EKF coasts).
+                        pendingHandshake = true;
+                        pendingHandshakeTier = active;
+                        // DO NOT abort the tier change -- it commits.
+                        // d.escalated stays true, d.nextTier stays as Step() set it.
+                        ++handshakeDeferrals;
+                        handshakeDeferralDelayS += dt;  // cost: one cycle of delay
+                    }
+                    else
+                    {
+                        // v5 behaviour: defer the escalation entirely.
+                        policy.AbortTierChange(active);
+                        ++escalationsDeferredAway;
+                        d.escalated = false;
+                        d.nextTier = active;
+                    }
                 }
             }
         }
@@ -2678,6 +2760,7 @@ RunArm(CaTblPolicyMode mode,
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
+    res.handshakePreemptions = handshakePreemptions;
     res.tp = tp;
     res.fp = fp;
     res.fn = fn;
@@ -2778,6 +2861,11 @@ main(int argc, char* argv[])
     // baseline's handoffs free. "No signal, no handoff" removes the bias by making
     // the escalation not happen rather than happen for free.
     bool deferEscalationOnDutyLimit = true;
+    // When an escalation handshake is deferred by the duty-cycle governor, the
+    // next cycle pre-empts its ranging exchange and uses the freed budget for
+    // the handshake instead. Implements the access-category priority the MAC
+    // spec already defines (CW_high > CW_normal) in the duty-cycle governor.
+    bool arbitrateDutyBudget = true;
     // <= 0 means "leave the CaTblPolicyConfig default untouched", so the flags are
     // inert unless set and baseline reproduction does not depend on their values.
     double fixedVarThresholdM2 = -1.0;
@@ -2884,6 +2972,15 @@ main(int argc, char* argv[])
                  "vs 1% of ca_tbl's), biasing energy in the BASELINE's favour. Set "
                  "false to reach the biased mode for comparison.",
                  deferEscalationOnDutyLimit);
+    cmd.AddValue("arbitrateDutyBudget",
+                 "When an escalation handshake is deferred by the duty-cycle "
+                 "governor, pre-empt the next cycle's ranging exchange and use "
+                 "the freed budget for the handshake instead. The node sacrifices "
+                 "one fix (EKF coasts); the cost is real and charged. Implements "
+                 "the access-category priority the MAC spec already defines "
+                 "(CW_high above CW_normal) in the duty-cycle governor — closing "
+                 "an omission, not adding a new rule. Default TRUE.",
+                 arbitrateDutyBudget);
     cmd.AddValue("pcsForm",
                  "Position Confidence Score functional form: legacy|v2. 'legacy' "
                  "is traceRef/(traceRef+traceSigma) + 1/max(gdop,1) + losFrac, "
@@ -3071,7 +3168,7 @@ main(int argc, char* argv[])
             << "j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,"
             << "airtime_868,airtime_2p4,airtime_uwb,duty_868,"
             << "escalations,deescalations,suspects,noFixCycles,"
-            << "handshakeDeferrals,handshakeDeferralDelayS,escalationsDeferredAway,"
+            << "handshakeDeferrals,handshakeDeferralDelayS,escalationsDeferredAway,handshakePreemptions,"
             << "trig_tp,trig_fp,trig_fn,trig_tn,trig_precision,trig_recall,trig_f1,"
             << "cyclesInUwbCoverage,accuracyPerJoule,"
             // Energy broken down by radio state, per tier. Emitted because the §6
@@ -3164,6 +3261,7 @@ main(int argc, char* argv[])
                                        suspectForcesEscalation,
                                        pcsForm,
                                        deferEscalationOnDutyLimit,
+                                       arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM);
 
@@ -3190,7 +3288,8 @@ main(int argc, char* argv[])
                     << (r.durationS > 0.0 ? r.airtimeS[0] / r.durationS : 0.0) << ","
                     << r.escalations << "," << r.deescalations << "," << r.suspects << ","
                     << r.noFixCycles << "," << r.handshakeDeferrals << ","
-                    << r.handshakeDeferralDelayS << "," << r.escalationsDeferredAway << ","
+                    << r.handshakeDeferralDelayS << "," << r.escalationsDeferredAway
+                    << "," << r.handshakePreemptions << ","
                     << r.tp << "," << r.fp << "," << r.fn << "," << r.tn
                     << "," << std::setprecision(4) << prec << "," << rec << "," << f1 << ","
                     << r.cyclesInUwbCoverage << "," << std::setprecision(9) << accPerJ << ","
