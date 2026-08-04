@@ -27,6 +27,26 @@ ESTIMATOR, FIXED IN ADVANCE
     wrong.
 
   python3 scratch/python_handoff/analyse_pcs.py results/DIR [results/DIR2 ...]
+
+RUNTIME, AND AN OPTIMISATION DELIBERATELY NOT TAKEN
+---------------------------------------------------
+n_boot = 2000, each resample pooling ~28,800 cycles and recomputing Spearman in
+pure Python: roughly 8.6e8 operations per signal pair, ~24 pairs, so 1.5-3 hours
+for a 20-seed directory. This is inherent to the estimator, not to the data
+volume.
+
+The legitimate fix is to vectorise the inner Spearman with numpy while preserving
+the EXACT RNG call sequence -- rng.choice(seeds) per draw, in order -- which is
+~50x faster at bit-identical output. It was NOT done during the v2 evaluation
+(Phase 7), on purpose: "the bootstrap iteration count was reduced" and "the
+estimator was rewritten" are sentences that read differently in hindsight when
+they land in the phase that decided a verdict, however sound the statistics.
+
+If a future session takes it: validate by running BOTH implementations at a
+reduced n_boot (say 50) on the same directory and requiring IDENTICAL output,
+not merely similar CIs. n_boot itself is this tool's committed default; Part 0
+§0.6 fixes the estimator as "seed-level bootstrap" without naming a count, which
+makes changing it permissible but not costless.
 """
 
 import sys

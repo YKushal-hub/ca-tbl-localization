@@ -786,6 +786,16 @@ Two further readings, both negative:
   against `ca_tbl_no_integrity` (16 escalations, 100.54 m). Letting the gate
   *reject* rather than *escalate* makes the arm worse on this seed. That sharpens
   §1.3 finding 4 from "no measured benefit" to "measurably adverse".
+
+  > **SCOPE CORRECTION, added in Part 6 (§6.9).** The sentence above is true and
+  > reproduced at 20 seeds, but it is a **legacy-PCS result and must be quoted with
+  > the form attached.** Under `--pcsForm=v2` the same ablation is *not significant*
+  > (rmseM −0.0959 m [−0.2878, +0.0961], n=20), because v2 fires `suspect` 23.2 times
+  > per run against legacy's 220 — the gate has almost nothing to act on. The
+  > defensible cross-form statement is: **the integrity check has shown no benefit
+  > under any form tested; under legacy it is measurably adverse, under v2 it is
+  > statistically neutral.** The original wording is retained unedited above so the
+  > correction is auditable rather than silent.
 - **`suspects` more than doubles when the gate stops forcing escalation**
   (226 → 642): the node stays on tier 1, where the all-LOS precondition is met
   more often, so the gate fires more and helps less.
@@ -957,3 +967,351 @@ Exhaustive, for this session's scope.
 13. **Duration, node count, geometry.** One 3600 s run, one field node, three
     geometries. No sensitivity to `dt`, `uwbTriad`, `nDeescalate`, or
     `fixedVarThresholdM2`.
+
+---
+
+## Part 6 — PCS v2, and the close of the decision-layer question
+
+Session of 2026-08-04, continuing Part 5. Appended; Parts 0–5 stand as committed,
+with one scope correction annotated in place at §5.2 (see §6.9).
+
+**This part closes the decision layer.** Claims 1 and 2 were closed negative in
+Part 5. PCS v2 — the pre-registered redesign of Part 0, and the last remaining route
+to a positive decision-layer result — is measured here at 20 seeds against two
+baselines and two geometries, and it loses to both.
+
+### 6.0 Lead with what is wrong
+
+Three things, in order of how much they should change a reader's mind.
+
+**1. A positive v2 signal appeared at n=1 and did not replicate.** It is treated in
+§6.2 as a subsection of its own, because the pre-registration surviving that event is
+the most citable thing in this phase.
+
+**2. The pre-registered hysteresis measurably failed to do what it was chosen for.**
+`pcsThresholdDown = 0.301` was fixed in advance at one octave of `sigma_eff` (§0.3).
+At `boxHalf=3000` it leaves `ca_tbl_full` changing tier on **29.1% of cycles**
+(210.05 escalations against 208.60 de-escalations in 1440 steps), which is sustained
+thrash, not convergence — and *worse* than the flat threshold it was meant to improve
+on (24.1%). It is not retuned. What hysteresis would damp this is `UNMEASURED`.
+
+**3. The integrity gate's effect is form-dependent, and Part 5 overstated its
+scope.** See §6.9.
+
+### 6.1 Verdict on v2, in the form Part 0 pre-committed to
+
+> **PCS v2 fails.** It does not beat the flat variance threshold at matched seeds
+> (0.8131 [0.6399, 1.0332] at b1000, point estimate against it; 0.2478 [0.1902,
+> 0.3229] at b3000), and it loses to static 2.4 GHz provisioning on every seed at
+> both geometries (0.3140 and 0.0049). At b1000 it reduces to a static tier-2
+> assignment with a startup transient — 97.20% residency on one tier, 0.07% on the
+> tier-1 floor it pays for. At b3000 it does not reduce to a static assignment; it
+> thrashes, and 96.5% of its energy is UWB blind search.
+
+`[PENDING: whether Part 0's specific pre-committed verdict — "a v2 that beats legacy
+on ρ but whose variance is >90% attributable to sigma_post alone is the
+fixed_threshold statistic on a log scale" — applies. Requires the §0.4a variance
+decomposition, still running.]`
+
+### 6.2 The n=1 signal that did not replicate
+
+A single-seed probe (seed 7) showed `ca_tbl_full` under v2 beating `fixed_threshold`
+on accuracy-per-joule by **1.33×** — the first time in this project that any
+configuration of the decision layer had beaten the flat threshold on that metric.
+
+It did not survive. At 20 seeds the geometric-mean ratio is **0.8131 [0.6399,
+1.0332]**, 10/20 seeds won — a tie whose point estimate sits *below* 1.
+
+Why the probe was misleading, stated precisely:
+
+- Per-seed ratios span **0.2374 to 1.3968**, median **1.0019**.
+- Seed 7's 1.3288 ranks **2 of 20** — the second most favourable seed in the set.
+- The sweep's seed-7 rows are **byte-identical** to the standalone probe. The probe
+  was not wrong. It was unrepresentative, which is a different failure and the one
+  that single-seed results are specifically vulnerable to.
+
+This is the pre-registration doing the exact job it was written for. Part 0 fixed the
+form, both thresholds, the acceptance criteria, the controls and the estimator before
+any v2 run, at a time when nobody knew which way the result would fall. When a
+tempting number appeared, there was nothing left to adjust that would not have been
+visible as an adjustment. **That is the result of this phase most worth writing
+down.**
+
+### 6.3 The two decisive comparisons
+
+20 seeds, paired per seed, geometric mean of per-seed ratios
+(`scripts/sweeps/paired_stats.py` estimator).
+
+**v2 vs `fixed_threshold`** — the *literature* baseline:
+
+| geometry | acc/J ratio [95% CI] | seeds won | reading |
+|---|---|---|---|
+| b1000 | 0.8131 [0.6399, 1.0332] | 10/20 | tie; point estimate against v2 |
+| b3000 | 0.2478 [0.1902, 0.3229] | 0/20 | v2 loses by 4.0× |
+
+**v2 vs `static_2p4`** — the *dominance* baseline:
+
+| geometry | acc/J ratio [95% CI] | seeds won |
+|---|---|---|
+| b1000 | **0.3140 [0.2481, 0.3975]** | **0/20** |
+| b3000 | **0.0049 [0.0032, 0.0075]** | **0/20** |
+
+At b1000, v2 means: rmseM 2.2548 [2.0618, 2.4478], totalJ 47.1198 [38.0170, 56.2226]
+against `static_2p4`'s 1.8451 and 16.6773 — **worse on both axes**. The reading:
+
+> v2 discovers `static_2p4` and charges ~30 J for the discovery. It pays for a
+> tier-1 floor it uses on 0.07% of fix cycles.
+
+**Correction to a claim made mid-phase.** It was suggested that v2 represents
+progress on Claim 1 relative to legacy. It does not. At b1000, legacy fails Claim 1
+by 2.62× (ratio 0.3815 [0.3376, 0.4313]) and **v2 fails by 3.18×** (0.3140). v2
+moves Claim 1 *further from* passing, because it spends 47.1 J against legacy's
+27.0 J for a modest accuracy gain (2.25 m against 3.09 m). A direction was asserted
+before it was checked; the check reverses it.
+
+### 6.4 Diagnostics: what v2 is actually doing, and it differs by geometry
+
+Fix-cycle tier residency, mean over 20 seeds:
+
+| arm | 868 MHz | 2.4 GHz | UWB | escalations | de-escalations | first esc. |
+|---|---|---|---|---|---|---|
+| **b1000** `ca_tbl_full` v2 | **0.07%** | **97.20%** | 2.73% | 8.85 | 7.85 | cycle 1.4 |
+| **b1000** `fixed_threshold` | 37.35% | 62.65% | 0.00% | 180.25 | 180.00 | cycle 1.4 |
+| **b3000** `ca_tbl_full` v2 | 6.25% | 42.16% | **51.60%** | 210.05 | 208.60 | cycle 3.2 |
+| **b3000** `fixed_threshold` | 17.62% | 68.10% | 14.29% | 174.20 | 173.20 | cycle 3.2 |
+
+**At b1000 v2 is a static assignment with a startup transient.** It leaves tier 1 at
+cycle ~1.4 and spends 97.20% of fix cycles on tier 2; its 8.85 escalations are one
+promotion off tier 1 plus ~7.85 brief UWB excursions, matched by 7.85 demotions.
+`pcsThresholdUp = 0.0` means "escalate while `sigma_eff` exceeds 3.1623 m"; tier 1
+never meets that target and tier 2 usually does, so the threshold restates the
+specification and the score does little per-cycle work. This is the structural
+analogue of §10.4's finding about legacy — "escalate unless already on UWB" — with
+the tier changed.
+
+**At b3000 that reading fails.** Residency is 6.25 / 42.16 / 51.60 and the arm
+thrashes. "v2 reduces to a static assignment" is a **b1000-only** statement and must
+not be quoted unconditionally.
+
+v2 does demote, near-symmetrically, at both geometries. It is not a one-way ratchet.
+
+### 6.5 Where v2's energy goes at b3000
+
+Mean joules, n=20, the same breakdown §6.2 of the technical report uses:
+
+| arm | totalJ | j_uwb | **rx_uwb** | blindCycles |
+|---|---|---|---|---|
+| `ca_tbl_full` v2 | 456.208 | 440.399 (96.5%) | **440.354 (96.5%)** | 737.2 |
+| `static_uwb` | 824.322 | 824.293 (100.0%) | 824.247 (100.0%) | 1328.3 |
+| `fixed_threshold` | 165.156 | 148.265 | 148.255 (89.8%) | 268.1 |
+| `static_2p4` | 6.563 | 0.008 | 0.000 | 27.0 |
+
+**96.5% of v2's b3000 energy is `rx_uwb`** — a radio listening and hearing nothing
+across 737 blind cycles. This is `static_uwb`'s failure mode differing only in
+degree. One sentence covers both geometries:
+
+> Where UWB is rarely available (b1000), v2 parks on tier 2 and becomes `static_2p4`
+> with a surcharge. Where UWB is sporadically available (b3000), v2 thrashes into it
+> and pays blind-search energy. In neither case does the score price the cost of
+> being wrong.
+
+**`searchDuty` caveat, restated because it bites hardest here.** `searchDuty=1.0` has
+no citation and the bracket spans a factor of 828, so the *absolute* 440 J carries
+that uncertainty. The **share** (96.5% in one state) and the paired comparison
+against `static_2p4` do not — `static_2p4` barely touches UWB at all.
+
+### 6.6 Cell E for v2 — the integrity gate with the gate acting as a gate
+
+`--suspectForcesEscalation=false`, 20 seeds, b1000,
+`results/sweep20_v7_v2_E_b1000/`.
+
+**Control:** `fixed_threshold` and `ca_tbl_no_integrity` are **byte-identical** to
+the corresponding `sweep20_v7_v2_b1000` rows on all 20 seeds, every column. Neither
+reads `suspect`; the flag does only what it claims.
+
+| `ca_tbl_full` v2, b1000 | gate as trigger | gate as gate |
+|---|---|---|
+| escalations | 8.85 | 8.90 |
+| rmseM | 2.2548 | 2.2811 |
+| totalJ | 47.12 | 47.49 |
+
+Integrity ablation under v2, paired: escalations **+2.20 [+0.65, +3.75]**
+(significant), rmseM **−0.0959 [−0.2878, +0.0961]** (**not significant**), totalJ
++1.50 [−1.93, +4.93] (not significant).
+
+Under v2 the gate is **neutral**. The mechanism is that it barely fires: 23.20
+suspects per run against legacy's 220.50, so `suspectForcesEscalation` has almost
+nothing to act on.
+
+### 6.7 Carried forward from Phase A
+
+**Cell E at 20 seeds (legacy form)** — `results/sweep20_v6_E_b1000/`. The D≡E control
+holds: all five arms that never read `suspect` are identical across D and E on all 20
+seeds. `ca_tbl_full`: escalations 218.35 [216.81, 219.89] → **13.15 [11.28, 15.02]**;
+rmseM 3.086 → **125.58 [120.18, 130.98]**. Paired differences all significant
+(escalations −205.20, rmseM +122.49). Part 5's single-seed figures (11 escalations,
+123.00 m) fall inside these CIs — seed 7 was representative there.
+
+Integrity ablation under legacy, E: escalations −0.20 [−2.14, +1.74] (**null**),
+rmseM **+24.64 [+18.91, +30.37]** (**adverse**).
+
+**`ca_tbl_full` − `static_868`, paired, cell E legacy:**
+
+| | mean [95% CI] | verdict | seeds worse |
+|---|---|---|---|
+| rmseM | +7.1511 [**−0.0185**, +14.3208] | CI spans zero | 14/20 |
+| cep50M | −6.4115 [−13.0273, +0.2044] | CI spans zero | 6/20 |
+| totalJ | +0.9010 [+0.7191, +1.0830] | **clear of zero** | **20/20** |
+
+The rmseM lower bound is **−0.0185** and is quoted unrounded deliberately: it fails
+to clear zero by 1.85 cm. The honest statement is that with its central mechanism
+operating as designed, the proposed system is **statistically indistinguishable from
+the single-band tier-1 baseline on accuracy, in either direction, while costing more
+energy on every seed tested**. The RMSE-worse / median-better split is §0.6's
+bimodality caveat behaving exactly as pre-registered.
+
+**`trig_f1 = 0.0000` in cell E is not a failed trigger score, and not simply
+"undefined".** Pooled over 20 seeds `ca_tbl_full` records tp=0, fp=0, **fn=3310**,
+tn=25490. A positive class exists — 3310 cycles (165.5/seed) where `visUwb >= 3`.
+What is absent is positive *predictions*. So **precision is undefined (0/0)**,
+**recall is a defined, measured zero** (0/3310), and f1 is undefined via precision
+and reported as 0.0000 by convention. The arm escalated to UWB on none of 3310
+opportunities. That is a measurement, not a scoring artefact.
+
+**Pre-fix D restored** — `results/v6_ladder/D_prefix_VOID/`, regenerated from
+`5994de53c` after the original was destroyed by re-running in place. Every Part 5
+figure reconciles: `ca_tbl_full duty_868` = **2.5080%** against the 2.5% cap, and all
+three excess-airtime attribution ratios at **0.9999**. It also reproduces the
+destroyed original's rmseM 3.6544 / totalJ 28.7306 / 215 escalations. The directory
+carries a `README.md` marking it as evidence of a defect, never a measurement.
+
+**`--arms` equivalence check.** `--arms=ca_tbl_full` alone (arm 6 of 6, maximum
+preceding RNG stream state) and `--arms=fixed_threshold` alone (arm 4 of 6) are both
+**byte-identical to `baseline_v6` on the summary row and on the full 1441-line
+trace**. `RunArm()`'s per-arm stream reset behaves as `ca_tbl_causal_sim.cc:2980`
+documents. This is what made the Pareto sweep affordable (~1.3 h against ~7 h).
+
+**`sigma_geo` availability**, fix cycles only, seed 7, per active tier: 2.4 GHz
+**0.00%** unavailable, UWB **0.00%**, 868 MHz **0.37%** (policy arms pooled).
+`ca-tbl-policy.cc:639` substitutes `sigmaGeo = 1e6` on a failed weighted solve, which
+is an **escalate-always substitution, not a dropped sample** — an unavailable
+`sigma_geo` forces a strongly negative score. It is essentially never taken, so the
+per-term decomposition is not running on a thin population. Failures are confined to
+tier 1, where geometry is weakest, consistent with degenerate solves rather than a
+defect.
+
+### 6.8 The §0.4 criteria
+
+`[PENDING: ρ table — criterion 2, both pre-registered controls (monotone
+−log10(sigma_post), and incremental information over traceSigma alone), and the
+§0.4a per-term decomposition with variance shares, covariance cross-terms, range,
+distinct-value counts, per-term ρ, and losFrac reported despite exclusion.
+analyse_pcs.py is running; n_boot = 2000 at ~1.5–3 h.]`
+
+**Criterion 1 — `--pcsForm=legacy` still reproduces the legacy baseline
+byte-identically: PASSES.** The rebuilt binary reproduces `results/baseline_v6` on
+`arm_summary.csv` and all six traces. Additionally, `fixed_threshold` is identical
+between the legacy and v2 sweeps at every seed — it does not read PCS, so the form
+switch touching it would have indicated contamination.
+
+**Criterion 3 — escalation rate per fix cycle, both forms**, `ca_tbl_full`, b1000:
+
+| form | escalations / fix cycle |
+|---|---|
+| legacy | 0.1532 (218.35 / 1425) |
+| **v2** | **0.0062** (8.85 / 1428) |
+
+**Criterion 4 — arm comparison including marginal m/J against `fixed_threshold`:**
+§6.3, plus `scripts/sweeps/marginal_mpj.py` for the crediting-invariant measure.
+
+**An inverted failure mode Part 0 did not anticipate, named here as an extension of
+its logic.** §0.4 warns that a score can improve ρ while still escalating on 96% of
+cycles, leaving the energy conclusion unmoved. **v2 inverts this.** At an escalation
+rate of 0.0062 per fix cycle, the score can correlate arbitrarily well with realised
+error while almost never acting on it. ρ measures the score's *information*;
+escalation rate measures whether the policy *uses* it. **v2 can pass criterion 2 and
+still be a non-policy.** Both numbers must be reported together, always. This is an
+extension of the pre-registration's reasoning, not a departure from it, and it is
+recorded as such rather than folded in silently.
+
+### 6.9 Correction: the integrity gate's effect is form-dependent
+
+Part 5 §5.2 stated that "as a gate, the integrity check costs accuracy", sharpening
+§1.3 finding 4 to "measurably adverse". **That is a legacy-PCS result and Part 5
+stated it without the form attached.** The original wording is retained there with a
+scope-correction note appended, so the correction is auditable rather than silent.
+
+| PCS form | suspect firings/run | integrity ablation on rmseM (n=20) |
+|---|---|---|
+| legacy | 220.5 | **+24.64 m [+18.91, +30.37]** — adverse, CI clear of zero |
+| v2 | 23.2 | −0.0959 m [−0.2878, +0.0961] — **not significant** |
+
+The defensible cross-form statement:
+
+> The integrity check has shown **no benefit under any form tested**. Under legacy
+> PCS it is measurably adverse (+24.6 m RMSE); under v2 it is statistically neutral
+> and fires on 1.6% of cycles. A mechanism that is either harmful or inert is not a
+> contribution — but the two readings have different causes and must be reported
+> with the form attached.
+
+### 6.10 Pareto fronts at matched operating points
+
+`[PENDING: §0.5 fronts and which of the three readings applies — one front dominates,
+the other dominates, or the fronts overlap ("equivalent to a flat threshold at
+matched operating points"). 18 points x 20 seeds, in flight.]`
+
+Two notes recorded now so a later reader does not mistake either for a bug:
+
+- `pareto_sweep.py`'s `collect()` reads **`ca_tbl_no_integrity`** for the v2 family,
+  not `ca_tbl_full`, deliberately — "so the integrity gate's escalation side effect
+  is not confounded into the comparison". That choice predates this phase and is
+  correct. `--arms` was matched to it: `fixed_threshold` for `ft_*` points,
+  `ca_tbl_no_integrity` for `v2_*` points.
+- `static_2p4` is to be plotted as a **single fixed point**, not a swept arm. It has
+  no operating-point parameter to sweep.
+
+### 6.11 Corrections register
+
+| # | Claim | Correction |
+|---|---|---|
+| 1 | "v2 is still progress on Claim 1" | **Wrong in direction.** Legacy fails by 2.62×, v2 by 3.18×. v2 moves Claim 1 further from passing. |
+| 2 | `static_2p4` ratio of 1.90× | **Computed from the seed-7 probe.** At 20 seeds it is 3.18× [0.2481, 0.3975], 0/20 seeds won. |
+| 3 | "the integrity check is measurably harmful" | **Scope error.** Legacy-form only; under v2 it is statistically neutral (§6.9). |
+| 4 | Part 5 §5.0, `duty_868` = 0.024691 attributed to cell B | **Misattributed.** 0.024691 is pre-fix cell D; cell B was 0.024932. Corrected in Part 5 before commit. |
+| 5 | `trig_f1 = 0` is "undefined, no positive class" | **Imprecise.** A positive class of 3310 pooled cycles exists; precision is undefined, recall is a defined zero (§6.7). |
+| 6 | Phase A: "two E runs produced empty summaries" | **Not a failure.** The sweep was still running; the gate counted file existence, not content. Both sweep scripts now gate on `find -size +0`. |
+
+### 6.12 `UNMEASURED`
+
+Carried forward from Part 5 and extended.
+
+1. **ρ and the §0.4a decomposition** — `[PENDING]`, see §6.8.
+2. **Pareto fronts** — `[PENDING]`, see §6.10.
+3. **v2 at the gw9 constant-density geometry.** v2 was run at b1000 and b3000 only.
+   Part 5 showed the b3000 comparison is confounded by falling gateway density; the
+   v2 b3000 numbers inherit that confound and have **no constant-density control**.
+4. **Cell E for v2 at b3000.** Run at b1000 only.
+5. **Hysteresis sensitivity.** `pcsThresholdDown = 0.301` measurably fails to damp
+   thrash at b3000 (29.1% of cycles change tier). What value would damp it is
+   unmeasured and deliberately not tuned.
+6. **Integrity gate under fault injection.** S7 does not exist. Cells E measure the
+   gate as a gate for the first time, with **no faults injected**.
+7. **`suspectForcesEscalation=false` in the Pareto sweep** — all Pareto points use
+   the default `true`.
+8. **`LoRaDistributionSampler` seed handling** (§10.1) — untouched, remediation
+   item 8.
+9. **Mobility-state classifier / the RECEDING handshake branch** — nothing sets
+   mobility state (`ca_tbl_causal_sim.cc:2513-2517`); claim 4 is exercised on its
+   stationary path only.
+10. **Hop-provenance confidence.** `hopWeight = 0`; `hopCount` is passed as a literal
+    `0` and that is **correct**, not a stub — the neighbour table is one-hop by
+    construction (`ca-tbl-mac.cc:353`). See `CA_TBL_PHASE8_SCOPE.md` §2.
+11. **`ESC_REQUEST`/`ESC_GRANT`/`QUERY`/`RESPONSE`/`ENTRY_PUSH` on the wire.**
+    Defined, sized, given access categories and ACK policies — never constructed or
+    transmitted. The escalation handshake is *billed*, not sent.
+12. **Multi-target arbitration.** One tag; `U(r)` scored offline only.
+13. **`searchDuty` bracket.** No citation; spans a factor of 828. Every `static_uwb`
+    and `rx_uwb` absolute figure inherits it.
+14. **Duration, node count, geometry.** One 3600 s run, one field node. No
+    sensitivity to `dt`, `uwbTriad`, `nDeescalate`, or `fixedVarThresholdM2` outside
+    the Pareto grid.
