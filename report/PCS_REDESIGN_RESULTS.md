@@ -1436,8 +1436,24 @@ Two notes recorded now so a later reader does not mistake either for a bug:
 
 Carried forward from Part 5 and extended.
 
-1. **ρ and the §0.4a decomposition** — `[PENDING]`, see §6.8.
-2. **Pareto fronts** — `[PENDING]`, see §6.10.
+1. ~~ρ and the §0.4a decomposition~~ — **MEASURED**, §6.8.
+2. ~~Pareto fronts~~ — **MEASURED**, §6.10 / §6.10a.
+2a. **ρ and the Pareto fronts at `boxHalf=3000`.** Both are measured at b1000 only.
+    The b1000 v2 arm is near-static (§6.4), so its front may be degenerate in a way a
+    second geometry would expose. Queued.
+2b. **`LoRaDistributionSampler` seed handling — a DECISION, not an open item.**
+    §10.1: the sampler accepts a `seed` and ignores it. This is remediation item 8 of
+    8, explicitly last. **The decision recorded here is not to fix it.** Fixing it
+    changes every channel realisation in the repository and invalidates all ~400
+    `arm_summary.csv` files including `baseline_v6`, `results/pareto/` and every
+    20-seed sweep in Parts 5 and 6. Against that, the mitigation
+    (`ResetNextStreamIndex()` per arm) holds and is verified — the null ablation is
+    byte-identical, arms share a channel realisation, and determinism is byte-identical
+    across repeat runs at defaults and at six non-default flag settings. No conclusion
+    in this document depends on the sampler's seed being honoured, because every
+    comparison is *paired within a seed* and the defect is common-mode across arms.
+    The cost of re-running everything exceeds any available benefit. Recorded as a
+    closed decision with reasoning so it does not read as unfinished work.
 3. **v2 at the gw9 constant-density geometry.** v2 was run at b1000 and b3000 only.
    Part 5 showed the b3000 comparison is confounded by falling gateway density; the
    v2 b3000 numbers inherit that confound and have **no constant-density control**.
@@ -1449,8 +1465,8 @@ Carried forward from Part 5 and extended.
    gate as a gate for the first time, with **no faults injected**.
 7. **`suspectForcesEscalation=false` in the Pareto sweep** — all Pareto points use
    the default `true`.
-8. **`LoRaDistributionSampler` seed handling** (§10.1) — untouched, remediation
-   item 8.
+8. **`LoRaDistributionSampler` seed handling** — see item 2b above. It is a recorded
+   **decision not to fix**, not an open item.
 9. **Mobility-state classifier / the RECEDING handshake branch** — nothing sets
    mobility state (`ca_tbl_causal_sim.cc:2513-2517`); claim 4 is exercised on its
    stationary path only.
