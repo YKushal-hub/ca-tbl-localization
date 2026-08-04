@@ -37,4 +37,38 @@ for cfg in "legacy false A_legacy_noarb" \
 done
 
 printf '\n======== LADDER DONE (fail=%d) ========\n' "$fail"
+
+# ---- GATE A: run A must reproduce baseline_v5 ------------------------------
+#
+# NOT a whole-file diff. The arbitration commit inserts handshakePreemptions at
+# column 30, so a new arm_summary.csv has 63 columns against v5's 62 and byte
+# identity is impossible by construction. The mapping is:
+#
+#     new 1-29  <-> v5 1-29        new 30 = handshakePreemptions (new)
+#     new 31-63 <-> v5 30-62
+#
+# so the comparison is `cut -f1-29,31-63` on the NEW file against the UNMODIFIED
+# v5 file. `cut -f1-62` is the trap: it keeps the new column and drops
+# mac_deliveries, shifting every field from 30 onward by one and reporting a
+# behavioural divergence that did not happen.
+A=results/v6_ladder/A_legacy_noarb/arm_summary.csv
+printf '\n======== GATE A: reproduce baseline_v5 ========\n'
+if [ ! -s "$A" ]; then
+  printf 'GATE A: no run A output\n'; exit 1
+fi
+if diff <(cut -d, -f1-29,31-63 "$A") results/baseline_v5/arm_summary.csv; then
+  printf 'A REPRODUCES v5 (62 shared columns)\n'
+else
+  printf 'A DIVERGED -- STOP\n'; fail=1
+fi
+# The new column must be identically zero when arbitration is off; otherwise the
+# flag does not actually gate the mechanism.
+nz=$(tail -n +2 "$A" | cut -d, -f30 | grep -cv '^0$' || true)
+if [ "$nz" -eq 0 ]; then
+  printf 'handshakePreemptions == 0 on every arm under --arbitrateDutyBudget=false\n'
+else
+  printf 'GATE A: %s arm(s) preempted with arbitration OFF -- the flag does not gate\n' "$nz"
+  fail=1
+fi
+
 exit $fail
