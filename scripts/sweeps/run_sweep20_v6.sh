@@ -52,7 +52,9 @@ export -f job
 # paired_stats.py would silently average around. Surface it here.
 bad=0
 for root in sweep20_v6_b1000 sweep20_v6_b3000 gw9_v6; do
-  n=$(ls -1 results/$root/seed_*/arm_summary.csv 2>/dev/null | wc -l)
+  # -size +0: the simulator creates arm_summary.csv at startup and writes it at
+  # the end, so an existence count reports complete while runs are in flight.
+  n=$(find results/$root -name arm_summary.csv -size +0 2>/dev/null | wc -l)
   printf '%-20s %2d/20 arm_summary.csv\n' "$root" "$n"
   [ "$n" -eq 20 ] || bad=1
 done
