@@ -628,3 +628,332 @@ gates. Both were confirmed to bite by planting a stray file.
 ## Part 4 — PCS v2 results
 
 *Pending. Pre-registration is Part 0 and was committed before execution.*
+
+---
+
+## Part 5 — The arbitrated baseline (`v6`)
+
+Session of 2026-08-04. Appended, not rewritten: Parts 0–4 stand as committed.
+
+**Baseline: `results/baseline_v6`**, promoted from `results/v6_ladder/D_prop_arb`,
+`run_id` `bd99a6548154dc85`, built `Aug 4 2026 16:25:41`, verifier 136 checks /
+155 gates / `arms_audited 6/6`, zero failures. Source at `0be15a19b`.
+
+### 5.0 Lead with what was wrong
+
+Two defects were found and fixed in this session, both in the arbitration
+mechanism this baseline exists to measure. Neither was in the plan.
+
+**Defect 1 — the mechanism was uncommitted.** `--arbitrateDutyBudget` defaulted
+to `true` in the working tree but did not exist at `HEAD`. `run_id.txt` hashes
+the build stamp and `argv` (`ca_tbl_causal_sim.cc:3061-3070`) and contains no git
+SHA, so a baseline cut from working-tree-only source is one nobody can reproduce
+— the exact failure the provenance discipline exists to prevent. Committed as
+`5994de53c` before any baseline was cut.
+
+**Defect 2 — the arbiter pre-empted the wrong transmission, and D failed the
+regulatory gate.** The verifier rejected the first D:
+
+```
+X seed 7/ca_tbl_full: 868 duty cycle within WPC 2.5%: duty=2.5080% exceeds the
+  Table-II field-node budget -- some transmitting call site is not consulting
+  CanTransmit()
+```
+
+The arbiter surrendered `rangeTier(active)`. After the tier change commits,
+`active` is the **new** tier, and tiers 2 and 3 carry no duty cap in this model,
+so it was sacrificing an uncapped transmission to make room on the capped one.
+Meanwhile `runFloor = hybridArm && (active != CA_TBL_TIER_868)`
+(`ca_tbl_causal_sim.cc:2181`) kept ranging tier 1 on exactly those cycles, and
+the handshake was charged on tier 1 on top of it.
+
+Attribution, seed 7, first D — excess tier-1 airtime over `static_868` against
+`handshakePreemptions × 41.22 ms`:
+
+| arm | airtime_868 | excess | preemptions × 41.22 ms | ratio |
+|---|---|---|---|---|
+| `fixed_threshold` | 88.8883 s | 7.4189 s | 7.4196 s | **0.9999** |
+| `ca_tbl_no_integrity` | 82.0052 s | 0.5358 s | 0.5359 s | **0.9999** |
+| `ca_tbl_full` | 90.2897 s | 8.8202 s | 8.8211 s | **0.9999** |
+
+`ca_tbl_full` spent more tier-1 airtime (90.29 s) across 362 tier-1 cycles than
+`static_868` spends across 1440 (81.47 s). Fixed at `0be15a19b`: the surrendered
+slot is now the one on `pendingHandshakeTier`, the capped tier the handshake
+departs. Post-fix `duty_868` = **0.021700** (78.1210 s) against
+`81.4694 − 218×0.056576 + 218×0.04122 = 78.1218 s` predicted from the mechanism —
+**0.8 ms**. The preemption count moved 214 → 218 under the fix, so the agreement
+is at the mechanism level, not a coincidence of one number.
+
+**Availability did not regress.** The risk was that pre-empting the tier-1 floor
+converts pre-emptions into no-fix cycles, trading away the continuity result of
+§6.6. Measured: `fixCycles` 1436 / `noFixCycles` 4 in D, against the
+non-arbitrating reference's 1433 / 7. The node keeps the active tier's ranging
+and only loses a fix when that tier is blind on the same cycle. **That
+conjunction is not exercised at this operating point and remains a live exposure
+elsewhere** — it is not a proof that the trade cannot occur.
+
+**Every other pre-fix cell was compliant by luck, and that is the second
+occurrence of the pattern.** With the defect fully present, `fixed_threshold`
+reached `duty_868` = **0.024932** under legacy + arbitration
+(`results/causal/arm_summary.csv`) and **0.024691** under propagation +
+arbitration — both passing, both within 0.4% of the 0.025 cap, and both by where
+the operating point landed rather than by the mechanism claimed. Only
+`ca_tbl_full` under propagation crossed the line, and it is the arm that escalates
+most. §3.7 recorded the identical shape. Both times the violation was invisible
+until an unrelated change moved the operating point, which is an argument for the
+gate rather than for the margin.
+
+### 5.1 The ladder
+
+Seed 7, 3600 s, `--pcsForm=legacy`, everything else default. `A` and `C` predate
+the arbiter fix; `A` was re-run on the post-fix binary and is **byte-identical on
+`arm_summary.csv` and on all six traces**, so the fix is confined to the
+pre-emption path, `C` follows by the same argument, and the ladder is
+single-binary in effect.
+
+| | A `legacy/noarb` | B `legacy/arb` | C `prop/noarb` | D `prop/arb` |
+|---|---|---|---|---|
+| `static_868` rmseM | 157.15 | 157.15 | 115.48 | 115.48 |
+| `fixed_threshold` escalations | 0 | 200 | 0 | 180 |
+| `ca_tbl_no_integrity` escalations | 0 | 195 | 0 | **16** |
+| `ca_tbl_full` escalations | 0 | 195 | 0 | **220** |
+| `ca_tbl_full` escDeferredAway | 1371 | 0 | 615 | 0 |
+| `ca_tbl_full` rmseM | 157.01 | 4.82 | 153.36 | 3.02 |
+| `ca_tbl_full` totalJ | 13.59 | 511.07 | 13.59 | 25.86 |
+| `ca_tbl_full` duty_868 | 0.02263 | 0.02263 | 0.02263 | 0.02170 |
+
+**Gate A passes.** `A` reproduces `baseline_v5` on all 62 columns v5 has. It is
+*not* a whole-file diff and cannot be: `handshakePreemptions` is inserted at
+column 30, so a v6-era file has 63 columns. The comparison is
+`cut -d, -f1-29,31-63` on the new file against the unmodified v5 file.
+`cut -f1-62` is the trap — it keeps the new column and drops `mac_deliveries`,
+shifting every field from 30 onward and reporting a divergence that did not
+happen.
+
+**Arbitration alone (A→B) is what makes the architecture escalate.**
+`escalationsDeferredAway` 1371 → 0. Nothing else does this: C has the NLOS fix
+and no arbitration and still defers 615 away, leaving `ca_tbl_full` at 153 m.
+
+**The NLOS fix alone (A→C) does not touch handoffs.** It improves the single-band
+arms (`static_868` 157.15 → 115.48 m) and changes no escalation count from zero.
+
+**They interact, and not additively.** `ca_tbl_no_integrity` escalates 195 times
+in B but **16** in D. Removing the variance-inflation defect removes most of PCS's
+reason to escalate, confirming §0.2's prediction on the arbitrated architecture
+for the first time.
+
+### 5.2 Does the architecture escalate at all now? — yes, but not because of PCS
+
+`escalations` / `escalationsDeferredAway`, D:
+
+| arm | escalations | escDeferredAway | preemptions |
+|---|---|---|---|
+| `static_868` / `static_2p4` / `static_uwb` | 0 | 0 | 0 |
+| `fixed_threshold` | 180 | 0 | 180 |
+| `ca_tbl_no_integrity` | 16 | 0 | 16 |
+| `ca_tbl_full` | 220 | 0 | 218 |
+
+The v5 null-architecture control is gone: no arm defers an escalation away, and
+no hybrid arm is byte-identical to `static_868` any longer.
+
+**But cell E shows the escalations are not PCS's.** A fifth cell was run — D with
+`--suspectForcesEscalation=false`, the only configuration in which the integrity
+gate is measurable as a gate rather than as an escalation trigger:
+
+| `ca_tbl_full` | D (gate as trigger) | E (gate as gate) |
+|---|---|---|
+| escalations | 220 | **11** |
+| suspects | 226 | 642 |
+| rmseM | 3.0234 | **123.0032** |
+| cep50M | 1.7272 | 81.8839 |
+| totalJ | 25.8639 | 14.1980 |
+| accuracyPerJoule | 0.012788 | 0.000573 |
+
+`fixed_threshold` and `ca_tbl_no_integrity` are byte-identical across D and E —
+neither reads `suspect` — which is the control confirming the flag does only what
+it claims.
+
+**Under a correct NLOS model the confidence model escalates 11 times in 1440
+cycles.** All 209 of D's other escalations are `suspect` firing through
+`suspectForcesEscalation = true`. D's headline `ca_tbl_full` number (3.02 m at
+25.86 J) is therefore **not produced by the confidence model**; it is produced by
+the integrity gate wired as a trigger. The default is left alone for v6 as
+instructed, and this is the statement of what that default means.
+
+Two further readings, both negative:
+
+- **As a gate, the integrity check costs accuracy.** E (11 escalations, 123.00 m)
+  against `ca_tbl_no_integrity` (16 escalations, 100.54 m). Letting the gate
+  *reject* rather than *escalate* makes the arm worse on this seed. That sharpens
+  §1.3 finding 4 from "no measured benefit" to "measurably adverse".
+- **`suspects` more than doubles when the gate stops forcing escalation**
+  (226 → 642): the node stays on tier 1, where the all-LOS precondition is met
+  more often, so the gate fires more and helps less.
+
+### 5.3 Claim 1 — hybrid vs single-band. **FAILS**, 0/20 seeds, all three geometries
+
+20 seeds, paired, geometric mean of per-seed ratios, `scripts/sweeps/paired_stats.py`.
+
+`ca_tbl_full` vs `static_2p4`, accuracy-per-joule ratio:
+
+| geometry | ratio [95% CI] | seeds won | verdict |
+|---|---|---|---|
+| `boxHalf=1000` | 0.3815 [0.3376, 0.4313] | 0/20 | fails by 2.6× |
+| `boxHalf=3000`, `gwGrid=3` | 0.0118 [0.0081, 0.0174] | 0/20 | fails by 84.5× |
+| `boxHalf=3000`, `gwGrid=9` (constant density) | 0.0207 [0.0135, 0.0317] | 0/20 | fails by 48.3× |
+
+Read `b3000` only beside `gw9`. The gateway grid is fixed while the area is not
+(`ca_tbl_causal_sim.cc:243`), so `b1000 → b3000` at the default `gwGrid=3` varies
+density as `1/boxHalf²` — the confound that voided the `box_*` directories. The
+constant-density control puts the failure at 48.3×, not 84.5×; roughly half the
+apparent degradation with scale was falling gateway density.
+
+**Median error and outage, as a pair** (§0.6 requires this; the metric is
+substantially an outage measure for the escalating arms):
+
+| geometry | arm | cep50M | rmseM | outage % |
+|---|---|---|---|---|
+| b1000 | `static_2p4` | 1.507 | 1.845 | **0.00%** |
+| b1000 | `ca_tbl_full` | 1.794 | 3.086 | 0.16% |
+| gw9 | `static_2p4` | 6.032 | 57.855 | **46.25%** |
+| gw9 | `ca_tbl_full` | 26.116 | 57.159 | **1.54%** |
+| gw9 | `static_868` | 63.205 | 83.427 | 0.01% |
+
+At `b1000`, `static_2p4` dominates outright — better median, zero outage, less
+energy. The accuracy-per-joule failure is real and not an artefact of the metric.
+
+At `gw9` the picture inverts and **the §6.6 conjunction result survives on its own
+legs**: `static_2p4` reaches 6.03 m median but is in outage 46.25% of the time,
+while `ca_tbl_full` holds 1.54% outage at 26.12 m. Equal RMSE (57.9 vs 57.2 m)
+conceals opposite failure modes. This remains an argument for multi-tier
+*hardware*, which is prior art, not for this decision layer.
+
+### 5.4 Claim 2 — handoff vs flat threshold. **FAILS** on the crediting-invariant measure
+
+Accuracy-per-joule, `ca_tbl_full` vs `fixed_threshold`:
+
+| geometry | ratio [95% CI] | seeds won |
+|---|---|---|
+| b1000 | 0.9878 [0.8725, 1.1185] | 11/20 |
+| b3000 | 0.5955 [0.4637, 0.7648] | 6/20 |
+| gw9 | 0.5003 [0.4328, 0.5783] | 0/20 |
+
+At `b1000` the CI spans 1.0 — a statistical tie, not a win. At both `b3000`
+geometries the flat threshold wins.
+
+**Crediting-invariant marginal m/J above the shared tier-1 floor**
+(`scripts/sweeps/marginal_mpj.py`, new this session), metres of RMSE removed per
+joule spent above `static_868` at the same seed. Ratio `fixed_threshold` /
+`ca_tbl_full`; `>1` means the flat threshold converts joules into accuracy more
+efficiently:
+
+| geometry | ratio [95% CI] | seeds where `ca_tbl_full` wins |
+|---|---|---|
+| b1000 | **1.3453** [1.2495, 1.4483] | 0/20 |
+| b3000 | **1.5431** [1.0787, 2.2073] | 2/20 |
+| gw9 | **2.5785** [1.9940, 3.3343] | 0/20 |
+
+The flat threshold wins on all three, as §1.3 finding 3 predicted (last measured
+1.514× [1.367, 1.661]). The ranking is unchanged by the arbitration fix. What
+changed is that it is now a comparison between two arms that both actually hand
+off — under v5 neither did.
+
+**The `INTEGRITY ABLATION` line printed by `paired_stats.py` must not be read as
+an integrity result.** It reports 18.10× at b1000, 1.42× at b3000, 0.117× at gw9
+for `ca_tbl_full` vs `ca_tbl_no_integrity`. Per §5.2 that comparison is
+220 escalations against 16 — it measures the escalation, not the check. The gate
+is evaluated in cell E and only there. Note also that its verdict **reverses**
+between `b3000` (1.42×, "PASSES") and the constant-density `gw9` (0.117×,
+"FAILS"), so even as an escalation comparison it is density-dependent.
+
+### 5.5 Claim 3 — do handoffs trigger correctly?
+
+`trig_*` is scored against **`visUwb >= 3`** — geometric ground truth, "could UWB
+have solved this cycle", **not** "was escalating the right call". It is a
+coverage oracle, not a policy oracle, and a policy could be perfect by its own
+lights and score badly here.
+
+`ca_tbl_full`, seed 7:
+
+| cell | tp | fp | fn | tn | precision | recall | f1 |
+|---|---|---|---|---|---|---|---|
+| B `legacy/arb` | 155 | 966 | 4 | 315 | 0.1383 | 0.9748 | 0.2422 |
+| D `prop/arb` | 14 | 0 | 145 | 1281 | **1.0000** | **0.0881** | 0.1618 |
+| E `prop/arb`, gate-as-gate | 0 | 0 | 159 | 1281 | 0.0000 | 0.0000 | 0.0000 |
+
+The NLOS fix flips the operating point rather than improving it: from escalating
+almost always (966 false positives, recall 0.97) to escalating almost never but
+never wrongly (0 false positives, recall 0.088). `fixed_threshold` scores 0
+throughout because it escalates only to tier 2 and the metric is scored on tier-3
+escalation.
+
+**ρ, seed 7, D, `pcsForm=legacy`** (`scripts/compute_rho.py`), against the
+pre-registered monotone-of-`traceSigma` control:
+
+| arm | ρ(PCS,err) | ρ(σ,err) | ρ(1/σ,err) |
+|---|---|---|---|
+| `ca_tbl_full` | −0.5275 | +0.5440 | **−0.5440** |
+| `ca_tbl_no_integrity` | −0.2728 | +0.5838 | −0.5838 |
+| `fixed_threshold` | −0.5649 | +0.6024 | −0.6024 |
+| `static_2p4` | −0.1032 | +0.1062 | −0.1062 |
+| `static_868` | −0.0572 | +0.1426 | −0.1426 |
+| `static_uwb` | −0.3989 | +0.4218 | −0.4218 |
+
+**Legacy PCS fails its own pre-registered control.** §0.4 states the test: v2 must
+be judged against the monotone control, not against zero, because any monotone
+function of `traceSigma` scores well by construction. Legacy PCS scores −0.5275
+against a control of −0.5440 — it does not beat the statistic it is built from, it
+slightly loses to it.
+
+**Scope this correctly.** This kills *legacy* PCS, which §10.4 already documented
+as defective. It is **not** evidence about PCS v2, which is the pre-registered
+redesign of Part 0 and remains unrun. These runs are all `--pcsForm=legacy` by
+design (kickoff rule 5), precisely so the arbitration result stays interpretable.
+
+Also note ρ(σ,err) here is +0.54 to +0.60, not the +0.78 quoted in §0.5 — a
+different population (seed 7, `boxHalf=1000`, arbitrated). §6.8's −0.091/+0.779
+were hardcoded string literals at `make_report_figures.py:501,508` and are
+superseded by this table, as instructed.
+
+### 5.6 `UNMEASURED`
+
+Exhaustive, for this session's scope.
+
+1. **PCS v2 in every respect** — Part 4 remains pending. No v2 run exists. Every
+   ρ, escalation rate and arm comparison above is `--pcsForm=legacy`.
+2. **ρ over 20 seeds with seed-level bootstrap CIs**, per §0.6. Only seed 7 is
+   measured. *Deliberate:* §0.6 fixes that estimator and population for the **v2
+   evaluation**, where ρ is the deciding statistic. For a baseline cut, seed-7 ρ
+   from D is adequate provenance. The traced 20-seed set belongs to the v2
+   experiment and should be produced there.
+3. **Pareto fronts across matched operating points** (§0.5). `fixedVarThresholdM2
+   = 100` escalates at σ = 10 m; the derived v2 threshold at σ = 3.162 m. Every
+   Claim-2 number above is a single-point comparison at unmatched operating
+   points and is provisional in that specific way.
+4. **Per-term variance decomposition of PCS** (§0.4a) — needs v2.
+5. **Integrity gate under fault injection.** Cell E measures the gate as a gate
+   for the first time, at **one seed, with no faults injected**. S7 environmental
+   fault injection does not exist. The all-LOS eligible population moving is not
+   evidence the gate works, and E is not a fault-injection result.
+6. **Cell E at 20 seeds.** E is seed 7 only. The 123.00 m vs 100.54 m comparison
+   against `ca_tbl_no_integrity` has n=1 and no CI.
+7. **`--suspectForcesEscalation=false` in the sweeps.** All 60 sweep runs use the
+   default `true`, so every 20-seed number in §5.3–5.4 is of the
+   gate-as-trigger configuration.
+8. **`LoRaDistributionSampler` seed handling** (§10.1) — untouched, per kickoff
+   rule 1. Remediation item 8.
+9. **Mobility-state classifier / the RECEDING handshake branch.** Nothing sets
+   mobility state; claim 4 remains exercised on its stationary path only.
+10. **Hop-provenance confidence.** `hopWeight = 0`, `hopCount` never set. There is
+    no mesh. Nothing is claimed.
+11. **`searchDuty` bracket.** `searchDuty=1.0` is 99.97% of `static_uwb`'s energy
+    and has no citation; the bracket spans a factor of 828. Every `static_uwb`
+    energy figure above inherits that.
+12. **Pre-fix D is not on disk.** The 2.5080% violation of §5.0 was destroyed when
+    the cell was re-run; it is reproducible from `5994de53c` plus the arithmetic
+    shown, and the legacy+arbitration pre-fix configuration survives in
+    `results/causal` and `results/det_a`. This is a provenance gap in the defect
+    report, not in the baseline.
+13. **Duration, node count, geometry.** One 3600 s run, one field node, three
+    geometries. No sensitivity to `dt`, `uwbTriad`, `nDeescalate`, or
+    `fixedVarThresholdM2`.
