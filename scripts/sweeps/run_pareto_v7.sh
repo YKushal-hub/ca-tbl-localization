@@ -60,7 +60,24 @@ export -f job
   done
 } | xargs -P 10 -n 4 bash -c 'job "$0" "$1" "$2" "$3"'
 
-n=$(find "$OUT" -name arm_summary.csv -size +0 2>/dev/null | wc -l)
-printf '%s %2d/18 non-empty summaries\n' "$OUT" "$n"
-[ "$n" -eq 18 ] || { echo "PARETO INCOMPLETE"; exit 1; }
+# COMPLETENESS GATE: COUNT ROWS, NOT BYTES.
+#
+# `-size +0` is WRONG for a --seedCount=N run and this bit during Phase 7G. The
+# simulator writes the header, then appends one row per seed as each finishes, so
+# the file is non-empty from seed 1 onward. A byte-based gate reported 18/18
+# complete while 8 of the 9 v2 points were still at 14/20 seeds -- which would
+# have produced a Pareto front from 14-seed means for one family against 20-seed
+# means for the other, silently unbalanced.
+#
+# (Single-seed sweeps were only safe from this by accident of C++ stream
+# buffering holding the header until close. Row-counting is correct for both.)
+bad=0
+for d in "$OUT"/*_sigma*/; do
+  n=$(( $(wc -l < "$d/arm_summary.csv" 2>/dev/null || echo 1) - 1 ))
+  printf '  %-24s %2d/20 rows\n' "$(basename "$d")" "$n"
+  [ "$n" -eq 20 ] || bad=1
+done
+npt=$(ls -d "$OUT"/*_sigma*/ 2>/dev/null | wc -l)
+[ "$npt" -eq 18 ] || { echo "PARETO INCOMPLETE: $npt/18 point directories"; exit 1; }
+[ $bad -eq 0 ] || { echo "PARETO INCOMPLETE: some point has fewer than 20 seed rows"; exit 1; }
 echo "PARETO DONE"
