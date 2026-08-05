@@ -1482,3 +1482,311 @@ Carried forward from Part 5 and extended.
 14. **Duration, node count, geometry.** One 3600 s run, one field node. No
     sensitivity to `dt`, `uwbTriad`, `nDeescalate`, or `fixedVarThresholdM2` outside
     the Pareto grid.
+
+---
+
+## Part 7 — the overnight batch: de-confounding, and the regulatory chain
+
+Session of 2026-08-05. Appended; Parts 0–6 stand, with §6.0a amended by annotation in
+§7.1 below.
+
+**Batch provenance.** 518 jobs, one flat priority-ordered pool at `nproc − 2 = 10`,
+`results/overnight_20260805_003718/`. Binary `30fea73179310ad0…` fingerprinted at
+start and **re-asserted unchanged** at the end; zero non-zero exit codes; **518/518
+directories at full row count** by the row-count gate (not a byte gate — see §7.9).
+`baseline_v6` re-verified byte-identical, `arm_summary.csv` and all six traces, after
+the batch.
+
+### 7.0 Lead with what is wrong
+
+**The one surviving positive claim does not survive this batch.** §7.3 tests the
+continuity × accuracy conjunction across six gateway densities at `boxHalf=3000` and
+**no arm achieves it at any density**, including the hybrids. The claim was
+established at `boxHalf=1000` and does not transfer. It must be restated with that
+scope or withdrawn.
+
+**The `--dt` prediction failed, and the failure is the result.** §7.2:
+`handshakePreemptions` does not fall to zero at any cycle period tested, including
+`dt = 5.0 s` where the duty is 0.0108 against a 0.025 cap. The 3.91 s "compliance
+floor" costs accuracy and buys nothing.
+
+**The integrity gate's form-dependence does not hold at a second geometry.** §7.4:
+at b3000 both forms are statistically null. Part 6 §6.9's cross-form statement was
+built on one geometry and needs the weaker wording given there.
+
+### 7.1 Job 1 — de-confounding b3000. Everything shrinks; nothing reverses.
+
+> **AMENDS §6.0a.** That caveat said every b3000 v2 number "may be measuring density
+> collapse, not scale", and was written before this run existed. **It was justified in
+> direction and roughly half-right in magnitude.** The corrected figures are below.
+> The original caveat text is retained unedited so the pre-run statement and the
+> post-run correction are both readable.
+
+`ca_tbl_full` v2 at b3000, paired per seed, gwGrid=3 (0.25 gw/km²) → gwGrid=9
+(2.25 gw/km²), `results/.../j1_a1_gw9_v2_b3000/`:
+
+| comparison | gw3 | gw9 | seeds won |
+|---|---|---|---|
+| vs `fixed_threshold` | 0.2478 [0.1902, 0.3229] — loses 4.0× | **0.3559 [0.3015, 0.4202] — loses 2.8×** | 0/20 both |
+| vs `static_2p4` | 0.0049 [0.0032, 0.0075] — loses 202.9× | **0.0147 [0.0104, 0.0209] — loses 67.9×** | 0/20 both |
+
+Density accounted for about **two-thirds** of the apparent loss to `static_2p4` and
+about a third of the loss to `fixed_threshold`. **No conclusion reverses**; the
+0/20 unanimity is unchanged at both densities.
+
+**Three Part 6 findings were NOT density artefacts and are strengthened:**
+
+| `ca_tbl_full` v2, b3000 | gw3 | gw9 |
+|---|---|---|
+| UWB residency | 55.07% | 54.90% |
+| thrash rate (esc+deesc)/steps | 29.1% | 30.5% |
+| `rx_uwb` share of energy | 96.5% | 95.3% |
+| outage | 41.28% | **4.14%** |
+
+§6.4's residency and §6.5's blind-search energy findings hold essentially unchanged
+across a 9× density change. Only the accuracy/energy *ratios* were inflated, and
+outage — which is what density actually buys.
+
+### 7.2 Job 2 — the `--dt` sweep. A regulatory chain that does not depend on the confidence model.
+
+`boxHalf=1000`, 20 seeds, **both PCS forms** (160 runs), `results/.../j3_dt/`.
+
+`ca_tbl_full`, legacy form:
+
+| `dt` | escalations | **hsPreempt** | duty_868 | cep50M | rmseM | totalJ |
+|---|---|---|---|---|---|---|
+| 2.5 s | 218.35 | **216.45** | 0.02171 | 1.794 | 3.086 | 27.016 |
+| 3.0 s | 182.40 | **181.95** | 0.01808 | 1.833 | 3.122 | 22.398 |
+| 3.91 s | 140.25 | **139.90** | 0.01386 | 1.927 | 3.791 | 18.045 |
+| 5.0 s | 109.80 | **109.60** | 0.01085 | 1.959 | 3.915 | 14.805 |
+
+**The pre-registered expectation was that `handshakePreemptions` → 0 between 3.0 and
+3.91 s. It does not, at any period.** Preemptions track escalations at ≈0.99
+throughout. The same holds for the v2 form and for `fixed_threshold`.
+
+**Mechanism, from the code.** `ca-tbl-energy-model.cc:226`:
+
+```
+m_nextAllowedTxS[tier] = nowS + airtimeS / m_dutyLimit[tier];
+```
+
+A 56.58 ms ranging frame arms a lockout of `0.056576 / 0.025 = 2.263 s`. The
+escalation handshake is attempted at the **same cycle timestamp** `t`, immediately
+after ranging, so `CanTransmit()` is false **regardless of `dt`**. `dt` sets when the
+*next* cycle begins; it does not separate two transmissions inside one cycle.
+
+**So §0.3's 3.91 s floor is an average-rate calculation that does not describe this
+implementation.** The binding constraint is intra-cycle scheduling, not the average
+budget. §0.3 anticipated the ordering effect ("whichever transmission goes first
+succeeds; the second is blocked either way") but the 3.91 s figure was carried
+forward as though raising `dt` would fix it. It does not.
+
+**Accuracy is monotonically worse with `dt`** — the second of the two pre-registered
+readings. cep50M 1.794 → 1.959 m and rmseM 3.086 → 3.915 m (legacy); 1.533 → 1.693
+and 2.255 → 2.886 (v2). The prediction step dominates: at 1.5 m/s the target moves
+3.75 m between fixes at 2.5 s and 5.87 m at 3.91 s, against a 3.1623 m accuracy
+target.
+
+**The result, stated sharply:**
+
+> Moving to the derived 3.91 s compliance floor costs **+0.13 m median and +0.71 m
+> RMSE** and saves 33% energy — and **does not eliminate the handoff's ranging-slot
+> cost**, which was the entire reason for the figure. You pay the accuracy price and
+> get nothing for it.
+
+This is a chain from a legal constraint through a protocol parameter to metres of
+position error, and it holds under **both** PCS forms, so unlike everything else in
+this project it does not depend on the confidence model working.
+
+**A derived fix, NOT measured, flagged as such.** Because the constraint is
+intra-cycle ordering rather than average rate, scheduling the handshake ≥2.263 s
+*after* the ranging within the same cycle would eliminate the pre-emption at any
+`dt ≥ ~2.32 s`, at no accuracy cost. That is arithmetic from the lockout rule, not a
+run. It is the strongest Phase 8 candidate and it is on the `UNMEASURED` list.
+
+### 7.3 Job 3 — the density sweep, and the loss of the one positive claim
+
+`boxHalf=3000`, legacy form, `N ∈ {3,4,5,6,7,9}`, density `N²/36` per km², 20 seeds.
+
+| N | gw/km² | `static_868` outage / cep50 | `static_2p4` outage / cep50 | `fixed_threshold` | `ca_tbl_full` |
+|---|---|---|---|---|---|
+| 3 | 0.25 | 45.06% / 294.76 m | 45.98% / 5.97 m | 37.56% / 11.92 m | 38.94% / 12.05 m |
+| 4 | 0.44 | 5.66% / 168.36 m | 46.39% / 6.36 m | 9.97% / 9.51 m | 9.31% / 11.86 m |
+| 5 | 0.69 | **0.29%** / 119.02 m | 45.93% / 6.23 m | 6.37% / 8.94 m | 4.41% / 11.49 m |
+| 6 | 1.00 | 0.04% / 102.27 m | 46.44% / 6.12 m | 5.93% / 8.67 m | 3.66% / 12.86 m |
+| 7 | 1.36 | 0.02% / 87.51 m | 45.49% / 5.99 m | 6.39% / 9.37 m | 2.98% / 15.77 m |
+| 9 | 2.25 | 0.01% / 63.20 m | 46.25% / 6.03 m | 6.03% / 9.07 m | 1.54% / 26.12 m |
+
+**Question 1 — at what density does tier 1 alone become a complete coverage floor?**
+**At N = 5, i.e. 0.69 gw/km²** (0.29% outage), and it stays complete above that.
+§9's claim that `static_868` is already a complete floor at the derived density
+(~2.25/km²) is **confirmed**, and this locates the threshold rather than asserting it
+at one point. Below it the floor collapses fast: 5.66% at 0.44/km², 45.06% at
+0.25/km².
+
+**Question 2 — does the conjunction hold at every density, or only one?**
+
+> **At `boxHalf=3000`, NO ARM achieves outage < 5% AND cep50 < 10 m at ANY of the six
+> densities tested — including both hybrid arms.**
+
+The two hybrids fail in opposite directions and neither crosses: `ca_tbl_full` reaches
+continuity (1.54% at N=9) but its median degrades to 26.12 m; `fixed_threshold` holds
+~9 m median but plateaus at ~6% outage. The conjunction was established at
+`boxHalf=1000` and **does not transfer to `boxHalf=3000` at any density**. It must be
+restated with that scope.
+
+**A new negative for the confidence model, visible only across this axis.**
+`ca_tbl_full`'s median error gets **monotonically worse as the network improves** —
+11.86 → 11.49 → 12.86 → 15.77 → **26.12 m** from N=4 to N=9 — while
+`fixed_threshold` stays flat at ~9 m. The mechanism: as tier 1's coverage improves,
+PCS is satisfied more often, escalates less, and settles on a tier whose accuracy is
+poor. **The policy converts an infrastructure improvement into an accuracy
+regression.** A flat variance threshold does not, because its trigger is keyed to
+position variance rather than to a score that the improved floor now satisfies.
+
+### 7.4 Jobs 4/5 — the integrity gate's form-dependence does NOT hold at b3000
+
+Ablation `ca_tbl_full` − `ca_tbl_no_integrity` under `--suspectForcesEscalation=false`,
+b3000, 20 seeds:
+
+| form | suspects/run (% of cycles) | ablation rmseM | ablation escalations |
+|---|---|---|---|
+| legacy | 362.5 (25.17%) | −6.97 [−53.21, +39.27] **n.s.** | −0.40 [−4.44, +3.64] n.s. |
+| v2 | 382.5 (26.56%) | +53.34 [−3.36, +110.05] **n.s.** | −0.70 [−2.13, +0.73] n.s. |
+
+At b1000 the gate was **adverse under legacy** (+24.64 m, CI clear of zero) and
+**neutral under v2** (n.s.), and Part 6 §6.9 explained the difference by v2 firing
+`suspect` on only 1.6% of cycles. **That explanation does not survive here**: at
+b3000 v2 fires on 26.56% of cycles — sixteen times more often — and the ablation is
+*still* n.s.
+
+**Restated cross-form, cross-geometry statement**, replacing §6.9's:
+
+> The integrity check shows **no significant benefit in any of the four
+> configurations tested** (two forms × two geometries). It is significantly **adverse
+> in exactly one** — legacy PCS at `boxHalf=1000`, +24.64 m [+18.91, +30.37] — and
+> statistically null in the other three. "v2 barely fires" is **not** the general
+> explanation; it accounts for b1000 only.
+
+### 7.5 Job 6 — Pareto at b3000, and an axis problem worth naming
+
+`results/.../j6_pareto_b3000/`, 18 points × 20 seeds. **This ran at the default
+`gwGrid=3`, so it carries the same density confound §6.0a describes.** There is no
+gw9 Pareto; it is on the `UNMEASURED` list.
+
+`pareto_sweep.py` reports **0%** of the v2 front dominated by any flat-threshold
+point and **50%** (2 of 4) of the flat-threshold front dominated by a v2 point — a
+more decisive version of the b1000 result (0% / 14%).
+
+**But `static_2p4` still dominates both fronts, 4/4 and 3/3, on the (cep50, totalJ)
+axes.** So the ordering of the two decision rules remains an ordering of two
+dominated sets.
+
+**The axis caveat, which matters more here than at b1000.** The Pareto axes are
+median error and joules; **they do not contain availability**, and `cep50` is computed
+over fix cycles only. At b3000/gw3 `static_2p4` is in **outage 45.98% of the time** —
+it shows an excellent median precisely because it is scored only on the cycles where
+it works. At b1000 its outage was **0.00%**, so the domination there was real in a way
+it is not here. Quoting "static provisioning dominates" at b3000 without that number
+attached would be misleading, and §6.10a's statement should be read as **b1000-scoped**.
+
+### 7.6 Job 7 — the `searchDuty` bracket closes a reviewer question permanently
+
+v2 vs `static_2p4`, b3000/gw3, across the full range of the uncited parameter:
+
+| `searchDuty` | v2 rmseM | v2 totalJ | acc/J ratio | loses by | seeds won |
+|---|---|---|---|---|---|
+| 0.0 | 163.92 | 14.67 | 0.15173 | 6.6× | 0/20 |
+| 0.1 | 163.92 | 58.82 | 0.03806 | 26.3× | 0/20 |
+| 0.25 | 163.92 | 125.05 | 0.01794 | 55.7× | 0/20 |
+| 0.5 | 163.92 | 235.44 | 0.00954 | 104.8× | 0/20 |
+| 1.0 | 163.92 | 456.21 | 0.00493 | 202.9× | 0/20 |
+
+**The honest form of the claim:**
+
+> v2 loses to `static_2p4` by **between 6.6× and 202.9×** across the full range of
+> `searchDuty`, an uncited parameter spanning a factor of 828 — and **`static_2p4`
+> wins on all 20 seeds at every one of the five settings.**
+
+The uncited parameter changes the *magnitude* by 31× and **does not change the
+ranking at a single seed at any setting**. That closes the question permanently
+rather than leaving it as a caveat. `rmseM` is identical (163.92) at all five values,
+confirming `searchDuty` is purely an energy parameter — a useful internal consistency
+check.
+
+### 7.7 Job 8 — environment sensitivity
+
+b1000, v2, 20 seeds per setting. **A sensitivity check across three settings, not a
+generalisability proof.**
+
+| environment / vegetation | `ca_tbl_full` rmseM | esc/run | vs `fixed_threshold` | vs `static_2p4` |
+|---|---|---|---|---|
+| RuralForested / dense (baseline) | 2.255 | 8.85 | 0.8131 (10/20) | 0.3140 (**0/20**) |
+| RuralOpen / sparse shrubs | 2.369 | 8.40 | 0.8178 (8/20) | 0.3093 (**0/20**) |
+| Suburban / light forest | 2.425 | 9.45 | 0.7931 (10/20) | 0.3121 (**0/20**) |
+| UrbanModerate / none | 3.092 | 10.25 | 0.6150 (7/20) | 0.2514 (**0/20**) |
+
+Both headline results hold across all three: v2 ties-or-loses to `fixed_threshold`
+(0.62–0.82, never a significant win) and loses to `static_2p4` at **0/20 seeds in
+every environment**. The escalation rate is likewise stable (8.4–10.3 per run). The
+conclusions are not an artefact of the forested channel.
+
+### 7.8 Where this project now stands — for a reader who has not read Parts 0–6
+
+A three-tier radio localisation system (868 MHz / 2.4 GHz / UWB) was built in ns-3
+with a physics layer, a MAC with duty-cycle governance, a datasheet-traceable energy
+model, and a decision layer that escalates between tiers on a confidence score. Six
+arms are compared against identical channel realisations. **The decision layer does
+not work, and this has now been established from several independent directions at 20
+seeds.** The confidence score carries no information beyond the EKF trace it is
+computed from (ρ = −0.199 against a monotone control at −0.200); a redesigned score
+pre-registered in advance fails the same test; the architecture loses to a flat
+variance threshold on a crediting-invariant measure and loses to *statically pinning
+the radio to 2.4 GHz* on every seed at every geometry, density and environment
+tested; and the integrity check that was the central novelty claim shows no benefit
+in any of four configurations and is measurably harmful in one. The one positive
+claim — that only a hybrid achieves both continuity and sub-10 m median accuracy —
+holds at one geometry and **fails at every density tested at a larger one**. What
+survives as a contribution is not the confidence model but the **measurement
+apparatus and two regulatory findings**: that a duty-cycle limit makes a tier-1
+handoff cost a ranging slot regardless of cycle period, and that the cycle period
+derived as a compliance floor costs accuracy without fixing that. Two of the four
+claimed novelty components — self-deployable mesh and hop-aware confidence — have no
+substrate in the simulator at all.
+
+### 7.9 Corrections register, carried forward and extended
+
+| # | Claim | Correction |
+|---|---|---|
+| 1–6 | (Part 6 §6.11) | carried forward unchanged |
+| 7 | §6.9's "v2 barely fires" explains the gate's form-dependence | **Geometry-scoped.** At b3000 v2 fires on 26.56% of cycles and the ablation is still n.s. The explanation covers b1000 only (§7.4). |
+| 8 | §6.10a "static provisioning dominates the design space" | **b1000-scoped.** At b3000 `static_2p4` dominates the (cep50, J) axes while in outage 45.98% of the time; the axes exclude availability (§7.5). |
+| 9 | §0.3's `dt ≥ 3.91 s` as the fix for handshake capacity | **Average-rate calculation, not the binding constraint.** Preemptions persist at every `dt` because the off-time lockout blocks a handshake attempted at the same cycle instant (§7.2). |
+| 10 | The conjunction claim ("only a hybrid delivers both") | **Geometry-scoped.** Fails at all six densities tested at b3000, including both hybrids (§7.3). |
+| 11 | A completeness gate on `find -size +0` | **Insufficient for `--seedCount=N` runs** — the summary is appended per seed, so it is non-empty from seed 1. All gates now count rows. Caught 8 of 9 Pareto points at 14/20 rows before analysis. |
+
+### 7.10 `UNMEASURED` — carried forward and extended
+
+Part 6's list stands except where marked. New and changed entries:
+
+1. **Intra-cycle handshake scheduling** (§7.2). Deferring the handshake ≥2.263 s
+   after the ranging within a cycle should eliminate the pre-emption at any
+   `dt ≥ 2.32 s` at no accuracy cost. **Derived from the lockout arithmetic, not
+   run.** Strongest Phase 8 candidate.
+2. **Pareto at b3000 with `gwGrid=9`.** §7.5 carries the density confound; there is
+   no constant-density Pareto.
+3. **The conjunction at b1000 across densities.** §7.3 swept density at b3000 only.
+   The claim's surviving support is a single geometry at a single density.
+4. **Hysteresis / `nDeescalate` sweep.** No CLI flag exists; `pcsThresholdDown` and
+   `nDeescalate` are not exposed by `AddValue`. Requires code. Still unmeasured, now
+   with the reason recorded.
+5. **S7 environmental fault injection.** Not implemented, no flag. The integrity gate
+   has still never been shown a fault it was designed to catch (§2.1 of the Phase 7G
+   queue): every firing measured is on natural channel variation.
+6. **Environment coverage.** Three settings tested (§7.7); this is a sensitivity
+   check, not a generalisability proof.
+7. ~~`LoRaDistributionSampler`~~ — recorded as a **decision not to fix** (Part 6
+   §6.12 item 2b). Unchanged.
+8. **Mesh, hop-provenance, identity-scoped search, multi-target arbitration, and
+   `ESC_REQUEST`/`ESC_GRANT`/`QUERY`/`RESPONSE`/`ENTRY_PUSH` on the wire** — all
+   absent. Scoped in `CA_TBL_PHASE8_SCOPE.md`; none implemented.
