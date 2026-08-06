@@ -1418,9 +1418,27 @@ RunProbe(EnvironmentClass envWide,
             // 868 broadcasts one frame that anchors timestamp (one-way TDoA);
             // 2.4 GHz and UWB run symmetric two-way exchanges.
             const bool twoWay = (tier != CA_TBL_TIER_868);
-            // meanSnr + gainDb, not meanSnr. See CoherentGainDb().
+            // NOT COMPUTED ON TIER 1 -- report §10.8, remediation item 7.
+            //
+            // The ToA Cramer-Rao bound is a bound on TIMING estimation. Tier 1
+            // does not estimate timing: it inverts RSSI through the path-loss
+            // model, and its error derives from the shadowing sigma, not from
+            // bandwidth and SNR. lora-physics-engine.cc:468 says so explicitly at
+            // the call site -- "RSSI-inversion ranging is not a time-of-arrival
+            // estimator and the ToA Cramer-Rao bound does not apply to it" -- and
+            // the engine passes snrDbInBand = 0.0 into the tier-1 branch for that
+            // reason.
+            //
+            // Comparing tier 1's realised error against a ToA bound is therefore a
+            // category error: the ratio is not a statement about the ranging model,
+            // it is a statement about two unrelated quantities. It was also
+            // reported as a PASS, which is worse than reporting nothing -- a gate
+            // that cannot fail on a tier it does not apply to is a gate that
+            // manufactures confidence.
             const double crlb =
-                (snrN > 0) ? CrlbRangeStdM(phy[t].bandwidthHz, meanSnr + gainDb, twoWay) : -1.0;
+                (snrN > 0 && tier != CA_TBL_TIER_868)
+                    ? CrlbRangeStdM(phy[t].bandwidthHz, meanSnr + gainDb, twoWay)
+                    : -1.0;
             const double ratio = (crlb > 0.0 && mae > 0.0) ? mae / crlb : -1.0;
 
             // PDR floor on the CRLB gate. The mean range error at a point is
@@ -1568,7 +1586,18 @@ RunProbe(EnvironmentClass envWide,
         // below that the model is claiming information its bandwidth does not
         // carry. A tier reporting unphysical precision silently wins every
         // architectural comparison, so this must be loud.
-        if (worstCrlbRatio < 1e17)
+        if (tier == CA_TBL_TIER_868)
+        {
+            // Report §10.8 / remediation item 7. Say why it is absent rather than
+            // silently omitting it, so a reader does not conclude the gate was
+            // forgotten.
+            std::cout << "    CRLB: NOT APPLICABLE on " << CaTblTierName(tier)
+                      << " -- RSSI-inversion is not a\n"
+                      << "        time-of-arrival estimator, so the ToA Cramer-Rao bound does not\n"
+                      << "        bound it. Previously this tier was measured against that bound\n"
+                      << "        and reported as passing; that was a category error.\n";
+        }
+        else if (worstCrlbRatio < 1e17)
         {
             std::cout << "    CRLB (points with pdr >= 0.20 only): worst measured/floor = "
                       << std::fixed << std::setprecision(3)
@@ -1594,7 +1623,27 @@ RunProbe(EnvironmentClass envWide,
             }
             else
             {
-                std::cout << "    CRLB OK (within 3x of the single-shot bound)\n";
+                // ONE-SIDED, AND SAY SO. Report §10.8: this printed "within 3x of
+                // the single-shot bound" for ANY ratio >= 0.333, including ratios
+                // far ABOVE 3 -- a tier ranging ten times WORSE than the bound was
+                // reported as "within 3x", which is simply false. The test only
+                // ever asks whether the model claims precision its bandwidth
+                // cannot carry; it says nothing about a tier that is merely bad.
+                if (worstCrlbRatio > 3.0)
+                {
+                    std::cout << "    CRLB: not below the bound (one-sided test passes at "
+                              << std::fixed << std::setprecision(2) << worstCrlbRatio
+                              << "x the floor).\n"
+                              << "        NOTE: this is ABOVE 3x, i.e. the tier ranges considerably"
+                              << " worse than\n        the bound. That is not flagged here -- this"
+                              << " gate only detects\n        unphysically GOOD precision.\n";
+                }
+                else
+                {
+                    std::cout << "    CRLB OK: " << std::fixed << std::setprecision(2)
+                              << worstCrlbRatio << "x the single-shot bound (one-sided test;"
+                              << " only ratios < 0.333 are flagged)\n";
+                }
             }
         }
 
