@@ -65,6 +65,9 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nDeescalate = 5;
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
     multiStepDemote = false;            // default preserves the pre-existing baseline
+    escalationRequiresEvidence = false; // default preserves the pre-existing baseline
+    uwbPredictRadiusM = 20.0;
+    uwbPredictMaxSigmaFrac = 0.25;
 
     // true preserves the pre-existing baseline. See the header note: this is what
     // makes the integrity gate measurable as a gate rather than as a trigger.
@@ -116,7 +119,8 @@ CaTblDecision::CaTblDecision()
       nHiddenChannel(0),
       meanSigmaM(0.0),
       meanSigmaRawM(0.0),
-      sigmaGeoM(-1.0)
+      sigmaGeoM(-1.0),
+      predictedVisUwb(-1)
 {
 }
 
@@ -366,6 +370,8 @@ CaTblPolicy::CaTblPolicy()
       m_escalations(0),
       m_deescalations(0),
       m_suspects(0),
+      m_predictBlockedQuality(0),
+      m_predictBlockedCoverage(0),
       m_noFixCycles(0)
 {
     for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
@@ -962,6 +968,49 @@ CaTblPolicy::Step(double dt,
             // With the flag off, a suspect fix is rejected and nothing else
             // happens, which is the mechanism report §2.3 and §10.5 claim.
             wantEscalate = true;
+        }
+    }
+
+    // ------------------------------------------------ coverage predicate (B.2) --
+    // Escalate to tier 3 only where the node's own estimate says UWB is reachable.
+    // Applied AFTER wantEscalate is formed, so it can only ever SUPPRESS an
+    // escalation the confidence model already wanted -- it never creates one.
+    //
+    // Two-stage, and the order matters: the estimate-quality gate runs first,
+    // because a coverage prediction computed from a bad estimate is worse than no
+    // prediction. On a tier-1 fallback cycle at ~129 m error, a 20 m predicate is
+    // noise.
+    if (m_config.escalationRequiresEvidence && wantEscalate && dynamic &&
+        m_tier == CA_TBL_TIER_2P4 && !m_config.uwbAnchorX.empty())
+    {
+        const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
+        if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+        {
+            wantEscalate = false;
+            m_predictBlockedQuality++;
+        }
+        else
+        {
+            const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
+            uint32_t vis = 0;
+            for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
+            {
+                const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
+                const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+                // 2-D. Anchors sit at z = 2.5 and the node at z = 1.5, so the slant
+                // range exceeds this by under 0.03 m at the 20 m radius -- three
+                // orders below the 5 m bins the radius was chosen from.
+                if (dx * dx + dy * dy <= r2)
+                {
+                    ++vis;
+                }
+            }
+            d.predictedVisUwb = static_cast<int32_t>(vis);
+            if (vis < 3)
+            {
+                wantEscalate = false;
+                m_predictBlockedCoverage++;
+            }
         }
     }
 

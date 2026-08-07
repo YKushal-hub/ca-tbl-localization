@@ -96,6 +96,7 @@
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <cstdio>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -1805,7 +1806,10 @@ RunArm(CaTblPolicyMode mode,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
-       double pcsSigmaTargetM)
+       double pcsSigmaTargetM,
+       int escEvidenceMode,
+       double uwbPredictRadiusM,
+       double uwbPredictMaxSigmaFrac)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1887,6 +1891,31 @@ RunArm(CaTblPolicyMode mode,
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.uwbPredictRadiusM = uwbPredictRadiusM;
+    pcfg.uwbPredictMaxSigmaFrac = uwbPredictMaxSigmaFrac;
+    // escEvidenceMode: 0 = nobody, 1 = the proposed arms only, 2 = every dynamic arm.
+    // Three-way for the same reason --fastDemote is: whether a mechanism counts as
+    // the contribution or as an obvious improvement decides the verdict, and that
+    // dependence is the finding rather than either number alone. At b1000
+    // fixed_threshold records cycles_uwb = 0, so 'all' costs it nothing -- the
+    // fairness question is expected to be inert here and is run anyway.
+    if (escEvidenceMode == 2)
+    {
+        pcfg.escalationRequiresEvidence = true;
+    }
+    else if (escEvidenceMode == 1)
+    {
+        pcfg.escalationRequiresEvidence =
+            (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
+    }
+    if (pcfg.escalationRequiresEvidence)
+    {
+        for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_UWB].size(); ++i)
+        {
+            pcfg.uwbAnchorX.push_back(dep.anchors[CA_TBL_TIER_UWB][i].pos.x);
+            pcfg.uwbAnchorY.push_back(dep.anchors[CA_TBL_TIER_UWB][i].pos.y);
+        }
+    }
     pcfg.suspectForcesEscalation = suspectForcesEscalation;
     pcfg.pcsForm = pcsForm;
     // Operating-point knobs for the Pareto sweep. Both express the SAME physical
@@ -2961,6 +2990,12 @@ main(int argc, char* argv[])
     double pcsSigmaTargetM = -1.0;
     std::string armsArg = "all";
     std::string multiStepDemote = "off";
+    std::string escalationRequiresEvidence = "off";
+    // 20.0 from the measured delivery curve, NOT nominalRangeM[UWB]=30 (a labelling
+    // constant) and NOT the r80 of 12.8 (which declines two thirds of deliverable
+    // cycles). See CaTblPolicyConfig::escalationRequiresEvidence.
+    double uwbPredictRadiusM = 20.0;
+    double uwbPredictMaxSigmaFrac = 0.25;
     // Gateways per side of the tier-1 grid. 3 reproduces the historical 3x3.
     // Density is gwGrid^2 / (2*boxHalf/1000)^2 per km^2; the derivation in
     // BuildDeployment() puts the requirement at ~2.25/km^2, i.e. gwGrid = 3 at
@@ -3013,6 +3048,19 @@ main(int argc, char* argv[])
                  "--boxHalf at fixed gwGrid varies gateway DENSITY as well as tier-2 "
                  "coverage; use gwGrid=3*boxHalf/1000 to hold density constant.",
                  gwGrid);
+    cmd.AddValue("escalationRequiresEvidence",
+                 "Escalate to tier 3 only when the node's own position estimate "
+                 "predicts >=3 UWB anchors within --uwbPredictRadiusM: off|proposed|all. "
+                 "off reproduces the pre-existing baseline.",
+                 escalationRequiresEvidence);
+    cmd.AddValue("uwbPredictRadiusM",
+                 "Radius for the tier-3 coverage predicate, metres.",
+                 uwbPredictRadiusM);
+    cmd.AddValue("uwbPredictMaxSigmaFrac",
+                 "Block the predicate when sqrt(traceSigma) exceeds this fraction of "
+                 "the predict radius -- a prediction from a bad estimate is worse "
+                 "than none.",
+                 uwbPredictMaxSigmaFrac);
     cmd.AddValue("multiStepDemote",
                  "On a blind demotion, drop to the highest tier known populated "
                  "rather than one step: off|proposed|all. Separate axis from "
@@ -3160,10 +3208,49 @@ main(int argc, char* argv[])
         std::ostringstream rid;
         rid << std::hex << std::setw(16) << std::setfill('0')
             << std::hash<std::string>{}(invStr);
+        // Source provenance. run_id previously hashed only the build stamp and argv,
+        // which cannot distinguish a working-tree build from a committed one -- the
+        // gap that hid remediation item 7 sitting uncommitted while the binary
+        // already contained it. Recording the commit and a dirty count closes it.
+        //
+        // popen runs once at startup, before any RNG draw, and its result reaches no
+        // branch that affects the simulation -- it is written to the sidecar and
+        // nothing reads it back. That distinction matters here: this project has one
+        // recorded defect where a value read at runtime reached a branch.
+        auto shell = [](const char* cmd) {
+            std::string out;
+            FILE* fp = popen(cmd, "r");
+            if (!fp)
+            {
+                return std::string("unknown");
+            }
+            char buf[256];
+            while (fgets(buf, sizeof(buf), fp))
+            {
+                out += buf;
+            }
+            pclose(fp);
+            while (!out.empty() && (out.back() == '\n' || out.back() == ' '))
+            {
+                out.pop_back();
+            }
+            return out.empty() ? std::string("unknown") : out;
+        };
+        const std::string head = shell("git rev-parse --short HEAD 2>/dev/null");
+        // --untracked-files=no, and scoped to the directories that can affect a
+        // build. The unscoped form reported dirty 430 on a tree with 4 tracked
+        // modifications, because this repository carries hundreds of untracked
+        // documents and result CSVs -- none of which can change the binary. A flag
+        // that is always non-zero is a flag nobody reads.
+        const std::string dirty = shell(
+            "git status --porcelain --untracked-files=no -- src scratch 2>/dev/null | wc -l");
+
         std::ofstream ridFile((outdir + "/run_id.txt").c_str());
         if (ridFile)
         {
-            ridFile << rid.str() << "\n" << invStr << "\n";
+            ridFile << rid.str() << "\n"
+                    << invStr << "\n"
+                    << "source " << head << " dirty " << dirty << "\n";
         }
     }
 
@@ -3286,6 +3373,21 @@ main(int argc, char* argv[])
               << "  uwb anchors=" << dep.anchors[CA_TBL_TIER_UWB].size() << "\n"
               << "  mobility: facility tour, " << walkSpeedMps << " m/s, dwell " << dwellS << "s\n\n";
 
+    int escEvidenceMode = 0;
+    if (escalationRequiresEvidence == "proposed")
+    {
+        escEvidenceMode = 1;
+    }
+    else if (escalationRequiresEvidence == "all")
+    {
+        escEvidenceMode = 2;
+    }
+    else if (escalationRequiresEvidence != "off")
+    {
+        std::cerr << "--escalationRequiresEvidence must be one of: off, proposed, all\n";
+        return 1;
+    }
+
     int multiStepMode = 0;
     if (multiStepDemote == "proposed")
     {
@@ -3355,7 +3457,10 @@ main(int argc, char* argv[])
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
-                                       pcsSigmaTargetM);
+                                       pcsSigmaTargetM,
+                                       escEvidenceMode,
+                                       uwbPredictRadiusM,
+                                       uwbPredictMaxSigmaFrac);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

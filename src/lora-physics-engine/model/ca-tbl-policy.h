@@ -181,6 +181,48 @@ struct CaTblPolicyConfig
     bool multiStepDemote;
 
     /**
+     * Escalate to tier 3 only when the node's OWN position estimate predicts that
+     * at least three UWB anchors are within uwbPredictRadiusM.
+     *
+     * The node already holds both inputs -- an EKF position and the anchor
+     * coordinates it must have to multilaterate at all -- so it can predict UWB
+     * availability instead of discovering it by transmitting into silence.
+     *
+     * WHY NOT TIER-2 EVIDENCE, the obvious alternative: at boxHalf 1000 static_2p4
+     * records 0.00% outage on 20/20 seeds, so tier-2 evidence is fresh on every
+     * cycle and cannot discriminate. Tier-2 r80 is 909.5 m against UWB's measured
+     * 12.8 m -- a 70x scale mismatch between the predictor and the predicted.
+     *
+     * MEASURED, from the seed-7 trace with the deployment geometry reconstructed and
+     * validated against the trace's own visUwb column (0/1440 mismatches):
+     *
+     *   radius   recall(deliverable)  precision  blind cycles of 134
+     *   30.0 m         0.98              0.877          ~19.6
+     *   20.0 m         0.941             0.948           ~7.0
+     *   12.8 m         0.277             0.960           ~1.8
+     *
+     * 20 m is the operating point. 12.8 m -- the measured r80 -- looks safer and is
+     * not: it declines two thirds of the cycles UWB would have served. 30 m is the
+     * trigger oracle's label radius and wastes 12% of escalations.
+     */
+    bool escalationRequiresEvidence;
+    //! Radius for the predicate above. NOT nominalRangeM[UWB] = 30.0, which is a
+    //! labelling constant defining the trigger oracle's positive class, and not the
+    //! measured r80 of 12.8 m either. Chosen from the delivery curve: UWB delivers
+    //! 0.962 / 0.900 at d3 of 10-15 / 15-20 m and collapses to 0.571 / 0.308 beyond.
+    double uwbPredictRadiusM;
+    //! The predicate is only as good as the estimate feeding it. Escalation is
+    //! blocked unless sqrt(traceSigma) < uwbPredictMaxSigmaFrac * uwbPredictRadiusM.
+    //! At b1000 the hybrid holds ~1.5 m against a 20 m radius and passes; on a
+    //! tier-1 fallback cycle at ~129 m error the prediction is worthless and this
+    //! blocks it. Report how often the gate blocks the predicate.
+    double uwbPredictMaxSigmaFrac;
+    //! Tier-3 anchor coordinates, supplied once by the scenario. Empty disables the
+    //! predicate regardless of the flag -- a policy with no map cannot predict.
+    std::vector<double> uwbAnchorX;
+    std::vector<double> uwbAnchorY;
+
+    /**
      * Whether a suspect fix also forces an escalation.
      *
      * When true (the default, and the pre-existing behaviour), `suspect` sets
@@ -322,6 +364,10 @@ struct CaTblDecision
     //! computed. Emitted so the v2 per-term variance decomposition required by
     //! pre-registration §0.4a can be done from the trace alone.
     double sigmaGeoM;
+    //! UWB anchors the node's own estimate predicts are in range this cycle.
+    //! -1 when the predicate did not run (flag off, wrong tier, or blocked by the
+    //! estimate-quality gate before the count was computed).
+    int32_t predictedVisUwb;
 
     CaTblDecision();
 };
@@ -481,6 +527,10 @@ class CaTblPolicy
     uint64_t GetEscalationCount() const { return m_escalations; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
     uint64_t GetSuspectCount() const { return m_suspects; }
+    //! Escalations suppressed because the estimate was too poor to predict with.
+    uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
+    //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
+    uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
     /** Per-tier count of cycles spent with that tier active. */
@@ -536,6 +586,8 @@ class CaTblPolicy
     uint64_t m_escalations;
     uint64_t m_deescalations;
     uint64_t m_suspects;
+    uint64_t m_predictBlockedQuality;
+    uint64_t m_predictBlockedCoverage;
     uint64_t m_noFixCycles;
     uint64_t m_tierCycles[CA_TBL_TIER_COUNT];
 };

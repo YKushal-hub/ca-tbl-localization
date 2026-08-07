@@ -158,6 +158,31 @@ def verify_coverage(outdir):
                   c in "0123456789abcdef" for c in rid),
               f"run_id.txt first line is {rid!r}, expected 16 hex digits")
 
+    # Source provenance. WARN not FAIL, deliberately: results produced from a dirty
+    # tree are not necessarily wrong -- remediation item 7 was probe-only and its
+    # arm results were sound -- but they cannot be regenerated from any commit, and
+    # that is worth surfacing every run rather than discovering by audit.
+    # Absent sidecar is also a warning, so pre-existing result directories still audit.
+    rpath = os.path.join(outdir, "run_id.txt")
+    if not os.path.exists(rpath):
+        warn("provenance: run_id.txt present", False,
+             "no run_id sidecar -- directory predates provenance recording")
+    else:
+        with open(rpath) as f:
+            txt = f.read()
+        src = [ln for ln in txt.splitlines() if ln.startswith("source ")]
+        if not src:
+            warn("provenance: run_id records the source commit", False,
+                 "run_id has no 'source <sha> dirty <n>' line -- built before "
+                 "provenance recording, so a working-tree build is indistinguishable "
+                 "from a committed one")
+        else:
+            parts = src[0].split()
+            n = parts[3] if len(parts) > 3 else "?"
+            warn("provenance: built from a clean tree", n == "0",
+                 f"built with {n} uncommitted file(s) at {parts[1] if len(parts) > 1 else '?'}"
+                 f" -- these results cannot be regenerated from a commit")
+
     global ARMS_AUDITED, ARMS_IN_SUMMARY
     ARMS_IN_SUMMARY = len({a for a, _ in expected})
     ARMS_AUDITED = len({a for a, _ in present & expected})

@@ -1790,3 +1790,129 @@ Part 6's list stands except where marked. New and changed entries:
 8. **Mesh, hop-provenance, identity-scoped search, multi-target arbitration, and
    `ESC_REQUEST`/`ESC_GRANT`/`QUERY`/`RESPONSE`/`ENTRY_PUSH` on the wire** — all
    absent. Scoped in `CA_TBL_PHASE8_SCOPE.md`; none implemented.
+
+---
+
+## Part 8 — two mechanisms, stated separately from the measurements
+
+Session of 2026-08-05, following Part 7. Parts 0–7 stand.
+
+Part 7 reported two results as findings among others. Both are mechanisms rather than
+measurements, both generalise past this implementation, and neither depends on the
+confidence model working. They are separated out here for that reason.
+
+### 8.1 Absolute-target tier escalation inverts the value of infrastructure
+
+**The measurement** (Part 7 §7.3, `boxHalf=3000`, legacy form, 20 seeds per point):
+
+| gateways | gw/km² | `ca_tbl_full` cep50 | `fixed_threshold` cep50 | `static_868` cep50 |
+|---|---|---|---|---|
+| N=4 | 0.44 | 11.86 m | 9.51 m | 168.36 m |
+| N=5 | 0.69 | 11.49 m | 8.94 m | 119.02 m |
+| N=6 | 1.00 | 12.86 m | 8.67 m | 102.27 m |
+| N=7 | 1.36 | 15.77 m | 9.37 m | 87.51 m |
+| N=9 | 2.25 | **26.12 m** | 9.07 m | 63.20 m |
+
+As the network improves by every conventional measure — tier-1 median error falls
+168 → 63 m, tier-1 outage falls 5.66% → 0.01% — **the proposed system's median error
+more than doubles.**
+
+**The mechanism, and it is a direct consequence of the pre-registered threshold.**
+PCS v2 is `log10(sigma_ref / sigma_eff)` with `pcsThresholdUp = 0.0`, which reads
+exactly as: *escalate while `sigma_eff` exceeds 3.1623 m.* As gateway density rises,
+tier 1's `sigma_eff` falls. The policy is therefore satisfied on tier 1 more often,
+escalates less, and its output converges toward tier 1's own accuracy — which is
+63.20 m at N=9. **The system is behaving exactly as specified. The specification is
+what produces the pathology.**
+
+**Why `fixed_threshold` is flat is the other half, and without it this looks like
+luck.** Its trigger is `traceSigma > 100 m²`, i.e. sigma > 10 m — far looser than
+3.1623 m. Tier 1's median is 63.20 m even at the densest point tested, so
+`fixed_threshold` is essentially *never* satisfied on tier 1 at any density in this
+sweep. **It is flat because its operating point sits outside the range where density
+moves the decision, not because it is immune to the mechanism.** A tighter flat
+threshold would show the same pathology. This is not a win for flat thresholds.
+
+**The general statement:**
+
+> A tier-escalation policy keyed to an **absolute** uncertainty target converges to
+> the coarse tier's accuracy as the coarse tier improves. Infrastructure investment is
+> converted into accuracy regression rather than accuracy gain. The effect is a
+> property of absolute-target switching rules, not of this implementation, and it is
+> **invisible at any single density** — which is why a single-point evaluation would
+> not have found it.
+
+**The uncomfortable corollary for Part 0.** §0.2 defended `pcsThresholdUp = 0.0` as
+"derived, not chosen", removing two free parameters by deriving the threshold from the
+stated accuracy specification. That derivation is precisely what produces the
+pathology: a threshold that restates the specification is by construction insensitive
+to how the specification is being met. **A principled threshold and a working policy
+turned out to be in tension**, and the pre-registration is what makes that statement
+credible rather than a post-hoc rationalisation — the threshold was fixed in advance
+and the pathology was found afterwards.
+
+The mitigation is not obvious and is **unmeasured**: a *relative* target (escalate
+when the next tier would improve `sigma_eff` by some factor) would not have this
+property, but it reintroduces the free parameter §0.2 removed.
+
+### 8.2 The conjunction is governed by coverage fraction, not by density
+
+**A correction to Part 7 §7.3's framing.** Part 7 concluded the conjunction "was
+established at b1000 and does not transfer to b3000". That framing is wrong, or at
+least unproven, and the arithmetic that shows it was available without a new run:
+
+| geometry | area | gateways | **density** | measured UWB coverage | `ca_tbl_full` cep50 |
+|---|---|---|---|---|---|
+| b1000, gwGrid=3 | 4 km² | 9 | **2.25 gw/km²** | **11.49%** | **1.53 m** |
+| b3000, gwGrid=3 | 36 km² | 9 | 0.25 gw/km² | 3.39% | 13.45 m |
+| b3000, gwGrid=9 | 36 km² | 81 | **2.25 gw/km²** | **3.39%** | **12.05 m** |
+
+**Rows 1 and 3 have identical gateway density and differ by 8× in median error.** So
+density is not the explanatory variable. The variable that tracks the outcome is
+**precision-tier coverage fraction**, which is 11.49% at b1000 and 3.39% at b3000
+*regardless of gateway count* — as it must be, since facilities are placed
+independently of `gwGrid`.
+
+**The mechanism is a dwell/transit ratio, and it is quantitative.** The four facility
+sites are placed at `±0.47 × boxHalf` (`ca_tbl_causal_sim.cc:270-273`, hardcoded, no
+flag), so inter-site separation scales with the box while the anchor rings keep a
+fixed absolute radius. The trajectory is a facility tour, so coverage fraction is
+approximately `dwell / (dwell + transit)`:
+
+| boxHalf | separation | transit @ 1.5 m/s | predicted `90/(90+t)` | **measured** |
+|---|---|---|---|---|
+| 1000 | 940 m | 627 s | 12.6% | **11.49%** |
+| 3000 | 2820 m | 1880 s | 4.6% | **3.39%** |
+
+Two independent predictions within ~1–2 percentage points of measurement.
+
+**What this does to the claim.** It reframes it from *"the conjunction fails at
+scale"* — which is fatal — to *"the conjunction requires a precision-tier coverage
+fraction above some threshold"*, which is a **deployment requirement** and a more
+useful result. Density and coverage fraction govern different halves:
+
+> **Gateway density governs continuity** (tier-1 outage: 45.06% → 0.01% across the
+> sweep). **Facility coverage fraction governs accuracy** (median: 1.53 m at 11.49%
+> coverage, ~12–13 m at 3.39%, at any density). The conjunction needs both, and they
+> are bought with different infrastructure.
+
+**This is testable without a code change, which Part 7 did not notice.** `--dwell`
+already exists (`ca_tbl_causal_sim.cc:2937`, default 90 s). Restoring b1000's coverage
+fraction at b3000 requires `dwell / (dwell + 1880) ≈ 0.115`, i.e. **dwell ≈ 245 s**.
+Sweeping `--dwell` at b3000 therefore varies the candidate explanatory variable
+directly, over the existing binary.
+
+**Caveat, stated in advance.** Raising dwell and adding facility sites both raise
+coverage fraction but are **not the same intervention**: more sites shortens transit,
+longer dwell increases time stationary at sites. If the conjunction returns under one
+and not the other, coverage fraction is not the whole story. The facility-count sweep
+remains the cleaner test and requires a `BuildDeployment()` change (the four sites are
+hardcoded); the dwell sweep is the cheap one that can run first.
+
+### 8.3 Corrections register — extension
+
+| # | Claim | Correction |
+|---|---|---|
+| 1–11 | (Parts 6–7) | carried forward |
+| 12 | Part 7 §7.3: the conjunction "was established at b1000 and does not transfer" | **Framing wrong.** b1000/gw3 and b3000/gw9 have identical density (2.25 gw/km²) and differ 8× in median error, so density is not the explanatory variable. Coverage fraction is the candidate, and it predicts both geometries to within 1–2 points (§8.2). |
+| 13 | Part 7 §7.10: the facility sweep requires a `BuildDeployment()` change before it can be tested | **Partly wrong.** The *facility-count* sweep does, but `--dwell` already exists and varies the same explanatory variable over the current binary. The cheap test was available and was not noticed. |
