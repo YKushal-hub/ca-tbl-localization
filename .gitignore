@@ -51,3 +51,34 @@ vcpkg/
 # Ignore local cache used by e.g. clangd
 .cache/
 audit/
+
+# ============================================================================
+# CA-TBL publication rules
+# ============================================================================
+
+# --- build artefacts, regenerable by ./ns3 build ---
+/build/
+/cmake-cache/
+
+# --- oversized pre-CA-TBL sweep data ---
+# Nine files at 135-136 MB each, 1.2 GB total. Above GitHub's 100 MB HARD
+# rejection limit, not merely the 50 MB warning -- so this is not a preference.
+# They remain on disk; nothing in the repository reads them. Git LFS is the
+# mechanism if they are ever needed, but 1.2 GB exceeds the free 1 GB quota.
+physics_scale_sweep_*.csv
+
+# --- simulation output: summaries and provenance only, never traces ---
+# results/ is ~13 GB, almost all trace_*.csv. Every table in the technical
+# report is sourced from an arm_summary.csv (~7 rows), so shipping summaries
+# plus provenance keeps every reported number reproducible at a fraction of
+# the size. Traces regenerate from the seed.
+/results/**
+!/results/**/
+!/results/**/arm_summary.csv
+!/results/**/run_id.txt
+!/results/**/probe_range_sweep.csv
+!/results/**/*.md
+
+# --- working directories ---
+/audit/
+[tool settings directory]/
