@@ -21,4 +21,11 @@
 # matched anything added afterwards -- verified: a new scratch/ca_tbl_*.cc was
 # still reported ignored by `git check-ignore`. Grandfathering the current set
 # leaves exactly the trap it was meant to close, one file later.
-!ca_tbl_*.cc
+# All scratch sources, by extension. !ca_tbl_*.cc alone left the same hole one
+# filename over -- scale_sweep_simulation.cc is the case in point, and there are
+# 35 .cc and 85 .py here. ns-3 compiles every file in scratch/, so a broken one
+# would already have blocked the tree; they are 0.46 MB in total. Ship the
+# generators, exclude their output: scale_sweep_simulation.cc is the reproducible
+# part and the 1.2 GB of physics_scale_sweep_*.csv it writes is not.
+!*.cc
+!*.py
