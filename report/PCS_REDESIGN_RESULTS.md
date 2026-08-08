@@ -1043,7 +1043,8 @@ stretched to fit. A different pre-registered instrument catches the failure inst
 −0.200.
 
 A further finding that subsumes the whole comparison: at matched operating points,
-**`static_2p4` dominates all 12 points of both Pareto fronts** (§6.10a).
+**`static_2p4` dominates all 13 points of both Pareto fronts** (§6.10a; the
+figure read 12 until correction #15).
 
 ### 6.2 The n=1 signal that did not replicate
 
@@ -1390,8 +1391,23 @@ Against every point on both fronts:
 | front | points dominated by `static_2p4` |
 |---|---|
 | `fixed_threshold` | **7 / 7** |
-| PCS v2 | **5 / 5** |
-| **both fronts** | **12 / 12** |
+| PCS v2 | **6 / 6** |
+| **both fronts** | **13 / 13** |
+
+> **Corrected — see register #15.** This table read `5 / 5` and `12 / 12` until
+> 2026-08-07. It undercounted the v2 front by one against §6.10's own table
+> directly above, which marks six starred v2 points (σ = 3.16, 5.62, 17.8, 31.6,
+> 56.2, 100; σ = 10 is not on the front). Recomputed against `static_2p4` at
+> (1.5066 m, 16.6773 J) from `results/sweep20_v7_v2_b1000/`, n=20: 13 of 13.
+> The substance is unchanged — every point of both fronts is dominated.
+>
+> **A trap for the next reader.** `pareto_sweep.py --analyse` does not test this
+> claim. It compares the two decision rules *to each other* and `static_2p4`
+> never enters it, so its verdict string — "the PCS-v2 front dominates" — answers
+> a question this section is not asking. That comparison is reported separately
+> and correctly in §2.3 of the technical report (0% of v2 points dominated by
+> flat-threshold, 14% the other way). Both fronts remain entirely dominated by
+> static provisioning, so nothing here turns on it.
 
 Not a single operating point of either decision rule achieves both a better median
 error and a lower energy than statically pinning the radio to 2.4 GHz. This includes
@@ -1763,6 +1779,7 @@ substrate in the simulator at all.
 | 8 | §6.10a "static provisioning dominates the design space" | **b1000-scoped.** At b3000 `static_2p4` dominates the (cep50, J) axes while in outage 45.98% of the time; the axes exclude availability (§7.5). |
 | 9 | §0.3's `dt ≥ 3.91 s` as the fix for handshake capacity | **Average-rate calculation, not the binding constraint.** Preemptions persist at every `dt` because the off-time lockout blocks a handshake attempted at the same cycle instant (§7.2). |
 | 10 | The conjunction claim ("only a hybrid delivers both") | **Geometry-scoped.** Fails at all six densities tested at b3000, including both hybrids (§7.3). |
+| 15 | §6.10a's front-point count (`5 / 5`, `12 / 12`) | **Undercounted by one.** It contradicted §6.10's own table directly above, which marks six starred v2 front points. Recomputation gives 7/7 + 6/6 = **13 / 13**. The substance — static provisioning dominating both fronts entirely — is unchanged. Also recorded: `pareto_sweep.py --analyse` compares the two decision rules to each other and does not test the domination claim at all, so its verdict string must not be quoted in support of it. |
 | 11 | A completeness gate on `find -size +0` | **Insufficient for `--seedCount=N` runs** — the summary is appended per seed, so it is non-empty from seed 1. All gates now count rows. Caught 8 of 9 Pareto points at 14/20 rows before analysis. |
 
 ### 7.10 `UNMEASURED` — carried forward and extended
