@@ -96,6 +96,7 @@
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <cstdio>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -3160,10 +3161,49 @@ main(int argc, char* argv[])
         std::ostringstream rid;
         rid << std::hex << std::setw(16) << std::setfill('0')
             << std::hash<std::string>{}(invStr);
+        // Source provenance. run_id previously hashed only the build stamp and argv,
+        // which cannot distinguish a working-tree build from a committed one -- the
+        // gap that hid remediation item 7 sitting uncommitted while the binary
+        // already contained it. Recording the commit and a dirty count closes it.
+        //
+        // popen runs once at startup, before any RNG draw, and its result reaches no
+        // branch that affects the simulation -- it is written to the sidecar and
+        // nothing reads it back. That distinction matters here: this project has one
+        // recorded defect where a value read at runtime reached a branch.
+        auto shell = [](const char* cmd) {
+            std::string out;
+            FILE* fp = popen(cmd, "r");
+            if (!fp)
+            {
+                return std::string("unknown");
+            }
+            char buf[256];
+            while (fgets(buf, sizeof(buf), fp))
+            {
+                out += buf;
+            }
+            pclose(fp);
+            while (!out.empty() && (out.back() == '\n' || out.back() == ' '))
+            {
+                out.pop_back();
+            }
+            return out.empty() ? std::string("unknown") : out;
+        };
+        const std::string head = shell("git rev-parse --short HEAD 2>/dev/null");
+        // --untracked-files=no, and scoped to the directories that can affect a
+        // build. The unscoped form reported dirty 430 on a tree with 4 tracked
+        // modifications, because this repository carries hundreds of untracked
+        // documents and result CSVs -- none of which can change the binary. A flag
+        // that is always non-zero is a flag nobody reads.
+        const std::string dirty = shell(
+            "git status --porcelain --untracked-files=no -- src scratch 2>/dev/null | wc -l");
+
         std::ofstream ridFile((outdir + "/run_id.txt").c_str());
         if (ridFile)
         {
-            ridFile << rid.str() << "\n" << invStr << "\n";
+            ridFile << rid.str() << "\n"
+                    << invStr << "\n"
+                    << "source " << head << " dirty " << dirty << "\n";
         }
     }
 
