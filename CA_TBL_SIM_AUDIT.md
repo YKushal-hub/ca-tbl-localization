@@ -162,7 +162,7 @@ short-range coverage, geometric ground-truth labels (`vis868/vis2p4/visUwb`, `sh
 the trigger a confusion matrix, and a `--probe` range sweep to check the siting against the physics
 before any arm is run. Verifier now hard-fails below 50% fix coverage instead of warning at 20%.
 
-See `CA_TBL_S1_S2_README.md`.
+See `docs/archive/CA_TBL_S1_S2_README.md`.
 
 **S3 — Baseline arms (unblocks 1, 2).**
 `868-only`, `2.4-only`, `always-on-UWB`, `fixed-threshold-switch`, `CA-TBL`. Same seeds, same
