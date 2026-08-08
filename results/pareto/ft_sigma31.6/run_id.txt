@@ -1,0 +1,2 @@
+9dd69e4a977e4a8d
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy --fixedVarThreshold=998.5600 --seedStart=1 --seedCount=20 --duration=3600 --trace=false --arms=fixed_threshold --outdir=results/pareto/ft_sigma31.6

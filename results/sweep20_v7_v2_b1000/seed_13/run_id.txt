@@ -1,0 +1,2 @@
+505a29c9d054791b
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=13 --boxHalf=1000 --duration=3600 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=v2 --trace=true --outdir=results/sweep20_v7_v2_b1000/seed_13

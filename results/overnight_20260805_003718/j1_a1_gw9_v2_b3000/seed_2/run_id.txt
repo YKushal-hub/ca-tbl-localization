@@ -1,0 +1,2 @@
+2c638c46339e6d21
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --duration=3600 --seed=2 --boxHalf=3000 --gwGrid=9 --pcsForm=v2 --trace=true --outdir=results/overnight_20260805_003718/j1_a1_gw9_v2_b3000/seed_2

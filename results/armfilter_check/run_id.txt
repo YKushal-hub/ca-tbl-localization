@@ -1,0 +1,2 @@
+c6258528d394767a
+build Aug  3 2026 13:15:38 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --arms=fixed_threshold,ca_tbl_no_integrity --outdir=results/armfilter_check --trace=false

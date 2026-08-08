@@ -1,0 +1,2 @@
+f56113406169c790
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --duration=3600 --seed=1 --boxHalf=1000 --dt=3.0 --pcsForm=legacy --arms=static_868,static_2p4,fixed_threshold,ca_tbl_no_integrity,ca_tbl_full --trace=false --outdir=results/overnight_20260805_003718/j3_dt/dt3.0_legacy/seed_1

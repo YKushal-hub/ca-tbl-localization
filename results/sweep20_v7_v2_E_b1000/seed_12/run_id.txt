@@ -1,0 +1,2 @@
+90fea3b4fbeef347
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=12 --boxHalf=1000 --duration=3600 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=v2 --suspectForcesEscalation=false --trace=true --arms=fixed_threshold,ca_tbl_no_integrity,ca_tbl_full --outdir=results/sweep20_v7_v2_E_b1000/seed_12

@@ -1,0 +1,2 @@
+6a05b3cc343d70b7
+build Aug  3 2026 17:28:32 | /home/kushal/ns/ns-3-dev/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --nlosSource=propagation --arbitrateDutyBudget=false --pcsForm=legacy --trace=true --outdir=results/v6_ladder/C_prop_noarb
