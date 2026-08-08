@@ -1,0 +1,2 @@
+bd99a6548154dc85
+build Aug  4 2026 16:25:41 | /home/kushal/ns/ns-3-dev/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy --trace=true --outdir=results/v6_ladder/D_prop_arb

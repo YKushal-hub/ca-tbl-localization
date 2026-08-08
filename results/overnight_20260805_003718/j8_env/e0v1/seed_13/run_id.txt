@@ -1,0 +1,2 @@
+a134e23430c385e2
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --duration=3600 --seed=13 --boxHalf=1000 --env=0 --vegWide=1 --pcsForm=v2 --trace=false --outdir=results/overnight_20260805_003718/j8_env/e0v1/seed_13

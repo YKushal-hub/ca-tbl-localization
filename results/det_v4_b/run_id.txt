@@ -1,0 +1,2 @@
+9f64ec41ec8d879f
+build Aug  3 2026 12:35:39 | /home/kushal/ns/ns-3-dev/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --outdir=results/det_v4_b --trace=true

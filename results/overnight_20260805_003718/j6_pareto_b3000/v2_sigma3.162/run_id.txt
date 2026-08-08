@@ -1,0 +1,2 @@
+81e46b2731fd351b
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --duration=3600 --seedStart=1 --seedCount=20 --boxHalf=3000 --pcsForm=v2 --pcsSigmaTargetM=3.162 --arms=ca_tbl_no_integrity --trace=false --outdir=results/overnight_20260805_003718/j6_pareto_b3000/v2_sigma3.162

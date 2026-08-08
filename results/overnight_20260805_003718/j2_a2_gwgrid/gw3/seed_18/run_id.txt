@@ -1,0 +1,2 @@
+aabd5ec6e0ce2f56
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --nlosSource=propagation --arbitrateDutyBudget=true --duration=3600 --seed=18 --boxHalf=3000 --gwGrid=3 --pcsForm=legacy --trace=false --outdir=results/overnight_20260805_003718/j2_a2_gwgrid/gw3/seed_18

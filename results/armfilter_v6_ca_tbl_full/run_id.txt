@@ -1,0 +1,2 @@
+5486b6cf2e767467
+build Aug  4 2026 16:25:41 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy --trace=true --arms=ca_tbl_full --outdir=results/armfilter_v6_ca_tbl_full
