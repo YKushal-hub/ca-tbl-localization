@@ -1,6 +1,8 @@
-# Use the following to delete tracked source files and replace them with LF endings
-# git ls-files -z | xargs -0 rm
-# git reset --hard
-
-# Force LF endings to text files
-* text=auto eol=lf
+# The tree lives on a WSL mount reachable from Windows. A CRLF conversion would
+# break the byte-identity checks this project relies on for acceptance testing --
+# results/**/arm_summary.csv is diffed byte-for-byte against a stored baseline.
+*.csv text eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.cc  text eol=lf
+*.h   text eol=lf

@@ -15,3 +15,10 @@
 # than file by file, and verify_causal_sim.py fails if anything under it is
 # untracked.
 !python_handoff/
+
+# The CA-TBL scenario sources, by pattern rather than by name. The un-ignoring
+# above rescued the files that existed when it was written, but `/*` still
+# matched anything added afterwards -- verified: a new scratch/ca_tbl_*.cc was
+# still reported ignored by `git check-ignore`. Grandfathering the current set
+# leaves exactly the trap it was meant to close, one file later.
+!ca_tbl_*.cc
