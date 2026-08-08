@@ -3295,6 +3295,23 @@ main(int argc, char* argv[])
 
     const std::string summaryPath = outdir + "/arm_summary.csv";
     std::ofstream summary(summaryPath.c_str());
+    // CHECKED, because it was not. --outdir "must already exist", and when it did
+    // not, this stream failed to open, the run completed all 1440 cycles, the
+    // program printed "Wrote <path>" from the unconditional line below and exited
+    // 0 -- having written nothing at all. Found by the clone test, where
+    // results/verify does not exist in a fresh checkout: RUN_EXIT=0, no assertion
+    // fired, no file anywhere on the filesystem.
+    //
+    // A simulator that reports success while producing no output is the same
+    // failure class as a check that passes because its command errored, and it is
+    // worse, because a missing result is indistinguishable from a run never
+    // launched.
+    if (!summary)
+    {
+        std::cerr << "FATAL: cannot open " << summaryPath
+                  << " for writing -- does the --outdir exist?\n";
+        return 1;
+    }
     summary << "arm,seed,steps,durationS,rmseM,cep50M,cep95M,maxErrM,"
             << "rmseFixedM,cep50FixedM,fixCycles,totalJ,"
             << "j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,"

@@ -29,3 +29,13 @@
 # part and the 1.2 GB of physics_scale_sweep_*.csv it writes is not.
 !*.cc
 !*.py
+
+# ...except the two that #include "ns3/lorawan-module.h". src/lorawan is a nested
+# third-party git repository with zero files tracked here, so shipping these two
+# gives a clone a scratch directory it cannot compile -- and ns-3 builds every file
+# in scratch/, so two unbuildable files block the whole tree including
+# ca_tbl_causal_sim. No CA-TBL source references lorawan-module.h; these are
+# pre-CA-TBL experiments. Caught by the clone test, which is the only check that
+# compiles what a clone actually contains.
+lora-combining.cc
+lora-dataset.cc
