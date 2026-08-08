@@ -48,7 +48,10 @@ scripts/                                               sweeps and analysis
 ## Build and reproduce
 
 ```bash
-./ns3 configure --enable-examples && ./ns3 build
+# --build-profile=optimized is REQUIRED, not a preference: every number in the
+# report was produced under it, and the default profile enables logging, which is
+# ~10x slower for the 3600 s runs below.
+./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 bash scripts/catbl_gates.sh
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal

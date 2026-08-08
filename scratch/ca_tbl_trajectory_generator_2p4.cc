@@ -34,6 +34,14 @@
 
 using namespace ns3;
 
+// Required because this file uses NS_LOG_*. Without it the macros expand to a
+// reference to a g_log that does not exist, and the file fails to compile under
+// any logging-enabled profile -- which is every profile except `optimized`.
+// It built locally only because this tree is configured `--build-profile=optimized`,
+// where the macros compile away. A fresh clone following the README's configure
+// line got the `default` profile and could not build the scratch directory at all.
+NS_LOG_COMPONENT_DEFINE("CaTblTrajectoryGenerator2p4");
+
 struct AnchorDef { uint32_t id; Vector pos; };
 struct NodeDef   { uint32_t id; Vector pos; double headingRad; double speedMps; };
 
