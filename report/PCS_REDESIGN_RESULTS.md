@@ -1472,7 +1472,7 @@ Carried forward from Part 5 and extended.
    stationary path only.
 10. **Hop-provenance confidence.** `hopWeight = 0`; `hopCount` is passed as a literal
     `0` and that is **correct**, not a stub — the neighbour table is one-hop by
-    construction (`ca-tbl-mac.cc:353`). See `CA_TBL_PHASE8_SCOPE.md` §2.
+    construction (`ca-tbl-mac.cc:353`). See `docs/archive/CA_TBL_PHASE8_SCOPE.md` §2.
 11. **`ESC_REQUEST`/`ESC_GRANT`/`QUERY`/`RESPONSE`/`ENTRY_PUSH` on the wire.**
     Defined, sized, given access categories and ACK policies — never constructed or
     transmitted. The escalation handshake is *billed*, not sent.
@@ -1789,4 +1789,4 @@ Part 6's list stands except where marked. New and changed entries:
    §6.12 item 2b). Unchanged.
 8. **Mesh, hop-provenance, identity-scoped search, multi-target arbitration, and
    `ESC_REQUEST`/`ESC_GRANT`/`QUERY`/`RESPONSE`/`ENTRY_PUSH` on the wire** — all
-   absent. Scoped in `CA_TBL_PHASE8_SCOPE.md`; none implemented.
+   absent. Scoped in `docs/archive/CA_TBL_PHASE8_SCOPE.md`; none implemented.
