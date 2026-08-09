@@ -199,8 +199,12 @@ case "$SRCSRC" in
         expect 1 "a stripped digest block is caught"
         ;;
     "")
+        # Name the sha and the likely cause. A rewrite makes every recorded source
+        # unresolvable at once, so this is the expected state right after one -- and
+        # it must not be reported as "predates the writer", which is a different
+        # fact that happens to produce the same skip.
         skip "stripped digest block" \
-             "cannot read ${SRCSHA:-<no source recorded>} from git -- not that it predates the writer, but that the question could not be asked"
+             "recorded source ${SRCSHA:-<none recorded>} is not in this repository; history may have been rewritten, so the question could not be asked"
         ;;
     *)
         skip "stripped digest block" "source $SRCSHA predates the digest writer"

@@ -223,8 +223,22 @@ def _writer_existed_at(commit):
     Located dynamically rather than hardcoded: a hardcoded boundary sha cannot be
     written into the commit that creates it, and amending to insert it changes the
     sha again. So ask the recorded commit directly whether its source contains the
-    writer. Returns None when the question cannot be answered (no git, unknown
-    commit, exported directory), which the caller treats as "cannot conclude".
+    writer.
+
+    FOUR outcomes, not two, because the ways of failing to answer are not the same
+    fact and must not be reported as the same reason:
+
+        "yes"          the recorded source contains the writer
+        "no"           it resolves and does not -- a genuine pre-digest build
+        "unresolved"   git works, but this commit is not in this repository. A
+                       history rewrite does exactly this to every recorded sha,
+                       and so does a fresh clone of a rewritten repo. Distinct
+                       from "no": the question was never answered.
+        "nogit"        not a git checkout at all (exported results directory)
+
+    Collapsing "unresolved" into "no" would report a confident, false "predates the
+    digest writer" -- the same defect twice corrected in this file's history, once
+    for SIGPIPE (exit 141) and once here for a missing object (exit 128).
     """
     import subprocess
     try:
@@ -232,10 +246,17 @@ def _writer_existed_at(commit):
             ["git", "cat-file", "-p", f"{commit}:scratch/ca_tbl_causal_sim.cc"],
             capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return None
+        return "nogit"
     if out.returncode != 0:
-        return None
-    return DIGEST_MARKER in out.stdout
+        # 128 is git's "no such object"; anything else non-zero means git itself
+        # could not run here. Neither is evidence about the writer.
+        try:
+            inrepo = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                                    capture_output=True, text=True, timeout=30)
+            return "unresolved" if inrepo.returncode == 0 else "nogit"
+        except (OSError, subprocess.SubprocessError):
+            return "nogit"
+    return "yes" if DIGEST_MARKER in out.stdout else "no"
 
 
 def verify_output_digest(outdir, ridtext):
@@ -253,17 +274,24 @@ def verify_output_digest(outdir, ridtext):
     if DIGEST_MARKER not in lines:
         src = [ln for ln in lines if ln.startswith("source ")]
         commit = src[0].split()[1] if src and len(src[0].split()) > 1 else None
-        had = _writer_existed_at(commit) if commit else None
-        if had is None:
+        had = _writer_existed_at(commit) if commit else "nogit"
+        if had == "unresolved":
             warn("digest: run_id lists the outputs it produced", False,
-                 "no digest block, and whether this build predates the digest "
-                 "writer could not be determined (commit unknown or not a git "
-                 "checkout) -- belonging is unverified")
+                 f"no digest block, and the recorded source {commit} is not in this "
+                 f"repository -- history may have been rewritten, or this is a clone "
+                 f"of a rewritten repo. This is NOT evidence that the build predates "
+                 f"the digest writer; the question could not be asked.")
+        elif had == "nogit":
+            warn("digest: run_id lists the outputs it produced", False,
+                 f"no digest block, and the recorded source {commit} could not be "
+                 f"resolved because this is not a git checkout (exported results "
+                 f"directory) -- belonging is unverified, not disproven")
         else:
             # Absence is only excusable if the writer did not yet exist. If it did,
             # the block was stripped or the run died before appending it, and both
             # are states a reader must distrust.
-            check("digest: a build that can write a digest did write one", not had,
+            check("digest: a build that can write a digest did write one",
+                  had == "no",
                   f"the source at {commit} contains the digest writer, but this "
                   f"directory has no digest block -- the run died before appending "
                   f"it, or the block was removed. Either way these files are not "
