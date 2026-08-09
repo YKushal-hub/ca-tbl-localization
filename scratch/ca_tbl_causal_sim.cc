@@ -2888,6 +2888,75 @@ RunArm(CaTblPolicyMode mode,
 
 } // namespace
 
+/** Append a sha256 of every CSV this run produced to run_id.txt.
+ *
+ * WHY CONTENT AND NOT TIMESTAMPS. The sidecar's job is to say which run produced
+ * the files beside it, and until now nothing could answer that. A `git reset
+ * --hard` rewrote results/causal/run_id.txt with content describing an Aug 5
+ * build while the traces next to it came from an Aug 9 one -- and because the
+ * reset wrote the file, its mtime was NEWER than the traces. Every ordering-based
+ * freshness check passes that. What was wrong was the content, and the traces
+ * carried no stamp to compare against, so "does this sidecar belong" was not
+ * merely unchecked, it was unanswerable.
+ *
+ * A digest makes it answerable exactly. Three failures close at once: a reverted
+ * or foreign sidecar, a run that died after some outputs and before others, and
+ * results edited after the fact -- none of which any timestamp gate can see.
+ *
+ * ORDERING IS LOAD-BEARING. This must run after the last stream is closed, so it
+ * is a second append rather than part of the startup write. That also makes the
+ * block's presence a completeness signal for free: a run that dies mid-way leaves
+ * a sidecar with no digest, which is exactly the state a reader should distrust.
+ */
+static bool
+AppendOutputDigest(const std::string& outdir, const std::string& patterns)
+{
+    // ONLY THIS RUN'S OWN OUTPUTS. The first version globbed *.csv, which swept in
+    // probe_range_sweep.csv and rho_summary.csv left in results/causal by earlier,
+    // unrelated runs -- so the sidecar vouched for files it never wrote, and any
+    // consumer that legitimately held a subset (the G5 fixture copies the summary
+    // and traces, not the strays) was reported as missing recorded outputs. A
+    // digest that covers more than the run produced is not stricter, it is wrong in
+    // a direction that manufactures failures.
+    //
+    // sha256sum's own format ("<hash>  <name>") is kept verbatim so the block can
+    // be checked with `sha256sum -c` directly, without the verifier being the only
+    // thing that can read it.
+    const std::string cmd = "cd '" + outdir + "' 2>/dev/null && sha256sum " + patterns +
+                            " 2>/dev/null | LC_ALL=C sort -k2";
+    std::string out;
+    if (FILE* fp = popen(cmd.c_str(), "r"))
+    {
+        char buf[512];
+        while (fgets(buf, sizeof(buf), fp))
+        {
+            out += buf;
+        }
+        pclose(fp);
+    }
+    if (out.empty())
+    {
+        std::cerr << "FATAL: produced no output files to digest in " << outdir << "\n";
+        return false;
+    }
+    std::ofstream rid((outdir + "/run_id.txt").c_str(), std::ios::app);
+    if (!rid)
+    {
+        std::cerr << "FATAL: cannot append the output digest to " << outdir
+                  << "/run_id.txt -- the sidecar cannot vouch for these results\n";
+        return false;
+    }
+    rid << "digest sha256\n" << out;
+    rid.close();
+    if (!rid)
+    {
+        std::cerr << "FATAL: the output digest failed to flush to " << outdir
+                  << "/run_id.txt\n";
+        return false;
+    }
+    return true;
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -3231,10 +3300,33 @@ main(int argc, char* argv[])
                       << "/run_id.txt for writing -- does --outdir exist?\n";
             return 1;
         }
+        // The build profile decides whether NS_ASSERT and NS_LOG exist at all, so
+        // two runs of the same source can behave differently and nothing in the
+        // sidecar said which one this was. It is derivable from argv[0]'s
+        // "-optimized" suffix, but derived-from-a-path is not the same as recorded,
+        // and the README instructs a specific profile that the manifest now checks
+        // this field against.
+        const char* profile =
+#if defined(NS3_BUILD_PROFILE_DEBUG)
+            "debug";
+#elif defined(NS3_BUILD_PROFILE_RELEASE)
+            "release";
+#elif defined(NS3_BUILD_PROFILE_OPTIMIZED)
+            "optimized";
+#else
+            "unknown";
+#endif
         {
             ridFile << rid.str() << "\n"
                     << invStr << "\n"
-                    << "source " << head << " dirty " << dirty << "\n";
+                    << "source " << head << " dirty " << dirty << " profile " << profile
+                    << "\n";
+        }
+        ridFile.close();
+        if (!ridFile)
+        {
+            std::cerr << "FATAL: run_id.txt failed to flush in " << outdir << "\n";
+            return 1;
         }
     }
 
@@ -3251,7 +3343,7 @@ main(int argc, char* argv[])
     if (probe)
     {
         RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir);
-        return 0;
+        return AppendOutputDigest(outdir, "probe_range_sweep.csv") ? 0 : 1;
     }
 
     if (uwbAnchorsPerSite < 3 || t2AnchorsPerSite < 3)
@@ -3495,6 +3587,19 @@ main(int argc, char* argv[])
     }
 
     summary.close();
+    if (!summary)
+    {
+        std::cerr << "FATAL: " << summaryPath << " failed to flush -- the file is "
+                  << "open-able but incomplete, which is the one state that looks "
+                  << "like success to every reader downstream\n";
+        return 1;
+    }
+    // Every stream that this run writes is now closed, which is the precondition
+    // for the digest to describe the finished artefact rather than a partial one.
+    if (!AppendOutputDigest(outdir, "arm_summary.csv trace_*.csv"))
+    {
+        return 1;
+    }
     std::cout << "Wrote " << summaryPath << "\n";
     if (writeTrace)
     {

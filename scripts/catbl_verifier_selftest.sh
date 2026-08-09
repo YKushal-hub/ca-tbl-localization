@@ -122,6 +122,22 @@ rm -f "$TMP/d/run_id.txt"
 expect_args 0 "waiver WITH a stated mode proceeds" \
     --no-require-provenance --nlosSource=legacy --pcsForm=legacy
 
+# I. The output digest. This is the only check in the harness that can see a
+#    result edited after its run, or a sidecar that belongs to a different run --
+#    both states in which every mtime-ordering gate passes, because the edited
+#    file is NEWER than the sidecar. Appending one byte is the minimal version of
+#    exactly that.
+fresh
+printf '\n' >> "$TMP/d/trace_static_2p4_seed7.csv"
+expect 1 "a modified output is caught by the digest"
+
+# J. ...and a recorded output that vanished. Distinct from case B: there the file
+#    is missing from the arm coverage too, whereas a digest entry with no file is
+#    detectable even for outputs no coverage gate enumerates.
+fresh
+rm -f "$TMP/d/trace_static_868_seed7.csv"
+expect 1 "a recorded output that vanished is caught"
+
 if [ "$FAILED" -eq 0 ]; then
     printf '\n=== G5 PASS (verifier fails when it should) ===\n'
     exit 0
