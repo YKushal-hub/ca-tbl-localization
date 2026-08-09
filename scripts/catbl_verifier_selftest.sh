@@ -38,15 +38,23 @@ fi
 
 fresh() {
     rm -rf "$TMP/d"; mkdir -p "$TMP/d"
+    # run_id.txt belongs to a healthy directory and is copied FIRST, with the
+    # traces, because a real run writes it at startup. Omitting it made the
+    # "healthy input passes" control fail as soon as provenance became a hard
+    # requirement -- correctly, since a directory that cannot say what produced
+    # it is not healthy. The control has to be a genuinely healthy fixture, not
+    # a waiver, or it stops being a control for the other four cases.
+    [ -f "$SRC/run_id.txt" ] && cp "$SRC/run_id.txt" "$TMP/d/"
     cp "$SRC"/trace_*.csv "$TMP/d/"
     sleep 1                      # summary must be newest, as a real run leaves it
     cp "$SRC/arm_summary.csv" "$TMP/d/"
 }
 
-# expect <want_exit> <label>
-expect() {
+# expect_args <want_exit> <label> [verifier flags...]
+expect_args() {
     local want=$1 label=$2 got
-    python3 "$V" "$TMP/d" >"$TMP/out" 2>&1
+    shift 2
+    python3 "$V" "$TMP/d" "$@" >"$TMP/out" 2>&1
     got=$?
     if [ "$got" -eq "$want" ]; then
         printf '  G5 ok    %-34s exit=%d\n' "$label" "$got"
@@ -56,6 +64,10 @@ expect() {
         FAILED=1
     fi
 }
+
+# expect <want_exit> <label> -- the no-flags form, which is how a real run invokes
+# the verifier and therefore how most cases below should exercise it.
+expect() { expect_args "$1" "$2"; }
 
 FAILED=0
 printf '\n--- G5 verifier self-test ---\n'
@@ -88,6 +100,27 @@ expect 1 "summary older than traces is caught"
 fresh
 touch -d "-1 day" "$TMP/d"/trace_static_868_*.csv
 expect 1 "traces from two runs are caught"
+
+# F. Provenance. The sidecar gate was promoted from warn to check, and a promoted
+#    gate with no failing test is indistinguishable from one that never fires.
+fresh
+rm -f "$TMP/d/run_id.txt"
+expect 1 "missing run_id.txt is caught"
+
+# G. The escape hatch itself. --no-require-provenance waives the sidecar, and it
+#    used to also let the mode silently default to legacy -- which is how a
+#    propagation-produced directory could pass six NLOS gates keyed to the wrong
+#    population. Waiving the sidecar must NOT waive the mode.
+fresh
+rm -f "$TMP/d/run_id.txt"
+expect_args 1 "waiver without a stated mode is refused" --no-require-provenance
+
+# H. ...and with the mode stated, the same directory verifies. Without this, G is
+#    satisfied by a hatch that refuses everything.
+fresh
+rm -f "$TMP/d/run_id.txt"
+expect_args 0 "waiver WITH a stated mode proceeds" \
+    --no-require-provenance --nlosSource=legacy --pcsForm=legacy
 
 if [ "$FAILED" -eq 0 ]; then
     printf '\n=== G5 PASS (verifier fails when it should) ===\n'
