@@ -152,3 +152,138 @@ existing number reinterpreted. The operating regime and the scoring function cha
 both are fixed here in advance; whatever comes out is reported. If the architecture
 still loses under an availability requirement it can meet and the single-band arms
 cannot, that is the answer and it goes in the report.
+
+---
+
+# AMENDMENT 1 — amends the above, committed before any further run
+
+Supersedes sections 1, 2 and 4 of the original. The original text is retained above
+unaltered; nothing in it has been edited. Where this amendment and the original
+differ, both are reported in the results.
+
+## A1.1 Claim 1 splits into 1a and 1b
+
+**Claim 1a (PRIMARY).** No single-band configuration satisfies a joint
+availability-accuracy requirement, because none combines the range of 868 MHz with
+the precision of 2.4 GHz or UWB. A confidence-gated tiered architecture does, at
+bounded energy cost.
+
+  Evidence: the full availability-accuracy plane, every arm, every geometry.
+  `(A, R)` marks one point on that plane; it does not define the claim.
+
+**Claim 1b (SECONDARY, unchanged from the original).** A hybrid escalation
+architecture beats well-sited single-band on `accuracyPerJoule = 1/(rmseM x totalJ)`,
+paired per seed, geometric mean of per-seed ratios, 20 seeds.
+
+Both are reported whatever they return. **1b's existing 0/20 result stays in the
+record** and is re-tested, not retired. Where 1a and 1b disagree, the disagreement is
+reported as a finding about what the ratio metric cannot observe. It is not resolved
+in favour of either.
+
+**Why the split, recorded now rather than reconstructed later.** 1b is a ratio claim.
+At any geometry where tier 2 rarely fails, a single band wins it by construction, and
+this project's own report already states the correct policy there: where tier 2 has
+coverage, pin the radio to it. 1b is therefore answerable only in a narrow band and is
+not the architectural argument. 1a is: tiering exists because no single radio has both
+range and precision, and a requirement naming both is the test of that proposition.
+
+## A1.2 (A, R) derived
+
+The obligation attached to `A = 0.95, R = 25 m` in the original is discharged here.
+**The registered pair preceded this derivation.**
+
+**R = 25 m.** A fix is *actionable* if a searcher dispatched to the reported position
+covers the true position without a further search pattern. A ground searcher arriving
+at a point and sweeping outward covers approximately half the effective sweep width
+either side of their track, so `R = W/2`. Taking `W = 50 m` for a responsive subject
+in open terrain gives `R = 25 m`.
+
+  **Citation obligation NOT discharged.** `W = 50 m` is the assumption this
+  derivation rests on and it is not verified here. It is stated as an assumption, not
+  a fact, and must be replaced with a cited sweep-width figure and its source before
+  the results are written up. If the cited figure differs, R moves with it and both
+  values are recorded. Fabricating a citation would be worse than carrying the gap
+  visibly.
+
+**A = 0.95.** The operational tolerance is stated as a duration and converted: a
+coordinator tolerates the tag being un-located for at most **3 minutes in any hour**
+before the team is acting on stale information. `A = 1 - 3/60 = 0.95`.
+
+  A fraction is a crude proxy for what actually matters, which is the LONGEST gap
+  rather than the total. Two systems can share `A = 0.95` while one loses the tag for
+  three scattered minutes and the other for one continuous three-minute block, and
+  only the second is operationally disqualifying. **Maximum outage duration is
+  therefore reported alongside availability for every arm**, and a reader may impose
+  either.
+
+**The derivation lands on the registered pair.** Recorded explicitly because that is
+the outcome most vulnerable to the suspicion of having been steered: the derivation
+was written after `(0.95, 25 m)` was registered, and its inputs (W = 50 m, 3 minutes
+per hour) were chosen as round operational figures, not fitted to reproduce the pair.
+The plane below is what makes this checkable — the pair is a marker on it, and any
+reader may move it.
+
+**The plane is the deliverable, not the point.** Availability against accuracy is
+published for every arm at every geometry, so a reader can impose their own
+requirement. That is the only real defence against "the bar was set to exclude the
+baselines": the reader can move the bar.
+
+## A1.3 Testability predicate amended
+
+`>= 4 boundary crossings/hour` is REPLACED by a minority-occupancy floor:
+
+    min(inCov, outCov) >= N cycles per run,  N = 76
+
+**Derivation of N, from power and not from the geometry list.** The decision rule
+names an availability bar of `A = 0.95`. Per-seed availability is a binomial
+proportion estimated over the decision-relevant cycles, with standard error
+`sqrt(A(1-A)/N)`. Requiring that error to resolve the bar at half its tolerance
+(0.025) gives
+
+    sqrt(0.95 x 0.05 / N) <= 0.025   ->   N >= 0.0475 / 0.000625 = 76
+
+**Disclosure, in the required form.** The predicate was revised **after** the 72-run
+sweep, on evidence from the `inCov`/`outCov` columns which were **not part of the
+original predicate**. The admitted geometry set was visible at the time the defect was
+identified. Both predicates and both admitted sets are recorded below.
+
+**The justification stands on a metric inversion that holds regardless of outcome:**
+
+    geometry        crossings/hr   minority cycles   original predicate
+    boxHalf=1500        4.0              57              ADMIT
+    boxHalf=2200        3.0             589              REJECT
+
+The original admits the geometry posing the decision 57 times and rejects the one
+posing it 589 times. Crossings count transitions; the claim needs occupancy. The tour
+dwells at sites, so episodes are few and long everywhere (1-3 of each per run), which
+makes a transition-rate criterion measure dwell structure rather than decision
+frequency.
+
+**Admitted sets:**
+
+    ORIGINAL (covFrac in [0.35,0.85] AND crossings/hr >= 4):
+        boxHalf = 2000                                        (1 geometry)
+
+    AMENDED  (covFrac in [0.35,0.85] AND minority >= 76):
+        boxHalf = 1700, 1800, 1900, 2000, 2100, 2200,
+                  2300, 2400, 2500, 3000, 4000               (11 geometries)
+
+The coverage band is unchanged. `boxHalf=1000` (covFrac 1.0000, minority 0) and
+`boxHalf=1500` (minority 57) are excluded under both.
+
+**The amendment is purely additive:** the original's single geometry is a subset of
+the amended eleven. No geometry admitted by the original is lost, so reporting A.5
+under both predicates requires no additional runs.
+
+**A.5 is reported under both predicates**, as an extra column. If the verdict agrees,
+the amendment is immaterial and that is stated. If it differs, that difference is the
+most important line in the results and is reported, not reconciled.
+
+## A1.4 Fix order
+
+Defect 1 (escalation ignores target-tier availability) is fixed first, because it
+shrinks defect 2 (fallback hardwired to the 868 floor) to near-nothing: with an
+availability precondition the arm is on UWB only when UWB delivers, and while on
+tier 2 the floor already IS `active - 1`. Defect 2's entire blast radius is UWB
+cycles. Its magnitude is therefore re-measured after the defect-1 fix, and the
+decision whether to fix it is taken on that number.
