@@ -62,14 +62,17 @@ for f in "$FULL" "$NOINT"; do
     [ -s "$f" ] || { printf 'missing or empty: %s\n' "$f"; fail G3; }
 done
 
-# Fields 2 (arm) and 16 (mahalanobis) are the two that legitimately differ.
-if diff <(cut -d, -f1,3-15,17-37 "$FULL") <(cut -d, -f1,3-15,17-37 "$NOINT"); then
-    pass G3
-elif [ "${CATBL_SKIP_G3:-0}" = "1" ]; then
-    printf '\n=== G3 DIVERGED (expected under fault injection; CATBL_SKIP_G3=1) ===\n'
-else
-    fail G3
-fi
+# A bare diff cannot say WHY the arms differ, and the two reasons need opposite
+# verdicts: RNG contamination voids every arm-vs-arm claim, while an integrity
+# rejection propagating through the estimator is the mechanism working. The old
+# gate failed on both and asserted the first in its message. It went red the
+# moment the check started firing, and CATBL_SKIP_G3=1 was the only way out --
+# a waiver that switches off the contamination detector as well.
+#
+# catbl_g3_ablation.py separates them on causal order: a rejection cannot explain
+# a divergence that predates it. See the header there.
+python3 scripts/catbl_g3_ablation.py "$FULL" "$NOINT" || fail G3
+pass G3
 
 # ------------------------------------------------------------- G4: verifier
 printf '\n--- G4 verifier ---\n'

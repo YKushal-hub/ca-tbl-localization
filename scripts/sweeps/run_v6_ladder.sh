@@ -51,6 +51,19 @@ printf '\n======== LADDER DONE (fail=%d) ========\n' "$fail"
 # v5 file. `cut -f1-62` is the trap: it keeps the new column and drops
 # mac_deliveries, shifting every field from 30 onward by one and reporting a
 # behavioural divergence that did not happen.
+#
+# DO NOT RE-RUN THIS SCRIPT WITHOUT CONVERTING TO NAME-BASED COLUMN MATCHING.
+# The hand-worked offsets above are correct for exactly the 62/63-column pair
+# they were written against, and silently wrong for any other. The identical
+# hazard in G3 -- `cut -f1,3-15,17-37` against a trace that had grown to 42
+# columns -- left five columns uncompared through three separate column
+# additions, and G3 reported PASS the whole time.
+#
+# Note what that says about this comment. The hazard WAS noticed here, and
+# noticing produced a comment and a one-off hand correction rather than a
+# mechanism, so the same defect went on living everywhere else. See
+# scripts/catbl_g3_ablation.py for the structural fix: match columns by name,
+# and a column added later is compared automatically instead of dropped.
 A=results/v6_ladder/A_legacy_noarb/arm_summary.csv
 printf '\n======== GATE A: reproduce baseline_v5 ========\n'
 if [ ! -s "$A" ]; then
