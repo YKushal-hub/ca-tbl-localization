@@ -21,6 +21,12 @@ import csv
 FAIL = []
 WARN = []
 ARMS_AUDITED = 0
+# Absence of run_id.txt is a FAILURE by default, not a warning. It used to be a
+# warning whose detail string supplied its own excuse ("produced before the sidecar
+# existed"), so the silent-write-failure path in the simulator -- which wrote no
+# sidecar and said nothing -- was covered by the one gate written to accept absence.
+# A check whose failure mode is silence must assert its own precondition.
+REQUIRE_PROVENANCE = True
 ARMS_IN_SUMMARY = 0
 WARN_OK = []
 PASSED = []
@@ -148,9 +154,12 @@ def verify_coverage(outdir):
     # WARNING not a FAILURE, so results produced before the sidecar existed still
     # audit -- a gate that refuses to run on historical data gets bypassed.
     ridp = os.path.join(outdir, "run_id.txt")
-    warn("provenance: run_id.txt sidecar present",
+    gate = check if REQUIRE_PROVENANCE else warn
+    gate("provenance: run_id.txt sidecar present",
          os.path.exists(ridp),
-         "no run_id.txt -- produced before the sidecar existed, or by a different tool")
+         "no run_id.txt. Either the run never wrote one -- which the simulator did "
+         "silently until the ofstream checks landed -- or this directory predates the "
+         "sidecar. Pass --no-require-provenance to audit a pre-sidecar directory.")
     if os.path.exists(ridp):
         with open(ridp) as f:
             rid = f.readline().strip()
@@ -243,10 +252,12 @@ def read_pcs_form(outdir):
     Read from provenance rather than guessed from the data: gating the legacy
     form's "sigmaGeoM must be absent" check on a value inferred FROM sigmaGeoM
     would make the check vacuous.
+
+    No sidecar is not a licence to assume. See resolve_modes().
     """
     p = os.path.join(outdir, "run_id.txt")
     if not os.path.exists(p):
-        return "legacy"
+        return None
     with open(p) as f:
         txt = f.read()
     return "v2" if "--pcsForm=v2" in txt else "legacy"
@@ -262,12 +273,16 @@ def read_nlos_source(outdir):
     carries the flag, and it is written by the run itself -- so this reads
     provenance rather than inferring the mode from the data it is about to check.
 
-    Absent sidecar means legacy: results produced before the flag existed are
-    legacy by definition.
+    Returns None when there is no sidecar. It used to return "legacy", which was
+    the same defect as the unchecked ofstream one layer up: absence produced a
+    confident value instead of a demand for one. "Predates the flag, so legacy"
+    happens to be true of every such directory on this disk, but it was inferred
+    from mtimes -- and mtimes were separately shown unreliable here (cp, restore,
+    the WSL mount). The caller must now supply the mode. See resolve_modes().
     """
     ridp = os.path.join(outdir, "run_id.txt")
     if not os.path.exists(ridp):
-        return "legacy"
+        return None
     with open(ridp) as f:
         lines = f.read().splitlines()
     inv = lines[1] if len(lines) > 1 else ""
@@ -275,6 +290,85 @@ def read_nlos_source(outdir):
         if tok.startswith("--nlosSource="):
             return tok.split("=", 1)[1]
     return "legacy"
+
+
+NLOS_MODES = ("legacy", "propagation")
+PCS_FORMS = ("legacy", "v2")
+
+
+def _argv_mode(flag, allowed):
+    """Parse --flag=value from argv, rejecting anything outside `allowed`.
+
+    A typo (--nlosSource=propogation) must not become a silent third mode that
+    matches no gate and therefore fails none of them.
+    """
+    for a in sys.argv[1:]:
+        if a.startswith(flag + "="):
+            v = a.split("=", 1)[1]
+            if v not in allowed:
+                sys.exit(f"FATAL: {flag}={v} is not one of {'|'.join(allowed)}")
+            return v
+    return None
+
+
+def resolve_modes(outdir):
+    """Settle (nlos_source, pcs_form) from the sidecar, or from explicit flags.
+
+    Three cases, and the middle one is the whole point:
+
+      sidecar present         -- it is the record; use it. If the caller ALSO
+                                 passed a mode, that is an assertion about the
+                                 record and is checked against it, not silently
+                                 ignored.
+      sidecar absent, flags   -- the caller states what the sidecar would have
+                                 said, and owns that statement.
+      sidecar absent, no flags -- FATAL. --no-require-provenance says "I know
+                                 there is no sidecar"; it must not also mean
+                                 "and I decline to say what was in it". The old
+                                 behaviour silently defaulted to legacy, which
+                                 reintroduced the exact defect the provenance
+                                 gate was promoted to close: the six NLOS gates
+                                 read a propagation-produced directory as legacy
+                                 and pass, because each one is keyed to the
+                                 population the mode selects.
+    """
+    sc_nlos, sc_pcs = read_nlos_source(outdir), read_pcs_form(outdir)
+    cl_nlos = _argv_mode("--nlosSource", NLOS_MODES)
+    cl_pcs = _argv_mode("--pcsForm", PCS_FORMS)
+
+    if sc_nlos is None:
+        missing = [f for f, v in (("--nlosSource", cl_nlos), ("--pcsForm", cl_pcs))
+                   if v is None]
+        if missing:
+            verb = "was" if len(missing) == 1 else "were"
+            opts = {"--nlosSource": NLOS_MODES, "--pcsForm": PCS_FORMS}
+            state = "  ".join(f"{m}=<{'|'.join(opts[m])}>" for m in missing)
+            if REQUIRE_PROVENANCE:
+                # The caller did not waive anything, so do not lecture them about
+                # a flag they did not pass. The primary fault is the missing
+                # sidecar; the modes are only needed if they choose to override.
+                sys.exit(
+                    f"FATAL: {outdir} has no run_id.txt, so this directory cannot "
+                    f"say what produced it. Provenance is required by default.\n"
+                    f"       If it genuinely predates the sidecar, audit it with "
+                    f"--no-require-provenance AND state the mode explicitly:\n"
+                    f"       --no-require-provenance  {state}")
+            sys.exit(
+                f"FATAL: {outdir} has no run_id.txt, so the mode cannot be read "
+                f"from provenance, and {' and '.join(missing)} {verb} not passed.\n"
+                f"       --no-require-provenance waives the SIDECAR, not the MODE: "
+                f"six NLOS gates and the PCS column gates are keyed to it, and a "
+                f"wrong mode makes them pass vacuously.\n"
+                f"       State what the sidecar would have said: " + state)
+        return cl_nlos, cl_pcs
+
+    # Sidecar present. An explicit flag is a claim about it -- verify, don't drop.
+    for name, cl, sc in (("--nlosSource", cl_nlos, sc_nlos),
+                         ("--pcsForm", cl_pcs, sc_pcs)):
+        if cl is not None and cl != sc:
+            sys.exit(f"FATAL: {name}={cl} contradicts run_id.txt, which records "
+                     f"{sc}. The sidecar is the record; fix the flag.")
+    return sc_nlos, sc_pcs
 
 
 def verify_pcs_columns(arm, rows, pcs_form):
@@ -769,12 +863,22 @@ def _finite(s):
 
 
 def main():
-    outdir = sys.argv[1] if len(sys.argv) > 1 else "results/causal"
+    # --require-provenance / --no-require-provenance. DEFAULT ON, and an explicit
+    # flag rather than a heuristic on the directory name: a heuristic would have to
+    # guess which directories predate the sidecar, and a guess is what let absence
+    # pass in the first place.
+    global REQUIRE_PROVENANCE
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--no-require-provenance" in sys.argv:
+        REQUIRE_PROVENANCE = False
+    outdir = args[0] if args else "results/causal"
     verify_harness_tracked()
-    read_nlos_source_cache["mode"] = read_nlos_source(outdir)
-    read_nlos_source_cache["pcsForm"] = read_pcs_form(outdir)
-    print(f"nlos_source {read_nlos_source_cache['mode']}  "
-          f"pcs_form {read_nlos_source_cache['pcsForm']}  (from run_id.txt provenance)")
+    mode, pcsform = resolve_modes(outdir)
+    read_nlos_source_cache["mode"] = mode
+    read_nlos_source_cache["pcsForm"] = pcsform
+    src = "run_id.txt provenance" if os.path.exists(
+        os.path.join(outdir, "run_id.txt")) else "EXPLICIT FLAGS -- no sidecar"
+    print(f"nlos_source {mode}  pcs_form {pcsform}  (from {src})")
     verify_coverage(outdir)
     verify_traces(outdir)
     verify_summary(outdir)
