@@ -116,6 +116,40 @@ else
     fail=1
 fi
 
+printf '\n--- profile: the README must instruct the profile the results were built with ---\n'
+# The headline result is byte-reproducible only under the profile it was produced
+# with; NS_ASSERT and NS_LOG exist or do not depending on it. A README that names
+# a different profile sends every reader down a path that cannot reproduce.
+newest=$(ls -d results/baseline_v* 2>/dev/null | sort -V | tail -1)
+rid="$newest/run_id.txt"
+if [ ! -s "$rid" ]; then
+    note SKIP "no run_id.txt in ${newest:-<none>} to read a profile from"
+else
+    prof=$(awk '{for(i=1;i<NF;i++) if($i=="profile") print $(i+1)}' "$rid" | head -1)
+    if [ -z "$prof" ]; then
+        note SKIP "$(basename "$newest")/run_id.txt predates the profile field"
+    elif grep -q -- "--build-profile=$prof" README.md 2>/dev/null; then
+        note ok "README instructs --build-profile=$prof, matching $(basename "$newest")"
+    else
+        note MISMATCH "results built --build-profile=$prof; README does not instruct it"
+        fail=1
+    fi
+fi
+
+printf '\n--- ignored-but-tracked: files git would refuse to restore consistently ---\n'
+# A tracked file that .gitignore also matches is a trap: it survives in the repo
+# but any workflow that re-adds it silently drops it, and `git status` never
+# mentions it. This is how the harness came to need `git add -f` in the first
+# place. Empty output is the only passing state.
+ig=$(git ls-files -z | xargs -0 -r git check-ignore 2>/dev/null)
+if [ -z "$ig" ]; then
+    note ok "no tracked file is matched by .gitignore"
+else
+    note TRAPPED "$(printf '%s' "$ig" | wc -l) tracked file(s) are gitignored:"
+    printf '%s\n' "$ig" | head -5 | sed 's/^/            /'
+    fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
     printf '\n=== PUBLICATION READY ===\n'; exit 0
 fi

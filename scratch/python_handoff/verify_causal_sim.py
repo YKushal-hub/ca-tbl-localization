@@ -191,10 +191,127 @@ def verify_coverage(outdir):
             warn("provenance: built from a clean tree", n == "0",
                  f"built with {n} uncommitted file(s) at {parts[1] if len(parts) > 1 else '?'}"
                  f" -- these results cannot be regenerated from a commit")
+            # profile decides whether NS_ASSERT and NS_LOG exist, so two runs of one
+            # source can differ. Recorded rather than derived from argv[0]'s suffix.
+            prof = parts[5] if len(parts) > 5 and parts[4] == "profile" else None
+            if prof is None:
+                warn("provenance: run_id records the build profile", False,
+                     "no 'profile' field -- built before the profile was recorded")
+            else:
+                check("provenance: build profile is a known value",
+                      prof in ("optimized", "release", "debug"),
+                      f"profile is {prof!r}; 'unknown' means the build defined no "
+                      f"NS3_BUILD_PROFILE_* macro and the binary cannot say what it is")
+        verify_output_digest(outdir, txt)
 
     global ARMS_AUDITED, ARMS_IN_SUMMARY
     ARMS_IN_SUMMARY = len({a for a, _ in expected})
     ARMS_AUDITED = len({a for a, _ in present & expected})
+
+
+DIGEST_MARKER = "digest sha256"
+
+
+def _writer_existed_at(commit):
+    """Did the digest writer exist in the source this directory was built from?
+
+    This is the pre-digest population problem, and it is the same one the sidecar
+    itself had. The boundary must be the SOURCE HASH of the commit that introduced
+    the writer, not a date -- dates were shown unreliable here, and a date cannot
+    distinguish "old result" from "recent result whose digest was stripped".
+
+    Located dynamically rather than hardcoded: a hardcoded boundary sha cannot be
+    written into the commit that creates it, and amending to insert it changes the
+    sha again. So ask the recorded commit directly whether its source contains the
+    writer. Returns None when the question cannot be answered (no git, unknown
+    commit, exported directory), which the caller treats as "cannot conclude".
+    """
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "cat-file", "-p", f"{commit}:scratch/ca_tbl_causal_sim.cc"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return DIGEST_MARKER in out.stdout
+
+
+def verify_output_digest(outdir, ridtext):
+    """Do the files in this directory match the ones the run says it produced?
+
+    Until this existed the question was unanswerable, not merely unchecked. A
+    `git reset --hard` rewrote results/causal/run_id.txt with content describing an
+    Aug 5 build while the traces beside it came from an Aug 9 one -- and because
+    the reset WROTE the file, its mtime was newer than the traces, so every
+    ordering-based freshness gate passed. The content was wrong and the traces
+    carried no stamp to compare it against.
+    """
+    import hashlib
+    lines = ridtext.splitlines()
+    if DIGEST_MARKER not in lines:
+        src = [ln for ln in lines if ln.startswith("source ")]
+        commit = src[0].split()[1] if src and len(src[0].split()) > 1 else None
+        had = _writer_existed_at(commit) if commit else None
+        if had is None:
+            warn("digest: run_id lists the outputs it produced", False,
+                 "no digest block, and whether this build predates the digest "
+                 "writer could not be determined (commit unknown or not a git "
+                 "checkout) -- belonging is unverified")
+        else:
+            # Absence is only excusable if the writer did not yet exist. If it did,
+            # the block was stripped or the run died before appending it, and both
+            # are states a reader must distrust.
+            check("digest: a build that can write a digest did write one", not had,
+                  f"the source at {commit} contains the digest writer, but this "
+                  f"directory has no digest block -- the run died before appending "
+                  f"it, or the block was removed. Either way these files are not "
+                  f"vouched for.")
+        return
+
+    i = lines.index(DIGEST_MARKER)
+    entries = []
+    for ln in lines[i + 1:]:
+        parts = ln.split(None, 1)
+        if len(parts) == 2 and len(parts[0]) == 64:
+            entries.append((parts[0], parts[1].strip()))
+    check("digest: block is non-empty", bool(entries),
+          "'digest sha256' present with no '<sha256>  <file>' entries under it")
+
+    bad, missing = [], []
+    for want, name in entries:
+        p = os.path.join(outdir, name)
+        if not os.path.exists(p):
+            missing.append(name)
+            continue
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        if h.hexdigest() != want:
+            bad.append(name)
+    check(f"digest: all {len(entries)} recorded outputs are present", not missing,
+          f"recorded but absent: {missing[:5]}")
+    check(f"digest: all {len(entries)} recorded outputs match their sha256", not bad,
+          f"content differs from what the run recorded: {bad[:5]} -- either this "
+          f"sidecar belongs to a different run, or the results were edited after it")
+
+    # An unrecorded output is a warning, not a failure: a later analysis step may
+    # legitimately drop a file here. A recorded one that CHANGED is the failure.
+    #
+    # Scoped to the simulator's own output names. Checking every *.csv would flag
+    # rho_summary.csv and probe_range_sweep.csv -- artefacts of earlier, unrelated
+    # runs that share the directory -- on every single run, and a warning that is
+    # always present is one nobody reads.
+    listed = {n for _, n in entries}
+    extra = sorted(f for f in os.listdir(outdir)
+                   if (f == "arm_summary.csv" or f.startswith("trace_"))
+                   and f.endswith(".csv") and f not in listed)
+    warn("digest: no unrecorded simulator output alongside the recorded ones",
+         not extra,
+         f"present but not in the digest: {extra[:5]} -- written after the run "
+         f"recorded its outputs, or left behind by an earlier one")
 
 
 def verify_harness_tracked():
