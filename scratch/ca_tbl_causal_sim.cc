@@ -1188,6 +1188,15 @@ RunProbe(EnvironmentClass envWide,
     const int trials = 2000;
 
     std::ofstream out((outdir + "/probe_range_sweep.csv").c_str());
+    // CHECKED -- same defect as arm_summary.csv, on the writer that produced the
+    // tier-2 r80 = 909.5 m measurement the deployment geometry is sized from. The
+    // "Wrote ...probe_range_sweep.csv" line below printed unconditionally.
+    if (!out)
+    {
+        std::cerr << "FATAL: cannot open " << outdir
+                  << "/probe_range_sweep.csv for writing -- does --outdir exist?\n";
+        std::exit(1);
+    }
     // Columns after n are diagnostic, added to resolve the UWB PDR
     // non-monotonicity (0.099 at 30 m rising to 0.385 at 50 m). They are here
     // because the mechanism was being guessed at from the PDR column alone.
@@ -2130,6 +2139,18 @@ RunArm(CaTblPolicyMode mode,
         std::ostringstream fn;
         fn << traceDir << "/trace_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         trace.open(fn.str().c_str());
+        // CHECKED, and aborts rather than degrading. An unchecked failure here makes
+        // every later `trace << ...` a silent no-op, so the run completes and emits a
+        // summary while the per-cycle evidence is absent -- and the verifier's
+        // staleness gates, the null-ablation diff and every divergence analysis read
+        // exactly these files. A partially written trace set is worse than none,
+        // which is why this exits instead of continuing with the remaining arms.
+        if (!trace.is_open())
+        {
+            std::cerr << "FATAL: cannot open " << fn.str()
+                      << " for writing -- does --outdir exist?\n";
+            std::exit(1);
+        }
         // fixTier / usedFloor expose the concurrent-tier fallback. activeTier is what
         // the policy selected; fixTier is which radio actually produced the fix. On a
         // hybrid arm they differ whenever the escalated tier returned fewer than three
@@ -3199,7 +3220,17 @@ main(int argc, char* argv[])
             "git status --porcelain --untracked-files=no -- src scratch 2>/dev/null | wc -l");
 
         std::ofstream ridFile((outdir + "/run_id.txt").c_str());
-        if (ridFile)
+        // The guard used to be `if (ridFile)` with no else: on failure the sidecar was
+        // silently absent, and the one verifier gate covering that path warns with a
+        // pre-written excuse ("produced before the sidecar existed"), so absence was
+        // indistinguishable from a legitimately old directory. Provenance that can
+        // vanish without saying so is not provenance.
+        if (!ridFile)
+        {
+            std::cerr << "FATAL: cannot open " << outdir
+                      << "/run_id.txt for writing -- does --outdir exist?\n";
+            return 1;
+        }
         {
             ridFile << rid.str() << "\n"
                     << invStr << "\n"
