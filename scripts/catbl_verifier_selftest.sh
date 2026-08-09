@@ -70,6 +70,31 @@ expect_args() {
 expect() { expect_args "$1" "$2"; }
 
 FAILED=0
+
+# What this source directory can actually support. Three cases below depend on it
+# having a digest block, and one on knowing which mode produced it. Hardcoding
+# either makes the self-test valid for exactly one directory while appearing to be
+# general: run against results/baseline_v6 with those assumptions baked in and it
+# reports two FAILs that are properties of the fixture, not of the verifier.
+# `awk ... | head -1` would be the same SIGPIPE-under-pipefail shape as the guard
+# below. Harmless here only because the status of a bare assignment is never
+# tested -- which is a property of today's code, not of the construct. awk exits
+# after the first match instead, so there is no pipe to break.
+SRCSHA=$(awk '{for(i=1;i<NF;i++) if($i=="source"){print $(i+1); exit}}' \
+             "$SRC/run_id.txt" 2>/dev/null)
+HAS_DIGEST=0
+grep -q '^digest sha256$' "$SRC/run_id.txt" 2>/dev/null && HAS_DIGEST=1
+SRC_NLOS=legacy; SRC_PCS=legacy
+if [ -s "$SRC/run_id.txt" ]; then
+    grep -q -- '--nlosSource=propagation' "$SRC/run_id.txt" && SRC_NLOS=propagation
+    grep -q -- '--pcsForm=v2' "$SRC/run_id.txt" && SRC_PCS=v2
+fi
+
+# skip <label> <reason> -- an unrunnable case must be visibly absent, not silently
+# counted as passing. Silence is how a gate that never fires looks identical to one
+# that always passes.
+skip() { printf '  G5 skip  %-34s (%s)\n' "$1" "$2"; }
+
 printf '\n--- G5 verifier self-test ---\n'
 
 # A. Healthy input must PASS. Without this the other four could be satisfied by a
@@ -120,23 +145,67 @@ expect_args 1 "waiver without a stated mode is refused" --no-require-provenance
 fresh
 rm -f "$TMP/d/run_id.txt"
 expect_args 0 "waiver WITH a stated mode proceeds" \
-    --no-require-provenance --nlosSource=legacy --pcsForm=legacy
+    --no-require-provenance --nlosSource=$SRC_NLOS --pcsForm=$SRC_PCS
 
 # I. The output digest. This is the only check in the harness that can see a
 #    result edited after its run, or a sidecar that belongs to a different run --
 #    both states in which every mtime-ordering gate passes, because the edited
 #    file is NEWER than the sidecar. Appending one byte is the minimal version of
 #    exactly that.
-fresh
-printf '\n' >> "$TMP/d/trace_static_2p4_seed7.csv"
-expect 1 "a modified output is caught by the digest"
+if [ "$HAS_DIGEST" = 1 ]; then
+    fresh
+    printf '\n' >> "$TMP/d/trace_static_2p4_seed7.csv"
+    expect 1 "a modified output is caught by the digest"
+else
+    skip "modified output" "$(basename "$SRC") has no digest block"
+fi
 
 # J. ...and a recorded output that vanished. Distinct from case B: there the file
 #    is missing from the arm coverage too, whereas a digest entry with no file is
 #    detectable even for outputs no coverage gate enumerates.
-fresh
-rm -f "$TMP/d/trace_static_868_seed7.csv"
-expect 1 "a recorded output that vanished is caught"
+if [ "$HAS_DIGEST" = 1 ]; then
+    fresh
+    rm -f "$TMP/d/trace_static_868_seed7.csv"
+    expect 1 "a recorded output that vanished is caught"
+else
+    skip "vanished recorded output" "$(basename "$SRC") has no digest block"
+fi
+
+# K. A stripped digest block. Only a failure when the source this directory was
+#    built from actually CONTAINS the digest writer -- otherwise absence is the
+#    legitimate pre-digest state and tolerating it is the correct behaviour. So
+#    the case is guarded by that same question rather than assumed, which also
+#    keeps the self-test usable against a historical results directory.
+#    THREE outcomes, not two. "git says the writer is absent" and "git could not be
+#    asked" are different facts and only the first justifies skipping with that
+#    reason. The first version collapsed them and printed "predates the digest
+#    writer" for a case where the truth was "the guard failed" -- a skip line
+#    asserting a cause it had not established.
+#
+#    It failed for the reason this file's own harness warns about: `git cat-file |
+#    grep -q` under `set -o pipefail`. grep -q exits at the first match, git dies of
+#    SIGPIPE (141), and pipefail promotes that to the pipeline's status -- so a
+#    MATCH reported as a non-match. Testing it by hand missed it because an
+#    interactive shell has no pipefail. Capture first, match second: no pipe, no
+#    early exit, and empty output is distinguishable from no match.
+SRCSRC=""
+if [ -n "$SRCSHA" ]; then
+    SRCSRC=$(git cat-file -p "$SRCSHA:scratch/ca_tbl_causal_sim.cc" 2>/dev/null) || SRCSRC=""
+fi
+case "$SRCSRC" in
+    *"digest sha256"*)
+        fresh
+        sed -i '/^digest sha256$/,$d' "$TMP/d/run_id.txt"
+        expect 1 "a stripped digest block is caught"
+        ;;
+    "")
+        skip "stripped digest block" \
+             "cannot read ${SRCSHA:-<no source recorded>} from git -- not that it predates the writer, but that the question could not be asked"
+        ;;
+    *)
+        skip "stripped digest block" "source $SRCSHA predates the digest writer"
+        ;;
+esac
 
 if [ "$FAILED" -eq 0 ]; then
     printf '\n=== G5 PASS (verifier fails when it should) ===\n'
