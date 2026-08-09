@@ -43,6 +43,7 @@ for f in CA-TBL_Technical_Report_SelfContained.md \
          README.md \
          scripts/catbl_gates.sh \
          scripts/catbl_verifier_selftest.sh \
+         scripts/catbl_g3_ablation.py \
          scratch/python_handoff/verify_causal_sim.py \
          scratch/ca_tbl_causal_sim.cc \
          src/lora-physics-engine/model/ca-tbl-policy.h; do
