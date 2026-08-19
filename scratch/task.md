@@ -1,0 +1,9 @@
+-  Diagnosis
+  -  Root cause of the 9999.0 issue (artificial self-interference due to clock side-effects).
+  -  Root cause of the hardcoded 0.72 issue in  vs real geometric distances.
+-  Implementation Fixes
+  -  Update  to remove  modification and use random uniformly distributed transmission times.
+  -  Verify // are correctly tracking Poisson-distributed random placements inside .
+  -  Refactor  to source Stage-2 logic directly from the newly generated  columns instead of falling back to legacy physics variables.
+-  Regenerate Datasets & Evaluation Pipeline
+  -  Launch  script to run everything from scratch (taking ~1.5 hours).

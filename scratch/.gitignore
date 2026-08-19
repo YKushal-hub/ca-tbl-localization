@@ -1,41 +1,44 @@
-# Ignore everything on scratch by default, except the provided examples
-/*
-!.gitignore
+# BLACKLIST, not whitelist. Inverted 2026-08-19.
+#
+# This file used to read `/*` followed by `!*.cc` and `!*.py`. That is a WHITELIST,
+# and a whitelist FAILS CLOSED: every file type nobody thought to negate is
+# invisible by default, permanently, and nothing surfaces it because there is
+# nothing to see. It hid 13 shell scripts and 2 markdown files -- including
+# run_full_pipeline.sh, run_generator.sh and launch_parallel.sh, which are the
+# tooling that REGENERATES the ~16 GB of results deliberately excluded from this
+# repository. Excluding generated data is only defensible while its generators
+# ship; they were about to not ship.
+#
+# A blacklist fails OPEN: a missed output type shows up as a large file in
+# `git status`, and publication_ready.sh already asserts no tracked file exceeds
+# 45 MB. A missed source type under the old scheme showed up as nothing at all.
+# That asymmetry is the whole argument for the inversion.
+#
+# Patterns below are taken from what the pipeline scripts actually write and
+# delete (master_reset.sh:10,49,50 and run_full_pipeline.sh:47,51) -- classified
+# by PRODUCER, not by file extension.
 
-!nested-subdir/
-!subdir/
-!scratch-simulator.cc
-!CMakeLists.txt
+# --- generated simulation output -------------------------------------------
+trace_*.csv
+physics_scale_sweep_*.csv
+*_out.txt
 
-# The validation harness is NOT scratch work. `/*` above matches this directory,
-# and because git does not descend into an ignored directory, every new file
-# under it was silently untracked -- verify_causal_sim.py itself needed `git add
-# -f`. A validation harness that can quietly not exist is a worse failure mode
-# than anything it checks for, so the directory is un-ignored wholesale rather
-# than file by file, and verify_causal_sim.py fails if anything under it is
-# untracked.
-!python_handoff/
+# --- generated dataset / training artefacts --------------------------------
+geometric_training_dataset*.csv
+split_index_*.npy
+stage2_M*.pkl
+stage2_result_M*.json
 
-# The CA-TBL scenario sources, by pattern rather than by name. The un-ignoring
-# above rescued the files that existed when it was written, but `/*` still
-# matched anything added afterwards -- verified: a new scratch/ca_tbl_*.cc was
-# still reported ignored by `git check-ignore`. Grandfathering the current set
-# leaves exactly the trap it was meant to close, one file later.
-# All scratch sources, by extension. !ca_tbl_*.cc alone left the same hole one
-# filename over -- scale_sweep_simulation.cc is the case in point, and there are
-# 35 .cc and 85 .py here. ns-3 compiles every file in scratch/, so a broken one
-# would already have blocked the tree; they are 0.46 MB in total. Ship the
-# generators, exclude their output: scale_sweep_simulation.cc is the reproducible
-# part and the 1.2 GB of physics_scale_sweep_*.csv it writes is not.
-!*.cc
-!*.py
+# --- editor / OS noise ------------------------------------------------------
+*.swp
+*~
+.DS_Store
 
-# ...except the two that #include "ns3/lorawan-module.h". src/lorawan is a nested
-# third-party git repository with zero files tracked here, so shipping these two
-# gives a clone a scratch directory it cannot compile -- and ns-3 builds every file
-# in scratch/, so two unbuildable files block the whole tree including
-# ca_tbl_causal_sim. No CA-TBL source references lorawan-module.h; these are
-# pre-CA-TBL experiments. Caught by the clone test, which is the only check that
-# compiles what a clone actually contains.
-lora-combining.cc
-lora-dataset.cc
+# NOTE on lora-combining.cc / lora-dataset.cc: these were excluded here because
+# they #include "ns3/lorawan-module.h" while src/lorawan was a nested third-party
+# git repository with zero files tracked, so a clone got a scratch directory it
+# could not compile -- and ns-3 builds every file in scratch/, so two unbuildable
+# files block the whole tree. THAT PREMISE NO LONGER HOLDS: src/lorawan was
+# vendored as 140 ordinary tracked files on 2026-08-19. The exclusion is therefore
+# removed. Both files are currently ABSENT from the working tree; they exist in
+# commit 2c1f888 and whether they should be restored is a question for the author.

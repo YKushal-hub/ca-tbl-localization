@@ -1,0 +1,106 @@
+# ns-3 CI/CD script with the pre-build stage
+#
+# Contains jobs to check the ns-3 code formatting and spell-checking.
+name: "Check code formatting"
+run-name: "formatting"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  # Clang-format
+  check-style-clang-format:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:rolling
+    strategy:
+      matrix:
+        version: [20]
+    timeout-minutes: 60
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - name: "Install required system packages"
+        run: >
+          apt update && DEBIAN_FRONTEND=noninteractive apt install -y
+          python3
+          clang-format-${{ matrix.version }}
+          wget
+      - name: "Checkout this repository as ns-3 module"
+        uses: ./.github/actions/checkout-in-ns3
+      - name: "Check code style"
+        run: python3 utils/check-style-clang-format.py --verbose src/lorawan
+
+  # Spell checking
+  spell-check:
+    runs-on: ubuntu-latest
+    container:
+      image: python:latest
+    timeout-minutes: 60
+    env:
+      URL: ${{ github.server_url }}/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install codespell
+      # Get commit messages
+      - run: git config --global --add safe.directory $GITHUB_WORKSPACE
+      - run: >
+          echo "DEFAULT_BRANCH=$(
+            git remote show $URL | sed -n '/HEAD branch:/s/.*: //p'
+          )" >> $GITHUB_ENV
+      - run: >
+          if (git remote | grep -qw upstream) ; then
+          git remote remove upstream ;
+          fi
+      - run: git remote add -t $DEFAULT_BRANCH --no-tags -f upstream $URL
+      - run: git log --pretty=%B HEAD...upstream/$DEFAULT_BRANCH ^upstream/$DEFAULT_BRANCH > git_messages.txt
+      # Check source code and commit messages
+      - run: codespell -f -C0 --skip="./experiments" ./
+
+  # CMake formatting
+  cmake-format:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12
+    timeout-minutes: 60
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - run: pip install pyyaml cmake cmake-format ninja wget
+      - name: "Checkout this repository as ns-3 module"
+        uses: ./.github/actions/checkout-in-ns3
+      - run: ./ns3 configure --enable-modules=core
+      - run: |
+          if (! ./ns3 build cmake-format-check) ; then
+            echo "Bad formatting detected in CMake files.";
+            echo "To fix the formatting issues, run the following command:";
+            echo "   $ ./ns3 build cmake-format";
+            echo "Note that it requires having cmake-format installed in your system.";
+            echo "You might need to run \"./ns3 configure\" after installing it.";
+            exit 1;
+          fi
+
+  # Markdown linting
+  markdown-lint:
+    runs-on: ubuntu-latest
+    container:
+      image: node:slim
+    timeout-minutes: 60
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - run: apt update && DEBIAN_FRONTEND=noninteractive apt install -y wget
+      - name: "Checkout this repository as ns-3 module"
+        uses: ./.github/actions/checkout-in-ns3
+      - run: npm install -g markdownlint-cli
+      - run: markdownlint src/lorawan
