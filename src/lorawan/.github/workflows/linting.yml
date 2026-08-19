@@ -1,0 +1,83 @@
+# ns-3 CI/CD script with jobs of the code-linting stage
+#
+# Contains jobs to perform lint checking.
+name: "Check code linting"
+run-name: "linting"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  # Clang-tidy
+  clang-tidy-21:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:rolling
+    timeout-minutes: 180
+    env:
+      CLANG_TIDY_OUTPUT: clang-tidy-output.log
+      FILES_CHANGED: git-diff-name-only.log
+      URL: ${{ github.server_url }}/${{ github.repository }}
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - name: "Install required system packages"
+        run: >
+          apt update && DEBIAN_FRONTEND=noninteractive apt install -y
+          clang cmake
+          clang-tidy clang-tidy-21
+          libboost-dev
+          git wget
+      - name: "Checkout this repository as ns-3 module"
+        uses: ./.github/actions/checkout-in-ns3
+      - name: "Configure ns-3 CMake"
+        run: >
+          ./ns3 configure -d debug
+          --enable-clang-tidy
+          --enable-examples --enable-tests --enable-asserts
+          --enable-modules lorawan
+      - name: "Store default branch"
+        run: >
+          echo "DEFAULT_BRANCH=$(
+            git -C src/lorawan/ remote show $URL | sed -n '/HEAD branch:/s/.*: //p'
+          )" >> $GITHUB_ENV
+      - name: "Prepare git environment"
+        run: >
+          if (git -C src/lorawan/ remote | grep -qw upstream) ; then
+          git -C src/lorawan/ remote remove upstream ;
+          fi &&
+          git -C src/lorawan/ remote add -t $DEFAULT_BRANCH --no-tags -f upstream $URL &&
+          git -C src/lorawan/ diff --name-only --line-prefix=src/lorawan/ upstream/$DEFAULT_BRANCH | tr '\n' ' ' > $FILES_CHANGED
+      - name: "Running clang-tidy"
+        shell: bash
+        run: >
+          if [[ $GITHUB_REF_NAME == $DEFAULT_BRANCH ]] ; then
+            echo "FILES_TO_CHECK=src/lorawan/" >> $GITHUB_ENV;
+            echo "Running clang-tidy on all files";
+          else
+            echo "FILES_TO_CHECK=$(cat $FILES_CHANGED)" >> $GITHUB_ENV;
+            echo "Running clang-tidy on the following changed files:";
+            echo $(cat $FILES_CHANGED);
+          fi
+      - name: "Run clang-tidy"
+        shell: bash
+        run: >
+          run-clang-tidy-21 -p cmake-cache/ -quiet $FILES_TO_CHECK
+          1> $CLANG_TIDY_OUTPUT
+          2> /dev/null
+      - name: "Trim empty lines from output file"
+        run: sed -i '/^$/d' $CLANG_TIDY_OUTPUT
+      - name: "Check job results"
+        run: |
+          (! egrep -v "file not found \[clang-diagnostic-error\]" $CLANG_TIDY_OUTPUT | egrep -A3 "error:|warning:|note:")
+          echo "No clang-tidy errors found"
+      - if: failure()
+        name: "Upload clang-tidy-output.log"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CLANG_TIDY_OUTPUT }}
+          path: ${{ env.CLANG_TIDY_OUTPUT }}

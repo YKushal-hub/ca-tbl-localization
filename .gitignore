@@ -35,7 +35,7 @@ TAGS
 .ns3rc
 
 build-dir/
-build/
+/build/
 /.cproject
 /.project
 

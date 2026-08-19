@@ -150,6 +150,74 @@ else
     fail=1
 fi
 
+printf '\n--- provenance: no cited result may come from a dirty tree ---\n'
+# "No dirty run backs a cited claim" is a PUBLICATION-READINESS property, not a
+# simulator-correctness one, so it is asserted here rather than in
+# catbl_gates.sh. The suite tests whether the simulator works and regenerates its
+# own scratch directories every run; this tests whether the evidence is fit to
+# publish.
+#
+# THIS CORRECTS A LIVE FALSE POSITIVE, not a hypothetical one. This script
+# reported PUBLICATION READY while every headline number in the technical report
+# came from `results/p10_plane_fix`, whose twenty sidecars each record
+# `source a059203 dirty 3` -- a binary rebuildable from no commit in the
+# repository. Same defect class as the clone test described above: a green that
+# is true of what it checks and false of what a reader infers from it.
+#
+# Scope is the directories a CITED result comes from. Cheap and non-clever:
+# every results directory named in the report or the data pack. A directory
+# nothing cites cannot make a claim unreproducible.
+#
+# No exemption is available here. The verifier's ALLOW_DIRTY marker and
+# --scratch flag both exist for working sessions and ephemeral scratch; neither
+# is honoured at this gate, because the question here is not "was this run
+# deliberate" but "can a reader regenerate it".
+cited=$(grep -rhoE 'results/[A-Za-z0-9_.-]+' \
+            CA-TBL_Technical_Report_SelfContained.md report/REPORT_DATA_PACK.md \
+            2>/dev/null | sort -u)
+n_cited=0; n_dirty=0; dirty_list=''
+for d in $cited; do
+    [ -d "$d" ] || continue
+    for sc in "$d"/run_id.txt "$d"/*/run_id.txt; do
+        [ -f "$sc" ] || continue
+        n_cited=$((n_cited + 1))
+        nd=$(awk '/^source /{print $4; exit}' "$sc")
+        if [ -n "$nd" ] && [ "$nd" != "0" ]; then
+            n_dirty=$((n_dirty + 1))
+            dirty_list="$dirty_list$(dirname "$sc") ($nd files)
+"
+        fi
+    done
+done
+if [ "$n_cited" -eq 0 ]; then
+    note UNKNOWN "no cited results directory carries a run_id sidecar -- cannot verify"
+    fail=1
+elif [ "$n_dirty" -eq 0 ]; then
+    note ok "all $n_cited cited result sidecar(s) record a clean tree"
+else
+    note DIRTY "$n_dirty of $n_cited cited result sidecar(s) were built from a dirty tree:"
+    printf '%s' "$dirty_list" | head -5 | sed 's/^/            /'
+    fail=1
+fi
+
+printf '\n--- ignored-but-source: files git is hiding that look like source ---\n'
+# The INVERSE of assertion 12. That one catches tracked-and-ignored; this catches
+# ignored-and-should-be-tracked, which nothing tested for until an unanchored
+# `build/` pattern swallowed src/lorawan/.github/actions/build/action.yml -- a YAML
+# source file, invisible to every check except a disk-vs-index count comparison.
+# An unanchored directory pattern matches at ANY depth, so every vendored subtree
+# can reintroduce this. Extension-based, because intent is not inspectable.
+hidden=$(git ls-files --others --ignored --exclude-standard 2>/dev/null \
+    | grep -E '\.(yml|yaml|cc|cpp|h|hpp|py|sh|cmake|rst|md|json|toml)$' \
+    | grep -vE '^(build|cmake-cache)/' || true)
+if [ -z "$hidden" ]; then
+    note ok "no source-extension file is being ignored"
+else
+    note HIDDEN "$(printf '%s' "$hidden" | wc -l) source-extension file(s) ignored:"
+    printf '%s\n' "$hidden" | head -8 | sed 's/^/            /'
+    fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
     printf '\n=== PUBLICATION READY ===\n'; exit 0
 fi

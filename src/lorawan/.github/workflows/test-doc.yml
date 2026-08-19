@@ -1,0 +1,67 @@
+# Base ns-3 CI job template for per-commit jobs involving building and testing
+name: "Test documentation"
+run-name: "test-doc"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  doxygen-1_15:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux
+    timeout-minutes: 120
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - name: "Install dependencies and checkout repo in ns-3"
+        uses: ./.github/actions/install-doc
+      - name: "Install additional dependencies for Doxygen"
+        run: |
+          pacman -Syu --noconfirm base-devel ninja cmake ccache
+          pacman --noconfirm -U https://archive.archlinux.org/packages/d/doxygen/doxygen-1.15.0-2-x86_64.pkg.tar.zst
+      - name: "Build ns-3"
+        env:
+          BUILD_ID: per-commit-g++-debug
+          COMPILER: g++
+          MODE: debug
+        uses: ./.github/actions/build
+        with:
+          save-ccache: "false"
+          store-artifacts: "false"
+      - name: "Build ns-3 assemble-introspected-command-line"
+        run: ./ns3 build assemble-introspected-command-line
+      - name: "Check documentation coverage and formatting"
+        run: |
+          doc/doxygen.warnings.report.sh -m lorawan
+          ./ns3 clean
+          echo "Doxygen version $(doxygen -v)"
+      - name: "Upload doxygen warnings as artifact"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doxygen.warnings.log
+          path: doc/doxygen.warnings.log
+
+  models:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux
+    timeout-minutes: 120
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - name: "Install dependencies and checkout repo in ns-3"
+        uses: ./.github/actions/install-doc
+      - name: "Make html and latexpdf"
+        working-directory: doc/models
+        run: |
+          make html
+          make latexpdf

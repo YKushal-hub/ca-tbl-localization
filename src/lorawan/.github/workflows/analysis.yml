@@ -1,0 +1,59 @@
+# ns-3 CI/CD script with job for code analysis
+#
+# Contains jobs to run code analysis tasks.
+name: "Run code analysis"
+run-name: "analysis"
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  COMPILER: g++
+  MODE: default
+
+jobs:
+  # CodeCov
+  code-cov:
+    runs-on: ubuntu-latest
+    steps:
+      # The following step is required in all jobs that use this repo's actions
+      - name: "Retrieve actions from repository"
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+      - name: "Install required system packages"
+        run: >
+          sudo apt update && DEBIAN_FRONTEND=noninteractive sudo apt install -y
+          apt-utils
+          git gcc g++ cmake python3 make ninja-build
+          curl unzip tar
+          ccache
+          lcov
+          wget
+      - name: "Checkout this repository as ns-3 module"
+        uses: ./.github/actions/checkout-in-ns3
+      - name: "Build ns-3"
+        env:
+          BUILD_ID: ubuntu-coverage
+          COMPILER: g++
+          MODE: default
+          EXTRA_OPTIONS: --disable-werror --enable-gcov
+        uses: ./.github/actions/build
+        with:
+          store-artifacts: "false"
+      - name: "Extract ccache statistics"
+        run: echo "CACHE_MISSES=`./utils/ccache-miss-rate.py`" >> $GITHUB_ENV
+      - if: env.CACHE_MISSES != '0'
+        name: "Generate coverage data"
+        run: |
+          ./ns3 build coverage_gcc
+          mv build/coverage/ns3.info src/lorawan
+      - if: env.CACHE_MISSES != '0'
+        name: "Submit coverage data to codecov.io"
+        uses: codecov/codecov-action@v4
+        with:
+          working-directory: src/lorawan
+          file: ns3.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
