@@ -149,6 +149,31 @@ enum CaTblPcsForm
 };
 
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */
+/** Response policy when the integrity gate rejects a fix.
+ *
+ * MEASURED, and this enum exists because the default was never designed. At
+ * ca-tbl-policy.cc:913 a suspect fix calls RevertToPrior() and skips the update.
+ * RevertToPrior restores the PRE-UPDATE covariance every cycle, so P does not even
+ * grow across a rejection run -- the filter is not coasting, it is stuck. The gate's
+ * reference is the prior, so once the prior is wrong every honest measurement
+ * disagrees with it and the gate keeps firing:
+ *
+ *   F0 (NO FAULT INJECTED): unconditional suspect rate 0.0046, but
+ *   P(suspect | suspect at previous cycle) = 0.409 -- an 89x jump -- and the filter
+ *   can stay frozen for 22 consecutive cycles with nothing wrong.
+ *   F1: 0.1135 -> 0.662, longest run 108 cycles. F3: 0.1665 -> 0.789, longest 251.
+ *
+ * The lock-out is therefore not the gate mishandling a fault; it freezes a healthy
+ * filter off its own false positive.
+ */
+enum CaTblSuspectRecovery
+{
+    CA_TBL_RECOVERY_NONE = 0, //!< RevertToPrior only. The pre-existing behaviour.
+    CA_TBL_RECOVERY_INFLATE,  //!< Scale P on rejection so the gate widens next cycle.
+    CA_TBL_RECOVERY_BOUNDED,  //!< Force-accept after N consecutive rejections.
+    CA_TBL_RECOVERY_REINIT    //!< Discard the prior; reinitialise from the raw fix.
+};
+
 struct CaTblPolicyConfig
 {
     CaTblPolicyMode mode;
@@ -217,6 +242,75 @@ struct CaTblPolicyConfig
     //! R -- so they are fixed under a single flag. Default false so the pre-existing
     //! baseline reproduces byte-identically.
     bool mahalUseR;
+
+    /**
+     * Escalate only into a tier the node has grounds to believe can deliver.
+     *
+     * THE DEFECT THIS CLOSES. `wantEscalate` is formed from PCS alone -- traceSigma,
+     * GDOP and LOS fraction, all properties of the fix currently held -- and the
+     * step-up that follows consults nothing about the destination. Measured at
+     * boxHalf=1000: the arm escalates 2.4GHz->UWB 194 times with a mean of 0.08 UWB
+     * anchors visible against the 3 required, spends 67.1% of the run on a tier that
+     * cannot produce a fix, and takes 86.9% of the fixes made while nominally on UWB
+     * from the 868 floor. 493.9 J of 511.1 J total is UWB energy buying nothing.
+     *
+     * That is a defect against claim 1 as written -- "escalation happens only when
+     * position confidence justifies the energy" -- because escalating into zero
+     * rangeable anchors cannot justify any energy. Closing it implements the claim
+     * rather than tuning toward it.
+     *
+     * Note the pre-existing asymmetry it corrects: the DEMOTION path already has a
+     * full apparatus for "this tier has nothing here" (activeDelivered,
+     * fastDemoteOnZeroNeighbours, multiStepDemote, tierEvidenceMask). The system
+     * could discover a tier was empty and leave, but could not decline to enter.
+     *
+     * BOTH steps are gated, by different evidence, because different evidence exists:
+     *
+     *   868 -> 2.4GHz   OBSERVED. tierEvidenceMask carries a recent non-empty
+     *                   neighbour table for tier 2, refreshed every cycle from the
+     *                   MAC cache for ALL tiers regardless of which is active, so it
+     *                   stays fresh while the node sits on tier 1 and cannot latch.
+     *
+     *   2.4GHz -> UWB   PREDICTED. UWB anchors are not discoverable at range, so
+     *                   there is nothing to observe until after the escalation that
+     *                   the observation is meant to justify. The node predicts from
+     *                   its own EKF estimate and the anchor coordinates it must hold
+     *                   to multilaterate at all.
+     *
+     * Use observed evidence where it exists; predict only where it does not.
+     */
+    //! Response policy on rejection. Default NONE reproduces the pre-existing
+    //! baseline byte-identically. See CaTblSuspectRecovery for the measurement.
+    CaTblSuspectRecovery suspectRecovery;
+    //! INFLATE: factor applied to P on each rejection. Releasing F3 needs
+    //! P ~ 221^2/9.21 = 5300 against a measured 1621, i.e. ~3.3x.
+    double suspectInflateFactor;
+    //! BOUNDED/REINIT: consecutive rejections before the recovery action fires.
+    //! Derived from the p90 of measured run lengths (5 on F1, 7 on F3) so it engages
+    //! on the tail and not on the median, which is 1-2.
+    uint32_t suspectRecoveryN;
+    bool escalationRequiresEvidence;
+    //! 868 -> 2.4 GHz gate. BROKEN, DEFAULTS OFF, KEPT ONLY AS A RECORD OF THE
+    //! MEASUREMENT. The premise was that tier-2 presence is observable from tier 1 via
+    //! the MAC neighbour cache. It is not -- the tier-2 radio sleeps while another tier
+    //! is active, so its neighbour count is 0 and the evidence bit never sets. Enabling
+    //! it latches the node at the floor for the whole run (measured: 1440/1440 cycles on
+    //! 868, 0 escalations, at boxHalf 1000 and 2000). A tier-2 PREDICTOR symmetric with
+    //! the UWB one, using the same anchor map and a radius from the measured r80 of
+    //! 909.5 m, is the fix; it is not built because it only matters where tier 2 fails.
+    bool escalationRequiresEvidenceT2;
+    //! Radius for the UWB prediction. NOT nominalRangeM[UWB] = 30.0, which is the
+    //! trigger oracle's labelling constant, and not the measured r80 of 12.8 m, which
+    //! declines two thirds of the cycles UWB would have served.
+    double uwbPredictRadiusM;
+    //! The prediction is only as good as the estimate feeding it. Escalation is
+    //! blocked unless sqrt(traceSigma) < uwbPredictMaxSigmaFrac * uwbPredictRadiusM,
+    //! so a tier-1 fallback fix at ~129 m error cannot drive a 20 m predicate.
+    double uwbPredictMaxSigmaFrac;
+    //! Tier-3 anchor coordinates, supplied once by the scenario. Empty disables the
+    //! UWB predicate regardless of the flag -- a policy with no map cannot predict.
+    std::vector<double> uwbAnchorX;
+    std::vector<double> uwbAnchorY;
     /**
      * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
      *
@@ -322,6 +416,10 @@ struct CaTblDecision
     //! computed. Emitted so the v2 per-term variance decomposition required by
     //! pre-registration §0.4a can be done from the trace alone.
     double sigmaGeoM;
+    //! UWB anchors the node's own estimate predicts are in range this cycle. -1 when
+    //! the predicate did not run (flag off, wrong tier, or blocked by the
+    //! estimate-quality gate before the count was computed).
+    int32_t predictedVisUwb;
 
     CaTblDecision();
 };
@@ -349,6 +447,14 @@ class CaTblEkf
 
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
+
+    /** Scale the position block of P. Used by CA_TBL_RECOVERY_INFLATE so that a
+     *  rejection widens the gate on the next cycle instead of leaving it unchanged. */
+    void InflatePos(double factor)
+    {
+        m_P[0][0] *= factor;
+        m_P[1][1] *= factor;
+    }
 
     double X() const { return m_x[0]; }
     double Y() const { return m_x[1]; }
@@ -479,6 +585,18 @@ class CaTblPolicy
     void AbortTierChange(CaTblTier restoreTo);
 
     uint64_t GetEscalationCount() const { return m_escalations; }
+    //! Escalations suppressed because the estimate was too poor to predict with.
+    //! Times the recovery action fired (INFLATE counts every rejection).
+    uint64_t GetRecoveryFirings() const { return m_recoveryFirings; }
+    //! REINIT cycles where the fix covariance was unavailable and P was seeded from
+    //! the 100 m^2 fallback -- a SECOND treatment, which must never be averaged in
+    //! silently. With mahalUseR=true this should be 0; the caller announces it if not.
+    uint64_t GetReinitFallbackCount() const { return m_reinitFallbackCount; }
+    uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
+    //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
+    uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
+    //! 868->2.4 escalations suppressed because tier 2 had no recent neighbour evidence.
+    uint64_t GetEvidenceBlockedT2() const { return m_evidenceBlockedT2; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
     uint64_t GetSuspectCount() const { return m_suspects; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
@@ -534,6 +652,12 @@ class CaTblPolicy
     uint32_t m_deescalateCounter;
 
     uint64_t m_escalations;
+    uint32_t m_consecutiveRejections;
+    uint64_t m_reinitFallbackCount;
+    uint64_t m_recoveryFirings;
+    uint64_t m_predictBlockedQuality;
+    uint64_t m_predictBlockedCoverage;
+    uint64_t m_evidenceBlockedT2;
     uint64_t m_deescalations;
     uint64_t m_suspects;
     uint64_t m_noFixCycles;
