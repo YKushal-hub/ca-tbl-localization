@@ -207,9 +207,19 @@ printf '\n--- ignored-but-source: files git is hiding that look like source ---\
 # source file, invisible to every check except a disk-vs-index count comparison.
 # An unanchored directory pattern matches at ANY depth, so every vendored subtree
 # can reintroduce this. Extension-based, because intent is not inspectable.
+# The reviewed-exclusion prefixes come from EXCLUDED.md's fenced block, parsed
+# rather than duplicated here: two copies of the same list drift, and a drifted
+# allow-list silently re-hides whatever fell out of sync.
+excl=$(awk '/^```reviewed-exclusions$/{f=1;next} /^```$/{f=0} f' EXCLUDED.md 2>/dev/null)
+if [ -z "$excl" ]; then
+    note MISSING "EXCLUDED.md has no reviewed-exclusions block -- cannot judge ignored files"
+    fail=1
+    excl='build/'
+fi
+pat=$(printf '%s' "$excl" | sed 's/[].[^$\\*]/\\&/g' | paste -sd'|' -)
 hidden=$(git ls-files --others --ignored --exclude-standard 2>/dev/null \
     | grep -E '\.(yml|yaml|cc|cpp|h|hpp|py|sh|cmake|rst|md|json|toml)$' \
-    | grep -vE '^(build|cmake-cache)/' || true)
+    | grep -vE "^(${pat})" || true)
 if [ -z "$hidden" ]; then
     note ok "no source-extension file is being ignored"
 else
