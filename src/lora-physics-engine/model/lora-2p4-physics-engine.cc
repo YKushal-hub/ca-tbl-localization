@@ -145,7 +145,14 @@ bool LoRa2p4PhysicsEngine::PassesReceiverSensitivity(double rxPowerDbm, double e
 }
 
 double LoRa2p4PhysicsEngine::GetSensitivityThreshold(uint8_t sf, uint8_t codingRateDenom) {
-    int sfIndex = std::min(5, std::max(0, static_cast<int>(sf) - 7));
+    // D1 (DEFECTS.md). This table is EIGHT entries based at SF5 -- see the
+    // declaration comment, "index 0=SF5, 7=SF12". The 868 table is six entries
+    // based at SF7 and its accessor's `sf - 7` is correct there; this accessor
+    // was copied without re-basing, so SF7 read index 0 (the SF5 cell) and
+    // indices 6 and 7 were unreachable. An eight-entry LoRa SF table cannot be
+    // SF7-based: SF7..SF14 does not exist. Corroborated by the SX1280 datasheet,
+    // which puts SF7 near -106 dBm, not the -100 dBm sitting at index 0.
+    int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));
     int crIndex = std::min(3, std::max(0, static_cast<int>(codingRateDenom) - 5));
     return m_config.receiver.sensitivityDbm[sfIndex] + m_config.receiver.codingRateSensitivityOffsetDb[crIndex];
 }
