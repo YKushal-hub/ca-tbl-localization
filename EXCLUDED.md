@@ -46,3 +46,20 @@ files in the index.
 ns-3 code**, already public in every ns-3 release, and is not a secret of this project.
 It is left untouched: rewriting history over an upstream file would be a large,
 irreversible operation to remove something that is not confidential.
+
+## Machine-readable reviewed-exclusion list
+
+`scripts/publication_ready.sh` reads the block below. A path prefix here is a
+**reviewed** exclusion; anything ignored outside it that carries a source extension
+fails the manifest. This block is the single source of truth — the script parses it
+rather than keeping its own copy, so the two cannot drift.
+
+```reviewed-exclusions
+build/
+cmake-cache/
+results/
+audit/
+[tool settings directory]/
+testpy-output/
+src/lorawan/.git/
+```

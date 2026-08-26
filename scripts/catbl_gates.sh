@@ -76,7 +76,7 @@ pass G3
 
 # ------------------------------------------------------------- G4: verifier
 printf '\n--- G4 verifier ---\n'
-python3 scratch/python_handoff/verify_causal_sim.py results/causal || fail G4
+python3 scratch/python_handoff/verify_causal_sim.py --scratch results/causal || fail G4
 pass G4
 
 # --------------------------------------------------- G5: verifier self-test

@@ -65,9 +65,23 @@ expect_args() {
     fi
 }
 
-# expect <want_exit> <label> -- the no-flags form, which is how a real run invokes
-# the verifier and therefore how most cases below should exercise it.
-expect() { expect_args "$1" "$2"; }
+# expect <want_exit> <label> -- the near-no-flags form, which is how a real run
+# invokes the verifier and therefore how most cases below should exercise it.
+#
+# --scratch IS ALWAYS PASSED, and it is not an exemption smuggled into the test.
+# $TMP/d is a cp-built fixture inside a mktemp directory removed on EXIT: it is
+# ephemeral by construction and can never back a cited claim, which is exactly
+# the condition --scratch asserts. Without it, every case here inherits the
+# source directory's `dirty N` and the "healthy input passes" control fails for a
+# reason that has nothing to do with the defect it controls for -- turning the
+# one case that proves the verifier does not fail unconditionally into a case
+# that proves it does.
+#
+# --scratch suppresses ONLY the clean-tree gate. The provenance cases below --
+# missing run_id.txt, the mode waiver, the three digest cases -- are untouched by
+# it and still exercise the paths they are written for. Verified: each still
+# reports its own failure string, not a dirty-tree failure.
+expect() { expect_args "$1" "$2" --scratch; }
 
 FAILED=0
 
