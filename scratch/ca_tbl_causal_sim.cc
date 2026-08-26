@@ -1430,7 +1430,12 @@ RunProbe(EnvironmentClass envWide,
 
             const double pdr = static_cast<double>(rx) / static_cast<double>(trials);
             const double mae = (errN > 0) ? errSum / static_cast<double>(errN) : -1.0;
-            const double meanSnr = (snrN > 0) ? snrSum / static_cast<double>(snrN) : 0.0;
+            // D3 (DEFECTS.md). 0.0 was indistinguishable from a genuine 0 dB
+            // measurement; NaN is not a value the quantity can take. Every
+            // consumer below is already guarded on snrN > 0, so NaN reaches the
+            // CSV only where no trial was delivered and nothing was measured.
+            const double meanSnr = (snrN > 0) ? snrSum / static_cast<double>(snrN)
+                                              : std::numeric_limits<double>::quiet_NaN();
             const double meanSnrAll = (snrAllN > 0) ? snrAllSum / static_cast<double>(snrAllN)
                                                     : std::numeric_limits<double>::quiet_NaN();
 
