@@ -93,6 +93,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <deque>
 #include <fstream>
 #include <functional>
@@ -1082,7 +1083,8 @@ RunProbe(EnvironmentClass envWide,
          VegetationType vegWide,
          VegetationType vegFacility,
          const TierPhy phy[CA_TBL_TIER_COUNT],
-         const std::string& outdir)
+         const std::string& outdir,
+         bool traceDiagnostic)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1231,9 +1233,13 @@ RunProbe(EnvironmentClass envWide,
     // apply, and the "26 sigma" reading of the 30-to-50 m rise is not supported.
     // That is Bug #1 from simstatus.md recurring at short range, where the azimuth
     // fix is geometrically too weak to decorrelate anything.
+    // mean_snr_all_db is gated behind --traceDiagnostic so the default output is
+    // byte-identical to every run that preceded this change. It is the D2 control
+    // column: mean_snr_db conditioned on delivery, mean_snr_all_db over all trials.
     out << "tier,distance_m,pdr,mean_abs_range_err_m,mean_snr_db,crlb_floor_m,"
         << "measured_over_crlb,n,coherent_gain_db,two_ray_frac,nlos_frac,"
-        << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db\n";
+        << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db"
+        << (traceDiagnostic ? ",mean_snr_all_db" : "") << "\n";
 
     std::cout << "\nPre-flight probe: reception and ranging error vs distance\n"
               << "  (" << trials << " trials per point)\n"
@@ -1277,6 +1283,15 @@ RunProbe(EnvironmentClass envWide,
             uint32_t errN = 0;
             double snrSum = 0.0;
             uint32_t snrN = 0;
+            // D2 (DEFECTS.md). snrSum above is accumulated only over DELIVERED
+            // trials, which contradicts the convention stated at the diagnostic
+            // block below and biases every consumer of mean_snr_db. The
+            // unconditional accumulator runs ALONGSIDE it rather than replacing
+            // it, so the conditioning bias can be measured at every point before
+            // any consumer is switched over -- notably the CRLB gate, which reads
+            // meanSnr and whose correct input is a design question, not a bug fix.
+            double snrAllSum = 0.0;
+            uint32_t snrAllN = 0;
 
             // Diagnostic accumulators. shadowSum/shadowSqSum give the sample
             // variance of the shadowing draws actually realised at this distance.
@@ -1385,6 +1400,11 @@ RunProbe(EnvironmentClass envWide,
                     nlosN += nlos ? 1u : 0u;
                     plSum += plDb;
                     marginSum += marginDb;
+                    if (std::isfinite(snr))
+                    {
+                        snrAllSum += snr;
+                        ++snrAllN;
+                    }
                     shadowSum += shadowDb;
                     shadowSqSum += shadowDb * shadowDb;
                     shadowEffSum += shadowEffDb;
@@ -1411,6 +1431,8 @@ RunProbe(EnvironmentClass envWide,
             const double pdr = static_cast<double>(rx) / static_cast<double>(trials);
             const double mae = (errN > 0) ? errSum / static_cast<double>(errN) : -1.0;
             const double meanSnr = (snrN > 0) ? snrSum / static_cast<double>(snrN) : 0.0;
+            const double meanSnrAll = (snrAllN > 0) ? snrAllSum / static_cast<double>(snrAllN)
+                                                    : std::numeric_limits<double>::quiet_NaN();
 
             const double dN = static_cast<double>(diagN);
             const double twoRayFrac = (diagN > 0) ? static_cast<double>(twoRayN) / dN : -1.0;
@@ -1485,7 +1507,12 @@ RunProbe(EnvironmentClass envWide,
                 << std::setprecision(4) << ratio << "," << trials << ","
                 << std::setprecision(2) << gainDb << "," << std::setprecision(4) << twoRayFrac
                 << "," << nlosFrac << "," << std::setprecision(2) << meanPl << "," << meanMargin
-                << "," << std::setprecision(3) << shadowSd << "," << meanShadowEff << "\n";
+                << "," << std::setprecision(3) << shadowSd << "," << meanShadowEff;
+            if (traceDiagnostic)
+            {
+                out << "," << std::setprecision(2) << meanSnrAll;
+            }
+            out << "\n";
             std::cout << "    " << std::right << std::fixed << std::setprecision(1) << std::setw(10)
                       << ds[i] << std::setprecision(3) << std::setw(10) << pdr << std::setw(16)
                       << mae << std::setprecision(1) << std::setw(10) << meanSnr
@@ -3127,6 +3154,9 @@ main(int argc, char* argv[])
     std::string outdir = "results/causal";
     bool writeTrace = true;
     bool probe = false;
+    // Defaults false: the probe's default output stays byte-identical to every
+    // run that preceded the D2 fix. See DEFECTS.md D2.
+    bool traceDiagnostic = false;
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
@@ -3226,6 +3256,10 @@ main(int argc, char* argv[])
     cmd.AddValue("outdir", "Output directory (must already exist)", outdir);
     cmd.AddValue("trace", "Write per-step trace CSVs", writeTrace);
     cmd.AddValue("probe", "Run the pre-flight range sweep and exit", probe);
+    cmd.AddValue("traceDiagnostic",
+                 "Emit extra diagnostic columns (mean_snr_all_db). Default false so the "
+                 "default output is byte-identical to pre-D2-fix runs.",
+                 traceDiagnostic);
     cmd.AddValue("boxHalf", "Half-width of the deployment box, metres", boxHalfM);
     cmd.AddValue("uwbTriad", "UWB triad radius at each facility, metres", uwbTriadRadiusM);
     cmd.AddValue("t2Triad", "2.4 GHz triad radius at each facility, metres", t2TriadRadiusM);
@@ -3574,7 +3608,7 @@ main(int argc, char* argv[])
 
     if (probe)
     {
-        RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir);
+        RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir, traceDiagnostic);
         return AppendOutputDigest(outdir, "probe_range_sweep.csv") ? 0 : 1;
     }
 
