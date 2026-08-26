@@ -693,6 +693,7 @@ struct ArmResult
     //! duty-cycle governor, where the budget is the binding constraint. The
     //! cost — this cycle's tier-1 measurements, and the position error that
     //! follows — is the honest price of the handoff.
+    uint64_t reinitFallback;
     uint64_t handshakePreemptions;
     uint64_t steps;
     double durationS;
@@ -1807,6 +1808,10 @@ RunArm(CaTblPolicyMode mode,
        bool writeTrace,
        int fastDemoteMode,
        bool mahalUseR,
+       CaTblSuspectRecovery suspectRecovery,
+       double suspectInflateFactor,
+       uint32_t suspectRecoveryN,
+       bool escalationRequiresEvidence,
        int multiStepMode,
        double demoteStalenessS,
        CaTblNlosSource nlosSource,
@@ -1815,7 +1820,13 @@ RunArm(CaTblPolicyMode mode,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
-       double pcsSigmaTargetM)
+       double pcsSigmaTargetM,
+       bool floorOnDemand,
+       uint32_t floorSkipK,
+       uint32_t floorHeartbeatN,
+       double injectRangeBiasM,
+       double injectBiasFraction,
+       uint32_t injectFaultAnchors)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1897,6 +1908,18 @@ RunArm(CaTblPolicyMode mode,
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.suspectRecovery = suspectRecovery;
+    pcfg.suspectInflateFactor = suspectInflateFactor;
+    pcfg.suspectRecoveryN = suspectRecoveryN;
+    pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
+    // The map the predicate needs. The node must already hold anchor coordinates to
+    // multilaterate at all, so supplying them grants no information it lacks; an
+    // empty vector disables the UWB half of the predicate by construction.
+    for (const AnchorDef& a : dep.anchors[CA_TBL_TIER_UWB])
+    {
+        pcfg.uwbAnchorX.push_back(a.pos.x);
+        pcfg.uwbAnchorY.push_back(a.pos.y);
+    }
     pcfg.suspectForcesEscalation = suspectForcesEscalation;
     pcfg.pcsForm = pcsForm;
     // Operating-point knobs for the Pareto sweep. Both express the SAME physical
@@ -2101,6 +2124,16 @@ RunArm(CaTblPolicyMode mode,
     double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
     double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
     uint64_t blindCycles = 0;
+    // Floor-ranging-on-demand bookkeeping. floorHealthyStreak counts consecutive
+    // cycles on which the ACTIVE tier delivered a solvable set; cycleIndex drives
+    // the optional heartbeat. Both are inert unless --floorOnDemand is set.
+    // Deterministic fault-window start: seed-derived, mid-run, so the window never
+    // straddles the EKF's initial convergence. Same for every arm at a given seed.
+    const double biasStartS =
+        durationS * (0.25 + 0.5 * static_cast<double>(seed % 7) / 7.0);
+    uint32_t floorHealthyStreak = 0;
+    uint64_t cycleIndex = 0;
+    uint64_t floorRangedCycles = 0;
     // Escalation handshakes suppressed by the tier-1 duty-cycle governor, and the
     // total time the node had to wait for the budget to refill. The regulation
     // delaying a handoff is a cyber-physical coupling, not an accounting detail:
@@ -2189,7 +2222,14 @@ RunArm(CaTblPolicyMode mode,
               // second input. Negative under the legacy form, where it is never
               // computed. Emitted so §0.4a's per-term variance decomposition can
               // be done from the trace without re-deriving the solve.
-              << "sigmaGeoM\n";
+              << "sigmaGeoM,"
+              // P1 diagnostics. floorRanged separates "the floor was skipped"
+              // from "the floor ran and found nothing"; nRangesEkf is how many
+              // ranges actually entered the EKF this cycle. Together they make
+              // the coverage channel and the accuracy channel separable in the
+              // data rather than argued about afterwards -- see
+              // PREDICTION_P1_v2.md falsifier 4.
+              << "floorRanged,nRangesEkf\n";
     }
 
     std::vector<double> errors;
@@ -2253,7 +2293,68 @@ RunArm(CaTblPolicyMode mode,
         const bool hybridArm = (mode == CA_TBL_MODE_FULL ||
                                 mode == CA_TBL_MODE_NO_INTEGRITY ||
                                 mode == CA_TBL_MODE_FIXED_THRESHOLD);
+        // WAKEFULNESS, not ranging. This flag gates `wasAwake` below, which decides
+        // whether the tier-1 radio listens (and is charged for it) and -- critically
+        // -- whether its neighbour table survives. A tier that is not awake has
+        // ClearNeighbours() called on it every cycle. Left unconditional
+        // deliberately: see FloorRangingWanted().
+        // S7-lite fault window: a contiguous fraction of the run, placed
+        // deterministically from the seed so it is reproducible and identical across
+        // arms at a given seed -- the arms must see the SAME fault or the ablation
+        // measures the fault placement rather than the gate.
+        const bool biasActive =
+            (injectBiasFraction > 0.0) &&
+            (t >= biasStartS) && (t < biasStartS + injectBiasFraction * durationS);
+
         const bool runFloor = hybridArm && (active != CA_TBL_TIER_868);
+
+        // FLOOR RANGING ON DEMAND -- the P1 mechanism, off by default.
+        //
+        // MEASURED (report/ROOTCAUSE_ENVELOPE.md Q1, boxHalf=1500, 20 seeds):
+        // runFloor is true on 99.9% of cycles and j_868 = 15.35 J = 54.5% of arm
+        // energy, while the floor supplies the fix on 1.16% of cycles and tier 1 is
+        // the ACTIVE tier on 1.9 of 1440. It is not a defect -- it is an unexamined
+        // design choice whose cost had never been measured.
+        //
+        // WHY RANGING AND NOT THE WHOLE FLOOR. Suppressing runFloor itself would put
+        // tier 1 to sleep, and the sleep branch calls ClearNeighbours() outright --
+        // not TTL expiry, an immediate wipe. The next cycle that needed the floor
+        // would find an empty table, rangeTier() would return early without polling,
+        // and the floor would deliver zero ranges exactly when required. The cost is
+        // separable and only the larger part is recoverable: at boxHalf=1500,
+        // tx_868 = 12.095 J (78.8%) is the ranging exchange and rx_868 = 3.183 J
+        // (20.7%) is the listening that keeps the table warm. So the radio stays
+        // awake and only the exchange is conditional.
+        //
+        // REACTIVE, NOT PREDICTIVE. activeMeas is populated before this is consulted
+        // in both branches above, so the rule reads THIS cycle's outcome: range the
+        // floor iff the active tier has already failed to deliver a solvable set.
+        // A shortfall is therefore covered on the cycle it occurs, with zero added
+        // coasting and no prediction to be wrong about.
+        //
+        // K = 1 is primary. Under a reactive rule with the table kept warm there is
+        // no cold resume to bridge and no oscillation to damp, so hysteresis has no
+        // named benefit; K > 1 is exposed only as a sensitivity check. Heartbeat
+        // defaults OFF for the same reason -- with the radio awake it no longer
+        // serves table warming, and its remaining purpose (bounding EKF drift) is
+        // real but unquantified, so it must not carry the claim.
+        const uint32_t floorHealthyRun = floorHealthyStreak;
+        auto FloorRangingWanted = [&](size_t activeDelivered) -> bool {
+            if (!floorOnDemand)
+            {
+                return true; // pre-existing behaviour, byte-identical
+            }
+            if (activeDelivered < 3)
+            {
+                return true; // reactive: the active tier did not solve this cycle
+            }
+            if (floorHeartbeatN > 0 && (cycleIndex % floorHeartbeatN) == 0)
+            {
+                return true;
+            }
+            return floorHealthyRun + 1 < floorSkipK; // K = 1 => never blocks
+        };
+        bool floorRanged = false;
 
         // Range against one tier and return its measurement set. Charges CAD and the
         // ranging exchange, including the RX-timeout cost of anchors that did not
@@ -2343,6 +2444,40 @@ RunArm(CaTblPolicyMode mode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+
+                    // S7-lite: COMMON-MODE RANGE BIAS on tier 2, the minimal viable
+                    // test of the integrity gate's actual claim.
+                    //
+                    // The gate claims to catch a fix that is STATISTICALLY CLEAN but
+                    // PHYSICALLY WRONG. Every fault already in the model announces
+                    // itself through the NLOS flag or through sigma, and `suspect`
+                    // requires ALL-LOS -- so a fault that trips the NLOS flag is
+                    // invisible to the gate by construction and would test nothing.
+                    //
+                    // This bias therefore does NOT touch nlos, nlosProp or sigmaM. It
+                    // shifts every tier-2 range by the same amount, which is exactly
+                    // the failure a filter-free multilateration check should see as a
+                    // continuity violation while the per-link statistics stay healthy.
+                    // Common-mode rather than per-link because an independent
+                    // per-link error is what sigma already models; a shared offset is
+                    // what it does not.
+                    // F1 vs F3. injectFaultAnchors = 0 means COMMON-MODE (every tier-2
+                    // link, h = m). >0 means a SINGLE-ANCHOR fault (h = 1), which is the
+                    // canonical RAIM model and the physically realistic one: an anchor
+                    // displaced, drifting, detuned, or with a blocked path. The faulted
+                    // anchor is chosen deterministically from the seed so it is
+                    // reproducible and identical across arms -- the ablation must see the
+                    // same fault, or it measures fault placement rather than the detector.
+                    if (injectRangeBiasM != 0.0 && biasActive)
+                    {
+                        const bool hitThisAnchor =
+                            (injectFaultAnchors == 0) ||
+                            ((anchorId % 97u) % 3u == (seed % 3u));
+                        if (hitThisAnchor)
+                        {
+                            range += injectRangeBiasM;
+                        }
+                    }
                 }
                 else
                 {
@@ -2455,11 +2590,12 @@ RunArm(CaTblPolicyMode mode,
             {
                 energy.AccountCad(active);
             }
-            if (runFloor)
+            if (runFloor && FloorRangingWanted(activeMeas.size()))
             {
                 if (pendingHandshakeTier != CA_TBL_TIER_868)
                 {
                     floorMeas = rangeTier(CA_TBL_TIER_868);
+                    floorRanged = true;
                 }
                 else
                 {
@@ -2471,9 +2607,10 @@ RunArm(CaTblPolicyMode mode,
         {
             pendingHandshake = false;  // consumed or stale
             activeMeas = rangeTier(active);
-            if (runFloor)
+            if (runFloor && FloorRangingWanted(activeMeas.size()))
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
+                floorRanged = true;
             }
         }
 
@@ -2484,6 +2621,14 @@ RunArm(CaTblPolicyMode mode,
         // a worse experiment.
         const bool activeSolved = (activeMeas.size() >= 3);
         const bool usedFloor = (!activeSolved && floorMeas.size() >= 3);
+
+        // Streak bookkeeping for --floorSkipK. Reset on any shortfall so a single
+        // failure re-arms the floor immediately; K = 1 makes this inert.
+        floorHealthyStreak = activeSolved ? (floorHealthyStreak + 1) : 0;
+        if (floorRanged)
+        {
+            ++floorRangedCycles;
+        }
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
@@ -2738,6 +2883,7 @@ RunArm(CaTblPolicyMode mode,
         {
             ++blindCycles;
         }
+        ++cycleIndex;
 
         // ---- Ground-truth coverage labels and trigger confusion matrix -----
         const uint32_t vis868 = VisibleCount(dep, CA_TBL_TIER_868, pos);
@@ -2797,7 +2943,8 @@ RunArm(CaTblPolicyMode mode,
                   << polledCount << "," << (blind ? 1 : 0) << "," << directEngineCalls << ","
                   << provider.GetEvaluations() << "," << std::setprecision(12) << d.estX << ","
                   << d.estY << "," << d.meanSigmaM << "," << d.meanSigmaRawM << ","
-                  << d.sigmaGeoM << "\n";
+                  << d.sigmaGeoM << "," << (floorRanged ? 1 : 0) << ","
+                  << meas.size() << "\n";
         }
     }
 
@@ -2877,6 +3024,7 @@ RunArm(CaTblPolicyMode mode,
     res.fn = fn;
     res.tn = tn;
     res.cyclesInUwbCoverage = inCov;
+    res.reinitFallback = policy.GetReinitFallbackCount();
 
     // Must run while macs/beacons are still alive: it cancels the events that hold
     // raw pointers into them. Destroying the deques first would leave the scheduler
@@ -3031,6 +3179,10 @@ main(int argc, char* argv[])
     std::string nlosSourceArg = "legacy";
     std::string fastDemote = "off";
     bool mahalUseR = false;
+    std::string suspectRecoveryArg = "none";
+    double suspectInflateFactor = 4.0;
+    uint32_t suspectRecoveryN = 5;
+    bool escalationRequiresEvidence = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
@@ -3050,6 +3202,12 @@ main(int argc, char* argv[])
     // inert unless set and baseline reproduction does not depend on their values.
     double fixedVarThresholdM2 = -1.0;
     double pcsSigmaTargetM = -1.0;
+    double injectRangeBiasM = 0.0;    // S7-lite, default off
+    double injectBiasFraction = 0.0;  // S7-lite, default off
+    uint32_t injectFaultAnchors = 0;  // 0 = common-mode (F3); >0 = single anchor (F1)
+    bool floorOnDemand = false;   // default preserves the pre-existing baseline
+    uint32_t floorSkipK = 1;      // K = 1 primary: pure reactive, no hysteresis
+    uint32_t floorHeartbeatN = 0; // 0 = off; the radio stays awake regardless
     std::string armsArg = "all";
     std::string multiStepDemote = "off";
     // Gateways per side of the tier-1 grid. 3 reproduces the historical 3x3.
@@ -3094,6 +3252,26 @@ main(int argc, char* argv[])
                  "'all' also gives it to fixed_threshold, which is the fair-baseline "
                  "control. off reproduces the pre-existing baseline byte-identically.",
                  fastDemote);
+    cmd.AddValue("suspectRecovery",
+                 "Response when the integrity gate rejects a fix: none|inflate|bounded|"
+                 "reinit. none (default) is the pre-existing behaviour -- RevertToPrior "
+                 "with no recovery, which measurably locks the filter for up to 251 "
+                 "consecutive cycles (22 with no fault injected at all).",
+                 suspectRecoveryArg);
+    cmd.AddValue("suspectInflateFactor",
+                 "INFLATE: factor applied to the position covariance on rejection. "
+                 "REINIT: multiplier on the raw fix covariance when reseeding.",
+                 suspectInflateFactor);
+    cmd.AddValue("suspectRecoveryN",
+                 "BOUNDED/REINIT: consecutive rejections before recovery fires. "
+                 "Default 5 = the p90 of measured rejection-run lengths on F1.",
+                 suspectRecoveryN);
+    cmd.AddValue("escalationRequiresEvidence",
+                 "Escalate 2.4->UWB only when the node's own EKF estimate predicts >=3 "
+                 "UWB anchors within uwbPredictRadiusM, behind an estimate-quality gate. "
+                 "Suppress-only; never creates an escalation. Does NOT gate 868->2.4 -- "
+                 "see escalationRequiresEvidenceT2 for why that one does not work.",
+                 escalationRequiresEvidence);
     cmd.AddValue("mahalUseR",
                  "Use the correctly specified integrity gate: weighted "
                  "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
@@ -3125,6 +3303,49 @@ main(int argc, char* argv[])
                  "run's. Exists for the operating-point sweep, where four of the "
                  "six arms are pure runtime.",
                  armsArg);
+    cmd.AddValue("injectRangeBias",
+                 "S7-lite: metres of COMMON-MODE range bias added to every tier-2 "
+                 "range during the fault window. Deliberately does NOT set the NLOS "
+                 "flag or inflate sigma -- `suspect` requires all-LOS, so a fault "
+                 "that announces itself is invisible to the gate by construction and "
+                 "would test nothing. 0 (default) disables.",
+                 injectRangeBiasM);
+    cmd.AddValue("injectFaultAnchors",
+                 "S7 fault mode. 0 (default) = COMMON-MODE bias on every tier-2 link "
+                 "(F3, h = m). 1 = SINGLE-ANCHOR bias (F1, h = 1), the canonical RAIM "
+                 "fault model and the physically realistic one -- one anchor displaced, "
+                 "drifting, detuned or blocked. The faulted anchor is seed-derived so it "
+                 "is reproducible and identical across arms.",
+                 injectFaultAnchors);
+    cmd.AddValue("injectBiasFraction",
+                 "S7-lite: fraction of the run over which the bias is active, as one "
+                 "contiguous window whose start is seed-derived and identical across "
+                 "arms so the ablation measures the gate and not the fault placement. "
+                 "0 (default) disables.",
+                 injectBiasFraction);
+    cmd.AddValue("floorOnDemand",
+                 "Range the tier-1 floor only on cycles where the active tier failed "
+                 "to deliver >=3 ranges, instead of unconditionally. The tier-1 radio "
+                 "stays AWAKE and listening either way -- suppressing that would "
+                 "trigger ClearNeighbours() and leave the floor with an empty table "
+                 "exactly when it is needed. Measured motivation: the unconditional "
+                 "floor ranges on 99.9% of cycles, costs 54.5% of arm energy, and "
+                 "supplies the fix on 1.16% (boxHalf=1500). Default false, so the "
+                 "legacy envelope reproduces byte-identically.",
+                 floorOnDemand);
+    cmd.AddValue("floorSkipK",
+                 "Consecutive healthy cycles required before floor ranging is "
+                 "suppressed. 1 (default) is pure reactive and is the primary "
+                 "configuration; >1 adds hysteresis whose benefit is unnamed and is "
+                 "a sensitivity check only. Inert unless --floorOnDemand.",
+                 floorSkipK);
+    cmd.AddValue("floorHeartbeatN",
+                 "Force floor ranging every N cycles regardless of health. 0 "
+                 "(default) disables it. With the radio awake the neighbour table no "
+                 "longer depends on this, so its only remaining purpose is bounding "
+                 "EKF drift -- real but unquantified, so it does not carry the claim. "
+                 "Inert unless --floorOnDemand.",
+                 floorHeartbeatN);
     cmd.AddValue("fixedVarThreshold",
                  "fixed_threshold's escalation trigger, as a position VARIANCE in "
                  "m^2 (default 100.0, i.e. sigma = 10 m). Exposed so the literature "
@@ -3330,6 +3551,17 @@ main(int argc, char* argv[])
         }
     }
 
+    CaTblSuspectRecovery suspectRecovery = CA_TBL_RECOVERY_NONE;
+    if (suspectRecoveryArg == "inflate") { suspectRecovery = CA_TBL_RECOVERY_INFLATE; }
+    else if (suspectRecoveryArg == "bounded") { suspectRecovery = CA_TBL_RECOVERY_BOUNDED; }
+    else if (suspectRecoveryArg == "reinit") { suspectRecovery = CA_TBL_RECOVERY_REINIT; }
+    else if (suspectRecoveryArg != "none")
+    {
+        std::cerr << "FATAL: --suspectRecovery=" << suspectRecoveryArg
+                  << " is not one of none|inflate|bounded|reinit\n";
+        return 1;
+    }
+
     const EnvironmentClass env = static_cast<EnvironmentClass>(envInt);
     const EnvironmentClass envFacility = static_cast<EnvironmentClass>(envFacilityInt);
     const VegetationType vegWide = static_cast<VegetationType>(vegWideInt);
@@ -3417,6 +3649,8 @@ main(int argc, char* argv[])
     const double beaconPeriodS[CA_TBL_TIER_COUNT] = {beacon868S, beacon2p4S, beaconUwbS};
 
     const std::string summaryPath = outdir + "/arm_summary.csv";
+    // Accumulated across arms; announced on stderr after the loop if non-zero.
+    uint64_t reinitFallbackTotal = 0;
     std::ofstream summary(summaryPath.c_str());
     // CHECKED, because it was not. --outdir "must already exist", and when it did
     // not, this stream failed to open, the run completed all 1440 cycles, the
@@ -3527,6 +3761,10 @@ main(int argc, char* argv[])
                                        writeTrace,
                                        fastDemoteMode,
                                        mahalUseR,
+                                       suspectRecovery,
+                                       suspectInflateFactor,
+                                       suspectRecoveryN,
+                                       escalationRequiresEvidence,
                                        multiStepMode,
                                        demoteStalenessS,
                                        nlosSource,
@@ -3535,12 +3773,20 @@ main(int argc, char* argv[])
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
-                                       pcsSigmaTargetM);
+                                       pcsSigmaTargetM,
+                                       floorOnDemand,
+                                       floorSkipK,
+                                       floorHeartbeatN,
+                                       injectRangeBiasM,
+                                       injectBiasFraction,
+                                       injectFaultAnchors);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
             // architecture claims to win. RMSE alone always picks static_uwb;
             // joules alone always picks static_868. Neither is the claim.
+            reinitFallbackTotal += r.reinitFallback;
+
             const double accPerJ =
                 (r.rmseM > 0.0 && r.totalJ > 0.0) ? 1.0 / (r.rmseM * r.totalJ) : 0.0;
 
@@ -3584,6 +3830,14 @@ main(int argc, char* argv[])
                       << std::defaultfloat << "\n";
         }
         std::cout << "\n";
+    }
+
+    // A condition that should never occur announces itself rather than being
+    // averaged in. Silence means the REINIT fallback never fired.
+    if (reinitFallbackTotal > 0)
+    {
+        std::cerr << "WARN reinit fallback fired on " << reinitFallbackTotal
+                  << " cycle(s) -- fix covariance unavailable, P seeded from 100 m^2\n";
     }
 
     summary.close();

@@ -72,6 +72,13 @@ CaTblPolicyConfig::CaTblPolicyConfig()
 
     mahalanobisThreshold = 9.21; // chi-square 99%, 2 DOF
     mahalUseR = false;           // default preserves the pre-existing baseline
+    suspectRecovery = CA_TBL_RECOVERY_NONE; // default preserves the pre-existing baseline
+    suspectInflateFactor = 4.0;
+    suspectRecoveryN = 5;
+    escalationRequiresEvidence = false;   // default preserves the pre-existing baseline
+    escalationRequiresEvidenceT2 = false; // BROKEN -- see the header. Never enable.
+    uwbPredictRadiusM = 20.0;
+    uwbPredictMaxSigmaFrac = 0.25;
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
     fixedVarThresholdM2 = 100.0;
@@ -116,7 +123,8 @@ CaTblDecision::CaTblDecision()
       nHiddenChannel(0),
       meanSigmaM(0.0),
       meanSigmaRawM(0.0),
-      sigmaGeoM(-1.0)
+      sigmaGeoM(-1.0),
+      predictedVisUwb(-1)
 {
 }
 
@@ -364,6 +372,9 @@ CaTblPolicy::CaTblPolicy()
     : m_tier(CA_TBL_TIER_868),
       m_deescalateCounter(0),
       m_escalations(0),
+      m_predictBlockedQuality(0),
+      m_predictBlockedCoverage(0),
+      m_evidenceBlockedT2(0),
       m_deescalations(0),
       m_suspects(0),
       m_noFixCycles(0)
@@ -854,10 +865,18 @@ CaTblPolicy::Step(double dt,
     // recall; the LOS-fraction cut-off is a parameter that S7 should sweep
     // rather than a value with any justification behind it.
     bool suspect = false;
+    // Hoisted out of the MODE_FULL block: the recovery paths below need the raw fix
+    // and its covariance, which were previously scoped to the test that produced
+    // them. Declaration move only -- no behavioural change, asserted by the
+    // byte-identical null control.
+    double zx = 0.0;
+    double zy = 0.0;
+    double fixRxx = 0.0;
+    double fixRxy = 0.0;
+    double fixRyy = 0.0;
+    bool haveRawFix = false;
     if (m_config.mode == CA_TBL_MODE_FULL)
     {
-        double zx = 0.0;
-        double zy = 0.0;
         bool haveFix = false;
         double mahal = 0.0;
 
@@ -878,6 +897,9 @@ CaTblPolicy::Step(double dt,
             if (haveFix)
             {
                 mahal = m_ekf.MahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
+                fixRxx = rxx;
+                fixRxy = rxy;
+                fixRyy = ryy;
             }
         }
         else
@@ -889,6 +911,7 @@ CaTblPolicy::Step(double dt,
             }
         }
 
+        haveRawFix = haveFix;
         if (haveFix)
         {
             d.mahalanobis = mahal;
@@ -904,12 +927,66 @@ CaTblPolicy::Step(double dt,
 
     if (suspect)
     {
-        // Reject: keep the prior rather than fusing a fix we do not trust.
-        m_ekf.RevertToPrior();
+        m_consecutiveRejections++;
+        // RECOVERY POLICY. NONE is the pre-existing behaviour and the default.
+        //
+        // Rejecting is only half a response. RevertToPrior() restores the PRE-UPDATE
+        // covariance, so P does not grow across a rejection run and the filter is
+        // stuck rather than coasting. Because the gate's reference IS the prior, a
+        // wrong prior makes every honest measurement look anomalous, and the gate
+        // holds itself shut -- measured at 22 consecutive cycles on a run with NO
+        // fault injected, and 108 / 251 on F1 / F3.
+        bool recovered = false;
+        if (m_config.suspectRecovery == CA_TBL_RECOVERY_BOUNDED &&
+            m_consecutiveRejections >= m_config.suspectRecoveryN)
+        {
+            // Force-accept. Caps the lock-out at N by construction. The cost, stated:
+            // during a genuine persistent fault this fuses the very measurement the
+            // gate identified as faulty.
+            m_ekf.Update(meas, varM2);
+            recovered = true;
+        }
+        else if (m_config.suspectRecovery == CA_TBL_RECOVERY_REINIT &&
+                 m_consecutiveRejections >= m_config.suspectRecoveryN && haveRawFix)
+        {
+            // Discard a prior the evidence says is wrong and restart from the raw
+            // filter-free fix, which is already computed for the test itself. Unlike
+            // BOUNDED this replaces the prior instead of forcing data through it, and
+            // it recovers the cycle after a transient fault clears.
+            m_ekf.RevertToPrior();
+            double pv = 100.0;
+            if ((fixRxx + fixRyy) > 0.0)
+            {
+                pv = m_config.suspectInflateFactor * (fixRxx + fixRyy);
+            }
+            else
+            {
+                m_reinitFallbackCount++;
+            }
+            m_ekf.Init(zx, zy, m_ekf.Vx(), m_ekf.Vy(), pv, 100.0);
+            recovered = true;
+        }
+        else
+        {
+            m_ekf.RevertToPrior();
+            if (m_config.suspectRecovery == CA_TBL_RECOVERY_INFLATE)
+            {
+                // Rejecting is the filter asserting model and data disagree; the
+                // honest consequence is more uncertainty, not the same uncertainty.
+                m_ekf.InflatePos(m_config.suspectInflateFactor);
+                recovered = true;
+            }
+        }
+        if (recovered)
+        {
+            m_recoveryFirings++;
+            m_consecutiveRejections = 0;
+        }
         d.measurementRejected = true;
     }
     else
     {
+        m_consecutiveRejections = 0;
         m_ekf.Update(meas, varM2);
     }
 
@@ -962,6 +1039,83 @@ CaTblPolicy::Step(double dt,
             // With the flag off, a suspect fix is rejected and nothing else
             // happens, which is the mechanism report §2.3 and §10.5 claim.
             wantEscalate = true;
+        }
+    }
+
+    // ------------------------------------------ availability precondition (B.2+) --
+    // Escalate only into a tier there are grounds to believe can deliver. Applied
+    // AFTER wantEscalate is formed, so it can only ever SUPPRESS an escalation the
+    // confidence model already wanted -- it never creates one. That ordering is what
+    // keeps this a precondition on the existing trigger rather than a second trigger.
+    //
+    // TWO SEPARATE FLAGS, because the two steps have genuinely different evidence
+    // situations and one of them does not work.
+    //
+    // escalationRequiresEvidenceT2 (868 -> 2.4) IS BROKEN AND DEFAULTS OFF. It was
+    // written on the premise that the tier-2 neighbour table is observable from tier
+    // 1. It is not: the tier-2 radio is asleep while another tier is active, so
+    // GetNeighbourCount returns 0 and the evidence bit is never set. MEASURED, in the
+    // run that enabled it: activeTier occupancy {868MHz: 1440} at both boxHalf 1000
+    // and 2000, nbr2p4 nonzero on 0/1440 cycles, escalations 0. The node latches at
+    // the floor permanently and the arm degenerates into static_868 (availability
+    // 99.9%, actionable 4.9%, 14.96 J).
+    //
+    // The prior comment here asserted the opposite as established fact. It was
+    // verified by checking that the refresh LOOP iterates all three tiers each cycle,
+    // which is true and irrelevant -- the loop cannot observe a sleeping radio. The
+    // check's population excluded the failure.
+    //
+    // The fix is a tier-2 predictor symmetric with the UWB one below, using the same
+    // anchor map and a radius derived from the measured tier-2 r80 of 909.5 m. Not
+    // built yet: it only matters where tier 2 actually fails, which is the regime the
+    // density envelope is being mapped to find.
+    if (m_config.escalationRequiresEvidenceT2 && wantEscalate && dynamic &&
+        m_tier == CA_TBL_TIER_868)
+    {
+        if ((tierEvidenceMask & (1u << CA_TBL_TIER_2P4)) == 0)
+        {
+            wantEscalate = false;
+            m_evidenceBlockedT2++;
+        }
+    }
+
+    if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
+    {
+        if (m_tier == CA_TBL_TIER_2P4 && !m_config.uwbAnchorX.empty())
+        {
+            // PREDICTED. UWB anchors are not discoverable at range, so there is
+            // nothing to observe until after the escalation the observation would
+            // justify. Two stages, and the order matters: a coverage prediction
+            // computed from a bad estimate is worse than no prediction, so the
+            // estimate-quality gate runs first.
+            const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
+            if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+            {
+                wantEscalate = false;
+                m_predictBlockedQuality++;
+            }
+            else
+            {
+                const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
+                uint32_t vis = 0;
+                for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
+                {
+                    const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
+                    const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+                    // 2-D. Anchors sit at z = 2.5 and the node at z = 1.5, so the
+                    // slant range exceeds this by under 0.03 m at a 20 m radius.
+                    if (dx * dx + dy * dy <= r2)
+                    {
+                        ++vis;
+                    }
+                }
+                d.predictedVisUwb = static_cast<int32_t>(vis);
+                if (vis < 3)
+                {
+                    wantEscalate = false;
+                    m_predictBlockedCoverage++;
+                }
+            }
         }
     }
 
