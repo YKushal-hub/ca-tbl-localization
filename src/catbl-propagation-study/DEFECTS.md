@@ -1,0 +1,233 @@
+# Defects found by the propagation study
+
+Simulator defects surfaced while validating the analytic model against the
+engines. Each carries a `file:line`, the evidence that it fires, the fix, and the
+results it invalidates.
+
+**Numbering note.** An earlier draft numbered these D-1/D-2/D-3 in discovery
+order. This file uses the work-order numbering, which is canonical:
+
+| here | earlier draft | subject |
+|---|---|---|
+| D1 | D-2 | SF7 reads the SF5 cell (2.4 GHz, UWB) |
+| D2 | D-1 | `mean_snr_db` accumulated only over delivered packets |
+| D3 | (sub-item of D-1) | `0.0` sentinel collides with the data domain |
+| D4 | D-3 | `PassesReceiverSensitivity` is a logistic, not a hard threshold |
+
+---
+
+## D1 — SF7 read the SF5 cell on the 2.4 GHz and UWB sensitivity tables
+
+**Site.** `lora-2p4-physics-engine.cc:147-151`, `lora-uwb-physics-engine.cc:147-151`.
+
+```cpp
+int sfIndex = std::min(5, std::max(0, static_cast<int>(sf) - 7));
+```
+
+`sf - 7` is correct for the 868 table, which declares
+`double sensitivityDbm[6];  // index 0=SF7, 5=SF12` (`lora-physics-parameters.h:467`).
+Both other tiers declare an **eight**-entry table based at SF5
+(`lora-2p4-physics-parameters.h:15`, `lora-uwb-physics-parameters.h:15`). The
+accessor was copied without re-basing, so SF7 resolved to index 0 and indices 6
+and 7 were unreachable.
+
+**Fix direction — A (accessor wrong, tables right), decided on two independent
+grounds.**
+
+1. *Arity, decisive on its own.* An eight-entry SF table based at SF7 would span
+   SF7–SF14. SF stops at 12. An eight-entry LoRa SF table can only be SF5–SF12.
+2. *Datasheet.* Semtech SX1280 Rev 2.2/3.0 puts SF7 near −106 dBm; −100 dBm sits
+   at index 0. Row 2 (−106.0, labelled SF7) is the datasheet-plausible SF7 value.
+
+Coding rate cannot be the culprit: `codingRateDenom = 5`
+(`lora-physics-parameters.cc:425`) selects `crIndex = 0`, and every offset in all
+three tables is `<= 0`, so no CR can reduce a positive discrepancy.
+
+**Fix.** `lora-2p4-physics-engine.cc:154`, `lora-uwb-physics-engine.cc:154`:
+
+```cpp
+int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));
+```
+
+Applied outright, not behind a flag: a wrong table index is not behaviour worth
+preserving. 868 MHz is untouched.
+
+**Effect.** 2.4 GHz sensitivity at SF7 moves −100.0 → −106.0 dBm. UWB's table is
+flat at −104.0 across all eight entries, so its value is unchanged and only the
+index arithmetic is corrected.
+
+**Null control — PASSED.** Probe re-run at identical flags, pre- and post-fix,
+same tree:
+
+| tier | result |
+|---|---|
+| 868 MHz | **byte-identical** (`97aed05f73ac0463`) |
+| UWB | **byte-identical** (`4996a73a5e42dfe2`) |
+| 2.4 GHz | moved, as intended |
+
+The two index-insensitive tiers confirm the edit reached exactly as far as
+intended and no further *within the probe*, where each tier is run in its own
+loop with the RNG stream reset.
+
+**Behavioural delta — the 6 dB landed exactly.** `mean_margin_db` shifts by
+`+6.00 dB` at both ends of the sweep (mean `+6.114`, spread `0.470` dB, the
+mid-range excess being second-order shadowing).
+
+**Registered prediction MISSED, and the miss is explained.** The work order
+registered tier-2 r80 at 1500–1700 m. Measured:
+
+```
+tier-2 r80   909.5 m -> 1149.5 m   (1.26x, predicted 1.75x)
+```
+
+The prediction applied the **path-loss** exponent (`n = 2.476`, 24.76 dB/decade).
+r80 is set by the **link-budget** slope, which includes the excess loss that
+accumulates with distance (NLOS fraction, foliage, terrain, atmospheric —
+`lora-physics-engine.cc:598-604`). Measured local slope at r80 is
+**58.2 dB/decade**, giving `10^(6/58.2) = 1.27x` against a measured `1.26x`. The
+criterion is not relaxed: the prediction was wrong, for a reason that is itself
+measurable, and the same excess-loss mechanism explains the collapse-test result.
+
+**No arm is isolated from this fix — including tier-1-only arms.** `static_868`
+moved (`cep50M 102.0031 -> 91.9184`) **when run as the only arm**, so this is not
+cross-arm contamination. All three engines are constructed, stepped for mobility
+continuity (`ca_tbl_causal_sim.cc:2285-2290`) and beaconed on every cycle of every
+arm (`:2024-2037`, `:2064`), and they share an RNG stream. Changing how many
+tier-2 beacons are received changes how many draws are consumed, which offsets the
+stream every later consumer reads.
+
+**Consequence for interpretation.** The 868 engine is byte-identical and its probe
+output is byte-identical, so tier-1 physics did not change. A single-seed shift on
+a tier-1-only arm is therefore **a different random realisation, not a physical
+effect** (`cycles_868` 1440 → 1440 unchanged, `totalJ` +0.4%, while `cep50M` moves
+9.9%). Only multi-seed aggregates carry meaning on those arms.
+
+**Measured deltas, D1 isolated** (same tree, same flags, pre- vs post-fix binary;
+verified equal to the comparison against the Aug-10 `a059203` sidecars, so nothing
+else in the working tree affects these cells):
+
+`p10_plane_fix seed 1` — note `p10_env/b2000_seed1` carries an **identical**
+invocation apart from `--outdir`, so one run covers both cells:
+
+| arm | cep50M | rmseM | totalJ | cycles_uwb | accuracyPerJoule |
+|---|---|---|---|---|---|
+| ca_tbl_full | 2.5473 → 2.4574 (−3.5%) | 4.3269 → 3.2152 (−25.7%) | 24.881 → 28.162 (+13.2%) | 86 → 56 (−34.9%) | +18.9% |
+| fixed_threshold | 2.9543 → 2.8071 (−5.0%) | −2.5% | +9.4% | 0 → 0 | −6.2% |
+| static_2p4 | 2.7354 → 2.3410 (−14.4%) | −22.7% | 10.419 → 13.556 (+30.1%) | 0 → 0 | −0.5% |
+| static_868 | 102.00 → 91.92 (−9.9%) | −13.9% | +0.4% | 0 → 0 | +15.6% |
+| static_uwb | 552.12 → 168.46 (−69.5%) | −16.3% | −0.5% | 1440 → 1440 | +20.0% |
+
+`campaign_recovery none_F1 seed 1`:
+
+| arm | cep50M | totalJ | suspects | trig_tp | trig_recall | trig_f1 |
+|---|---|---|---|---|---|---|
+| ca_tbl_full | 3.0944 → 2.5629 (−17.2%) | +13.1% | 97 → 86 | 29 → 10 | 0.302 → 0.104 | 0.464 → 0.189 |
+| ca_tbl_no_integrity | 3.0273 → 2.4453 (−19.2%) | +13.2% | 0 → 0 | 25 → 5 | 0.260 → 0.052 | 0.413 → 0.099 |
+
+`trig_precision` stays exactly 1.0 and `trig_fp` exactly 0 on both arms — the
+detector's precision is unaffected; its **recall** collapses because a more
+sensitive tier 2 removes the coverage holes the trigger was firing on.
+
+**INVALIDATED — every result produced before this fix, by directory:**
+
+- `results/p10_plane_fix/` (all seeds)
+- `results/p10_env/` (all box sizes, all seeds) — including `ENVELOPE_TABLE.txt`
+  and `PREDICTION.md`, whose `spacing/r80` axis rescales by 1.26× at every point
+- `results/campaign_recovery/` (all 12 cells × all seeds)
+- `results/causal/`, `results/baseline_v*`, and every `results/` directory whose
+  sidecar predates this fix
+- `results/probe_audit/probe_range_sweep.csv` and the tier-2 **r80 = 909.5 m**
+  quoted in `Architecture.md:71`, `CA-TBL_Technical_Report_SelfContained.md:62`
+  and `CA_TBL_SIMULATION_REPORT.md:72` — now **1149.5 m**
+
+Claim 3's window (1.0–1.3 in `spacing/r80`) and the coverage-shaped upper edge of
+the envelope both move. Claim 9's falsification rested on the absence of a
+qualifying fallback rather than on tier-2 range, and is not obviously disturbed —
+but it was measured on invalidated runs and must be re-measured to be quoted.
+
+---
+
+## D2 — `mean_snr_db` was accumulated only over delivered packets
+
+**Site.** `scratch/ca_tbl_causal_sim.cc:1393-1400` — the SNR accumulator sat
+inside `if (received)`, while every sibling channel diagnostic accumulates under
+`diagN`, over all trials.
+
+**Convention violated.** Stated in the file's own comment eight lines above
+(`:1376-1380`): *"Channel diagnostics are accumulated over ALL trials, not only
+received ones. Conditioning them on reception would select exactly the favourable
+draws and hide the mechanism being looked for."* `snrSum` was the one channel
+diagnostic outside the block that comment guards.
+
+**Fix.** An unconditional accumulator (`snrAllSum`/`snrAllN`) added **alongside**
+the conditioned one, not replacing it, emitted as `mean_snr_all_db` behind the new
+`--traceDiagnostic` flag (default **false**, so default output is byte-identical
+to every prior run — verified). This makes the bias measurable before any
+consumer is switched over.
+
+**Magnitude — now measured, not inferred.**
+
+| tier | worst bias | where |
+|---|---|---|
+| 868 MHz | **+22.70 dB** | 6000 m, pdr 0.261 |
+| 2.4 GHz | +13.96 dB | 2500 m, pdr 0.032 |
+| UWB | +7.42 dB | 130 m, pdr 0.036 |
+
+Positive everywhere and monotone in falling PDR — the survivorship signature. It
+is exactly `+0.00` at every point where `pdr = 1.0`, which is the internal check:
+conditioning is vacuous when nothing is dropped.
+
+**A previous claim of "+9.61 dB measured bias" is withdrawn** — that came from the
+2.4 GHz 6000 m row where `pdr = 0.0000`, i.e. the D3 sentinel, not a bias. The
+difference between the column and a `pathLossDb`-based reconstruction cannot
+isolate conditioning either, because `snr_db` is built from `totalLoss` and
+post-EVM (`lora-physics-engine.cc:631-632`, `:598-605`).
+
+**Still open — a design question, deliberately not fixed here.** `meanSnr` feeds
+the CRLB gate at `ca_tbl_causal_sim.cc:1450-1452`. The comment immediately below
+identifies survivorship bias in `mae` and adds a PDR floor for exactly that
+reason; whether `meanSnr` should get the same treatment, or switch to the
+unconditional column, changes what that gate decides and is not a bug fix.
+
+**Blast radius in analysis.** The UWB preamble-gain hypothesis argued from
+`mean_snr_db = −14.52 dB` at 10 m. The measured unconditional value is
+**−15.43 dB** (bias +0.91 dB), so that argument survives on the clean axis.
+`src/catbl-propagation-study/validate.py` never reads the column and is
+unaffected. `mean_snr_db` also appears in `run_final_validation.py` and
+`average.py`, which write their own CSVs from a different accumulator and were not
+examined.
+
+---
+
+## D3 — the `0.0` sentinel collided with the data domain
+
+**Site.** `scratch/ca_tbl_causal_sim.cc:1413`. `meanSnr` fell back to `0.0` when
+`snrN == 0`; 0 dB SNR is a legitimate measurement, so the sentinel was
+indistinguishable from data. `mae`, `twoRayFrac` and `nlosFrac` use `-1.0` in the
+same block.
+
+**Fix.** Emit `std::numeric_limits<double>::quiet_NaN()`. Every consumer is
+already guarded on `snrN > 0`, so NaN reaches only the CSV, and only where no
+trial was delivered and nothing was measured.
+
+**Footprint — verified confined.** Pre/post diff at default flags is exactly one
+field on one row:
+
+```
+2.4GHz,6000.0,0.0000,-1.000,0.00,...  ->  2.4GHz,6000.0,0.0000,-1.000,nan,...
+```
+
+868 MHz and UWB byte-identical; no other tier reaches `pdr = 0.0000`.
+
+---
+
+## D4 — `PassesReceiverSensitivity` is a logistic, not a hard threshold
+
+**Site.** `lora-physics-engine.cc:135-146`. Reception is drawn against
+`1/(1 + exp(-margin/width))` with `softThresholdWidthDb = 0.35`
+(`lora-physics-parameters.cc:389`).
+
+Not a simulator defect — a correction to how it had been described in this
+module's analysis. At 0.35 dB the width is immaterial to every result here, but it
+would matter to any experiment sweeping toward that width. **No fix; recorded so
+the description does not recur.**
