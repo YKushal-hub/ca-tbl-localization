@@ -231,3 +231,122 @@ Not a simulator defect — a correction to how it had been described in this
 module's analysis. At 0.35 dB the width is immaterial to every result here, but it
 would matter to any experiment sweeping toward that width. **No fix; recorded so
 the description does not recur.**
+
+---
+
+## Post-D1 regeneration — findings that belong with the defect record
+
+### W1 — the 19/20-vs-14/20 deployment-reliability claim is WITHDRAWN
+
+The headline "`ca_tbl_full` meets the requirement on 19/20 seeds where `static_2p4`
+meets it on 14/20" was measured with tier 2 six decibels deaf (D1), at
+`boxHalf = 2000` — a density at which the report's own conclusion says tier 2
+should be pinned. It attributed a defect's effect to the design.
+
+Regenerated at `7c0c5e5 dirty 0` (`results/p10_plane_v7`, 20 seeds, digests
+verified against files on disk):
+
+    static_2p4    14/20 -> 19/20     M1 12.679 J
+    ca_tbl_full   19/20 -> 20/20     M1 27.094 J
+
+A five-seed reliability gap became one seed, at 2.1x the energy. The claim does
+not survive and must be removed from `Simulation.md` §11, the technical report,
+and `CA_TBL_HANDOFF_v4.md` §1.3.
+
+**What replaces it** (`results/p10_env_v7`, 160 cells, all `dirty 0`, all digests
+verified): the advantage is real but lives at a *lower density* than the claim
+stated, and `boxHalf = 2000` is not in it.
+
+Verdicts below are the registered rule of `b49df46` §4, not a seed-count
+comparison. An earlier draft of this note labelled 2500 and 3000 **PASS** on
+"+9 seeds" and "+11 seeds"; that was `seeds_meeting_spec` used as a threshold
+after its withdrawal, and it also inverted the registered criterion, which decides
+on M1 and not on seed counts. Corrected here.
+
+M1 ratio is `ca_tbl_full / static_2p4`, geometric mean of per-seed ratios,
+seed-level bootstrap 95% CI, 10 000 resamples, 20 seeds paired.
+
+| boxHalf | s/r80 | full meets | 2p4 meets | M1 ratio [95% CI] | verdict |
+|---|---|---|---|---|---|
+| 1500 | 0.61 | 20/20 | 20/20 | 1.924 [1.910, 1.940] | **FAIL** (resolved) |
+| 2000 | 0.82 | 20/20 | 19/20 | 2.139 [2.112, 2.170] | FAIL or INCONCLUSIVE — rule silent |
+| 2500 | 1.02 | 19/20 | 11/20 | 2.415 [2.365, 2.463] | FAIL or INCONCLUSIVE — rule silent |
+| 3000 | 1.23 | 12/20 | 1/20 | 2.806 [2.756, 2.859] | FAIL or INCONCLUSIVE — rule silent |
+| 4000 | 1.64 | 0/20 | 0/20 | 3.121 [2.977, 3.271] | **INCONCLUSIVE** (resolved) |
+| 5000 | 2.04 | 0/20 | 0/20 | 2.327 [2.053, 2.664] | **INCONCLUSIVE** (resolved) |
+| 6000 | 2.45 | 0/20 | 0/20 | 1.509 [1.361, 1.704] | **INCONCLUSIVE** (resolved) |
+| 7500 | 3.07 | 0/20 | 0/20 | 1.073 [0.987, 1.183] | **INCONCLUSIVE** (resolved) |
+
+**No box size is PASS, and none can be.** PASS requires `ca_tbl_full`'s M1 to be
+*lower* with the CI entirely below 1.0. The CI is entirely **above** 1.0 at every
+density where `ca_tbl_full` meets the requirement at all — it costs 1.9x to 2.8x
+more. How the unregistered "arm meets (A,R)" is binarized changes FAIL vs
+INCONCLUSIVE; it cannot produce a PASS.
+
+**The architecture has no density at which it pays under `(A = 0.95, R = 25 m)`.**
+
+### W2 — `trig_precision` 0.9343 cannot be reproduced from the directory it cites
+
+The ledger publishes `trig_precision = 0.9343`. Recomputed over all 20 seeds of
+`results/p10_plane_fix` — the directory the ledger cites — the mean is **0.9279**.
+No population over that directory was found that yields 0.9343. This is a
+provenance gap, not rounding: the published number and its cited source do not
+correspond.
+
+### W3 — the "recall falls" prediction is UNTESTED, not missed
+
+Registered: `trig_recall` falls after D1, because a more sensitive tier 2 removes
+the coverage holes the trigger fires on. Measured mean rose +0.029, but the
+per-seed sign is **11 up / 9 down** at 20 seeds, which establishes no direction.
+Record it as untested.
+
+The analysis output that first reported this printed "Direction is not marginal."
+That string was hardcoded in the script, not derived from the sign split. It was a
+script artefact and is corrected here.
+
+### W4 — Claim 3's ledger entry "PROVEN, SCOPED — window 1.0–1.3" is WITHDRAWN
+
+Independent of D1. Read `results/p10_env/ENVELOPE_TABLE.txt` as it stands: the
+pre-registered verdict was **FAIL** at `spacing/r80` 0.78 and **INCONCLUSIVE** at
+1.03, 1.29, 1.55, 2.07, 2.58 and 3.10. **No box size was ever PASS.**
+
+The INCONCLUSIVE entries at and above 1.29 read "ca_tbl_full does not meet (A,R)"
+— i.e. nothing met the requirement there, the tiered arms included. A window was
+inferred from a region in which no verdict was a pass and the proposed system did
+not meet its own requirement.
+
+`p10_env_v7` is the first campaign in this project to resolve any geometry to a
+registered verdict on clean provenance, and the resolved verdicts are FAIL at 0.61
+and INCONCLUSIVE from 1.64 out. The corrected reading is that Claim 3 was
+overstated before the fix and is not rescued by it.
+
+### W5 — the rule is silent where the behaviour is
+
+`b49df46` §4 decides on "`ca_tbl_full` meets (A,R)" and "single-band arm that also
+meets (A,R)", both arm-level binary predicates. The only registered way to turn
+20 per-seed outcomes into an arm-level "meets" was `>=15/20`, **withdrawn as
+unregistered** (F1/F5/PC3). Nothing replaced it.
+
+The rule therefore resolves only the geometries where an arm is unanimous — 20/20
+or 0/20. It is silent at `boxHalf` 2000, 2500 and 3000, which is exactly where the
+arms separate. This is a gap in the registered rule, recorded rather than closed:
+choosing a binarization now would be the same move the pre-registration exists to
+prevent.
+
+What can be said without binarizing: the M1 CI is entirely above 1.0 at all three,
+so none of them can be PASS under any binarization.
+
+### W6 — the window is bounded on both sides, and the upper bound is not about tiering
+
+Between `spacing/r80` 1.23 and 1.64 every arm drops to 0/20, tiered included.
+That is the coverage-shaped upper edge surviving D1: it is a property of
+**co-located siting** — all tiers anchored at the same facilities — not of the
+tiering policy. Adding radios cannot reach a casualty outside every anchor's
+range, so no policy over those radios can either.
+
+The observable that does transfer: the density at which `static_2p4` loses
+availability while the tiered arms retain it sits at `spacing/r80` 1.02-1.23,
+unchanged across a 26% shift in `r80` (the same region moved from `boxHalf`
+~1935-2515 to 2500-3000, ~29% in physical units). `spacing/r80` transferred, which
+is what a scale-free axis is chosen for. This is a statement about an
+**observable**, not a verdict, and it does not make Claim 3 pass.
