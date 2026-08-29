@@ -223,7 +223,9 @@ hidden=$(git ls-files --others --ignored --exclude-standard 2>/dev/null \
 if [ -z "$hidden" ]; then
     note ok "no source-extension file is being ignored"
 else
-    note HIDDEN "$(printf '%s' "$hidden" | wc -l) source-extension file(s) ignored:"
+    # `wc -l` counts NEWLINES: a single entry with no trailing newline reads as 0, so
+    # this assertion used to fire announcing "0 file(s) ignored". grep -c counts LINES.
+    note HIDDEN "$(printf '%s\n' "$hidden" | grep -c .) source-extension file(s) ignored:"
     printf '%s\n' "$hidden" | head -8 | sed 's/^/            /'
     fail=1
 fi
