@@ -779,15 +779,31 @@ sentence and are not to be dropped:
 
 ---
 
-## Minor: `publication_ready.sh`'s DIRTY assertion matches directory names by substring
+## WITHDRAWN: `publication_ready.sh`'s DIRTY assertion does NOT match by substring
 
-Its scan uses `grep -rhoE 'results/[A-Za-z0-9_.-]+'` with **no word boundary**, so a
-citation of `results/p10_plane_v7` also registers as a citation of
-`results/p10_plane`. The technical report cites only `_v7`, and was nonetheless
-counted against the pre-D1 `p10_plane` directory.
+**This entry was mine and it was wrong.** Kept with its reason.
 
-Not corrected here — it inflates the count rather than hiding a failure, and the
-residual it inflates is already understood: **all 43 dirty sidecars belong to
-`report/REPORT_DATA_PACK.md`**, which documents the superseded campaigns deliberately
-and is now marked as a historical record. Recorded so the next reader of that number
-knows it is an upper bound.
+> ~~Its scan uses `grep -rhoE 'results/[A-Za-z0-9_.-]+'` with no word boundary, so a
+> citation of `results/p10_plane_v7` also registers as a citation of
+> `results/p10_plane`.~~
+
+`grep -oE` with a greedy character class **extracts the whole token**. Run against the
+technical report alone it returns exactly:
+
+    results/abl_clean   results/baseline_v7   results/c9_clean
+    results/campaign_20260810   results/p10_env_v7   results/p10_env_v8
+    results/p10_grid   results/p10_plane_v7
+
+`results/p10_plane` is **not** among them. The check is correct.
+
+**What I actually did.** I diagnosed the assertion using `grep -l "results/p10_plane"`,
+which *is* a substring match, and attributed my own command's behaviour to the
+assertion's. The two use different greps. This is the fourth finding in this file
+withdrawn for describing a tool's behaviour without running the tool's own command —
+after two glob-depth errors and one estimator mismatch.
+
+**The residual `DIRTY` count is therefore entirely genuine.** All 43 dirty sidecars
+come from `report/REPORT_DATA_PACK.md`'s real citations of `results/p10_plane`,
+`results/p10_plane_fix`, `results/causal`, `results/det_a` and `results/det_b` — the
+superseded campaigns that document describes on purpose, and which are marked as such
+at the top of the file. Nothing is overcounted and there is nothing to fix.

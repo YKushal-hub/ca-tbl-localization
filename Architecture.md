@@ -153,7 +153,7 @@ flowchart TB
 
 ### 3.3 The dimensionless scaling axis
 
-- **Axis:** `spacing / r80`, where `spacing = 0.47 × boxHalf` and `r80 = 909.5 m` (tier 2).
+- **Axis:** `spacing / r80`, where `spacing = 0.47 × boxHalf` and `r80 = 1149.5 m` (tier 2, measured after the six-decibel sensitivity-table correction; the pre-correction value was 909.5 m and every figure derived from it was regenerated).
 - **Why dimensionless:** a result stated as "needed above `boxHalf` = 2200 m" is a fact about this simulator. A result stated as "needed above `spacing/r80` ≈ 1.0" transfers to any radio pair with a known r80.
 
 | `boxHalf` (m)             | 1500           | 2000           | 2500           | 3000           | 4000           | 5000           | 6000           |
