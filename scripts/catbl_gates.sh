@@ -35,14 +35,49 @@ trap cleanup EXIT
 SEED=${CATBL_SEED:-7}
 DUR=${CATBL_DURATION:-3600}
 
-pass() { printf '\n=== %s PASS ===\n' "$1"; }
-fail() { printf '\n=== %s FAIL ===\n' "$1"; exit 1; }
+# ---------------------------------------------------------------------------
+# The suite USED to exit on the first failing gate. That made every gate after the
+# first failure unobservable -- and once G6 went deliberately red (pre-D1 evidence
+# drift, cleared only by baseline_v7), G7, G8 and G9 could not be seen to run at
+# all. "A check that cannot be observed is not a check" applies to the harness as
+# much as to the checks.
+#
+# Every gate now runs. Failures are recorded and reported in a summary; the overall
+# exit code is still non-zero if anything failed. This changes OBSERVABILITY, not
+# strictness.
+#
+# FAIL and ERROR are kept distinct throughout: a gate that ran and found a problem
+# is a different fact from a gate that could not run because its input was missing.
+GATE_ORDER=""
+declare -A GATE_ST
+declare -A GATE_MSG
+
+mark() {  # mark <gate> <FAIL|ERROR> <message>
+    case "${GATE_ST[$1]:-}" in
+        ERROR) ;;                        # ERROR is stickiest
+        FAIL)  [ "$2" = ERROR ] && { GATE_ST[$1]=$2; GATE_MSG[$1]=$3; } ;;
+        *)     GATE_ST[$1]=$2; GATE_MSG[$1]=$3 ;;
+    esac
+}
+fail()  { mark "$1" FAIL  "${2:-}"; printf '\n--- %s recorded FAIL ---\n' "$1"; return 1; }
+gerror(){ mark "$1" ERROR "${2:-}"; printf '\n--- %s recorded ERROR: %s ---\n' "$1" "${2:-}"; return 1; }
+
+finish() {  # finish <gate>  -- close a gate, printing whatever it accumulated
+    local g
+    local st
+    g=$1
+    st=${GATE_ST[$g]:-PASS}
+    GATE_ST[$g]=$st
+    GATE_ORDER="$GATE_ORDER $g"
+    printf '\n=== %s %s ===\n' "$g" "$st"
+}
+pass() { finish "$1"; }
 
 # ---------------------------------------------------------------- G1: build
 printf '\n--- G1 build ---\n'
 ./ns3 build 2>&1 | tail -40
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail G1
-pass G1
+finish G1
 
 # --------------------------------------------------- G2: determinism
 # Identical flags on both runs. --trace=false, so this pass leaves the traced
@@ -55,7 +90,7 @@ for f in "$WORK/det_a/arm_summary.csv" "$WORK/det_b/arm_summary.csv"; do
     [ -s "$f" ] || { printf 'missing or empty: %s\n' "$f"; fail G2; }
 done
 diff "$WORK/det_a/arm_summary.csv" "$WORK/det_b/arm_summary.csv" || fail G2
-pass G2
+finish G2
 
 # ------------------------------------- G3: traced run + null ablation
 # This run is ALSO the traced pass that G4 reads. Running it here, immediately
@@ -82,12 +117,16 @@ done
 # catbl_g3_ablation.py separates them on causal order: a rejection cannot explain
 # a divergence that predates it. See the header there.
 python3 scripts/catbl_g3_ablation.py "$FULL" "$NOINT" || fail G3
-pass G3
+finish G3
 
 # ------------------------------------------------------------- G4: verifier
 printf '\n--- G4 verifier ---\n'
-python3 scratch/python_handoff/verify_causal_sim.py --scratch "$WORK/causal" || fail G4
-pass G4
+if [ ! -s "$WORK/causal/arm_summary.csv" ]; then
+    gerror G4 "G3 produced no arm_summary -- the verifier had nothing to read"
+else
+    python3 scratch/python_handoff/verify_causal_sim.py --scratch "$WORK/causal" || fail G4
+fi
+finish G4
 
 # --------------------------------------------------- G5: verifier self-test
 # G4 asks whether the verifier passes. G5 asks whether it FAILS when it should --
@@ -95,8 +134,12 @@ pass G4
 # trace, a stale summary) survived in it undetected. Runs in seconds against the
 # directory G3 just produced; no simulation.
 printf '\n--- G5 verifier self-test ---\n'
-bash scripts/catbl_verifier_selftest.sh "$WORK/causal" || fail G5
-pass G5
+if [ ! -s "$WORK/causal/arm_summary.csv" ]; then
+    gerror G5 "G3 produced no arm_summary -- the self-test had nothing to run against"
+else
+    bash scripts/catbl_verifier_selftest.sh "$WORK/causal" || fail G5
+fi
+finish G5
 
 # ------------------------------- G6: tracked evidence vs a fresh run (read-only)
 # The tracked copies are EVIDENCE. This gate reads them and never writes them.
@@ -133,7 +176,7 @@ for pair in "causal/arm_summary.csv" "det_a/arm_summary.csv"; do
     fi
 done
 [ "$G6_MISMATCH" -eq 0 ] || fail G6
-pass G6
+finish G6
 
 # ------------------------- G7: the suite must not have mutated the tree
 # A gate suite that rewrites its own subject fails its own run. This is the check
@@ -150,7 +193,7 @@ if [ -n "$DIRTY" ]; then
     fail G7
 fi
 printf 'git status --porcelain -- results/ is empty\n'
-pass G7
+finish G7
 
 # ------------------ G8: files the rules require to stay untracked, are untracked
 # Enforced by memory until 2026-08-29, when it failed: 35466c0 tracked
@@ -170,7 +213,7 @@ for f in CA_TBL_HANDOFF_v4.md SESSION_CHANGELOG.md CA_TBL_SIMULATION_REPORT.md; 
     fi
 done
 [ "$G8_BAD" -eq 0 ] || fail G8
-pass G8
+finish G8
 
 # ---------------------- G9: every named deliverable IS tracked, and is committed
 # G8 asserts certain files are NOT tracked. G9 is the opposite direction, and nothing
@@ -200,6 +243,38 @@ for f in Architecture.md Simulation.md; do
     printf 'tracked and clean: %s\n' "$f"
 done
 [ "$G9_BAD" -eq 0 ] || fail G9
-pass G9
+finish G9
 
-printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"
+# ------------------- G10: every cited path resolves in the repository
+# Simulation.md -- a named deliverable -- had zero commits for the whole project
+# because nothing ever asked whether the repository contained the things its own
+# documents cite. G9 fixed that for the two deliverables; G10 asks it of every
+# backtick-cited path in every tracked document.
+#
+# The allowance list in scripts/citation_audit.py is ENUMERATED, with a reason per
+# entry -- deliberately-untracked docs and files inside EXCLUDED.md directories. It
+# is not a blanket exemption for anything that happens to be untracked.
+printf '\n--- G10 cited paths resolve in the repository ---\n'
+python3 scripts/citation_audit.py || fail G10
+finish G10
+
+# ------------------------------------------------------------------ summary
+printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
+SUITE_BAD=0
+for g in $GATE_ORDER; do
+    st=${GATE_ST[$g]}
+    printf '  %-4s %-6s %s\n' "$g" "$st" "${GATE_MSG[$g]:-}"
+    [ "$st" = PASS ] || SUITE_BAD=1
+done
+if [ "${GATE_ST[G6]:-}" = FAIL ]; then
+    printf '\n  G6 is FAIL BY DESIGN while pre-D1 evidence is still cited.\n'
+    printf '  The remedy is baseline_v7: regenerate to NEW paths and move the citations.\n'
+    printf '  Overwriting results/{causal,det_a,det_b} to make it green reintroduces the\n'
+    printf '  defect e21666d removed -- a suite that rewrites the evidence it verifies.\n'
+fi
+if [ "$SUITE_BAD" -eq 0 ]; then
+    printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"
+    exit 0
+fi
+printf '\n=== SUITE FAILED -- see summary above ===\n'
+exit 1
