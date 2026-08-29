@@ -154,13 +154,23 @@ G6_MISMATCH=0
 # directories results/{causal,det_a,det_b} are KEPT, with superseded notes; they are
 # not compared against a current-engine run because they were produced by a different
 # engine and would fail forever. Nothing was overwritten to make this gate green.
-for pair in "causal_v7/arm_summary.csv" "det_a_v7/arm_summary.csv"; do
-    tracked="results/$pair"
-    fresh="$WORK/$pair"
+# tracked path and fresh path are mapped EXPLICITLY. They are not the same name:
+# the tracked evidence lives at results/<x>_v7 while the fresh run writes to
+# $WORK/<x>. Deriving one from the other made the gate compare a real file against a
+# path that never existed, and report a disagreement where there was none.
+for spec in "causal_v7/arm_summary.csv:causal/arm_summary.csv" \
+            "det_a_v7/arm_summary.csv:det_a/arm_summary.csv"; do
+    tracked="results/${spec%%:*}"
+    fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
         printf 'THE FRESH RUN ERRORED: %s is absent or empty.\n' "$fresh"
         printf 'This is a broken binary or scenario, NOT a disagreement about evidence.\n'
-        fail G6
+        gerror G6 "fresh run produced no $fresh"
+        # `continue` is load-bearing. fail/gerror no longer exit, so without it control
+        # falls through to the cmp below and prints "the tracked evidence disagrees"
+        # about a file that was never written -- reporting an ERROR as a FAILURE, which
+        # is the one distinction this gate exists to preserve.
+        continue
     fi
     if [ ! -s "$tracked" ]; then
         printf 'no tracked copy at %s -- nothing to compare against, skipping\n' "$tracked"
