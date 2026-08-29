@@ -63,6 +63,7 @@ audit/
 testpy-output/
 src/lorawan/.git/
 CA_TBL_HANDOFF_v4.md
+CA_TBL_HANDOFF_v5.md
 CA_TBL_SIMULATION_REPORT.md
 SESSION_CHANGELOG.md
 ```
@@ -73,7 +74,7 @@ negative fixture. Their reasons:
 
 | path | why it is not tracked |
 |---|---|
-| `CA_TBL_HANDOFF_v4.md` | the live working handoff; a project rule stated in 19 documents keeps it untracked. `35466c0` tracked it by a staging error and `aa8328b` untracked it |
+| `CA_TBL_HANDOFF_v4.md`, `CA_TBL_HANDOFF_v5.md` | the working handoff and its predecessor; a project rule stated in 19 documents keeps it untracked. `35466c0` tracked it by a staging error and `aa8328b` untracked it |
 | `SESSION_CHANGELOG.md` | working log, never a deliverable |
 | `CA_TBL_SIMULATION_REPORT.md` | an earlier technical report. Zero `###` section overlap with `Simulation.md`, so not a draft of it; cited by no deliverable; entered the index only as a side effect of an `r80` one-liner. Annotated in its own header |
 
