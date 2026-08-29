@@ -38,6 +38,9 @@ accuracy ≤ 25 m**, and a decision rule fixed before any run.
   at 24.26 J vs 22.77 J.
 - **The original operating window is withdrawn** (Claim 3) — it was inferred from a
   region where every pre-registered verdict was FAIL or INCONCLUSIVE.
+- **Packet-level physics realism is re-scoped, not proven** (Claim 7) — the cited
+  checks verify ranging precision and energy accounting, and a six-decibel sensitivity
+  defect passed all of them. §5.4b.
 
 **Defects the method found.** A six-decibel sensitivity-table indexing error on the
 tier carrying 95% of active cycles; PCS confidence saturating so it cannot express a
@@ -266,6 +269,28 @@ entirely from the links the six-decibel error changes. Gate eligibility measured
 **151/28 718 = 0.53%** all-LOS fix cycles, yielding **9 suspects over 20 seeds**. A
 sensitivity error that moves which anchors are heard moves `nNlos`, and it does not
 cancel in the difference between the arms.
+
+### 5.4b Claim 7 — packet-level physics realism, re-scoped from PROVEN
+
+The ledger asserted *Physics realism on packets — PROVEN*, citing a CRLB ratio of
+1.105, a UWB ranging floor of 0.154 m, and energy reconciled to ten significant
+figures.
+
+**Those three checks pass and are unchanged.** What they verify is **ranging
+precision and energy accounting**. None of them reads the receiver sensitivity
+tables — they measure ranging error and energy, both downstream of whether a packet
+was received at all.
+
+The six-decibel indexing error of §6.1 sat in those tables, on the tier carrying ~95%
+of active cycles, and **passed every gate, verifier check and validation in the
+project**. An unqualified fidelity claim cannot stand after a physics defect that the
+fidelity checks did not catch.
+
+Asked directly: **no check in the project would catch that defect today.** What found
+it was a closed-form propagation model built to reproduce the engine and refusing to
+be tuned when it could not — not a gate. The honest status is that packet-level
+physics is **verified for ranging precision and energy accounting, and unverified for
+receiver sensitivity**. §8.4 specifies the check that would close it.
 
 ### 5.5 PCS escalation under propagation NLOS
 
