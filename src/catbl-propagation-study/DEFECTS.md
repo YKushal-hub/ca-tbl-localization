@@ -285,13 +285,29 @@ INCONCLUSIVE; it cannot produce a PASS.
 
 **The architecture has no density at which it pays under `(A = 0.95, R = 25 m)`.**
 
-### W2 — `trig_precision` 0.9343 cannot be reproduced from the directory it cites
+### W2 — WITHDRAWN. `trig_precision` 0.9343 *is* reproducible; I used the wrong estimator
 
-The ledger publishes `trig_precision = 0.9343`. Recomputed over all 20 seeds of
-`results/p10_plane_fix` — the directory the ledger cites — the mean is **0.9279**.
-No population over that directory was found that yields 0.9343. This is a
-provenance gap, not rounding: the published number and its cited source do not
-correspond.
+**The finding below was mine and it was wrong. Kept with its reason, not deleted.**
+
+> ~~The ledger publishes `trig_precision = 0.9343`. Recomputed over all 20 seeds of
+> `results/p10_plane_fix` — the directory the ledger cites — the mean is **0.9279**.
+> No population over that directory was found that yields 0.9343. This is a
+> provenance gap, not rounding.~~
+
+**What was actually compared.** The ledger's own text specifies *"20 seeds pooled"*.
+Pooled means summing the counts across seeds and dividing once —
+`tp / (tp + fp)` over `tp = 1280`, `fp = 90`. I computed the **mean of the twenty
+per-seed `trig_precision` values** instead, and compared that against a pooled figure.
+
+    pooled over 20 seeds     precision 0.9343   recall 0.7041   <- the published pair
+    mean of per-seed ratios  precision 0.9279   recall 0.7005   <- what I computed
+
+Two different estimators, not a failed reproduction. "No population over that
+directory was found that yields 0.9343" was false: the population was stated in the
+ledger and I did not read it.
+
+**There was never a provenance gap here.** Any provisional marking derived from this
+entry is void.
 
 ### W3 — the "recall falls" prediction is UNTESTED, not missed
 
@@ -481,9 +497,15 @@ marking is removed.
 **A second claim in the withdrawn entry was also wrong.** It said the trigger metrics
 "come from injection campaigns only; in non-injection configurations `trig_tp +
 trig_fp = 0`". `p10_plane_fix` is a **non-injection** campaign and has `tp + fp =
-1370` over 20 seeds. The correct scope is narrower: the metric has no population in
-the *specific* configurations D1 tested (the `p10_grid` cells), not in non-injection
-runs generally.
+1370` over 20 seeds, pooled.
+
+**The correct scope, stated with its population.** The trigger metric has no
+population in the six `p10_grid`-derived configurations D1 tested (configs A-F, one
+seed each, `boxHalf` 1500-2000, `envFacility` 0/1/4). It has a substantial population
+in the `p10_plane_fix` / `p10_plane_v7` design (`boxHalf=2000`, `gwGrid=5`,
+`escalationRequiresEvidence=true`, no injection): `tp + fp = 1370` and `1459`
+respectively over 20 seeds. Whether a configuration exercises the trigger is a
+property of that configuration, not of whether it injects faults.
 
 ## Trigger metrics on the corrected engine
 
@@ -621,3 +643,28 @@ because no commit corresponds to it.
 
 **Not deleted, not quietly kept unqualified.** `[M-24]` stays, with this entry as its
 qualification.
+
+---
+
+## The population rule now has an estimator clause
+
+The project's standing rule is *a count is not an observable until its population is
+stated*. Two findings withdrawn in this file share its shape with a different
+unstated quantity:
+
+- **W2** — the unstated thing was the **estimator**. Pooled and mean-of-per-seed are
+  different statistics over the same population, and comparing one against the other
+  produced a false "cannot be reproduced".
+- **The `trig_tp + trig_fp = 0` scope claim** — the unstated thing was **which
+  directories the claim ranged over**. Six configurations were generalised to "outside
+  injection campaigns", and a non-injection campaign with 1370 trigger events refutes it.
+
+**The rule as it should now read:** *a count is not an observable until its population
+**and its estimator** are stated.* Wherever a pooled or averaged figure appears in
+this project, the estimator is named beside it.
+
+A third instance of the same shape, for completeness: two withdrawn findings in this
+file were **glob-depth errors** — a survey that globbed one directory level too
+shallow reported 0 paired cells for a campaign holding 280, and a sidecar census
+missed 770 sidecars by looking two levels down instead of at any depth. **A glob is a
+population claim.**

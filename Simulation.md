@@ -628,10 +628,38 @@ hybrid arm spending >99% of cycles on one tier, zero escalations, a FULL-mode ar
 zero suspects, `hadFix` below 0.90, or a static arm showing cycles on a tier it does not
 own.
 
-Run over every existing result directory: **7531 of 16056 arm-cells screened degenerate
-— 46.9%**, across 3200 directories. The largest categories are gate-inert arms (724),
-`static_uwb` at `hadFix` ≈ 0.03 (502, expected — it cannot cover the deployment), and
-hybrid arms pinned to one tier (181 + 173).
+**The first version of this screen returned ONE verdict per run**, derived mostly from
+tier occupancy, and reported **7531 of 16056 arm-cells degenerate — 46.9%**. That
+figure is superseded: it blended four different questions into one number, and it
+failed a Claim 9 pre-flight in which the integrity gate fired 86 times and the arms
+differed in 37 fields, because tier occupancy is not what Claim 9 measures. It also
+flipped verdict on 1.4 percentage points of that incidental quantity — 97.8% passed,
+99.2% failed, same configuration.
+
+The screen now reports **a verdict per mechanism**, with the underlying quantity
+printed continuously beside it, and refuses to return a single verdict unless a
+mechanism is named. Re-run over the same corpus, 3205 directories:
+
+| mechanism | degenerate | arm-cells | rate |
+|---|---|---|---|
+| `tiering` | 175 | 15 390 | **1.1%** |
+| `integrity` | 875 | 3 203 | **27.3%** |
+| `trigger` | 3 431 | 8 584 | **40.0%** |
+| `energy` | 23 | 15 390 | **0.1%** |
+
+**The finding is not retracted — cells that measured nothing still measured nothing —
+but it is now stated at the resolution it should have had.** The single 46.9% was
+dominated by a tiering rule that flags 1.1% once it also requires zero escalations,
+and it obscured that the real concentration is in `trigger` (40.0%) and `integrity`
+(27.3%): most runs are not designed to exercise those mechanisms, and reading a
+trigger or integrity number off them would be reading a number with no population.
+
+**One of the four rules was wrong and was corrected before publication.** The energy
+rule first flagged *any* non-zero draw on a zero-cycle tier and reported **66.5%**
+degenerate. That was an artifact: an unoccupied tier still draws CAD/idle listening
+energy — `static_2p4` draws 0.014 J on 868 and 0.008 J on UWB while occupying
+neither — which is correct behaviour. Requiring a **material** share (>1% of total)
+gives 0.1%. The 1% threshold is ours, not physical.
 
 **Standing rule for future campaigns: run one seed and screen it before spending twenty.**
 A configuration that cannot exercise its mechanism cannot test a claim about it, and the
@@ -650,7 +678,7 @@ screen costs one run against a campaign's worth.
 | M-07 | Fresh clone 1711/1711, byte-identical summary                                                            | Clone test                                                    |
 | M-08 | Every flag byte-identical when off                                                                       | Per-feature null control                                      |
 | M-09 | Reference-density arm table                                                                              | `arm_summary.csv`, `boxHalf` 2000, `gwGrid` 5, 20 seeds |
-| M-10 | Precision 0.0777 → 0.9343, F1 0.1439 → 0.8030, FP 21,116 → 90, recall 0.9780 → 0.7041 (pre-D1). **Post-D1: 0.9164 / 0.7354**, `results/p10_plane_v7`, `dirty 0`. Both pooled over 20 seeds; the pre-D1 pair is superseded, not withdrawn | `trig_*` columns, 20 seeds pooled |
+| M-10 | **Estimator: pooled over 20 seeds** (counts summed, then divided once) — not the mean of per-seed ratios, which gives 0.9279 / 0.7005 and is a different statistic. Pre-D1: precision 0.0777 → **0.9343**, recall 0.9780 → **0.7041**, F1 0.1439 → 0.8030, FP 21,116 → 90 (`results/p10_plane_fix`). **Post-D1: 0.9164 / 0.7354** (`results/p10_plane_v7`, `source 7c0c5e5 dirty 0` on all 20 seeds): precision −0.018, recall +0.031, **measured with no predicted direction**. The pre-D1 pair is superseded, not withdrawn | `trig_*` columns, 20 seeds **pooled** |
 | M-11 | 622.92 J → 24.26 J; escalation efficiency 0.071 → 0.827                                                | `arm_summary.csv` energy columns                            |
 | M-12 | Envelope prediction timestamped 17 min before first result                                               | `results/p10_env/PREDICTION.md`                             |
 | M-13 | Full 7-density envelope table                                                                            | 140 directories, 20 seeds each                                |
@@ -668,7 +696,7 @@ screen costs one run against a campaign's worth.
 | M-25 | Recovery-policy ablation: 4 levels × F0/F1/F3 × 20 seeds. `none` −0.049/−0.051 availability vs `no_integrity`; `bounded` −0.016/−0.013; no level beats `no_integrity` on any axis | `results/campaign_recovery/`, 240 cells |
 | M-26 | Derived rule: an integrity monitor can only recover availability if some fallback both satisfies the accuracy requirement and is available at detection. Tier 1 = 100.60 m (fails `R`), tier 2 = 2.73 m (9× margin), tier 3 = 0.16 m but 10–56% coverage | Derivation from `[M-24] [M-25]` plus measured per-tier CEP50 |
 | M-27 | Claim 3 replacement: M1 ratio 0.9531 [0.9296, 0.9775] at 20 seeds, geometric mean of per-seed ratios with a seed-level bootstrap CI; the only PASS in 320 cells under `b49df46` §4 | `results/p10_grid/c_ef0_legacy_dw800_b1500/`, `source 13a62bb dirty 0`, digests verified against files on disk |
-| M-28 | Degeneracy screen: 7531 of 16056 arm-cells degenerate (46.9%) across 3200 directories | `scripts/degeneracy_check.py` over every `results/` directory |
+| M-28 | Degeneracy screen, **per mechanism** over 3205 directories: `tiering` 1.1% (175/15390), `integrity` 27.3% (875/3203), `trigger` 40.0% (3431/8584), `energy` 0.1% (23/15390). Supersedes a single-verdict figure of 46.9% that blended all four | `scripts/diagnostics/degeneracy_check.py <dir> <mechanism>` over every `results/` directory |
 
 ---
 
