@@ -1,0 +1,7 @@
+fc2527477d4da252
+build Aug 27 2026 18:39:28 | build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --boxHalf=2000 --gwGrid=5 --escalationRequiresEvidence=true --nlosSource=propagation --pcsForm=v2 --suspectForcesEscalation=false --mahalUseR=true --injectRangeBias=40 --injectBiasFraction=0.2 --injectFaultAnchors=1 --suspectRecovery=none --arms=ca_tbl_full,ca_tbl_no_integrity --trace=true --outdir=results/c9_clean/F1_seed7
+source 57dcadf dirty 0 profile optimized
+digest sha256
+bbc2d349b82a222e41621f17ddd0f9aa04e0a19a5fa2a5c1c5aff044c36209f2  arm_summary.csv
+8a9df8a156a94bfb5d7ff1cb6df40c62e8fa603a589cd50801f278c8d54baf9f  trace_ca_tbl_full_seed7.csv
+7e49c32942abd2b0c5c41b28f8a0d6af1c8d45c932de2842a48fee0d2f1fadc6  trace_ca_tbl_no_integrity_seed7.csv
