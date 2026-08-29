@@ -350,3 +350,76 @@ unchanged across a 26% shift in `r80` (the same region moved from `boxHalf`
 ~1935-2515 to 2500-3000, ~29% in physical units). `spacing/r80` transferred, which
 is what a scale-free axis is chosen for. This is a statement about an
 **observable**, not a verdict, and it does not make Claim 3 pass.
+
+---
+
+## D5 — PCS unweighted-sum term saturation
+
+**Site.** `ca-tbl-policy.cc:666-671`, threshold `ca-tbl-policy.cc:57`.
+
+```cpp
+term1 = traceRef / (traceRef + traceSigma);   // filter uncertainty, -> 0 as P grows
+term2 = 1.0 / std::max(gdop, 1.0);            // geometry
+term3 = nLos / nTotal;                        // LOS fraction
+pcs   = term1 + term2 + term3;                // unweighted sum
+// escalate when pcs < pcsThresholdUp[tier], = 1.55 on tier 1
+```
+
+Three terms each bounded by `[0,1]` are summed without weights against a threshold
+of 1.55. `term1` tends to **0** as the covariance grows, so once it saturates,
+`term2 + term3` alone can hold PCS above threshold no matter how uncertain the
+filter is. The uncertainty term cannot veto; it can only fail to contribute.
+
+**Measured, D1 config E** (`RURAL_OPEN propagation dwell=90
+--suspectForcesEscalation=false`, seed 1):
+
+```
+term1 0.0006   term2 1.0000   term3 0.9167   -> pcs 1.9179 > 1.55
+0 escalations, 1440/1440 cycles on tier 1, cep50 89.91 m
+traceSigma p50 16797 m^2 (sigma ~ 130 m), |e| p50 89.92 m, NEES 1.95
+```
+
+**The filter is correctly calibrated.** NEES 1.95 against a 2-DOF expectation of
+2.0 — the covariance tracks the error accurately. The estimator knows it is ~130 m
+uncertain; PCS structurally cannot express it.
+
+**Control, D1 config A** (`legacy`): `term3` 0.25, sum 1.19 < 1.55, escalation
+fires (4 escalations, cep50 2.42 m).
+
+**Incidence, measured across 10 populations** (fraction of cycles where `term1 <
+0.01` *and* `term2 + term3 > threshold` simultaneously):
+
+| population | seeds | term1 p50 | term3 p50 | both-hold | escalations | NEES | \|e\| p50 |
+|---|---|---|---|---|---|---|---|
+| D1-A RURAL_OPEN legacy dw90 | 1 | 0.2933 | 0.2500 | 0.000 | 4 | 0.94 | 2.42 |
+| D1-B RURAL_OPEN propagation dw90 | 1 | 0.4018 | 1.0000 | 0.100 | 150 | 1.37 | 3.11 |
+| D1-C RURAL_OPEN legacy dw800 | 1 | 0.4631 | 0.2500 | 0.000 | 3 | **10.14** | 1.39 |
+| D1-D RURAL_FOREST legacy dw800 | 1 | 0.1608 | 0.2500 | 0.001 | 19 | 0.68 | 2.89 |
+| **D1-E RURAL_OPEN propagation sFE=false** | 1 | 0.0006 | 0.9167 | **0.998** | **0** | 1.95 | 89.92 |
+| D1-F URBAN_DENSE propagation dw90 | 1 | 0.0006 | 0.9091 | 0.763 | 138 | 1.82 | 68.12 |
+| GRID RURAL_OPEN legacy dw90 | 20 | 0.2788 | 0.2500 | 0.000 | 62 | 1.13 | 2.47 |
+| GRID RURAL_OPEN propagation dw90 | 20 | 0.4127 | 1.0000 | 0.054 | 2948 | 1.35 | 2.85 |
+| GRID RURAL_FOREST propagation dw90 | 20 | 0.1743 | 1.0000 | 0.123 | 2536 | 1.21 | 4.27 |
+| GRID URBAN_DENSE propagation dw90 | 5 | 0.0005 | 0.9090 | 0.741 | 678 | 1.96 | 78.22 |
+
+**Scope, and it is narrower than first reported.** Saturation is common only where
+the error is already large (E, F, URBAN: `|e|` 68-90 m, both-hold 0.74-1.00) and
+rare where it is small (both-hold 0.05-0.12). It is therefore **coupled to
+divergence, not independently causing it** — and in nine of the ten populations
+escalation is supplied by the *suspect* path, not by PCS, so PCS's contribution is
+unobservable there.
+
+**Config E is the only population in which PCS is the sole escalation trigger**,
+and it is the only one with zero escalations. The defensible claim is: *where PCS
+is the only trigger and the covariance term has saturated, escalation cannot fire
+however large the error becomes.* Anything broader is not supported by these data.
+
+**Not tested, and therefore not claimed:** that a weighted form, a `term1` gate, or
+`min` instead of sum would fix it. All three are plausible; none was run. A
+corrected PCS belongs in future work with this measurement as its motivation.
+
+**Status: RECORDED, NOT FIXED.** A fix changes the engine and invalidates every
+result in the tree.
+
+**Incidental:** D1-C — the H_cost PASS cell — shows **NEES 10.14** against an
+expectation of 2.0, the only population that is not calibrated. Not investigated.
