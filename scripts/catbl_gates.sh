@@ -152,4 +152,24 @@ fi
 printf 'git status --porcelain -- results/ is empty\n'
 pass G7
 
+# ------------------ G8: files the rules require to stay untracked, are untracked
+# Enforced by memory until 2026-08-29, when it failed: 35466c0 tracked
+# CA_TBL_HANDOFF_v4.md for the first time and aa8328b had to untrack it. A rule
+# enforced by recall is not enforced. The list is duplicated in .gitignore, which
+# stops the mistake; this gate catches it if .gitignore is bypassed with `git add -f`
+# or if a path is already in the index when the ignore rule is added.
+printf '\n--- G8 must-stay-untracked files are untracked ---\n'
+G8_BAD=0
+for f in CA_TBL_HANDOFF_v4.md SESSION_CHANGELOG.md; do
+    if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+        printf 'TRACKED BUT MUST NOT BE: %s\n' "$f"
+        printf '  remedy: git rm --cached %s   (keeps the file on disk)\n' "$f"
+        G8_BAD=1
+    else
+        printf 'untracked, correct: %s\n' "$f"
+    fi
+done
+[ "$G8_BAD" -eq 0 ] || fail G8
+pass G8
+
 printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"

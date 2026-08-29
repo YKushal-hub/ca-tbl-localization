@@ -82,3 +82,20 @@ physics_scale_sweep_*.csv
 # --- working directories ---
 /audit/
 [tool settings directory]/
+
+# ---------------------------------------------------------------------------
+# Files the project's rules require to stay UNTRACKED.
+#
+# This list was enforced by memory until 2026-08-29, when 35466c0 tracked
+# CA_TBL_HANDOFF_v4.md for the first time and aa8328b had to untrack it. A rule
+# enforced by recall is not enforced. G8 in scripts/catbl_gates.sh asserts none of
+# these is tracked; `git rm --cached <path>` is the remedy if one ever is.
+#
+# Enumerated from the project's own guardrail lists, not from recall:
+#   CA_TBL_HANDOFF_v4.md   named explicitly in every guardrail block (19 documents)
+#   SESSION_CHANGELOG.md   working log, never a deliverable
+#
+# Superseded handoffs under docs/archive/ ARE tracked and stay tracked -- the rule
+# is about the LIVE working handoff, not its archived predecessors.
+CA_TBL_HANDOFF_v4.md
+SESSION_CHANGELOG.md

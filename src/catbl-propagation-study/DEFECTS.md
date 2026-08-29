@@ -490,7 +490,8 @@ Two scope notes that must travel with these numbers:
 
 **The 10.14 was a single-seed heavy-tail artifact of using the mean.** At 20 seeds the
 same configuration gives mean **2.95** against a 2-DOF expectation of 2.0, median 0.58.
-The filter in the PASS cell is **not** five-fold overconfident.
+The filter in the PASS cell is calibrated comparably to the other populations;
+the overconfidence reading taken from the single-seed mean does not survive the seeds.
 
 Registered prediction — **two hits, one miss**:
 
@@ -504,3 +505,34 @@ Registered prediction — **two hits, one miss**:
 **Consequence for Claim 3:** the PASS is adjudicated on ground-truth error and energy,
 neither of which reads the covariance, so its arithmetic is unaffected. The caveat that
 attaches is about *how the policy got there*, not whether it got there.
+
+---
+
+## Incident — CA_TBL_HANDOFF_v4.md was tracked, and the rule was enforced by memory
+
+`35466c0` added `CA_TBL_HANDOFF_v4.md` to the index for the first time, violating a
+standing rule stated in 19 project documents: **the handoff stays untracked**. The
+content edits in that commit were correct; the staging was not.
+
+`aa8328b` removed it with `git rm --cached`. The file and its edits remain on disk.
+
+**History was not rewritten, deliberately.** Two rules collided and the stronger one
+won: *never rewrite history* is absolute and was settled when the vendored-import
+structure was adopted, while *the handoff stays untracked* is hygiene about a working
+document. The repository is private, every commit is authored by Kushal, and the file
+contains no credential — so the content sitting in one historical commit costs almost
+nothing, against a history rewrite costing a re-run of the entire import and a
+re-verification of every ref. `aa8328b` is the complete remedy.
+
+**The real fix is that the rule is no longer enforced by recall:**
+
+- `.gitignore` now lists `CA_TBL_HANDOFF_v4.md` and `SESSION_CHANGELOG.md`, enumerated
+  from the project's own guardrail blocks rather than from memory.
+- **G8** in `scripts/catbl_gates.sh` asserts neither is tracked, and names
+  `git rm --cached` as the remedy in its failure message. It catches the case
+  `.gitignore` cannot: a path already in the index, or added with `git add -f`.
+- G8 has a negative fixture (`/tmp` repo, path force-added, confirmed to fail, then
+  confirmed to pass again after `git rm --cached`).
+
+**Side effect, flagged rather than resolved.** `35466c0` also first-tracked
+`Architecture.md` and `CA_TBL_SIMULATION_REPORT.md`. See the note below.
