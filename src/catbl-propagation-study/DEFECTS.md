@@ -720,3 +720,59 @@ suspect fix and discarding it, with no escalation to a better tier following. It
 
 That is a narrower and stronger reading than "the integrity check does not pay", and
 the ledger should carry it that way.
+
+---
+
+## The recovery-policy ablation on clean provenance — and the last gap closed
+
+`results/abl_clean`, 120 cells, **`source 22ee9f9 dirty 0` on all 120**, 360 digest
+entries verified against files on disk, 0 failures. Pre-flight
+(`degeneracy_check.py <dir> integrity`, `suspectRecovery=inflate`, seed 1): **LIVE**,
+71 suspects, 37 fields differing.
+
+Availability, `ca_tbl_full − ca_tbl_no_integrity`. Negative means the policy **loses**.
+Estimator: mean of per-seed differences over 20 seeds, with the sign test beside it.
+
+| policy | set | mean diff | pos/neg/tie | suspects (median) |
+|---|---|---|---|---|
+| `none` | F1 | −0.0305 | 1/18/1 | 120 |
+| `none` | F3 | −0.0540 | 1/19/0 | 206 |
+| `inflate` | F1 | **−0.0053** | 7/13/0 | 84 |
+| `inflate` | F3 | −0.0085 | 3/17/0 | 128 |
+| `bounded` | F1 | −0.0152 | 5/15/0 | 122 |
+| `bounded` | F3 | −0.0136 | 2/18/0 | 180 |
+| `reinit` | F1 | −0.0164 | 5/15/0 | 118 |
+| `reinit` | F3 | −0.0172 | 2/18/0 | 180 |
+
+**Registered prediction: HIT.** None of the three recovery policies beats
+`no_integrity` on availability. Every cell is negative in the mean and the sign test
+runs against the policy in all eight.
+
+**Not predicted, and therefore not scored:** the magnitude, and the ordering
+`inflate` < `bounded` ≈ `reinit` < `none` in loss. No ordering was registered because
+there was no basis for one. It is reported as a measured value: `inflate` loses least
+(−0.005 to −0.009) and `none` loses most (−0.031 to −0.054), roughly a 6× spread. That
+is consistent with a bounded response subtracting less than an unbounded rejection,
+but **no mechanism was measured to establish it** and it is not claimed as one.
+
+## No published number rests on dirty provenance
+
+With `abl_clean` landed, **`results/campaign_recovery` is superseded in full**, with
+its reason: `source a059203 dirty 4`, no `ALLOW_DIRTY` markers to acknowledge it, and
+no commit that reproduces its binary. Its four recovery levels × three fault sets are
+replaced by `c9_clean` (`none`) and `abl_clean` (`inflate`, `bounded`, `reinit`), both
+at `dirty 0` with digests verified.
+
+The claim holds only where it is scoped: **every number this project publishes as a
+result now traces to a `dirty 0` source.** Two qualifications travel with that
+sentence and are not to be dropped:
+
+- `results/campaign_20260810/stage1` still backs `[M-24]` (integrity detection
+  separation, F0 suspect rate, latency) and remains `dirty 4`. It is qualified in
+  place in `Simulation.md` and was never repointable, because no clean injection
+  campaign existed at the time. **`c9_clean` and `abl_clean` do not re-measure those
+  particular statistics**, so `[M-24]` is the one published figure still on dirty
+  provenance.
+- `publication_ready.sh`'s `DIRTY` assertion scans the directories the *report* cites,
+  and the report still cites pre-D1 paths. That is a citation-repointing task, not a
+  provenance one.
