@@ -59,7 +59,7 @@ Three findings, each established below:
 | tier | radio | SF | bandwidth | TX power | measured r80 | ranging method |
 |---|---|---|---|---|---|---|
 | 1 | 868 MHz LoRa (SX1262) | 7 | 125 kHz | 14.0 dBm | **1515.3 m** | RSSI inversion |
-| 2 | 2.4 GHz LoRa (SX1280) | 7 | 800 kHz | 12.5 dBm | **909.5 m** | two-way time-of-flight |
+| 2 | 2.4 GHz LoRa (SX1280) | 7 | 800 kHz | 12.5 dBm | **1149.5 m** | two-way time-of-flight |
 | 3 | UWB (DW3000) | 7 | 499.2 MHz | −16.47 dBm | **12.8 m** | two-way ranging |
 
 `r80` is the distance at which packet delivery ratio falls to 0.80, measured from a swept

@@ -423,3 +423,84 @@ result in the tree.
 
 **Incidental:** D1-C — the H_cost PASS cell — shows **NEES 10.14** against an
 expectation of 2.0, the only population that is not calibrated. Not investigated.
+
+---
+
+# Withdrawal log — 2026-08-29
+
+Every entry records what was removed, why, and what replaced it. A withdrawn number
+is withdrawn **with its reason and its mechanism**, never silently deleted.
+
+## W1 — the 19/20-vs-14/20 deployment-reliability table
+
+Removed from `CA_TBL_HANDOFF_v4.md` §1.3. Measured with tier 2 six decibels deaf
+(D1, fixed by `a4e23ad`). Replaced by `results/p10_plane_v7` at `7c0c5e5 dirty 0`:
+`ca_tbl_full` 19/20 → 20/20, `static_2p4` 14/20 → **19/20**. A five-seed reliability
+gap became one seed at 2.1× the energy, and `static_2p4` wins M1 (12.679 J against
+27.094 J). The argument does not survive.
+
+## N3 — the integrity ablation (positive 4, negative 1, tied 15)
+
+Withdrawn from `CA_TBL_HANDOFF_v4.md` §1.3 as **pre-D1, not as wrong**.
+
+It reproduces **exactly** from `results/p10_plane_fix`. That established provenance,
+never validity. Withdrawn because the 6 dB defect reaches the quantity it measures:
+the arms differ only at `ca-tbl-policy.cc:877`, whose trigger is
+`mahal > threshold && nNlos == 0`; tier-2 occupancy in that campaign is **99.6%**
+(27 322 vs 108 cycles), so `nNlos`, the geometry and the residuals all come from the
+links the error changes. Gate eligibility measured at **151/28 718 = 0.53%** all-LOS
+fix cycles, yielding **9 suspects over 20 seeds**. Not a common-mode shift; it does
+not cancel in the difference.
+
+## W4 — Claim 3's old ledger entry, "PROVEN, SCOPED — window 1.0–1.3"
+
+Withdrawn, and **independently of D1**. Every verdict in the old
+`results/p10_env/ENVELOPE_TABLE.txt` was FAIL or INCONCLUSIVE, and the INCONCLUSIVE
+entries read "ca_tbl_full does not meet (A,R)". A window was inferred from a region
+in which the proposed system did not meet its own requirement.
+
+## Trigger metrics — published pair not reproducible from the cited directory
+
+`trig_precision = 0.9343` and `trig_recall = 0.7041` **cannot be reproduced** from
+`results/p10_plane_fix`, the directory the ledger cites. Recomputed over all 20 seeds:
+**0.9279** and **0.7005**. No population over that directory yields the published pair.
+
+Two scope notes that must travel with these numbers:
+
+1. **They come from injection campaigns only.** In every non-injection configuration
+   tested by the 2026-08-29 diagnostic, `trig_tp + trig_fp = 0` — the metric has no
+   population there and precision/recall are undefined by construction.
+2. **`p10_plane_fix` is pre-D1**, exactly as N3 was. The same mechanism argument
+   applies: the trigger fires on tier-2-derived quantities at 99.6% occupancy. These
+   two numbers are therefore **provisional pending re-measurement**, and are published
+   as the reproducible values of a superseded campaign, not as current results.
+
+## D5 addendum — config C's NEES anomaly, resolved
+
+`DEFECTS.md` D5 recorded config C (the H_cost PASS cell) at **NEES 10.14**, flagged
+"not investigated". Investigated:
+
+| population | tier | cycles | NEES mean | NEES p50 | frac > 5.99 |
+|---|---|---|---|---|---|
+| config C, 1 seed | 2.4GHz | 964 | 0.99 | 0.59 | — |
+| config C, 1 seed | UWB | 473 | 28.86 | 0.51 | 0.055 |
+| **grid twin, 20 seeds** | 2.4GHz | 17 703 | **1.01** | 0.59 | 0.0089 |
+| **grid twin, 20 seeds** | UWB | 11 061 | **6.08** | 0.55 | 0.0717 |
+| **grid twin, 20 seeds** | all | 28 800 | **2.95** | **0.58** | 0.0330 |
+
+**The 10.14 was a single-seed heavy-tail artifact of using the mean.** At 20 seeds the
+same configuration gives mean **2.95** against a 2-DOF expectation of 2.0, median 0.58.
+The filter in the PASS cell is **not** five-fold overconfident.
+
+Registered prediction — **two hits, one miss**:
+
+- *anomaly is tier-3-specific* — **HIT**. UWB mean 6.08 against tier-2's 1.01.
+- *config C's tier-2 NEES in the 0.7–2.0 band* — **HIT**. Mean 1.01.
+- *mechanism is an over-shrunk covariance rather than an error excursion* — **MISS**.
+  Both contribute: in the tail `traceSigma` is 3.1× smaller **and** `|e|` is 3.3×
+  larger, and since NEES goes as `e²/σ²` the error term dominates. Only 5/26 tail
+  cycles lie near a tier transition, so transitions are not the driver.
+
+**Consequence for Claim 3:** the PASS is adjudicated on ground-truth error and energy,
+neither of which reads the covariance, so its arithmetic is unaffected. The caveat that
+attaches is about *how the policy got there*, not whether it got there.
