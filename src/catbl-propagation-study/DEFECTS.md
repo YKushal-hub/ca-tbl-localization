@@ -668,3 +668,55 @@ file were **glob-depth errors** — a survey that globbed one directory level to
 shallow reported 0 paired cells for a campaign holding 280, and a sidecar census
 missed 770 sidecars by looking two levels down instead of at any depth. **A glob is a
 population claim.**
+
+---
+
+## Claim 9's falsification, re-measured on citeable provenance
+
+`results/c9_clean`, 40 cells, **`source 57dcadf dirty 0` on all 40**, 120 digest
+entries verified against files on disk, 0 failures. Flags read from
+`campaign_recovery`'s own sidecar, not inferred.
+
+| | c9_clean (`dirty 0`) | campaign_recovery (`dirty 4`) |
+|---|---|---|
+| **F1** availability, `full − no_integrity` | **−0.0305**, 1 pos / 18 neg / 1 tie | −0.0491, 1 / 19 / 0 |
+| **F1** cep50M difference | +0.011 m | +0.180 m |
+| **F1** suspects (median) | 120 | 136 |
+| **F3** availability, `full − no_integrity` | **−0.0540**, 1 pos / 19 neg | −0.0509, 0 / 20 |
+| **F3** cep50M difference | +0.078 m | +0.257 m |
+| **F3** suspects (median) | 206 | 200 |
+| arms differ | 20/20 both sets | 20/20 both sets |
+
+**Registered prediction: HIT.** The falsification reproduces on the corrected engine.
+`ca_tbl_full` does not beat `ca_tbl_no_integrity` — availability is *lower* by 0.031
+(F1) and 0.054 (F3), the sign holds on 18–19 of 20 seeds in each set, and `cep50M` is
+worse by a small positive margin. The arms differ in every cell, so the comparison is
+live throughout.
+
+**Not predicted, and reported as measured values only:** suspect counts moved 136 → 120
+(F1) and 200 → 206 (F3) — opposite directions. No direction was registered for these
+because D1 changed which anchors are heard, hence `nNlos`, hence the gate's eligible
+population, and there was no basis for guessing the sign. **These are not scored as
+hits or misses.**
+
+**Consequence applied.** Claim 9's ledger verdict is unchanged and now has a citeable
+source. `results/campaign_recovery` is **superseded** by `results/c9_clean` for the
+`suspectRecovery=none` comparison, with its reason: `dirty 4`, no `ALLOW_DIRTY`
+markers, no commit reproduces its binary. It is **not** superseded for the
+recovery-policy ablation (`inflate` / `bounded` / `reinit`), which `c9_clean` did not
+re-measure — that remains on dirty provenance and is recorded here as still open.
+
+### What `suspectForcesEscalation=false` means for how Claim 9 reads
+
+That flag is in `campaign_recovery`'s own flag set, and therefore in `c9_clean`'s.
+**Both campaigns already isolate rejection from escalation** — the thing D7 was built
+to do and could not, because with the flag false `ca_tbl_full` stopped escalating
+entirely in the D1 config-E pre-check.
+
+So Claim 9's falsification is a statement about **rejection alone**: detecting a
+suspect fix and discarding it, with no escalation to a better tier following. It is
+**not** a statement about the combined detect-and-escalate mechanism, which under
+`propagation` NLOS moves `cep50M` from 92.15 m to 3.10 m (D1 configs B/E).
+
+That is a narrower and stronger reading than "the integrity check does not pay", and
+the ledger should carry it that way.
