@@ -99,3 +99,8 @@ physics_scale_sweep_*.csv
 # is about the LIVE working handoff, not its archived predecessors.
 CA_TBL_HANDOFF_v4.md
 SESSION_CHANGELOG.md
+# Untracked 2026-08-29: an earlier technical report, not a deliverable. Zero ###
+# section overlap with Simulation.md, cited by no deliverable, entered the index only
+# as a side effect of an r80 one-liner in 35466c0. Kept on disk, annotated in its own
+# header.
+CA_TBL_SIMULATION_REPORT.md

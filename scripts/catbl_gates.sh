@@ -160,7 +160,7 @@ pass G7
 # or if a path is already in the index when the ignore rule is added.
 printf '\n--- G8 must-stay-untracked files are untracked ---\n'
 G8_BAD=0
-for f in CA_TBL_HANDOFF_v4.md SESSION_CHANGELOG.md; do
+for f in CA_TBL_HANDOFF_v4.md SESSION_CHANGELOG.md CA_TBL_SIMULATION_REPORT.md; do
     if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
         printf 'TRACKED BUT MUST NOT BE: %s\n' "$f"
         printf '  remedy: git rm --cached %s   (keeps the file on disk)\n' "$f"
@@ -171,5 +171,35 @@ for f in CA_TBL_HANDOFF_v4.md SESSION_CHANGELOG.md; do
 done
 [ "$G8_BAD" -eq 0 ] || fail G8
 pass G8
+
+# ---------------------- G9: every named deliverable IS tracked, and is committed
+# G8 asserts certain files are NOT tracked. G9 is the opposite direction, and nothing
+# in the suite could see it: Simulation.md -- one of the two named deliverables --
+# had ZERO commits across the entire project and was invisible for its whole life.
+# A deliverable that exists only on one machine is not a deliverable.
+#
+# The second assertion matters as much as the first. A tracked-but-modified
+# deliverable means a cited number is sitting uncommitted in the working tree, which
+# is how a citation comes to point at something the repository does not contain.
+printf '\n--- G9 named deliverables are tracked and committed ---\n'
+G9_BAD=0
+for f in Architecture.md Simulation.md; do
+    if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+        printf 'DELIVERABLE NOT TRACKED: %s\n' "$f"
+        printf '  a deliverable that exists only on one machine is not a deliverable\n'
+        printf '  remedy: git add %s\n' "$f"
+        G9_BAD=1
+        continue
+    fi
+    if [ -n "$(git status --porcelain --untracked-files=no -- "$f")" ]; then
+        printf 'DELIVERABLE TRACKED BUT UNCOMMITTED: %s\n' "$f"
+        printf '  a cited number is uncommitted in the working tree\n'
+        G9_BAD=1
+        continue
+    fi
+    printf 'tracked and clean: %s\n' "$f"
+done
+[ "$G9_BAD" -eq 0 ] || fail G9
+pass G9
 
 printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"
