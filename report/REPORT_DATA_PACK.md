@@ -1,3 +1,25 @@
+> **HISTORICAL RECORD OF SUPERSEDED CAMPAIGNS. NOT A SOURCE OF PUBLISHED FIGURES.**
+>
+> This data pack documents campaigns run **before** the six-decibel tier-2
+> sensitivity defect was corrected (`a4e23ad`). It cites `results/p10_plane`,
+> `results/p10_plane_fix`, `results/causal`, `results/det_a`, `results/det_b`,
+> `results/baseline_v6` and `results/v6_ladder`, all of which record `dirty 4` or
+> `dirty 3` — binaries no commit reproduces.
+>
+> **Those citations are deliberately NOT repointed.** This document describes what
+> those campaigns produced; substituting a different campaign's paths would leave the
+> descriptions attached to numbers they did not generate. It is accurate as a record
+> of superseded work, which is what it is for.
+>
+> The current sources are `results/baseline_v7`, `results/p10_plane_v7`,
+> `results/c9_clean`, `results/abl_clean`, `results/p10_grid` and
+> `results/p10_env_v7`/`_v8`, all at `dirty 0`. See
+> `CA-TBL_Technical_Report_SelfContained.md`, and `SUPERSEDED.md` in each superseded
+> directory.
+>
+> `publication_ready.sh`'s `DIRTY` assertion counts **43 of 553** cited sidecars as
+> dirty. All 43 are this file's, and all are intentional.
+
 # CA-TBL — Report Data Pack
 
 Extraction only. No conclusions drawn, no prose rewritten, no edits to
