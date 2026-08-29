@@ -459,21 +459,50 @@ Withdrawn, and **independently of D1**. Every verdict in the old
 entries read "ca_tbl_full does not meet (A,R)". A window was inferred from a region
 in which the proposed system did not meet its own requirement.
 
-## Trigger metrics — published pair not reproducible from the cited directory
+## Trigger metrics — WITHDRAWN: the published pair WAS reproducible, and I used the wrong estimator
 
-`trig_precision = 0.9343` and `trig_recall = 0.7041` **cannot be reproduced** from
-`results/p10_plane_fix`, the directory the ledger cites. Recomputed over all 20 seeds:
-**0.9279** and **0.7005**. No population over that directory yields the published pair.
+**This entry previously claimed `trig_precision = 0.9343` and `trig_recall = 0.7041`
+could not be reproduced from `results/p10_plane_fix`. That claim was wrong and is
+withdrawn.**
 
-Two scope notes that must travel with these numbers:
+They reproduce **exactly**, under the estimator the ledger's own text specifies —
+*"20 seeds pooled"*:
 
-1. **They come from injection campaigns only.** In every non-injection configuration
-   tested by the 2026-08-29 diagnostic, `trig_tp + trig_fp = 0` — the metric has no
-   population there and precision/recall are undefined by construction.
-2. **`p10_plane_fix` is pre-D1**, exactly as N3 was. The same mechanism argument
-   applies: the trigger fires on tier-2-derived quantities at 99.6% occupancy. These
-   two numbers are therefore **provisional pending re-measurement**, and are published
-   as the reproducible values of a superseded campaign, not as current results.
+    pooled over 20 seeds     precision 0.9343   recall 0.7041   <- matches published
+    mean of per-seed ratios  precision 0.9279   recall 0.7005   <- what I computed
+
+I computed the mean of per-seed ratios and compared it against a pooled figure. Those
+are different statistics, not a failed reproduction. The population was stated in the
+ledger and I did not read it.
+
+**There was never a provenance gap here.** The "provisional pending re-measurement"
+marking is removed.
+
+**A second claim in the withdrawn entry was also wrong.** It said the trigger metrics
+"come from injection campaigns only; in non-injection configurations `trig_tp +
+trig_fp = 0`". `p10_plane_fix` is a **non-injection** campaign and has `tp + fp =
+1370` over 20 seeds. The correct scope is narrower: the metric has no population in
+the *specific* configurations D1 tested (the `p10_grid` cells), not in non-injection
+runs generally.
+
+## Trigger metrics on the corrected engine
+
+Already measured, and no new campaign was needed. `results/p10_plane_v7`, 20 seeds,
+`source 7c0c5e5 dirty 0` on all twenty — the post-D1 regeneration of
+`p10_plane_fix` carried the `trig_*` columns:
+
+| estimator | pre-D1 (`p10_plane_fix`) | post-D1 (`p10_plane_v7`) |
+|---|---|---|
+| **pooled, 20 seeds** | 0.9343 / 0.7041 | **0.9164 / 0.7354** |
+| mean of per-seed | 0.9279 / 0.7005 | 0.9152 / 0.7296 |
+
+Precision falls ~0.018, recall rises ~0.031. **No direction was predicted for either**
+— D1 changed which anchors are heard, which changes `nNlos`, which changes the gate's
+eligible population, and there was no basis for guessing the sign. These are recorded
+as *measured values*, not as a hit or a miss.
+
+The pre-D1 pair keeps its reason and its source: it is what the defective engine
+produced, and it is superseded rather than deleted.
 
 ## D5 addendum — config C's NEES anomaly, resolved
 

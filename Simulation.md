@@ -650,7 +650,7 @@ screen costs one run against a campaign's worth.
 | M-07 | Fresh clone 1711/1711, byte-identical summary                                                            | Clone test                                                    |
 | M-08 | Every flag byte-identical when off                                                                       | Per-feature null control                                      |
 | M-09 | Reference-density arm table                                                                              | `arm_summary.csv`, `boxHalf` 2000, `gwGrid` 5, 20 seeds |
-| M-10 | Precision 0.0777 → 0.9343, F1 0.1439 → 0.8030, FP 21,116 → 90, recall 0.9780 → 0.7041                | `trig_*` columns, 20 seeds pooled                           |
+| M-10 | Precision 0.0777 → 0.9343, F1 0.1439 → 0.8030, FP 21,116 → 90, recall 0.9780 → 0.7041 (pre-D1). **Post-D1: 0.9164 / 0.7354**, `results/p10_plane_v7`, `dirty 0`. Both pooled over 20 seeds; the pre-D1 pair is superseded, not withdrawn | `trig_*` columns, 20 seeds pooled |
 | M-11 | 622.92 J → 24.26 J; escalation efficiency 0.071 → 0.827                                                | `arm_summary.csv` energy columns                            |
 | M-12 | Envelope prediction timestamped 17 min before first result                                               | `results/p10_env/PREDICTION.md`                             |
 | M-13 | Full 7-density envelope table                                                                            | 140 directories, 20 seeds each                                |
