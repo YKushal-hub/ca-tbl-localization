@@ -150,7 +150,11 @@ finish G5
 #                                        to a NEW path and repoint citations.
 printf '\n--- G6 tracked evidence vs fresh run (read-only) ---\n'
 G6_MISMATCH=0
-for pair in "causal/arm_summary.csv" "det_a/arm_summary.csv"; do
+# Repointed to the post-D1 regeneration (baseline_v7, 2026-08-29). The pre-D1
+# directories results/{causal,det_a,det_b} are KEPT, with superseded notes; they are
+# not compared against a current-engine run because they were produced by a different
+# engine and would fail forever. Nothing was overwritten to make this gate green.
+for pair in "causal_v7/arm_summary.csv" "det_a_v7/arm_summary.csv"; do
     tracked="results/$pair"
     fresh="$WORK/$pair"
     if [ ! -s "$fresh" ]; then
