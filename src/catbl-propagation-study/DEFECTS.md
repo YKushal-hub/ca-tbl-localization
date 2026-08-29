@@ -536,3 +536,59 @@ re-verification of every ref. `aa8328b` is the complete remedy.
 
 **Side effect, flagged rather than resolved.** `35466c0` also first-tracked
 `Architecture.md` and `CA_TBL_SIMULATION_REPORT.md`. See the note below.
+
+---
+
+## Provenance gap — the cited evidence base is largely `dirty`, and there is no clean alternative
+
+Asked of `campaign_20260810` (280 cells carrying `ALLOW_DIRTY`): does any published
+number depend on it alone, and can `campaign_recovery` establish the same thing on
+clean provenance?
+
+**Exactly one tracked-document citation reaches it** — `[M-24]` in `Simulation.md:667`,
+citing `results/campaign_20260810/stage1/` (121 cells) for the integrity-detection
+figures: separation 7.73× (F1) / 16.45× (F3), F0 suspect rate 0.0046, latency median 0.
+
+**The repointing cannot be done, because the premise is false.**
+
+    campaign_20260810   340 cells   source a059203 dirty 4   ALLOW_DIRTY markers: 341
+    campaign_recovery   240 cells   source a059203 dirty 4   ALLOW_DIRTY markers:   0
+
+`campaign_recovery` is **equally dirty**, and arguably worse: it carries the same
+`dirty 4` provenance **without** the `ALLOW_DIRTY` markers that acknowledge it. A
+reader checking for the marker would conclude it was clean.
+
+**No campaign anywhere under `results/` has both `dirty 0` and fault injection.**
+Searched exhaustively; zero hits. So `[M-24]` cannot be repointed to clean evidence
+because none exists.
+
+**The three counts:**
+
+| outcome | count |
+|---|---|
+| citations repointed to clean provenance | **0** — repointing gains nothing |
+| resting uniquely on dirty evidence with no clean alternative | **1** (`[M-24]`) |
+| unaffected | all others — only one citation reached `campaign_20260810` |
+
+**The larger finding, which the question surfaced but did not ask for.** Across every
+`results/` directory cited by a tracked document:
+
+    recording dirty 0        3
+    recording dirty != 0     8   campaign_20260810/stage1, campaign_recovery, causal,
+                                 det_a, det_b, p10_env, p10_plane, p10_plane_fix
+    no readable sidecar     24
+
+**8 of the 11 cited directories that have a readable sidecar record a dirty tree.**
+This is not a `campaign_20260810` problem; it is the state of the evidence base. It
+also reaches **Claim 9's falsification**, which rests on `campaign_recovery` via
+`[M-25]`/`[M-26]`.
+
+**Cost of closing it.** Re-running `campaign_recovery` alone is 240 cells at roughly
+1.9 min/cell wall at 11-way — about **7.6 hours**. `campaign_20260810/stage1` is a
+further 121 cells, about 3.8 hours. Neither is started here, and neither is a
+correctness problem: the numbers are what the runs produced. It is a
+**reproducibility** problem — a reader cannot rebuild the binary those runs used,
+because no commit corresponds to it.
+
+**Not deleted, not quietly kept unqualified.** `[M-24]` stays, with this entry as its
+qualification.
