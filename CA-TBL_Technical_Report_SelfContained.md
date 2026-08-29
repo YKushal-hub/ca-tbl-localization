@@ -1,487 +1,435 @@
-# CA-TBL — Technical Report
+# CA-TBL — Confidence-Aware Tier-Based Localization
 
-**Confidence-Aware Tier-Based Localization for GPS-Denied Search and Rescue**
+**A simulation study of when a tiered radio architecture pays, and when it does not.**
 
-Status **2026-08-10**. Results from `results/p10_plane_fix/`, 20 seeds, source `a059203`,
-build profile `optimized`, digest-verified provenance on every result directory.
-Pre-registration `b49df46` (2026-08-09 22:35) and amendment `a059203` (2026-08-09 23:58),
-both committed before any run they govern.
+> Here is precisely where tiering pays, where it does not, and why — established under
+> pre-registration, on reproducible provenance, with the design defects the method
+> caught along the way.
 
----
-
-## 1. Summary
-
-A search-and-rescue tag must be locatable to within an actionable distance, and it must be
-locatable *reliably* — a system that finds the casualty most of the time is not a system
-that finds the casualty. No single radio band satisfies both halves of that requirement:
-long-range bands lack the precision, precise bands lack the range.
-
-CA-TBL is a three-tier localization architecture that runs a long-range tier continuously
-and escalates to a precision tier when position confidence indicates escalation is
-warranted **and** evidence indicates the precision tier can actually deliver. This report
-presents the measured performance of that architecture against three single-band controls
-and one prior-art baseline.
-
-### 1.1 Headline results
-
-Requirement: a position fix accurate to **R = 25 m**, available **A = 95%** of the time.
-Derivation in §4.2. Each of the 20 seeds is an independent deployment realization.
-
-| arm | deployments meeting spec | availability | CEP50 | energy |
-|---|---|---|---|---|
-| **`ca_tbl_full`** (proposed) | **19 / 20** | **0.9917** | **2.69 m** | 24.26 J |
-| `fixed_threshold` (prior art) | 18 / 20 | 0.9828 | 3.09 m | 22.77 J |
-| `static_2p4` (2.4 GHz only) | 14 / 20 | 0.9426 | 2.73 m | 9.68 J |
-| `static_868` (868 MHz only) | 0 / 20 | 0.0691 | 100.60 m | 14.81 J |
-| `static_uwb` (UWB only) | 0 / 20 | 0.0551 | 0.16 m | 769.45 J |
-
-Three findings, each established below:
-
-1. **Trigger correctness (§5.1).** Evidence-gated escalation raises trigger precision from
-   **0.078 to 0.934** and F1 from **0.144 to 0.803**. Escalations into geometrically
-   unsolvable conditions fall from 21,116 to 90 across 20 runs.
-
-2. **Energy (§5.2).** The same mechanism reduces energy from 622.92 J to **24.26 J**, a
-   **25.7×** reduction, while *improving* both accuracy (CEP50 4.79 m → 2.69 m) and
-   availability (0.9742 → 0.9917).
-
-3. **Deployment reliability (§5.3).** The proposed architecture meets the joint
-   requirement in **19 of 20 deployments**; the best single band meets it in **14 of 20**.
-   In its worst deployment the single band leaves the tag unlocatable for **25.5%** of the
-   mission; the proposed architecture, **9.0%**.
+Every figure below cites a results directory whose `run_id.txt` records
+`dirty 0` — a clean tree at a named commit — with digests verified against the files
+on disk. **One exception exists and is named in §9.**
 
 ---
 
-## 2. System architecture
+## 1. Executive summary
 
-### 2.1 Three tiers
+**What was built.** A three-tier GPS-denied localization stack for search and rescue,
+simulated in ns-3.47: 868 MHz LoRa (RSSI-inversion ranging), 2.4 GHz (two-way
+time-of-flight), and UWB (two-way ranging), with an EKF, a confidence score (PCS)
+driving tier escalation, and a Mahalanobis integrity gate rejecting suspect fixes.
+Six arms, twenty seeds, a pre-registered requirement of **availability ≥ 0.95 at
+accuracy ≤ 25 m**, and a decision rule fixed before any run.
 
-| tier | radio | SF | bandwidth | TX power | measured r80 | ranging method |
-|---|---|---|---|---|---|---|
-| 1 | 868 MHz LoRa (SX1262) | 7 | 125 kHz | 14.0 dBm | **1515.3 m** | RSSI inversion |
-| 2 | 2.4 GHz LoRa (SX1280) | 7 | 800 kHz | 12.5 dBm | **1149.5 m** | two-way time-of-flight |
-| 3 | UWB (DW3000) | 7 | 499.2 MHz | −16.47 dBm | **12.8 m** | two-way ranging |
+**Results that stand.**
 
-`r80` is the distance at which packet delivery ratio falls to 0.80, measured from a swept
-probe (`results/causal/probe_range_sweep.csv`) rather than assumed. The three tiers span
-two orders of magnitude in range and three in precision — the spread that makes tiering
-worth doing.
-
-### 2.2 Energy model
-
-Charged per radio action from datasheet currents at 3.3 V:
-
-| tier | TX | RX | idle | sleep |
-|---|---|---|---|---|
-| 868 MHz | 45.0 mA | 5.3 mA | 1.5 mA | 0.0012 mA |
-| 2.4 GHz | 24.0 mA | 7.0 mA | 1.4 mA | 0.0012 mA |
-| UWB | 82.0 mA | **94.0 mA** | 12.0 mA | 0.0007 mA |
-
-UWB receive current exceeds its transmit current — a real property of the DW3000 and the
-reason a UWB-only system costs 769 J where 2.4 GHz costs 9.68 J. Receive-window time is
-charged explicitly via `AccountListen`, not assumed free.
-
-Tier 1 operates under a 2.5% duty-cycle limit (WPC G.S.R. 853(E) Table-II). A frame of
-airtime *t* arms a lockout of *t*/0.025, so a 56.58 ms frame blocks the tier for 2.263 s.
-Tiers 2 and 3 are unrestricted in this configuration.
-
-### 2.3 State estimation
-
-An extended Kalman filter with sequential scalar updates and per-measurement variance.
-Position confidence is scored each cycle:
-
-```
-PCS = traceRef/(traceRef + traceSigma)  +  1/max(GDOP, 1)  +  nLOS/nTotal
-```
-
-with `traceRef = 10.0 m²`. The three terms capture posterior uncertainty, geometric
-dilution, and line-of-sight quality respectively. Escalation thresholds are
-1.55 / 1.70 / 2.30 per tier. Innovations are gated by Mahalanobis distance against
-χ²₀.₉₉ = 9.21 at 2 degrees of freedom.
-
-### 2.4 Evidence-gated escalation
-
-The mechanism that produces the results in §5. Escalation from tier 2 to tier 3 requires
-**both**:
-
-1. **Confidence** — `PCS < pcsThresholdUp[tier]`, i.e. the current fix is not good enough.
-2. **Evidence** — the node's own EKF estimate predicts at least 3 UWB anchors within
-   `uwbPredictRadiusM = 20 m`, behind a quality gate that suppresses the prediction when
-   `sqrt(traceSigma) > 0.25 × radius`.
-
-The predicate is **suppress-only**: it is applied after the confidence test and can never
-create an escalation that confidence did not request. The quality gate matters — a
-position estimate too uncertain to be trusted must not be used to predict coverage, and
-without the gate the predicate would propagate its own error.
-
-The predicate's operating curve was measured against geometric ground truth at two
-deployment scales:
-
-| radius | boxHalf=1000 recall / precision | boxHalf=2000 recall / precision |
-|---|---|---|
-| 12.8 m | 0.283 / 1.000 | 0.219 / 1.000 |
-| **20.0 m** | **0.843 / 1.000** | **0.854 / 0.988** |
-| 30.0 m | 0.981 / 0.981 | 1.000 / 0.970 |
-
-R = 20 m was selected because it holds across a doubling of deployment scale. The
-reconstruction used to compute this curve was validated against each trace's own
-visibility column — **0 mismatches in 1440 cycles at both geometries** — before any figure
-was derived from it.
-
----
-
-## 3. Seed generation and experimental control
-
-Every comparison in this report is made across 20 independent seeds. This section states
-exactly what a seed controls, because the strength of every claim depends on it.
-
-### 3.1 Seeding mechanism
-
-```
-RngSeedManager::SetSeed(seed)              // the --seed argument, 1..20 contiguous
-RngSeedManager::SetRun(1)                  // fixed
-RngSeedManager::ResetNextStreamIndex()     // called at the head of every arm
-```
-
-`SetRun` is held constant; the seed is the only varied input.
-
-### 3.2 Why `ResetNextStreamIndex()` is required
-
-The physics engines construct random variable streams without explicit `SetStream()`
-assignment, so each takes the next automatic stream index. `SetSeed()` does not reset that
-counter — it is a separate call. Without an explicit reset, arm 6's engines begin drawing
-where arm 5's stopped, and no two arms ever share a channel realization.
-
-This was measured, not assumed. Two arms with identical EKF state and identical poll counts
-reached **334 versus 336** engine evaluations by t = 2.5 s — the first cycle, before either
-arm's policy had made a single decision. At t = 7.5 s the same six anchors returned 6
-decodes on one arm and 2 on the other.
-
-The reset is present in both `RunArm` and `RunProbe`. Its absence invalidated an earlier
-generation of cross-arm results, which were discarded rather than corrected.
-
-### 3.3 What a seed controls
-
-| component | stochastic? | stream |
-|---|---|---|
-| gateway, anchor, facility placement | **no** — closed-form from geometry parameters | — |
-| tag trajectory | yes | explicitly assigned stream |
-| channel realization (shadowing, fading, Markov regime) | yes | engine-private, auto-indexed |
-| NLOS state | yes | 4-state Markov chain within the engine |
-| packet delivery | yes | engine draws |
-| EKF process and measurement noise | **no** — `Q` and `R` are scaled analytically | — |
-
-Deployment geometry is deterministic: at a given `boxHalf` and `gwGrid`, every seed places
-every anchor identically. The seed varies the *channel*, the *trajectory*, and the
-*propagation environment* — which is what makes each seed a distinct deployment
-realization rather than a distinct network.
-
-### 3.4 What is common across arms, and what is not
-
-**Common at a given seed:** the deployment geometry, and the tag trajectory — every arm
-walks an identical path.
-
-**Not common:** the alignment of channel draws to individual links in time. All arms read
-the same stream, but they consume it at arm-dependent rates, because which tier is polled
-and how many anchors are addressed depend on the arm's own behaviour. Arm A's tenth draw
-and arm B's tenth draw are the same number, but they are not applied to the same link at
-the same instant.
-
-The consequence is stated plainly because it governs how these results may be read: a
-cross-arm difference at a single seed carries a channel-draw component. **The 20-seed sweep
-is therefore the minimum evidence for any claim comparing two arms, not a refinement of a
-single-seed result.** All comparisons in §5 are made across the full 20 seeds, and per-seed
-distributions are reported rather than means alone.
-
-### 3.5 Determinism
-
-Two runs of the same binary at the same seed produce byte-identical output (gate G2). More
-strongly, two **independently rebuilt** binaries produced byte-identical traces across all
-six arms — establishing that the results depend on the source, not on the build.
-
----
-
-## 4. Method
-
-### 4.1 Arms
-
-| arm | description |
-|---|---|
-| `static_868` | tier 1 only — maximum range control |
-| `static_2p4` | tier 2 only — the strongest single-band control |
-| `static_uwb` | tier 3 only — maximum precision control |
-| `fixed_threshold` | prior art: escalate when `traceSigma > 100 m²` |
-| `ca_tbl_no_integrity` | proposed architecture, integrity check disabled |
-| `ca_tbl_full` | proposed architecture, complete |
-
-### 4.2 The requirement, derived before measurement
-
-**Accuracy R = 25 m.** A ground searcher dispatched to a reported position sweeps an
-effective width *W* either side of their track; a fix is actionable if the true position
-falls inside that swept area, giving `R = W/2`. With `W = 50 m`, `R = 25 m`.
-
-**Availability A = 0.95.** A search coordinator tolerates the tag being unlocatable for at
-most three minutes in any hour of operation: `A = 1 − 3/60 = 0.95`.
-
-Both values were fixed in pre-registration `b49df46` before any arm was scored against
-them.
-
-### 4.3 Metric and its population
-
-```
-availability = (cycles with a fix AND error <= 25 m) / ALL cycles in the run
-```
-
-The denominator is **every cycle**, not every cycle that produced a fix. A cycle with no
-fix counts against availability. This is the definition that makes the metric meaningful
-for a rescue system: a fix that was never produced cannot guide a searcher, and a scoring
-rule that ignores it would reward a system for declining to answer.
-
-`CEP50` and `RMSE` are reported over fix-cycles only and are stated alongside availability,
-never instead of it.
-
-Run configuration: 3600 s at `dt = 2.5 s` = **1440 cycles per run**, `boxHalf = 2000 m`,
-`gwGrid = 5`. Facility spacing is 940 m against a measured tier-2 r80 of 909.5 m — a
-`spacing/r80` ratio of **1.03**, the regime in which tier-2 coverage is marginal and the
-escalation decision therefore carries information.
-
----
-
-## 5. Results
-
-### 5.1 The escalation trigger fires correctly
-
-Scored against geometric ground truth, using the simulator's own definition: the positive
-class is `visUwb >= 3` (tier 3 is geometrically solvable), the prediction is
-`activeTier == UWB`, and the population is all cycles. Pooled over 20 seeds, 28,800 cycles:
-
-| | TP | FP | FN | precision | recall | **F1** |
-|---|---|---|---|---|---|---|
-| confidence only | 1,778 | 21,116 | 40 | 0.0777 | 0.9780 | **0.1439** |
-| **confidence + evidence** | 1,280 | **90** | 538 | **0.9343** | 0.7041 | **0.8030** |
-
-**Precision rises from 0.078 to 0.934 — a 12-fold improvement — and F1 by 5.6×.**
-Escalations into conditions where the precision tier is geometrically incapable of
-producing a fix fall from 21,116 to 90.
-
-Recall falls from 0.978 to 0.704: the predicate declines 538 cycles in which tier 3 would
-in fact have been solvable. This is the deliberate cost of the quality gate, which
-suppresses escalation when the position estimate driving the prediction is itself too
-uncertain to trust. The trade is strongly favourable — F1 is the correct summary because
-both error classes carry cost, and it improves by a factor of 5.6.
-
-The effect is consistent across seeds: F1 improves on 20 of 20.
-
-### 5.2 Escalation efficiency and energy
-
-| quantity | confidence only | confidence + evidence |
-|---|---|---|
-| time on tier 3 | 79.5% of cycles | **4.8%** |
-| fixes sourced from tier 3 | 5.6% | 3.9% |
-| **escalation efficiency** | **0.071** | **0.827** |
-| escalations per run | 216.2 | 6.8 |
-| CEP50 | 4.79 m | **2.69 m** |
-| availability | 0.9742 | **0.9917** |
-| **energy** | 622.92 J | **24.26 J** |
-
-Escalation efficiency — the ratio of fixes obtained from a tier to time spent on it — rises
-from 0.071 to 0.827. Under confidence-only escalation the system spent roughly 14 cycles on
-the precision tier per fix it produced; with evidence gating, 1.2.
-
-**Energy falls 25.7×, and accuracy and availability improve simultaneously.** These are not
-in tension because they share a cause: time spent on a tier that cannot deliver is time not
-spent on one that can. The system was paying UWB receive current — 94 mA, the highest in
-the platform — while taking its fixes from the fallback tier.
-
-Escalation is suppressed, not eliminated: 6.8 escalations per run survive, and 4.8% tier-3
-occupancy against roughly 6.6% geometric availability confirms the architecture still
-reaches the precision tier when the precision tier is present.
-
-### 5.3 Deployment reliability
-
-Each seed is an independent deployment realization: a distinct channel, trajectory and
-propagation environment over identical infrastructure. The operational question is not what
-a system achieves on average but **how often a deployment meets specification**, because a
-rescue team cannot know in advance which deployment it has drawn.
-
-| arm | deployments meeting spec | mean availability | worst deployment |
+| result | figure | qualification | source |
 |---|---|---|---|
-| **`ca_tbl_full`** | **19 / 20** | 0.9917 | **0.9097** |
-| `ca_tbl_no_integrity` | 18 / 20 | 0.9903 | 0.9097 |
-| `fixed_threshold` | 18 / 20 | 0.9828 | 0.8889 |
-| `static_2p4` | 14 / 20 | 0.9426 | **0.7451** |
-| `static_868` | 0 / 20 | 0.0691 | 0.0437 |
-| `static_uwb` | 0 / 20 | 0.0551 | 0.0361 |
+| Tiering buys reliability in a degraded environment | `ca_tbl_full` **19/20** vs `static_2p4` **0/20** deployments, at **1.56×** the energy | **No verdict attached** — no reliability criterion was registered, and inventing one after seeing the result is what pre-registration prevents. §4.1 | `results/p10_grid` |
+| One configuration in 320 is cheaper *and* equally reliable | M1 **0.9531** [0.9296, 0.9775] | **Five caveats, none optional** — a single isolated cell, a 4.5% margin, neighbours on the wrong side, and all ten adjudicable cells in the easiest environment. §4.2 | `results/p10_grid` |
+| The dimensionless axis transfers | window held at `spacing/r80` 1.02–1.23 across a **26%** change in `r80` | A result about method; independent of any claim passing. §4.3 | `results/p10_env_v7`, `_v8` |
 
-**The proposed architecture meets the requirement in 19 of 20 deployments; the best single
-band in 14 of 20.** Six deployments in twenty — 30% — in which a 2.4 GHz-only system fails
-to locate the tag as often as the mission requires.
+**Results falsified.**
 
-The worst case is the sharper number. In its poorest deployment `static_2p4` leaves the tag
-unlocatable for **25.5% of the mission**. The proposed architecture's poorest deployment
-leaves it unlocatable for **9.0%**. Mean availability of 0.9426 obscures this entirely — it
-reads as "close to 95%" while concealing that one deployment in five loses the tag for a
-quarter of the operation.
+- **The integrity gate does not pay** (Claim 9) — all four response policies lose
+  availability against no gate at all, in eight of eight cells. Narrower than it
+  sounds; §5.1.
+- **The confidence model does not beat a flat threshold** (Claim 8) — 19/20 vs 18/20
+  at 24.26 J vs 22.77 J.
+- **The original operating window is withdrawn** (Claim 3) — it was inferred from a
+  region where every pre-registered verdict was FAIL or INCONCLUSIVE.
 
-**Both single-band extremes fail categorically, and for opposite reasons.** `static_868`
-achieves 0.0% outage — it always produces a fix — but at 100.6 m CEP50, far outside
-actionable range: **0/20**. `static_uwb` achieves 0.16 m CEP50, the best in the study, but
-is geometrically unavailable 94.4% of the time: **0/20**. Range without precision and
-precision without range each fail the same joint requirement. This is the argument for
-tiering, measured rather than asserted.
+**Defects the method found.** A six-decibel sensitivity-table indexing error on the
+tier carrying 95% of active cycles; PCS confidence saturating so it cannot express a
+diverged filter; a gate suite that overwrote the evidence it verified; a degeneracy
+screen that conflated four mechanisms into one verdict. Two were found by checks
+failing, two by results being arithmetically impossible. §6.
 
-### 5.4 Confidence scoring versus a flat variance threshold
+**The structural finding.** The project registered a **cost** criterion for an
+architecture whose value proposition is **reliability**, and the two select for
+opposite conditions — a cost win needs a qualifying competitor, a reliability win
+needs the competitor to fail. Demonstrated, not argued: the screening rule and the
+verdict rule carried disjoint cell sets, and all ten cells where the rule could
+adjudicate sat in the *easiest* environment — the one where tiering is least needed.
+§7.
 
-The prior-art baseline escalates on a single quantity, `traceSigma > 100 m²`. The proposed
-policy fuses posterior uncertainty, geometric dilution and line-of-sight quality.
+---
 
-| arm | deployments | availability | CEP50 | energy |
+## 2. The architecture
+
+Design intent, in the past tense. Nothing in this section is a claim.
+
+**Three tiers.** Tier 1, 868 MHz LoRa (SX1262-class), SF7, 125 kHz, 14 dBm — wide-area
+coverage, ranging by inverting RSSI through a path-loss model. Tier 2, 2.4 GHz
+(SX1280-class), SF7, 800 kHz, 12.5 dBm — mid-range refinement by symmetric two-way
+time-of-flight; measured `r80` **1149.5 m**. Tier 3, UWB (DW3000-class), 499.2 MHz at
+7.99 GHz, −16.47 dBm — precision two-way ranging at facilities, `r80` ≈ 13.5 m.
+
+**The estimator.** A four-state EKF (position, velocity) with sequential scalar
+updates, process noise 1.0 m/cycle in position, fed by multilateration over the
+active tier's anchors.
+
+**The confidence score (PCS).** An unweighted sum of three terms, each bounded in
+`[0,1]`: filter uncertainty `traceRef/(traceRef + traceSigma)`, geometry
+`1/max(gdop,1)`, and line-of-sight fraction `nLos/nTotal`. Escalation was intended to
+fire when PCS fell below a per-tier threshold — 1.55 on tier 1.
+
+**The integrity gate.** Each candidate fix was tested against the EKF prior by
+Mahalanobis distance, `D² = dᵀ(P_prior + R_fix)⁻¹d`, against χ²₀.₉₉ = 9.21 at 2 DOF. A
+fix exceeding it on an all-line-of-sight cycle was marked *suspect* and rejected. Four
+response policies were built: `none` (reject only), `inflate`, `bounded`, `reinit`.
+
+---
+
+## 3. Method
+
+**This section leads because it is the strongest part of the work.**
+
+**Pre-registration.** Every campaign's predictions, falsifiers and abort conditions
+were written to a `PREDICTION.md` and committed **before the first cell ran**;
+directory timestamps are checkable against the commit. The decision rule — three
+outcomes, with "no competitor meets the requirement" deliberately INCONCLUSIVE rather
+than PASS — was fixed in advance and is applied verbatim, including where it returns
+no verdict at all.
+
+**The gate suite, G1–G10.** Build, determinism, null ablation, verifier, verifier
+self-test, tracked-evidence-versus-fresh-run, tree-clean-at-exit,
+must-stay-untracked, deliverables-tracked-and-committed, and cited-paths-resolve.
+
+**Every gate has a negative fixture, built in `/tmp`, and every one has been observed
+to fail.** A suite that has only ever passed proves nothing about what it would catch.
+G6 in particular was re-verified *after* being repointed at new evidence, because a
+gate that turns green by being repointed is indistinguishable from one defanged by it:
+it fails on mutated evidence, and still distinguishes "the tracked evidence disagrees"
+from "the fresh run errored".
+
+The suite also runs **every** gate and reports a summary rather than exiting on the
+first failure. It used to exit early, and while G6 was deliberately red, G7–G9 could
+not be observed to run at all.
+
+**Provenance.** Every run writes `run_id.txt` recording the commit, the count of
+modified tracked files under the source tree, the build profile, and a SHA-256 digest
+of each output file — written after the last stream closes. `dirty 0` means the
+binary is rebuildable from a named commit.
+
+**Clone reproduction.** A fresh clone builds `optimized` and reproduces
+`results/baseline_v7/arm_summary.csv` **byte-for-byte** using the flags recorded in
+that baseline's own sidecar. Default flags do **not** reproduce it — a property worth
+stating, because it reads as a reproduction failure when it is a flag-set difference.
+
+**Mechanism-aware degeneracy screening.** One seed is run and screened before twenty
+are spent. "Degenerate" is meaningful only relative to a named mechanism — `tiering`,
+`integrity`, `trigger`, `energy` — and the tool refuses a single verdict without one.
+Over 3205 directories: `tiering` 1.1%, `integrity` 27.3%, `trigger` 40.0%,
+`energy` 0.1%.
+
+---
+
+## 4. Results that stand
+
+### 4.1 Tiering buys reliability in a degraded environment
+
+Source: `results/p10_grid`, `source 13a62bb dirty 0`, 20 seeds, digests verified.
+
+At `envFacility = RURAL_FOREST`, `nlosSource = legacy`, `dwell = 800`,
+`boxHalf = 2000`:
+
+| arm | deployments meeting (A ≥ 0.95, R ≤ 25 m) | energy |
+|---|---|---|
+| `ca_tbl_full` | **19 / 20** | 1.56× |
+| `static_2p4` | **0 / 20** | 1.00× |
+
+Tier 2 fails completely in forest at that spacing; the tiered arm survives. The paired
+per-seed difference peaks at **+0.95** — near-perfect separation.
+
+**No verdict is attached to this.** The project registered a decision rule for *cost*,
+not for reliability, and inventing a reliability criterion after seeing which cells
+would pass it is precisely what pre-registration exists to prevent. Whether +19
+deployments for 1.56× the energy is worth buying is a deployment decision, not a
+simulation result.
+
+### 4.2 One configuration in 320 is cheaper and equally reliable
+
+Source: `results/p10_grid/c_ef0_legacy_dw800_b1500`, `source 13a62bb dirty 0`,
+20 seeds.
+
+At `RURAL_OPEN`, `legacy`, `dwell = 800`, `boxHalf = 1500`, both `ca_tbl_full` and
+`static_2p4` meet the requirement on 20/20 seeds, and:
+
+> **M1 = 0.9531, 95% CI [0.9296, 0.9775]** — geometric mean of per-seed ratios with a
+> seed-level bootstrap over 10 000 resamples. **Not** a ratio of means.
+> `ca_tbl_full` 14.523 J against `static_2p4` 15.201 J: **4.5% cheaper, equally
+> reliable.**
+
+This is the **only PASS in 320 cells** under the registered rule, and the first in the
+project's history. **Five caveats travel with it and none is optional:**
+
+1. **A single isolated cell of 320.** A point, not a region.
+2. **A 4.5% margin.**
+3. **At the `dwell` level added to the grid after the preceding stage reported** —
+   disclosed in the pre-registration, and load-bearing: the same cell at `dwell = 90`
+   is 1.1571.
+4. **Its neighbours are on the wrong side** — 1.0878 at `boxHalf` 2000, 1.1980 at
+   2500. And **all ten adjudicable cells were `RURAL_OPEN`**: only there does a
+   single-band arm also qualify, giving the rule something to compare against. The
+   cost claim is decidable **only where tiering is least needed**.
+5. **The filter's calibration in this cell is imperfect** — NEES 2.95 at 20 seeds
+   against a 2-DOF expectation of 2.0, median 0.58, 3.3% of cycles above the 95%
+   bound, concentrated in UWB. The PASS is adjudicated on ground-truth error and
+   energy, neither of which reads the covariance, so its arithmetic is unaffected —
+   but the tier decisions leading to it were taken on a confidence score derived from
+   that covariance, and should not be described as confidence-driven in the sense the
+   architecture claims.
+
+### 4.3 The dimensionless axis transfers
+
+Sources: `results/p10_env_v7`, `results/p10_env_v8`.
+
+Correcting the tier-2 sensitivity defect moved `r80` from 909.5 m to **1149.5 m**, a
+26% change. The region where `static_2p4` loses availability while the tiered arms
+retain it moved **~29% in physical units** — `boxHalf` ~1935–2515 to 2500–3000 — and
+stayed at **`spacing/r80` 1.02–1.23** in dimensionless units.
+
+The axis was chosen to be scale-free and it survived a 26% change in its own
+denominator. This is a result about **method**, and it does not depend on any claim
+passing.
+
+---
+
+## 5. Results that do not stand
+
+### 5.1 Claim 9 — the integrity gate does not pay, and the statement is narrower than it sounds
+
+Sources: `results/c9_clean` (`source 57dcadf dirty 0`, 40 cells, 120 digest entries
+verified) and `results/abl_clean` (`source 22ee9f9 dirty 0`, 120 cells, 360 entries
+verified).
+
+Availability, `ca_tbl_full − ca_tbl_no_integrity`. Negative means the gate **loses**.
+Estimator: mean of per-seed differences over 20 seeds, sign test beside it.
+
+| policy | F1 | sign | F3 | sign |
 |---|---|---|---|---|
-| `ca_tbl_full` | **19/20** | **0.9917** | **2.69 m** | 24.26 J |
-| `fixed_threshold` | 18/20 | 0.9828 | 3.09 m | 22.77 J |
+| `none` | −0.0305 | 1/18/1 | −0.0540 | 1/19/0 |
+| `inflate` | −0.0053 | 7/13/0 | −0.0085 | 3/17/0 |
+| `bounded` | −0.0152 | 5/15/0 | −0.0136 | 2/18/0 |
+| `reinit` | −0.0164 | 5/15/0 | −0.0172 | 2/18/0 |
 
-Paired per seed, `ca_tbl_full` achieves higher availability on **20 of 20 seeds — no ties,
-no reversals** (mean margin +0.0089). A sign test on 20/20 gives p ≈ 1×10⁻⁶: the effect is
-small in magnitude but perfectly consistent, which is the signature of a real mechanism
-rather than noise.
+**Negative in the mean in all eight cells**, with the sign test running against the
+policy in all eight. Detection itself is sound — the gate fires 120–206 times per run
+and the arms differ in every cell — but rejecting a fix subtracts availability without
+supplying a better one.
 
-The cost is 6.5% additional energy (24.26 J against 22.77 J) and the benefit is one
-additional deployment meeting specification plus 0.4 m of median accuracy. The confidence
-model earns its complexity, and the honest scale of that benefit is small.
+The ordering `inflate < bounded ≈ reinit < none` in loss, roughly a 6× spread, is
+reported as a **measured value with no mechanism claimed**. It is consistent with a
+bounded response subtracting less than an unbounded rejection; no measurement
+establishes that, and it is not asserted.
 
----
+**What was actually falsified, stated carefully.** Both campaigns ran
+`suspectForcesEscalation = false`. That flag removes a documented side effect under
+which a suspect fix *also* forces an escalation. So these campaigns isolate
+**rejection alone**: detect a bad fix, discard it, and do nothing else.
 
-## 6. Why this architecture performs better
+**The combined detect-and-escalate mechanism was not falsified.** Under
+propagation-derived NLOS it moves `cep50M` from **92.15 m to 3.10 m**. The correct
+statement is *rejection without escalation does not pay*, not *the integrity check
+does not work*. The difference between those two sentences is the difference between
+an accurate result and an overclaimed negative.
 
-Four mechanisms, each traceable to a measurement above.
+### 5.2 Claim 8 — the confidence model does not beat a flat threshold
 
-**It is the only configuration that satisfies both halves of the requirement.** Tier 1
-reaches 1515 m but resolves to 100 m; tier 3 resolves to 0.16 m but reaches 12.8 m. Neither
-clears a joint availability-accuracy bar at any seed. Composing them under a policy does —
-19/20 — because the tiers cover each other's failure mode rather than competing on a single
-axis (§5.3).
+`ca_tbl_full` 19/20 deployments at 24.26 J against `fixed_threshold` 18/20 at 22.77 J.
+The flat variance threshold escalates on nearly the same occasions. Falsified thinly,
+and reported as thin.
 
-**Escalation is conditioned on evidence, not on need alone.** A system that escalates
-whenever its fix is poor will escalate hardest exactly where the precision tier is absent,
-because poor fixes and sparse coverage share a cause. Requiring predicted coverage before
-spending precision-tier energy raises trigger precision from 0.078 to 0.934 and cuts energy
-25.7× while improving accuracy (§5.1, §5.2).
+### 5.3 Claim 3's original window — withdrawn
 
-**It degrades rather than fails.** Every cycle retains a long-range fallback, so the
-architecture's worst deployment holds 0.9097 availability where the single band drops to
-0.7451. The failure mode is graceful loss of precision, not loss of the tag.
+The ledger read *PROVEN, SCOPED — window 1.0–1.3*. Every pre-registered verdict in the
+campaign that window was drawn from was **FAIL or INCONCLUSIVE**, and the INCONCLUSIVE
+entries read *"`ca_tbl_full` does not meet (A,R)"*. A window was inferred from a region
+in which the proposed system did not meet its own requirement. Withdrawn with its
+reason; replaced by §4.2.
 
-**Confidence fusion outperforms a single-variable trigger consistently.** 20 of 20 seeds,
-no reversals, for 6.5% additional energy (§5.4).
+### 5.4 Two withdrawn tables, both pre-D1
 
----
+**The 19/20-vs-14/20 deployment-reliability table** was measured with tier 2 six
+decibels deaf. Regenerated (`results/p10_plane_v7`, `source 7c0c5e5 dirty 0`):
+`ca_tbl_full` 19/20 → **20/20**, `static_2p4` 14/20 → **19/20**. A five-seed
+reliability gap became one seed, at 2.1× the energy, and `static_2p4` also wins the
+energy metric — 12.679 J against 27.094 J. **The argument does not survive.**
 
-## 7. Verification and reproducibility
+**The integrity ablation** (positive 4, negative 1, tied 15) is withdrawn as **pre-D1,
+not as wrong**. It reproduces exactly from its cited directory — reproducibility
+established provenance, never validity. The mechanism: the two arms differ only at the
+gate, whose trigger reads `nNlos`, and **tier-2 occupancy in that campaign is 99.6%**
+(27 322 cycles against 108 on tier 1), so `nNlos` and the residuals come almost
+entirely from the links the six-decibel error changes. Gate eligibility measured at
+**151/28 718 = 0.53%** all-LOS fix cycles, yielding **9 suspects over 20 seeds**. A
+sensitivity error that moves which anchors are heard moves `nNlos`, and it does not
+cancel in the difference between the arms.
 
-Every number above is regenerable from the published repository.
+### 5.5 PCS escalation under propagation NLOS
 
-- **Gate suite** `scripts/catbl_gates.sh`: G1–G5 all pass, suite exit 0. Determinism,
-  ablation causality, and a verifier self-test of 11 cases.
-- **Verifier** `verify_causal_sim.py`: 141 checks passed, 161 gates evaluated, all six arms
-  audited.
-- **Provenance.** Each result directory carries a `run_id.txt` recording the run identifier,
-  the full invocation, the source commit, the working-tree dirty count, the build profile,
-  and a SHA-256 digest of every file the run produced. The digest is written after the last
-  output stream closes, so its presence is also a completeness signal — a run that died
-  part-way leaves none.
-- **Clone test.** A fresh clone of the published commit, built under
-  `--build-profile=optimized`, reproduces `results/baseline_v6/arm_summary.csv`
-  byte-for-byte at seed 7 with the flags recorded in that baseline's own sidecar.
-- **Pre-registration.** Metric definitions, the requirement `(A, R)`, the testability
-  predicate and the decision rule were committed at `b49df46` and `a059203`, both
-  timestamped before every run they govern.
+With PCS as the sole escalation trigger and the uncertainty term saturated,
+**escalation cannot fire however large the error becomes.** Measured: `term1` 0.0006,
+`term2 + term3` = 1.9173 against a threshold of 1.55, **0 escalations**, 1440/1440
+cycles on tier 1, `cep50` 89.91 m — with **NEES 1.95**, a correctly calibrated filter
+whose confidence metric cannot express its own uncertainty. Control: the same
+configuration under `legacy` NLOS has `term3` 0.1932, sum 1.1932, and escalation
+fires.
 
----
+**Three qualifications narrow this, and the registered prediction was a miss:**
 
-## 8. Limitations and future work
-
-Each item below is a property of the evaluation scenario, not a result about the
-architecture. They are stated with what would be required to resolve them.
-
-### 8.1 Single tag
-
-Every run carries one tag. Multi-target arbitration, channel contention under load, and the
-duty-cycle regime's behaviour at scale are therefore untested. The tier-1 duty cycle arms a
-2.263 s lockout per 56.58 ms frame, so contention is expected to become the binding
-constraint well before the radio does — but with one tag there is no contention to measure.
-
-*Required:* sweep 5, 10 and 20 tags, measuring offered load, collisions, capture events and
-per-node lockout time.
-
-### 8.2 Tiers are co-located by design
-
-Tier-2 and tier-3 anchors ring the same four facility sites, at 150 m and 10 m
-respectively. This was a deliberate experimental control — it ensures an escalation failure
-is unambiguously a decision error rather than a siting artefact, which is what makes the
-trigger-correctness result in §5.1 clean.
-
-But it means the tiers fail together in the gaps between facilities, where only tier 1
-reaches. The architecture's spatial argument — that tiers should be sited to cover each
-other's gaps — is therefore untested, and any upper bound on the architecture's operating
-range in this study is a property of co-located siting rather than of tiering.
-
-*Required:* a complementary-siting variant run alongside co-located as a second treatment
-arm, so the comparison isolates siting rather than confounding it.
-
-### 8.3 One deployment density evaluated
-
-Results are at `boxHalf = 2000 m`, `spacing/r80 = 1.03` — the regime where tier-2 coverage
-is marginal. The architecture's behaviour across the density spectrum is not mapped.
-
-*Required:* sweep `boxHalf ∈ {1500…6000}`, spanning `spacing/r80` from 0.78 to 3.10, and
-report each arm's availability against that dimensionless axis. This yields a deployment
-rule — the infrastructure density above which tiering becomes necessary — which transfers
-to any radio pair rather than being specific to this study's hardware.
-
-### 8.4 Cross-arm channel alignment
-
-As stated in §3.4, arms consume the shared random stream at arm-dependent rates, so
-per-seed cross-arm differences carry a channel-draw component. This raises the variance of
-paired comparisons; it does not bias them, and all claims here rest on 20-seed aggregates
-rather than single-seed differences.
-
-*Required:* true common random numbers — binding streams to links rather than to draw
-order — which would tighten every paired comparison in §5.
-
-### 8.5 The integrity check
-
-Disabling the integrity check costs one deployment (19/20 → 18/20) and 0.0013 mean
-availability. Paired per seed the difference is positive on 4, negative on 1 and exactly
-tied on 15 — too weak to attribute to the mechanism at this scale. The check's value, if
-any, lies in fault conditions this scenario does not create.
-
-*Required:* fault injection — anchor position error, spoofed ranges, systematic bias — under
-which an integrity check has something to detect.
-
-### 8.6 Tier-2 escalation is ungated
-
-The evidence predicate governs the tier-2 → tier-3 step. The tier-1 → tier-2 step remains
-ungated, because the tier-2 radio sleeps while another tier is active and its neighbour
-table is consequently empty, making observed evidence unavailable from tier 1.
-
-*Required:* a predicted-coverage gate for tier 2, symmetric with the tier-3 predictor, using
-the same anchor map at a radius derived from the measured 909.5 m r80. The ratio is
-favourable — 909.5 m against a tier-1 position error of 63–83 m is roughly 11:1, against
-20 m versus the same error for the tier-3 case — so the quality gate that constrains the
-tier-3 predictor would be satisfied almost everywhere.
+- The both-hold fraction spans **0.054 to 0.998** across ten populations rather than
+  clustering as predicted.
+- **Registered prediction 1 is a MISS.** The discriminating variable is the position
+  error, not the LOS term: saturation is common where error is already 68–90 m and
+  rare where it is 2.9–4.3 m. Saturation is **coupled to divergence rather than
+  independently causing it**.
+- In **nine of ten populations the suspect path supplies escalation**, so PCS's
+  contribution is unobservable there. Only one population isolates PCS as the sole
+  trigger, and it is the only one with zero escalations.
 
 ---
 
-## 9. Reproducing these results
+## 6. Defects the method found
 
-```bash
-./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
+### 6.1 A six-decibel sensitivity-table indexing error
 
-mkdir -p results/verify
-./ns3 run "ca_tbl_causal_sim --seed=1 --duration=3600 --boxHalf=2000 --gwGrid=5 \
-  --escalationRequiresEvidence=true --trace=true --outdir=results/verify"
+`GetSensitivityThreshold` computed `sf - 7` against tables whose own headers declare
+`index 0 = SF5`. At the configured SF7 the 2.4 GHz engine returned **−100.0 dBm**, the
+SF5 cell, instead of −106.0 — on the tier carrying ~95% of active cycles. Indices 6
+and 7 were unreachable.
+
+**Found because a result was impossible.** A closed-form propagation model built to
+reproduce the engine implied `P(deliver | NLOS)` **below zero** at 1500 m. Four
+mechanisms were proposed and refuted before the model itself was found to be feeding
+aggregate columns into a per-link formula; correcting that left a residual that
+resolved to the table index. **No gate would have caught it** — the fidelity checks
+verify ranging precision and energy accounting, both downstream of whether a packet
+was received at all.
+
+Effect: tier-2 `r80` **909.5 m → 1149.5 m**. Every result predating it was regenerated.
+
+### 6.2 PCS unweighted-sum term saturation
+
+Three terms each bounded by `[0,1]`, summed without weights against a threshold of
+1.55. The uncertainty term tends to 0 as the covariance grows, so once it saturates,
+geometry and LOS fraction alone hold PCS above threshold regardless of how uncertain
+the filter is. It can fail to contribute; it can never veto.
+
+**Found because a result was impossible**: 361 suspects and 0 escalations in the same
+run, with a filter calibrated at NEES 1.95. Recorded, **not fixed** — a fix changes the
+engine and invalidates the results tree.
+
+### 6.3 The gate suite overwrote the evidence it verified
+
+The suite regenerated three tracked result directories **in place**, silently, and
+re-dated their sidecars to the last gate run rather than the run that produced the
+cited numbers. A verification step that rewrites its own subject cannot establish
+whether the subject was correct before it ran.
+
+**Found because a check failed** — a diagnostic batch compared the tree at start and
+end and caught six modified files. Fixed: regeneration goes to a temporary directory,
+tracked copies are read-only, and a new gate fails the suite if it exits with a
+modified tree.
+
+### 6.4 The degeneracy screen conflated four mechanisms
+
+The screen returned one verdict per run, derived mostly from tier occupancy. It failed
+a valid pre-flight in which the integrity gate fired 86 times and the arms differed in
+37 fields, and it flipped verdict on **1.4 percentage points** of that incidental
+quantity — 97.8% passed, 99.2% failed, same configuration and flags.
+
+**Found because a check failed on a campaign that was demonstrably live.** Fixed to
+report per mechanism.
+
+**And one of the corrected rules was wrong.** The energy rule flagged *any* non-zero
+draw on a zero-cycle tier and reported **66.5%** of the corpus degenerate. An
+unoccupied tier still draws CAD/idle listening energy — `static_2p4` draws 0.014 J on
+868 MHz and 0.008 J on UWB while occupying neither — which is correct behaviour.
+Requiring a material share (>1% of total, a threshold of ours and not physical) gives
+**0.1%**. Caught before publication; recorded because a methodology section that
+reports its own screen's false-positive rate is more credible than one that does not.
+
+---
+
+## 7. The structural finding
+
+The project registered a **cost** criterion — PASS requires the tiered arm's energy to
+be lower than a qualifying competitor's, with a bootstrap CI entirely below 1.0 — for
+an architecture whose value proposition is **reliability**.
+
+The two select for opposite conditions:
+
+```
+screening rule   selects cells where the single-band arm FAILS
+verdict rule     requires the single-band arm to QUALIFY
+                 (a cost win needs a competitor in the race; "no competitor meets
+                  the requirement" is INCONCLUSIVE by the rule's own text)
 ```
 
-`--build-profile=optimized` is required, not preferred: every figure in this report was
-produced under it, and the flags above are recorded in each result directory's
-`run_id.txt`. Repeat for seeds 1–20 to reproduce the tables in §5.
+**Demonstrated, not argued.** A pre-registered 320-cell grid was run; its screening
+rule and its verdict rule carried **disjoint cell sets**, and the single cell that
+passed sat in a combination the screen had rejected. All ten cells where the rule could
+adjudicate at all were `RURAL_OPEN` — the easiest environment, the one where tiering is
+least needed — because only there does a single-band arm also qualify.
+
+The registered metric cannot express the claim the architecture makes. At
+`spacing/r80` = 1.02 the tiered arm meets the requirement in **82% more deployments**
+for **27% more energy**; M1 asks only which qualifying arm is cheapest, and reliability
+enters solely through a binary qualifier. That limitation was named in the
+pre-registration *before* the campaign ran, which is what makes it an observation about
+the metric rather than an excuse constructed after an unwelcome result.
+
+---
+
+## 8. What a corrected study would register
+
+Specified, untested, with the measured motivation attached to each.
+
+1. **A joint criterion over availability and energy**, with the trade-off stated in
+   advance — for example a maximum acceptable energy multiplier per additional
+   deployment met — rather than one axis binarised into a qualifier. Motivation: §7,
+   and the 82%-more-deployments-for-27%-more-energy cell the current metric scores as
+   FAIL.
+2. **A weighted or gated PCS.** A weighted sum, a `term1` gate that vetoes when the
+   covariance term saturates, or `min` instead of sum. Motivation: §6.2 — all three are
+   plausible and **none has been run**.
+3. **Mechanism-aware degeneracy screening as a mandatory one-seed pre-flight.**
+   Motivation: §6.4, and the 27.3% / 40.0% of arm-cells that cannot speak to integrity
+   or trigger claims respectively.
+4. **A tier-2 fidelity check that reads the sensitivity tables.** Motivation: §6.1 — no
+   check in the project would catch that defect today.
+
+---
+
+## 9. Limitations
+
+**The one qualified citation.** `[M-24]` — integrity detection separation ratios, the
+F0 suspect rate, and detection latency — rests on `results/campaign_20260810/stage1`,
+which records `dirty 4`. It could not be repointed: at the time no injection campaign
+anywhere recorded `dirty 0`, and the two campaigns that now do
+(`c9_clean`, `abl_clean`) do not re-measure those particular statistics. Closing it
+would require a fifth campaign of roughly 3.8 hours. **Every other number published as
+a result traces to a `dirty 0` source.**
+
+**Single-scenario.** One mobility model, one deployment geometry family, one seed
+family. The environment sweep covers four `envFacility` levels and two NLOS sources;
+it does not cover terrain, weather, or node mobility patterns beyond a facility tour.
+
+**Simulation, not hardware.** Radio parameters come from datasheets with cited
+`file:line` provenance, but no measurement campaign validates the engines against real
+SX1262/SX1280/DW3000 hardware.
+
+**PCS is recorded as defective and left unfixed.** §6.2's saturation is a live defect
+in the shipped configuration. Fixing it changes the engine and invalidates every
+result in this report, so it is recorded rather than corrected.
+
+**The reliability result in §4.1 has no verdict** because no reliability criterion was
+registered. It is reported as a measurement, and a reader who wants a verdict must
+supply the criterion — which is exactly the gap §8.1 exists to close.
+
+**Screened-out evidence.** 27.3% of arm-cells cannot speak to integrity claims and
+40.0% have no trigger population. Those runs are not defective; they were not designed
+to exercise those mechanisms. Reading a number off them would be reading a number with
+no population.

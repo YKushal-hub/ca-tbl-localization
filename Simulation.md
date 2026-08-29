@@ -622,11 +622,11 @@ engine and invalidates every result in this document.
 `ca_tbl_full`, exited 0 and wrote a valid digest — while never leaving tier 1. Every
 check in the project passed on it. **"It ran" is not "it measured."**
 
-`scripts/degeneracy_check.py` makes the distinction mechanical. It reads one result
-directory and returns `USEFUL` or `DEGENERATE: <reason>` per arm on stated rules: a
-hybrid arm spending >99% of cycles on one tier, zero escalations, a FULL-mode arm with
-zero suspects, `hadFix` below 0.90, or a static arm showing cycles on a tier it does not
-own.
+`scripts/diagnostics/degeneracy_check.py` makes the distinction mechanical. It reads
+one result directory **and the name of the mechanism under test**, and returns `LIVE`
+or `DEGENERATE` for that mechanism with the underlying quantity printed beside the
+verdict. Called without a mechanism it reports all four and **refuses to return a
+single verdict**, because that ambiguity is what the first version got wrong.
 
 **The first version of this screen returned ONE verdict per run**, derived mostly from
 tier occupancy, and reported **7531 of 16056 arm-cells degenerate — 46.9%**. That
@@ -646,6 +646,19 @@ mechanism is named. Re-run over the same corpus, 3205 directories:
 | `integrity` | 875 | 3 203 | **27.3%** |
 | `trigger` | 3 431 | 8 584 | **40.0%** |
 | `energy` | 23 | 15 390 | **0.1%** |
+
+What each rate means, one line each, all over the same population of **3205
+directories**:
+
+- **`tiering` 1.1%** — hybrid arms pinned to one tier *and* never escalating. Rare:
+  most runs do exercise their tier logic.
+- **`integrity` 27.3%** — runs in which the gate never fires or the two arms are
+  identical. Just over a quarter of the runs that contain a `ca_tbl_full` arm cannot
+  say anything about the integrity check.
+- **`trigger` 40.0%** — runs with `trig_tp + trig_fp = 0`. Two in five have no trigger
+  population at all, so precision and recall are undefined by construction in them.
+- **`energy` 0.1%** — arms drawing a material share of energy on a tier they never
+  occupy. Almost never; see the corrected rule below.
 
 **The finding is not retracted — cells that measured nothing still measured nothing —
 but it is now stated at the resolution it should have had.** The single 46.9% was
