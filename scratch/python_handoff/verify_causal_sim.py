@@ -353,7 +353,10 @@ def verify_output_digest(outdir, ridtext):
                  f"no digest block, and the recorded source {commit} is not in this "
                  f"repository -- history may have been rewritten, or this is a clone "
                  f"of a rewritten repo. This is NOT evidence that the build predates "
-                 f"the digest writer; the question could not be asked.")
+                 f"the digest writer; the question could not be asked. "
+                 f"RESOLUTION PATH: SHA_MAP.md records old->new for every commit moved "
+                 f"by the 2026-09-01 attribution rewrite; look {commit} up there before "
+                 f"treating it as dangling.")
         elif had == "nogit":
             warn("digest: run_id lists the outputs it produced", False,
                  f"no digest block, and the recorded source {commit} could not be "
