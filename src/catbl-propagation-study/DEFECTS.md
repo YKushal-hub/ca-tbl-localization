@@ -1041,3 +1041,86 @@ Same procedure, opposite verdict, and in both cases **the term was named before
 anything was changed**. That is the argument for the instruction not to tune,
 demonstrated twice from opposite directions, and it is worth more than either
 individual outcome.
+
+---
+
+## Localising the residual: the Markov hypothesis is refuted, and the term is two-ray
+
+### The test, and the registered prediction it missed
+
+If the missing term were NLOS-conditioned with magnitude `M`, then
+`residual = nlos_frac × M`, so `residual / nlos_frac` would be **constant and equal to
+M**. Measured:
+
+| tier | residual/nlos_frac, near → far |
+|---|---|
+| 868 MHz | **−315.5 → +2.8** |
+| 2.4 GHz | **−2619.9 → +180.2** |
+
+Not constant, and it **changes sign**. Decisively, the residual is **−1.27 to −4.88 dB
+on 2.4 GHz at 10–100 m where `nlos_frac` is 0.000–0.002** — substantial residual on
+effectively-LOS links, which an NLOS-conditioned term contributes nothing to.
+
+**Registered prediction — "the residual concentrates on NLOS links, LOS residual within
+a few dB" — is a MISS.** The Markov `+6/+18 dB` additions are out, exactly as the
+falsifier specified.
+
+### What the slope analysis says instead
+
+Engine slope from its own margin column, against the model's exponent:
+
+| tier | model | engine, far field | reaches its two-ray breakpoint? |
+|---|---|---|---|
+| 868 MHz | 23.0 dB/dec | 34.6 → 47.2 | d_b = **347 m**, sweep to 6000 m — yes |
+| 2.4 GHz | 22.0 dB/dec | 42.2 → **61.0** | d_b = **977 m**, sweep to 6000 m — yes |
+| UWB | 22.0 dB/dec | **20.7 → 23.7** | d_b = **3198 m**, sweep to 180 m — **never** |
+
+**UWB's slope matches the model almost exactly, and UWB is the only tier that never
+reaches its breakpoint.** `d_b = 4·h_t·h_r/λ` with h_t ≈ 30 m and h_r ≈ 1 m
+(`lora-physics-parameters.cc:13-14`).
+
+On 2.4 GHz the residual **crosses zero at ~1200 m** against a computed breakpoint of
+**977 m** — a quantitative match, not a qualitative one.
+
+### A correction to this file's own earlier record
+
+An earlier entry states `two_ray_frac = 0.0000 at all nine distances` and treats the
+two-ray mechanism as refuted. **That measurement was 868 MHz only** — nine distances is
+the 868 sweep — and it was generalised to all three tiers. Measured in `probe_v7`:
+
+    868MHz   two_ray_frac  0.0000 at every distance
+    2.4GHz   two_ray_frac  0.8895 - 1.0000
+    UWB      two_ray_frac  0.9960 - 1.0000
+
+**The mechanism fires on two of three tiers, essentially always.** The original
+observation was correct about 868 and wrong about the population it was applied to —
+the same glob-shaped error this file has recorded three times, in a different guise.
+
+### Consequence
+
+The term to add is **two-ray ground reflection**, not a Markov addition and not terrain.
+It is pre-registered in `experiments/TWORAY_PREREGISTRATION.md` and **has not been
+implemented in this pass** — one term, one prediction, one verdict.
+
+## The UWB margin/r80 inconsistency: partially consistent, and r80 is the harsher criterion
+
+`dr80/dmargin`, computed by shifting sensitivity 1 dB and re-solving:
+
+| tier | m per dB | as % of its own r80 |
+|---|---|---|
+| 868 MHz | 77.40 | **3.90%** |
+| 2.4 GHz | 163.69 | 11.16% |
+| UWB | 2.08 | **10.19%** |
+
+UWB's 2.05 dB margin error maps to **4.3 m = 33%** of the engine's 12.8 m r80. The
+observed r80 error is **59.2%** (20.4 m against 12.8 m, a 7.6 m gap). So the mean margin
+error explains **about half** of it; roughly 26 percentage points come from something
+else — most plausibly the transition *width*, since r80 depends on the shape of the PDR
+curve and not only on its mean position. **That is a separate finding from the margin
+residual and is not asserted as understood.**
+
+**The 15% criterion is not relaxed.** It is registered and it stands. But it is
+**2.6× harsher on UWB than on 868** in margin terms — 10.19% of r80 per dB against
+3.90% — because r80 at 12.8 m is a shallow transition in absolute metres. That is
+recorded as a limitation of the criterion, reported alongside the result it produces.
+Any replacement is registered for future work, not applied here.
