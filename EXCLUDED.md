@@ -66,6 +66,7 @@ CA_TBL_HANDOFF_v4.md
 CA_TBL_HANDOFF_v5.md
 CA_TBL_SIMULATION_REPORT.md
 SESSION_CHANGELOG.md
+src/catbl-propagation-study/results/corpus.json
 ```
 
 Three of those entries are **files, not directories**, and are deliberately ignored
@@ -76,6 +77,7 @@ negative fixture. Their reasons:
 |---|---|
 | `CA_TBL_HANDOFF_v4.md`, `CA_TBL_HANDOFF_v5.md` | the working handoff and its predecessor; a project rule stated in 19 documents keeps it untracked. `35466c0` tracked it by a staging error and `aa8328b` untracked it |
 | `SESSION_CHANGELOG.md` | working log, never a deliverable |
+| `src/catbl-propagation-study/results/corpus.json` | the frozen realization corpus, 10.7 MB, deterministic from `corpus.py` at seed 20260819. Its `.sha256` is tracked as the provenance anchor and gate G11 verifies the file against it |
 | `CA_TBL_SIMULATION_REPORT.md` | an earlier technical report. Zero `###` section overlap with `Simulation.md`, so not a draft of it; cited by no deliverable; entered the index only as a side effect of an `r80` one-liner. Annotated in its own header |
 
 ## Traces are excluded, and that exclusion is asserted

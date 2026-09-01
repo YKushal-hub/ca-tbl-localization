@@ -75,6 +75,43 @@ ENV = {
     },
 }
 TIER_ENV = {"868MHz": "RURAL_FORESTED", "2.4GHz": "RURAL_OPEN", "UWB": "RURAL_OPEN"}
+
+# --- foliage ---------------------------------------------------------------
+# ITU-R P.833-10, lora-foliage-submodule.cc:36:
+#     A_veg = A_max * (1 - exp(-depth * gamma / A_max))
+# depth ~ LogNormal(ln(100), 0.6, 0, 500)   lora-physics-parameters.cc:293
+# gamma, A_max per vegetation type          lora-physics-parameters.cc:304-309
+# vegWide=VEG_DENSE_FOREST, vegFacility=VEG_SPARSE_SHRUBS
+#                                           ca_tbl_causal_sim.cc:3174-3175
+#
+# DISTANCE-INDEPENDENT: depth is a per-link draw, not a function of link length. This
+# term can explain a constant offset and never a slope. Stated here because the
+# measured gap has both, and only one of them is this.
+VEGETATION = {
+    "VEG_DENSE_FOREST":  {"gamma": 0.20, "amax": 25.0},  # lora-physics-parameters.cc:309
+    "VEG_SPARSE_SHRUBS": {"gamma": 0.04, "amax": 8.0},   # lora-physics-parameters.cc:305
+}
+TIER_VEG = {"868MHz": "VEG_DENSE_FOREST",
+            "2.4GHz": "VEG_SPARSE_SHRUBS",
+            "UWB": "VEG_SPARSE_SHRUBS"}
+FOLIAGE_DEPTH_LOG_MU = math.log(100.0)   # lora-physics-parameters.cc:293
+FOLIAGE_DEPTH_LOG_SD = 0.6               # lora-physics-parameters.cc:293
+FOLIAGE_DEPTH_MAX_M = 500.0              # lora-physics-parameters.cc:293
+FOLIAGE_CLAMP_DB = 35.0                  # lora-physics-engine.cc:527
+
+
+def foliage_loss_db(tier, u_depth, overrides=None):
+    """A_veg for one realization. u_depth is a unit-normal draw from the corpus."""
+    o = overrides or {}
+    veg = dict(VEGETATION[TIER_VEG[tier]])
+    veg.update(o.get("veg", {}))
+    depth = math.exp(FOLIAGE_DEPTH_LOG_MU + FOLIAGE_DEPTH_LOG_SD * u_depth)
+    depth = min(max(depth, 0.0), FOLIAGE_DEPTH_MAX_M)
+    g, amax = veg["gamma"], veg["amax"]
+    if depth <= 0.0 or g <= 0.0 or amax <= 0.0:
+        return 0.0
+    a = amax * (1.0 - math.exp(-depth * g / amax))
+    return min(max(a, 0.0), FOLIAGE_CLAMP_DB)
 REFERENCE_DISTANCE_M = 1.0   # lora-physics-parameters.cc:11
 
 
@@ -125,24 +162,25 @@ def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env):
     return max(0.0, min(atten + diff, cap))
 
 
-def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, overrides=None):
-    """tx + gains - path_loss - excess_loss. Gains are 0 dBi: the probe registers
-    isotropic anchors and the engine's antennaGainDb defaults to 0."""
+def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
+    """tx + gains - path_loss - nlos_excess - foliage. Gains are 0 dBi: the probe
+    registers isotropic anchors and the engine's antennaGainDb defaults to 0."""
     o = overrides or {}
     phy = dict(TIER_PHY[tier]); phy.update(o.get("phy", {}))
     env_name = TIER_ENV[tier]
     n = o.get("n", ENV[env_name]["n"])
     pl = path_loss_db(phy["f"], d_m, n)
     ex = nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env_name)
-    return phy["tx"] - pl - ex
+    fol = foliage_loss_db(tier, u_depth, o)
+    return phy["tx"] - pl - ex - fol
 
 
-def margin_db(tier, d_m, u_nlos, u_atten, u_diff, overrides=None):
+def margin_db(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
     """rx_power - sensitivity. The quantity the probe's mean_margin_db is compared
     AGAINST, and which is computed here without reference to it."""
     o = overrides or {}
     sens = o.get("sensitivity", SENSITIVITY_DBM[tier]) + CODING_RATE_OFFSET_DB
-    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, o) - sens
+    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth, o) - sens
 
 
 def reception_probability(margin, width=SOFT_THRESHOLD_WIDTH_DB):
@@ -167,7 +205,9 @@ def pdr_at(tier, d_m, draws, overrides=None):
     scale = ENV[env_name]["nlos_scale_m"]
     tot = 0.0
     for (u_sh, u_nl, u_at, u_df) in draws:
-        m = margin_db(tier, d_m, u_nl, u_at, u_df, o)
+        # u_df doubles as the foliage depth draw: both are unit-normal and independent
+        # per realization in the corpus.
+        m = margin_db(tier, d_m, u_nl, u_at, u_df, u_df, o)
         sd = sd_los * (ratio if u_nl < nlos_probability(d_m, scale) else 1.0)
         tot += reception_probability(m + sd * u_sh)
     return tot / len(draws)

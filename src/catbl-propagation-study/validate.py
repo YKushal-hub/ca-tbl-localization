@@ -28,8 +28,38 @@ CORPUS = os.path.join(HERE, "results", "corpus.json")
 # superseded; the module's own DEFECTS.md records results/probe_audit as invalidated.
 PROBE = os.path.join(HERE, "..", "..", "results", "probe_v7", "probe_range_sweep.csv")
 
-R80_TOL = 0.15        # registered
-PDR_TOL_DB = 3.0      # registered
+R80_TOL = 0.15        # registered, UNCHANGED
+MARGIN_TOL_DB = 3.0   # registered "3 dB", applied to the quantity that is in dB
+
+# THE PDR CRITERION WAS NEVER WELL-DEFINED, AND ITS FIRST IMPLEMENTATION WAS AN ARTEFACT
+# ---------------------------------------------------------------------------------
+# §7 registered "within 3 dB on PDR". PDR is a probability on [0,1]; "3 dB" on a
+# probability requires a stated transformation and §7 gave none.
+#
+# The first implementation used a log-ratio, |10log10(p_model) - 10log10(p_engine)|,
+# floored at 1e-6. That is unbounded as either side approaches zero, and it produced
+# 52.07 dB for 2.4 GHz -- ENTIRELY from the single 6000 m point where the engine PDR is
+# 0.0000 (clamped to 1e-6, -60 dB) against a model PDR of 0.1612 (-7.93 dB). The tier
+# with the SMALLER margin error had a PDR error twelve times larger than the tier with
+# the larger one; no physical mechanism does that, and a log-ratio near zero does.
+#
+# Candidates considered, all computed before choosing so the choice is not a selection
+# on outcome:
+#     (a) absolute difference in probability     868 0.125  2.4 0.320  UWB 0.192
+#     (b) log-ratio inside 0.05<=PDR<=0.95       still 52.07 -- the band test admitted
+#                                                a point when only ONE side was in band
+#     (c) r80 and transition width               r80 already registered separately
+#     (d) |computed margin - engine margin|, dB  868 4.10   2.4 19.91  UWB 2.05
+#
+# CHOSEN: (d), and NOT because it is smallest -- (a) is smaller in absolute terms and
+# (d) fails two tiers. It is chosen because:
+#   * "3 dB" is natively a dB quantity. A margin is in dB; a probability is not.
+#   * the margin IS the link budget, which is the thing §7 exists to validate.
+#   * it is bounded and defined at every distance, including where PDR saturates at
+#     0 or 1 and a ratio becomes meaningless.
+#   * it is only computable because the model now computes a margin. The previous
+#     implementation could not have used it, which is why it reached for a ratio.
+# The 15% on r80 half of the criterion is well-defined and stays exactly as registered.
 
 
 def load_corpus():
@@ -73,8 +103,9 @@ def main():
 
     print("=" * 78)
     print("REGISTERED ACCEPTANCE, stated before the comparison:")
-    print("  r80 within %.0f%%   PDR within %.1f dB across the swept range" %
-          (100 * R80_TOL, PDR_TOL_DB))
+    print("  r80 within %.0f%% (unchanged)   margin within %.1f dB across the swept range" %
+          (100 * R80_TOL, MARGIN_TOL_DB))
+    print("  the dB half is applied to the MARGIN, not to PDR -- see the note in this file")
     print("  population: %d corpus realizations, digest %s" % (n, digest[:16]))
     print("  probe: %s" % os.path.relpath(os.path.realpath(PROBE), os.path.dirname(HERE)))
     print("  model: linkbudget.py, which imports only `math` and cannot read the probe")
@@ -86,19 +117,17 @@ def main():
         pts = probe[t]
         dists = [p[0] for p in pts]
         print("  --- %s   (%s, n=%.2f)" % (t, lb.TIER_ENV[t], lb.ENV[lb.TIER_ENV[t]]["n"]))
-        print("    %-8s %9s %9s %9s | %11s %11s" %
-              ("dist", "pdr_eng", "pdr_mdl", "diff_dB", "margin_eng", "margin_mdl"))
+        print("    %-8s %9s %9s | %11s %11s %9s" %
+              ("dist", "pdr_eng", "pdr_mdl", "margin_eng", "margin_mdl", "gap_dB"))
         worst_db = 0.0
         for (d, pe, m_probe) in pts:
             pm = lb.pdr_at(t, d, draws)
             # mean computed margin over the corpus, for comparison against the probe's
-            mm = sum(lb.margin_db(t, d, u_nl, u_at, u_df)
+            mm = sum(lb.margin_db(t, d, u_nl, u_at, u_df, u_df)
                      for (_, u_nl, u_at, u_df) in draws) / len(draws)
-            ddb = abs(db(max(pm, 1e-6)) - db(max(pe, 1e-6)))
-            if pe > 0.01 or pm > 0.01:
-                worst_db = max(worst_db, ddb)
-            print("    %-8.0f %9.4f %9.4f %9.2f | %11.2f %11.2f"
-                  % (d, pe, pm, ddb, m_probe, mm))
+            worst_db = max(worst_db, abs(mm - m_probe))
+            print("    %-8.0f %9.4f %9.4f | %11.2f %11.2f %+9.2f"
+                  % (d, pe, pm, m_probe, mm, mm - m_probe))
         rm = lb.r80(t, draws, dists)
         re_ = None
         prev = None
@@ -109,11 +138,11 @@ def main():
             prev = (d, pe)
         rel = abs(rm - re_) / re_ if (re_ and rm == rm) else float("nan")
         ok_r = rel == rel and rel <= R80_TOL
-        ok_p = worst_db <= PDR_TOL_DB
+        ok_p = worst_db <= MARGIN_TOL_DB
         allpass = allpass and ok_r and ok_p
         print("    r80  model %8.1f   engine %8.1f   rel %6.1f%%  %s"
               % (rm, re_ if re_ else float("nan"), 100 * rel, "PASS" if ok_r else "FAIL"))
-        print("    PDR  worst deviation %.2f dB  %s" % (worst_db, "PASS" if ok_p else "FAIL"))
+        print("    margin worst deviation %.2f dB  %s" % (worst_db, "PASS" if ok_p else "FAIL"))
         print()
 
     print("  ACCEPTANCE: %s" % ("PASS" if allpass else "FAIL"))

@@ -943,3 +943,101 @@ re-run at the unchanged criterion.
 **`Simulation.md` §11.2 is unchanged.** It states packet-level physics is unverified
 for receiver sensitivity, and this reconciliation does not change that — a model that
 cannot yet reproduce the engine cannot corroborate it.
+
+---
+
+## The PDR criterion was an artefact, and the foliage term closed the offset but not the slope
+
+### The criterion was never well-defined, and its implementation made it worse
+
+§7 registered *"within 3 dB on PDR"*. **PDR is a probability on [0,1]; "3 dB" on a
+probability requires a stated transformation, and §7 gave none.**
+
+The implementation used a log-ratio floored at 1e-6, which is unbounded as either side
+approaches zero. It reported **52.07 dB for 2.4 GHz — entirely from one point**: at
+6000 m the engine PDR is 0.0000 (clamped, −60 dB) against a model PDR of 0.1612
+(−7.93 dB). The tier with the *smaller* margin error carried a PDR error twelve times
+larger than the tier with the bigger one. No physical mechanism does that; a log-ratio
+near zero does.
+
+**Candidates, all computed before choosing:**
+
+| candidate | 868 | 2.4 | UWB |
+|---|---|---|---|
+| (a) absolute difference in probability | 0.125 | 0.320 | 0.192 |
+| (b) log-ratio inside 0.05 ≤ PDR ≤ 0.95 | — | **still 52.07** | — |
+| (c) r80 and transition width | already registered separately | | |
+| (d) \|computed margin − engine margin\|, dB | 4.10 | 19.91 | 2.05 |
+
+**(b) did not fix it**, and the reason is its own lesson: the band test admitted a point
+when only *one* side was in band, so the unbounded side still dominated. A population
+filter has to be stated over both members of a comparison.
+
+**Chosen: (d), and not because it is smallest.** (a) is numerically smaller and (d)
+fails two tiers. The grounds:
+
+- *"3 dB" is natively a dB quantity.* A margin is in dB; a probability is not.
+- The margin **is** the link budget, which is what §7 exists to validate.
+- It is bounded and defined at every distance, including where PDR saturates.
+- It is only computable because the model now computes a margin. The previous
+  implementation could not have used it, which is why it reached for a ratio.
+
+**The 15% on r80 half is well-defined and stays exactly as registered.**
+
+### The foliage term: sourced, predicted, and three of four predictions held
+
+ITU-R P.833-10, `A_veg = A_max·(1 − exp(−depth·γ/A_max))`
+(`lora-foliage-submodule.cc:36`), with `γ` and `A_max` from
+`lora-physics-parameters.cc:304-309` and `depth ~ LogNormal(ln 100, 0.6)` from `:293`.
+`VEG_DENSE_FOREST` on 868 and `VEG_SPARSE_SHRUBS` on 2.4/UWB
+(`ca_tbl_causal_sim.cc:3174-3175`). **The values were read from source, never from the
+size of the gap** — the pre-registration is committed at `c44a091`, before the term was
+implemented.
+
+| prediction | outcome |
+|---|---|
+| 868's constant offset closes to within ~2 dB | **MISS** — it closed from +12.32 dB to **−4.10 dB**, overshooting by 4.10 rather than landing within 2. The lognormal's *mean* exceeds its median 13.77 dB |
+| 2.4 and UWB move by ~3 dB, **not** the <1 dB the governing document predicted | **HIT** — both moved ~3–4 dB. The document's "<1 dB" is confirmed missed |
+| the distance-growing component does **not** close | **HIT** — 2.4 GHz's far gap is still **+19.91 dB** |
+| the reconciliation still fails on at least 2.4 GHz | **HIT** — all three fail the 15% r80 |
+
+**The improvement is large and is reported as an improvement in the model, not in the
+agreement:** r80 error 164.9% → **30.9%** (868), 88.7% → **27.6%** (2.4), 140.8% →
+**59.2%** (UWB). **UWB now passes the margin criterion at 2.05 dB.**
+
+Fixture B's fifth constant confirms the term's signature rather than mere movement:
+detuning `γ` for `VEG_DENSE_FOREST` from 0.20 to 0.60 moves 868's r80 by **33.7%** and
+the two sparse-shrub tiers by **0.0%**. The asymmetry is the evidence.
+
+### What remains, and which side is more likely wrong
+
+**868's slope is now nearly right** — its gap runs −4.10 dB near-field to +1.50 dB at
+6 km, so the residual is a constant over-correction, not a slope error.
+
+**2.4 GHz's slope is not** — −1.27 dB at 10 m to **+19.91 dB at 6 km**. The modelled
+NLOS probability is accurate there (model 0.105 against a measured `nlos_frac` of
+0.1105 at 6 km), so the *probability* is right and the *magnitude* is short by ~20 dB.
+
+**The model is again the more likely wrong side.** Named candidates, all present in the
+engine's loss sum at `lora-physics-engine.cc:598-604` and all absent from the model:
+`terrainDb` (clamped 0–30 dB, and Fresnel clearance degrades with distance),
+`atmosphericDb`, and the Markov-state NLOS additions of +6 dB partial and +18 dB deep
+(`lora-physics-engine.cc:352-355`) which are separate from the propagation NLOS
+probability and which the model does not implement. **Which of those it is has not been
+established and is not asserted.**
+
+**G11 stays RED and the sweeps stay blocked.** `Simulation.md` §11.2 is unchanged: a
+model that still misses a tier's slope by 20 dB cannot corroborate the engine's
+receiver sensitivity.
+
+### The asymmetry worth keeping
+
+> **D1**: the model refused to reconcile and the **engine** was wrong — a six-decibel
+> indexing error, found and fixed.
+> **Here**: the model refuses to reconcile and the **model** is wrong — first an
+> omitted foliage term, now a missing distance-dependent loss.
+
+Same procedure, opposite verdict, and in both cases **the term was named before
+anything was changed**. That is the argument for the instruction not to tune,
+demonstrated twice from opposite directions, and it is worth more than either
+individual outcome.
