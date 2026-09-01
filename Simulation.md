@@ -500,9 +500,9 @@ flowchart LR
 | 4 | **Coverage-floor optimisation** | ✅**PROVEN** | 12/12 pre-registered predictions met at two densities`[M-16]` |
 | 5 | **Specialized packet taxonomy** | ✅**IMPLEMENTED & VALIDATED** | 9 message types, 4 access categories, validator 38/38`[M-20]` |
 | 6 | **Custom handshake / MAC** | ✅**IMPLEMENTED & EXERCISED** | Emergent capture 14,564 events; duty-cycle governor enforced at 0.0226 vs 0.025`[M-21]` |
-| 7 | **Physics realism on packets** | ⚠️**RE-SCOPED — see §11.2** | ~~PROVEN~~. The named checks pass and are unchanged: CRLB ratio 1.105, UWB 0.154 m, energy reconciled to 10 s.f. `[M-22]`. They verify *ranging precision and energy accounting*, not the sensitivity tables — a six-decibel indexing defect (`a4e23ad`) passed every one of them |
+| 7 | **Physics realism on packets** | ⚠️**RE-SCOPED — see §11.2** | ~~PROVEN~~. The named checks pass and are unchanged: CRLB ratio 1.105, UWB 0.154 m, energy reconciled to 10 s.f. `[M-22]`. They verify *ranging precision and energy accounting*, not the sensitivity tables — a six-decibel indexing defect (`0d5e747`) passed every one of them |
 | 8 | **Confidence model beats a flat threshold** | ❌**FALSIFIED (thin)** | 19/20 vs 18/20 deployments at 24.26 J vs 22.77 J; the flat variance threshold escalates on nearly the same occasions `[M-23]` |
-| 9 | **Integrity check improves accuracy** | ❌**FALSIFIED at R = 25 m** | 240-cell ablation, 2 fault models, 4 response policies: no configuration beats `no_integrity` on availability, `rmseM` or `cep50M`. Detection is sound (separation 7.73×/16.45×, 20/20 detected); the requirement leaves no headroom `[M-24] [M-25] [M-26]`. **Re-measured on clean provenance 2026-08-29** (`results/c9_clean`, `source 57dcadf dirty 0`, 40 cells): the falsification **reproduces** — availability `full − no_integrity` −0.031 (F1) and −0.054 (F3), sign holding on 18–19 of 20 seeds. Reads as a statement about **rejection alone**: `suspectForcesEscalation=false` is in the flag set, so no escalation follows a rejection `[M-29]` |
+| 9 | **Integrity check improves accuracy** | ❌**FALSIFIED at R = 25 m** | 240-cell ablation, 2 fault models, 4 response policies: no configuration beats `no_integrity` on availability, `rmseM` or `cep50M`. Detection is sound (separation 7.73×/16.45×, 20/20 detected); the requirement leaves no headroom `[M-24] [M-25] [M-26]`. **Re-measured on clean provenance 2026-08-29** (`results/c9_clean`, `source cd594c9 dirty 0`, 40 cells): the falsification **reproduces** — availability `full − no_integrity` −0.031 (F1) and −0.054 (F3), sign holding on 18–19 of 20 seeds. Reads as a statement about **rejection alone**: `suspectForcesEscalation=false` is in the flag set, so no escalation follows a rejection `[M-29]` |
 
 **On rows 8 and 9.** Both were ⏳ until 2026-08-19 and both are now negative. Row 9's
 falsification is scoped to the tested requirement: at `R = 25 m` tier 2 delivers 2.73 m —
@@ -530,7 +530,7 @@ pre-registered verdict was FAIL or INCONCLUSIVE, and the INCONCLUSIVE ones read
 proposed system did not meet its own requirement. Withdrawn with its reason, not
 deleted.
 
-**Replacement.** `results/p10_grid`, H_cost at 20 seeds, `source 13a62bb dirty 0`:
+**Replacement.** `results/p10_grid`, H_cost at 20 seeds, `source 0a489df dirty 0`:
 
     RURAL_OPEN, nlosSource=legacy, dwell=800, boxHalf=1500
       ca_tbl_full 20/20 and static_2p4 20/20 both meet (A = 0.95, R = 25 m)
@@ -563,7 +563,7 @@ optional:**
 
 The row asserted *Physics realism on packets — PROVEN*. A six-decibel sensitivity-table
 indexing defect (`GetSensitivityThreshold` computing `sf - 7` against tables whose own
-headers declare `index 0 = SF5`, `a4e23ad`) sat in the tier that carries ~95% of active
+headers declare `index 0 = SF5`, `0d5e747`) sat in the tier that carries ~95% of active
 cycles and **passed every gate, verifier check and validation in the project**.
 
 **What the cited evidence actually verifies**, unchanged and still passing:
@@ -691,7 +691,7 @@ screen costs one run against a campaign's worth.
 | M-07 | Fresh clone 1711/1711, byte-identical summary                                                            | Clone test                                                    |
 | M-08 | Every flag byte-identical when off                                                                       | Per-feature null control                                      |
 | M-09 | Reference-density arm table                                                                              | `arm_summary.csv`, `boxHalf` 2000, `gwGrid` 5, 20 seeds |
-| M-10 | **Estimator: pooled over 20 seeds** (counts summed, then divided once) — not the mean of per-seed ratios, which gives 0.9279 / 0.7005 and is a different statistic. Pre-D1: precision 0.0777 → **0.9343**, recall 0.9780 → **0.7041**, F1 0.1439 → 0.8030, FP 21,116 → 90 (`results/p10_plane_fix`). **Post-D1: 0.9164 / 0.7354** (`results/p10_plane_v7`, `source 7c0c5e5 dirty 0` on all 20 seeds): precision −0.018, recall +0.031, **measured with no predicted direction**. The pre-D1 pair is superseded, not withdrawn | `trig_*` columns, 20 seeds **pooled** |
+| M-10 | **Estimator: pooled over 20 seeds** (counts summed, then divided once) — not the mean of per-seed ratios, which gives 0.9279 / 0.7005 and is a different statistic. Pre-D1: precision 0.0777 → **0.9343**, recall 0.9780 → **0.7041**, F1 0.1439 → 0.8030, FP 21,116 → 90 (`results/p10_plane_fix`). **Post-D1: 0.9164 / 0.7354** (`results/p10_plane_v7`, `source 63bba4f dirty 0` on all 20 seeds): precision −0.018, recall +0.031, **measured with no predicted direction**. The pre-D1 pair is superseded, not withdrawn | `trig_*` columns, 20 seeds **pooled** |
 | M-11 | 622.92 J → 24.26 J; escalation efficiency 0.071 → 0.827                                                | `arm_summary.csv` energy columns                            |
 | M-12 | Envelope prediction timestamped 17 min before first result                                               | `results/p10_env/PREDICTION.md`                             |
 | M-13 | Full 7-density envelope table                                                                            | 140 directories, 20 seeds each                                |
@@ -708,8 +708,8 @@ screen costs one run against a campaign's worth.
 | M-24 | Integrity detection: separation 7.73× (F1) / 16.45× (F3), CI lower 5.42 / 10.82 under seed-level **and** 7-class cluster bootstrap; F0 suspect rate 0.0046; latency median 0, 20/20 seeds. **PROVENANCE GAP:** the source records `dirty 4`, and no injection campaign anywhere records `dirty 0`, so this cannot be repointed to clean evidence — see `DEFECTS.md` | `results/campaign_20260810/stage1/`, 121 cells, `source a059203 dirty 4` |
 | M-25 | Recovery-policy ablation: 4 levels × F0/F1/F3 × 20 seeds. `none` −0.049/−0.051 availability vs `no_integrity`; `bounded` −0.016/−0.013; no level beats `no_integrity` on any axis | `results/campaign_recovery/`, 240 cells |
 | M-26 | Derived rule: an integrity monitor can only recover availability if some fallback both satisfies the accuracy requirement and is available at detection. Tier 1 = 100.60 m (fails `R`), tier 2 = 2.73 m (9× margin), tier 3 = 0.16 m but 10–56% coverage | Derivation from `[M-24] [M-25]` plus measured per-tier CEP50 |
-| M-27 | Claim 3 replacement: M1 ratio 0.9531 [0.9296, 0.9775] at 20 seeds, geometric mean of per-seed ratios with a seed-level bootstrap CI; the only PASS in 320 cells under `b49df46` §4 | `results/p10_grid/c_ef0_legacy_dw800_b1500/`, `source 13a62bb dirty 0`, digests verified against files on disk |
-| M-29 | Claim 9 re-measured on citeable provenance: falsification reproduces. F1 availability `full − no_integrity` −0.0305 (1 pos/18 neg/1 tie), F3 −0.0540 (1/19/0); arms differ 20/20 in both sets; suspects median 120 (F1) / 206 (F3), **no direction predicted for these** | `results/c9_clean/`, 40 cells, `source 57dcadf dirty 0`, 120 digest entries verified |
+| M-27 | Claim 3 replacement: M1 ratio 0.9531 [0.9296, 0.9775] at 20 seeds, geometric mean of per-seed ratios with a seed-level bootstrap CI; the only PASS in 320 cells under `b49df46` §4 | `results/p10_grid/c_ef0_legacy_dw800_b1500/`, `source 0a489df dirty 0`, digests verified against files on disk |
+| M-29 | Claim 9 re-measured on citeable provenance: falsification reproduces. F1 availability `full − no_integrity` −0.0305 (1 pos/18 neg/1 tie), F3 −0.0540 (1/19/0); arms differ 20/20 in both sets; suspects median 120 (F1) / 206 (F3), **no direction predicted for these** | `results/c9_clean/`, 40 cells, `source cd594c9 dirty 0`, 120 digest entries verified |
 | M-28 | Degeneracy screen, **per mechanism** over 3205 directories: `tiering` 1.1% (175/15390), `integrity` 27.3% (875/3203), `trigger` 40.0% (3431/8584), `energy` 0.1% (23/15390). Supersedes a single-verdict figure of 46.9% that blended all four | `scripts/diagnostics/degeneracy_check.py <dir> <mechanism>` over every `results/` directory |
 
 ---
