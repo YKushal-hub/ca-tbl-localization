@@ -1124,3 +1124,260 @@ residual and is not asserted as understood.**
 3.90% — because r80 at 12.8 m is a shallow transition in absolute metres. That is
 recorded as a limitation of the criterion, reported alongside the result it produces.
 Any replacement is registered for future work, not applied here.
+
+---
+
+## Two-ray: traced, implemented, and VERIFIED — after two defects of mine
+
+The engine's two-ray was traced before implementing
+(`lora-two-ray-ground-submodule.cc:10-39`, `lora-physics-engine.cc:386-396`). The first
+implementation made agreement much worse and was very nearly recorded here as a
+refutation of the mechanism. It is not one. Full verdict in
+`experiments/TWORAY_PREREGISTRATION.md`.
+
+### W7 — WITHDRAWN: "the breakpoint is `4·h_t·h_r/λ`"
+
+The engine uses **`4π·h_t·h_r/λ`** (`:26`). Every breakpoint computed in this file was low
+by a factor of π.
+
+### W8 — WITHDRAWN: "the residual crosses zero at ~1200 m against a breakpoint of 977 m"
+
+This was the argument that selected two-ray over the other two candidates, and it matched
+a breakpoint that was wrong twice over — the π factor, and a 30 m anchor height the probe
+never uses. The conclusion it reached happens to be right, which is precisely why it is
+worth withdrawing explicitly: a void argument that lands on the right answer is the
+hardest kind to catch, and this one survived because its conclusion looked good.
+
+### The mechanism is CONFIRMED — against the engine's own column, not against `r80`
+
+`r80` is a poor instrument for this question because every excess term sits between the
+path loss and the PDR. Comparing directly to `mean_pl_db` removes all of them. Worst
+absolute error across the full sweep:
+
+| tier | log-distance `n` | two-ray | engine env |
+|---|---|---|---|
+| 868 MHz | **0.11 dB** | 9.06 dB | `RURAL_FORESTED` — gated off, correctly |
+| 2.4 GHz | 7.77 dB | **0.96 dB** | `RURAL_OPEN` |
+| UWB | 4.49 dB | **0.02 dB** | `RURAL_OPEN` |
+
+Two-ray wins on exactly the two tiers whose `two_ray_frac` is 0.89–1.00 and loses on the
+one whose `two_ray_frac` is 0.0000. Both directions, all three tiers.
+
+### The two defects, both in my implementation
+
+1. **Wrong heights.** I used the `lora-physics-parameters.cc:13` default of 30 m. The
+   engine reads `rxPosition.z` (`lora-physics-engine.cc:385-386`) and only falls back to
+   the distribution when `z <= 0`; the probe registers anchors at `{15.0, 6.0, 2.5}` with
+   `nodeH = 1.5` (`ca_tbl_causal_sim.cc:1116-1117`), so the fallback never fires. The
+   2.4 GHz breakpoint was 3068 m instead of **920 m** — putting the entire region where
+   its `r80` lives in the wrong branch.
+2. **Horizontal instead of slant distance.** The engine works in 3-D. At 10 m under the
+   6 m anchor that is 0.80 dB, which is exactly the error seen there.
+
+Averaging over the height *distribution* was tested first and recovered under 1 dB of the
+~10 dB error. That is what ruled the distribution out and pointed at the positions.
+
+### The lesson, which is not the one the last pass drew
+
+A model change that worsens agreement is evidence about the **change**, not about the
+**physics**. Last pass drew the opposite inference and was one commit away from recording
+a mechanism as refuted while the engine's own diagnostic column showed it firing on
+0.89–1.00 of links. The rule this project already had — *do not report a mechanism
+without a column or code path showing it fires* — has a converse that was missing:
+**do not report a mechanism as absent while a column shows it firing.**
+
+Three refutations in three passes should have been the signal. Markov was refuted by its
+registered falsifier on measured data. Terrain was argued out, not measured. Two-ray was
+"refuted" by a regression in a number, which is the weakest of the three and was wrong.
+
+### Where the residual stands
+
+| tier | initial | + foliage | two-ray, bad heights | **two-ray, sourced heights + slant** |
+|---|---|---|---|---|
+| 868 MHz | 164.9% | 30.9% | 30.9% | **30.9%** |
+| 2.4 GHz | 88.7% | 27.6% | 152.9% | **44.6%** |
+| UWB | 140.8% | 59.2% | 113.5% | **113.3%** |
+
+`r80` on 2.4 GHz and UWB is still worse than the post-foliage state, and the term was
+kept anyway: the post-foliage path-loss law is now *measured* wrong by 4.49–7.77 dB
+against `mean_pl_db`, and restoring a proven-wrong term because it flatters `r80` is
+tuning to match. The base term is verified; the disagreement has moved somewhere else.
+
+### Where it moved — measured, not implemented
+
+Isolating the engine's non-path-loss loss as `X = tx − pl_eng − sens − margin_eng`:
+
+| tier | X_engine near | X_engine far | model X | `nlos_frac` over that span |
+|---|---|---|---|---|
+| 2.4 GHz | 3.84 dB @ 10 m | 17.81 dB @ 6000 m | 3.9 → 5.7 dB | 0.000 → 0.111 |
+| UWB | 4.27 dB @ 2 m | 9.77 dB @ 180 m | flat 3.92 dB | 0.000 → 0.004 |
+
+A distance-growing excess on effectively-LOS links, 5.5 dB across two decades on UWB.
+**No fourth term was implemented.** The base-term question that blocked it is now closed,
+but one term per pass stands, and the next candidate must be pre-registered first.
+
+## PDR transition width: measured, and it is not a single global knob
+
+UWB's `r80` error (113.5%) is far larger than its worst margin deviation (5.79 dB) would
+suggest. Transition width was the untested candidate for that gap. Measured, not adjusted.
+
+**Definition, stated before the numbers.** Width = the distance span over which PDR falls
+0.95 → 0.05 (linearly interpolated in PDR), converted to dB via the mean-margin slope
+across that same span. Engine side: `results/probe_v7/probe_range_sweep.csv`. Model side:
+`lb.pdr_at` with the 2000 corpus draws — *the function `validate.py` actually calls*.
+
+| tier | engine width | model width | |
+|---|---|---|---|
+| 868 MHz | PDR only reaches 0.26 at the 6000 m sweep end — **never spans 0.95→0.05** | 45.60 dB | not measurable engine-side |
+| 2.4 GHz | 18.80 dB | 21.71 dB | **model 1.15× wider** |
+| UWB | 28.14 dB | 17.43 dB | **engine 1.61× wider** |
+
+**The sign differs between tiers.** A single global width change cannot fix both; it would
+improve UWB and worsen 2.4 GHz. Width is therefore not the missing term either, though on
+UWB it is real and in the direction the hypothesis predicted.
+
+### What it does explain: the r80-vs-margin inconsistency
+
+The UWB curves nearly coincide at the bottom and diverge at the top:
+
+| | engine | model | ratio |
+|---|---|---|---|
+| d @ PDR 0.95 | 6.2 m | 16.4 m | **2.65×** |
+| d @ PDR 0.05 | 114.7 m | 121.9 m | 1.06× |
+
+`r80` is sampled at PDR 0.80 — deep in the high-PDR region where the curves are 2.65×
+apart — while the worst margin deviation is dominated by long range, where they nearly
+agree. That is the whole of the "inconsistency": the two criteria sample opposite ends of
+a curve that disagrees at one end and agrees at the other. `r80` is the harsher criterion
+because it is sampled where the disagreement lives, which is what the earlier entry
+concluded qualitatively and this measures.
+
+### A measurement error caught before it was reported
+
+The first attempt measured a model width of 3.98 dB for UWB — a 7× discrepancy that
+looked like a decisive finding. It was an artefact of the probe: it called
+`lb.rx_power_dbm` directly, which applies no shadow fading, while the model's PDR comes
+from `lb.pdr_at`, which adds `sd * u_shadow` (`linkbudget.py:252`, `:259-261`). The probe
+measured a quantity the model does not use. Re-measured against `pdr_at` the width is
+17.43 dB and the finding shrinks from 7× to 1.61×.
+
+This is the same failure the file has now recorded five times: **a number computed over
+the wrong population/estimator, checked only for plausibility.** It was caught only
+because 3.98 dB against a 5.0 dB shadow sd is arithmetically impossible — the check that
+worked was a physical bound, not a review of the code.
+
+Engine `shadow_sd_eff_db` is 5.000–5.005 dB on the `RURAL_OPEN` tiers, matching the
+model's `shadow_sd = 5.0` exactly, so shadowing is not the source of the width difference
+on either side.
+
+---
+
+## G11 assertion 3 was passing on an empty population
+
+The suite run reported:
+
+    experiment sidecars claiming a corpus digest: 0, all matching: yes
+
+Zero sidecars, and it printed **"all matching: yes"**. The assertion verified nothing and
+said it was satisfied. The population is legitimately empty right now — the sweeps that
+write these sidecars are blocked behind assertion 2 — but "nothing to check" was being
+rendered as "checked, and consistent". That is the difference between a gate that is
+waiting and a gate that is asleep, and from the output they were indistinguishable.
+
+Two further population leaks in the same function, both silent:
+
+- `except Exception: continue` — an unparseable sidecar was skipped without a word,
+  shrinking the population invisibly. A corrupt sidecar is now a **FAIL**.
+- A matched file carrying no digest key was also skipped silently. Those are now listed
+  by name, so the gap between "files matched" and "files checked" is always visible.
+
+The globs are now printed, because **a glob is a population claim** and an unprinted one
+cannot be audited.
+
+### Fixture, tested in four directions
+
+Built as a throwaway git repo in `/tmp` with the module files actually tracked — the
+first attempt used a plain directory, where the assertion's tracked-files half set
+`ok = False` before the digest check ran, so its "positive" case failed for an unrelated
+reason and proved nothing. That is the fixture being wrong, not the gate.
+
+| direction | expected | observed |
+|---|---|---|
+| no sidecars | PASS, reported **VACUOUS** | PASS, "verified NOTHING" |
+| correct digest | PASS, `n = 1`, no longer vacuous | PASS, "1, all matching: yes" |
+| wrong digest | FAIL with the mismatch named | FAIL, mismatch named |
+| unparseable sidecar | FAIL, population shrink named | FAIL, shrink named |
+
+None of the four fail by crashing.
+
+### A defect report withdrawn before it was made
+
+The suite printed `=== SUITE FAILED ===` and the shell reported exit 0, which looks like a
+gate suite that cannot fail a caller. It is not: `catbl_gates.sh:353` is `exit 1`, and the
+0 came from `tail` at the end of my own pipeline. Worth stating because a CI harness that
+pipes the suite through `tail` or `tee` without `PIPESTATUS` **would** read green on a red
+suite — the script is correct and the invocation is the hazard.
+
+---
+
+## The model is a 4-term budget against a 14-term engine
+
+Written as grounding for the next pass, not acted on in this one. `X` was treated
+throughout as "the missing term", singular. `lora-physics-engine.cc:597-599` shows the
+engine's actual loss sum, and the singular framing is wrong:
+
+    additional_loss = positiveShadowing + result.fadingDb + result.nlosDb +
+                      result.foliageDb + result.terrainDb + result.dopplerPenaltyDb +
+                      result.interferencePenaltyDb + multipathPenaltyDb +
+                      thermalEfficiencyLossDb + tier2LossDb + tier3LossDb +
+                      result.atmosphericDb + state.propagationLossBiasDb
+    totalLoss = result.pathLossDb + additional_loss + negativeShadowingGain
+              + result.hwTxVariationDb - result.antennaGainDb
+
+The model has four of these: path loss, NLOS, foliage, shadowing. Terms it has **no
+counterpart for at all**: `fadingDb`, `terrainDb`, `dopplerPenaltyDb`,
+`interferencePenaltyDb`, `thermalEfficiencyLossDb`, `atmosphericDb`,
+`propagationLossBiasDb`, `hwTxVariationDb`. `multipathPenaltyDb` is set to 0 at `:596`
+and `soilAttenuationDb` at `:593`, so those two are genuinely absent from the engine here.
+
+Three passes have asked "which term is missing" as though the answer were one term. The
+residual may be a sum, and a pass that adds one term and measures a partial close should
+not read that as a partial refutation.
+
+### One candidate eliminated for free
+
+`terrainDb = std::clamp(terrainPenaltyDb, 0.0, 30.0)` (`:400`) is **non-negative**, so
+its mean is strictly positive; it is Fresnel/diffraction-derived (`lora-terrain-submodule.cc:141-191`)
+so it grows with distance; and it saturates at 30 dB. That shape matches the measured `X`
+on both `RURAL_OPEN` tiers, including 2.4 GHz flattening near 17.8 dB. It is the leading
+candidate and it is **not yet pre-registered or implemented.**
+
+The shadowing clamp is asymmetric — `[-2*sd, +3*sd]` (`lora-physics-engine.cc:417-418`) —
+which rectifies the draw and gives it a positive mean. Quantified analytically before
+being pursued: the shift is `0.0081*sd`, i.e. **+0.041 dB** at `sd = 5` and +0.057 dB at
+`sd = 7`, against a residual of 5.5–14 dB. **Eliminated**, at the cost of one integral
+rather than an implementation pass. Recording it so it is not re-proposed.
+
+---
+
+## G7's heading claims a population wider than the one it checks
+
+Observed during the G1-G13 run, not acted on. The gate prints
+`--- G7 suite left the tree clean ---`, but its population is
+
+    git status --porcelain --untracked-files=no -- results/
+
+— tracked files under `results/` only. The scoping is deliberate and the comment at
+`catbl_gates.sh:216-219` explains why (`results/` always holds untracked campaign
+output). The gate's *output line* is honest: it prints the path it checked. Only the
+heading overstates it, by saying "the tree" where it means "tracked files in results/".
+
+That mattered on this run: the tree carried modifications to `src/` and `scripts/`
+throughout, and G7 passed. Correctly — they are outside its population and were not made
+by the suite — but a reader taking the heading at face value would conclude the suite had
+verified something it never looked at.
+
+**Deliberately not fixed in this pass.** Editing a gate script after the run that
+verified it, without re-running the suite, is the failure mode this project spent two
+campaigns removing. It is a one-line heading change and belongs in a pass that can
+re-run G1-G13 behind it.

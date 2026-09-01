@@ -114,6 +114,60 @@ def foliage_loss_db(tier, u_depth, overrides=None):
     return min(max(a, 0.0), FOLIAGE_CLAMP_DB)
 REFERENCE_DISTANCE_M = 1.0   # lora-physics-parameters.cc:11
 
+# --- two-ray ground reflection ---------------------------------------------
+# lora-two-ray-ground-submodule.cc:10-39. THIS REPLACES THE PATH LOSS, IT DOES NOT ADD
+# TO IT: the engine calls ComputePathLossDb only in the `else` branch
+# (lora-physics-engine.cc:389-394), and the submodule's own comment at :37 reads
+# "We overwrite the propagation loss entirely for true open field two-ray".
+# Adding a term here would double-count; the existing term is conditioned instead.
+#
+# Gated twice, and the gating is what explains the measured two_ray_frac:
+#   env must be ENV_RURAL_OPEN   lora-two-ray-ground-submodule.cc:11
+#   the link must be LOS         lora-two-ray-ground-submodule.cc:17
+# 868 MHz is RURAL_FORESTED so it never fires (two_ray_frac 0.0000 at every distance);
+# 2.4 GHz and UWB are RURAL_OPEN so it fires on every LOS link, and measured
+# two_ray_frac + nlos_frac = 1.0000 exactly at every 2.4 GHz distance.
+#
+# Breakpoint is 4*PI*h_t*h_r/lambda -- note the PI, which an earlier hand calculation
+# of mine omitted, making the breakpoints PI times too small.
+TWO_RAY_ENV = "RURAL_OPEN"     # lora-two-ray-ground-submodule.cc:11
+# The engine takes the heights from the POSITIONS, not from the parameter
+# distributions: lora-physics-engine.cc:385-386 uses txPosition.z / rxPosition.z and
+# falls back to the distribution mean only when z <= 0. The probe registers real
+# anchors, so the fallback never fires and Normal(30,10,10,50) is never consulted.
+# Sourced from the probe scenario, ca_tbl_causal_sim.cc:1116-1117.
+NODE_HEIGHT_M = 1.5                                          # :1116 nodeH
+ANCHOR_HEIGHT_M = {"868MHz": 15.0, "2.4GHz": 6.0, "UWB": 2.5}  # :1117 anchorH
+# These are exact positions, not distribution summaries, so there is no
+# evaluate-at-the-mean bias to register here. The first implementation DID use the
+# distribution mean (30 m) and was wrong by ~10 dB on 2.4 GHz at long range; averaging
+# two-ray over the height distribution was then tested and recovered under 1 dB of that,
+# which is what ruled the distribution out and pointed at the registered positions.
+
+
+def slant_distance_m(d_m, h_t, h_r):
+    """The engine computes distance from the 3-D positions, so a link at horizontal
+    range d spans sqrt(d^2 + dh^2). At short range against a tall anchor this is not a
+    rounding detail: at 10 m under the 6 m 2.4 GHz anchor it is 0.80 dB."""
+    return math.sqrt(d_m * d_m + (h_t - h_r) ** 2)
+
+
+def two_ray_breakpoint_m(f_hz, h_t, h_r=NODE_HEIGHT_M):
+    """dc = 4*pi*h_t*h_r/lambda. lora-two-ray-ground-submodule.cc:26"""
+    lam = C_LIGHT / f_hz
+    return (4.0 * math.pi * h_t * h_r) / lam
+
+
+def two_ray_path_loss_db(f_hz, d_m, h_t, h_r=NODE_HEIGHT_M):
+    """Hard switch at dc, not a smooth interpolation.
+    lora-two-ray-ground-submodule.cc:29-35"""
+    d = max(d_m, 1.0)
+    lam = C_LIGHT / f_hz
+    dc = two_ray_breakpoint_m(f_hz, h_t, h_r)
+    if d <= dc:
+        return 20.0 * math.log10(4.0 * math.pi * d / lam)
+    return 40.0 * math.log10(d) - 20.0 * math.log10(h_t) - 20.0 * math.log10(h_r)
+
 
 def fspl_at_reference(f_hz, d0=REFERENCE_DISTANCE_M):
     """20*log10(4*pi*d0/lambda). lora-propagation-submodule.cc:31"""
@@ -169,8 +223,18 @@ def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None
     phy = dict(TIER_PHY[tier]); phy.update(o.get("phy", {}))
     env_name = TIER_ENV[tier]
     n = o.get("n", ENV[env_name]["n"])
-    pl = path_loss_db(phy["f"], d_m, n)
-    ex = nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env_name)
+    h_t = o.get("h_t", ANCHOR_HEIGHT_M[tier])
+    h_r = o.get("h_r", NODE_HEIGHT_M)
+    # The engine works in 3-D throughout, so every distance-dependent term takes the
+    # slant range, not the horizontal range it was swept at.
+    d3 = slant_distance_m(d_m, h_t, h_r)
+    # Two-ray REPLACES the log-distance path loss when it fires -- it is not additive.
+    is_nlos = u_nlos < nlos_probability(d3, ENV[env_name]["nlos_scale_m"])
+    if env_name == TWO_RAY_ENV and not is_nlos and not o.get("no_two_ray"):
+        pl = two_ray_path_loss_db(phy["f"], d3, h_t, h_r)
+    else:
+        pl = path_loss_db(phy["f"], d3, n)
+    ex = nlos_excess_db(u_nlos, u_atten, u_diff, d3, env_name)
     fol = foliage_loss_db(tier, u_depth, o)
     return phy["tx"] - pl - ex - fol
 
