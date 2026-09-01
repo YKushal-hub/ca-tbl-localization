@@ -104,3 +104,7 @@ SESSION_CHANGELOG.md
 # as a side effect of an r80 one-liner in 35466c0. Kept on disk, annotated in its own
 # header.
 CA_TBL_SIMULATION_REPORT.md
+# 10.7 MB and deterministic from corpus.py at seed 20260819. Its sha256 IS tracked,
+# and G11 assertion 1 verifies the file against it. `git add <dir>` swept it into the
+# index once; this stops that recurring.
+src/catbl-propagation-study/results/corpus.json
