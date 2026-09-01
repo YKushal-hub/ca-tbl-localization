@@ -272,6 +272,37 @@ printf '\n--- G10 cited paths resolve in the repository ---\n'
 python3 scripts/citation_audit.py || fail G10
 finish G10
 
+# --------------------- G12: no attribution in identity or message, any commit
+# The rule was violated because nothing enforced it: 27 commit messages carried a
+# trailer before the 2026-09-01 rewrite (SHA_MAP.md). Author and committer were
+# always correct; the message body was not checked by anything.
+printf '\n--- G12 no attribution in commit metadata or messages ---\n'
+G12_BAD=0
+G12_PAT='claude|anthropic|co-authored-by|generated with|assistant'
+n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_PAT" || true)
+if [ "${n_id:-0}" -ne 0 ]; then
+    printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
+    G12_BAD=1
+else
+    printf 'identity fields clean across %s commits\n' "$(git rev-list --count HEAD)"
+fi
+n_msg=0
+while read -r h; do
+    if git log -1 --format='%B' "$h" | grep -qiE "$G12_PAT"; then
+        n_msg=$((n_msg + 1))
+        [ "$n_msg" -le 3 ] && printf '  offending commit: %s %s\n' "$(git rev-parse --short "$h")" "$(git log -1 --format='%s' "$h" | cut -c1-50)"
+    fi
+done < <(git log --format='%H')
+if [ "$n_msg" -ne 0 ]; then
+    printf 'ATTRIBUTION IN MESSAGE BODIES: %d commit(s)\n' "$n_msg"
+    printf '  remedy: this requires a history rewrite and is authorised only by the owner\n'
+    G12_BAD=1
+else
+    printf 'message bodies clean\n'
+fi
+[ "$G12_BAD" -eq 0 ] || fail G12
+finish G12
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

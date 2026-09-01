@@ -243,7 +243,7 @@ meets it on 14/20" was measured with tier 2 six decibels deaf (D1), at
 `boxHalf = 2000` — a density at which the report's own conclusion says tier 2
 should be pinned. It attributed a defect's effect to the design.
 
-Regenerated at `7c0c5e5 dirty 0` (`results/p10_plane_v7`, 20 seeds, digests
+Regenerated at `63bba4f dirty 0` (`results/p10_plane_v7`, 20 seeds, digests
 verified against files on disk):
 
     static_2p4    14/20 -> 19/20     M1 12.679 J
@@ -450,7 +450,7 @@ is withdrawn **with its reason and its mechanism**, never silently deleted.
 ## W1 — the 19/20-vs-14/20 deployment-reliability table
 
 Removed from `CA_TBL_HANDOFF_v4.md` §1.3. Measured with tier 2 six decibels deaf
-(D1, fixed by `a4e23ad`). Replaced by `results/p10_plane_v7` at `7c0c5e5 dirty 0`:
+(D1, fixed by `0d5e747`). Replaced by `results/p10_plane_v7` at `63bba4f dirty 0`:
 `ca_tbl_full` 19/20 → 20/20, `static_2p4` 14/20 → **19/20**. A five-seed reliability
 gap became one seed at 2.1× the energy, and `static_2p4` wins M1 (12.679 J against
 27.094 J). The argument does not survive.
@@ -510,7 +510,7 @@ property of that configuration, not of whether it injects faults.
 ## Trigger metrics on the corrected engine
 
 Already measured, and no new campaign was needed. `results/p10_plane_v7`, 20 seeds,
-`source 7c0c5e5 dirty 0` on all twenty — the post-D1 regeneration of
+`source 63bba4f dirty 0` on all twenty — the post-D1 regeneration of
 `p10_plane_fix` carried the `trig_*` columns:
 
 | estimator | pre-D1 (`p10_plane_fix`) | post-D1 (`p10_plane_v7`) |
@@ -561,11 +561,11 @@ attaches is about *how the policy got there*, not whether it got there.
 
 ## Incident — CA_TBL_HANDOFF_v4.md was tracked, and the rule was enforced by memory
 
-`35466c0` added `CA_TBL_HANDOFF_v4.md` to the index for the first time, violating a
+`2ab38c2` added `CA_TBL_HANDOFF_v4.md` to the index for the first time, violating a
 standing rule stated in 19 project documents: **the handoff stays untracked**. The
 content edits in that commit were correct; the staging was not.
 
-`aa8328b` removed it with `git rm --cached`. The file and its edits remain on disk.
+`03c15dd` removed it with `git rm --cached`. The file and its edits remain on disk.
 
 **History was not rewritten, deliberately.** Two rules collided and the stronger one
 won: *never rewrite history* is absolute and was settled when the vendored-import
@@ -573,7 +573,7 @@ structure was adopted, while *the handoff stays untracked* is hygiene about a wo
 document. The repository is private, every commit is authored by Kushal, and the file
 contains no credential — so the content sitting in one historical commit costs almost
 nothing, against a history rewrite costing a re-run of the entire import and a
-re-verification of every ref. `aa8328b` is the complete remedy.
+re-verification of every ref. `03c15dd` is the complete remedy.
 
 **The real fix is that the rule is no longer enforced by recall:**
 
@@ -585,7 +585,7 @@ re-verification of every ref. `aa8328b` is the complete remedy.
 - G8 has a negative fixture (`/tmp` repo, path force-added, confirmed to fail, then
   confirmed to pass again after `git rm --cached`).
 
-**Side effect, flagged rather than resolved.** `35466c0` also first-tracked
+**Side effect, flagged rather than resolved.** `2ab38c2` also first-tracked
 `Architecture.md` and `CA_TBL_SIMULATION_REPORT.md`. See the note below.
 
 ---
@@ -673,7 +673,7 @@ population claim.**
 
 ## Claim 9's falsification, re-measured on citeable provenance
 
-`results/c9_clean`, 40 cells, **`source 57dcadf dirty 0` on all 40**, 120 digest
+`results/c9_clean`, 40 cells, **`source cd594c9 dirty 0` on all 40**, 120 digest
 entries verified against files on disk, 0 failures. Flags read from
 `campaign_recovery`'s own sidecar, not inferred.
 
@@ -725,7 +725,7 @@ the ledger should carry it that way.
 
 ## The recovery-policy ablation on clean provenance — and the last gap closed
 
-`results/abl_clean`, 120 cells, **`source 22ee9f9 dirty 0` on all 120**, 360 digest
+`results/abl_clean`, 120 cells, **`source ccaedb0 dirty 0` on all 120**, 360 digest
 entries verified against files on disk, 0 failures. Pre-flight
 (`degeneracy_check.py <dir> integrity`, `suspectRecovery=inflate`, seed 1): **LIVE**,
 71 suspects, 37 fields differing.
@@ -807,3 +807,60 @@ come from `report/REPORT_DATA_PACK.md`'s real citations of `results/p10_plane`,
 `results/p10_plane_fix`, `results/causal`, `results/det_a` and `results/det_b` — the
 superseded campaigns that document describes on purpose, and which are marked as such
 at the top of the file. Nothing is overcounted and there is nothing to fix.
+
+---
+
+## The attribution rewrite of 2026-09-01, and what it supersedes
+
+**An earlier entry in this file records the `CA_TBL_HANDOFF_v4.md` incident with the
+reasoning "history was not rewritten, deliberately". That reasoning is superseded —
+for a different reason, and by an owner instruction, not by a change of mind.**
+
+The original entry is not deleted. It keeps its reason: at the time, the collision was
+between *never rewrite history* and a hygiene rule about a working document, and the
+stronger rule won.
+
+**What the audit found.** Across all 83 commits:
+
+| field | affected |
+|---|---|
+| author name / email | **0** |
+| committer name / email | **0** |
+| message body | **27**, all carrying one identical trailer line |
+
+Author and committer identity were already correct throughout. Only message bodies
+were affected, and the oldest was `b9e650f` (2026-08-26) — so 30 commits were
+rewritten and the 53 before them keep their SHAs.
+
+**What was authorised, and how narrowly.** A rewrite, **once, for attribution only**.
+The standing never-rewrite rule was adopted as hygiene around a settled vendored
+import; an owner instruction to remove attribution from his own private repository
+outranks it. No other history change is authorised, ever.
+
+**What changed.** Metadata only, verified four ways before the push:
+
+- `git log --all --format='%an|%ae|%cn|%ce' | sort -u` → exactly one identity
+- attribution grep across local branches → **0**
+- `git diff <old-tip> <new-tip>` → **empty**, no file content altered
+- commit count **83 → 83**, order and dates preserved, linear no-merge shape intact
+
+A fresh clone of the remote returns **0** attribution and one identity — the check that
+matters, since local refs can be stale.
+
+**Backup.** A new bundle, `ca-tbl-pre-attribution-rewrite-20260901-224445.bundle`
+(51 MB), verified to list the pre-rewrite tip before the rewrite began. The four
+pre-existing bundles in `~/` were not touched.
+
+**The cost, and how it is carried.** 1283 `run_id.txt` sidecars cite six SHAs that
+changed. **Sidecars were not edited** — they are evidence, and rewriting them would be
+falsification. They resolve through `SHA_MAP.md`, which is the old→new table. 24 SHA
+references in tracked documents *were* repointed, with `SHA_MAP.md` as the record.
+
+**Enforcement.** The rule was violated because nothing enforced it. **G12** now asserts
+no commit reachable from `HEAD` carries attribution in author, committer, or message
+body, with a negative fixture covering both fields independently. `user.name` and
+`user.email` are set explicitly in this repository; there is no commit template and no
+active hook that could reintroduce a trailer.
+
+**The handoff content that sat in the rewritten `35466c0`** is carried through
+unchanged — the tree diff was empty, so no file content moved in the rewrite.

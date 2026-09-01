@@ -132,7 +132,7 @@ Over 3205 directories: `tiering` 1.1%, `integrity` 27.3%, `trigger` 40.0%,
 
 ### 4.1 Tiering buys reliability in a degraded environment
 
-Source: `results/p10_grid`, `source 13a62bb dirty 0`, 20 seeds, digests verified.
+Source: `results/p10_grid`, `source 0a489df dirty 0`, 20 seeds, digests verified.
 
 At `envFacility = RURAL_FOREST`, `nlosSource = legacy`, `dwell = 800`,
 `boxHalf = 2000`:
@@ -153,7 +153,7 @@ simulation result.
 
 ### 4.2 One configuration in 320 is cheaper and equally reliable
 
-Source: `results/p10_grid/c_ef0_legacy_dw800_b1500`, `source 13a62bb dirty 0`,
+Source: `results/p10_grid/c_ef0_legacy_dw800_b1500`, `source 0a489df dirty 0`,
 20 seeds.
 
 At `RURAL_OPEN`, `legacy`, `dwell = 800`, `boxHalf = 1500`, both `ca_tbl_full` and
@@ -203,8 +203,8 @@ passing.
 
 ### 5.1 Claim 9 — the integrity gate does not pay, and the statement is narrower than it sounds
 
-Sources: `results/c9_clean` (`source 57dcadf dirty 0`, 40 cells, 120 digest entries
-verified) and `results/abl_clean` (`source 22ee9f9 dirty 0`, 120 cells, 360 entries
+Sources: `results/c9_clean` (`source cd594c9 dirty 0`, 40 cells, 120 digest entries
+verified) and `results/abl_clean` (`source ccaedb0 dirty 0`, 120 cells, 360 entries
 verified).
 
 Availability, `ca_tbl_full − ca_tbl_no_integrity`. Negative means the gate **loses**.
@@ -255,7 +255,7 @@ reason; replaced by §4.2.
 ### 5.4 Two withdrawn tables, both pre-D1
 
 **The 19/20-vs-14/20 deployment-reliability table** was measured with tier 2 six
-decibels deaf. Regenerated (`results/p10_plane_v7`, `source 7c0c5e5 dirty 0`):
+decibels deaf. Regenerated (`results/p10_plane_v7`, `source 63bba4f dirty 0`):
 `ca_tbl_full` 19/20 → **20/20**, `static_2p4` 14/20 → **19/20**. A five-seed
 reliability gap became one seed, at 2.1× the energy, and `static_2p4` also wins the
 energy metric — 12.679 J against 27.094 J. **The argument does not survive.**
