@@ -278,8 +278,17 @@ finish G10
 # always correct; the message body was not checked by anything.
 printf '\n--- G12 no attribution in commit metadata or messages ---\n'
 G12_BAD=0
-G12_PAT='claude|anthropic|co-authored-by|generated with|assistant'
-n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_PAT" || true)
+# Two DIFFERENT patterns, because attribution in an identity field and attribution in
+# a message body do not look the same.
+#
+# The first version used one broad topic-word pattern for both, and it failed on the
+# very commit that DOCUMENTS this rule -- the message contained the word "assistant"
+# while describing what was removed. A check that cannot survive its own policy being
+# written down is too broad. Attribution is a FORM, not a subject: a trailer line, or
+# a vendor identity. Prose describing the policy is not attribution.
+G12_ID_PAT='claude|anthropic|assistant|copilot|\bbot\b'
+G12_MSG_PAT='^[[:space:]]*(co-authored-by|generated[- ]with|assisted-by):|@anthropic|@openai'
+n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
     G12_BAD=1
@@ -288,7 +297,7 @@ else
 fi
 n_msg=0
 while read -r h; do
-    if git log -1 --format='%B' "$h" | grep -qiE "$G12_PAT"; then
+    if git log -1 --format='%B' "$h" | grep -qiE "$G12_MSG_PAT"; then
         n_msg=$((n_msg + 1))
         [ "$n_msg" -le 3 ] && printf '  offending commit: %s %s\n' "$(git rev-parse --short "$h")" "$(git log -1 --format='%s' "$h" | cut -c1-50)"
     fi
@@ -302,6 +311,15 @@ else
 fi
 [ "$G12_BAD" -eq 0 ] || fail G12
 finish G12
+
+# ---------------- G13: every sidecar SHA resolves, in history or via SHA_MAP.md
+# A run_id.txt's `source <sha>` is the only link between a results directory and the
+# code that produced it. The 2026-09-01 attribution rewrite moved 30 commits and left
+# 1283 sidecars citing SHAs no longer in history; they resolve through SHA_MAP.md.
+# This asserts there is no THIRD case -- a SHA that exists in neither place.
+printf '\n--- G13 sidecar source SHAs resolve ---\n'
+python3 scripts/sidecar_sha_audit.py || fail G13
+finish G13
 
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
