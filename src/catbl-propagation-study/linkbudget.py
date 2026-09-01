@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Independent link-budget model. Computes the margin; never reads it.
+
+WHY THIS FILE EXISTS SEPARATELY FROM validate.py
+------------------------------------------------
+The previous validate.py read `mean_margin_db` from the probe CSV and applied a
+shadowing distribution to it. The link budget -- the quantity §7 exists to validate --
+was imported from the subject. Detuning K_BOLTZ_DBM_HZ by 14 dB and a tier's TX power
+by 16 dB both produced BYTE-IDENTICAL output, because neither constant was on the
+path.
+
+The separation is STRUCTURAL, not a convention: nothing in this file opens, imports or
+receives the probe CSV. The probe's margin column cannot be in scope here because the
+probe is not in scope here. A later edit cannot silently reintroduce the defect
+without first adding an import that does not belong.
+
+EVERY CONSTANT CARRIES ITS file:line FROM THE ENGINE SOURCES.
+"""
+import math
+
+C_LIGHT = 299792458.0
+
+# --- noise -----------------------------------------------------------------
+K_BOLTZ_DBM_HZ = -174.0   # lora-physics-engine.cc:541
+NOISE_FIGURE_DB = 6.0     # lora-physics-engine.cc:542
+
+# --- receiver decision ------------------------------------------------------
+SOFT_THRESHOLD_WIDTH_DB = 0.35   # lora-physics-parameters.cc:389
+# Reception is a LOGISTIC draw, not a hard threshold: 1/(1+exp(-margin/width)).
+# lora-physics-engine.cc:135-146. At 0.35 dB it is nearly a step, but the form is
+# reproduced because a hard threshold disagrees near the transition for a reason that
+# is documented rather than physical (DEFECTS.md D4).
+
+# --- per-tier PHY ----------------------------------------------------------
+# ca_tbl_causal_sim.cc:3571-3573  (sf, bandwidthHz, txPowerDbm)
+TIER_PHY = {
+    "868MHz": {"sf": 7, "bw": 125e3,   "tx": 14.0,    "f": 868e6,
+               "f_src": "lora-physics-parameters.cc:12"},
+    "2.4GHz": {"sf": 7, "bw": 800e3,   "tx": 12.5,    "f": 2.44e9,
+               "f_src": "lora-2p4-physics-parameters.cc:52"},
+    "UWB":    {"sf": 7, "bw": 499.2e6, "tx": -16.47,  "f": 7.99e9,
+               "f_src": "lora-uwb-physics-parameters.cc:52"},
+}
+
+# --- sensitivity at the configured SF7 / CR 4/5 -----------------------------
+# The accessor is clamp(sf-5,0,7) for the eight-entry SF5-based tables and
+# clamp(sf-7,0,5) for the six-entry SF7-based one, after a4e23ad corrected the index.
+SENSITIVITY_DBM = {
+    "868MHz": -123.0,   # lora-physics-parameters.cc:391, six entries, index 0 = SF7
+    "2.4GHz": -106.0,   # lora-2p4-physics-parameters.cc:14, eight entries, index 2 = SF7
+    "UWB":    -104.0,   # lora-uwb-physics-parameters.cc:14, flat across all eight
+}
+CODING_RATE_OFFSET_DB = 0.0   # crIndex 0 at codingRateDenom=5, offset 0.0
+                              # lora-physics-parameters.cc:397, :425
+
+# --- environment -----------------------------------------------------------
+# The probe puts tier 1 in the wide-area environment and tiers 2/3 at facilities.
+# ca_tbl_causal_sim.cc:3143 env=ENV_RURAL_FORESTED, :3144 envFacility=ENV_RURAL_OPEN
+ENV = {
+    "RURAL_OPEN": {
+        "n": 2.2,                 # lora-physics-parameters.cc:24
+        "shadow_sd": 5.0,         # lora-physics-parameters.cc:79
+        "nlos_sigma_ratio": 1.25, # lora-physics-parameters.cc:79
+        "nlos_scale_m": 54000.0,  # lora-physics-parameters.cc:187
+        "nlos_atten_mu": 6.0, "nlos_atten_sd": 5.0,   # lora-physics-parameters.cc:187
+        "diffraction_mu": 4.0, "diffraction_sd": 3.0, # lora-physics-parameters.cc:187, :209
+    },
+    "RURAL_FORESTED": {
+        "n": 2.3,                 # lora-physics-parameters.cc:27, Normal(2.3,0.1,2.1,2.6)
+        "shadow_sd": 7.0,         # lora-physics-parameters.cc:81
+        "nlos_sigma_ratio": 1.3,  # lora-physics-parameters.cc:81
+        "nlos_scale_m": 8000.0,   # lora-physics-parameters.cc:189
+        "nlos_atten_mu": 10.0, "nlos_atten_sd": 7.0,  # lora-physics-parameters.cc:189
+        "diffraction_mu": 5.0, "diffraction_sd": 3.0, # lora-physics-parameters.cc:189, :209
+    },
+}
+TIER_ENV = {"868MHz": "RURAL_FORESTED", "2.4GHz": "RURAL_OPEN", "UWB": "RURAL_OPEN"}
+REFERENCE_DISTANCE_M = 1.0   # lora-physics-parameters.cc:11
+
+
+def fspl_at_reference(f_hz, d0=REFERENCE_DISTANCE_M):
+    """20*log10(4*pi*d0/lambda). lora-propagation-submodule.cc:31"""
+    lam = C_LIGHT / f_hz
+    return 20.0 * math.log10(4.0 * math.pi * max(d0, 1.0) / lam)
+
+
+def path_loss_db(f_hz, d_m, n, d0=REFERENCE_DISTANCE_M):
+    """FSPL(d0) + 10*n*log10(d/d0). lora-propagation-submodule.cc:50
+
+    The dual-slope and urban branches are not reached for RURAL_OPEN or
+    RURAL_FORESTED: enableDualSlope is false for both
+    (lora-physics-parameters.cc:28, and :17 by default).
+    """
+    d = max(d_m, 1.0)
+    d0 = max(d0, 1.0)
+    return fspl_at_reference(f_hz, d0) + 10.0 * n * math.log10(d / d0)
+
+
+def noise_floor_dbm(bw_hz, nf_db=NOISE_FIGURE_DB):
+    """kTB + 10log10(BW) + NF. lora-physics-engine.cc:543"""
+    return K_BOLTZ_DBM_HZ + 10.0 * math.log10(bw_hz) + nf_db
+
+
+def nlos_probability(d_m, scale_m):
+    """1 - exp(-d/scale). lora-nlos-submodule.cc:47, non-urban branch."""
+    return 1.0 - math.exp(-max(d_m, 1.0) / max(scale_m, 1.0))
+
+
+def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env):
+    """Excess loss on a link drawn NLOS. lora-nlos-submodule.cc:84-93.
+
+    THIS IS THE TERM THAT SETS THE SLOPE. DEFECTS.md records the measured local slope
+    at r80 as 58.2 dB/decade against a path-loss exponent giving 24.76 -- the
+    difference is excess loss accumulating with distance, and a model computing only
+    FSPL plus n underestimates it by more than a factor of two. It is built in here
+    rather than discovered as a disagreement.
+    """
+    e = ENV[env]
+    p = nlos_probability(d_m, e["nlos_scale_m"])
+    if u_nlos >= p:
+        return 0.0                      # link is LOS, zero penalty
+    atten = e["nlos_atten_mu"] + e["nlos_atten_sd"] * u_atten
+    diff = e["diffraction_mu"] + e["diffraction_sd"] * u_diff
+    cap = (e["nlos_atten_mu"] + e["diffraction_mu"]) + 3.0 * e["nlos_atten_sd"]
+    return max(0.0, min(atten + diff, cap))
+
+
+def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, overrides=None):
+    """tx + gains - path_loss - excess_loss. Gains are 0 dBi: the probe registers
+    isotropic anchors and the engine's antennaGainDb defaults to 0."""
+    o = overrides or {}
+    phy = dict(TIER_PHY[tier]); phy.update(o.get("phy", {}))
+    env_name = TIER_ENV[tier]
+    n = o.get("n", ENV[env_name]["n"])
+    pl = path_loss_db(phy["f"], d_m, n)
+    ex = nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env_name)
+    return phy["tx"] - pl - ex
+
+
+def margin_db(tier, d_m, u_nlos, u_atten, u_diff, overrides=None):
+    """rx_power - sensitivity. The quantity the probe's mean_margin_db is compared
+    AGAINST, and which is computed here without reference to it."""
+    o = overrides or {}
+    sens = o.get("sensitivity", SENSITIVITY_DBM[tier]) + CODING_RATE_OFFSET_DB
+    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, o) - sens
+
+
+def reception_probability(margin, width=SOFT_THRESHOLD_WIDTH_DB):
+    """Logistic, lora-physics-engine.cc:141-143."""
+    x = margin / max(width, 1e-6)
+    if x > 60.0:
+        return 1.0
+    if x < -60.0:
+        return 0.0
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def pdr_at(tier, d_m, draws, overrides=None):
+    """PDR averaged over corpus realizations. The DECISION is averaged, never Phi(mean).
+
+    draws: list of (u_shadow, u_nlos, u_atten, u_diff) unit-normalised per realization.
+    """
+    o = overrides or {}
+    env_name = TIER_ENV[tier]
+    sd_los = o.get("shadow_sd", ENV[env_name]["shadow_sd"])
+    ratio = ENV[env_name]["nlos_sigma_ratio"]
+    scale = ENV[env_name]["nlos_scale_m"]
+    tot = 0.0
+    for (u_sh, u_nl, u_at, u_df) in draws:
+        m = margin_db(tier, d_m, u_nl, u_at, u_df, o)
+        sd = sd_los * (ratio if u_nl < nlos_probability(d_m, scale) else 1.0)
+        tot += reception_probability(m + sd * u_sh)
+    return tot / len(draws)
+
+
+def r80(tier, draws, distances, overrides=None):
+    """Distance at which PDR crosses 0.80, linearly interpolated."""
+    prev = None
+    for d in distances:
+        p = pdr_at(tier, d, draws, overrides)
+        if prev is not None:
+            (d0, p0) = prev
+            if p0 >= 0.80 > p:
+                return d0 + (p0 - 0.80) / (p0 - p) * (d - d0)
+        prev = (d, p)
+    return float("nan")

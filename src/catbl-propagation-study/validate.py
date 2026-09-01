@@ -1,144 +1,125 @@
 #!/usr/bin/env python3
-"""Section 7 gate -- PER-REALIZATION evaluation against the engines' output.
+"""§7 validation: an INDEPENDENTLY COMPUTED link budget against the engines.
 
-WHY THIS WAS REWRITTEN. The first version fed the probe's AGGREGATE columns
-(mean_margin_db, shadow_sd_eff_db) into a per-link formula and applied Phi once.
-That evaluates a nonlinear function at the mean instead of averaging the function,
-and it produced FOUR false mechanism diagnoses in a row -- two-ray breakpoint,
-missing sigma floor, NLOS hard-failure, preamble gain -- each blamed for an error
-the evaluation method was generating on its own. The corpus had been generated,
-digested, and never opened.
+WHAT CHANGED, AND WHY IT MATTERS
+--------------------------------
+The previous version read `mean_margin_db` from the probe CSV and applied a shadowing
+distribution to it. The link budget -- the quantity this file exists to validate --
+was imported from the subject, so no engine constant could move the output: detuning
+the noise constant by 14 dB and a tier's TX power by 16 dB both produced BYTE-IDENTICAL
+results. A comparison run against such a model tests nothing.
 
-The decision the engine actually makes (lora-physics-engine.cc:884) is a HARD
-comparison per trial:
+The model now lives in linkbudget.py, which imports only `math`. It cannot see the
+probe. This file reads the probe for COMPARISON ONLY: the probe's margin column is
+loaded into `probe_margin`, which is never passed to the model.
 
-    deliver iff rxPower_i > effectiveSensitivity_i
-
-so the model must make that comparison per realization and average the outcome.
-Both candidate explanations for the old residual -- Jensen curvature and an
-under-stated sigma -- are absorbed by doing this, without needing to separate them.
-
-CORPUS CONSUMPTION IS ASSERTED, not assumed. A validation that silently falls back
-to aggregates is the same failure class as a gate whose failure mode is silence,
-and that is exactly what happened here.
+REGISTERED ACCEPTANCE, stated before the comparison is computed:
+    r80 within 15%, PDR within 3 dB across the swept range, all three tiers.
+Unchanged, and not relaxed after any failure.
 """
 import csv, hashlib, json, math, os, sys
-import propagation as P
+
+import linkbudget as lb
+import ranging
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PROBE = os.path.join(HERE, "..", "..", "results", "causal", "probe_range_sweep.csv")
 CORPUS = os.path.join(HERE, "results", "corpus.json")
+# Repointed to the post-D1 probe. results/causal/probe_range_sweep.csv is pre-D1 and
+# superseded; the module's own DEFECTS.md records results/probe_audit as invalidated.
+PROBE = os.path.join(HERE, "..", "..", "results", "probe_v7", "probe_range_sweep.csv")
 
-# Every constant carries its file:line. No physical constant enters without one.
-TIERS = {
-    "868MHz": {"f": 868e6,   "src": "lora-physics-parameters.cc:12",     "tx": 14.0},
-    "2.4GHz": {"f": 2.44e9,  "src": "lora-2p4-physics-parameters.cc:52", "tx": 12.5},
-    "UWB":    {"f": 7.99e9,  "src": "lora-uwb-physics-parameters.cc:52", "tx": -16.47},
-}
-R80_TOL = 0.15
+R80_TOL = 0.15        # registered
+PDR_TOL_DB = 3.0      # registered
 
 
-class Corpus:
-    """Loads the corpus and COUNTS draw consumption so bypass is detectable."""
-
-    def __init__(self, path):
-        if not os.path.exists(path):
-            raise SystemExit("FATAL: corpus absent at %s -- run corpus.py first" % path)
-        with open(path) as f:
-            self.data = json.load(f)
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for c in iter(lambda: f.read(1 << 20), b""):
-                h.update(c)
-        self.digest = h.hexdigest()
-        self.draws_used = 0
-
-    def shadow_draws(self, n):
-        """Unit-normal shadowing draws, scaled by the caller. Counted."""
-        out = []
-        for r in self.data["realizations"][:n]:
-            out.append(r["anchors"][0]["u_shadow"])
-        self.draws_used += len(out)
-        return out
-
-    def nlos_draws(self, n):
-        out = [r["anchors"][0]["u_nlos"] for r in self.data["realizations"][:n]]
-        self.draws_used += len(out)
-        return out
+def load_corpus():
+    if not os.path.exists(CORPUS):
+        raise SystemExit("FATAL: corpus absent at %s -- run corpus.py first" % CORPUS)
+    d = json.load(open(CORPUS))
+    h = hashlib.sha256()
+    with open(CORPUS, "rb") as f:
+        for c in iter(lambda: f.read(1 << 20), b""):
+            h.update(c)
+    draws = [(r["anchors"][0]["u_shadow"], r["anchors"][0]["u_nlos"],
+              r["anchors"][0]["u_excess"], r["anchors"][0]["u_fade"])
+             for r in d["realizations"]]
+    return draws, h.hexdigest(), d["n"]
 
 
-def load_probe():
-    rows = [r for r in csv.DictReader(open(PROBE))]
+def load_probe_for_comparison():
+    """Engine output, for comparison ONLY.
+
+    Returns per tier: [(distance, engine_pdr, probe_margin)]. `probe_margin` is
+    carried so it can be COMPARED against the computed margin; it is never handed to
+    linkbudget.py, which cannot accept it -- the model's signature takes distance and
+    corpus draws, not a margin.
+    """
+    rows = list(csv.DictReader(open(PROBE)))
     out = {}
-    for t in TIERS:
-        out[t] = sorted([(float(r["distance_m"]), float(r["pdr"]), float(r["mean_pl_db"]),
-                          float(r["mean_margin_db"]), float(r["shadow_sd_eff_db"]),
-                          float(r["nlos_frac"])) for r in rows if r["tier"] == t])
+    for t in lb.TIER_PHY:
+        out[t] = sorted([(float(r["distance_m"]), float(r["pdr"]),
+                          float(r["mean_margin_db"]))
+                         for r in rows if r["tier"] == t])
     return out
 
 
-def pdr_per_realization(margin_db, sigma_db, shad):
-    """Average the DECISION over realizations. Never Phi(mean)."""
-    ok = 0
-    for u in shad:
-        if margin_db + sigma_db * u > 0.0:
-            ok += 1
-    return ok / len(shad)
+def db(x):
+    return 10.0 * math.log10(max(x, 1e-9))
 
 
 def main():
-    corpus = Corpus(CORPUS)
-    probe = load_probe()
-    print("  corpus sha256 %s  n=%d" % (corpus.digest[:16] + "...", corpus.data["n"]))
-    print("  ACCEPTANCE (unchanged, not relaxed after failure): r80 within %.0f%%" % (100 * R80_TOL))
+    draws, digest, n = load_corpus()
+    probe = load_probe_for_comparison()
+
+    print("=" * 78)
+    print("REGISTERED ACCEPTANCE, stated before the comparison:")
+    print("  r80 within %.0f%%   PDR within %.1f dB across the swept range" %
+          (100 * R80_TOL, PDR_TOL_DB))
+    print("  population: %d corpus realizations, digest %s" % (n, digest[:16]))
+    print("  probe: %s" % os.path.relpath(os.path.realpath(PROBE), os.path.dirname(HERE)))
+    print("  model: linkbudget.py, which imports only `math` and cannot read the probe")
+    print("=" * 78)
     print()
 
-    # --- diagnostic: is the engine's threshold fixed? ------------------------
-    print("=" * 78)
-    print("D1. implied sensitivity per distance = tx - PL - margin")
-    print("    constant => fixed threshold.  varying => a per-trial penalty term.")
-    print("=" * 78)
-    for t, cfg in TIERS.items():
-        vals = [cfg["tx"] - pl - mar for (_, _, pl, mar, _, _) in probe[t]]
-        print("  %-8s min %8.2f  max %8.2f  spread %6.2f dB   (%s)" %
-              (t, min(vals), max(vals), max(vals) - min(vals), cfg["src"]))
-    print()
-
-    # --- the gate, evaluated per realization ---------------------------------
-    print("=" * 78)
-    print("D2. PDR per realization: mean of 1[margin + sigma*u > 0] over the corpus")
-    print("=" * 78)
-    n = corpus.data["n"]
-    shad = corpus.shadow_draws(n)
     allpass = True
-    for t, cfg in TIERS.items():
-        print("  --- %s" % t)
-        print("    %-8s %8s %10s %10s" % ("dist", "pdr_eng", "pdr_model", "diff"))
-        pts = []
-        for (dist, pdr, pl, mar, sd, nl) in probe[t]:
-            m = pdr_per_realization(mar, sd, shad)
-            pts.append((dist, pdr, m))
-            print("    %-8.0f %8.4f %10.4f %+10.4f" % (dist, pdr, m, m - pdr))
-        # r80 from each curve by interpolation on the model points
-        def r80_of(idx):
-            for i in range(1, len(pts)):
-                a, b = pts[i - 1], pts[i]
-                if a[idx] >= 0.80 > b[idx]:
-                    return a[0] + (a[idx] - 0.80) / (a[idx] - b[idx]) * (b[0] - a[0])
-            return float("nan")
-        rm, re_ = r80_of(2), r80_of(1)
-        rel = abs(rm - re_) / re_ if re_ == re_ and re_ > 0 else float("nan")
-        ok = rel == rel and rel <= R80_TOL
-        allpass = allpass and ok
-        print("    r80 model %.1f  engine %.1f  rel %.1f%%  %s" %
-              (rm, re_, 100 * rel, "PASS" if ok else "FAIL"))
-    print()
-    if corpus.draws_used == 0:
-        raise SystemExit("FATAL: corpus loaded but NO draws consumed -- this run "
-                         "evaluated on aggregates, which is the defect this file "
-                         "was rewritten to prevent.")
-    print("  corpus draws consumed: %d  (zero would be a FATAL bypass)" % corpus.draws_used)
+    for t in ("868MHz", "2.4GHz", "UWB"):
+        pts = probe[t]
+        dists = [p[0] for p in pts]
+        print("  --- %s   (%s, n=%.2f)" % (t, lb.TIER_ENV[t], lb.ENV[lb.TIER_ENV[t]]["n"]))
+        print("    %-8s %9s %9s %9s | %11s %11s" %
+              ("dist", "pdr_eng", "pdr_mdl", "diff_dB", "margin_eng", "margin_mdl"))
+        worst_db = 0.0
+        for (d, pe, m_probe) in pts:
+            pm = lb.pdr_at(t, d, draws)
+            # mean computed margin over the corpus, for comparison against the probe's
+            mm = sum(lb.margin_db(t, d, u_nl, u_at, u_df)
+                     for (_, u_nl, u_at, u_df) in draws) / len(draws)
+            ddb = abs(db(max(pm, 1e-6)) - db(max(pe, 1e-6)))
+            if pe > 0.01 or pm > 0.01:
+                worst_db = max(worst_db, ddb)
+            print("    %-8.0f %9.4f %9.4f %9.2f | %11.2f %11.2f"
+                  % (d, pe, pm, ddb, m_probe, mm))
+        rm = lb.r80(t, draws, dists)
+        re_ = None
+        prev = None
+        for (d, pe, _) in pts:
+            if prev is not None and prev[1] >= 0.80 > pe:
+                re_ = prev[0] + (prev[1] - 0.80) / (prev[1] - pe) * (d - prev[0])
+                break
+            prev = (d, pe)
+        rel = abs(rm - re_) / re_ if (re_ and rm == rm) else float("nan")
+        ok_r = rel == rel and rel <= R80_TOL
+        ok_p = worst_db <= PDR_TOL_DB
+        allpass = allpass and ok_r and ok_p
+        print("    r80  model %8.1f   engine %8.1f   rel %6.1f%%  %s"
+              % (rm, re_ if re_ else float("nan"), 100 * rel, "PASS" if ok_r else "FAIL"))
+        print("    PDR  worst deviation %.2f dB  %s" % (worst_db, "PASS" if ok_p else "FAIL"))
+        print()
+
     print("  ACCEPTANCE: %s" % ("PASS" if allpass else "FAIL"))
+    if not allpass:
+        print("  The model is NOT tuned to match. Report which term differs and which")
+        print("  side is more likely wrong.")
     return 0 if allpass else 1
 
 
