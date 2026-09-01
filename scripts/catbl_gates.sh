@@ -312,6 +312,16 @@ fi
 [ "$G12_BAD" -eq 0 ] || fail G12
 finish G12
 
+# ------------------------ G11: the propagation study, under the gates
+# Wired in 2026-09-02, after validate.py was rebuilt to COMPUTE the link budget rather
+# than read it from the probe. It is RED, for an accuracy reason and not a
+# construction one: the model omits foliage loss, which the engine applies. The
+# precedent is G6, which sat red by design with its remedy recorded beside it.
+# The propagation sweeps stay blocked while it is red -- that is the point.
+printf '\n--- G11 propagation study: corpus, reconciliation, tracking ---\n'
+python3 scripts/propagation_study_gate.py || fail G11
+finish G11
+
 # ---------------- G13: every sidecar SHA resolves, in history or via SHA_MAP.md
 # A run_id.txt's `source <sha>` is the only link between a results directory and the
 # code that produced it. The 2026-09-01 attribution rewrite moved 30 commits and left

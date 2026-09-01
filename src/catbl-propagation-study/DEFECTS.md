@@ -864,3 +864,82 @@ active hook that could reintroduce a trailer.
 
 **The handoff content that sat in the rewritten `35466c0`** is carried through
 unchanged — the tree diff was empty, so no file content moved in the rewrite.
+
+---
+
+## `validate.py` rebuilt: the model now computes the link budget, and disagrees for a named reason
+
+**The defect.** The previous `validate.py` read `mean_margin_db` from the probe CSV and
+applied a shadowing distribution to it. The link budget — the quantity §7 exists to
+validate — was imported from the subject. Detuning `K_BOLTZ_DBM_HZ` by 14 dB and a
+tier's TX power by 16 dB both produced **byte-identical output**, because neither
+constant was on the path.
+
+**The rebuild.** `linkbudget.py` computes `rx_power → noise → margin → PDR → r80` with
+**33 `file:line` citations** to the engine sources. The separation is structural, not a
+convention: the file imports only `math`. The probe cannot be in scope because the
+probe is not in scope, so a later edit cannot silently reintroduce the defect without
+first adding an import that does not belong.
+
+Both engine behaviours that a naive model gets wrong are built in from the start:
+NLOS excess loss with distance (`lora-nlos-submodule.cc:47,84-93`) and the logistic
+reception decision at `softThresholdWidthDb = 0.35` (`lora-physics-engine.cc:141-143`).
+
+**Fixture B — four constants, four paths.**
+
+| constant | path | movement |
+|---|---|---|
+| path-loss exponent `n` 2.2/2.3 → 3.2 | distance scaling | r80 868 4014.7→1048.6, 2.4 2169.6→205.0, UWB 30.9→10.6 |
+| sensitivity → −90.0 dBm | receiver threshold | r80 868 4014.7→669.3, 2.4 2169.6→428.7, UWB 30.9→6.9 |
+| 868 TX power 14.0 → 30.0 dBm | link budget | r80 868 4014.7→beyond the swept range |
+| `K_BOLTZ_DBM_HZ` −174 → −160 | **noise floor** | r80 **unchanged**; ranging sigma **×5.01** on all three tiers |
+
+**The noise constant not moving `r80` is correct, not a gap.** The engine's reception
+decision is `rxPower >= effectiveSensitivity`
+(`lora-physics-engine.cc:135-146`) — sensitivity-thresholded, not SNR-thresholded — so
+the noise floor cannot enter `r80`. It enters the **CRLB ranging** path instead, where
+detuning it moves sigma by 5.01×. The constant is wired; it is wired to the path the
+engine actually puts it on.
+
+**§7 reconciliation, at the registered 15% / 3 dB, against a fresh probe**
+(`results/probe_v7`, `source fbf2153 dirty 0`, digest verified):
+
+| tier | model r80 | engine r80 | rel | PDR worst | verdict |
+|---|---|---|---|---|---|
+| 868 MHz | 4014.7 | 1515.3 | 164.9% | 4.06 dB | FAIL |
+| 2.4 GHz | 2169.6 | 1149.5 | 88.7% | 52.07 dB | FAIL |
+| UWB | 30.9 | 12.8 | 140.8% | 3.57 dB | FAIL |
+
+**The model was not tuned to match.**
+
+**The differing term, isolated.** Computed margin minus engine margin, per distance:
+
+    868 MHz   +12.32 dB at 100 m (nlos_frac 0.013)  rising to +17.92 dB at 6000 m
+    2.4 GHz    +2.64 dB at  10 m  falling to -2.00 dB at 430 m
+
+A **constant ~12 dB offset on 868 at essentially-LOS distances**, plus ~6 dB that
+accumulates with range. The constant part is not NLOS — `nlos_frac` is 0.013 where the
+gap is already 12.3 dB.
+
+**Which side is more likely wrong: the model.** 868 MHz runs in `RURAL_FORESTED` with
+`vegWide = VEG_DENSE_FOREST` (`ca_tbl_causal_sim.cc:3174`), and the engine applies
+`result.foliageDb` in its loss sum (`lora-physics-engine.cc:598-604`). **The model has
+no foliage term at all.** 2.4 GHz sits in `RURAL_OPEN` with `VEG_SPARSE_SHRUBS`, and
+its gap is near zero — consistent with foliage being the missing term rather than
+something common to all tiers.
+
+**This is model incompleteness, not an engine defect — and that is the opposite of
+D1.** There, the model's refusal to reconcile indicted the engine and a six-decibel
+indexing error was found. Here the disagreement indicts the model: the engine's loss
+terms are named and sourced, and the model omits one of them. Saying so is the point of
+the instruction not to tune.
+
+**Consequence.** **G11 is wired into the suite and is RED**, for an accuracy reason
+rather than a construction one — the precedent is G6, which sat red by design with its
+remedy recorded beside it. **The propagation sweeps stay blocked.** The remedy is a
+foliage term with `file:line` constants from the vegetation model, after which §7 is
+re-run at the unchanged criterion.
+
+**`Simulation.md` §11.2 is unchanged.** It states packet-level physics is unverified
+for receiver sensitivity, and this reconciliation does not change that — a model that
+cannot yet reproduce the engine cannot corroborate it.
