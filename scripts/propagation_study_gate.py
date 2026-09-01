@@ -78,22 +78,45 @@ def a3_tracked_and_digest_consistent():
         print("    UNTRACKED and not allowed: %s" % rel)
         ok = False
     want = open(CORPUS_SHA).read().split()[0].strip() if os.path.exists(CORPUS_SHA) else None
-    sidecars = glob.glob(MOD + "/experiments/*.json") + glob.glob(MOD + "/results/*_sidecar.json")
+    # The glob IS the population claim, so it is printed, and every file that leaves
+    # the population is accounted for by name. A sidecar that fails to parse used to be
+    # skipped silently, which shrinks the population invisibly -- it now fails the gate.
+    globs = [MOD + "/experiments/*.json", MOD + "/results/*_sidecar.json"]
+    sidecars = sorted(sum((glob.glob(g) for g in globs), []))
+    print("    population globs: %s" % ", ".join(os.path.relpath(g, MOD) for g in globs))
+    print("    files matched: %d" % len(sidecars))
     n = 0
+    no_digest = []
     for s in sidecars:
         try:
             d = json.load(open(s))
-        except Exception:
+        except Exception as e:
+            print("    UNPARSEABLE SIDECAR (population would silently shrink): %s: %s"
+                  % (os.path.relpath(s, MOD), e))
+            ok = False
             continue
         got = d.get("corpus_sha256") or d.get("corpus_digest")
         if not got:
+            no_digest.append(os.path.relpath(s, MOD))
             continue
         n += 1
         if got != want:
             print("    SIDECAR DIGEST MISMATCH: %s claims %s" % (s, str(got)[:24]))
             ok = False
-    print("    experiment sidecars claiming a corpus digest: %d, all matching: %s"
-          % (n, "yes" if ok else "no"))
+    if no_digest:
+        print("    matched but carry no corpus digest (%d): %s"
+              % (len(no_digest), ", ".join(no_digest)))
+    if n == 0:
+        # An empty population is not a pass. It is reported as what it is: this
+        # assertion checked nothing, because the sweeps that write these sidecars
+        # are blocked behind assertion 2.
+        print("    experiment sidecars claiming a corpus digest: 0")
+        print("    VACUOUS -- no sidecar carries a digest, so this assertion verified")
+        print("    NOTHING. It is not evidence of consistency. It becomes a real check")
+        print("    only once the sweeps run.")
+    else:
+        print("    experiment sidecars claiming a corpus digest: %d, all matching: %s"
+              % (n, "yes" if ok else "no"))
     return ok
 
 

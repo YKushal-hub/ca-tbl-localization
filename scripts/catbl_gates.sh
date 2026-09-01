@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates G1-G4. Run after every code change.
-# Exits non-zero on the FIRST failing gate, so the caller stops and reverts.
+# CA-TBL regression gates G1-G13. Run after every code change.
+#
+# Every gate RUNS; failures are recorded and reported in the summary block at the end,
+# and the script exits 1 if any gate failed. It no longer stops at the first failure --
+# fail-fast was masking G7-G9 entirely.
+#
+# HOW TO INVOKE IT. Run it UNPIPED:
+#
+#     bash scripts/catbl_gates.sh
+#
+# If you pipe it -- `| tail`, `| tee`, anything -- `$?` is the LAST command's status,
+# not this script's, and a red suite reads green. Either check PIPESTATUS:
+#
+#     bash scripts/catbl_gates.sh | tee gates.log; [ "${PIPESTATUS[0]}" -eq 0 ]
+#
+# or redirect instead of piping. This project has now hit pipeline-status masking three
+# times -- twice inside this script (see the pipefail note below) and once on the script
+# itself, where `SUITE FAILED` was printed alongside a shell exit code of 0 from `tail`.
 #
 # G1 build / G2 determinism / G3 null ablation / G4 verifier / G5 verifier self-test.
 #
