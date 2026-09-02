@@ -1420,3 +1420,40 @@ commit body. That is what made it reviewable, and the review reversed the instru
 rather than the work. An instruction declined silently — even correctly — leaves no such
 opportunity. **Flag an instruction you decline, with the reasoning**, is now a standing
 rule and this is its first recorded instance.
+
+---
+
+## THE TERMINUS: the registered §7 criterion cannot be met, and is reported failed
+
+Not "has not been met yet". **Cannot be**, by an independently-implemented model.
+
+The registered criterion is `r80` within 15% and margin within 3.0 dB across the swept
+range, for full reconciliation. Meeting it requires every active loss term. One of those
+terms — `terrainDb`, the largest remaining at ~13 dB on 2.4 GHz and ~5.5 dB on UWB — is
+transcription-only: its active path is `proceduralLoss`, whose input is
+`GetProceduralElevation`, three hardcoded fBm octaves over a bespoke `SmoothNoise`
+(`lora-terrain-submodule.cc`). Reproducing it means copying it, and a transcription cannot
+validate its source.
+
+**The criterion is NOT rescoped.** It stands at 15% and 3.0 dB, it fails, and the cause is
+named. A criterion relaxed after seeing why it fails is worthless, and this project has
+refused that move four times. What is legitimate is registering a *new and separate*
+criterion for a *different* question, prospectively — see
+`experiments/G11A_REGISTRATION.md`.
+
+### G11a as literally specified is not computable, and importing terrain would be circular
+
+The proposal was to compare `model + engine-reported terrain` against the engine margin,
+with terrain supplied from the engine's own column. **There is no terrain column.**
+`results/probe_v7/probe_range_sweep.csv` has fifteen columns and none of them is terrain,
+and no new ns-3 runs are authorised.
+
+The only way to obtain terrain from existing output is as the residual
+`X_engine − X_model`. Defining terrain as whatever closes the gap and then reporting that
+the gap closes is **circular by construction**: G11a would pass at exactly 0.00 dB on
+every tier and every distance, and would mean nothing. That is the same failure as the
+original `validate.py`, which consumed the quantity it validated.
+
+**Declined, with the reasoning, and replaced by something that measures.** See the
+registration for the substitute: validate on the sub-population where terrain is provably
+inactive **by geometry**, so no terrain value is imported at all.
