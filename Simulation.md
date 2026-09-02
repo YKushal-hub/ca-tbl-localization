@@ -972,8 +972,17 @@ tested at both limits.**
 
 Registered before the first sweep (`experiments/OFAT_CAMPAIGN_REGISTRATION.md`), which
 also fixed the rule: every conclusion recomputed at terrain 0 and 30 dB, and at margin
-offsets of −4, 0, +4 dB bracketing the unattributed residual. **15 ROBUST, 0 SENSITIVE,
-1 UNDETERMINABLE.** Corpus `n = 2000`, digest `ea40076996e71a84b4bcce81`.
+offsets of −4, 0, +4 dB bracketing the unattributed residual. **9 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE, and 6
+INVARIANT BY CONSTRUCTION.** Corpus `n = 2000`, digest `ea40076996e71a84b4bcce81`.
+
+The table first read 15 ROBUST. Six rows — P10, P11, P12, P13, P15, P16 — never fed the
+terrain or offset axes into their own function, so their ROBUST meant *cannot move*, not
+*tested and did not move*. The classifier was then given the negative fixture it had never
+had, and **can be observed to fail in both directions**: a terrain-sensitive construction
+classifies UNDETERMINABLE, an offset-sensitive one classifies SENSITIVE, and an analytic
+identity classifies ROBUST. So for the ten genuinely-tested rows, "0 SENSITIVE" is a real
+result. The six relabelled rows keep their conclusions unchanged — several never needed the
+robustness column at all, which is exactly why it was uninformative for them.
 
 **The two results that change what the project can say:**
 
@@ -1007,6 +1016,32 @@ registered against the nominal path-loss exponent when an **effective** one gove
 (3.03–3.54 at 868 MHz, because the NLOS and foliage terms are themselves
 distance-dependent); UWB's is 1.99–2.00, exactly free-space, independently confirming the
 two-ray branch.
+
+**The limitation of pre-registration itself, found by applying it.** This module wrote
+three registrations and each left a term undefined that later decided a verdict:
+
+1. **§5.1** specified the y-axis as "ranging sigma from the CRLB" and never fixed the
+   **operating point** at which sigma is evaluated. Judged at each design's own operating
+   point the architecture's premise survives; judged at a common 100 m it is falsified.
+   The registration's silence, not a later choice, decided which.
+2. **The OFAT registration** required every conclusion to "hold" under two axes and never
+   operationalised **what a conclusion is**. Implemented as monotonic shape, it could not
+   distinguish stable magnitude from unstable — where measurable, effect size moves by
+   ~2.2× while shape does not move at all.
+3. **The same registration** never declared that **P12 and P16 are analytic**, nor that
+   four further rows never feed the robustness axes into their own function. Six of sixteen
+   ROBUST verdicts meant *cannot move* rather than *did not move*, and were relabelled only
+   after a negative fixture was built for the classifier.
+
+Each was written by someone who had just diagnosed the previous one.
+
+> **Pre-registration catches the predictions you know how to be wrong about. It does not
+> catch the terms you did not think to define.**
+
+The remedy that would have worked in all three cases is cheap and is recommended rather
+than claimed: before running, re-read the registration asking *which of these words will
+decide the verdict*, and define those. A registration is falsifiable only to the extent its
+terms are.
 
 **And one about the method.** Zero of sixteen conclusions moved under the ±4 dB offset —
 which is evidence the test is too coarse to fail, not that everything is robust. The
