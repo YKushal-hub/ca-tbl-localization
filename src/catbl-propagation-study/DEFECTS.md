@@ -1457,3 +1457,49 @@ original `validate.py`, which consumed the quantity it validated.
 **Declined, with the reasoning, and replaced by something that measures.** See the
 registration for the substitute: validate on the sub-population where terrain is provably
 inactive **by geometry**, so no terrain value is imported at all.
+
+---
+
+## 868's negative near-field residual — one bounded look, partly identified, recorded OPEN
+
+The model is **3.94 dB too lossy** at 100 m on 868 MHz, decaying with distance and
+reversing sign to +0.55 dB by 6 km. Opposite in sign to every other discrepancy. Terrain is
+provably inactive below 152 m there, so it is not terrain.
+
+### Identified: a real defect worth 0.466 dB
+
+**The model evaluates ITU-R P.833 at the mean of `gamma` and `A_max`; the engine samples
+both.** `lora-physics-parameters.cc:318-319`:
+
+    specificAttenuationDbPerM = Normal(gamma, gamma*0.25, gamma*0.2, gamma*1.8)
+    maxAttenuationDb          = Normal(amax,  amax*0.2,   amax*0.5,  amax*1.8)
+
+`A_veg = A_max·(1 − exp(−depth·gamma/A_max))` saturates, so by Jensen
+`E[A_veg] < A_veg(E[gamma], E[A_max])` and the model over-attenuates:
+
+| vegetation | model, at the mean | engine, sampled | model high by |
+|---|---|---|---|
+| `VEG_DENSE_FOREST` | 16.424 dB | 15.958 dB | **+0.466 dB** |
+| `VEG_SPARSE_SHRUBS` | 3.917 dB | 3.827 dB | +0.090 dB |
+
+Same class as the foliage-depth error this file already records — a saturating function
+evaluated at a point estimate instead of integrated over its distribution. **Not fixed in
+this pass**: it is a change to a term already scored, and it needs its own registration.
+Recorded with its magnitude so it is not rediscovered.
+
+### Ruled out, each with its number
+
+| candidate | ruled out because |
+|---|---|
+| the fading NLOS branch | `nlos_frac` is 0.0130 at 100 m, so the registered omission is worth **0.011 dB** — three orders short |
+| foliage `gamma`, `A_max` | identical to the engine: 0.20 and 25.0 (`lora-physics-parameters.cc:309`) |
+| foliage depth distribution | identical: `LogNormal(log(100), 0.6, 0, 500)` (`:293`) |
+| terrain | provably inactive below 152 m by the geometric bound |
+| link hysteresis | already corrected for in the re-census |
+| two-ray | gated off in `RURAL_FORESTED`; `two_ray_frac` is 0.0000 at every 868 distance |
+
+**≈3.5 dB remains OPEN.** One observation for whoever picks it up: the discrepancy shrinks
+monotonically as `nlos_frac` rises (−3.94 at 0.013, −3.01 at 0.111, −0.47 at 0.315, +0.43
+at 0.418), which is the signature of **two errors of opposite sign partially cancelling** —
+foliage too large and NLOS excess too small — rather than one term being wrong. No fifth
+term hunt was started.
