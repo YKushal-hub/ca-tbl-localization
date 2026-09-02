@@ -1503,3 +1503,46 @@ monotonically as `nlos_frac` rises (−3.94 at 0.013, −3.01 at 0.111, −0.47 
 at 0.418), which is the signature of **two errors of opposite sign partially cancelling** —
 foliage too large and NLOS excess too small — rather than one term being wrong. No fifth
 term hunt was started.
+
+---
+
+## The fault injector's comment describes a model it does not implement
+
+`ca_tbl_causal_sim.cc:2496-2501` states:
+
+> `injectFaultAnchors = 0` means COMMON-MODE (every tier-2 link, h = m). **`>0` means a
+> SINGLE-ANCHOR fault (h = 1), which is the canonical RAIM model** and the physically
+> realistic one.
+
+The selector two lines below is `(anchorId % 97) % 3 == seed % 3`. Over the deployment's
+**12 tier-2 anchors** that faults **exactly 4**, deterministically, at every seed tested.
+
+| label | comment claims | actually injects |
+|---|---|---|
+| F1 (`injectFaultAnchors > 0`) | `h = 1`, canonical RAIM | **`h = 4` of 12** |
+| F3 (`injectFaultAnchors = 0`) | `h = m`, common-mode | `h = 12` of 12 — correct |
+
+**The canonical single-fault condition is bracketed and never met.** Fault Detection and
+Exclusion is derived for exactly one faulty measurement; the project's two fault models sit
+at a third of the anchors and at all of them.
+
+### What this does and does not change
+
+**It does not change any result.** The numbers were produced under the model the code
+implements, not the model the comment describes, and they stand exactly as recorded. Claim
+9's verdict is unaffected: a fault model that turns out to be *harder* than documented does
+not make a negative result softer.
+
+**It changes the description.** Every campaign using this injector — `campaign_20260810`,
+`campaign_recovery`, `c9_clean`, `abl_clean`, `excl_test` — tested `h = 4` and `h = 12`, not
+`h = 1` and `h = m`. `Simulation.md`'s ledger says "2 fault models" without characterising
+them, so no ledger wording is wrong; what was missing is the characterisation itself, now
+added.
+
+**The injector is NOT changed.** It is the model the corpus was measured under, and editing
+it in place would invalidate every result in the tree. `--faultMultiplicity` is added
+beside it, default `-1`, preserving the existing selector bit-exactly — verified by a
+byte-identity null control against the committed `c9_clean/F1_seed1`.
+
+Found by the exclusion campaign: `exclude` helped at `h = 4` and harmed at `h = 12`, which
+made the multiplicity the governing variable and sent me to read the selector.

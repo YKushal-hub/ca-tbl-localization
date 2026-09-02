@@ -388,7 +388,8 @@ CaTblPolicy::CaTblPolicy()
       m_excludeNoneCleared(0),
       m_excludeTooFew(0),
       m_excludeAmbiguous(0),
-      m_excludeRangesDropped(0)
+      m_excludeRangesDropped(0),
+      m_lastExcludeCleared(false)
 {
     for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
     {
@@ -935,6 +936,7 @@ CaTblPolicy::Step(double dt,
         }
     }
     d.suspect = suspect;
+    m_lastExcludeCleared = false;
 
     if (suspect)
     {
@@ -1016,6 +1018,7 @@ CaTblPolicy::Step(double dt,
                     m_ekf.Update(sub, subVar);
                     m_excludeCleared++;
                     m_excludeRangesDropped++;
+                    m_lastExcludeCleared = true;
                     recovered = true;
                 }
                 else if (nCleared == 0)

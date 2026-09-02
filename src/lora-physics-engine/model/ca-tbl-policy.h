@@ -614,6 +614,10 @@ class CaTblPolicy
     uint64_t GetExcludeTooFew() const { return m_excludeTooFew; }
     uint64_t GetExcludeAmbiguous() const { return m_excludeAmbiguous; }
     uint64_t GetExcludeRangesDropped() const { return m_excludeRangesDropped; }
+    //! Whether the LAST Step() accepted a fix via exclusion. The caller holds ground
+    //! truth, so misleading information -- a fix that passed its own integrity check
+    //! while being wrong -- can only be counted outside the policy.
+    bool LastStepExcludeCleared() const { return m_lastExcludeCleared; }
     uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
     //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
     uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
@@ -682,6 +686,7 @@ class CaTblPolicy
     uint64_t m_excludeTooFew;
     uint64_t m_excludeAmbiguous;
     uint64_t m_excludeRangesDropped;
+    bool m_lastExcludeCleared;
     uint64_t m_predictBlockedQuality;
     uint64_t m_predictBlockedCoverage;
     uint64_t m_evidenceBlockedT2;

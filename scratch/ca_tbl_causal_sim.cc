@@ -1858,7 +1858,8 @@ RunArm(CaTblPolicyMode mode,
        uint32_t floorHeartbeatN,
        double injectRangeBiasM,
        double injectBiasFraction,
-       uint32_t injectFaultAnchors)
+       uint32_t injectFaultAnchors,
+       int faultMultiplicity)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -2065,6 +2066,18 @@ RunArm(CaTblPolicyMode mode,
     CaTblMac* nodeMac[CA_TBL_TIER_COUNT];
     std::map<uint16_t, Vector> anchorPosById;
 
+    // FAULT MULTIPLICITY. faultMultiplicity < 0 means "use the pre-existing selector",
+    // which is the default and reproduces every campaign already in the corpus. A value
+    // h >= 0 faults EXACTLY h tier-2 anchors, chosen deterministically from the seed.
+    //
+    // This exists because the pre-existing selector,
+    //     (anchorId % 97) % 3 == seed % 3
+    // faults roughly a THIRD of anchors while the comment beside it describes
+    // "a SINGLE-ANCHOR fault (h = 1), the canonical RAIM model". The injector is NOT
+    // changed -- it is the model the ledger was measured under -- so the two live side
+    // by side and the default remains bit-exact.
+    std::set<uint16_t> faultedAnchorIds;
+
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
         chan[ti].SetPhyProvider(&provider);
@@ -2093,6 +2106,14 @@ RunArm(CaTblPolicyMode mode,
             const uint16_t aid = static_cast<uint16_t>(ad.id);
             provider.RegisterAnchor(tier, aid, ad.pos);
             anchorPosById[aid] = ad.pos;
+            if (tier == CA_TBL_TIER_2P4 && faultMultiplicity >= 0)
+            {
+                // Deterministic, seed-dependent, and stable across arms: the ablation
+                // must see the SAME fault or it measures fault placement. Anchors are
+                // ranked by a seed-mixed hash and the lowest h are faulted, so h is
+                // exact rather than approximate.
+                faultedAnchorIds.insert(aid);
+            }
 
             CaTblMacConfig mc;
             mc.nodeId = aid;
@@ -2122,6 +2143,33 @@ RunArm(CaTblPolicyMode mode,
             bd.rng = macRng;
             beacons.push_back(bd);
         }
+    }
+    // Trim the faulted set to EXACTLY h. Anchors are ranked by a seed-mixed hash and the
+    // lowest h kept, so the choice is deterministic, reproducible, and identical across
+    // arms -- the ablation must see the same fault or it measures fault placement rather
+    // than the detector. h larger than the anchor count faults all of them, which is the
+    // common-mode case and is reported as such rather than silently clamped in silence.
+    if (faultMultiplicity >= 0)
+    {
+        std::vector<std::pair<uint32_t, uint16_t>> ranked;
+        ranked.reserve(faultedAnchorIds.size());
+        for (std::set<uint16_t>::const_iterator it = faultedAnchorIds.begin();
+             it != faultedAnchorIds.end(); ++it)
+        {
+            uint32_t hsh = (static_cast<uint32_t>(*it) * 2654435761u) ^
+                           (static_cast<uint32_t>(seed) * 40503u);
+            ranked.push_back(std::make_pair(hsh, *it));
+        }
+        std::sort(ranked.begin(), ranked.end());
+        const size_t keep = std::min(static_cast<size_t>(faultMultiplicity), ranked.size());
+        faultedAnchorIds.clear();
+        for (size_t i = 0; i < keep; ++i)
+        {
+            faultedAnchorIds.insert(ranked[i].second);
+        }
+        std::cerr << "FAULT_MULTIPLICITY h=" << faultMultiplicity
+                  << " tier2_anchors=" << ranked.size()
+                  << " faulted=" << faultedAnchorIds.size() << std::endl;
     }
     // Scheduled only after every push_back, so the addresses are final.
     for (size_t b = 0; b < beacons.size(); ++b)
@@ -2267,6 +2315,7 @@ RunArm(CaTblPolicyMode mode,
     std::vector<double> errors;
     std::vector<double> errorsFixed;
     uint64_t steps = 0;
+    uint64_t miCycles = 0;   // misleading information: exclusion cleared, fix still wrong
     uint64_t tp = 0;
     uint64_t fp = 0;
     uint64_t fn = 0;
@@ -2502,9 +2551,19 @@ RunArm(CaTblPolicyMode mode,
                     // same fault, or it measures fault placement rather than the detector.
                     if (injectRangeBiasM != 0.0 && biasActive)
                     {
-                        const bool hitThisAnchor =
-                            (injectFaultAnchors == 0) ||
-                            ((anchorId % 97u) % 3u == (seed % 3u));
+                        bool hitThisAnchor;
+                        if (faultMultiplicity < 0)
+                        {
+                            // Pre-existing selector. Bit-exact with every prior campaign.
+                            hitThisAnchor =
+                                (injectFaultAnchors == 0) ||
+                                ((anchorId % 97u) % 3u == (seed % 3u));
+                        }
+                        else
+                        {
+                            hitThisAnchor =
+                                (faultedAnchorIds.find(anchorId) != faultedAnchorIds.end());
+                        }
                         if (hitThisAnchor)
                         {
                             range += injectRangeBiasM;
@@ -2948,6 +3007,14 @@ RunArm(CaTblPolicyMode mode,
         }
 
         const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
+        // MISLEADING INFORMATION: the exclusion branch cleared the integrity gate and the
+        // accepted fix is nonetheless outside the requirement. This is the failure mode a
+        // binary accept/reject cannot express -- the fix passed its own check and is
+        // wrong -- and it is the quantity a protection level exists to bound.
+        if (policy.LastStepExcludeCleared() && d.hadFix && err > 25.0)
+        {
+            ++miCycles;
+        }
         errors.push_back(err);
         if (d.hadFix)
         {
@@ -3070,6 +3137,7 @@ RunArm(CaTblPolicyMode mode,
                   << " too_few=" << policy.GetExcludeTooFew()
                   << " ranges_dropped=" << policy.GetExcludeRangesDropped()
                   << " suspects=" << policy.GetSuspectCount()
+                  << " mi_cycles=" << miCycles
                   << std::endl;
     }
 
@@ -3255,6 +3323,8 @@ main(int argc, char* argv[])
     double injectRangeBiasM = 0.0;    // S7-lite, default off
     double injectBiasFraction = 0.0;  // S7-lite, default off
     uint32_t injectFaultAnchors = 0;  // 0 = common-mode (F3); >0 = single anchor (F1)
+    // -1 preserves the pre-existing selector exactly. >=0 faults exactly h anchors.
+    int faultMultiplicity = -1;
     bool floorOnDemand = false;   // default preserves the pre-existing baseline
     uint32_t floorSkipK = 1;      // K = 1 primary: pure reactive, no hysteresis
     uint32_t floorHeartbeatN = 0; // 0 = off; the radio stays awake regardless
@@ -3364,6 +3434,11 @@ main(int argc, char* argv[])
                  "that announces itself is invisible to the gate by construction and "
                  "would test nothing. 0 (default) disables.",
                  injectRangeBiasM);
+    cmd.AddValue("faultMultiplicity",
+                 "Number of tier-2 anchors to fault simultaneously. -1 (default) uses the "
+                 "pre-existing selector and is bit-exact with every campaign in the corpus. "
+                 ">=0 faults exactly h anchors, chosen deterministically from the seed.",
+                 faultMultiplicity);
     cmd.AddValue("injectFaultAnchors",
                  "S7 fault mode. 0 (default) = COMMON-MODE bias on every tier-2 link "
                  "(F3, h = m). 1 = SINGLE-ANCHOR bias (F1, h = 1), the canonical RAIM "
@@ -3834,7 +3909,8 @@ main(int argc, char* argv[])
                                        floorHeartbeatN,
                                        injectRangeBiasM,
                                        injectBiasFraction,
-                                       injectFaultAnchors);
+                                       injectFaultAnchors,
+                                       faultMultiplicity);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
