@@ -28,6 +28,8 @@
 11. [Claim ledger](#11-claim-ledger)
 12. [Measurement index](#12-measurement-index)
 13. [Work programme](#13-work-programme)
+14. [Where the project stands](#14-where-the-project-stands)
+15. [What the independent propagation model established, and its terminus](#15-what-the-independent-propagation-model-established-and-its-terminus)
 
 ---
 
@@ -830,6 +832,7 @@ favourable result was available and honestly concluded that it was not.
 
 ---
 
+
 ## 14. Where the project stands
 
 | Layer                         | Status                                                               |
@@ -850,3 +853,55 @@ cannot be traced to a specific run, a specific line of code, or a cited source.*
 *System design, physics engines and verification architecture: see **`Architecture.md`**.*
 
 *References `[R-nn]` used in this document are indexed in `Architecture.md` §13.*
+
+---
+## 15. What the independent propagation model established, and its terminus
+
+`src/catbl-propagation-study/` reimplements the link budget from published physics, reading
+the engines' output only to compare against. Its registered acceptance — `r80` within 15%
+and margin within 3.0 dB — **fails, permanently, and is reported as failed rather than
+rescoped.**
+
+**The cause is named.** Full reconciliation needs every active loss term. One of them,
+`terrainDb`, is the largest remaining (~13 dB at 2.4 GHz, ~5.5 dB on UWB) and is
+**transcription-only**: its active path is a procedural loss whose input is
+`GetProceduralElevation`, three hardcoded fBm octaves over a bespoke `SmoothNoise`
+(`lora-terrain-submodule.cc`). Its diffraction relation is ITU-R P.526 and is real physics,
+but its input is an invented terrain field, not a documented effect. Reproducing it means
+copying it, and a transcription cannot validate its source. No independently-implemented
+model can meet the criterion, and that is a property of the question, not of the effort
+spent.
+
+**What the module did establish, by failing.** Eight of the sixteen terms in the engine's
+loss sum are structurally zero in this scenario, four of them hard-assigned `0.0` on a line
+*after* the line that computes them — `lora-physics-engine.cc:341` over `:340`, `:537` over
+`:536`, `:596` over `:489`, and `:593`. The engine contains machinery that reads as active
+and is not, so **reasoning about its behaviour from its structure rather than its
+assignments over-counts what it does.** `Architecture.md` §5.1 carries the full list with
+line pairs and its scoping: every inactivity verdict is `probe_v7`-scoped, and `isIndoor`,
+`nodeIsBodyWorn`, `ENV_TUNNEL_CONFINED` and the radio-horizon check all reactivate
+elsewhere.
+
+It also found that terrain applies an 868 MHz wavelength to every tier
+(`lora-terrain-submodule.cc:69-70`), and that effective sensitivity is not constant — it
+drops by `linkHysteresisMarginDb` (1.5 dB) whenever the link was previously receiving, so
+the reception threshold moves with PDR and sits outside the loss sum entirely.
+
+**What the sweeps now rest on instead.** Since reconciliation is unreachable, it was
+replaced as the blocking condition by a question that is answerable: *do the conclusions
+depend on terrain at all?* Terrain's value is unvalidatable but its range is known exactly,
+`[0, 30]` dB by construction (`lora-physics-engine.cc:400`). Both headline conclusions were
+recomputed at **both limits**:
+
+- the range-precision frontier's shape is unchanged to four decimals (log-log slope
+  +2.2000 at both limits), and its falsifier returns the same verdict at both;
+- the NLOS bias-versus-noise separation is exactly invariant — model B's error floor is
+  7.5000 m at 0 dB and 7.5000 m at 30 dB, on every tier.
+
+So both conclusions may carry: **invariant to terrain across its full physical range,
+tested at both limits.** That is a claim about robustness rather than calibration, and it
+does not assert that the model is validated — it asserts that these conclusions do not rest
+on the part that cannot be.
+
+---
+

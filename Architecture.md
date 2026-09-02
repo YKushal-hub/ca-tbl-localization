@@ -258,6 +258,58 @@ flowchart TD
 
 ---
 
+### 5.1 Which pipeline stages are actually active
+
+The pipeline above shows what the engine *can* apply. It over-states what it *does* apply
+in any given scenario, and the gap is not small: in the `probe_v7` configuration
+(`RURAL_FORESTED` for 868 MHz, `RURAL_OPEN` for 2.4 GHz and UWB, `WEATHER_CLEAR_DRY`,
+outdoor), **eight of the sixteen terms in the engine's loss sum are structurally zero.**
+
+Four of them are hard-assigned `0.0` on a line *after* the line that computes them:
+
+| term | computed at | zeroed at |
+|---|---|---|
+| `result.antennaGainDb` | `lora-physics-engine.cc:340` | **`:341`** |
+| `result.dopplerPenaltyDb` | `:536` | **`:537`** |
+| `multipathPenaltyDb` | `:489` | **`:596`** |
+| `state.soilAttenuationDb` | (submodule) | **`:593`** |
+
+A reader tracing the pipeline, or the loss sum at `:597-601`, will count these as
+contributing. They do not. **Anyone reasoning about this engine from its structure rather
+than from its assignments will over-count what it does** — and reading the submodule that
+computes a term is not enough, because the assignment that discards it is in the caller.
+
+The remaining four are gated off by scenario rather than by assignment:
+`interferencePenaltyDb` (no concurrent transmitter in the probe),
+`thermalEfficiencyLossDb` (initialised `0.0`, never reassigned, `:583`),
+`tier3LossDb` (tunnel requires `ENV_TUNNEL_CONFINED`), and
+`state.propagationLossBiasDb` (zeroed under `RANGING_PHYSICS_DERIVED`,
+`lora-ranging-submodule.cc:214`, `:247`). All five components of `tier2LossDb` are gated
+too — three on `state.isIndoor`, which defaults `false` (`lora-physics-parameters.h:51`),
+body shadowing on `nodeIsBodyWorn = false` (`lora-physics-parameters.cc:1287`), leaving
+only temporal blockage at 2% x 5 dB = 0.10 dB.
+
+**Scoping.** Every "inactive" verdict here is `probe_v7`-scoped and none of it generalises.
+`isIndoor`, `nodeIsBodyWorn`, `ENV_TUNNEL_CONFINED` and the radio-horizon check that gates
+terrain's earth-curvature path all reactivate in other scenarios. The list is a statement
+about one configuration, not about the engine.
+
+Two further details found the same way, both easy to misread from structure:
+
+- **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:69-70`) and applies that
+  wavelength to every tier, UWB at 7.99 GHz included. The engine's terrain does not scale
+  with frequency.
+- **Effective sensitivity is not a constant.** It is reduced by
+  `linkHysteresisMarginDb` (1.5 dB, `lora-physics-parameters.cc:401`) whenever the link was
+  previously receiving, so the reception threshold moves with PDR and therefore with
+  distance. It sits outside the loss sum entirely and is invisible to anyone enumerating
+  `additional_loss`.
+
+All of this was found by building an independent model and failing to reconcile it — which
+is an argument for that module's existence separate from whether it ever reconciles.
+
+---
+
 ## 6. Ranging methods
 
 ### 6.1 Per-tier method and accuracy floor
