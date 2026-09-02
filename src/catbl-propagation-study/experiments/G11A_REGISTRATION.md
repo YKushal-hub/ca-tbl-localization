@@ -77,3 +77,77 @@ active is missing at short range that is **not** terrain, and the corollary regi
 A margin deviation above 3.0 dB anywhere in the sub-population falsifies the census's
 account of the residual, since terrain cannot be responsible there. Report it as a
 falsification of the census, not as a G11a tuning problem.
+
+---
+
+# RESULT — G11a **FAILS**. The registered prediction was wrong, and the falsifier fires.
+
+Computed after the registration above was committed (`4e7fb05`, 2026-09-02T09:08:17).
+
+| tier | dist | margin_eng | margin_mdl | deviation | |
+|---|---|---|---|---|---|
+| 868 MHz | 100 m | 47.10 | 41.68 | **−5.42 dB** | EXCEEDS |
+| 2.4 GHz | 10 m | 53.66 | 53.06 | −0.60 | |
+| 2.4 GHz | 25 m | 46.60 | 45.76 | −0.84 | |
+| 2.4 GHz | 50 m | 40.94 | 39.84 | −1.10 | |
+| UWB | 2 m | 25.77 | 25.59 | −0.18 | |
+| UWB | 5 m | 16.83 | 18.43 | +1.60 | |
+| UWB | 10 m | 9.40 | 12.54 | **+3.14 dB** | EXCEEDS |
+| UWB | 20 m | 2.44 | 6.55 | **+4.11 dB** | EXCEEDS |
+
+3 of 8 points exceed 3.0 dB; worst 5.42 dB. **G11a FAIL.**
+
+Per the falsifier registered above, this is reported as a **falsification of the census**,
+not as a G11a tuning problem: terrain is provably inactive at every point here, so the
+census's account — that terrain explains the residual — is wrong at short range on two of
+three tiers. The `LOSS_TERM_CENSUS.md` corollary applies: **re-census, do not add a term.**
+
+## Re-census: one real term found, two anomalies localised
+
+### A seventeenth term, outside `additional_loss` entirely
+
+`effectiveSensitivity -= m_config.receiver.linkHysteresisMarginDb` when the link was
+previously receiving (`lora-uwb-physics-engine.cc:664-666`, value **1.5 dB** at
+`lora-physics-parameters.cc:401`). `mean_margin_db` is the mean of
+`result.sensitivityMarginDb` (`ca_tbl_causal_sim.cc:1356`, `:1371`, `:1386`), so the
+engine's margin **denominator moves with PDR** — and therefore with distance.
+
+The census enumerated `additional_loss` at `:597-599` and missed this because it is not in
+that sum. It is worth up to 1.5 dB, is largest where PDR is highest, and so *mimics a
+distance-growing loss* while being nothing of the kind. Correcting for it as
+`X + 1.5*pdr` is applied below.
+
+### After correcting for it — what each tier's residual actually looks like
+
+| tier | inside terrain-inactive bound | beyond it |
+|---|---|---|
+| **2.4 GHz** | **0.08–0.89 dB** at 10–50 m (bound 60 m) | rises to 11.61 dB at 6 km |
+| **UWB** | **1.32 → 5.04 dB** across 2–20 m (bound 27.5 m) | flat 4.7–5.3 dB to 180 m |
+| **868 MHz** | **−3.94 dB** at 100 m (bound 152 m) | decays to +0.55 dB at 6 km |
+
+**2.4 GHz is consistent with the census.** Under 0.9 dB everywhere terrain cannot act, and
+divergence only past ~600 m. Terrain remains its explanation and G11a passes on 2.4 GHz
+alone.
+
+**UWB is not.** It rises 3.7 dB entirely *inside* the region where terrain is provably
+inactive, then saturates by 20–30 m and stays flat to 180 m. Terrain is excluded by
+geometry, and a term that saturates at 20 m is not terrain in any case.
+
+**868 is not, and its sign is opposite.** The model is 3.94 dB **too lossy** at 100 m,
+decaying with distance. This is the anomaly flagged for a bounded look.
+
+### Ruled out for UWB's 3.7 dB, each with its reason
+
+| candidate | ruled out because |
+|---|---|
+| terrain | provably inactive below 27.5 m by the geometric bound |
+| path loss | `mean_pl_db` reproduced to **0.02 dB** at every UWB distance |
+| foliage | `ComputeFoliageLossDb` samples depth from a distribution; `txPos`/`rxPos` are passed and **never used**, so it cannot vary with distance |
+| NLOS | `nlos_frac` is 0.0005 at 5–20 m; even 30 dB of excess gives 0.015 dB |
+| atmospheric | 0.0005 dB at 20 m |
+| coherent gain | constant per tier (868: 0.0, 2.4 GHz: 21.07, UWB: 30.1 dB) — cannot produce growth |
+| shadowing clamp | +0.041 dB, flat |
+| link hysteresis | already corrected for above; it reduces the rise from 4.29 to 3.73 dB, it does not remove it |
+
+**Recorded OPEN.** A saturating ~3.7 dB term active over 2–20 m on UWB only, not in the
+census, not any of the eight candidates above. No fifth term hunt was started.
