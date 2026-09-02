@@ -212,7 +212,7 @@ finish G6
 # A gate suite that rewrites its own subject fails its own run. This is the check
 # that would have caught the defect G6's comment describes, the first time it
 # happened rather than after two campaigns.
-printf '\n--- G7 suite left the tree clean ---\n'
+printf '\n--- G7 suite did not modify tracked files under results/ ---\n'
 # --untracked-files=no is load-bearing: results/ holds untracked campaign output
 # at all times, so the unqualified form reports dozens of `??` entries and the
 # gate would fail on every run for a reason that has nothing to do with mutation.
