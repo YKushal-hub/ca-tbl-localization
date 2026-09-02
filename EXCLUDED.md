@@ -89,3 +89,21 @@ asserts **0 tracked**, and it caught 12 that `a0ccb4f` committed with `baseline_
 and `causal_v7`: that commit dropped `stdout.log` from the staged set but not the
 traces. Untracked in the follow-up. Summaries and sidecars are tracked; traces are
 not.
+
+## Documents allowed to cite superseded evidence
+
+`publication_ready.sh`'s dirty-provenance assertion asks whether a reader can regenerate a
+cited result. One document cites superseded campaigns **on purpose**: it documents what
+those runs produced, so repointing it would attach its descriptions to numbers they did not
+generate. Its citations are correct for what it documents and must not move.
+
+Enumerated **by path**, with a reason each. This is not a blanket exemption: any other
+document citing a dirty source still fails the assertion.
+
+| document | reason |
+|---|---|
+| `report/REPORT_DATA_PACK.md` | a record of what each historical campaign produced, including the superseded `results/causal`, `det_a`, `det_b`, `p10_plane`, `p10_plane_fix`. Repointing it to `baseline_v7` would describe one run's output under another run's path |
+
+```reviewed-dirty-citations
+report/REPORT_DATA_PACK.md
+```
