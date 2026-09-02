@@ -925,6 +925,16 @@ narrowbanding caps 150–174 MHz at **12.5 kHz**, while the entire band is only 
 wide — so the 500 and 800 kHz points are wider than the whole allocation. Allocatable
 winners: **zero**.
 
+A second and independent reason holds in every jurisdiction: the CRLB assumes a single
+resolved path, and these configurations cannot resolve one. Range resolution `c/(2·BW)` is
+**599.6 m at 250 kHz** and 187.4 m at 800 kHz, while rural delay spread of 0.1–1 µs needs
+1–10 MHz to resolve — one to two orders of magnitude more bandwidth than they have. The
+169 MHz point claims a sigma **8400 times finer than its own resolution cell**; UWB claims
+one five times finer, which is what high SNR legitimately buys. The counterexample is the
+CRLB evaluated outside its domain of validity. (Region 3 was checked and is a partial gap:
+Japan's 169–170 MHz is a narrowband service allocation, China and Australia unresolved —
+which is why the second reason matters.)
+
 The premise therefore stands in the form **no *deployable* radio is simultaneously
 long-range and precise**, and the unconstrained premise is reported as **false**: such a
 radio exists in physics and is forbidden by spectrum policy, not by the range-precision

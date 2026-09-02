@@ -202,3 +202,61 @@ Two further limits on metric B's winners, stated so they are not mistaken for th
 they were rejected: the CRLB ignores multipath and clock stability, which are what actually
 floor low-bandwidth ranging in practice, so the 0.04 m sigma at 169 MHz is optimistic
 independently of allocation.
+
+---
+
+## ITU Region 3, and a second reason that does not depend on allocation at all
+
+### Region 3 — checked, and reported as a partial gap rather than a conclusion
+
+The 500 and 800 kHz points are impossible **anywhere** in the CEPT plan, since they exceed
+that band's 412.5 kHz total width, but that argument is Region 1-specific and does not
+transfer: Japan's allocation spans a full 1 MHz. Only the **250 kHz** point is genuinely
+open outside Region 1.
+
+- **Japan**: 169–170 MHz is allocated to Mobile and Public Service, with low-power use for
+  radio microphones and hearing aids — a narrowband service allocation, not an SRD
+  allocation admitting a 250 kHz unlicensed channel.
+- **China, Australia**: **not resolved.** No Region 3 administration was found allocating
+  ≥250 kHz near 169 MHz, but absence of a found allocation is not evidence of absence.
+
+**Reported as a gap.** The allocation argument is established for CEPT and the FCC and is
+*not* established globally. It does not need to be, because of the following.
+
+### The independent reason: the counterexample cannot resolve its own first path
+
+Recorded separately because **two independent reasons is a stronger position than one**,
+and the allocation argument alone leaves a jurisdictional gap that this one does not.
+
+The CRLB assumes a **single resolved path**. It says nothing about whether that assumption
+holds. Range resolution is `c/(2·BW)`:
+
+| configuration | 1/BW | range resolution |
+|---|---|---|
+| 169 MHz @ 250 kHz | 4.00 µs | **599.6 m** |
+| 169 MHz @ 500 kHz | 2.00 µs | **299.8 m** |
+| 169 MHz @ 800 kHz | 1.25 µs | **187.4 m** |
+| UWB tier @ 499.2 MHz | 2 ns | **0.3 m** |
+
+Rural delay spread is of order 0.1–1 µs, i.e. 30–300 m of excess path, which needs
+**1–10 MHz** to resolve. All three winners are 250–800 kHz — one to two orders of magnitude
+short. Every multipath component in their environment falls inside a single resolution
+cell, so the first path cannot be separated from later arrivals and the single-path premise
+of the CRLB fails outright.
+
+The asymmetry is the discriminator, and it is not subtle:
+
+| | claimed sigma | resolution cell | ratio |
+|---|---|---|---|
+| 169 MHz @ 250 kHz | 0.0715 m | 599.6 m | **1 : 8400** |
+| UWB @ 499.2 MHz | 0.0561 m | 0.3 m | 1 : 5 |
+
+UWB claims a sigma five times finer than its resolution cell, which is what high SNR
+legitimately buys. The counterexample claims one **8400 times** finer. That is not a
+ranging estimate; it is the CRLB evaluated outside its domain of validity.
+
+**So the counterexample fails for two independent reasons**: it is not allocatable in
+either region checked, and it could not deliver the precision that made it a
+counterexample even if it were. The second reason holds in every jurisdiction and closes
+the Region 3 gap for the purpose of the falsifier — though not for the allocation claim
+itself, which stays scoped to CEPT and the FCC.
