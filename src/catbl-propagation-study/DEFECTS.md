@@ -1381,3 +1381,42 @@ verified something it never looked at.
 verified it, without re-running the suite, is the failure mode this project spent two
 campaigns removing. It is a one-line heading change and belongs in a pass that can
 re-run G1-G13 behind it.
+
+---
+
+## An instruction that would have preferred a wrong law with a better number
+
+Recorded because the next such instruction will come from the same place, and because the
+only reason it was caught is that declining it was stated rather than done quietly.
+
+The instruction was: revert the two-ray change pending diagnosis, and land the corrected
+version only "if the corrected implementation improves on the post-foliage numbers". It
+was written before the outcome was known, and the outcome it did not anticipate arrived:
+a **verified-correct path-loss law that scores worse on `r80`**.
+
+| | post-foliage law | corrected two-ray law |
+|---|---|---|
+| worst error vs engine `mean_pl_db` | 4.49 dB (UWB), 7.77 dB (2.4 GHz) | **0.02 dB**, **0.96 dB** |
+| `r80` relative error | 59.2%, 27.6% | 113.3%, 44.6% |
+
+Applied literally, the instruction would have restored a term **measured wrong by
+4.49–7.77 dB against the engine's own column** in order to improve a derived metric. That
+is fitting the metric — the failure this project has spent every pass avoiding.
+
+### The rule that resolves it
+
+**`r80` is derived; the margin against the engine's own column is direct. When they
+disagree about which version is better, the direct measurement wins.**
+
+`r80` sits downstream of every excess term in the budget. A base term can be exactly right
+and still produce a bad `r80` if terms *after* it are missing — which is precisely the
+situation here, and precisely why `r80` could not be used to judge the base term. Comparing
+against `mean_pl_db` removes everything downstream from between the claim and the check.
+
+### Why it is recorded here rather than settled quietly
+
+The decision was flagged with its reasoning and a one-command undo rather than buried in a
+commit body. That is what made it reviewable, and the review reversed the instruction
+rather than the work. An instruction declined silently — even correctly — leaves no such
+opportunity. **Flag an instruction you decline, with the reasoning**, is now a standing
+rule and this is its first recorded instance.

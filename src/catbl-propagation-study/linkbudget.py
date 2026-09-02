@@ -169,6 +169,69 @@ def two_ray_path_loss_db(f_hz, d_m, h_t, h_r=NODE_HEIGHT_M):
     return 40.0 * math.log10(d) - 20.0 * math.log10(h_t) - 20.0 * math.log10(h_r)
 
 
+# --- Rician small-scale fading -------------------------------------------------
+# lora-fading-submodule.cc:40-74. The engine draws a Rician envelope r with E[r^2] = 1
+# and charges -20*log10(r) as loss (:74), clamped at -20 dB (lora-physics-engine.cc:451).
+# CLASSIFICATION: PHYSICS, not transcription. The Rician envelope of a dominant component
+# plus diffuse scatter is standard and is written here from its own definition; only the
+# K-factor VALUES are taken from the engine, as parameters, and cited.
+#   K ~ Normal(8, 2, 4, 15)  RURAL_OPEN      lora-physics-parameters.cc:110
+#   K ~ Normal(3, 1, 1, 6)   RURAL_FORESTED  lora-physics-parameters.cc:116
+# Only the LOS branch is modelled: nlos_frac is 0.000-0.004 on both RURAL_OPEN tiers, and
+# on 868 the NLOS excess term already carries the obstruction. Registered as a known
+# omission rather than an assumed-zero.
+RICIAN_K = {"RURAL_OPEN": (8.0, 2.0, 4.0, 15.0),      # lora-physics-parameters.cc:110
+            "RURAL_FORESTED": (3.0, 1.0, 1.0, 6.0)}   # lora-physics-parameters.cc:116
+FADING_CLAMP_DB = -20.0   # lora-physics-engine.cc:451
+_FADE_NODES = {}
+
+
+def _bessel_i0(x):
+    """I0 by its series. Kept here so the module still imports only `math`."""
+    t, s = 1.0, 1.0
+    for k in range(1, 60):
+        t *= (x * x) / (4.0 * k * k)
+        s += t
+        if t < 1e-16 * s:
+            break
+    return s
+
+
+def fading_nodes(env_name, n_r=160, n_k=9):
+    """Deterministic (loss_db, weight) quadrature over the Rician fade distribution,
+    integrated over the K-factor's own truncated normal. No RNG and no corpus draw, so
+    adding fading does not disturb results/corpus.json or its digest."""
+    if env_name in _FADE_NODES:
+        return _FADE_NODES[env_name]
+    kmu, ksd, klo, khi = RICIAN_K[env_name]
+    ks = []
+    for i in range(n_k):
+        k = klo + (khi - klo) * (i + 0.5) / n_k
+        ks.append((k, math.exp(-0.5 * ((k - kmu) / ksd) ** 2)))
+    kw = sum(w for _, w in ks)
+    nodes = []
+    for k, wk in ks:
+        nu = math.sqrt(k / (k + 1.0))
+        s2 = 1.0 / (2.0 * (k + 1.0))
+        rmax = nu + 5.0 * math.sqrt(s2)
+        for j in range(n_r):
+            r = rmax * (j + 0.5) / n_r
+            # Rician pdf on the envelope
+            pdf = (r / s2) * math.exp(-(r * r + nu * nu) / (2.0 * s2)) * \
+                  _bessel_i0(r * nu / s2)
+            loss = max(-20.0 * math.log10(max(r, 1e-4)), FADING_CLAMP_DB)
+            nodes.append((loss, pdf * (rmax / n_r) * (wk / kw)))
+    tot = sum(w for _, w in nodes)
+    nodes = [(l, w / tot) for l, w in nodes]
+    _FADE_NODES[env_name] = nodes
+    return nodes
+
+
+def mean_fading_loss_db(env_name):
+    """E[-20 log10 r]. Positive is loss."""
+    return sum(l * w for l, w in fading_nodes(env_name))
+
+
 def fspl_at_reference(f_hz, d0=REFERENCE_DISTANCE_M):
     """20*log10(4*pi*d0/lambda). lora-propagation-submodule.cc:31"""
     lam = C_LIGHT / f_hz
@@ -244,7 +307,8 @@ def margin_db(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
     AGAINST, and which is computed here without reference to it."""
     o = overrides or {}
     sens = o.get("sensitivity", SENSITIVITY_DBM[tier]) + CODING_RATE_OFFSET_DB
-    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth, o) - sens
+    fade = 0.0 if o.get("no_fading") else mean_fading_loss_db(TIER_ENV[tier])
+    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth, o) - sens - fade
 
 
 def reception_probability(margin, width=SOFT_THRESHOLD_WIDTH_DB):
@@ -255,6 +319,33 @@ def reception_probability(margin, width=SOFT_THRESHOLD_WIDTH_DB):
     if x < -60.0:
         return 0.0
     return 1.0 / (1.0 + math.exp(-x))
+
+
+_FADE_TABLE = {}
+_FT_LO, _FT_HI, _FT_STEP = -60.0, 80.0, 0.05
+
+
+def faded_reception_probability(x, env_name):
+    """P(receive | pre-fading margin x), convolving the logistic with the Rician fade
+    distribution. Tabulated once per environment on a 0.05 dB grid; the convolution is
+    what averages the DECISION over fading, rather than applying a mean fade to the
+    margin and then deciding once."""
+    tab = _FADE_TABLE.get(env_name)
+    if tab is None:
+        nodes = fading_nodes(env_name)
+        n = int((_FT_HI - _FT_LO) / _FT_STEP) + 1
+        tab = []
+        for i in range(n):
+            m = _FT_LO + i * _FT_STEP
+            tab.append(sum(w * reception_probability(m - l) for l, w in nodes))
+        _FADE_TABLE[env_name] = tab
+    if x <= _FT_LO:
+        return tab[0]
+    if x >= _FT_HI:
+        return tab[-1]
+    f = (x - _FT_LO) / _FT_STEP
+    i = int(f)
+    return tab[i] + (f - i) * (tab[i + 1] - tab[i])
 
 
 def pdr_at(tier, d_m, draws, overrides=None):
@@ -271,9 +362,13 @@ def pdr_at(tier, d_m, draws, overrides=None):
     for (u_sh, u_nl, u_at, u_df) in draws:
         # u_df doubles as the foliage depth draw: both are unit-normal and independent
         # per realization in the corpus.
-        m = margin_db(tier, d_m, u_nl, u_at, u_df, u_df, o)
+        o2 = dict(o); o2["no_fading"] = True
+        m = margin_db(tier, d_m, u_nl, u_at, u_df, u_df, o2)
         sd = sd_los * (ratio if u_nl < nlos_probability(d_m, scale) else 1.0)
-        tot += reception_probability(m + sd * u_sh)
+        if o.get("no_fading"):
+            tot += reception_probability(m + sd * u_sh)
+        else:
+            tot += faded_reception_probability(m + sd * u_sh, env_name)
     return tot / len(draws)
 
 
