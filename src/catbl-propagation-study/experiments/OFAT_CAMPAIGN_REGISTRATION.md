@@ -87,6 +87,12 @@ Corpus `n = 2000`, digest `ea40076996e71a84b4bcce81` — the same corpus every e
 experiment used; comparison across digests is refused. Raw output:
 `results/ofat_campaign.txt` (`.log` is gitignored).
 
+**That file is the raw run output and is not edited**, so its final line still reads
+`15 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE` — the counts the runner printed before six rows
+were found to be invariant by construction. The corrected reading is the table below.
+Annotating the pointer rather than the record, because the log is evidence of what the run
+printed and editing it would make it evidence of something else..
+
 ## The sixteen rows
 
 | # | parameter | conclusion | class | limit behaviour and magnitude |

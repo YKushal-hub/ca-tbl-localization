@@ -172,10 +172,24 @@ printf '\n--- provenance: no cited result may come from a dirty tree ---\n'
 # --scratch flag both exist for working sessions and ephemeral scratch; neither
 # is honoured at this gate, because the question here is not "was this run
 # deliberate" but "can a reader regenerate it".
-cited=$(grep -rhoE 'results/[A-Za-z0-9_.-]+' \
-            CA-TBL_Technical_Report_SelfContained.md report/REPORT_DATA_PACK.md \
-            2>/dev/null | sort -u)
-n_cited=0; n_dirty=0; dirty_list=''
+# An assertion that can never PASS is as broken as one that can never fail. One document
+# -- the data pack -- cites superseded campaigns deliberately, because it records what
+# those runs produced; repointing it would describe one run's output under another run's
+# path. Without an exception this assertion reports NOT READY forever regardless of how
+# correct the tree is. The exception is enumerated BY PATH with a reason in EXCLUDED.md's
+# reviewed-dirty-citations block, parsed rather than duplicated here, and it is not a
+# blanket exemption: a dirty directory cited by ANY non-exempt document still fails.
+CITING_DOCS='CA-TBL_Technical_Report_SelfContained.md report/REPORT_DATA_PACK.md'
+exempt_docs=$(awk '/^```reviewed-dirty-citations$/{f=1;next} /^```$/{f=0} f' EXCLUDED.md 2>/dev/null)
+enforced_docs=''
+for doc in $CITING_DOCS; do
+    skip=0
+    for ex in $exempt_docs; do [ "$doc" = "$ex" ] && skip=1; done
+    [ "$skip" -eq 0 ] && enforced_docs="$enforced_docs $doc"
+done
+cited=$(grep -rhoE 'results/[A-Za-z0-9_.-]+' $CITING_DOCS 2>/dev/null | sort -u)
+enforced=$(grep -rhoE 'results/[A-Za-z0-9_.-]+' $enforced_docs 2>/dev/null | sort -u)
+n_cited=0; n_dirty=0; n_exempt=0; dirty_list=''
 for d in $cited; do
     [ -d "$d" ] || continue
     for sc in "$d"/run_id.txt "$d"/*/run_id.txt; do
@@ -183,9 +197,13 @@ for d in $cited; do
         n_cited=$((n_cited + 1))
         nd=$(awk '/^source /{print $4; exit}' "$sc")
         if [ -n "$nd" ] && [ "$nd" != "0" ]; then
-            n_dirty=$((n_dirty + 1))
-            dirty_list="$dirty_list$(dirname "$sc") ($nd files)
+            if printf '%s\n' $enforced | grep -qxF "$d"; then
+                n_dirty=$((n_dirty + 1))
+                dirty_list="$dirty_list$(dirname "$sc") ($nd files)
 "
+            else
+                n_exempt=$((n_exempt + 1))
+            fi
         fi
     done
 done
@@ -193,7 +211,7 @@ if [ "$n_cited" -eq 0 ]; then
     note UNKNOWN "no cited results directory carries a run_id sidecar -- cannot verify"
     fail=1
 elif [ "$n_dirty" -eq 0 ]; then
-    note ok "all $n_cited cited result sidecar(s) record a clean tree"
+    note ok "all $n_cited cited result sidecar(s) record a clean tree, or are cited only by a reviewed exception ($n_exempt)"
 else
     note DIRTY "$n_dirty of $n_cited cited result sidecar(s) were built from a dirty tree:"
     printf '%s' "$dirty_list" | head -5 | sed 's/^/            /'

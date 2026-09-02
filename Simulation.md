@@ -1038,6 +1038,27 @@ Each was written by someone who had just diagnosed the previous one.
 > **Pre-registration catches the predictions you know how to be wrong about. It does not
 > catch the terms you did not think to define.**
 
+**Two ways a passing check can mean nothing, and they are different.** This project has
+long held that *a check that cannot be observed to fail is not a check* — which is why
+every gate carries a negative fixture. Applying that rule to the campaign's own robustness
+classifier produced the second half of the pair.
+
+The classifier was given three fixtures: a terrain-sensitive construction, an
+offset-sensitive one, and an analytic identity. **All three classified correctly.** The
+check was sound. But the same audit found that **six of the sixteen rows never fed the
+terrain or offset axes into their own function at all** — P15 built its verdict lists as
+one tuple repeated, P13's function was `1/√n`, P10's was `p·delay`. Their ROBUST meant
+*cannot move*, not *tested and did not move*.
+
+> **Testing the instrument is not the same as testing that the instrument was pointed at
+> anything.**
+
+The fixture found nothing wrong with the check and something wrong with six of its inputs.
+A check with no demonstrated failure mode is worthless; so is a sound check fed inputs that
+cannot exercise it. **Both must be shown**, and they are shown by different tests — a
+negative fixture for the first, and an audit of whether each input can actually reach the
+check's failure branch for the second.
+
 The remedy that would have worked in all three cases is cheap and is recommended rather
 than claimed: before running, re-read the registration asking *which of these words will
 decide the verdict*, and define those. A registration is falsifiable only to the extent its
