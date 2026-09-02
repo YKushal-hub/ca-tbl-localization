@@ -171,7 +171,22 @@ enum CaTblSuspectRecovery
     CA_TBL_RECOVERY_NONE = 0, //!< RevertToPrior only. The pre-existing behaviour.
     CA_TBL_RECOVERY_INFLATE,  //!< Scale P on rejection so the gate widens next cycle.
     CA_TBL_RECOVERY_BOUNDED,  //!< Force-accept after N consecutive rejections.
-    CA_TBL_RECOVERY_REINIT    //!< Discard the prior; reinitialise from the raw fix.
+    CA_TBL_RECOVERY_REINIT,   //!< Discard the prior; reinitialise from the raw fix.
+    //! Fault Detection and EXCLUSION, in place of whole-fix rejection.
+    //!
+    //! NONE discards the entire EKF update on a gate trip, including every good range
+    //! that went into it. With 5 tier-2 anchors typically in range, excluding one bad
+    //! range still leaves an over-determined solve; rejecting the fix leaves nothing and
+    //! the cycle falls back to the prior. That is an availability loss by construction,
+    //! and availability is what the ablation measured `full` losing.
+    //!
+    //! The field's standard response is exclusion, not rejection: identify WHICH
+    //! measurement is faulty, drop that one, re-solve from the remaining redundancy.
+    //! Leave-one-out here: for each range i, recompute the fix from the other n-1 and
+    //! test the gate. If exactly one exclusion clears it, accept that fix. If none
+    //! clears, or n-1 < 3 (below a 2-D fix), fall back to NONE's behaviour and record
+    //! which branch fired.
+    CA_TBL_RECOVERY_EXCLUDE
 };
 
 struct CaTblPolicyConfig
@@ -592,6 +607,13 @@ class CaTblPolicy
     //! the 100 m^2 fallback -- a SECOND treatment, which must never be averaged in
     //! silently. With mahalUseR=true this should be 0; the caller announces it if not.
     uint64_t GetReinitFallbackCount() const { return m_reinitFallbackCount; }
+    //! EXCLUDE branch counters. Reported only when --suspectRecovery=exclude, so
+    //! default output is byte-identical.
+    uint64_t GetExcludeCleared() const { return m_excludeCleared; }
+    uint64_t GetExcludeNoneCleared() const { return m_excludeNoneCleared; }
+    uint64_t GetExcludeTooFew() const { return m_excludeTooFew; }
+    uint64_t GetExcludeAmbiguous() const { return m_excludeAmbiguous; }
+    uint64_t GetExcludeRangesDropped() const { return m_excludeRangesDropped; }
     uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
     //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
     uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
@@ -655,6 +677,11 @@ class CaTblPolicy
     uint32_t m_consecutiveRejections;
     uint64_t m_reinitFallbackCount;
     uint64_t m_recoveryFirings;
+    uint64_t m_excludeCleared;
+    uint64_t m_excludeNoneCleared;
+    uint64_t m_excludeTooFew;
+    uint64_t m_excludeAmbiguous;
+    uint64_t m_excludeRangesDropped;
     uint64_t m_predictBlockedQuality;
     uint64_t m_predictBlockedCoverage;
     uint64_t m_evidenceBlockedT2;

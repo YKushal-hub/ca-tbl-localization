@@ -377,7 +377,18 @@ CaTblPolicy::CaTblPolicy()
       m_evidenceBlockedT2(0),
       m_deescalations(0),
       m_suspects(0),
-      m_noFixCycles(0)
+      m_noFixCycles(0),
+      // PRE-EXISTING GAP: m_reinitFallbackCount and m_recoveryFirings were declared and
+      // incremented but never initialised. G2 determinism passing implies they were zero
+      // in practice, but that was luck rather than construction. Initialised here with
+      // the new EXCLUDE counters; the byte-identity null control proves it changed nothing.
+      m_reinitFallbackCount(0),
+      m_recoveryFirings(0),
+      m_excludeCleared(0),
+      m_excludeNoneCleared(0),
+      m_excludeTooFew(0),
+      m_excludeAmbiguous(0),
+      m_excludeRangesDropped(0)
 {
     for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
     {
@@ -937,7 +948,91 @@ CaTblPolicy::Step(double dt,
         // holds itself shut -- measured at 22 consecutive cycles on a run with NO
         // fault injected, and 108 / 251 on F1 / F3.
         bool recovered = false;
-        if (m_config.suspectRecovery == CA_TBL_RECOVERY_BOUNDED &&
+        if (m_config.suspectRecovery == CA_TBL_RECOVERY_EXCLUDE && haveRawFix)
+        {
+            // FAULT DETECTION AND EXCLUSION. Leave-one-out over the ranges: drop each in
+            // turn, re-solve from the remaining n-1, test the same gate. Accept only if
+            // EXACTLY ONE exclusion clears it -- if several do, the faulty range is not
+            // identified and picking one would be guessing, so that falls through to
+            // NONE's behaviour and is counted separately.
+            const size_t n = meas.size();
+            if (n < 4)
+            {
+                m_excludeTooFew++;   // n-1 would be below the 3 ranges a 2-D fix needs
+            }
+            else
+            {
+                int cleared = -1;
+                int nCleared = 0;
+                std::vector<CaTblRangeMeasurement> sub;
+                std::vector<double> subVar;
+                sub.reserve(n - 1);
+                subVar.reserve(n - 1);
+                for (size_t i = 0; i < n; ++i)
+                {
+                    sub.clear();
+                    subVar.clear();
+                    for (size_t k = 0; k < n; ++k)
+                    {
+                        if (k == i) { continue; }
+                        sub.push_back(meas[k]);
+                        if (k < varM2.size()) { subVar.push_back(varM2[k]); }
+                    }
+                    if (subVar.size() != sub.size()) { continue; }
+                    double sx = 0.0, sy = 0.0, srxx = 0.0, srxy = 0.0, sryy = 0.0;
+                    bool ok = false;
+                    double sm = 0.0;
+                    if (m_config.mahalUseR)
+                    {
+                        ok = RawMultilaterationWeighted(sub, subVar, m_ekf.PriorX(),
+                                                        m_ekf.PriorY(), sx, sy,
+                                                        srxx, srxy, sryy);
+                        if (ok)
+                        {
+                            sm = m_ekf.MahalanobisFromPriorWithR(sx, sy, srxx, srxy, sryy);
+                        }
+                    }
+                    else
+                    {
+                        ok = RawMultilateration(sub, m_ekf.PriorX(), m_ekf.PriorY(), sx, sy);
+                        if (ok) { sm = m_ekf.MahalanobisFromPrior(sx, sy); }
+                    }
+                    if (ok && sm <= m_config.mahalanobisThreshold)
+                    {
+                        ++nCleared;
+                        cleared = static_cast<int>(i);
+                    }
+                }
+                if (nCleared == 1)
+                {
+                    sub.clear();
+                    subVar.clear();
+                    for (size_t k = 0; k < n; ++k)
+                    {
+                        if (static_cast<int>(k) == cleared) { continue; }
+                        sub.push_back(meas[k]);
+                        if (k < varM2.size()) { subVar.push_back(varM2[k]); }
+                    }
+                    m_ekf.Update(sub, subVar);
+                    m_excludeCleared++;
+                    m_excludeRangesDropped++;
+                    recovered = true;
+                }
+                else if (nCleared == 0)
+                {
+                    m_excludeNoneCleared++;
+                }
+                else
+                {
+                    m_excludeAmbiguous++;
+                }
+            }
+            if (!recovered)
+            {
+                m_ekf.RevertToPrior();
+            }
+        }
+        else if (m_config.suspectRecovery == CA_TBL_RECOVERY_BOUNDED &&
             m_consecutiveRejections >= m_config.suspectRecoveryN)
         {
             // Force-accept. Caps the lock-out at N by construction. The cost, stated:

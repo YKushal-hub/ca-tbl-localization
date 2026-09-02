@@ -3594,6 +3594,7 @@ main(int argc, char* argv[])
     if (suspectRecoveryArg == "inflate") { suspectRecovery = CA_TBL_RECOVERY_INFLATE; }
     else if (suspectRecoveryArg == "bounded") { suspectRecovery = CA_TBL_RECOVERY_BOUNDED; }
     else if (suspectRecoveryArg == "reinit") { suspectRecovery = CA_TBL_RECOVERY_REINIT; }
+    else if (suspectRecoveryArg == "exclude") { suspectRecovery = CA_TBL_RECOVERY_EXCLUDE; }
     else if (suspectRecoveryArg != "none")
     {
         std::cerr << "FATAL: --suspectRecovery=" << suspectRecoveryArg
