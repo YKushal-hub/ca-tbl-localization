@@ -1,0 +1,58 @@
+  selfcheck: PDR monotone on all tiers; bisection r80 1813.9 m vs lb.r80 1811.1 m
+OFAT campaign  corpus n=2000 digest=ea40076996e71a84b4bcce81
+robustness: terrain [0.0, 30.0] dB x offset [-4.0, 0.0, 4.0] dB
+
+  id   parameter              class          conclusion
+  P1   carrier frequency      ROBUST         decreasing
+       150 MHz->24 GHz: r80 3633 -> 191.7 m, ratio 19.0x over 2.2 decades; per-decade 0.263x
+  P2   bandwidth              ROBUST         decreasing
+       sigma 27.48 -> 0.06145 m; minimum at BW=2e+09 Hz (index 11 of 12) -- NO interior minimum: sigma falls monotonically to the sweep end
+  P3   TX power               ROBUST         increasing
+       -30->+30 dBm: r80 41.8 -> 3755.8 m over the 7 finite levels; measured 2.12x per 10 dB (nominal n=2.3 predicts 2.72x; n_eff~3.0 predicts 2.15x)
+  P4   RX sensitivity         ROBUST         increasing
+       -70->-140 dBm: r80 12.0 -> 3940.2 m. Thermal floor -174+10log10(125k)+6 = -117.0 dBm; levels below it are UNPHYSICAL (the model still computes them -- it has no noise floor check, which is the model breakdown this sweep was to expose)
+  P5   noise figure           ROBUST         decreasing
+       0->15 dB: r80 2448.8 -> 1039.2 m, ratio 2.36x (registered 4.4x on nominal n=2.3)
+  P6   spreading factor       ROBUST         increasing
+       SF7->SF12: r80 1813.9 -> 3184.8 m, 1.12x per step, 1.76x total. Airtime x2/step; at 2.5% duty the SF12 minimum inter-transmission interval is 16.1 s
+  P7   path-loss exponent     ROBUST         decreasing
+       n 1.6->6.0: r80 6668 -> 18.8 m, span 354.7 x
+  P8   shadowing sigma        UNDETERMINABLE non-monotonic
+       sd 0->16 dB: r80 1832.5 -> 1177.7 m (FALLS -- registered prediction MISSED)
+  P9   NLOS probability       ROBUST         decreasing
+       p(1km) 0->1: r80 3644.2 -> 267.5 m, both ends run and physical
+  P10  NLOS excess delay      ROBUST         increasing
+       floor = p*delay = 60.0 m at 200 m; across anchor counts [3, 6, 12, 30, 100, 1000] the floor is identical -- bias does NOT average down
+  P11  Rician K               ROBUST         decreasing
+       K -20->+30 dB: mean fade loss +2.509 -> +0.005 dB. Rayleigh limit 10*gamma/ln10 = 2.507 dB; both limits asserted at import
+  P12  delay spread           ROBUST         increasing
+       10 ns->3 us at 125 kHz: 1/BW = 8.0 us, so delay spread never exceeds it and first-path detection NEVER fails in this sweep -- registered in advance. At UWB 499.2 MHz, 1/BW = 2.0 ns and breakdown begins at 2.0 ns
+  P13  anchor count           ROBUST         decreasing
+       3->30 anchors: position sigma scales 0.316x (1/sqrt(n)); no floor under zero-mean noise -- contrast P10, where a bias floor is independent of n
+  P14  anchor spacing         ROBUST         decreasing
+       50 m->10 km: coverage falls; r80=1814 m so spacing/r80 spans 0.028 -> 5.5; collapse (coverage<0.5) above spacing/r80 = 1.41
+  P15  anchor geometry        ROBUST         ring best, collinear degenerate
+       GDOP  ring=0.8165  grid=0.7071  clustered=4.808  collinear=inf
+  P16  node speed             ROBUST         increasing
+       0->50 m/s: coherence time 146.1 ms at 1 m/s -> 2.9 ms at 50 m/s; frame airtime 12.5 ms. Decorrelation mid-packet occurs above 20 m/s in this range. SESSION_CHANGELOG.md F4: RunProbe produces structurally zero velocity, so EVERY r80 in this project was measured at v=0
+
+=== SUMMARY ===
+  id   parameter                class            conclusion
+  P1   carrier frequency        ROBUST           decreasing
+  P2   bandwidth                ROBUST           decreasing
+  P3   TX power                 ROBUST           increasing
+  P4   RX sensitivity           ROBUST           increasing
+  P5   noise figure             ROBUST           decreasing
+  P6   spreading factor         ROBUST           increasing
+  P7   path-loss exponent       ROBUST           decreasing
+  P8   shadowing sigma          UNDETERMINABLE   non-monotonic
+  P9   NLOS probability         ROBUST           decreasing
+  P10  NLOS excess delay        ROBUST           increasing
+  P11  Rician K                 ROBUST           decreasing
+  P12  delay spread             ROBUST           increasing
+  P13  anchor count             ROBUST           decreasing
+  P14  anchor spacing           ROBUST           decreasing
+  P15  anchor geometry          ROBUST           ring best, collinear degenerate
+  P16  node speed               ROBUST           increasing
+
+  16 experiments: 15 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE

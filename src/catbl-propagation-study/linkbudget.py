@@ -218,24 +218,44 @@ FADING_CLAMP_DB = -20.0   # lora-physics-engine.cc:451
 _FADE_NODES = {}
 
 
-def _bessel_i0(x):
-    """I0 by its series. Kept here so the module still imports only `math`."""
-    t, s = 1.0, 1.0
-    for k in range(1, 60):
-        t *= (x * x) / (4.0 * k * k)
-        s += t
-        if t < 1e-16 * s:
-            break
-    return s
+def _log_rician_pdf(r, nu, s2):
+    """log of the Rician envelope pdf, computed in log space.
+
+    The naive form multiplies exp(-(r^2+nu^2)/(2 s2)) by I0(r*nu/s2). At large K the
+    argument of I0 grows without bound (K=1000 gives ~2000) and a Taylor series for I0
+    overflows, returning a wrong value silently -- it reported +7.5 dB of mean fade loss
+    where the K->infinity limit must be 0 dB. Both limits are now asserted at import.
+    """
+    if r <= 0.0:
+        return float("-inf")
+    x = r * nu / s2
+    if x < 500.0:
+        # I0 by series, then take the log; safe in this range.
+        t, acc = 1.0, 1.0
+        for k in range(1, 200):
+            t *= (x * x) / (4.0 * k * k)
+            acc += t
+            if t < 1e-17 * acc:
+                break
+        log_i0 = math.log(acc)
+    else:
+        # I0(x) ~ e^x / sqrt(2 pi x) for large x.
+        log_i0 = x - 0.5 * math.log(2.0 * math.pi * x)
+    return math.log(r / s2) - (r * r + nu * nu) / (2.0 * s2) + log_i0
 
 
-def fading_nodes(env_name, n_r=160, n_k=9):
+def fading_nodes(env_name, n_r=160, n_k=9, k_override=None):
     """Deterministic (loss_db, weight) quadrature over the Rician fade distribution,
     integrated over the K-factor's own truncated normal. No RNG and no corpus draw, so
     adding fading does not disturb results/corpus.json or its digest."""
-    if env_name in _FADE_NODES:
-        return _FADE_NODES[env_name]
-    kmu, ksd, klo, khi = RICIAN_K[env_name]
+    cache = (env_name, k_override)
+    if cache in _FADE_NODES:
+        return _FADE_NODES[cache]
+    if k_override is None:
+        kmu, ksd, klo, khi = RICIAN_K[env_name]
+    else:
+        kmu = max(k_override, 1e-9); ksd = max(kmu * 0.25, 1e-9)
+        klo, khi = max(kmu - 3 * ksd, 0.0), kmu + 3 * ksd
     ks = []
     for i in range(n_k):
         k = klo + (khi - klo) * (i + 0.5) / n_k
@@ -249,19 +269,30 @@ def fading_nodes(env_name, n_r=160, n_k=9):
         for j in range(n_r):
             r = rmax * (j + 0.5) / n_r
             # Rician pdf on the envelope
-            pdf = (r / s2) * math.exp(-(r * r + nu * nu) / (2.0 * s2)) * \
-                  _bessel_i0(r * nu / s2)
+            lp = _log_rician_pdf(r, nu, s2)
+            pdf = math.exp(lp) if lp > -700.0 else 0.0
             loss = max(-20.0 * math.log10(max(r, 1e-4)), FADING_CLAMP_DB)
             nodes.append((loss, pdf * (rmax / n_r) * (wk / kw)))
     tot = sum(w for _, w in nodes)
     nodes = [(l, w / tot) for l, w in nodes]
-    _FADE_NODES[env_name] = nodes
+    _FADE_NODES[cache] = nodes
     return nodes
 
 
-def mean_fading_loss_db(env_name):
+def mean_fading_loss_db(env_name, k_override=None):
     """E[-20 log10 r]. Positive is loss."""
-    return sum(l * w for l, w in fading_nodes(env_name))
+    return sum(l * w for l, w in fading_nodes(env_name, k_override=k_override))
+
+
+def _assert_fading_limits():
+    """Rayleigh limit E[-20 log10 r] = 10*gamma/ln10 = 2.507 dB as K->0, and 0 dB as
+    K->infinity. Derived before the code was trusted; both are checked here so a
+    numerical failure cannot pass silently again."""
+    lo = mean_fading_loss_db("RURAL_OPEN", 1e-6)
+    hi = mean_fading_loss_db("RURAL_OPEN", 1e5)
+    rayleigh = 10.0 * 0.5772156649015329 / math.log(10.0)
+    assert abs(lo - rayleigh) < 0.05, "K->0 gives %.3f dB, Rayleigh is %.3f" % (lo, rayleigh)
+    assert abs(hi) < 0.05, "K->infinity gives %.3f dB, must approach 0" % hi
 
 
 def fspl_at_reference(f_hz, d0=REFERENCE_DISTANCE_M):
@@ -292,7 +323,7 @@ def nlos_probability(d_m, scale_m):
     return 1.0 - math.exp(-max(d_m, 1.0) / max(scale_m, 1.0))
 
 
-def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env):
+def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env, overrides=None):
     """Excess loss on a link drawn NLOS. lora-nlos-submodule.cc:84-93.
 
     THIS IS THE TERM THAT SETS THE SLOPE. DEFECTS.md records the measured local slope
@@ -302,7 +333,7 @@ def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env):
     rather than discovered as a disagreement.
     """
     e = ENV[env]
-    p = nlos_probability(d_m, e["nlos_scale_m"])
+    p = nlos_probability(d_m, (overrides or {}).get("nlos_scale_m", e["nlos_scale_m"]))
     if u_nlos >= p:
         return 0.0                      # link is LOS, zero penalty
     atten = e["nlos_atten_mu"] + e["nlos_atten_sd"] * u_atten
@@ -311,10 +342,29 @@ def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env):
     return max(0.0, min(atten + diff, cap))
 
 
+KNOWN_OVERRIDES = frozenset((
+    "phy", "n", "sensitivity", "shadow_sd", "veg", "veg_at_mean",
+    "h_t", "h_r", "no_two_ray", "no_fading", "margin_offset",
+    "nlos_scale_m", "rician_k",
+))
+
+
+def _check_overrides(o):
+    """An unrecognised override key is a sweep that runs and measures nothing. That
+    failure has cost this project enough that it is now an exception, not a silent
+    no-op: `nlos_scale_m` was swept for a whole experiment before anyone noticed the
+    three read sites ignored it."""
+    if o:
+        bad = set(o) - KNOWN_OVERRIDES
+        if bad:
+            raise KeyError("unrecognised override(s): %s" % sorted(bad))
+
+
 def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
     """tx + gains - path_loss - nlos_excess - foliage. Gains are 0 dBi: the probe
     registers isotropic anchors and the engine's antennaGainDb defaults to 0."""
     o = overrides or {}
+    _check_overrides(o)
     phy = dict(TIER_PHY[tier]); phy.update(o.get("phy", {}))
     env_name = TIER_ENV[tier]
     n = o.get("n", ENV[env_name]["n"])
@@ -324,12 +374,13 @@ def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None
     # slant range, not the horizontal range it was swept at.
     d3 = slant_distance_m(d_m, h_t, h_r)
     # Two-ray REPLACES the log-distance path loss when it fires -- it is not additive.
-    is_nlos = u_nlos < nlos_probability(d3, ENV[env_name]["nlos_scale_m"])
+    is_nlos = u_nlos < nlos_probability(
+        d3, o.get("nlos_scale_m", ENV[env_name]["nlos_scale_m"]))
     if env_name == TWO_RAY_ENV and not is_nlos and not o.get("no_two_ray"):
         pl = two_ray_path_loss_db(phy["f"], d3, h_t, h_r)
     else:
         pl = path_loss_db(phy["f"], d3, n)
-    ex = nlos_excess_db(u_nlos, u_atten, u_diff, d3, env_name)
+    ex = nlos_excess_db(u_nlos, u_atten, u_diff, d3, env_name, o)
     fol = foliage_loss_db(tier, u_depth, o)
     return phy["tx"] - pl - ex - fol
 
@@ -339,8 +390,14 @@ def margin_db(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
     AGAINST, and which is computed here without reference to it."""
     o = overrides or {}
     sens = o.get("sensitivity", SENSITIVITY_DBM[tier]) + CODING_RATE_OFFSET_DB
-    fade = 0.0 if o.get("no_fading") else mean_fading_loss_db(TIER_ENV[tier])
-    return rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth, o) - sens - fade
+    fade = (0.0 if o.get("no_fading")
+            else mean_fading_loss_db(TIER_ENV[tier], o.get("rician_k")))
+    # Robustness axes for the OFAT campaign. `margin_offset` is added to the margin:
+    # terrain is applied as a NEGATIVE offset (extra loss), the unattributed-residual
+    # perturbation as either sign. Neither is ever used to fit anything -- both exist so
+    # that a conclusion can be recomputed under them and classified.
+    return (rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth, o) - sens - fade
+            + o.get("margin_offset", 0.0))
 
 
 def reception_probability(margin, width=SOFT_THRESHOLD_WIDTH_DB):
@@ -357,20 +414,20 @@ _FADE_TABLE = {}
 _FT_LO, _FT_HI, _FT_STEP = -60.0, 80.0, 0.05
 
 
-def faded_reception_probability(x, env_name):
+def faded_reception_probability(x, env_name, k_override=None):
     """P(receive | pre-fading margin x), convolving the logistic with the Rician fade
     distribution. Tabulated once per environment on a 0.05 dB grid; the convolution is
     what averages the DECISION over fading, rather than applying a mean fade to the
     margin and then deciding once."""
-    tab = _FADE_TABLE.get(env_name)
+    tab = _FADE_TABLE.get((env_name, k_override))
     if tab is None:
-        nodes = fading_nodes(env_name)
+        nodes = fading_nodes(env_name, k_override=k_override)
         n = int((_FT_HI - _FT_LO) / _FT_STEP) + 1
         tab = []
         for i in range(n):
             m = _FT_LO + i * _FT_STEP
             tab.append(sum(w * reception_probability(m - l) for l, w in nodes))
-        _FADE_TABLE[env_name] = tab
+        _FADE_TABLE[(env_name, k_override)] = tab
     if x <= _FT_LO:
         return tab[0]
     if x >= _FT_HI:
@@ -386,10 +443,11 @@ def pdr_at(tier, d_m, draws, overrides=None):
     draws: list of (u_shadow, u_nlos, u_atten, u_diff) unit-normalised per realization.
     """
     o = overrides or {}
+    _check_overrides(o)
     env_name = TIER_ENV[tier]
     sd_los = o.get("shadow_sd", ENV[env_name]["shadow_sd"])
     ratio = ENV[env_name]["nlos_sigma_ratio"]
-    scale = ENV[env_name]["nlos_scale_m"]
+    scale = o.get("nlos_scale_m", ENV[env_name]["nlos_scale_m"])
     tot = 0.0
     for (u_sh, u_nl, u_at, u_df) in draws:
         # u_df doubles as the foliage depth draw: both are unit-normal and independent
@@ -400,7 +458,8 @@ def pdr_at(tier, d_m, draws, overrides=None):
         if o.get("no_fading"):
             tot += reception_probability(m + sd * u_sh)
         else:
-            tot += faded_reception_probability(m + sd * u_sh, env_name)
+            tot += faded_reception_probability(m + sd * u_sh, env_name,
+                                               o.get("rician_k"))
     return tot / len(draws)
 
 
@@ -415,3 +474,6 @@ def r80(tier, draws, distances, overrides=None):
                 return d0 + (p0 - 0.80) / (p0 - p) * (d - d0)
         prev = (d, p)
     return float("nan")
+
+
+_assert_fading_limits()

@@ -853,6 +853,27 @@ favourable result was available and honestly concluded that it was not.
 | **Claims 1–7**         | **Established with statistical support**                       |
 | **Claims 8–9**         | **Designed, pre-registered, awaiting compute**                 |
 
+### 14.1 The endpoint
+
+**After the OFAT campaign there is no further experimental work in this project.** Stating
+it explicitly so the endpoint is on the record rather than implied.
+
+What remains is recorded, bounded, and none of it is a new experiment:
+
+| item | status |
+|---|---|
+| UWB's ~3.7 dB unattributed residual | **OPEN**, eight candidates ruled out with numbers, saturating by 20 m, inside the region where terrain is provably inactive |
+| 868 MHz's ~3.5 dB near-field residual | **OPEN**, six candidates ruled out; shrinks monotonically as `nlos_frac` rises, the signature of two opposite-signed errors partially cancelling |
+| `[M-24]`'s dirty citation | **PROVENANCE GAP**, recorded at row `M-24`: the source records `dirty 4` and no injection campaign anywhere records `dirty 0`, so it cannot be repointed to clean evidence |
+| the sweeps' write-up | landed here as §15.1 and in `Architecture.md` §4.1.1 |
+| G11b, full independent reconciliation | **PERMANENTLY RED** — terrain is transcription-only. Not rescoped |
+
+The two residuals stay open deliberately. The campaign's robustness rule is how conclusions
+were drawn without closing them: each conclusion was recomputed under ±4 dB of margin
+offset chosen to bracket exactly those residuals. That is what a model with known,
+unattributed error can honestly support.
+
+
 The distinction between *measured*, *scoped* and *not yet run* is maintained in the underlying
 evidence as well as in this prose. **Nothing in either document rests on a number whose origin
 cannot be traced to a specific run, a specific line of code, or a cited source.**
@@ -945,7 +966,55 @@ disagree; both are reported, and the premise is saved by the allocation check, w
 under both.
 
 So both conclusions may carry: **invariant to terrain across its full physical range,
-tested at both limits.** That is a claim about robustness rather than calibration, and it
+tested at both limits.**
+
+### 15.1 The OFAT campaign — sixteen parameters, each with its own robustness verdict
+
+Registered before the first sweep (`experiments/OFAT_CAMPAIGN_REGISTRATION.md`), which
+also fixed the rule: every conclusion recomputed at terrain 0 and 30 dB, and at margin
+offsets of −4, 0, +4 dB bracketing the unattributed residual. **15 ROBUST, 0 SENSITIVE,
+1 UNDETERMINABLE.** Corpus `n = 2000`, digest `ea40076996e71a84b4bcce81`.
+
+**The two results that change what the project can say:**
+
+**`nlosSigmaInflation` is answered, and the answer is that no scalar value is correct.**
+P10 and P13 together: NLOS excess delay produces a position-error floor of `p·delay`
+— 60.0 m at a 200 m excess — which is **identical at 3, 6, 12, 30, 100 and 1000 anchors.**
+Zero-mean noise, by contrast, falls as `1/√n` with no floor at all (P13: 0.316× from 3 to
+30 anchors). The two error types differ in their **asymptotics in anchor count**, not
+merely in magnitude, so modelling a bias as inflated variance cannot be repaired by
+choosing a better scalar. `nlosSigmaInflation = 3.0` has been uncalibrated for months; it
+is not undercalibrated, it is the wrong shape of model.
+
+**Every `r80` in this project was measured at `v = 0`, and P16 says when that matters.**
+`SESSION_CHANGELOG.md` F4 records that `RunProbe` produces structurally zero node velocity.
+P16 measures coherence time against the 12.5 ms frame airtime: 146.1 ms at 1 m/s falling to
+2.9 ms at 50 m/s, crossing the airtime **above 20 m/s**. So the `v = 0` measurements are
+sound for walking and running search teams (1–5 m/s) and **not** transferable to vehicle- or
+aircraft-borne nodes, where the channel decorrelates mid-packet. That is the scope
+statement for every `r80` in both documents.
+
+**Three further results worth carrying:** the path-loss exponent moves `r80` by **353×**
+over 1.6–6.0, more than any other parameter and 19× more than a 2.2-decade frequency
+sweep — environment outranks radio. Collinear anchor geometry gives **GDOP = ∞**,
+rank-deficient as registered. And SF12 at 2.5% duty forces a **16.1 s** minimum
+inter-transmission interval, which bounds any duty-cycled escalation policy.
+
+**Two things the campaign got wrong, reported as wrong.** P2 predicted an interior minimum
+in ranging sigma versus bandwidth; none exists, and this was derivable — `sigma ∝ 1/√BW`
+monotonically, because noise growth slows the improvement without reversing it. P3–P5 were
+registered against the nominal path-loss exponent when an **effective** one governs `r80`
+(3.03–3.54 at 868 MHz, because the NLOS and foliage terms are themselves
+distance-dependent); UWB's is 1.99–2.00, exactly free-space, independently confirming the
+two-ray branch.
+
+**And one about the method.** Zero of sixteen conclusions moved under the ±4 dB offset —
+which is evidence the test is too coarse to fail, not that everything is robust. The
+registration never operationalised what "the conclusion holds" means, the same silence that
+made §5.1's two metrics disagree. It is recorded as a gap rather than resolved after the
+fact.
+
+ That is a claim about robustness rather than calibration, and it
 does not assert that the model is validated — it asserts that these conclusions do not rest
 on the part that cannot be.
 

@@ -176,6 +176,41 @@ flowchart TB
 - A single engine with a frequency parameter would have concealed all three.
 - Three engines make them explicit, separately configurable, and separately testable.
 
+### 4.1.1 Why three tiers — measured, not asserted
+
+The table above is a datasheet argument. The independent propagation model replaced it with
+a measured surface, swept over frequency and bandwidth jointly
+(`src/catbl-propagation-study/`, §5.1).
+
+**The range-precision frontier is real and the tiers sit on it.** No `(f, BW)` beats all
+three tiers on both range and precision **when each design is judged at its own operating
+point**. The frontier's log-log slope is +2.2000 and is unchanged to four decimals at both
+limits of the unvalidated terrain term.
+
+**But the premise is narrower than "no such radio exists", and the report says so.**
+Judged at a common short distance instead, a counterexample does exist — **169 MHz at 250,
+500 or 800 kHz** beats all three tiers on both axes, because at 100 m a low-frequency link
+has enough surplus budget that its CRLB beats UWB's despite 600× less bandwidth. It is
+excluded for two independent reasons, neither of which is the frontier:
+
+1. **Not allocatable.** The CEPT plan for 169.4–169.8125 MHz caps channels at 50 kHz
+   (ECC/DEC/(05)02) and FCC narrowbanding caps 150–174 MHz at 12.5 kHz, while the whole
+   band is 412.5 kHz wide. (Region 3 is a partial gap: Japan's allocation is a narrowband
+   service allocation; China and Australia were not resolved.)
+2. **It cannot resolve its own first path.** Range resolution `c/(2·BW)` is 599.6 m at
+   250 kHz against a rural delay spread needing 1–10 MHz to resolve. It claims a sigma
+   **8400× finer than its own resolution cell**; UWB claims one 5× finer. The CRLB assumes
+   a single resolved path and that assumption fails outright. This holds in every
+   jurisdiction.
+
+**The design rule that transfers:** tiering is justified by the **width of the operating
+envelope**, not by the radios. Where the envelope is narrow — every node at a common short
+range — a single well-chosen radio would do, and the architecture does not pay.
+
+The parameter that dominates range is not frequency but the **path-loss exponent**: over
+1.6–6.0 it moves `r80` by **353×**, against 18.9× for a 2.2-decade sweep of carrier
+frequency. Environment selection outranks radio selection.
+
 ### 4.2 Submodule catalogue
 
 Each engine composes ~35 submodules. Grouped by physical category:
