@@ -78,3 +78,89 @@ that matters, and its result is the scope statement for every other `r80` in the
 - any experiment where a swept parameter is a **distribution** and the model applies a
   point estimate to a nonlinear function: **stop and integrate**, per the standing rule
   recorded after its third instance. Watch specifically at P8, P11 and P12.
+
+---
+
+# RESULTS
+
+Corpus `n = 2000`, digest `ea40076996e71a84b4bcce81` — the same corpus every earlier
+experiment used; comparison across digests is refused. Raw output:
+`results/ofat_campaign.txt` (`.log` is gitignored).
+
+## The sixteen rows
+
+| # | parameter | conclusion | class | limit behaviour and magnitude |
+|---|---|---|---|---|
+| P1 | carrier frequency | decreasing | ROBUST | 150 MHz→24 GHz: `r80` 3617 → 191.8 m, **18.9×** over 2.2 decades (0.264× per decade). No saturation or inversion; **model breakdown** at the top end under 30 dB terrain, where the link is dead at every range |
+| P2 | bandwidth | decreasing | ROBUST | sigma 27.48 → 0.0615 m. **No interior minimum** — registered prediction MISSED, see below |
+| P3 | TX power | increasing | ROBUST | −30→+30 dBm: `r80` 41.8 → 3760 m, **2.12× per 10 dB**. No saturation, as registered |
+| P4 | RX sensitivity | increasing | ROBUST | −70→−140 dBm: `r80` 12.0 → 3955 m. Thermal floor is **−117.0 dBm**; the model computes past it because **it has no noise-floor check** — that absence is the model breakdown this sweep exposed |
+| P5 | noise figure | decreasing | ROBUST | 0→15 dB: `r80` 2440 → 1042 m, **2.34×** (registered 4.4× on the nominal exponent — MISSED, see below) |
+| P6 | spreading factor | increasing | ROBUST | SF7→SF12: `r80` 1811 → 3174 m, 1.12×/step, **1.75× total**. At 2.5% duty the SF12 minimum inter-transmission interval is **16.1 s** |
+| P7 | path-loss exponent | decreasing | ROBUST | n 1.6→6.0: `r80` 6638 → 18.8 m, span **353×** — the largest effect of any parameter |
+| P8 | shadowing sigma | non-monotonic | **UNDETERMINABLE** | interior maximum at sd ≈ 4 dB under 0 dB terrain; monotonic decrease under 30 dB. **Registered prediction MISSED** |
+| P9 | NLOS probability | decreasing | ROBUST | p(1 km) 0→1: `r80` 3644 → 267.5 m. Both ends run and both physical, as required |
+| P10 | NLOS excess delay | increasing | ROBUST | floor `= p·delay = 60.0 m` at 200 m, **identical at 3, 6, 12, 30, 100 and 1000 anchors** |
+| P11 | Rician K | decreasing | ROBUST | −20→+30 dB: mean fade loss **+2.509 → +0.005 dB**. Rayleigh limit `10γ/ln10 = 2.507 dB`; both limits asserted at import |
+| P12 | delay spread | increasing | ROBUST | at 125 kHz, `1/BW = 8.0 µs`, so a 3 µs sweep **never reaches breakdown — registered in advance.** On UWB `1/BW = 2.0 ns` and breakdown begins there |
+| P13 | anchor count | decreasing | ROBUST | 3→30: position sigma **0.316× (1/√n)**, no floor under zero-mean noise |
+| P14 | anchor spacing | decreasing | ROBUST | coverage collapses above **spacing/r80 = 1.41** |
+| P15 | anchor geometry | ring best, collinear degenerate | ROBUST | GDOP ring 0.8165, grid 0.7071, clustered 4.808, **collinear ∞** — rank-deficient, as registered |
+| P16 | node speed | increasing | ROBUST | coherence time 146.1 ms at 1 m/s → 2.9 ms at 50 m/s against a **12.5 ms** frame airtime; decorrelation mid-packet **above 20 m/s** |
+
+**15 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE.**
+
+## Missed predictions, reported as missed
+
+**P2 — no interior minimum exists, and this was derivable rather than empirical.**
+`sigma = c/(2π·BW·√(2·SNR))` with noise ∝ BW gives `SNR ∝ 1/BW`, so
+`sigma ∝ 1/(BW·√(1/BW)) = 1/√BW` — monotonically decreasing forever. The registration
+predicted noise growth would *reverse* the improvement; it only slows it from `1/BW` to
+`1/√BW`. The registered falsifier ("no minimum anywhere") fired, and the prediction was
+wrong on algebra I could have done before running.
+
+**P3, P4, P5 — registered on the nominal path-loss exponent where an effective one governs.**
+The registration used `n = 2.3` to predict `r80` ratios. Measured effective exponents near
+`r80` are **3.03–3.54 (868 MHz)** and 3.66–4.07 (2.4 GHz), because the NLOS excess and
+foliage terms are themselves distance-dependent and steepen the margin slope. P5's 2.34×
+against a registered 4.4× is entirely this. **UWB's `n_eff` is 1.99–2.00 — exactly
+free-space**, which independently confirms the two-ray branch is what governs there.
+
+**P8 — `r80` does not rise with shadowing throughout.** It rises to sd ≈ 4 dB and then
+falls. Shadowing helps while its upper tail extends reach faster than its lower tail
+truncates it, and stops helping once the link is loss-dominated. Under 30 dB terrain the
+rise disappears entirely, which is why P8 is the one UNDETERMINABLE row.
+
+## The methodological result: 0 SENSITIVE is a finding about the test, not the physics
+
+Zero of sixteen conclusions moved under the ±4 dB offset. That is **not** evidence that
+everything is robust to the unattributed residual — it is evidence that the test as
+registered is too coarse to fail, because monotonic direction almost never changes under
+4 dB.
+
+**The registration never operationalised what "the conclusion holds" means.** That is the
+same silence that made §5.1's metrics A and B disagree — repeated in a document written
+*after* diagnosing it there. It is recorded as a gap, not resolved retroactively: the
+registered rule stands as monotonic shape, and effect-size stability is reported as a
+**separate** dimension rather than folded in. Retrofitting a criterion after seeing results
+is the move this project has refused four times, and it does not become acceptable because
+the registration is mine.
+
+## Two artefacts caught before they were reported as findings
+
+**Four experiments first classified UNDETERMINABLE on a NaN.** `lb.r80` scans a distance
+grid and returns NaN when it finds no 0.80 crossing — including when the link is dead at
+every range, which is what 24 GHz under 30 dB terrain is. That NaN read as an undefined
+shape, so P1, P3, P4 and P7 looked terrain-dependent when the physics is "the link is
+dead". A dead link is a statement, not the absence of one. The campaign runner returns the
+floor; `lb.r80` is untouched because `validate.py` and G11 depend on it.
+
+**`nlos_scale_m` had no override at all.** All three read sites took `ENV[env]` directly,
+so P9 would have swept NLOS probability and moved **no number whatsoever** — a sweep that
+runs clean and measures nothing, which is the exact failure this project has hunted since
+the overnight diagnostic. `linkbudget.py` now **raises** on any unrecognised override key.
+
+**A third, in the model rather than the campaign:** the Rician quadrature's Bessel series
+overflowed above K ≈ 100, returning **+7.512 dB** of mean fade loss where the K→∞ limit
+must be 0 dB. Rewritten in log space with the large-argument asymptotic, and **both
+analytic limits are now asserted at import** so a numerical failure cannot pass silently.
