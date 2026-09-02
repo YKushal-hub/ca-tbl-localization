@@ -3057,6 +3057,21 @@ RunArm(CaTblPolicyMode mode,
     res.tn = tn;
     res.cyclesInUwbCoverage = inCov;
     res.reinitFallback = policy.GetReinitFallbackCount();
+    // EXCLUDE branch census, to stderr and ONLY when the policy is EXCLUDE, so default
+    // output -- arm_summary.csv included -- is byte-identical. The registration promised
+    // these counters per cell; without them a change in availability cannot be attributed
+    // to a branch.
+    if (pcfg.suspectRecovery == CA_TBL_RECOVERY_EXCLUDE)
+    {
+        std::cerr << "EXCLUDE_CENSUS arm=" << res.arm
+                  << " cleared=" << policy.GetExcludeCleared()
+                  << " none_cleared=" << policy.GetExcludeNoneCleared()
+                  << " ambiguous=" << policy.GetExcludeAmbiguous()
+                  << " too_few=" << policy.GetExcludeTooFew()
+                  << " ranges_dropped=" << policy.GetExcludeRangesDropped()
+                  << " suspects=" << policy.GetSuspectCount()
+                  << std::endl;
+    }
 
     // Must run while macs/beacons are still alive: it cancels the events that hold
     // raw pointers into them. Destroying the deques first would leave the scheduler
