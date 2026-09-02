@@ -100,15 +100,20 @@ experiment used; comparison across digests is refused. Raw output:
 | P7 | path-loss exponent | decreasing | ROBUST | n 1.6→6.0: `r80` 6638 → 18.8 m, span **353×** — the largest effect of any parameter |
 | P8 | shadowing sigma | non-monotonic | **UNDETERMINABLE** | interior maximum at sd ≈ 4 dB under 0 dB terrain; monotonic decrease under 30 dB. **Registered prediction MISSED** |
 | P9 | NLOS probability | decreasing | ROBUST | p(1 km) 0→1: `r80` 3644 → 267.5 m. Both ends run and both physical, as required |
-| P10 | NLOS excess delay | increasing | ROBUST | floor `= p·delay = 60.0 m` at 200 m, **identical at 3, 6, 12, 30, 100 and 1000 anchors** |
-| P11 | Rician K | decreasing | ROBUST | −20→+30 dB: mean fade loss **+2.509 → +0.005 dB**. Rayleigh limit `10γ/ln10 = 2.507 dB`; both limits asserted at import |
-| P12 | delay spread | increasing | ROBUST | at 125 kHz, `1/BW = 8.0 µs`, so a 3 µs sweep **never reaches breakdown — registered in advance.** On UWB `1/BW = 2.0 ns` and breakdown begins there |
-| P13 | anchor count | decreasing | ROBUST | 3→30: position sigma **0.316× (1/√n)**, no floor under zero-mean noise |
+| P10 | NLOS excess delay | increasing | INVARIANT BY CONSTRUCTION | floor `= p·delay = 60.0 m` at 200 m, **identical at 3, 6, 12, 30, 100 and 1000 anchors** |
+| P11 | Rician K | decreasing | INVARIANT BY CONSTRUCTION | −20→+30 dB: mean fade loss **+2.509 → +0.005 dB**. Rayleigh limit `10γ/ln10 = 2.507 dB`; both limits asserted at import |
+| P12 | delay spread | increasing | INVARIANT BY CONSTRUCTION | at 125 kHz, `1/BW = 8.0 µs`, so a 3 µs sweep **never reaches breakdown — registered in advance.** On UWB `1/BW = 2.0 ns` and breakdown begins there |
+| P13 | anchor count | decreasing | INVARIANT BY CONSTRUCTION | 3→30: position sigma **0.316× (1/√n)**, no floor under zero-mean noise |
 | P14 | anchor spacing | decreasing | ROBUST | coverage collapses above **spacing/r80 = 1.41** |
-| P15 | anchor geometry | ring best, collinear degenerate | ROBUST | GDOP ring 0.8165, grid 0.7071, clustered 4.808, **collinear ∞** — rank-deficient, as registered |
-| P16 | node speed | increasing | ROBUST | coherence time 146.1 ms at 1 m/s → 2.9 ms at 50 m/s against a **12.5 ms** frame airtime; decorrelation mid-packet **above 20 m/s** |
+| P15 | anchor geometry | ring best, collinear degenerate | INVARIANT BY CONSTRUCTION | GDOP ring 0.8165, grid 0.7071, clustered 4.808, **collinear ∞** — rank-deficient, as registered |
+| P16 | node speed | increasing | INVARIANT BY CONSTRUCTION | coherence time 146.1 ms at 1 m/s → 2.9 ms at 50 m/s against a **12.5 ms** frame airtime; decorrelation mid-packet **above 20 m/s** |
 
-**15 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE.**
+**Corrected after the classifier fixture: 9 ROBUST, 0 SENSITIVE, 1 UNDETERMINABLE,
+6 INVARIANT BY CONSTRUCTION.** The first reading of this table said 15/0/1. Six rows never
+fed terrain or offset into their own function, so their ROBUST meant "cannot move", not
+"tested and did not move" — see `CLASSIFIER_FIXTURE_REGISTRATION.md`. The classifier itself
+was then given a negative fixture and **can be observed to fail in both directions**, so
+the remaining ten rows' verdicts stand.
 
 ## Missed predictions, reported as missed
 

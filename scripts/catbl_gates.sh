@@ -233,7 +233,7 @@ finish G7
 # or if a path is already in the index when the ignore rule is added.
 printf '\n--- G8 must-stay-untracked files are untracked ---\n'
 G8_BAD=0
-for f in CA_TBL_HANDOFF_v4.md CA_TBL_HANDOFF_v5.md SESSION_CHANGELOG.md CA_TBL_SIMULATION_REPORT.md; do
+for f in CA_TBL_HANDOFF_v4.md CA_TBL_HANDOFF_v5.md CA_TBL_HANDOFF_v6.md SESSION_CHANGELOG.md CA_TBL_SIMULATION_REPORT.md; do
     if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
         printf 'TRACKED BUT MUST NOT BE: %s\n' "$f"
         printf '  remedy: git rm --cached %s   (keeps the file on disk)\n' "$f"
