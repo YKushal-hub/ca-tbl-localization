@@ -164,3 +164,28 @@ the overnight diagnostic. `linkbudget.py` now **raises** on any unrecognised ove
 overflowed above K ≈ 100, returning **+7.512 dB** of mean fade loss where the K→∞ limit
 must be 0 dB. Rewritten in log space with the large-argument asymptotic, and **both
 analytic limits are now asserted at import** so a numerical failure cannot pass silently.
+
+## A limitation that should have been registered, not discovered
+
+**P12 and P16 were computed analytically, not swept through the link budget.** Neither
+delay spread nor node velocity is represented in `linkbudget.py` at all, so P12's
+resolvability criterion (`delay spread` vs `1/BW`) and P16's coherence time
+(`T_c ≈ 0.423/f_D`) are closed-form calculations from the swept parameter, not
+recomputations of the model.
+
+Two consequences, stated rather than left implicit:
+
+- Their **robustness classifications are vacuous**. Neither quantity depends on the link
+  budget, so neither can move under a terrain limit or a margin offset. They are recorded
+  as ROBUST in the table above, and that ROBUST means "invariant by construction", not
+  "tested and found stable". It is the same shape as an empty population passing a gate,
+  which this project already has a rule for.
+- Their **conclusions are still sound**, because they are analytic identities about
+  bandwidth and Doppler rather than claims about this model's calibration. P16's crossing
+  above 20 m/s and P12's non-breakdown at 868 MHz do not depend on any of the model's
+  unattributed error.
+
+This belonged in the registration, where it would have been a stated scope limit before
+the sweeps. It is recorded here instead, as a gap in the registration — the third such gap
+this module has produced, after §5.1's unfixed operating point and this document's
+unoperationalised "conclusion holds".
