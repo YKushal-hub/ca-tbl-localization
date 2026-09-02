@@ -100,17 +100,49 @@ FOLIAGE_DEPTH_MAX_M = 500.0              # lora-physics-parameters.cc:293
 FOLIAGE_CLAMP_DB = 35.0                  # lora-physics-engine.cc:527
 
 
+# The engine SAMPLES both foliage parameters per realization, it does not use their
+# means: lora-physics-parameters.cc:318-319
+#     specificAttenuationDbPerM = Normal(gamma, gamma*0.25, gamma*0.2, gamma*1.8)
+#     maxAttenuationDb          = Normal(amax,  amax*0.2,   amax*0.5,  amax*2.0)
+# A_veg saturates in both, so E[A_veg] < A_veg(E[gamma], E[A_max]) and evaluating at the
+# means over-attenuates. THIRD instance of this class here, after the lognormal depth and
+# the distributed antenna heights; see experiments/JENSEN_FOLIAGE_REGISTRATION.md.
+# Deterministic quadrature, so no corpus draw is added and its digest is untouched.
+_VEG_NODES = {}
+
+
+def _veg_nodes(g0, a0, k=21):
+    key = (g0, a0, k)
+    if key in _VEG_NODES:
+        return _VEG_NODES[key]
+    def tn(mu, sd, lo, hi):
+        xs = [(lo + (hi - lo) * (i + 0.5) / k, 0.0) for i in range(k)]
+        xs = [(x, math.exp(-0.5 * ((x - mu) / sd) ** 2)) for x, _ in xs]
+        tot = sum(w for _, w in xs)
+        return [(x, w / tot) for x, w in xs]
+    nodes = [(g, a, wg * wa)
+             for g, wg in tn(g0, g0 * 0.25, g0 * 0.2, g0 * 1.8)
+             for a, wa in tn(a0, a0 * 0.2, a0 * 0.5, a0 * 2.0)]
+    _VEG_NODES[key] = nodes
+    return nodes
+
+
 def foliage_loss_db(tier, u_depth, overrides=None):
-    """A_veg for one realization. u_depth is a unit-normal draw from the corpus."""
+    """E[A_veg] for one realization's depth, integrated over the engine's gamma and
+    A_max distributions. u_depth is a unit-normal draw from the corpus."""
     o = overrides or {}
     veg = dict(VEGETATION[TIER_VEG[tier]])
     veg.update(o.get("veg", {}))
     depth = math.exp(FOLIAGE_DEPTH_LOG_MU + FOLIAGE_DEPTH_LOG_SD * u_depth)
     depth = min(max(depth, 0.0), FOLIAGE_DEPTH_MAX_M)
-    g, amax = veg["gamma"], veg["amax"]
-    if depth <= 0.0 or g <= 0.0 or amax <= 0.0:
+    g0, a0 = veg["gamma"], veg["amax"]
+    if depth <= 0.0 or g0 <= 0.0 or a0 <= 0.0:
         return 0.0
-    a = amax * (1.0 - math.exp(-depth * g / amax))
+    if o.get("veg_at_mean"):
+        a = a0 * (1.0 - math.exp(-depth * g0 / a0))
+    else:
+        a = sum(w * a1 * (1.0 - math.exp(-depth * g1 / a1))
+                for g1, a1, w in _veg_nodes(g0, a0))
     return min(max(a, 0.0), FOLIAGE_CLAMP_DB)
 REFERENCE_DISTANCE_M = 1.0   # lora-physics-parameters.cc:11
 

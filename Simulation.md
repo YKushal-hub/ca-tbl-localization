@@ -553,6 +553,15 @@ optional:**
    2500. And structurally: **all ten adjudicable cells were `RURAL_OPEN`**, because
    only there does a single-band arm also qualify and give the rule something to
    compare against. The cost claim is decidable **only where tiering is least needed**.
+
+   The independent propagation model reached the same conclusion from the opposite
+   direction. Its range-precision frontier holds — no `(f, BW)` beats all three tiers on
+   both axes — **when each design is judged at its own operating point**, and fails at a
+   common short distance, where surplus link budget makes a 169 MHz link's CRLB beat UWB's
+   despite 600x less bandwidth. Tiering is justified by the *width of the operating
+   envelope*, not by the radios themselves. Both findings say the same thing: **the
+   architecture pays only where the envelope is wide**, and the cell where the cost claim
+   is adjudicable is the cell where it is least needed.
 5. **The filter's calibration in this cell is imperfect.** NEES is 2.95 at 20 seeds
    against a 2-DOF expectation of 2.0, median 0.58, with 3.3% of cycles above the 95%
    bound, concentrated in UWB. The PASS is adjudicated on ground-truth error and
@@ -887,6 +896,14 @@ It also found that terrain applies an 868 MHz wavelength to every tier
 drops by `linkHysteresisMarginDb` (1.5 dB) whenever the link was previously receiving, so
 the reception threshold moves with PDR and sits outside the loss sum entirely.
 
+That last one is the module's most transferable finding, and it generalises past this
+engine: **an enumeration of a loss sum will not find a term that lives in the threshold**,
+and **a margin metric whose denominator moves with the outcome mimics a distance-dependent
+effect**. It cost one wrong attribution here — a growing residual was assigned to a
+propagation term when up to 1.5 dB of it was the reception threshold moving with PDR.
+Auditing what a quantity is compared *against*, not only what is subtracted from it, is the
+practice that would have caught it. `Architecture.md` §5.1 carries the detail.
+
 **What the sweeps now rest on instead.** Since reconciliation is unreachable, it was
 replaced as the blocking condition by a question that is answerable: *do the conclusions
 depend on terrain at all?* Terrain's value is unvalidatable but its range is known exactly,
@@ -897,6 +914,25 @@ recomputed at **both limits**:
   +2.2000 at both limits), and its falsifier returns the same verdict at both;
 - the NLOS bias-versus-noise separation is exactly invariant — model B's error floor is
   7.5000 m at 0 dB and 7.5000 m at 30 dB, on every tier.
+
+**The frontier's falsifier fired, and what saves the premise is not the frontier.** The
+registered falsifier was: if a single `(f, BW)` beats all three tiers on both range and
+precision, the architecture's premise is falsified. Under metric B it exists — **169 MHz at
+250, 500 or 800 kHz** — at both terrain limits, and the fractional bandwidth is unremarkable
+(`BW/f ≈ 0.005`). Checked against real allocations, none of the three is deployable: the
+CEPT plan for 169.4–169.8125 MHz caps channels at **50 kHz** (ECC/DEC/(05)02) and FCC
+narrowbanding caps 150–174 MHz at **12.5 kHz**, while the entire band is only 412.5 kHz
+wide — so the 500 and 800 kHz points are wider than the whole allocation. Allocatable
+winners: **zero**.
+
+The premise therefore stands in the form **no *deployable* radio is simultaneously
+long-range and precise**, and the unconstrained premise is reported as **false**: such a
+radio exists in physics and is forbidden by spectrum policy, not by the range-precision
+trade-off. In a jurisdiction that allocated 800 kHz at 169 MHz, the tiering would need a
+different justification. The original registration never fixed the operating point at which
+sigma is evaluated, and that silence — not a later choice — is what makes metrics A and B
+disagree; both are reported, and the premise is saved by the allocation check, which holds
+under both.
 
 So both conclusions may carry: **invariant to terrain across its full physical range,
 tested at both limits.** That is a claim about robustness rather than calibration, and it

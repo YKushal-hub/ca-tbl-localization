@@ -136,3 +136,69 @@ may carry that sentence.
 This does **not** mean the model is validated. G11b is permanently red and G11a fails on
 two of three tiers. It means these two conclusions do not rest on the part that cannot be
 validated — a claim about robustness, not calibration.
+
+---
+
+# §5.1's falsifier: allocation check on the winning points
+
+The falsifier fired under metric B. Before the verdict lands, the check it had not had:
+`BW/f ≈ 0.005` establishes that the **fractional bandwidth is achievable**. It does not
+establish that **the spectrum exists**, and only the second claim matters for a falsifier
+about a deployable architecture.
+
+## The winning points, checked against real allocations
+
+All three winners sit at **169 MHz**, needing 250, 500 or 800 kHz.
+
+| region | instrument | channel cap near 169 MHz |
+|---|---|---|
+| CEPT / EU | ECC/DEC/(05)02, harmonised plan for 169.4–169.8125 MHz; 100 kHz spacing subdividable into 50 or 25 kHz | **50 kHz** |
+| US | FCC narrowbanding, Part 90, 150–174 MHz, mandatory since 1 Jan 2013 | **12.5 kHz** |
+
+**The whole band is 412.5 kHz wide** (169.8125 − 169.4). So 500 kHz and 800 kHz are wider
+than the entire allocation, before any channel rule is applied.
+
+| winning point | vs CEPT 50 kHz cap | vs FCC 12.5 kHz cap | vs 412.5 kHz band |
+|---|---|---|---|
+| 169 MHz, 250 kHz | **5× over** | 20× over | fits the band, not a channel |
+| 169 MHz, 500 kHz | **10× over** | 40× over | **wider than the band** |
+| 169 MHz, 800 kHz | **16× over** | 64× over | **~2× the whole band** |
+
+**Allocatable winners: 0**, at terrain 0 dB and at 30 dB.
+
+Power is not the binding constraint — the modelled 12.5 dBm (18 mW) sits well under the
+band's SRD limits — and neither is antenna size on its own, though it is not free: λ/4 at
+169 MHz is **0.443 m**, against 0.086 m at 868 MHz, 0.031 m at 2.44 GHz and **0.009 m** at
+7.99 GHz. A 48× longer element on a body-worn or airborne node. **Bandwidth is what makes
+these points undeployable, and it is not close.**
+
+## Registered consequence applied: outcome 1
+
+**The premise survives, with its constraint named:**
+
+> **No *deployable* radio is simultaneously long-range and precise.**
+
+And, reported alongside it as the registered consequence requires:
+
+> **The unconstrained premise is false.** A `(f, BW)` pair that beats all three tiers on
+> both axes does exist in physics — 169 MHz at 250–800 kHz. What forbids it is spectrum
+> policy, not the range-precision trade-off.
+
+That is a stronger and more honest claim than the unqualified version, because it names the
+reason. It also transfers: in a jurisdiction that allocated 800 kHz at 169 MHz, the
+architecture's premise would not hold, and the tiering would need a different
+justification.
+
+## The gap in the original registration, recorded rather than resolved after the fact
+
+The original §5.1 registration specified `y` as "achievable ranging sigma from the CRLB"
+and **never fixed the operating point at which sigma is evaluated**. That silence decides
+the verdict: metric A (each design at its own operating point) finds no winner; metric B (a
+common 100 m) finds three. Both are reported. **The metric that saves the premise was not
+selected** — the premise is saved by the allocation check, which is independent of the
+metric and holds under both.
+
+Two further limits on metric B's winners, stated so they are not mistaken for the reason
+they were rejected: the CRLB ignores multipath and clock stability, which are what actually
+floor low-bandwidth ranging in practice, so the 0.04 m sigma at 169 MHz is optimistic
+independently of allocation.

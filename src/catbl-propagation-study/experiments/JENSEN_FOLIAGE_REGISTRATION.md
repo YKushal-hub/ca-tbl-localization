@@ -51,3 +51,48 @@ question. No corpus draw is added, so `results/corpus.json` and its digest are u
 If the measured margin shift differs from 0.466 / 0.090 dB by more than 0.05 dB, the
 quadrature does not implement what was registered and the result is withdrawn rather than
 reinterpreted.
+
+---
+
+# RESULT — HIT on all three tiers, exact to three decimals
+
+Computed after the registration above was committed (`31db16c`).
+
+| tier | predicted Δmargin | measured Δmargin | verdict |
+|---|---|---|---|
+| 868 MHz | +0.466 dB | **+0.466 dB** | HIT |
+| 2.4 GHz | +0.090 dB | **+0.090 dB** | HIT |
+| UWB | +0.090 dB | **+0.090 dB** | HIT |
+
+Falsifier threshold was 0.05 dB; the largest discrepancy is below 0.001 dB.
+
+## The registered trade, confirmed in both directions
+
+| tier | worst margin deviation | `r80` relative error |
+|---|---|---|
+| 868 MHz | 5.42 → **4.95 dB** (better) | 16.6% → **19.6%** (worse) |
+| 2.4 GHz | 11.60 → 11.69 dB | 37.6% → 38.7% |
+| UWB | 5.26 → 5.35 dB | 92.9% → 94.9% |
+
+Exactly as registered: the fix improves 868's margin residual, which is the direct
+comparison, and worsens its `r80`, which is downstream. **It lands because it is correct.**
+`r80` sits behind every excess term in the budget, and terrain — 13 dB of unvalidatable
+loss at 2.4 GHz — is still missing from all three, so `r80` cannot adjudicate a 0.466 dB
+question. The rule already recorded applies: when the direct comparison and the derived
+metric disagree about which version is better, the direct measurement wins.
+
+## Foliage re-scored against its ORIGINAL registered contribution
+
+The foliage term was registered with these predictions
+(`FOLIAGE_PREREGISTRATION.md:31-43`), against measured pre-term offsets of +12.32 dB
+(868 at 100 m), +2.64 dB (2.4 GHz at 10 m), +4.64 dB (UWB at 2 m):
+
+| # | original prediction | score at the mean | score integrated |
+|---|---|---|---|
+| 1 | 868's offset closes to within ~2 dB, sourced median 13.77 dB vs measured 12.32 dB | HIT — closed to 1.45 dB | **HIT — closes to 0.99 dB**, since the term shrinks by 0.466 toward the measured offset |
+| 2 | 2.4 GHz and UWB move by ~3 dB, not <1 dB; the governing document's "<1 dB" is expected to MISS | HIT, and the governing document's prediction MISSED as registered | **HIT, unchanged** — 3.83 dB integrated against 3.92 dB at the mean, still ~3 dB and still not <1 dB |
+
+**Both original predictions survive the fix, and prediction 1 scores better under it.**
+That is the useful part of re-scoring: the correction moves the term toward the number its
+own registration was measured against, which is independent evidence that the integrated
+form is the right one — it was not chosen to improve any score, and the score improved.

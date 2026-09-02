@@ -305,6 +305,23 @@ Two further details found the same way, both easy to misread from structure:
   distance. It sits outside the loss sum entirely and is invisible to anyone enumerating
   `additional_loss`.
 
+**A term that lives in the threshold, not in the sum.** The eight-of-sixteen list above
+enumerates `additional_loss`. That enumeration is not sufficient, and the way it fails is
+worth stating in general form. `effectiveSensitivity` is reduced by
+`linkHysteresisMarginDb` (1.5 dB, `lora-physics-parameters.cc:401`) whenever the link was
+previously receiving, and the reported margin is `rxPowerDbm - effectiveSensitivityDbm`.
+So the **denominator of the comparison moves with the outcome**: where PDR is high the
+threshold is easier, where PDR is low it is not, and the reported margin therefore falls
+with distance for a reason that is not a loss at all.
+
+Two rules generalise past this engine:
+
+- **An enumeration of a loss sum will not find a term that lives in the threshold.** Audit
+  what a quantity is compared *against*, not only what is subtracted from it.
+- **A margin metric whose denominator moves with the outcome mimics a distance-dependent
+  effect.** It cost this project one wrong attribution: a growing residual was assigned to
+  a propagation term when up to 1.5 dB of it was the reception threshold moving.
+
 All of this was found by building an independent model and failing to reconcile it — which
 is an argument for that module's existence separate from whether it ever reconciles.
 
