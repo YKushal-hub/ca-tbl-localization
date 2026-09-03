@@ -173,6 +173,33 @@ a range between two *surveyed* anchors contributes no row to the Jacobian, becau
 endpoints are fixed, yet it was counted as an observation. Only informative ranges count. The
 corrected counter returns +0 and agrees with the table in §2.
 
+## 2c. SUPERSEDED — the tier-3 blocker was an artefact of treating r80 as a cutoff
+
+Everything in §2 about tier 3 being SINGULAR under the engine's r80 **is withdrawn.** See
+`DEFECTS.md`, "Tier 3 is not blocked: I read a percentile as a cutoff".
+
+Two errors, compounding:
+
+1. **The condition was too strong.** Rigidity of a 5-node 2-D graph needs a Laman subgraph of
+   7 edges, so **two** of the five across-ring chords suffice, not all five. Measured: 5 adjacent
+   → rank 4/6; +1 across → 5/6; **+2 across → 6/6, rigid.**
+2. **r80 is a percentile, not a boundary.** A 19.02 m chord "beyond" a 12.9 m r80 is not an absent
+   link; under the residual-corrected model it delivers **73.0%** of the time.
+
+Enumerating all 1024 edge subsets weighted by corrected per-link PDR:
+
+    P(solvable in a single epoch, 2 surveyed) = 0.9191
+    P(>=2 across-ring chords observed within 2 epochs) = 0.9999
+
+**Tier 3 self-calibrates on ~9 epochs in 10 and effectively always within two.** What survives is
+that the edge set is *intermittent*, so the solve must accept a varying topology rather than
+assume a fixed graph. The ring-radius rule `R <= 6.78 m` is not applied: it is sufficient rather
+than necessary, and derived from the withdrawn cutoff premise.
+
+The r80 to design against is settled by `experiments/UWB_R80_RESIDUAL_RESULT.md`: the engine's
+**12.9 m**, with the residual-corrected model at 16.44 m recorded as the better model where the
+two are not in conflict.
+
 ## 3. What this changes
 
 The anchor count per site stops being deployment furniture and becomes **the** swept parameter,

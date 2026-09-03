@@ -2087,3 +2087,111 @@ falsifying data already existed.
 
 **Claim 9 is untouched.** Its falsification stands on its recorded reason. This removes a proposed
 *second* reason; it does not reopen the first.
+
+---
+
+## Tier 3 is not blocked: I read a percentile as a cutoff
+
+**The claim I made last pass**, and which the following work order built on: at the engine's
+tier-3 r80 of 12.9 m only the five *adjacent* chords of the 5-anchor ring survive, a 5-cycle is
+flexible in 2-D, the solve is SINGULAR at rank 4 of 6, and **the tier-3 cluster cannot
+self-calibrate at its deployed geometry.**
+
+**It is wrong, and the error is the same shape as the one it replaced.**
+
+`r80` is the distance at which PDR crosses 0.80. **It is a percentile of a continuous curve, not
+a boundary.** A 19.02 m across-ring chord being "beyond r80" does not mean the link is absent; it
+means it delivers less than 80% of the time. Under the residual-corrected model it delivers
+**73.0%** of the time. Treating r80 as a wall is reading a summary statistic as the quantity it
+summarises — precisely what reading the censored `nominalRangeM` label as a measurement was, one
+entry above, and I did it in the same pass in which I recorded that one.
+
+**Two corrections to the rigidity analysis, and both point the same way.**
+
+*First, the condition was too strong.* Rigidity of a 5-node graph in 2-D needs a Laman subgraph of
+`2n − 3 = 7` edges, not all 10. Measured on the solve:
+
+| edges present | rank / free | rigid |
+|---|---|---|
+| 5 adjacent (the cycle) | 4 / 6 | no |
+| 5 adjacent + **1** across | 5 / 6 | no |
+| 5 adjacent + **2** across | **6 / 6** | **yes** |
+| all 10 | 6 / 6 | yes |
+
+So **two of the five** across-ring chords suffice. The rule "`R ≤ r80 / 2·sin(2π/5)` = 6.78 m",
+which requires all five, is **sufficient but not necessary** — and it is derived from the hard-
+cutoff premise besides. The trigonometry behind it is correct (`2R·sin(πk/n)`: 11.7557 m and
+19.0211 m at R = 10 m, verified against explicit coordinates) but the rule it feeds is not the
+binding condition. **A correct derivation from a false premise is still a false conclusion.**
+
+*Second, delivery is probabilistic.* Enumerating all 1024 edge subsets weighted by the
+residual-corrected per-link PDR (adjacent 0.9162, across 0.7296):
+
+    P(cluster solvable in a single epoch, 2 anchors surveyed) = 0.9191
+
+and calibration accumulates across epochs — per-chord probability of having been observed at
+least once reaches 0.9269 after two epochs, giving **P(≥2 across-ring chords observed) = 0.9999**.
+
+**Tier 3 self-calibrates on roughly nine epochs in ten, and effectively always within two.** The
+blocker does not exist. What survives is that the topology is *intermittent* and the redundancy
+*stochastic*, so the solve must accept a varying edge set rather than assume a fixed graph — a
+real design constraint, and a far smaller one than "cannot self-calibrate."
+
+**No resolution option should be applied.** Reducing the ring radius to 6.78 m, adding a sixth
+anchor, or scoping tier 3 to survey-only were the three candidates for a problem that is not
+there. Each would have cost coverage, hardware, or a novelty claim, to fix nothing.
+
+**Count of this class.** Reading an instrument's summary as the quantity it summarises now has
+three instances in two passes, all mine or adopted by me: the censored `nominalRangeM` label read
+as a range; a stale-looking constant comment read as stale when it restated a real measurement;
+and r80, a percentile, read as a cutoff. **The rule: before a summary statistic becomes a
+premise, state what it summarises and whether the premise needs the summary or the distribution.**
+
+---
+
+## Two procedural rules, with their counts
+
+**A status check must not run either after *or before* the operation that changes the status.**
+Two instances:
+
+1. `git ls-files --error-unmatch` run *after* `git add` reported "tracked" for a file not in HEAD.
+   Fixed by checking `git cat-file -e HEAD:<path>`.
+2. The full gate suite run *before* `git add` made `catbl_g12b_fixture.sh` tracked reported G12b
+   passing. G12b then failed on that fixture from the moment it was committed, and the failure was
+   reported here as a pass.
+
+The two look like opposite mistakes and are the same one: the check and the operation were
+ordered by convenience rather than by what the check claims to measure.
+
+**A gate fixture that must contain what the gate forbids derives it rather than restating it.**
+G12b's fixture needs vendor tokens to test the gate, which made the fixture itself a violation.
+The fix was not an exception entry — exceptions accumulate and are inherited silently, as G9's
+hardcoded allow-list showed. The fixture now extracts the tokens from the gate's own alternation
+at run time. It therefore contains none, tests whatever the gate currently matches, and cannot
+drift from it: adding a token to the pattern extends the fixture automatically. **General form:
+where a test must embody the thing under prohibition, derive it from the prohibition's own
+definition.**
+
+---
+
+## Before stratifying on a covariate, check it is neither censored nor downstream of the treatment
+
+The redundancy census needed one quantity — how many anchors a tag can reach — and the tree
+offered three measurements of it. Two are wrong for the purpose, for two different and both
+common reasons:
+
+| covariate | policy-invariant | censored | verdict |
+|---|---|---|---|
+| `nAnchors`, the physics outcome | **no** — differs on 6.81% of 57 600 cycles | no | **collider.** The policy changes the estimate → changes escalation → changes what is counted. Conditioning on it conditions on a descendant of the treatment |
+| `vis2p4`, the scenario's geometric label | yes, 0 of 57 600 differ | **yes** — counts against `nominalRangeM` = 900 m, a censored lower bound | measures the label's conservatism; caps at 3 |
+| recomputed from `trueX`/`trueY` | yes, 0 of 57 600 differ | no | usable |
+
+**What licensed the third** was not that it was constructed carefully — it was that it predicts an
+observable it was not fitted to. At the model's tier-2 r80 of 1580.6 m it gives a mean of **6.03**
+anchors in range against a measured `nAnchors` mean of **6.06**.
+
+**The general rule, which outlives this project:** a covariate is safe to stratify on only if it is
+(a) not a descendant of the treatment and (b) not censored at a bound inside the range that
+matters. Policy-invariance is testable directly — compare the column across arms at the same seed
+— and censoring is usually documented at the definition site rather than at the use site, which is
+why it survives review.
