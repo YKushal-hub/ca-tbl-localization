@@ -2233,3 +2233,72 @@ r80 depends on the *shape* of the PDR curve, not only its mean position, and bot
 change the shape. `DEFECTS.md:1115-1120` nominated width for the same reason, at a point when the
 gap was 7.6 m rather than 12.3 m. That the nomination survived the gap growing by 60% is weak
 evidence for it and is reported as weak.
+
+---
+
+## A null control checked once is a null control for a version that no longer exists
+
+B1's byte-identity null control was verified **four** times: at first implementation, after the
+first scheduling correction, after the second, and after the concurrency detector was added.
+Only the first of those was planned.
+
+The rule is not "check the null control". It is that a null control is a property of a **build**,
+not of a feature. Each of B1's three follow-up changes touched the code path that the default
+flag is supposed to skip, and any of them could have leaked a draw from the shared RNG stream —
+which is the exact mechanism that moved a tier-1-only arm under D1. The check costs one run and
+the failure it prevents invalidates a whole campaign.
+
+It is the same family as the status-check-ordering rule already recorded: **a check binds to the
+state it was run against, and every subsequent change re-opens it.**
+
+---
+
+## A probability per epoch and a probability per round are different quantities
+
+The model predicted `P(cluster solvable) = 0.9191` **per epoch**. B1 could not score it, because
+the prediction presumes all ten anchor pairs are attempted simultaneously and the engine's
+interference model makes that a collision rather than a measurement.
+
+What replaced it, measured: solvability is a per-**TDMA-round** property — 0.7581 after one
+round, 0.9942 after two, 0.9999 after three.
+
+**The model was not wrong about the mechanism. It was wrong about the unit of time.** The cluster
+is solvable, the redundancy analysis behind it holds, and the arithmetic of edge subsets was
+right. What did not survive was the implicit claim that the ten links are available *at once*.
+
+This belongs beside the population rule and the estimator rule, and it is the same kind of
+defect: **a number is not defined until its unit is stated, and "per epoch" versus "per round"
+is a unit.** A quantity can be correct, reproducible, and derived from verified inputs while
+still answering a question nobody can ask of the system.
+
+Practically it changes what the architecture claims. Calibration at two rounds is ~20 survey
+epochs, 50 s at a 2.5 s cycle — a startup and periodic activity, not a per-cycle one.
+
+---
+
+## G16: the detector for the class that geometry caught by luck
+
+**Two scheduling defects in one build.** The first fired every intra-site anchor pair at one
+instant. The second, which was the fix for the first, selected one pair per *site* while claiming
+one pair globally. Each produced a **collision rate that reads as a delivery rate**.
+
+**Neither was caught by vigilance.** Both were caught because tier-2's four sites happened to
+give an unmistakable contrast — the first-transmitting site delivered 0.98 and the rest delivered
+0.00. A single-site deployment, or a uniform one, would have returned a plausible depressed rate
+with no signature at all, and it would have been published as physics.
+
+`concurrentInTier` is emitted per exchange and counts transmissions already made **by that tier**
+in that epoch — per tier, because tier 2 and tier 3 are different radios and cannot interfere,
+so a cross-tier count would report violations that are not violations. The runtime aborts when
+the count exceeds `--anchorMaxConcurrent`, naming the pair and the count; `scripts/catbl_concurrency_gate.py`
+re-checks a finished trace offline.
+
+**The gate recounts independently rather than trusting the emitted column.** A self-reported
+counter cannot detect a defect in itself, so the gate rebuilds the per-epoch-per-tier tally from
+the rows and fails if the two disagree. That is the one failure mode the instrument is blind to,
+and it is the reason the check is not simply `max(column) <= 1`.
+
+Fixture, three directions, all passing: a serialised schedule passes; a deliberate two-concurrent
+schedule aborts *and* names the pair and the count (asserted, not assumed — a fixture that fails
+by crashing is not a fixture); and the offline gate independently fails a trace produced with the
+runtime bound raised, so the check does not depend on the runtime abort having fired.

@@ -1868,6 +1868,8 @@ RunArm(CaTblPolicyMode mode,
        // offsets every later consumer, moving even a tier-1-only arm.
        bool anchorSurveyed,
        double anchorRangePeriodS,
+       uint32_t anchorMaxConcurrent,
+       uint32_t anchorPairsPerEpoch,
        bool traceDiagnostic)
 {
     RngSeedManager::SetSeed(seed);
@@ -1961,7 +1963,14 @@ RunArm(CaTblPolicyMode mode,
         // `delivered` is the column B1 exists to produce: the intermittency of the
         // anchor graph is measured from it, and the 0.9191 single-epoch solvability
         // figure is currently a model prediction awaiting exactly this number.
-        arTrace << "t,arm,seed,tier,anchorA,anchorB,trueRangeM,estRangeM,delivered\n";
+        // concurrentInTier is the DETECTOR, not decoration. Two scheduling defects
+        // in this build produced collision rates that read as delivery rates, and
+        // both were caught only because tier-2 sites happened to give an
+        // unmistakable 0.98-against-0.00 contrast. A geometry without that contrast
+        // would have passed either one off as physics. The count makes the schedule's
+        // claim checkable by a reader instead of trusted.
+        arTrace << "t,arm,seed,tier,anchorA,anchorB,trueRangeM,estRangeM,delivered,"
+                << "concurrentInTier\n";
         arOpen = true;
     }
 
@@ -2463,6 +2472,11 @@ RunArm(CaTblPolicyMode mode,
                 // four does not fix a collision artefact, it shrinks it.
                 const size_t totalPairs = pairsPerSite * nSites;
                 const size_t slot = anchorSurveySlot % totalPairs;
+                // Reset PER TIER: tier 2 and tier 3 are different radios and do not
+                // interfere with each other, so concurrency is only meaningful within
+                // a tier. Counting across tiers would report a violation that is not
+                // one -- an instrument measuring the wrong population.
+                uint32_t concurrentInTier = 0;
                 size_t pi = 0;
                 for (size_t site = 0; site < nSites; ++site)
                 {
@@ -2470,7 +2484,20 @@ RunArm(CaTblPolicyMode mode,
                     {
                         for (size_t b = a + 1; b < perSite; ++b, ++pi)
                         {
-                            if (pi != slot)
+                            // anchorPairsPerEpoch == 1 is the serialised schedule.
+                            // Values above 1 exist ONLY so the fixture can demand a
+                            // violation and watch the detector fire; nothing else
+                            // should ever set it.
+                            bool selected = false;
+                            for (uint32_t k = 0; k < anchorPairsPerEpoch; ++k)
+                            {
+                                if (pi == (slot + k) % totalPairs)
+                                {
+                                    selected = true;
+                                    break;
+                                }
+                            }
+                            if (!selected)
                             {
                                 continue;
                             }
@@ -2500,11 +2527,29 @@ RunArm(CaTblPolicyMode mode,
                                 got = r.packetReceived;
                                 est = r.estimatedRangeM;
                             }
+                            ++concurrentInTier;
+                            // ASSERT THE SCHEDULE. anchorMaxConcurrent is what the
+                            // schedule claims; exceeding it means the measured
+                            // delivery rate is partly a collision rate. Fatal rather
+                            // than a warning: a run that silently produces a
+                            // contaminated number is worse than a run that stops.
+                            if (concurrentInTier > anchorMaxConcurrent)
+                            {
+                                std::cerr << "FATAL: anchor-survey concurrency violation at t="
+                                          << t << " tier=" << CaTblTierName(tr)
+                                          << " pair=" << A.id << "-" << B.id
+                                          << " concurrent=" << concurrentInTier
+                                          << " but the schedule asserts at most "
+                                          << anchorMaxConcurrent
+                                          << ". The delivery rate this run would report is "
+                                             "partly a collision rate.\n";
+                                std::exit(2);
+                            }
                             arTrace << std::fixed << std::setprecision(1) << t << ","
                                     << CaTblPolicyModeName(mode) << "," << seed << ","
                                     << CaTblTierName(tr) << "," << A.id << "," << B.id << ","
                                     << std::setprecision(4) << trueR << "," << est << ","
-                                    << (got ? 1 : 0) << "\n";
+                                    << (got ? 1 : 0) << "," << concurrentInTier << "\n";
                         }
                     }
                 }
@@ -3406,6 +3451,8 @@ main(int argc, char* argv[])
     // B1. Default true = SURVEYED = the pre-B1 world, byte-identical.
     bool anchorSurveyed = true;
     double anchorRangePeriodS = 0.0;
+    uint32_t anchorMaxConcurrent = 1;
+    uint32_t anchorPairsPerEpoch = 1;
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
@@ -3513,6 +3560,15 @@ main(int argc, char* argv[])
                  "enables the B1 survey; needs --anchorRangePeriodS > 0 and "
                  "--traceDiagnostic to emit anything",
                  anchorSurveyed);
+    cmd.AddValue("anchorMaxConcurrent",
+                 "the concurrency the anchor-survey schedule ASSERTS, per tier per epoch "
+                 "(default 1). The run aborts if the actual count exceeds it -- a delivery "
+                 "rate measured above this bound is partly a collision rate",
+                 anchorMaxConcurrent);
+    cmd.AddValue("anchorPairsPerEpoch",
+                 "anchor pairs transmitted per tier per epoch (default 1 = serialised). "
+                 "Above 1 exists only so the concurrency fixture can demand a violation",
+                 anchorPairsPerEpoch);
     cmd.AddValue("anchorRangePeriodS",
                  "seconds between anchor-to-anchor survey passes; 0 (default) disables",
                  anchorRangePeriodS);
@@ -4083,6 +4139,8 @@ main(int argc, char* argv[])
                                        faultMultiplicity,
                                        anchorSurveyed,
                                        anchorRangePeriodS,
+                                       anchorMaxConcurrent,
+                                       anchorPairsPerEpoch,
                                        traceDiagnostic);
 
             // The headline comparison metric. Higher is better: it rewards an

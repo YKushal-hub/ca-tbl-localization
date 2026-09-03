@@ -92,3 +92,71 @@ B1 says nothing about how calibration traffic contends with tag traffic. It now 
 reason to care: the survey transmits before the tag's poll in the same cycle, so with
 `--anchorSurveyed=false` it becomes interference to the tag's own ranging. Quantifying that needs
 the audibility model and a re-baselined comparison, and remains a separate work order.
+
+---
+
+# Addendum — the detector, and what it found about the adjacent link
+
+## G16, and the re-measurement it made possible
+
+`concurrentInTier` is now emitted per exchange; the runtime aborts on a violation naming the pair
+and the count, and `scripts/catbl_concurrency_gate.py` re-checks a finished trace offline with an
+**independent recount**, because a self-reported counter cannot detect a defect in itself.
+
+Re-running the survey under a G16-verified serialised schedule returned rates **identical to the
+digit**:
+
+| link | pre-detector | G16-verified serialised | delta |
+|---|---|---|---|
+| tier 2, 259.81 m | 0.9826 | 0.9826 | **+0.0000** |
+| UWB adjacent, 11.76 m | 0.7458 | 0.7458 | **+0.0000** |
+| UWB across, 19.02 m | 0.7208 | 0.7208 | **+0.0000** |
+
+So the second correction had already serialised the survey; G16 proves it rather than assuming
+it. **The registered prediction — that eliminating concurrency would raise the adjacent rate —
+therefore had nothing left to eliminate, and the rates did not move.**
+
+## Scoring, and the distinction that matters
+
+The prediction's *mechanism* was contention. Its *locus* was survey self-concurrency. The
+mechanism is confirmed and the locus was wrong: the contention is **beacon traffic**, which the
+survey does not schedule and which G16 by construction does not count.
+
+Setting `--beaconUwb=600` (effectively quiescing tier-3 beacons) against the 2 s default, on a
+600 s run:
+
+| link | beacons 2 s | beacons 600 s | delta |
+|---|---|---|---|
+| UWB adjacent, 11.76 m | 0.7417 | **0.9250** | **+0.1833** |
+| UWB across, 19.02 m | 0.8000 | 0.7333 | −0.0667 |
+| tier 2, 259.81 m | 0.9958 | 0.9958 | **+0.0000** |
+
+**The asymmetry held, and tier 2 is an exact control** — UWB beacons cannot affect a 2.4 GHz link,
+and the rate is unchanged to four decimals, which is what says the effect is real rather than a
+global shift. Adjacent rises to 0.9250 against a model prediction of 0.9162: agreement to ~1%,
+on the figure previously reported as an untrusted lower bound. The across-ring change is −0.0667
+on n = 120 and is not distinguishable from noise.
+
+**So the flat distance dependence was contention after all**, and the earlier decision to report
+0.7458 as a lower bound rather than as the channel's answer was correct.
+
+## Solvability recomputed
+
+| delivery basis | 1 round | 2 rounds | 3 rounds |
+|---|---|---|---|
+| measured **under beacon contention** (0.7458 / 0.7208) | 0.7581 | 0.9942 | 0.9999 |
+| measured, **beacons quiesced** (0.9250 / 0.7208) | **0.9206** | 0.9995 | 1.0000 |
+| model, residual-corrected (0.9162 / 0.7296) | 0.9191 | 0.9995 | 1.0000 |
+
+**The engine's 0.9206 against the model's 0.9191 is agreement to 0.16%.**
+
+That deserves a precise statement rather than a victory lap. The model's **edge-availability
+arithmetic is validated** — enumerate ten links, each independently available, ask whether the
+subset is rigid — and it is validated on a quantity nobody tuned. What is *not* rescued is the
+model's temporal claim: it asserted this per **epoch**, with all ten links attempted at once, and
+the engine says that attempt is a collision. The number was right; the unit was not. The two
+happen to coincide numerically because a serialised round and a hypothetical simultaneous epoch
+both reduce to the same independent-availability calculation.
+
+The first row is retained and labelled: it is the honest figure for a deployment whose anchors
+beacon on the default schedule, which is the deployment as configured.
