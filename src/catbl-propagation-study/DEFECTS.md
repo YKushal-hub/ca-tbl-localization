@@ -43,7 +43,7 @@ Coding rate cannot be the culprit: `codingRateDenom = 5`
 (`lora-physics-parameters.cc:425`) selects `crIndex = 0`, and every offset in all
 three tables is `<= 0`, so no CR can reduce a positive discrepancy.
 
-**Fix.** `lora-2p4-physics-engine.cc:154`, `lora-uwb-physics-engine.cc:154`:
+**Fix.** `lora-2p4-physics-engine.cc:155`, `lora-uwb-physics-engine.cc:155`:
 
 ```cpp
 int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));
@@ -922,7 +922,7 @@ accumulates with range. The constant part is not NLOS — `nlos_frac` is 0.013 w
 gap is already 12.3 dB.
 
 **Which side is more likely wrong: the model.** 868 MHz runs in `RURAL_FORESTED` with
-`vegWide = VEG_DENSE_FOREST` (`ca_tbl_causal_sim.cc:3174`), and the engine applies
+`vegWide = VEG_DENSE_FOREST` (`ca_tbl_causal_sim.cc:3257`), and the engine applies
 `result.foliageDb` in its loss sum (`lora-physics-engine.cc:598-604`). **The model has
 no foliage term at all.** 2.4 GHz sits in `RURAL_OPEN` with `VEG_SPARSE_SHRUBS`, and
 its gap is near zero — consistent with foliage being the missing term rather than
@@ -1508,7 +1508,7 @@ term hunt was started.
 
 ## The fault injector's comment describes a model it does not implement
 
-`ca_tbl_causal_sim.cc:2496-2501` states:
+`ca_tbl_causal_sim.cc:2544-2549` states:
 
 > `injectFaultAnchors = 0` means COMMON-MODE (every tier-2 link, h = m). **`>0` means a
 > SINGLE-ANCHOR fault (h = 1), which is the canonical RAIM model** and the physically
@@ -1546,3 +1546,74 @@ byte-identity null control against the committed `c9_clean/F1_seed1`.
 
 Found by the exclusion campaign: `exclude` helped at `h = 4` and harmed at `h = 12`, which
 made the multiplicity the governing variable and sent me to read the selector.
+
+---
+
+## A checker that reads part of a citation is measuring its own parser
+
+`doc_audit.py` extracted 137 `file:line` citations from the tier-1 documents and read
+**only the first line of each**. Measured against its own regex: **62 are single-line and
+75 are ranges**, spanning 2 to 51 lines, mean 6.2. **388 cited lines were never read.**
+
+The consequence was a reported statistic about the documents that was a statistic about the
+tool. The token-overlap split was published as `no-overlap 71 / within-3 34 / in-line 32`;
+after the range fix it is `65 / 21 / 51`. Those first numbers described the extractor.
+
+**A parser's coverage of the citation grammar is a population claim.** Enumerated here
+before any count derived from it was trusted:
+
+| form | count | handled |
+|---|---|---|
+| `file.cc:N` single | 62 | yes |
+| `file.cc:N-M` range | 75 | yes, after the fix |
+| `` `:N` `` bare continuation | 137 occurrences | **no — excluded, needs file context from a preceding citation** |
+| `file.md` bare | 67 | excluded — G10's population |
+| `file.md §N` section | 13 | excluded — no line to verify |
+| `Identifier()` symbol | 4 | excluded — no line cited |
+| `` `results/x` `` | 73 | excluded — G10's population |
+
+Every exclusion is stated with a reason rather than left as a silent gap.
+
+## Withdrawing a hand-check withdraws everything built on it — third instance
+
+The token heuristic was scoped out of gating on the strength of one hand-check: that
+`Architecture.md` cites `lora-terrain-submodule.cc:69` for "terrain hardcodes 868 MHz" and
+line 69 is `double frequencyHz = 868e6;`. **Line 69 is blank. The constant is at line 70.**
+The hand-check mis-indexed `sed` output, and the heuristic had been right that line 69 alone
+does not support the claim.
+
+The scoping decision was then carried forward as "still stands, for a better reason". That
+is the move this file has already recorded twice — **an argument whose reasoning is void
+does not become sound because its conclusion looks right** (W8, W10). Third instance.
+
+**Re-derived properly**: the FP threshold was fixed *before* measuring (< 20% gate,
+20–60% triage, > 60% scoped out), 20 of the 65 flags were drawn at random with a stated
+seed, and each was hand-adjudicated. **13 of 20 supported their claim: FP = 65%.** The
+scoping decision stands, now on evidence. The 95% CI is [0.44, 0.86] and straddles the
+triage band, which is reported rather than rounded away.
+
+**Method fix, made mechanical:** every line quoted in an audit carries a tool-emitted line
+number — `awk 'NR>=a && NR<=b {printf "%d: %s\n", NR, $0}'`, never bare `sed -n 'a,bp'`.
+A transcribed line number is an unverified claim in a document whose purpose is verifying
+claims.
+
+### Citation drift found by the sample, and corrected
+
+7 of the 20 sampled citations did not support their claim — extrapolating to roughly 23
+across the 65 flagged. Corrected here against tool-emitted line numbers:
+
+| document claim | was | is |
+|---|---|---|
+| the injector's `h = 1` comment | `ca_tbl_causal_sim.cc:2496-2501` | **`:2544-2549`** |
+| `vegWide = VEG_DENSE_FOREST` | `ca_tbl_causal_sim.cc:3174` | **`:3257`** |
+| the D1 fix | `lora-2p4/uwb-physics-engine.cc:154` | **`:155`** (154 is its comment) |
+
+The first is the clearest argument for pinning adjudications to content hashes: **it was
+written in commit `a3b468e`, in the same commit that inserted ~40 lines above it**, and was
+invalidated by my own edit before it was ever committed.
+
+Four further drifted citations are recorded as found and **not yet corrected**:
+`ca_tbl_causal_sim.cc:3143-3144` (tier→environment mapping), `:1413` (the `0.0` sentinel —
+the line is the `if (received)` guard), `:2494-2496` (floor discard statistics), and
+`ca-tbl-policy.cc:877` (the trigger the arms differ at — the line is a comment). Each needs
+its correct anchor located before it is moved.
