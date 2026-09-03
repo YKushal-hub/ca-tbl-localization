@@ -1617,3 +1617,63 @@ Four further drifted citations are recorded as found and **not yet corrected**:
 the line is the `if (received)` guard), `:2494-2496` (floor discard statistics), and
 `ca-tbl-policy.cc:877` (the trigger the arms differ at — the line is a comment). Each needs
 its correct anchor located before it is moved.
+
+---
+
+## The continuation form is not mechanically resolvable in this corpus — with a counterexample
+
+The bare `` `:N` `` continuation was excluded from the citation audit as an unhandled form.
+That exclusion was challenged on the grounds that it *is* mechanically resolvable, unlike a
+`§N` section reference. The challenge was right to demand a test and the test settles it the
+other way.
+
+**Population, now measured rather than excluded:** 145 bare-`:N` citations across the
+tier-1 documents — comparable to the 137 `file:N` citations the audit already covers. So
+the audit's population was roughly **half** the citations, and the omitted half carries the
+"four terms zeroed on the line after the line computing them" finding.
+
+**Rule implemented and fixture-tested in four directions:** bind to the nearest preceding
+file reference in the same table row or line; fall back to the enclosing paragraph; never
+cross a blank line or a list-item boundary; report an orphan as a document defect. The
+fixture passes all four, including the cross-boundary negative.
+
+**Applied to the corpus it resolves 41 of 145 and declines 104.** Spot-checking the
+declines shows they are **not document defects** — the documents use a *section-scoped*
+convention: a file is named once and then referenced by bare `:N` throughout the section.
+
+**Broadening the rule to "nearest preceding file anywhere above" binds wrong.** The
+counterexample, with tool-emitted line numbers:
+
+    REPORT_1_Propagation_Module.md
+      273: | 868 MHz | `-123.0` dBm | `lora-physics-parameters.cc:391` | ...
+      274: | 2.4 GHz | `-106.0` dBm | `lora-2p4-physics-parameters.cc:14` | ...
+      275: | UWB     | `-104.0` dBm | `lora-uwb-physics-parameters.cc:14` | ...
+      ...
+      283: | Path-loss exponent `n` | 2.2 | 2.3 ... | `:24`, `:27` |
+
+`:24` and `:27` mean `lora-physics-parameters.cc`, and that file's lines 24 and 27 are
+`Fixed(2.2)` for `ENV_RURAL_OPEN` and `Normal(2.3, 0.1, 2.1, 2.6)` for
+`ENV_RURAL_FORESTED` — **the citations are correct.** But the nearest preceding file
+reference is `lora-uwb-physics-parameters.cc` at line 275. Nearest-preceding resolves them
+to the wrong file, confidently, and would then compare the claim against lines 24 and 27 of
+a file the document never meant.
+
+**Verdict: the exclusion stands, and now has evidence.** A resolution rule that guesses
+wrong is worse than one that declines, and this corpus contains a case where the obvious
+rule guesses wrong. Resolving these requires section-scope tracking that models "which file
+is under discussion", which is prose comprehension, not parsing.
+
+**What is legitimate instead:** the 41 that resolve within line or paragraph scope are
+audited. The 104 are recorded as **outside the audit's mechanical reach**, with their count
+and the reason, rather than as a silent gap or as 104 false defects.
+
+### Third instance this pass of a tool limitation nearly reported as a document finding
+
+1. The extractor read one line of every range; the 71/34/32 split described the extractor.
+2. The token heuristic flagged 65 citations; 65% of a sample were the tool's fault.
+3. This rule declined 104 continuations; spot-checking shows they are correct citations.
+
+Each time the number looked like a document defect rate and was a tool property. The
+standing rule this earns: **before reporting a count as a property of the subject, check
+whether it is a property of the instrument** — and the check is to hand-adjudicate a random
+sample, which caught all three.
