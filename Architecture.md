@@ -304,22 +304,22 @@ Four of them are hard-assigned `0.0` on a line *after* the line that computes th
 
 | term | computed at | zeroed at |
 |---|---|---|
-| `result.antennaGainDb` | `lora-physics-engine.cc:340` | **`:341`** |
-| `result.dopplerPenaltyDb` | `:536` | **`:537`** |
-| `multipathPenaltyDb` | `:489` | **`:596`** |
-| `state.soilAttenuationDb` | (submodule) | **`:593`** |
+| `result.antennaGainDb` | `lora-physics-engine.cc:340` | **`lora-physics-engine.cc:341`** |
+| `result.dopplerPenaltyDb` | `lora-physics-engine.cc:536` | **`lora-physics-engine.cc:537`** |
+| `multipathPenaltyDb` | `lora-physics-engine.cc:489` | **`lora-physics-engine.cc:596`** |
+| `state.soilAttenuationDb` | (submodule) | **`lora-physics-engine.cc:593`** |
 
-A reader tracing the pipeline, or the loss sum at `:598-600`, will count these as
+A reader tracing the pipeline, or the loss sum at `lora-physics-engine.cc:598-600`, will count these as
 contributing. They do not. **Anyone reasoning about this engine from its structure rather
 than from its assignments will over-count what it does** — and reading the submodule that
 computes a term is not enough, because the assignment that discards it is in the caller.
 
 The remaining four are gated off by scenario rather than by assignment:
 `interferencePenaltyDb` (no concurrent transmitter in the probe),
-`thermalEfficiencyLossDb` (initialised `0.0`, never reassigned, `:583`),
+`thermalEfficiencyLossDb` (initialised `0.0`, never reassigned, `lora-physics-engine.cc:583`),
 `tier3LossDb` (tunnel requires `ENV_TUNNEL_CONFINED`), and
 `state.propagationLossBiasDb` (zeroed under `RANGING_PHYSICS_DERIVED`,
-`lora-ranging-submodule.cc:214`, `:247`). All five components of `tier2LossDb` are gated
+`lora-ranging-submodule.cc:214`, `lora-ranging-submodule.cc:247`). All five components of `tier2LossDb` are gated
 too — three on `state.isIndoor`, which defaults `false` (`lora-physics-parameters.h:51`),
 body shadowing on `nodeIsBodyWorn = false` (`lora-physics-parameters.cc:1287`), leaving
 only temporal blockage at 2% x 5 dB = 0.10 dB.

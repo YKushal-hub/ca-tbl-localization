@@ -92,7 +92,7 @@ measurable, and the same excess-loss mechanism explains the collapse-test result
 moved (`cep50M 102.0031 -> 91.9184`) **when run as the only arm**, so this is not
 cross-arm contamination. All three engines are constructed, stepped for mobility
 continuity (`ca_tbl_causal_sim.cc:2285-2290`) and beaconed on every cycle of every
-arm (`:2024-2037`, `:2064`), and they share an RNG stream. Changing how many
+arm (`ca_tbl_causal_sim.cc:2137-2144`, `ca_tbl_causal_sim.cc:2175-2179`), and they share an RNG stream. Changing how many
 tier-2 beacons are received changes how many draws are consumed, which offsets the
 stream every later consumer reads.
 
@@ -154,7 +154,7 @@ inside `if (received)`, while every sibling channel diagnostic accumulates under
 `diagN`, over all trials.
 
 **Convention violated.** Stated in the file's own comment eight lines above
-(`:1376-1380`): *"Channel diagnostics are accumulated over ALL trials, not only
+(`ca_tbl_causal_sim.cc:1391-1395`): *"Channel diagnostics are accumulated over ALL trials, not only
 received ones. Conditioning them on reception would select exactly the favourable
 draws and hide the mechanism being looked for."* `snrSum` was the one channel
 diagnostic outside the block that comment guards.
@@ -181,7 +181,7 @@ conditioning is vacuous when nothing is dropped.
 2.4 GHz 6000 m row where `pdr = 0.0000`, i.e. the D3 sentinel, not a bias. The
 difference between the column and a `pathLossDb`-based reconstruction cannot
 isolate conditioning either, because `snr_db` is built from `totalLoss` and
-post-EVM (`lora-physics-engine.cc:631-632`, `:598-605`).
+post-EVM (`lora-physics-engine.cc:631-632`, `lora-physics-engine.cc:598-605`).
 
 **Still open — a design question, deliberately not fixed here.** `meanSnr` feeds
 the CRLB gate at `ca_tbl_causal_sim.cc:1450-1452`. The comment immediately below
@@ -988,7 +988,7 @@ fails two tiers. The grounds:
 
 ITU-R P.833-10, `A_veg = A_max·(1 − exp(−depth·γ/A_max))`
 (`lora-foliage-submodule.cc:36`), with `γ` and `A_max` from
-`lora-physics-parameters.cc:304-309` and `depth ~ LogNormal(ln 100, 0.6)` from `:293`.
+`lora-physics-parameters.cc:304-309` and `depth ~ LogNormal(ln 100, 0.6)` from `lora-physics-parameters.cc:293`.
 `VEG_DENSE_FOREST` on 868 and `VEG_SPARSE_SHRUBS` on 2.4/UWB
 (`ca_tbl_causal_sim.cc:3174-3175`). **The values were read from source, never from the
 size of the gap** — the pre-registration is committed at `c44a091`, before the term was
@@ -1137,7 +1137,7 @@ refutation of the mechanism. It is not one. Full verdict in
 
 ### W7 — WITHDRAWN: "the breakpoint is `4·h_t·h_r/λ`"
 
-The engine uses **`4π·h_t·h_r/λ`** (`:26`). Every breakpoint computed in this file was low
+The engine uses **`4π·h_t·h_r/λ`** (`lora-two-ray-ground-submodule.cc:26`). Every breakpoint computed in this file was low
 by a factor of π.
 
 ### W8 — WITHDRAWN: "the residual crosses zero at ~1200 m against a breakpoint of 977 m"
@@ -1256,8 +1256,8 @@ concluded qualitatively and this measures.
 
 The first attempt measured a model width of 3.98 dB for UWB — a 7× discrepancy that
 looked like a decisive finding. It was an artefact of the probe: it called
-`lb.rx_power_dbm` directly, which applies no shadow fading, while the model's PDR comes
-from `lb.pdr_at`, which adds `sd * u_shadow` (`linkbudget.py:252`, `:259-261`). The probe
+`lb.rx_power_dbm` (`linkbudget.py:363`) directly, which applies no shadow fading, while the model's PDR comes
+from `lb.pdr_at`, which adds `sd * u_shadow` (`linkbudget.py:440`; the shadow term is formed at `linkbudget.py:457` and consumed at `linkbudget.py:459-462`). The probe
 measured a quantity the model does not use. Re-measured against `pdr_at` the width is
 17.43 dB and the finding shrinks from 7× to 1.61×.
 
@@ -1337,8 +1337,8 @@ engine's actual loss sum, and the singular framing is wrong:
 The model has four of these: path loss, NLOS, foliage, shadowing. Terms it has **no
 counterpart for at all**: `fadingDb`, `terrainDb`, `dopplerPenaltyDb`,
 `interferencePenaltyDb`, `thermalEfficiencyLossDb`, `atmosphericDb`,
-`propagationLossBiasDb`, `hwTxVariationDb`. `multipathPenaltyDb` is set to 0 at `:596`
-and `soilAttenuationDb` at `:593`, so those two are genuinely absent from the engine here.
+`propagationLossBiasDb`, `hwTxVariationDb`. `multipathPenaltyDb` is set to 0 at `lora-physics-engine.cc:596`
+and `soilAttenuationDb` at `lora-physics-engine.cc:593`, so those two are genuinely absent from the engine here.
 
 Three passes have asked "which term is missing" as though the answer were one term. The
 residual may be a sum, and a pass that adds one term and measures a partial close should
@@ -1346,7 +1346,7 @@ not read that as a partial refutation.
 
 ### One candidate eliminated for free
 
-`terrainDb = std::clamp(terrainPenaltyDb, 0.0, 30.0)` (`:400`) is **non-negative**, so
+`terrainDb = std::clamp(terrainPenaltyDb, 0.0, 30.0)` (`lora-physics-engine.cc:400`) is **non-negative**, so
 its mean is strictly positive; it is Fresnel/diffraction-derived (`lora-terrain-submodule.cc:141-191`)
 so it grows with distance; and it saturates at 30 dB. That shape matches the measured `X`
 on both `RURAL_OPEN` tiers, including 2.4 GHz flattening near 17.8 dB. It is the leading
@@ -1493,7 +1493,7 @@ Recorded with its magnitude so it is not rediscovered.
 |---|---|
 | the fading NLOS branch | `nlos_frac` is 0.0130 at 100 m, so the registered omission is worth **0.011 dB** — three orders short |
 | foliage `gamma`, `A_max` | identical to the engine: 0.20 and 25.0 (`lora-physics-parameters.cc:309`) |
-| foliage depth distribution | identical: `LogNormal(log(100), 0.6, 0, 500)` (`:293`) |
+| foliage depth distribution | identical: `LogNormal(log(100), 0.6, 0, 500)` (`lora-physics-parameters.cc:293`) |
 | terrain | provably inactive below 152 m by the geometric bound |
 | link hysteresis | already corrected for in the re-census |
 | two-ray | gated off in `RURAL_FORESTED`; `two_ray_frac` is 0.0000 at every 868 distance |
@@ -1604,8 +1604,8 @@ across the 65 flagged. Corrected here against tool-emitted line numbers:
 
 | document claim | was | is |
 |---|---|---|
-| the injector's `h = 1` comment | `ca_tbl_causal_sim.cc:2496-2501` | **`:2544-2549`** |
-| `vegWide = VEG_DENSE_FOREST` | `ca_tbl_causal_sim.cc:3174` | **`:3257`** |
+| the injector's `h = 1` comment | `ca_tbl_causal_sim.cc:2496-2501` | **`ca_tbl_causal_sim.cc:2544-2549`** |
+| `vegWide = VEG_DENSE_FOREST` | `ca_tbl_causal_sim.cc:3174` | **`ca_tbl_causal_sim.cc:3257`** |
 | the D1 fix | `lora-2p4/uwb-physics-engine.cc:154` | **`:155`** (154 is its comment) |
 
 The first is the clearest argument for pinning adjudications to content hashes: **it was
@@ -1712,7 +1712,7 @@ the thing it measures reports the measurement back to you.
 
 ### Other index-reading status checks, grepped rather than recalled
 
-`git ls-files` appears at `catbl_gates.sh:237` (G8), `:297` (G9), `publication_ready.sh:50`,
+`git ls-files` appears at `catbl_gates.sh:237` (G8), `catbl_gates.sh:297` (G9), `publication_ready.sh:50`,
 and in `citation_audit.py`'s TRACKED category. **All four are correct as written**, because
 each runs in a gate suite that stages nothing — the suite asserts a clean tree at G7 and
 does its regeneration in `mktemp -d`. The defect was the *manual* check run mid-session
@@ -1786,19 +1786,99 @@ division is the same one `doc_audit.py` draws and for the same reason.
    line — because it is *quoting the historical defective citation* as the evidence for a
    finding. Repointing it would destroy the record it exists to keep. Verification must not
    mutate its subject.
-2. **Pre-registration documents.** `experiments/*.md` were written before the runs they
-   register. Editing a citation in one after the fact is a retrospective change to a document
-   whose whole value is that it was fixed in advance. Their stale citations are recorded here
-   instead.
+2. **Pre-registration documents.** A document that fixes predictions, intervals and
+   falsifiers *before* a run is worth what it is worth because it was written in advance.
+   Editing a citation in one afterwards is a retrospective change to the thing whose value is
+   that it was not changed. `FOLIAGE_PREREGISTRATION.md`, `TWORAY_PREREGISTRATION.md`,
+   `G11A_REGISTRATION.md`, `TERRAIN_SENSITIVITY_REGISTRATION.md`,
+   `JENSEN_FOLIAGE_REGISTRATION.md` and `OFAT_CAMPAIGN_REGISTRATION.md` are that. Their stale
+   citations are recorded here instead.
 
-So corrections were applied to the **living deliverables only** — `Architecture.md`,
-`Simulation.md`, `REPORT_1_Propagation_Module.md`, `REPORT_2_Project_Retrospective.md` — and
-to site pointers in this log that are claims about current code rather than quotations. The
-nine hits that survive the check are exactly those two protected classes, which is the result
-the split predicts.
+   **`LOSS_TERM_CENSUS.md` is not one of them, and calling it one was a classification error
+   in the first draft of this section.** It lives in `experiments/` and opens "written before
+   implementing anything further", but it registers no prediction and nominates no falsifier —
+   it is a census of what the code contains, which is a claim about source that can be right or
+   wrong today. It was therefore expanded and corrected with the living deliverables. The rule
+   is what the document *does*, not which directory it sits in.
+
+So corrections were applied to the **living deliverables** — `Architecture.md`,
+`Simulation.md`, `REPORT_1_Propagation_Module.md`, `REPORT_2_Project_Retrospective.md`,
+`LOSS_TERM_CENSUS.md` — and to site pointers in this log that are claims about current code
+rather than quotations. Every hit that survives the check is in one of the two protected
+classes; the count rises as this section is written, because the section quotes the stale
+ranges as its own subject matter.
 
 **A defect introduced while fixing defects.** The correction table above was first written with
 its "correct anchor" column in the bare continuation form — thirteen new `` `:N` `` citations
 added to a corpus whose open task is eliminating one hundred and eleven of them. Caught by
 re-running the census after the edit rather than before it, and by the census reporting a
 population, not a pass. **A count taken only before the change cannot see what the change added.**
+
+---
+
+## The 111 continuations, expanded: 8 drifts, and a carry-over heuristic that is wrong 42% of the time
+
+**What was done.** Every bare `` `:N` `` continuation in the tier-1 corpus was expanded into a
+fully-qualified `path:line` citation, each one **verified against the source line before it was
+written**, not after. 101 of 111 were expanded. The 10 that remain are in the two protected
+classes above: five quote a historical defective citation as their own evidence, five are in
+pre-registration documents.
+
+**The registered prediction, scored.** Registered before the work: *30–40 drifts across the
+145*. Measured:
+
+| pass | expanded | drifted | rate |
+|---|---|---|---|
+| environment + census tables (earlier) | 39 | **12** | 31% |
+| everything else (this pass) | 101 | **8** | 8% |
+| **total** | **140** | **20** | **14%** |
+
+**The prediction is not met — 20 against a registered floor of 30 — and the reason is the
+concentration.** Twelve of the twenty drifts are in a single fifteen-row table, where one
+systematic cause was operating: the citation pointed at a `case` label and the value was on the
+next line. Extrapolating that table's 31% rate across the corpus was the error. Outside it the
+rate is 8 in 125, or 6.4%. **A rate measured where a systematic cause is active does not
+generalise to a population where it is not** — and the registered interval was set by doing
+exactly that.
+
+The interval is left as registered. It was wrong in the direction that costs nothing: it
+predicted more defects than existed.
+
+**The eight drifts of this pass**, every one found because the claim's own content was grepped
+rather than the neighbourhood of the stale line read:
+
+| document | stale | correct | what was actually at the stale line |
+|---|---|---|---|
+| `REPORT_1` | `:154` | `lora-2p4-physics-engine.cc:155`, `lora-uwb-physics-engine.cc:155` | the assignment's comment |
+| `REPORT_1`, `DEFECTS.md` | `:1376-1380` | `ca_tbl_causal_sim.cc:1391-1395` | a UWB `ProcessTransmission` call |
+| `REPORT_1` | `:1450-1452` | `ca_tbl_causal_sim.cc:1476-1480` | the shadow-sd computation, not the CRLB gate |
+| `DEFECTS.md` | `:2024-2037`, `:2064` | `ca_tbl_causal_sim.cc:2137-2144`, `ca_tbl_causal_sim.cc:2175-2179` | a comment block; and off by one |
+| `DEFECTS.md` | `:259-261` | `linkbudget.py:457`, `linkbudget.py:459-462` | the k-quadrature loop |
+| `LOSS_TERM_CENSUS.md` | `:18-19` | `lora-atmospheric-submodule.cc:60` | a closing brace and a blank line |
+
+**The measurement that settles the form.** The open question was whether the continuation form
+could be resolved mechanically instead of by hand. It can be tested directly: for each expanded
+citation whose *line number* was correct, compare the file the nearest-preceding-qualified-
+citation heuristic would have chosen against the file verification actually established.
+
+| form | n | right file | **wrong file** |
+|---|---|---|---|
+| truly bare — `` `:N` `` with nothing but prose before it | 69 | 40 | **29 (42%)** |
+| alias-bearing — `engine `:585-586``, `params `:471`` | 24 | 2 | **22 (92%)** |
+
+**A tool built on the carry-over heuristic would have misattributed two in five.** That is not
+a tool with a bug; that is the form carrying less information than resolution requires. The
+alias-bearing row is the same point from the other side: those citations *are* resolvable, but
+by the English word next to them — `engine`, `params`, `fading-submodule` — which the heuristic
+does not read and which no two documents in this corpus spell the same way.
+
+The 42% is why the expansion was done by hand against tool-emitted source lines, one citation
+at a time, and why the ten that remain are documented rather than guessed.
+
+**This section is itself the exception G15 will need.** Nine bare `` `:N` `` citations remain in
+it and cannot be expanded: seven quote a stale citation as the evidence for a correction, and
+two are specimens of the alias form being discussed. A rule reading "no bare `:N` in a tier-1
+document" would fail on the document that explains why bare `:N` is a defect. The exemption
+must be **enumerated at the file and the reason**, never a pattern over `DEFECTS.md`, or the
+next bare citation written here inherits it silently — the same failure mode that made G9's
+hardcoded allow-list useless.

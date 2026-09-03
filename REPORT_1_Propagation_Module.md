@@ -402,7 +402,7 @@ flowchart TD
 
 | Item | Detail |
 |---|---|
-| **Hypothesis** | The engine's Markov-state NLOS additions of +6/+18 dB (`:352-355`) explain the residual |
+| **Hypothesis** | The engine's Markov-state NLOS additions of +6/+18 dB (`lora-physics-engine.cc:352-355`) explain the residual |
 | **Supporting argument** | NLOS *probability* was modelled accurately (0.105 measured against 0.1105 engine) while magnitude was ~20 dB short — a term right about *how often* and wrong about *how much* is a magnitude term |
 | **Discriminating test** | If the term is NLOS-conditioned with magnitude `M`, then `residual / nlos_frac` must be constant and equal to `M` |
 | **Measured** | 868 MHz: `−315.5 → +2.8`; 2.4 GHz: `−2619.9 → +180.2`. **Not constant, and changes sign** |
@@ -444,7 +444,7 @@ On the two tiers where the engine says the mechanism fires, two-ray reproduces i
 **Two facts the source trace established that the registration had wrong:**
 
 - The breakpoint is `4π·h_t·h_r/λ`, **not** `4·h_t·h_r/λ` (`lora-two-ray-ground-submodule.cc:26`). Every breakpoint in the registration was low by a factor of π.
-- `two_ray_frac` is a **gating** diagnostic, not a distance one. It reports `ENV_RURAL_OPEN && !isNLOS` (`:11`, `:17`) — confirmed exactly, since `two_ray_frac + nlos_frac = 1.0000` at every 2.4 GHz distance. The registration's third supporting observation read a breakpoint claim out of a gating column and compounded it with the π error. **That argument is void even though its conclusion turned out right** — which is the uncomfortable part worth recording.
+- `two_ray_frac` is a **gating** diagnostic, not a distance one. It reports `ENV_RURAL_OPEN && !isNLOS` (`lora-two-ray-ground-submodule.cc:11`, `lora-two-ray-ground-submodule.cc:17`) — confirmed exactly, since `two_ray_frac + nlos_frac = 1.0000` at every 2.4 GHz distance. The registration's third supporting observation read a breakpoint claim out of a gating column and compounded it with the π error. **That argument is void even though its conclusion turned out right** — which is the uncomfortable part worth recording.
 
 **Prediction 1's premise was wrong, and that is why it missed.** It assumed two-ray is *inactive* below the breakpoint. It is not inactive — it is free-space, `n = 2.0` (`lora-two-ray-ground-submodule.cc:31`), which **replaces** the environment's `n = 2.2`. UWB never reaches its breakpoint and is still changed by up to 4.49 dB, because the *branch* changed, not the breakpoint. The signature test was therefore not diagnostic of what it was written to test.
 
@@ -462,7 +462,7 @@ On the two tiers where the engine says the mechanism fires, two-ray reproduces i
 
 | Item | Detail |
 |---|---|
-| **The defect** | The model evaluated ITU-R P.833 at the **mean** of `γ` and `A_max`, while the engine **samples both** (`:318-319`). `A_veg` saturates, so by Jensen's inequality the model over-attenuates |
+| **The defect** | The model evaluated ITU-R P.833 at the **mean** of `γ` and `A_max`, while the engine **samples both** (`lora-physics-parameters.cc:318-319`). `A_veg` saturates, so by Jensen's inequality the model over-attenuates |
 | **Registered prediction** | +0.466 / +0.090 / +0.090 dB |
 | **Measured** | Identical to within 0.001 dB, against a 0.05 dB falsifier — **HIT on all three** |
 | **The registered trade held in both directions** | 868's worst margin deviation improved 5.42 → 4.95 dB while its `r80` **worsened** 16.6% → 19.6% |
@@ -526,18 +526,18 @@ Three passes asked *which term is missing*, in the singular. `lora-physics-engin
 | 2 | `result.fadingDb` | `lora-fading-submodule.cc:74` | **yes** (added) | **ACTIVE** | `FADING_RICIAN` at `ca_tbl_causal_sim.cc:1042` | **+0.53** open, **+1.22** forested | flat |
 | 3 | `result.nlosDb` | `lora-physics-engine.cc:357` | **yes** | **ACTIVE** | `nlos_frac` 0.000→0.535 | 0 → ~29 | growing |
 | 4 | `result.foliageDb` | `lora-physics-engine.cc:527` | **yes** (added) | **ACTIVE** | model X ≈ 3.9 flat matches | ~3.6–4.0 | flat |
-| 5 | `result.terrainDb` | `lora-physics-engine.cc:400`, `lora-terrain-submodule.cc:191` | **no** | **ACTIVE** | `terrain.enabled = true` `:471` | **~5.5 UWB, ~13 at 2.4 GHz** | **growing** |
-| 6 | `result.dopplerPenaltyDb` | `lora-physics-engine.cc:536` then **`:537`** | no | **INACTIVE** | `:537` assigns `0.0`, overwriting `:536` | 0 | — |
+| 5 | `result.terrainDb` | `lora-physics-engine.cc:400`, `lora-terrain-submodule.cc:191` | **no** | **ACTIVE** | `terrain.enabled = true` `lora-physics-parameters.cc:471` | **~5.5 UWB, ~13 at 2.4 GHz** | **growing** |
+| 6 | `result.dopplerPenaltyDb` | `lora-physics-engine.cc:536` then **`lora-physics-engine.cc:537`** | no | **INACTIVE** | `lora-physics-engine.cc:537` assigns `0.0`, overwriting `lora-physics-engine.cc:536` | 0 | — |
 | 7 | `result.interferencePenaltyDb` | `lora-physics-engine.cc:569` | no | **INACTIVE** | probe transmits one node at a time | 0 | — |
-| 8 | `multipathPenaltyDb` | `lora-physics-engine.cc:489` then **`:596`** | no | **INACTIVE** | `:596` assigns `0.0` unconditionally | 0 | — |
+| 8 | `multipathPenaltyDb` | `lora-physics-engine.cc:489` then **`lora-physics-engine.cc:596`** | no | **INACTIVE** | `lora-physics-engine.cc:596` assigns `0.0` unconditionally | 0 | — |
 | 9 | `thermalEfficiencyLossDb` | `lora-physics-engine.cc:583` | no | **INACTIVE** | initialised `0.0`, never reassigned | 0 | — |
 | 10 | `tier2LossDb` | `lora-physics-engine.cc:589-590` | no | **INACTIVE** | all five components gated | 0.10 | flat |
-| 11 | `tier3LossDb` | `lora-physics-engine.cc:593-594` | no | **INACTIVE** | `soil` = 0 at `:593`; tunnel needs `ENV_TUNNEL_CONFINED` | 0 | — |
+| 11 | `tier3LossDb` | `lora-physics-engine.cc:593-594` | no | **INACTIVE** | `soil` = 0 at `lora-physics-engine.cc:593`; tunnel needs `ENV_TUNNEL_CONFINED` | 0 | — |
 | 12 | `result.atmosphericDb` | `lora-atmospheric-submodule.cc:18-19` | no | **ACTIVE** | `WEATHER_CLEAR_DRY`: rain 0, fog 0 | 0.0096 @180 m → **0.32** @6 km | growing, negligible |
-| 13 | `state.propagationLossBiasDb` | `lora-node-position-uncertainty-submodule.cc:54` | no | **INACTIVE** | `lora-ranging-submodule.cc:214`, `:247` assign `0.0` | 0 | — |
+| 13 | `state.propagationLossBiasDb` | `lora-node-position-uncertainty-submodule.cc:54` | no | **INACTIVE** | `lora-ranging-submodule.cc:214`, `lora-ranging-submodule.cc:247` assign `0.0` | 0 | — |
 | 14 | `result.hwTxVariationDb` | `lora-physics-engine.cc:345` | no | **ACTIVE** | hardware TX variation | small, zero-mean | flat |
-| 15 | `result.antennaGainDb` | **`lora-physics-engine.cc:341`** | n/a | **INACTIVE** | assigned `0.0`, overwriting `:340` | 0 | — |
-| 16 | two-ray branch | `lora-two-ray-ground-submodule.cc:26`, `:31` | **yes** (added) | **ACTIVE** on 2 of 3 tiers | `two_ray_frac` 0.89–1.00 | replaces `n=2.2` with `n=2.0` below breakpoint | branch change |
+| 15 | `result.antennaGainDb` | **`lora-physics-engine.cc:341`** | n/a | **INACTIVE** | assigned `0.0`, overwriting `lora-physics-engine.cc:340` | 0 | — |
+| 16 | two-ray branch | `lora-two-ray-ground-submodule.cc:26`, `lora-two-ray-ground-submodule.cc:31` | **yes** (added) | **ACTIVE** on 2 of 3 tiers | `two_ray_frac` 0.89–1.00 | replaces `n=2.2` with `n=2.0` below breakpoint | branch change |
 | **17** | **`linkHysteresisMarginDb`** | **`lora-uwb-physics-engine.cc:664-666`, `lora-physics-parameters.cc:401`** | **no** | **ACTIVE** | not in the loss sum at all | **up to 1.5 dB** | **mimics growth** |
 
 ### 8.4 `tier2LossDb` broken out — five terms, all inactive, each for a stated reason
@@ -1099,7 +1099,7 @@ It is recorded as a **gap, not resolved retroactively**: the registered rule sta
 | **Site** | `lora-2p4-physics-engine.cc:147-151`, `lora-uwb-physics-engine.cc:147-151` |
 | **The code** | `int sfIndex = std::min(5, std::max(0, static_cast<int>(sf) - 7));` |
 | **Why it is wrong** | `sf - 7` is correct for the **868 MHz** table, which declares `double sensitivityDbm[6]; // index 0=SF7, 5=SF12` (`lora-physics-parameters.h:467`). Both other tiers declare an **eight**-entry table based at **SF5** (`lora-2p4-physics-parameters.h:15`, `lora-uwb-physics-parameters.h:15`). The accessor was copied without re-basing, so **SF7 resolved to index 0** and indices 6 and 7 were unreachable |
-| **The fix** | `int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));` at `:154` in both files. Applied outright, not behind a flag — a wrong table index is not behaviour worth preserving. 868 MHz untouched |
+| **The fix** | `int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));` at `lora-2p4-physics-engine.cc:155` and `lora-uwb-physics-engine.cc:155`. Applied outright, not behind a flag — a wrong table index is not behaviour worth preserving. 868 MHz untouched |
 
 **Fix direction decided on two independent grounds, not on which produced better results:**
 
@@ -1141,11 +1141,11 @@ The two index-insensitive tiers confirm the edit reached exactly as far as inten
 | Field | Detail |
 |---|---|
 | **Site** | `scratch/ca_tbl_causal_sim.cc:1393-1400` — the SNR accumulator sat inside `if (received)` |
-| **Convention violated** | Stated in the file's own comment eight lines above (`:1376-1380`): *"Channel diagnostics are accumulated over ALL trials... Conditioning them on reception would select exactly the favourable draws and hide the mechanism being looked for."* `snrSum` was the one channel diagnostic outside the block that comment guards |
+| **Convention violated** | Stated in the file's own comment eight lines above (`ca_tbl_causal_sim.cc:1391-1395`): *"Channel diagnostics are accumulated over ALL trials... Conditioning them on reception would select exactly the favourable draws and hide the mechanism being looked for."* `snrSum` was the one channel diagnostic outside the block that comment guards |
 | **Fix** | An unconditional accumulator added **alongside** the conditioned one, emitted as `mean_snr_all_db` behind `--traceDiagnostic` (default false, so default output is byte-identical to every prior run) |
 | **Measured magnitude** | 868 MHz **+22.70 dB** at 6000 m (pdr 0.261); 2.4 GHz +13.96 dB at 2500 m; UWB +7.42 dB at 130 m. Positive everywhere and monotone in falling PDR — the survivorship signature. Exactly +0.00 wherever `pdr = 1.0`, the internal check |
 | **A previous claim withdrawn** | "+9.61 dB measured bias" came from a row where `pdr = 0.0000` — the D3 sentinel, not a bias |
-| **Still open, deliberately** | `meanSnr` feeds the CRLB gate at `:1450-1452`. Whether it should get a PDR floor or switch to the unconditional column changes what that gate decides and is a design question, not a bug fix |
+| **Still open, deliberately** | `meanSnr` feeds the CRLB gate at `ca_tbl_causal_sim.cc:1476-1480`. Whether it should get a PDR floor or switch to the unconditional column changes what that gate decides and is a design question, not a bug fix |
 
 **D3 — the `0.0` sentinel collided with the data domain.**
 
@@ -1159,7 +1159,7 @@ The two index-insensitive tiers confirm the edit reached exactly as far as inten
 
 Found in the parent policy layer, reported here because the propagation work surfaced it.
 
-`ca-tbl-policy.cc:666-671`, threshold `:57`:
+`ca-tbl-policy.cc:666-671`, threshold `ca-tbl-policy.cc:57`:
 
 ```cpp
 term1 = traceRef / (traceRef + traceSigma);   // filter uncertainty, -> 0 as P grows
@@ -1193,10 +1193,10 @@ Four of them are hard-assigned `0.0` **on a line after the line that computes th
 
 | Term | Computed at | Zeroed at |
 |---|---|---|
-| `result.antennaGainDb` | `:340` | **`:341`** |
-| `result.dopplerPenaltyDb` | `:536` | **`:537`** |
-| `multipathPenaltyDb` | `:489` | **`:596`** |
-| `tier3LossDb` soil component | — | **`:593`** |
+| `result.antennaGainDb` | `lora-physics-engine.cc:340` | **`lora-physics-engine.cc:341`** |
+| `result.dopplerPenaltyDb` | `lora-physics-engine.cc:536` | **`lora-physics-engine.cc:537`** |
+| `multipathPenaltyDb` | `lora-physics-engine.cc:489` | **`lora-physics-engine.cc:596`** |
+| `tier3LossDb` soil component | — | **`lora-physics-engine.cc:593`** |
 
 **The general finding:** the engine contains machinery that reads as active and is not. **Anyone reasoning about its behaviour from its structure rather than its assignments will over-count what it does.** Three passes of this module did exactly that in miniature, every time a term was proposed from the loss sum's shape.
 
@@ -1208,9 +1208,9 @@ Four of them are hard-assigned `0.0` **on a line after the line that computes th
 
 `effectiveSensitivity -= m_config.receiver.linkHysteresisMarginDb` when the link was previously receiving (`lora-uwb-physics-engine.cc:664-666`, value **1.5 dB** at `lora-physics-parameters.cc:401`).
 
-`mean_margin_db` is the mean of `result.sensitivityMarginDb` (`ca_tbl_causal_sim.cc:1356`, `:1371`, `:1386`), so **the engine's margin denominator moves with PDR** — and therefore with distance.
+`mean_margin_db` is the mean of `result.sensitivityMarginDb` (`ca_tbl_causal_sim.cc:1356`, `ca_tbl_causal_sim.cc:1371`, `ca_tbl_causal_sim.cc:1386`), so **the engine's margin denominator moves with PDR** — and therefore with distance.
 
-The census enumerated `additional_loss` at `:598-600` and missed it because **it is not in that sum.** It is worth up to 1.5 dB, is largest where PDR is highest, and so **mimics a distance-growing loss while being nothing of the kind.**
+The census enumerated `additional_loss` at `lora-physics-engine.cc:598-600` and missed it because **it is not in that sum.** It is worth up to 1.5 dB, is largest where PDR is highest, and so **mimics a distance-growing loss while being nothing of the kind.**
 
 **The two general lessons:**
 

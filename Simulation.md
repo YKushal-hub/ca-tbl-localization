@@ -596,7 +596,7 @@ and energy accounting, and unverified for receiver sensitivity**.
 ### 11.3 PCS unweighted-sum term saturation (D5)
 
 PCS (`ca-tbl-policy.cc:666-671`) is the **unweighted** sum of three terms, each bounded
-by `[0,1]`, against `pcsThresholdUp[868] = 1.55` (`:57`):
+by `[0,1]`, against `pcsThresholdUp[868] = 1.55` (`ca-tbl-policy.cc:57`):
 
     term1 = traceRef / (traceRef + traceSigma)    filter uncertainty, -> 0 as P grows
     term2 = 1 / max(gdop, 1)                      geometry
@@ -904,8 +904,8 @@ spent.
 
 **What the module did establish, by failing.** Eight of the sixteen terms in the engine's
 loss sum are structurally zero in this scenario, four of them hard-assigned `0.0` on a line
-*after* the line that computes them — `lora-physics-engine.cc:341` over `:340`, `:537` over
-`:536`, `:596` over `:489`, and `:593`. The engine contains machinery that reads as active
+*after* the line that computes them — `lora-physics-engine.cc:341` over `lora-physics-engine.cc:340`, `lora-physics-engine.cc:537` over
+`lora-physics-engine.cc:536`, `lora-physics-engine.cc:596` over `lora-physics-engine.cc:489`, and `lora-physics-engine.cc:593`. The engine contains machinery that reads as active
 and is not, so **reasoning about its behaviour from its structure rather than its
 assignments over-counts what it does.** `Architecture.md` §5.1 carries the full list with
 line pairs and its scoping: every inactivity verdict is `probe_v7`-scoped, and `isIndoor`,

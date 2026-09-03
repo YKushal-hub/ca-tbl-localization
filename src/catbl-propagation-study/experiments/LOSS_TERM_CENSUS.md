@@ -1,7 +1,7 @@
 # The engine's loss sum: a census of all thirteen terms
 
 Written before implementing anything further. Three passes asked *which term is missing*,
-in the singular. `lora-physics-engine.cc:597-601` shows the engine sums thirteen terms plus
+in the singular. `lora-physics-engine.cc:598-600` shows the engine sums thirteen terms plus
 three outside `additional_loss`. If the residual is a sum, the singular question has no
 correct answer, and each pass will keep producing a term that closes part of the gap and
 reads as a partial failure.
@@ -16,30 +16,30 @@ read from a `probe_v7` column.
 
 | # | term | `file:line` | in model? | active here? | evidence | magnitude (dB) | distance |
 |---|---|---|---|---|---|---|---|
-| 1 | `positiveShadowing` + `negativeShadowingGain` | engine `:585-586` | **yes** | **ACTIVE** | `shadow_sd_eff_db` 5.00–8.88 | net mean **+0.04** (asymmetric clamp) | flat |
-| 2 | `result.fadingDb` | fading-submodule `:74` | **no** | **ACTIVE** | `FADING_RICIAN` set at sim `:1042` | **+0.53** open, **+1.22** forested | flat |
-| 3 | `result.nlosDb` | engine `:357` | **yes** | **ACTIVE** | `nlos_frac` 0.000→0.535 | 0 → ~29 | growing |
-| 4 | `result.foliageDb` | engine `:527` | **yes** | **ACTIVE** | model X ≈ 3.9 flat matches | ~3.6–4.0 | flat |
-| 5 | `result.terrainDb` | engine `:400`, terrain-submodule `:191` | **no** | **ACTIVE** | `terrain.enabled = true` params `:471` | **~5.5 UWB, ~13 at 2.4 GHz** | **growing** |
-| 6 | `result.dopplerPenaltyDb` | engine `:536` then **`:537`** | no | **INACTIVE** | `:537` assigns `0.0`, overwriting `:536` | 0 | — |
-| 7 | `result.interferencePenaltyDb` | engine `:569` | no | **INACTIVE** | probe transmits one node at a time | 0 | — |
-| 8 | `multipathPenaltyDb` | engine `:489` then **`:596`** | no | **INACTIVE** | `:596` assigns `0.0` unconditionally | 0 | — |
-| 9 | `thermalEfficiencyLossDb` | engine `:583` | no | **INACTIVE** | initialised `0.0`, never reassigned | 0 | — |
-| 10 | `tier2LossDb` | engine `:589-590` | no | **INACTIVE** | all five components gated, below | 0.10 | flat |
-| 11 | `tier3LossDb` | engine `:593-594` | no | **INACTIVE** | `soil` = 0 at `:593`; tunnel needs `ENV_TUNNEL_CONFINED` | 0 | — |
-| 12 | `result.atmosphericDb` | atmospheric-submodule `:18-19` | no | **ACTIVE** | `WEATHER_CLEAR_DRY`: rain 0, fog 0 | 0.0096 @180 m → **0.32** @6 km | growing, negligible |
-| 13 | `state.propagationLossBiasDb` | node-position-uncertainty `:54` | no | **INACTIVE** | ranging `:214`, `:247` assign `0.0` under `RANGING_PHYSICS_DERIVED` (sim `:1047`) | 0 | — |
-| + | `result.hwTxVariationDb` | engine `:345` | no | **ACTIVE** | hardware TX variation | small, zero-mean | flat |
-| + | `result.antennaGainDb` | engine **`:341`** | n/a | **INACTIVE** | assigned `0.0`, overwriting `:340` | 0 | — |
+| 1 | `positiveShadowing` + `negativeShadowingGain` | `lora-physics-engine.cc:585-586` | **yes** | **ACTIVE** | `shadow_sd_eff_db` 5.00–8.88 | net mean **+0.04** (asymmetric clamp) | flat |
+| 2 | `result.fadingDb` | `lora-fading-submodule.cc:74` | **no** | **ACTIVE** | `FADING_RICIAN` set at `ca_tbl_causal_sim.cc:1042` | **+0.53** open, **+1.22** forested | flat |
+| 3 | `result.nlosDb` | `lora-physics-engine.cc:357` | **yes** | **ACTIVE** | `nlos_frac` 0.000→0.535 | 0 → ~29 | growing |
+| 4 | `result.foliageDb` | `lora-physics-engine.cc:527` | **yes** | **ACTIVE** | model X ≈ 3.9 flat matches | ~3.6–4.0 | flat |
+| 5 | `result.terrainDb` | `lora-physics-engine.cc:400`, `lora-terrain-submodule.cc:191` | **no** | **ACTIVE** | `terrain.enabled = true` `lora-physics-parameters.cc:471` | **~5.5 UWB, ~13 at 2.4 GHz** | **growing** |
+| 6 | `result.dopplerPenaltyDb` | `lora-physics-engine.cc:536` then **`lora-physics-engine.cc:537`** | no | **INACTIVE** | `lora-physics-engine.cc:537` assigns `0.0`, overwriting `lora-physics-engine.cc:536` | 0 | — |
+| 7 | `result.interferencePenaltyDb` | `lora-physics-engine.cc:569` | no | **INACTIVE** | probe transmits one node at a time | 0 | — |
+| 8 | `multipathPenaltyDb` | `lora-physics-engine.cc:489` then **`lora-physics-engine.cc:596`** | no | **INACTIVE** | `lora-physics-engine.cc:596` assigns `0.0` unconditionally | 0 | — |
+| 9 | `thermalEfficiencyLossDb` | `lora-physics-engine.cc:583` | no | **INACTIVE** | initialised `0.0`, never reassigned | 0 | — |
+| 10 | `tier2LossDb` | `lora-physics-engine.cc:589-590` | no | **INACTIVE** | all five components gated, below | 0.10 | flat |
+| 11 | `tier3LossDb` | `lora-physics-engine.cc:593-594` | no | **INACTIVE** | `soil` = 0 at `lora-physics-engine.cc:593`; tunnel needs `ENV_TUNNEL_CONFINED` | 0 | — |
+| 12 | `result.atmosphericDb` | `lora-atmospheric-submodule.cc:60`, applied at `lora-physics-engine.cc:498` | no | **ACTIVE** | `WEATHER_CLEAR_DRY`: rain 0, fog 0 | 0.0096 @180 m → **0.32** @6 km | growing, negligible |
+| 13 | `state.propagationLossBiasDb` | `lora-node-position-uncertainty-submodule.cc:54` | no | **INACTIVE** | `lora-ranging-submodule.cc:214`, `lora-ranging-submodule.cc:247` assign `0.0` under `RANGING_PHYSICS_DERIVED` (`ca_tbl_causal_sim.cc:1047`) | 0 | — |
+| + | `result.hwTxVariationDb` | `lora-physics-engine.cc:345` | no | **ACTIVE** | hardware TX variation | small, zero-mean | flat |
+| + | `result.antennaGainDb` | **`lora-physics-engine.cc:341`** | n/a | **INACTIVE** | assigned `0.0`, overwriting `lora-physics-engine.cc:340` | 0 | — |
 
 ### `tier2LossDb` broken out — five terms, all inactive, each for a stated reason
 
 | component | gate | verdict |
 |---|---|---|
 | `buildingEntryDb` | `!params.enabled`, then env must be indoor/industrial | inactive |
-| `wallPenetrationDb` | `!state.isIndoor` → `0.0` (wall-material `:10-12`) | inactive |
-| `floorAttenuationDb` | `!state.isIndoor` → `0.0` (floor `:10-12`) | inactive |
-| `bodyShadowingDb` | `nodeIsBodyWorn = false` (params `:1287`), never overridden | inactive |
+| `wallPenetrationDb` | `!state.isIndoor` → `0.0` (`lora-wall-material-submodule.cc:10-12`) | inactive |
+| `floorAttenuationDb` | `!state.isIndoor` → `0.0` (`lora-floor-attenuation-submodule.cc:10-12`) | inactive |
+| `bodyShadowingDb` | `nodeIsBodyWorn = false` (`lora-physics-parameters.cc:1287`), never overridden | inactive |
 | `temporalBlockageDb` | rural branch `p = 0.02`, loss `N(5,2,1,15)` | **0.10 dB**, flat |
 
 `state.isIndoor` defaults `false` (`lora-physics-parameters.h:51`) and is written only by
@@ -48,7 +48,7 @@ the building-entry submodule, which leaves it false outside indoor environments.
 ## What the census says
 
 **Eight of the thirteen are structurally zero here** — four of them hard-assigned `0.0` on
-a line *after* the line that computes them (`:341`, `:537`, `:596`, and `:593`). They are
+a line *after* the line that computes them (`lora-physics-engine.cc:341`, `lora-physics-engine.cc:537`, `lora-physics-engine.cc:596`, and `lora-physics-engine.cc:593`). They are
 **inactive, not missing.** They leave the search space permanently, for this scenario.
 
 **The residual is a sum of two terms, not one.** Predicted, before implementing:
@@ -64,7 +64,7 @@ The near-field floor is fading + blockage ≈ 0.63 dB, and the growth is terrain
 
 ## Two facts about `terrainDb` that change earlier reasoning
 
-1. **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:69-70`) — its Fresnel radius
+1. **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:70-71`) — its Fresnel radius
    is computed at 868 MHz for *every* tier, including UWB at 7.99 GHz. The engine's terrain
    is frequency-independent.
 2. **The earth-curvature path is never reached.** It requires `horizontalDistM >

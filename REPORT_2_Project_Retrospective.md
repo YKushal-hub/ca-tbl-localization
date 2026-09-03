@@ -675,14 +675,14 @@ The record contains a substantial number of findings that were **withdrawn becau
 | **D2** | `mean_snr_db` accumulated only over delivered packets — survivorship bias | `ca_tbl_causal_sim.cc:1393-1400` | Up to **+22.70 dB** of bias at low PDR. Fixed behind a flag so prior output stays byte-identical. A downstream design question remains open |
 | **D3** | `0.0` sentinel collided with the data domain (0 dB SNR is a real measurement) | `ca_tbl_causal_sim.cc:1437-1438` | One field on one row; fixed to `NaN` |
 | **D4** | Reception described as a hard threshold; it is a logistic | `lora-physics-engine.cc:135-146` | A description error, not a simulator defect. Recorded so it does not recur |
-| **D5** | PCS unweighted-sum term saturation | `ca-tbl-policy.cc:666-671`, `:57` | The confidence metric cannot express uncertainty. **RECORDED, NOT FIXED** — a fix invalidates every result |
+| **D5** | PCS unweighted-sum term saturation | `ca-tbl-policy.cc:666-671`, `ca-tbl-policy.cc:57` | The confidence metric cannot express uncertainty. **RECORDED, NOT FIXED** — a fix invalidates every result |
 | **1a** | Escalation to tier 3 ignored target-tier availability | — | **FIXED** — `escalationRequiresEvidence`, suppress-only, default off |
 | **1b** | Same for tier 1 → tier 2 | — | **BROKEN, DELIBERATELY UNWIRED** |
 | **2** | Concurrent-tier fallback hardwired to the 868 floor rather than `active − 1` | — | **MEASURED, NOT FIXED** — blast radius shrank to near-nothing once 1a landed |
 | **9** | Unchecked `std::ofstream` — ran a full simulation, wrote nothing, exited 0 | 4 sites | **FIXED at all four** |
 | **G-suite** | `catbl_gates.sh` wrote into tracked result directories | `scripts/catbl_gates.sh` | **The verification step mutated its own evidence, silently.** Every past invocation re-dated three directories' sidecars. Fixed to a temp dir; two new gates added |
 | **17th term** | `linkHysteresisMarginDb` moves the reception threshold with PDR | `lora-uwb-physics-engine.cc:664-666` | Caused one wrong attribution — a growing residual assigned to propagation when up to 1.5 dB was the threshold moving |
-| **Engine structure** | 8 of 16 loss terms structurally zero; 4 zeroed on the line *after* being computed | `:341`/`:340`, `:537`/`:536`, `:596`/`:489`, `:593` | Anyone reasoning from structure rather than assignments over-counts what the engine does |
+| **Engine structure** | 8 of 16 loss terms structurally zero; 4 zeroed on the line *after* being computed | `lora-physics-engine.cc:341`/`lora-physics-engine.cc:340`, `lora-physics-engine.cc:537`/`lora-physics-engine.cc:536`, `lora-physics-engine.cc:596`/`lora-physics-engine.cc:489`, `lora-physics-engine.cc:593` | Anyone reasoning from structure rather than assignments over-counts what the engine does |
 
 ---
 
