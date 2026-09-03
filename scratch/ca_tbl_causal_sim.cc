@@ -1859,7 +1859,16 @@ RunArm(CaTblPolicyMode mode,
        double injectRangeBiasM,
        double injectBiasFraction,
        uint32_t injectFaultAnchors,
-       int faultMultiplicity)
+       int faultMultiplicity,
+       // B1 -- anchor-to-anchor ranging. Default `true` means SURVEYED, i.e. the
+       // pre-B1 world: no anchor-to-anchor exchange occurs and not one extra draw is
+       // taken from the shared RNG stream. That is the null control, and it has to be
+       // an early-out rather than a discarded result: every ProcessTransmission()
+       // consumes draws, and D1 established that changing how many draws are consumed
+       // offsets every later consumer, moving even a tier-1-only arm.
+       bool anchorSurveyed,
+       double anchorRangePeriodS,
+       bool traceDiagnostic)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -1921,6 +1930,39 @@ RunArm(CaTblPolicyMode mode,
         engineUwb.RegisterGateway(dep.anchors[CA_TBL_TIER_UWB][i].id,
                                   dep.anchors[CA_TBL_TIER_UWB][i].pos,
                                   true);
+    }
+
+    // ---- B1: anchor-to-anchor ranging ------------------------------------
+    // NODE REGISTRATION, and what it changes: nothing. The anchors are NOT
+    // registered as nodes. RegisterNode() inserts into each engine's node set, which
+    // participates in interference and neighbour computation for the field node's own
+    // links, so registering twelve tier-2 anchors there would move the baseline. The
+    // engines do not require it: ProcessTransmission() takes both endpoint positions
+    // explicitly and keys per-link state on MakeLinkId(tx, rx), creating the entry on
+    // demand. The field node is id 1 and anchors are 101+/201+/301+, so anchor-anchor
+    // link ids cannot collide with node-anchor ones.
+    std::ofstream arTrace;
+    bool arOpen = false;
+    double nextAnchorSurveyS = 0.0;
+    size_t anchorSurveySlot = 0;
+    if (!anchorSurveyed && anchorRangePeriodS > 0.0 && writeTrace && traceDiagnostic)
+    {
+        std::ostringstream arfn;
+        arfn << traceDir << "/trace_anchor_ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed
+             << ".csv";
+        arTrace.open(arfn.str().c_str());
+        if (!arTrace.is_open())
+        {
+            std::cerr << "FATAL: cannot open " << arfn.str() << " for writing\n";
+            std::exit(1);
+        }
+        // A SEPARATE FILE, not extra columns on the existing trace, so the default
+        // trace stays byte-comparable with every campaign already on record.
+        // `delivered` is the column B1 exists to produce: the intermittency of the
+        // anchor graph is measured from it, and the 0.9191 single-epoch solvability
+        // figure is currently a model prediction awaiting exactly this number.
+        arTrace << "t,arm,seed,tier,anchorA,anchorB,trueRangeM,estRangeM,delivered\n";
+        arOpen = true;
     }
 
     Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
@@ -2352,6 +2394,122 @@ RunArm(CaTblPolicyMode mode,
 
         const Time now = Simulator::Now();
         const double t = now.GetSeconds();
+
+        // ---- B1: the anchor survey -------------------------------------
+        // GUARDED SO THAT NOTHING RUNS UNDER THE DEFAULT. Not "runs and is
+        // discarded" -- runs at all. See the note on the parameter.
+        //
+        // THE MAC CONTRADICTION, scoped rather than resolved. The scenario models
+        // anchors as mutual hidden terminals (:447-455): they are registered as
+        // gateways only, never hear each other, and therefore transmit into each
+        // other freely -- which is why the file states that beacon loss here is "an
+        // upper bound, not an estimate". This survey asks the opposite of that same
+        // pair: that they CAN hear each other well enough to range. Both cannot be
+        // true of one deployment.
+        //
+        // Implemented reading: range over the channel as it stands and scope the
+        // claim. The link budget between two anchors is real physics -- identical
+        // propagation, both endpoint positions explicit -- so the RANGE is
+        // meaningful. What is not modelled is the contention around it.
+        //
+        // What the other reading would change: giving anchors mutual audibility
+        // would make their CAD suppress transmissions that currently collide, which
+        // alters the contention regime for the FIELD NODE's beacons too. That is not
+        // additive, it moves the committed baseline, and it retires the standing
+        // "upper bound" claim. It is a separate work order with its own re-baseline.
+        //
+        // Consequence, stated: B1 measures link feasibility for calibration. It says
+        // nothing about how calibration traffic contends with tag traffic.
+        if (arOpen && t >= nextAnchorSurveyS)
+        {
+            nextAnchorSurveyS = t + anchorRangePeriodS;
+            ++anchorSurveySlot;
+            const CaTblTier surveyTiers[2] = {CA_TBL_TIER_2P4, CA_TBL_TIER_UWB};
+            for (int st = 0; st < 2; ++st)
+            {
+                const CaTblTier tr = surveyTiers[st];
+                const std::vector<AnchorDef>& av = dep.anchors[tr];
+                const size_t nSites = dep.facilities.size();
+                if (nSites == 0 || av.size() % nSites != 0)
+                {
+                    continue;
+                }
+                // INTRA-SITE PAIRS ONLY. Sites are 1880 m apart and both tiers are
+                // far inside that at their own ranges, so cross-site pairs cannot
+                // deliver and enumerating them would spend RNG draws on links that
+                // are geometrically impossible. BuildDeployment pushes anchors one
+                // site at a time, so a site owns a contiguous index block.
+                const size_t perSite = av.size() / nSites;
+                // ONE PAIR PER EPOCH, ROUND-ROBIN. The first implementation fired every
+                // intra-site pair at the same simulation instant, and the result was not
+                // propagation: anchor 201 delivered 0.975 while 204, at an identical
+                // 259.8 m, delivered 0.000. The interference submodule was correctly
+                // seeing twelve concurrent tier-2 transmitters and colliding all but the
+                // first. A survey that transmits simultaneously from every anchor is not
+                // a survey, it is a jamming experiment -- and a real calibration exchange
+                // is scheduled, not broadcast at once. The round-robin below is the
+                // minimum honest correction: one transmitting pair per tier per epoch.
+                const size_t pairsPerSite = perSite * (perSite - 1) / 2;
+                if (pairsPerSite == 0)
+                {
+                    continue;
+                }
+                // ACROSS ALL SITES, not per site. The first stagger used
+                // `pi % pairsPerSite`, which selects one pair from EVERY site and so
+                // still put four tier-2 transmitters on the air at the same instant.
+                // The measured signature was unmistakable and identical in kind to the
+                // unstaggered version: site 0's pairs delivered 0.98 and every pair at
+                // sites 1-3 delivered 0.00-0.01. Reducing concurrency from twelve to
+                // four does not fix a collision artefact, it shrinks it.
+                const size_t totalPairs = pairsPerSite * nSites;
+                const size_t slot = anchorSurveySlot % totalPairs;
+                size_t pi = 0;
+                for (size_t site = 0; site < nSites; ++site)
+                {
+                    for (size_t a = 0; a < perSite; ++a)
+                    {
+                        for (size_t b = a + 1; b < perSite; ++b, ++pi)
+                        {
+                            if (pi != slot)
+                            {
+                                continue;
+                            }
+                            const AnchorDef& A = av[site * perSite + a];
+                            const AnchorDef& B = av[site * perSite + b];
+                            const double dx = A.pos.x - B.pos.x;
+                            const double dy = A.pos.y - B.pos.y;
+                            const double dz = A.pos.z - B.pos.z;
+                            const double trueR = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            bool got = false;
+                            double est = -1.0;
+                            if (tr == CA_TBL_TIER_2P4)
+                            {
+                                PhysicsResult2p4 r =
+                                    engine2p4.ProcessTransmission(A.id, B.id, A.pos, B.pos,
+                                                                  phy[1].txPowerDbm, phy[1].sf,
+                                                                  phy[1].bandwidthHz, 0, now);
+                                got = r.packetReceived;
+                                est = r.estimatedRangeM;
+                            }
+                            else
+                            {
+                                PhysicsResultUWB r =
+                                    engineUwb.ProcessTransmission(A.id, B.id, A.pos, B.pos,
+                                                                  phy[2].txPowerDbm, phy[2].sf,
+                                                                  phy[2].bandwidthHz, 0, now);
+                                got = r.packetReceived;
+                                est = r.estimatedRangeM;
+                            }
+                            arTrace << std::fixed << std::setprecision(1) << t << ","
+                                    << CaTblPolicyModeName(mode) << "," << seed << ","
+                                    << CaTblTierName(tr) << "," << A.id << "," << B.id << ","
+                                    << std::setprecision(4) << trueR << "," << est << ","
+                                    << (got ? 1 : 0) << "\n";
+                        }
+                    }
+                }
+            }
+        }
 
         const CaTblTier active = policy.GetActiveTier();
 
@@ -3245,6 +3403,9 @@ main(int argc, char* argv[])
     // Defaults false: the probe's default output stays byte-identical to every
     // run that preceded the D2 fix. See DEFECTS.md D2.
     bool traceDiagnostic = false;
+    // B1. Default true = SURVEYED = the pre-B1 world, byte-identical.
+    bool anchorSurveyed = true;
+    double anchorRangePeriodS = 0.0;
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
@@ -3346,6 +3507,15 @@ main(int argc, char* argv[])
     cmd.AddValue("outdir", "Output directory (must already exist)", outdir);
     cmd.AddValue("trace", "Write per-step trace CSVs", writeTrace);
     cmd.AddValue("probe", "Run the pre-flight range sweep and exit", probe);
+    cmd.AddValue("anchorSurveyed",
+                 "true (default) = anchor positions are surveyed and NO anchor-to-anchor "
+                 "ranging occurs, which is byte-identical to every prior campaign. false "
+                 "enables the B1 survey; needs --anchorRangePeriodS > 0 and "
+                 "--traceDiagnostic to emit anything",
+                 anchorSurveyed);
+    cmd.AddValue("anchorRangePeriodS",
+                 "seconds between anchor-to-anchor survey passes; 0 (default) disables",
+                 anchorRangePeriodS);
     cmd.AddValue("traceDiagnostic",
                  "Emit extra diagnostic columns (mean_snr_all_db). Default false so the "
                  "default output is byte-identical to pre-D2-fix runs.",
@@ -3910,7 +4080,10 @@ main(int argc, char* argv[])
                                        injectRangeBiasM,
                                        injectBiasFraction,
                                        injectFaultAnchors,
-                                       faultMultiplicity);
+                                       faultMultiplicity,
+                                       anchorSurveyed,
+                                       anchorRangePeriodS,
+                                       traceDiagnostic);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

@@ -2195,3 +2195,41 @@ anchors in range against a measured `nAnchors` mean of **6.06**.
 matters. Policy-invariance is testable directly — compare the column across arms at the same seed
 — and censoring is usually documented at the definition site rather than at the use site, which is
 why it survives review.
+
+---
+
+## OPEN: two independently justified corrections made the model less accurate on r80
+
+**Recorded, not chased.** Whoever picks up the residual work needs this; chasing it now would
+repeat two passes that were spent on premises instead of builds.
+
+Tier-3 UWB r80, model against the engine's fixed 12.9 m:
+
+| model state | r80 | error vs engine |
+|---|---|---|
+| before | 20.4 m | +7.5 m |
+| **after two corrections** | **25.2 m** | **+12.3 m** |
+| after applying the 3.7 dB residual | 16.44 m | +3.5 m |
+
+The two corrections were:
+
+1. **Two-ray ground reflection**, added after being traced through the engine and verified against
+   `mean_pl_db` to 0.02 dB on UWB. It *replaces* free-space below the breakpoint rather than adding
+   to it — established from the engine's own selection logic, not assumed.
+2. **Jensen-corrected foliage**, integrating ITU-R P.833 over the distributions of `γ` and `A_max`
+   rather than evaluating at their means, because `A_veg` saturates and the engine samples both.
+
+**Each is right on its own and neither was fitted to r80.** The aggregate moved the model's r80
+*away* from the engine by 4.8 m.
+
+That is the finding: **two corrections that are individually correct can compound into a worse
+prediction of a third quantity.** It is not a reason to revert either — reverting a verified
+correction to improve an unrelated number is fitting. It is a reason to record that the residual
+is not a single additive offset, since a genuinely additive residual would have been unmoved by
+either change.
+
+The leading candidate for the remainder is unchanged and still unasserted: **transition width.**
+r80 depends on the *shape* of the PDR curve, not only its mean position, and both corrections
+change the shape. `DEFECTS.md:1115-1120` nominated width for the same reason, at a point when the
+gap was 7.6 m rather than 12.3 m. That the nomination survived the gap growing by 60% is weak
+evidence for it and is reported as weak.
