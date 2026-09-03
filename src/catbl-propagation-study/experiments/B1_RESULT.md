@@ -148,6 +148,12 @@ on n = 120 and is not distinguishable from noise.
 | measured, **beacons quiesced** (0.9250 / 0.7208) | **0.9206** | 0.9995 | 1.0000 |
 | model, residual-corrected (0.9162 / 0.7296) | 0.9191 | 0.9995 | 1.0000 |
 
+> **WITHDRAWN 2026-09-03.** The sentence below stands as written, because a withdrawal that
+> edits its own subject leaves nothing to check. It was computed on **seed 1 alone**, and the
+> five-seed replication (`B1_QUIET_WINDOW_RESULT.md`) does not support it: single-round
+> solvability is **0.7817 [0.6641, 0.8802]**, not 0.9206, and the model's 0.9191 sits above the
+> upper bound. The agreement was a coincidence of one seed.
+
 **The engine's 0.9206 against the model's 0.9191 is agreement to 0.16%.**
 
 That deserves a precise statement rather than a victory lap. The model's **edge-availability

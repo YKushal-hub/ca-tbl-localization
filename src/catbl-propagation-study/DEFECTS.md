@@ -2351,3 +2351,71 @@ measurement.** G16 found the survey already serialised — no defect, no change 
 it produced was the difference between *believing* the second scheduling correction worked and
 *knowing* it did, and that difference is what let the beacon result be attributed to beacons
 rather than to residual self-concurrency. A gate is not only worth what it catches.
+
+---
+
+## WITHDRAWN: "solvability 0.9206 against the model's 0.9191, agreement to 0.16%"
+
+**Original text, retained** (`experiments/B1_RESULT.md`, addendum):
+
+> The engine's 0.9206 against the model's 0.9191 is agreement to 0.16%. […] the model's
+> **edge-availability arithmetic is validated** […] on a quantity nobody tuned.
+
+**Why it is withdrawn.** It was computed on **seed 1 alone**, from a delivery rate (UWB adjacent
+0.9250) that a five-seed replication does not reproduce.
+
+| quantity | model | measured, 5 seeds |
+|---|---|---|
+| UWB adjacent delivery | 0.9162 | **0.8433** [0.7909, 0.8958] |
+| UWB across delivery | 0.7296 | **0.6511** [0.6031, 0.6991] |
+| single-round solvability | 0.9191 | **0.7817** [0.6641, 0.8802] |
+
+The model's 0.9191 sits **above the upper CI bound** of the measurement. The edge-availability
+arithmetic is not validated to 0.16%; it is not validated at all by this data.
+
+**The withdrawal reaches further than the beacon claim it came packaged with**, and that is the
+part worth recording. The beacon effect and the 0.16% agreement were two conclusions from one
+seed. Falsifying the first did not automatically retract the second — it had to be traced. **A
+retraction propagates along the data a claim was computed from, not along the argument it appeared
+in.**
+
+**An observation, explicitly not a claim.** The model overpredicts delivery by **0.073** on the
+adjacent link and **0.079** on the across link — a consistent offset on both, which is the
+signature of a margin error rather than a shape error. The module carries an unattributed
+**~3.7 dB UWB residual** already known to be active in exactly that distance range. These are
+consistent. That is all that is asserted; the residual is a known open item and chasing it here
+would repeat the last two passes.
+
+---
+
+## Size is not evidence of replication
+
+The across-ring delta of **−0.0667** on n = 120 was labelled noise. The adjacent delta of
+**+0.1833**, on the same n and the same single seed, was not — because it was large. Five seeds
+put the per-seed adjacent deltas at `+0.1042, −0.0708, +0.0056, −0.0694, −0.0778`: the sign flips,
+three of five are negative, and the mean is **−0.0216**.
+
+**A large effect from one seed is a single-seed effect. Magnitude carries no information about
+replication**, and treating it as though it does is how a scepticism correctly applied to one
+number gets withheld from another in the same table.
+
+The operational form: **the confidence-interval requirement must be applied to the effect that
+motivates a measurement, not only to the measurement it motivates.** The last work order required
+CIs on the delivery rates and got them. Nobody required one on the +0.1833 that was the reason for
+collecting them.
+
+---
+
+## Check both strata are occupied before stratifying
+
+The quiet-window comparison was registered as "tier-3-served cycles degrade, tier-2-served cycles
+unchanged". Tier 3 supplies **61 of 6030 fixes** and tier 2 supplies **34**; the tier-1 floor
+supplies **98.4%**. Neither stratum had an occupancy worth comparing, so the campaign was VACUOUS
+before it was launched — the fourth time that word has been the correct verdict here.
+
+One `fixTier` census on a trace already on disk would have cost nothing and prevented ten cells.
+
+This is the **degeneracy pre-flight rule applied to a stratum rather than to a mechanism**: run one
+seed and screen it before spending twenty. The existing rule was stated for solver degeneracy; the
+same discipline governs any design that conditions on a category, and the check is the same shape
+— **count the category before designing around it.**
