@@ -17,6 +17,16 @@
 # Direction 4 is the one that matters most. G12's first version failed on the commit
 # that documented the rule, and a gate that fails on its own policy is a gate that
 # gets disabled. Synthetic trees live in a mktemp directory and are removed on exit.
+#
+# THIS FILE CONTAINS NO VENDOR TOKEN, and that is deliberate. The first version spelled
+# them out in the test fixtures, which made the fixture itself a tracked file carrying a
+# vendor identity -- G12b failed on it the moment it was committed, and the failure was
+# missed because the suite had been run BEFORE `git add` made the file tracked. A status
+# check run before the operation that changes the status measures the old status.
+#
+# The tokens are instead extracted from the gate's own pattern at run time. The fixture
+# therefore tests whatever the gate currently matches and cannot drift from it, and adding
+# a token to G12B_PAT extends this fixture automatically.
 
 set -u
 set -o pipefail
@@ -35,6 +45,17 @@ sed -n '/^# ------------- G12b/,/^finish G12b$/p' "$GATE" \
 if ! grep -q 'G12B_PAT=' "$TMP/probe.sh"; then
     printf 'FIXTURE BROKEN: could not extract G12b from %s\n' "$GATE"; exit 2
 fi
+
+# Pull the vendor tokens out of the gate's own alternation rather than spelling them
+# here. See the header: a fixture that names them becomes the thing the gate forbids.
+VTOKENS=$(grep -oE '\(([a-z]+\|)+[a-z]+\)' "$GATE" | head -1 | tr -d '()' | tr '|' ' ')
+set -- $VTOKENS
+if [ "$#" -lt 2 ]; then
+    printf 'FIXTURE BROKEN: extracted %d token(s) from the gate pattern, expected >=2\n' "$#"
+    exit 2
+fi
+TOK_A=$1; TOK_B=$2
+printf '  (tokens taken from the gate pattern: %d found)\n\n' "$#"
 
 mkrepo() {  # mkrepo <dir> -- a git repo with the gate file present
     rm -rf "$1"; mkdir -p "$1/scripts"
@@ -73,21 +94,21 @@ fi
 
 # 2. a tracked file naming a vendor
 mkrepo "$TMP/r2"
-printf 'This document was written by %s at the request of the team.\n' 'an assistant' > "$TMP/r2/NOTES.md"
+printf 'This document was written by %s at the request of the team.\n' "$TOK_A" > "$TMP/r2/NOTES.md"
 ( cd "$TMP/r2" && git add scripts/catbl_gates.sh NOTES.md && git commit -qm x )
 check 'tracked file asserting vendor authorship' fail "$TMP/r2"
 
 # 3. prose smuggled into the gate file itself, which the content scan skips
 mkrepo "$TMP/r3"
-printf '# a note about %s that is prose, not a matcher\n' 'OpenAI' >> "$TMP/r3/scripts/catbl_gates.sh"
+printf '# a note about %s that is prose, not a matcher\n' "$TOK_B" >> "$TMP/r3/scripts/catbl_gates.sh"
 ( cd "$TMP/r3" && git add scripts/catbl_gates.sh && git commit -qm x )
 check 'prose inside the gate file the scan exempts' fail "$TMP/r3"
 
 # 4. the token inside a larger identifier -- must NOT fail
 mkrepo "$TMP/r4"
 { printf 'cursor = Gdk.Cursor.new_for_display(display)\n'
-  printf 'double vendorThreshold = 1.55;\n'
-  printf 'cfg = load(x.openai_compat)\n'; } > "$TMP/r4/upstream.py"
+  printf 'double %sThreshold = 1.55;\n' "$TOK_A"
+  printf 'cfg = load(x.%s_compat)\n' "$TOK_B"; } > "$TMP/r4/upstream.py"
 ( cd "$TMP/r4" && git add scripts/catbl_gates.sh upstream.py && git commit -qm x )
 check 'vendor token inside a larger identifier' pass "$TMP/r4"
 

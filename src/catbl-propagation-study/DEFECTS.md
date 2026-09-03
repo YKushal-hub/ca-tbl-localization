@@ -1958,3 +1958,62 @@ remaining risk.
 
 This is a decision, not an omission. If it is never picked up, the cost is stated above: the
 corpus is correct today and nothing keeps it correct automatically.
+
+---
+
+## A constant's comment is not a measurement: the fifth instance, and the one that reversed a conclusion twice
+
+**The class.** A comment asserts a property the code does not have, or no longer has, and a later
+reader takes it as evidence. This tree now has five recorded instances:
+
+| # | site | the comment said | the code did |
+|---|---|---|---|
+| 1 | `ca_tbl_causal_sim.cc:2545-2549` | the injector faults a single anchor, `h = 1` | faulted **4 of 12** tier-2 anchors |
+| 2 | environment table, `REPORT_1` §5.5 | citations point at the value | pointed at the `case` label, value on the next line — **12 of 15** |
+| 3 | `two_ray_frac` scope | read as a distance diagnostic | a **gating** diagnostic: `ENV_RURAL_OPEN && !isNLOS` |
+| 4 | `lora-terrain-submodule.cc:70` | terrain scales with frequency | hardcodes 868 MHz for every tier |
+| 5 | `ca_tbl_causal_sim.cc:3251` | `// UWB r80 = 10 m` | **see below** |
+
+**The fifth is different in kind, and worse, because the comment was right.**
+
+Sizing the tier-3 calibration geometry needed UWB's r80. Taken from the constant's own comment —
+`uwbTriadRadiusM = 10.0; // UWB r80 = 10 m` — none of the ten intra-site anchor pairs is in range,
+so tier-3 self-calibration looked infeasible. Computing r80 from the analytic model instead gave
+**25.2 m**, under which all ten are in range. That was written up as a stale comment corrected.
+
+**Grepping every r80 in the tree — rather than trusting the correction — found four figures, and
+the 10 m was not stale:**
+
+    ca_tbl_causal_sim.cc:220    12.9 m   64-site decorrelated probe, 2000 trials/point
+    ca_tbl_causal_sim.cc:3278   ~13.5 m  looser restatement of the same
+    ca_tbl_causal_sim.cc:3251   10 m     the siting constant, rounded down from it
+    ca_tbl_causal_sim.cc:1187   10 -> 5  the UNSTABLE 400-trial estimate, superseded at :1191
+    linkbudget.py (computed)    25.2 m   the analytic model
+
+The 10 m comment is a conservative restatement of a real engine measurement of **12.9 m**. **The
+model and the engine disagree by roughly 2× on UWB r80** — and the disagreement is not a detail,
+it decides the answer:
+
+| criterion | tier-3 links retained | solvable at 2 surveyed |
+|---|---|---|
+| model, 25.2 m | 10 of 10 | redundancy **+3** |
+| **engine, 12.9 m** | **5 of 10**, adjacent only | **SINGULAR, rank 4 of 6** |
+
+Under the engine's own number the surviving graph is a 5-cycle, and a cycle is not rigid in 2-D.
+
+**Three things this records.**
+
+1. **The conclusion reversed twice** — infeasible, then feasible, then unresolved. Each reversal
+   came from widening the population of the check: one comment, then the model, then every r80 in
+   the tree. **The first two answers were confidently wrong and the third is honestly open.**
+2. **"Bounded exposure" was the wrong phrase.** `B2_GAUGE.md` first said the ≈3.7 dB model-engine
+   margin residual left the conclusion safe. A 3.7 dB margin residual *is* small as a margin.
+   Expressed as a **range**, it is a factor of two, and it flips a rank result. **A residual quoted
+   in the units it was measured in can look harmless in the units it is used in.**
+3. **The right instrument was in the tree the whole time.** `:220` records a 2000-trial engine
+   probe, and `:1187-1191` explains why 400 trials was not enough — the tree already knew both the
+   number and why the number needed care. Nothing had to be re-measured; it had to be **read**.
+
+**Not generalised to tier 2.** Its intra-site chord is 259.8 m against a censored tier-2 r80 of
+≥ 900 m (`:217-218`) — an order of magnitude of headroom, so no plausible model-engine gap reaches
+it. Tier 2's zero-redundancy finding is geometric and stands on its own.

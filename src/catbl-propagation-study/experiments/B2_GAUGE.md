@@ -33,20 +33,51 @@ the deployment builder (`ca_tbl_causal_sim.cc:292-319`), not assumed:
 So anchor–anchor ranging can only ever connect anchors **within one facility site**. The
 calibration problem is four independent small problems per tier, not one network.
 
-**A correction made before this document was ever committed, recorded because it reversed a
-conclusion.** The r80 figures were first read from the source comments beside the deployment
-constants — `uwbTriadRadiusM = 10.0; // UWB r80 = 10 m` (`ca_tbl_causal_sim.cc:3251`) — against
-which *none* of tier 3's ten intra-site links is in range, making tier 3 look infeasible. **The
-comment is stale.** Computed from the model as it now stands, after the D1 sensitivity
-correction, two-ray and the Jensen foliage fix (`src/catbl-propagation-study/linkbudget.py`),
-UWB r80 is **25.2 m**, and both intra-site distances sit comfortably inside it. The 10 m constant
-is a *siting* choice that predates the corrected model; it is not the range. Taking a number
-from a code comment instead of computing it is the same error as trusting a check's population
-without stating it — the link-feasibility question was never open, it was answered against the
-wrong constant.
+**Two corrections, in opposite directions. The second was found by grepping for every r80 in the
+tree rather than trusting the first.**
 
-**Robustness of that answer to the known model residual** (UWB ≈ 3.7 dB, 2.4 GHz ≈ 3.5 dB
-against the engine), swept as a margin offset in both directions:
+*First correction.* The r80 figures were initially read from the constant's own comment —
+`uwbTriadRadiusM = 10.0; // UWB r80 = 10 m` (`ca_tbl_causal_sim.cc:3251`) — against which none of
+tier 3's ten intra-site links is in range. Computed from the analytic model, UWB r80 is 25.2 m,
+under which **all ten** are in range. That looked like a stale comment corrected.
+
+*Second correction, which reverses it.* The tree carries **four** UWB r80 figures, and the 10 m
+comment is not stale — it is a rounded restatement of an engine measurement:
+
+| source | figure | what it is |
+|---|---|---|
+| `ca_tbl_causal_sim.cc:220` | **12.9 m** | the 64-site decorrelated probe, 2000 trials/point — **the authoritative engine measurement** |
+| `ca_tbl_causal_sim.cc:3278` | ~13.5 m | a looser restatement of the same |
+| `ca_tbl_causal_sim.cc:3251` | 10 m | the siting constant, rounded down from it |
+| `ca_tbl_causal_sim.cc:1187` | 10 → 5 m | the *unstable* 400-trial estimate, explicitly superseded at `:1191` |
+| `linkbudget.py`, this session | **25.2 m** | the analytic model |
+
+**The model and the engine disagree by roughly 2× on UWB r80**, and that disagreement decides the
+answer:
+
+| criterion | tier-3 links retained | solvable at 2 surveyed? |
+|---|---|---|
+| model, 25.2 m | 10 of 10 | yes, redundancy **+3**, 5 m fault leaves a 3.34 m residual |
+| **engine, 12.9 m** | **5 of 10** (adjacent only) | **SINGULAR — rank 4 of 6** |
+
+Under the engine's own number only the five *adjacent* links survive, leaving a 5-cycle, and **a
+cycle is not rigid in 2-D.** Tier 3 goes from "redundancy to spare" to "no solution at all"
+depending on which r80 is used.
+
+**So §5's caveat, as first written, was wrong to call the exposure bounded.** A ≈3.7 dB margin
+residual sounds small; expressed as range it is a factor of two, and it flips the conclusion
+rather than perturbing it.
+
+The fair reading is not that the across-ring links are absent. At 19.02 m they sit between the
+engine's r80 (12.9 m) and its r50 (29.5 m, same probe, `:220`), so their PDR is roughly 0.6–0.7
+**by interpolation between two measured points — an interpolation, not a measurement.** They are
+*lossy*, not missing. Calibration averages over many epochs, so a lossy link degrades the solve
+far less than an absent one. But the topology is then **intermittent**, the redundancy is
+**stochastic**, and on any epoch where the across-ring ranges happen to drop together the cluster
+is momentarily singular. A solve that assumes a fixed graph is the wrong solve.
+
+Robustness of the *model's* answer to its own residual, swept as a margin offset both ways —
+retained because it bounds the model's internal sensitivity, not the model-versus-engine gap:
 
 | link | −4 dB | 0 dB | +4 dB |
 |---|---|---|---|
@@ -55,10 +86,12 @@ against the engine), swept as a margin offset in both directions:
 | 2.4 GHz, 3/site, 259.8 m | 0.9965 | 0.9974 | 0.9985 |
 | 2.4 GHz, 5/site, 176.3 m | 0.9987 | 0.9995 | 0.9999 |
 
-Only the UWB *across-ring* link is sensitive, and only in the adverse direction, falling to
-0.71. Every other link stays above 0.90 at every offset. **Link quality is not the constraint on
-either tier.** (This remains a model prediction; B1's own trace columns are what replace it with
-a measurement — see §5.)
+The across-ring link was already the fragile one under the model's own uncertainty, and it is the
+one the engine puts out of r80. The two disagreements point at the same link.
+
+**Tier 2 is unaffected by any of this.** Its intra-site chord is 259.8 m against a measured
+tier-2 r80 of ≥ 900 m (censored lower bound, `:217-218`) — an order of magnitude of headroom, so
+no plausible model-engine gap touches it. Tier 2's problem is redundancy, and redundancy alone.
 
 ### The result that changes the build order
 
@@ -178,12 +211,21 @@ available without new geometry — but it is **not free**, and this is the trap:
 
 ## 5. What is measured here, and what is left to B1
 
-**Answered, above: link feasibility on both tiers.** It looked open only because it had first
-been checked against a stale constant instead of computed.
+**Not answered here, contrary to the first draft of this section: tier-3 link feasibility.** It
+depends on a model-versus-engine disagreement of about 2× in UWB r80 (§2), and the two sides of
+that disagreement give opposite answers — +3 redundancy versus a singular system. Nothing in this
+document settles it.
 
-**Left to B1, and genuinely unmeasured:** whether the *engine* agrees with the model on these
-links. Everything above is the analytic link budget, which carries a known unattributed residual
-of about 3.7 dB on UWB and 3.5 dB on 2.4 GHz against the engine. The robustness sweep says the
-conclusion survives a residual of that size on every link except the UWB across-ring pair, so
-the exposure is bounded and named — but it is a model prediction, and B1's trace columns exist
-to replace it with a measurement. If the engine disagrees, the engine is what counts.
+**What B1 must therefore measure, before any B2 claim is believed:** the engine's own PDR on the
+tier-3 intra-site links at 11.76 m and 19.02 m, and on the tier-2 links at 259.8 m. That is not a
+confirmation step. It is the step that decides whether B2 has a problem to solve on tier 3 at all.
+
+**What is settled here and does not depend on that disagreement:**
+
+- Tier 2 has zero redundancy at every survey count, and its links have an order of magnitude of
+  range headroom, so the finding is geometric and not propagational (§2, §2b).
+- One surveyed anchor is never enough on either tier — the rotation gauge is unfixed and the
+  system is rank-deficient by exactly one (§2b).
+- An exactly determined solve returns a confident covariance for a position that is 5.79 m wrong
+  (§2b). That is the failure B3 would silently consume, and acceptance criterion 2 exists to
+  prevent it.
