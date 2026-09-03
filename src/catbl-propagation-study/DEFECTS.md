@@ -1882,3 +1882,79 @@ document" would fail on the document that explains why bare `:N` is a defect. Th
 must be **enumerated at the file and the reason**, never a pattern over `DEFECTS.md`, or the
 next bare citation written here inherits it silently — the same failure mode that made G9's
 hardcoded allow-list useless.
+
+---
+
+## The vendor-name rule was not violated in the repository — and nothing was checking
+
+**The premise, tested.** 23 `.md` files in this tree contain a vendor name, several with
+project-sounding names — advisor handoffs, publish runbooks, next-steps plans. The working
+assumption was that some are tracked, which would be a live violation of a hard rule.
+
+**Tracked status established with `git cat-file -e HEAD:<path>`**, not `git ls-files`, because
+`ls-files` reports the index and would say "tracked" for a file that was merely staged:
+
+| population | n | tracked |
+|---|---|---|
+| `.md` files containing a vendor name | 23 | **0** |
+| all tracked files, any type, scanned for the same | 7129 | **1** |
+
+The single tracked hit is `src/visualizer/visualizer/core.py`, and it is `Gdk.Cursor` in
+vendored upstream ns-3.47 source — a false positive, and a useful one, because it is exactly
+the shape a gate matching bare tokens would have failed on.
+
+**So the rule holds, and the reason it holds is that nobody tracked those files, not that
+anything prevented it.** That distinction is the whole finding. G12 gates commit identity
+fields and message bodies; it has never been able to see a vendor name sitting inside a tracked
+document. And **G9b now requires every `.md` to be tracked or allow-listed**, which makes a file
+crossing from allow-listed to tracked an ordinary event. The protection was an accident of
+housekeeping, and the housekeeping rule just changed.
+
+**G12b** closes it: no tracked file's *content* may carry a vendor identity.
+
+**Form, not token — for the reason G12 already records.** G12's first version failed on the
+commit that documented the policy, because it matched a topic word. G12b matches an identity:
+the token must stand alone, not preceded or followed by a dot or a word character. `Gdk.Cursor`,
+a variable named `vendorThreshold`, a field `x.openai_compat` — none asserts authorship, and a
+gate that fails on them is a gate someone turns off.
+
+**The gate cannot scan itself**, because it must contain the pattern in order to be the pattern.
+Excluding it by path would leave exactly one tracked file where prose could sit unexamined, so
+the exemption is paid for by a self-check — and the self-check is a **form rule, not a pinned
+count**: every matching line in the gate file must *be* a pattern definition. A count would have
+to be edited whenever a matcher is legitimately added, and an edit-to-pass is not a check.
+
+**The fixture found a defect in the gate on its first run, in the direction that mattered.**
+The content scan was `grep -IqE` — case-sensitive — while the pattern is lower case and a
+document naming a vendor capitalises it. **G12b would have passed the exact file it exists to
+catch.** It passed the real tree, it passed the token-inside-an-identifier case, and it reported
+"tracked contents clean across 7129 files" — a clean number from a matcher that could not have
+matched. Two further fixture defects were mine and not the gate's: the probe self-checked its own
+extracted copy rather than the repository's gate file, and direction 1 piped the suite into
+`grep -q`, whose early exit sends SIGPIPE and turns a passing gate into a failing pipeline under
+`pipefail`.
+
+Four directions, all passing: the real tree passes; a tracked file asserting vendor authorship
+fails; prose smuggled into the gate file the scan exempts fails via the self-check; a vendor
+token inside a larger identifier passes.
+
+---
+
+## Deferred, on purpose, with the reason recorded
+
+The citation audit's value has been realised: the population is known (323 citations over 14
+tier-1 documents), the drift is found and corrected, and the expansion is done. What remains is
+the **durability layer** — machinery that keeps the corpus correct rather than machinery that
+made it correct. It does not block the novelty work, and the novelty work is the project's
+remaining risk.
+
+| deferred | why it is safe to defer |
+|---|---|
+| the adjudication ledger over 323 citations, with content hashes | the adjudication has happened; the ledger records it durably. Nothing downstream reads it yet |
+| G14 (ledger gate) | gates the ledger; there is no ledger |
+| G15 (no bare continuations) | 19 bare continuations remain, all documented and all in the two protected classes. G15 needs an enumerated exception list that does not yet exist |
+| the 13 remaining `TRACKED_ELSEWHERE` adjudications, and tightening G10 | G10's two known-bad entries are closed; the remainder are known and enumerated |
+| tier-2 verification | tier 1 is verified and tier 3 carries supersession headers |
+
+This is a decision, not an omission. If it is never picked up, the cost is stated above: the
+corpus is correct today and nothing keeps it correct automatically.

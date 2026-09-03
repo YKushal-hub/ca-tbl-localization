@@ -365,6 +365,71 @@ fi
 [ "$G12_BAD" -eq 0 ] || fail G12
 finish G12
 
+# ------------- G12b: no vendor identity in the CONTENT of any tracked file
+# G12 gates COMMITS -- identity fields and message bodies. It cannot see a vendor
+# name sitting inside a tracked document, which is where the rule was actually at
+# risk: 23 .md files in this tree carry one. Every one of them is untracked, so the
+# rule is not violated today. Nothing was checking, which is the only reason that is
+# a fact rather than a coincidence -- and G9b now requires every .md to be tracked
+# or allow-listed, so a file crossing from allow-listed to tracked is a normal
+# event. This is the gate that inspects what it brings.
+#
+# FORM, not token, for the reason G12 records above. The token must stand ALONE as
+# an identity: not preceded by a dot or a word character, and not followed by one.
+# An upstream `Gdk.Cursor`, a variable named vendorThreshold, a field `x.openai` --
+# none of those assert authorship, and a gate that fails on them is a gate someone
+# turns off. The one tracked hit found when this gate was written was exactly that:
+# `Gdk.Cursor` in vendored ns-3.47 source.
+printf '\n--- G12b no vendor identity in tracked file contents ---\n'
+G12B_BAD=0
+G12B_PAT='(^|[^.[:alnum:]_])(cl[a]ude|anthropic|chatgpt|openai|copilot)([^[:alnum:]_]|$)'
+
+# This file must contain the pattern in order to be the pattern, so it cannot scan
+# itself. Excluding it by path would leave one tracked file where prose could sit
+# unexamined, so the exclusion is paid for by a SELF-CHECK.
+#
+# The self-check is a FORM rule, not a pinned count. A count is a magic number that
+# has to be edited whenever a pattern is legitimately added, and an edit-to-pass is
+# not a check. The rule instead: every line in this file that matches must BE a
+# pattern definition -- `SOMETHING_PAT=`. Three lines qualify today, all of them
+# matchers. A sentence naming a vendor is not an assignment and fails, which is the
+# case the exclusion has to cover.
+G12B_SELF_FILE=scripts/catbl_gates.sh
+G12B_SELF_BAD=$(grep -niE "$G12B_PAT" "$G12B_SELF_FILE" | grep -vcE '^[0-9]+:[A-Z][A-Z0-9_]*_PAT=' || true)
+G12B_SELF_N=$(grep -ciE "$G12B_PAT" "$G12B_SELF_FILE" || true)
+if [ "${G12B_SELF_BAD:-0}" -ne 0 ]; then
+    printf 'GATE FILE SELF-CHECK FAILED: %s matching line(s) are not pattern definitions\n' \
+           "$G12B_SELF_BAD"
+    grep -niE "$G12B_PAT" "$G12B_SELF_FILE" | grep -vE '^[0-9]+:[A-Z][A-Z0-9_]*_PAT=' | head -3 | sed 's/^/    /'
+    printf '  this file is exempt from the content scan; that exemption covers matchers only\n'
+    G12B_BAD=1
+else
+    printf 'gate-file self-check: %s matching line(s), all pattern definitions\n' "$G12B_SELF_N"
+fi
+
+G12B_HITS=0
+while IFS= read -r f; do
+    [ "$f" = "$G12B_SELF_FILE" ] && continue
+    # -I skips binaries; a file that vanished between ls-files and now is not a hit
+    [ -f "$f" ] || continue
+    if grep -IqiE "$G12B_PAT" "$f" 2>/dev/null; then
+        G12B_HITS=$((G12B_HITS + 1))
+        [ "$G12B_HITS" -le 5 ] && {
+            printf 'VENDOR IDENTITY IN TRACKED FILE: %s\n' "$f"
+            grep -IniE "$G12B_PAT" "$f" 2>/dev/null | head -2 | sed 's/^/    /'
+        }
+    fi
+done < <(git ls-files)
+if [ "$G12B_HITS" -ne 0 ]; then
+    printf 'TRACKED FILES CARRYING A VENDOR IDENTITY: %d\n' "$G12B_HITS"
+    printf '  remedy: rewrite the sentence, or keep the file untracked and allow-list it\n'
+    G12B_BAD=1
+else
+    printf 'tracked contents clean across %s files\n' "$(git ls-files | wc -l | tr -d ' ')"
+fi
+[ "$G12B_BAD" -eq 0 ] || fail G12b
+finish G12b
+
 # ------------------------ G11: the propagation study, under the gates
 # Wired in 2026-09-02, after validate.py was rebuilt to COMPUTE the link budget rather
 # than read it from the probe. It is RED, for an accuracy reason and not a
