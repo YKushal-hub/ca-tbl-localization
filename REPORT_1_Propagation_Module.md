@@ -287,7 +287,7 @@ Source: `ca_tbl_causal_sim.cc:3571-3573`
 | NLOS attenuation | `μ = 6.0`, `σ = 5.0` | `μ = 10.0`, `σ = 7.0` | `lora-physics-parameters.cc:188`, `lora-physics-parameters.cc:190` |
 | Diffraction | `μ = 4.0`, `σ = 3.0` | `μ = 5.0`, `σ = 3.0` | `lora-physics-parameters.cc:188`, `lora-physics-parameters.cc:190`, `lora-physics-parameters.cc:209` |
 
-**Tier-to-environment mapping** (`ca_tbl_causal_sim.cc:3143-3144`): tier 1 → `RURAL_FORESTED`; tiers 2 and 3 → `RURAL_OPEN`.
+**Tier-to-environment mapping** (`ca_tbl_causal_sim.cc:1040`, `ca_tbl_causal_sim.cc:1048`, `ca_tbl_causal_sim.cc:1056` — the macro binds tier 1 to `envWide` and tiers 2 and 3 to `envFacility`; defaults at `ca_tbl_causal_sim.cc:3226-3227`): tier 1 → `RURAL_FORESTED`; tiers 2 and 3 → `RURAL_OPEN`.
 
 ### 5.6 Constants — foliage (ITU-R P.833-10)
 
@@ -303,7 +303,7 @@ A_veg = A_max · (1 − exp(−depth · γ / A_max))
 | `VEG_SPARSE_SHRUBS` | 0.04 | 8.0 | 2.4 GHz, UWB (`vegFacility`) | **3.15 dB** |
 
 - `depth ~ LogNormal(ln 100, 0.6, 0, 500)` — `lora-physics-parameters.cc:293`
-- `γ`, `A_max` — `lora-physics-parameters.cc:304-309`
+- `γ`, `A_max` — `lora-physics-parameters.cc:300-316`
 - Assignment — `ca_tbl_causal_sim.cc:3174-3175`
 
 **The term is distance-independent.** `depth` is a per-link lognormal draw, not a function of link length. Foliage can therefore explain a **constant offset** and never a **slope** — a fact registered before the term was implemented, so that the surviving distance-dependent gap could not later be presented as a discovery.
@@ -345,7 +345,7 @@ Terrain is guaranteed inactive while, at the path midpoint:
 (h_mid − 0.040·d) / (0.5·√(λ·d))  ≥  0.6
 ```
 
-with λ at **868 MHz for every tier** — the frequency is hardcoded (`lora-terrain-submodule.cc:69-70`).
+with λ at **868 MHz for every tier** — the frequency is hardcoded (`lora-terrain-submodule.cc:70-71`).
 
 | Tier | `h_mid` | Guaranteed inactive below | Probe points in sub-population |
 |---|---|---|---|
@@ -414,7 +414,7 @@ flowchart TD
 | Item | Detail |
 |---|---|
 | **Original dismissal** | The 20 dB deficit is on 2.4 GHz in `RURAL_OPEN` while 868 MHz in `RURAL_FORESTED` is nearly right. Fresnel radius scales as `1/√f`, so the higher-frequency tier should clear terrain *more* easily, not less |
-| **Why the argument was later withdrawn (W10)** | It reasons about physics **the engine does not implement**. `lora-terrain-submodule.cc:69-70` hardcodes 868 MHz for *every* tier, so the engine's terrain does not scale with frequency at all |
+| **Why the argument was later withdrawn (W10)** | It reasons about physics **the engine does not implement**. `lora-terrain-submodule.cc:70-71` hardcodes 868 MHz for *every* tier, so the engine's terrain does not scale with frequency at all |
 | **The general lesson** | The argument was about the real world; the claim was about this engine. They are not the same object. This was the **third void argument** in the sequence whose conclusion could not be trusted because its reasoning never touched the source |
 
 ### 7.4 Hypothesis 3 — two-ray ground reflection: **mechanism VERIFIED, implementation initially defective**
@@ -504,7 +504,7 @@ Two independent computations of the quantity agree: a Monte-Carlo draw reproduci
 
 ### 8.1 Why a census replaced single-term guessing
 
-Three passes asked *which term is missing*, in the singular. `lora-physics-engine.cc:597-601` shows the engine sums **thirteen terms** plus three outside `additional_loss`. If the residual is a sum, the singular question has no correct answer, and each pass keeps producing a term that closes part of the gap and reads as a partial failure.
+Three passes asked *which term is missing*, in the singular. `lora-physics-engine.cc:598-600` shows the engine sums **thirteen terms** plus three outside `additional_loss`. If the residual is a sum, the singular question has no correct answer, and each pass keeps producing a term that closes part of the gap and reads as a partial failure.
 
 **The registered inference rule, written before any further term was added:**
 
@@ -565,7 +565,7 @@ Three passes asked *which term is missing*, in the singular. `lora-physics-engin
 
 ### 8.6 Two facts about `terrainDb` that changed earlier reasoning
 
-1. **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:69-70`) — its Fresnel radius is computed at 868 MHz for *every* tier, including UWB at 7.99 GHz. **The engine's terrain is frequency-independent.**
+1. **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:70-71`) — its Fresnel radius is computed at 868 MHz for *every* tier, including UWB at 7.99 GHz. **The engine's terrain is frequency-independent.**
 2. **The earth-curvature path is never reached.** It requires `horizontalDistM > d_horizon`, and the radio horizons are 21.0 km (868), 15.1 km (2.4 GHz), 11.6 km (UWB) against sweep maxima of 6 km, 6 km, 180 m. Only `proceduralLoss` can fire.
 
 ---
@@ -1149,7 +1149,7 @@ The two index-insensitive tiers confirm the edit reached exactly as far as inten
 
 **D3 — the `0.0` sentinel collided with the data domain.**
 
-`scratch/ca_tbl_causal_sim.cc:1413`. `meanSnr` fell back to `0.0` when `snrN == 0`; **0 dB SNR is a legitimate measurement**, so the sentinel was indistinguishable from data. Sibling fields `mae`, `twoRayFrac` and `nlosFrac` use `−1.0`. Fixed to emit `quiet_NaN()`. Footprint verified confined: pre/post diff at default flags is exactly one field on one row.
+`scratch/ca_tbl_causal_sim.cc:1437-1438`. `meanSnr` fell back to `0.0` when `snrN == 0`; **0 dB SNR is a legitimate measurement**, so the sentinel was indistinguishable from data. Sibling fields `mae`, `twoRayFrac` and `nlosFrac` use `−1.0`. Fixed to emit `quiet_NaN()`. Footprint verified confined: pre/post diff at default flags is exactly one field on one row.
 
 **D4 — `PassesReceiverSensitivity` is a logistic, not a hard threshold.**
 
@@ -1210,7 +1210,7 @@ Four of them are hard-assigned `0.0` **on a line after the line that computes th
 
 `mean_margin_db` is the mean of `result.sensitivityMarginDb` (`ca_tbl_causal_sim.cc:1356`, `:1371`, `:1386`), so **the engine's margin denominator moves with PDR** — and therefore with distance.
 
-The census enumerated `additional_loss` at `:597-599` and missed it because **it is not in that sum.** It is worth up to 1.5 dB, is largest where PDR is highest, and so **mimics a distance-growing loss while being nothing of the kind.**
+The census enumerated `additional_loss` at `:598-600` and missed it because **it is not in that sum.** It is worth up to 1.5 dB, is largest where PDR is highest, and so **mimics a distance-growing loss while being nothing of the kind.**
 
 **The two general lessons:**
 

@@ -507,7 +507,7 @@ ca_tbl_full   19/20 -> 20/20     M1 27.094 J
 
 Withdrawn **as pre-D1, not as wrong.** It reproduces *exactly* from its cited directory — which established **provenance, never validity**.
 
-Withdrawn because the 6 dB defect reaches the quantity it measures: the arms differ only at `ca-tbl-policy.cc:877`, whose trigger is `mahal > threshold && nNlos == 0`; tier-2 occupancy in that campaign is **99.6%** (27 322 against 108 cycles), so `nNlos`, the geometry and the residuals all come from the links the error changes. **Not a common-mode shift; it does not cancel in the difference.**
+Withdrawn because the 6 dB defect reaches the quantity it measures: the arms differ only at `ca-tbl-policy.cc:930-931`, whose trigger is `mahal > threshold && nNlos == 0`; tier-2 occupancy in that campaign is **99.6%** (27 322 against 108 cycles), so `nNlos`, the geometry and the residuals all come from the links the error changes. **Not a common-mode shift; it does not cancel in the difference.**
 
 ### 7.8 The envelope — no density at which the architecture pays
 
@@ -673,7 +673,7 @@ The record contains a substantial number of findings that were **withdrawn becau
 |---|---|---|---|
 | **D1** | `sfIndex = sf - 7` against SF5-based tables — **six decibels** | `lora-2p4-physics-engine.cc:147-151`, `lora-uwb-physics-engine.cc:147-151` | **Invalidated the entire results tree.** Forced regeneration of every campaign; withdrew W1 and N3; rescaled the `spacing/r80` axis by 1.26× at every point; re-scoped Claim 7 |
 | **D2** | `mean_snr_db` accumulated only over delivered packets — survivorship bias | `ca_tbl_causal_sim.cc:1393-1400` | Up to **+22.70 dB** of bias at low PDR. Fixed behind a flag so prior output stays byte-identical. A downstream design question remains open |
-| **D3** | `0.0` sentinel collided with the data domain (0 dB SNR is a real measurement) | `ca_tbl_causal_sim.cc:1413` | One field on one row; fixed to `NaN` |
+| **D3** | `0.0` sentinel collided with the data domain (0 dB SNR is a real measurement) | `ca_tbl_causal_sim.cc:1437-1438` | One field on one row; fixed to `NaN` |
 | **D4** | Reception described as a hard threshold; it is a logistic | `lora-physics-engine.cc:135-146` | A description error, not a simulator defect. Recorded so it does not recur |
 | **D5** | PCS unweighted-sum term saturation | `ca-tbl-policy.cc:666-671`, `:57` | The confidence metric cannot express uncertainty. **RECORDED, NOT FIXED** — a fix invalidates every result |
 | **1a** | Escalation to tier 3 ignored target-tier availability | — | **FIXED** — `escalationRequiresEvidence`, suppress-only, default off |

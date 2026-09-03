@@ -201,7 +201,7 @@ examined.
 
 ## D3 — the `0.0` sentinel collided with the data domain
 
-**Site.** `scratch/ca_tbl_causal_sim.cc:1413`. `meanSnr` fell back to `0.0` when
+**Site.** `scratch/ca_tbl_causal_sim.cc:1437-1438`. `meanSnr` fell back to `0.0` when
 `snrN == 0`; 0 dB SNR is a legitimate measurement, so the sentinel was
 indistinguishable from data. `mae`, `twoRayFrac` and `nlosFrac` use `-1.0` in the
 same block.
@@ -461,7 +461,7 @@ Withdrawn from `CA_TBL_HANDOFF_v4.md` §1.3 as **pre-D1, not as wrong**.
 
 It reproduces **exactly** from `results/p10_plane_fix`. That established provenance,
 never validity. Withdrawn because the 6 dB defect reaches the quantity it measures:
-the arms differ only at `ca-tbl-policy.cc:877`, whose trigger is
+the arms differ only at `ca-tbl-policy.cc:930-931`, whose trigger is
 `mahal > threshold && nNlos == 0`; tier-2 occupancy in that campaign is **99.6%**
 (27 322 vs 108 cycles), so `nNlos`, the geometry and the residuals all come from the
 links the error changes. Gate eligibility measured at **151/28 718 = 0.53%** all-LOS
@@ -1612,11 +1612,24 @@ The first is the clearest argument for pinning adjudications to content hashes: 
 written in commit `a3b468e`, in the same commit that inserted ~40 lines above it**, and was
 invalidated by my own edit before it was ever committed.
 
-Four further drifted citations are recorded as found and **not yet corrected**:
-`ca_tbl_causal_sim.cc:3143-3144` (tier→environment mapping), `:1413` (the `0.0` sentinel —
-the line is the `if (received)` guard), `:2494-2496` (floor discard statistics), and
-`ca-tbl-policy.cc:877` (the trigger the arms differ at — the line is a comment). Each needs
-its correct anchor located before it is moved.
+Four further drifted citations were recorded as found and are now **corrected**. Each was
+located by grepping for the claim's own content rather than by searching near the stale line
+number, because a drifted anchor carries no information about where its target went:
+
+| claim | stale anchor (what is actually there) | correct anchor |
+|---|---|---|
+| tier→environment mapping | `ca_tbl_causal_sim.cc:3143-3144` — a comment about beacon teardown | `ca_tbl_causal_sim.cc:1040`, `ca_tbl_causal_sim.cc:1048`, `ca_tbl_causal_sim.cc:1056` bind the mapping (`c868`←`envWide`, `c2p4`/`cUwb`←`envFacility`); `ca_tbl_causal_sim.cc:3226-3227` set the values |
+| the `0.0` sentinel | `ca_tbl_causal_sim.cc:1413` — the `if (received)` guard | `ca_tbl_causal_sim.cc:1437-1438`, the `meanSnr` ternary whose false branch is now `quiet_NaN()` |
+| floor discard — selection, not fusion | `ca_tbl_causal_sim.cc:2494-2496` — the `tier == CA_TBL_TIER_868` dispatch | `ca_tbl_causal_sim.cc:2713-2714` decides `usedFloor`; `ca_tbl_causal_sim.cc:2723` performs the selection |
+| the trigger the arms differ at | `ca-tbl-policy.cc:877` — inside a comment about the LOS-fraction cut-off | `ca-tbl-policy.cc:930-931`, `mahal > m_config.mahalanobisThreshold && allLos` |
+
+Distance from the stale anchor to the correct one: **83** lines (3143→3226, and 2100 lines to
+the macro that actually binds the mapping), **24** (1413→1437), **219** (2494→2713), **53**
+(877→930). Three of the four are close enough that a reader checking the neighbourhood would
+have found the right code — and none was caught that way, because **the stale line itself read
+plausibly**: a `tier ==` dispatch, an `if (received)` guard, a comment about the very parameter
+under discussion. A citation is not verified by the cited line being sensible. It is verified by
+the cited line containing the claim.
 
 ---
 
@@ -1734,3 +1747,58 @@ exactly that case.
 Fixture, four directions, all passing: the real tree passes; a new unlisted `.md` trips it;
 a new `CA_TBL_*` file does **not** inherit an exemption; and an allow-listed file that
 becomes tracked is caught by G8, which is this rule's mirror.
+
+---
+
+## A citation that lands on a `case` label or a blank line is a candidate for off-by-one — 17 of 200 were
+
+**Origin.** Expanding the environment table in `REPORT_1_Propagation_Module.md` found **twelve
+off-by-one citations in fifteen**, every one the same shape: the citation pointed at the
+`case ENV_RURAL_OPEN:` label and the value it claimed to cite was on the *next* line. That is a
+mechanically detectable shape, so it should be checked in one pass rather than found one at a
+time. `scripts/case_label_check.py` does that.
+
+**Population, stated before the result.** 311 citations over the 14 tier-1 documents, in two
+disjoint sets that are not equally knowable:
+
+- **200 qualified** — `path.cc:N` or `path.cc:N-M`. Fully mechanical.
+- **111 continuation** — a bare `` `:N` `` whose file is carried over from earlier prose. This
+  form is not mechanically resolvable in this corpus (see the section above). The tool resolves
+  each to the nearest preceding qualified citation, labels the result HEURISTIC, and reports
+  every unresolvable one by name rather than dropping it.
+
+**Yield: 17 qualified hits, in three classes.**
+
+| class | count | verdict |
+|---|---|---|
+| leading blank line — `lora-terrain-submodule.cc:69-70`, where 69 is blank and 70 is `double frequencyHz = 868e6;` | 7 | defect. Repointed to `lora-terrain-submodule.cc:70-71`: 70 sets the frequency, 71 derives the λ every claim goes on to use |
+| leading blank line — `lora-physics-engine.cc:597-601` and `lora-physics-engine.cc:597-599`, where 597 is blank | 5 | defect. The thirteen-term sum is **`lora-physics-engine.cc:598-600`**. `lora-physics-engine.cc:597-599` was worse than off-by-one: it ends before the sum does, omitting five of the thirteen terms it is cited to enumerate |
+| opens on a `case` label — `lora-physics-parameters.cc:304-309` | 5 | **not** off-by-one; the range legitimately opens on a label. But it covers three of the **seven** vegetation cases in a switch spanning `lora-physics-parameters.cc:300-316`, while the claim is "γ, A_max *per vegetation type*". Truncated range |
+
+**A hit is not automatically a defect, and the class that proves it is the third one.** A range
+citation may correctly open on a `case` label. Had the tool gated on this shape it would have
+been wrong five times in seventeen. It flags candidates; a person returns the verdict. That
+division is the same one `doc_audit.py` draws and for the same reason.
+
+**Two kinds of citation that are correct while flagged, and are deliberately left alone.**
+
+1. **Citation-as-quotation.** `DEFECTS.md:1580` cites `lora-terrain-submodule.cc:69` — a blank
+   line — because it is *quoting the historical defective citation* as the evidence for a
+   finding. Repointing it would destroy the record it exists to keep. Verification must not
+   mutate its subject.
+2. **Pre-registration documents.** `experiments/*.md` were written before the runs they
+   register. Editing a citation in one after the fact is a retrospective change to a document
+   whose whole value is that it was fixed in advance. Their stale citations are recorded here
+   instead.
+
+So corrections were applied to the **living deliverables only** — `Architecture.md`,
+`Simulation.md`, `REPORT_1_Propagation_Module.md`, `REPORT_2_Project_Retrospective.md` — and
+to site pointers in this log that are claims about current code rather than quotations. The
+nine hits that survive the check are exactly those two protected classes, which is the result
+the split predicts.
+
+**A defect introduced while fixing defects.** The correction table above was first written with
+its "correct anchor" column in the bare continuation form — thirteen new `` `:N` `` citations
+added to a corpus whose open task is eliminating one hundred and eleven of them. Caught by
+re-running the census after the edit rather than before it, and by the census reporting a
+population, not a pass. **A count taken only before the change cannot see what the change added.**

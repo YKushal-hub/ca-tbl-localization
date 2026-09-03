@@ -707,7 +707,7 @@ screen costs one run against a campaign's worth.
 | M-12 | Envelope prediction timestamped 17 min before first result                                               | `results/p10_env/PREDICTION.md`                             |
 | M-13 | Full 7-density envelope table                                                                            | 140 directories, 20 seeds each                                |
 | M-14 | 2.107 × [2.084, 2.134] energy ratio at 0.78                                                             | Paired geometric mean, seed-level bootstrap                   |
-| M-15 | Floor: 99.9 % duty, 1.16 % of fixes, 98.8 % discarded, 54.5 % of energy, 9.1 × 10⁻⁶ information ratio | Root-cause analysis Q1;`ca_tbl_causal_sim.cc:2494-2496`     |
+| M-15 | Floor: 99.9 % duty, 1.16 % of fixes, 98.8 % discarded, 54.5 % of energy, 9.1 × 10⁻⁶ information ratio | Root-cause analysis Q1;`ca_tbl_causal_sim.cc:2713-2714`, `ca_tbl_causal_sim.cc:2723`     |
 | M-16 | 12/12 pre-registered predictions met                                                                     | `PREDICTION_P1_v2.md` + measured outcomes at 0.78 and 1.29  |
 | M-17 | Sign test 7/7, p = 0.0156 two-sided                                                                      | Envelope, per-density mean availability                       |
 | M-18 | Sign test 20/20, p ≈ 1 × 10⁻⁶                                                                        | Reference density, per-seed paired                            |
@@ -913,7 +913,7 @@ line pairs and its scoping: every inactivity verdict is `probe_v7`-scoped, and `
 elsewhere.
 
 It also found that terrain applies an 868 MHz wavelength to every tier
-(`lora-terrain-submodule.cc:69-70`), and that effective sensitivity is not constant — it
+(`lora-terrain-submodule.cc:70-71`), and that effective sensitivity is not constant — it
 drops by `linkHysteresisMarginDb` (1.5 dB) whenever the link was previously receiving, so
 the reception threshold moves with PDR and sits outside the loss sum entirely.
 

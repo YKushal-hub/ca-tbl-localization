@@ -309,7 +309,7 @@ Four of them are hard-assigned `0.0` on a line *after* the line that computes th
 | `multipathPenaltyDb` | `:489` | **`:596`** |
 | `state.soilAttenuationDb` | (submodule) | **`:593`** |
 
-A reader tracing the pipeline, or the loss sum at `:597-601`, will count these as
+A reader tracing the pipeline, or the loss sum at `:598-600`, will count these as
 contributing. They do not. **Anyone reasoning about this engine from its structure rather
 than from its assignments will over-count what it does** — and reading the submodule that
 computes a term is not enough, because the assignment that discards it is in the caller.
@@ -331,7 +331,7 @@ about one configuration, not about the engine.
 
 Two further details found the same way, both easy to misread from structure:
 
-- **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:69-70`) and applies that
+- **Terrain hardcodes 868 MHz** (`lora-terrain-submodule.cc:70-71`) and applies that
   wavelength to every tier, UWB at 7.99 GHz included. The engine's terrain does not scale
   with frequency.
 - **Effective sensitivity is not a constant.** It is reduced by
@@ -756,7 +756,7 @@ flowchart BT
 | E-11 | Causality: only the active tier transmits                      | Causal feed-forward gate;`--trace` column `activeTier` / `nextTier`                                   |
 | E-12 | Evidence-gate null control byte-identical                      | Flag-off diff vs pre-change binary                                                                          |
 | E-13 | Floor: 99.9 % duty, 1.16 % of fixes, 54.5 % of energy          | Root-cause analysis Q1, 20 seeds                                                                            |
-| E-14 | Floor measurements discarded on 98.8 % of cycles               | `ca_tbl_causal_sim.cc:2494-2496`; empirical 6.48 vs 6.49 mean ranges into filter                          |
+| E-14 | Floor measurements discarded on 98.8 % of cycles               | `ca_tbl_causal_sim.cc:2713-2714`, `ca_tbl_causal_sim.cc:2723`; empirical 6.48 vs 6.49 mean ranges into filter                          |
 | E-15 | Information ratio 9.1 × 10⁻⁶                                | Measured per-tier sigma from pinned static arms                                                             |
 | E-16 | Sleeping tier 1 calls`ClearNeighbours()`                     | `ca_tbl_causal_sim.cc:2721-2730`                                                                          |
 | E-17 | Tier-1 energy split 78.8 % TX / 20.7 % RX                      | Energy decomposition,`boxHalf` 1500                                                                       |
