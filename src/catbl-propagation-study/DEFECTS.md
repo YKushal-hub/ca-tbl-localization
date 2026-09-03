@@ -2302,3 +2302,52 @@ Fixture, three directions, all passing: a serialised schedule passes; a delibera
 schedule aborts *and* names the pair and the count (asserted, not assumed — a fixture that fails
 by crashing is not a fixture); and the offline gate independently fails a trace produced with the
 runtime bound raised, so the check does not depend on the runtime abort having fired.
+
+---
+
+## G16's own population excluded the contention it exists to catch
+
+**Fourth instance of the class, and the first found in a gate built the same week.** The others:
+`TRACKED_ELSEWHERE` passing a citation that resolved only by basename; an empty category reported
+as a pass rather than as VACUOUS; G9's hardcoded allow-list, which could only fail on files
+somebody had already thought of.
+
+G16 counted **survey transmissions in flight** and asserted at most one. It reported a concurrency
+of exactly 1 on every exchange in the serialised run — correct, and useless for the question that
+mattered, because a discovery beacon was transmitting into the same channel and was not in the
+population. The beacon turned out to be worth **18 percentage points** on the UWB adjacent link,
+which is the link tier-3 calibration depends on. **The detector was clean and the channel was not.**
+
+**Widened**, with the governing distinction:
+
+| class | what it is | treatment |
+|---|---|---|
+| `surveyConcurrent` | transmissions the schedule controls | **asserted** against `--anchorMaxConcurrent`; a violation aborts |
+| `beaconConcurrent` | discovery beacons in the same epoch | **reported, never asserted** |
+| `totalConcurrent` | the physically relevant number | reported |
+
+**Assert on what the schedule controls; report what it does not.** Beacon traffic is a property of
+the scenario, not a scheduling defect — a gate that aborts on it fails on correct behaviour, which
+is how gates get disabled. And the breakdown is emitted rather than the sum: *"concurrency 2, of
+which 1 beacon"* is actionable, *"concurrency 2"* is not.
+
+Fixture, five directions, all passing. Two are new and both guard the counter itself: an exchange
+concurrent with a beacon must be **counted and reported without aborting**, and quiescing beacons
+must drive the count to **zero**. Without the second, a counter stuck at zero would be
+indistinguishable from a correctly quiet channel — and the gate prints an explicit note when a
+trace shows no beacons anywhere, because it cannot tell those two apart on its own.
+
+---
+
+## Two rules from the same build
+
+**A self-reported counter cannot detect a defect in itself.** G16's offline gate rebuilds the
+per-epoch-per-tier tally from the rows and fails if it disagrees with the emitted column. The
+emitted column is the instrument; the recount is the check on the instrument. Any gate that reads
+a value its own subject produced needs the equivalent.
+
+**A detector that finds nothing has still done its job when it converts an assumption into a
+measurement.** G16 found the survey already serialised — no defect, no change to any number. What
+it produced was the difference between *believing* the second scheduling correction worked and
+*knowing* it did, and that difference is what let the beacon result be attributed to beacons
+rather than to residual self-concurrency. A gate is not only worth what it catches.

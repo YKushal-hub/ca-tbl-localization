@@ -20,7 +20,7 @@ COMMON="--seed=1 --duration=200 --boxHalf=2000 --gwGrid=5 --nlosSource=propagati
 
 [ -x "$BIN" ] || { printf 'FIXTURE BROKEN: no binary at %s\n' "$BIN"; exit 2; }
 
-printf 'G16 fixture -- two directions\n\n'
+printf 'G16 fixture -- four directions\n\n'
 
 # ---- direction 1: a correctly serialised schedule must PASS -------------------
 mkdir -p "$TMP/ok"
@@ -71,6 +71,41 @@ elif python3 "$GATE" "$T2" 1 >"$TMP/bad2.gate" 2>&1; then
     printf '  BAD  offline gate on a bad trace    expected fail, got pass\n'; RC=1
 else
     printf '  OK   offline gate on a bad trace    expected fail, got fail\n'
+fi
+
+# ---- direction 3: an exchange concurrent with a BEACON must be counted and
+# reported, and must NOT abort. Beacon traffic is a property of the scenario, not a
+# scheduling defect; a gate that aborts on it fails on correct behaviour.
+T3="$TMP/ok/trace_anchor_ranges_ca_tbl_full_seed1.csv"
+if [ ! -s "$T3" ]; then
+    printf '  BAD  beacon concurrency reported    no serialised trace to inspect\n'; RC=1
+else
+    NB=$(awk -F, 'NR>1 && $11+0 > 0 {n++} END{print n+0}' "$T3")
+    if [ "$NB" -eq 0 ]; then
+        printf '  BAD  beacon concurrency reported    expected >0 exchanges with a beacon, got 0\n'
+        printf '         (default --beaconUwb=2 should put beacons in nearly every epoch)\n'; RC=1
+    elif python3 "$GATE" "$T3" 1 >/dev/null 2>&1; then
+        printf '  OK   beacon concurrency reported    %s exchange(s) with a beacon, gate still passes\n' "$NB"
+    else
+        printf '  BAD  beacon concurrency reported    gate ABORTED on beacon traffic\n'; RC=1
+    fi
+fi
+
+# ---- direction 4: quiescing beacons must drive the beacon count to zero. Without
+# this, a counter stuck at zero would look identical to a correctly quiet channel.
+mkdir -p "$TMP/quiet"
+$BIN $COMMON --anchorPairsPerEpoch=1 --anchorMaxConcurrent=1 --beaconUwb=100000 \
+    --outdir="$TMP/quiet" >"$TMP/quiet.log" 2>&1
+T4="$TMP/quiet/trace_anchor_ranges_ca_tbl_full_seed1.csv"
+if [ ! -s "$T4" ]; then
+    printf '  BAD  quiesced beacons -> zero count  no trace\n'; RC=1
+else
+    QU=$(awk -F, 'NR>1 && $4=="UWB" && $11+0 > 0 {n++} END{print n+0}' "$T4")
+    if [ "$QU" -eq 0 ]; then
+        printf '  OK   quiesced beacons -> zero count  UWB beacon concurrency 0, counter tracks\n'
+    else
+        printf '  BAD  quiesced beacons -> zero count  got %s UWB exchanges with a beacon\n' "$QU"; RC=1
+    fi
 fi
 
 printf '\n'

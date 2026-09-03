@@ -626,6 +626,21 @@ class EnginePhyProvider : public CaTblPhyProvider
  * than an emergent property -- which is the thing claim 6 is supposed to be
  * measuring. Real unsynchronised anchors have random phase; so do these.
  */
+/**
+ * \brief Per-tier count of DISCOVERY beacons transmitted, for G16's population.
+ *
+ * G16 originally counted only SURVEY transmissions in flight, and reported a
+ * concurrency of 1 while a beacon was transmitting into the same channel. The beacon
+ * turned out to be the dominant contention source -- worth 18 percentage points on the
+ * UWB adjacent link, the one tier-3 calibration depends on. A check that succeeds
+ * because its population excludes the thing it exists to catch is the fourth instance
+ * of that class in this project.
+ *
+ * File-scope and therefore surviving across arms, like g_fadingComponents. RunArm()
+ * resets it, or arm 2 would inherit arm 1's count.
+ */
+uint64_t g_beaconTx[CA_TBL_TIER_COUNT] = {0, 0, 0};
+
 struct BeaconDriver
 {
     CaTblMac* mac;
@@ -637,6 +652,7 @@ struct BeaconDriver
 
     void Fire()
     {
+        ++g_beaconTx[static_cast<int>(tier)];
         mac->Send(CA_TBL_MSG_DISCOVERY, tier, 1, 0);
         const double next = periodS + rng->GetValue(0.0, jitterMaxS);
         if (Simulator::Now().GetSeconds() + next < untilS)
@@ -1091,6 +1107,10 @@ RunProbe(EnvironmentClass envWide,
     // Same reason as RunArm(): the probe's engines must not inherit a stream index
     // left behind by anything constructed before them.
     RngSeedManager::ResetNextStreamIndex();
+    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+    {
+        g_beaconTx[ti] = 0; // file-scope, survives arms; see the declaration
+    }
 
     CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)
 
@@ -1969,8 +1989,14 @@ RunArm(CaTblPolicyMode mode,
         // unmistakable 0.98-against-0.00 contrast. A geometry without that contrast
         // would have passed either one off as physics. The count makes the schedule's
         // claim checkable by a reader instead of trusted.
+        // THE CLASS BREAKDOWN, not just a count. "concurrency 2, of which 1 beacon"
+        // is actionable; "concurrency 2" is not -- and the two classes are governed
+        // differently. surveyConcurrent is what the SCHEDULE controls and is asserted
+        // against --anchorMaxConcurrent. beaconConcurrent is a property of the
+        // SCENARIO, not a scheduling defect, so it is reported and never asserted:
+        // aborting on it would make the gate fail on correct behaviour.
         arTrace << "t,arm,seed,tier,anchorA,anchorB,trueRangeM,estRangeM,delivered,"
-                << "concurrentInTier\n";
+                << "surveyConcurrent,beaconConcurrent,totalConcurrent\n";
         arOpen = true;
     }
 
@@ -2398,6 +2424,11 @@ RunArm(CaTblPolicyMode mode,
         // capture arbitration run at the node's receivers, and the one-hop
         // neighbour tables are updated. Simulator::Run() returns at the stop event
         // and may be re-entered -- Stop(delay) is relative to Now().
+        uint64_t beaconAtEpochStart[CA_TBL_TIER_COUNT];
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            beaconAtEpochStart[ti] = g_beaconTx[ti];
+        }
         Simulator::Stop(Seconds(dt));
         Simulator::Run();
 
@@ -2477,6 +2508,8 @@ RunArm(CaTblPolicyMode mode,
                 // a tier. Counting across tiers would report a violation that is not
                 // one -- an instrument measuring the wrong population.
                 uint32_t concurrentInTier = 0;
+                const uint64_t beaconsThisEpoch =
+                    g_beaconTx[static_cast<int>(tr)] - beaconAtEpochStart[static_cast<int>(tr)];
                 size_t pi = 0;
                 for (size_t site = 0; site < nSites; ++site)
                 {
@@ -2549,7 +2582,9 @@ RunArm(CaTblPolicyMode mode,
                                     << CaTblPolicyModeName(mode) << "," << seed << ","
                                     << CaTblTierName(tr) << "," << A.id << "," << B.id << ","
                                     << std::setprecision(4) << trueR << "," << est << ","
-                                    << (got ? 1 : 0) << "," << concurrentInTier << "\n";
+                                    << (got ? 1 : 0) << "," << concurrentInTier << ","
+                                    << beaconsThisEpoch << ","
+                                    << (concurrentInTier + beaconsThisEpoch) << "\n";
                         }
                     }
                 }
