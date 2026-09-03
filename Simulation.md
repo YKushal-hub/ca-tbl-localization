@@ -498,7 +498,7 @@ flowchart LR
 | - | ------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | 1 | **Escalation triggers correctly** | ✅**PROVEN** | Precision 0.078 → 0.934, F1 0.803, FP cut 235×, geometric ground truth`[M-10]` |
 | 2 | **Energy reduction is real and cost-free** | ✅**PROVEN** | 25.68× reduction with accuracy*and* availability improving; structural explanation `[M-11]` |
-| 3 | **Architectural advantage exists and is bounded** | ⚠️**WITHDRAWN (W4), REPLACED — see §11.1** | ~~Window 1.0–1.3 `[M-12] [M-13]`~~ withdrawn: inferred from a region where every pre-registered verdict was FAIL or INCONCLUSIVE. Replaced by a single measured PASS, M1 = 0.9531 [0.9296, 0.9775], with five caveats `[M-27]` |
+| 3 | **Architectural advantage exists and is bounded** | ❌**WITHDRAWN (W4), REPLACEMENT ALSO WITHDRAWN (W11) — see §11.1** | ~~Window 1.0–1.3 `[M-12] [M-13]`~~ withdrawn: inferred from a region where every pre-registered verdict was FAIL or INCONCLUSIVE. ~~Replaced by a single measured PASS, M1 = 0.9531 [0.9296, 0.9775]~~ **also withdrawn (W11): measured under `nlosSource=legacy`, which the same cell shows re-measures to M1 = 1.1873 [1.1782, 1.1965] — a FAIL — under the corrected source `[M-27]`.** No replacement stands |
 | 4 | **Coverage-floor optimisation** | ✅**PROVEN** | 12/12 pre-registered predictions met at two densities`[M-16]` |
 | 5 | **Specialized packet taxonomy** | ✅**IMPLEMENTED & VALIDATED** | 9 message types, 4 access categories, validator 38/38`[M-20]` |
 | 6 | **Custom handshake / MAC** | ✅**IMPLEMENTED & EXERCISED** | Emergent capture 14,564 events; duty-cycle governor enforced at 0.0226 vs 0.025`[M-21]` |
@@ -531,6 +531,35 @@ pre-registered verdict was FAIL or INCONCLUSIVE, and the INCONCLUSIVE ones read
 *"ca_tbl_full does not meet (A,R)"*. A window was read out of a region where the
 proposed system did not meet its own requirement. Withdrawn with its reason, not
 deleted.
+
+**Replacement — WITHDRAWN (W11), 2026-09-04.** The text below stands as written; a withdrawal
+that edits its own subject leaves nothing to check.
+
+> **W11.** This cell was measured under `nlosSource=legacy`, which
+> `ca_tbl_causal_sim.cc:416-423` computes as `(nlosDb > 0) || (hiddenState > 0)` — the
+> propagation/hidden-channel conflation this document already records as a defect, and the reason
+> `nlosSource=propagation` exists. Re-run at 20 seeds with **only that flag changed**, the same
+> cell gives **M1 = 1.1873 [1.1782, 1.1965]** — a **FAIL** under `b49df46` §4, entirely above 1.0
+> rather than entirely below it.
+>
+> The defect is asymmetric between the arms, which is why it reaches the ratio. `static_2p4` has
+> no tier 3 and is unchanged in **every energy component to three decimals** (15.201 J both ways).
+> `ca_tbl_full` moves from 14.523 J to 18.039 J, **+24.2%**.
+>
+> The mechanism is not the one the tier-3 occupancy finding suggests. Under `legacy` the node
+> escalates 5.7 times and then **parks on UWB for 553 of 1440 cycles**, during which it is not
+> paying the tier-1 floor — tier-1 energy is 3.427 J. Under the corrected source it reaches UWB on
+> **zero** cycles, escalates 170.9 times without settling, and runs the floor continuously at
+> **9.093 J**. The saving was never a cheap precision tier; it was **the floor being switched off
+> while the node sat on a tier the defect had sent it to.**
+>
+> The binary was ruled out as a confound first: re-running the legacy cell on the current binary
+> reproduces the published `arm_summary.csv` digest byte-for-byte, so `nlosSource` is the only
+> difference. Full result: `src/catbl-propagation-study/experiments/CLAIM3_NLOS_SOURCE_RESULT.md`.
+>
+> **Claim 3 returns to withdrawn with no replacement.** The other 319 cells of the grid were
+> adjudicated under the same flag and have **not** been re-run; their verdicts are of unknown
+> status, which is a weaker statement than saying they are wrong.
 
 **Replacement.** `results/p10_grid`, H_cost at 20 seeds, `source 0a489df dirty 0`:
 
@@ -719,7 +748,7 @@ screen costs one run against a campaign's worth.
 | M-24 | Integrity detection: separation 7.73× (F1) / 16.45× (F3), CI lower 5.42 / 10.82 under seed-level **and** 7-class cluster bootstrap; F0 suspect rate 0.0046; latency median 0, 20/20 seeds. **PROVENANCE GAP:** the source records `dirty 4`, and no injection campaign anywhere records `dirty 0`, so this cannot be repointed to clean evidence — see `src/catbl-propagation-study/DEFECTS.md` | `results/campaign_20260810/stage1/`, 121 cells, `source a059203 dirty 4` |
 | M-25 | Recovery-policy ablation: 4 levels × F0/F1/F3 × 20 seeds. `none` −0.049/−0.051 availability vs `no_integrity`; `bounded` −0.016/−0.013; no level beats `no_integrity` on any axis | `results/campaign_recovery/`, 240 cells |
 | M-26 | Derived rule: an integrity monitor can only recover availability if some fallback both satisfies the accuracy requirement and is available at detection. Tier 1 = 100.60 m (fails `R`), tier 2 = 2.73 m (9× margin), tier 3 = 0.16 m but 10–56% coverage | Derivation from `[M-24] [M-25]` plus measured per-tier CEP50 |
-| M-27 | Claim 3 replacement: M1 ratio 0.9531 [0.9296, 0.9775] at 20 seeds, geometric mean of per-seed ratios with a seed-level bootstrap CI; the only PASS in 320 cells under `b49df46` §4 | `results/p10_grid/c_ef0_legacy_dw800_b1500/`, `source 0a489df dirty 0`, digests verified against files on disk |
+| M-27 | **WITHDRAWN (W11) — re-measures to 1.1873 [1.1782, 1.1965], a FAIL, under `nlosSource=propagation`; see §11.1.** Claim 3 replacement: M1 ratio 0.9531 [0.9296, 0.9775] at 20 seeds, geometric mean of per-seed ratios with a seed-level bootstrap CI; the only PASS in 320 cells under `b49df46` §4 | `results/p10_grid/c_ef0_legacy_dw800_b1500/`, `source 0a489df dirty 0`, digests verified against files on disk |
 | M-29 | Claim 9 re-measured on citeable provenance: falsification reproduces. F1 availability `full − no_integrity` −0.0305 (1 pos/18 neg/1 tie), F3 −0.0540 (1/19/0); arms differ 20/20 in both sets; suspects median 120 (F1) / 206 (F3), **no direction predicted for these** | `results/c9_clean/`, 40 cells, `source cd594c9 dirty 0`, 120 digest entries verified |
 | M-28 | Degeneracy screen, **per mechanism** over 3205 directories: `tiering` 1.1% (175/15390), `integrity` 27.3% (875/3203), `trigger` 40.0% (3431/8584), `energy` 0.1% (23/15390). Supersedes a single-verdict figure of 46.9% that blended all four | `scripts/diagnostics/degeneracy_check.py <dir> <mechanism>` over every `results/` directory |
 
