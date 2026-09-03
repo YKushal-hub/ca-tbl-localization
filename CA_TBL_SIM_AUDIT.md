@@ -1,5 +1,11 @@
 # CA-TBL Simulation Audit — What Exists, What's Broken, What's Missing
 
+> **HISTORICAL — not maintained, and not covered by the citation audit.** Audit date
+> 2026-07-30, at the S1–S4 build stage and before the D1 six-decibel correction (`0d5e747`).
+> Its "what's missing" list describes a build state that has since changed substantially.
+> Superseded by `Simulation.md` §14 and `REPORT_2_Project_Retrospective.md`.
+> Do not cite numbers from this file.
+
 Audit date: 2026-07-30
 Scope: `src/lora-physics-engine/`, `scratch/`, `scratch/python_handoff/`, `results/`
 Target: prove 6 claims in simulation — (1) architectural advantage, (2) procedure advantage,

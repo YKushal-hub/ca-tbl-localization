@@ -1,4 +1,10 @@
 # Multi-Modal LoRa/UWB Localization System — Complete Technical Report
+
+> **HISTORICAL — not maintained, and not covered by the citation audit.** This is the prior
+> study's report, retained for its defect record. Superseded by `Architecture.md` and
+> `Simulation.md`. Figures here may predate the D1 six-decibel sensitivity-table correction
+> (`0d5e747`) and the post-D1 regeneration of every campaign. Do not cite numbers from this file.
+
 **Team 41 | Final Report**
 
 ---

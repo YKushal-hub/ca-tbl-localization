@@ -1,5 +1,10 @@
 # CA-TBL — Independent Verification Audit Report
 
+> **HISTORICAL — not maintained, and not covered by the citation audit.** Run 2026-08-01,
+> before the D1 six-decibel sensitivity-table correction (`0d5e747`). Every campaign it
+> examines has since been regenerated. Superseded by `Simulation.md` §11 and
+> `src/catbl-propagation-study/DEFECTS.md`. Do not cite numbers from this file.
+
 Run 2026-08-01 at HEAD `c9ab733b5`. Auditor had a shell; all sim runs via
 `runuser -u kushal`. Audit outputs in `audit/` (not committed).
 
