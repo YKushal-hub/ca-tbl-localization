@@ -42,7 +42,19 @@ Population: `ca_tbl_full` only; `no_integrity` never trips the gate and has no b
 | F1 | 2949 | 1300 (44.1%) | 303 (10.3%) | 125 (4.2%) | **1221 (41.4%)** |
 | F3 | 6006 | 4498 (74.9%) | 294 (4.9%) | 336 (5.6%) | **878 (14.6%)** |
 
-## The mechanism, evidenced rather than asserted
+## WITHDRAWN 2026-09-03 — the mechanism below is not evidenced by the arithmetic
+
+The `hsweep` fault-multiplicity sweep tested this claim across `h = 1..12` and the
+correlation between availability harm and spurious-clear rate over the losing region is
+**r = −0.083**. At `h = 8` the MI rate is highest and the harm is lowest. **The 6% agreement
+recorded below was a single point and does not generalise**, and `hsweep`'s registered
+falsifier for prediction 3 required withdrawing it.
+
+What survives: cleared-but-biased subsets are real and are now measured directly as the
+misleading-information rate, which rises monotonically with `h`. What is withdrawn is the
+quantitative claim that they *account for* the availability harm.
+
+## The mechanism, asserted below and now withdrawn — retained for the record
 
 **F3's harm is quantitatively the spuriously-cleared cycles.**
 
