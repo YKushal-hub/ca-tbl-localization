@@ -107,3 +107,74 @@ document citing a dirty source still fails the assertion.
 ```reviewed-dirty-citations
 report/REPORT_DATA_PACK.md
 ```
+
+## Markdown files allowed to remain untracked
+
+G9 asserted that a hardcoded list of named deliverables is tracked. It passed while
+`REPORT_1_Propagation_Module.md` and `REPORT_2_Project_Retrospective.md` -- 2311 lines of
+tier-1 material, and the citation audit's own subject -- sat untracked, because they were
+not on the list. **A check that succeeds because its population excludes the thing it
+should have caught** is the same shape as `TRACKED_ELSEWHERE` and as an empty population
+reporting as a pass.
+
+G9 is now inverted: **every `.md` in the working tree must be tracked**, except those
+enumerated below. A must-be-tracked list goes stale silently; a must-not-be-tracked list
+fails loudly the moment something new appears.
+
+### Pattern exceptions, open-ended classes only
+
+| pattern | reason |
+|---|---|
+| `WORK_ORDER_PROMPT_*`, `WORK_ORDER_REPLY_*`, `WORK_ORDER_KICKOFF_PROMPT.md` | work orders and their replies; inputs to the project, not project documents |
+| `CA_TBL_HANDOFF_v*.md`, `SESSION_CHANGELOG.md`, `CA_TBL_SIMULATION_REPORT.md` | already gitignored; G8 asserts they stay untracked, and this rule is its mirror |
+| `src/lorawan/**`, `docs/archive/**` | vendored and archived |
+| `results/**/*.md` | campaign-local `PREDICTION.md` / `RESULT.md`; tracked when their campaign's evidence is |
+
+### Enumerated legacy files
+
+Historical planning, kickoff and audit documents predating the D1 correction. Each is
+superseded by `Architecture.md`, `Simulation.md` or a report. Enumerated individually
+rather than covered by a `CA_TBL_*` pattern, so a NEW `CA_TBL_*` document fails the gate
+instead of inheriting an exemption.
+
+```reviewed-untracked-md
+ARCHITECTURE_ISSUES.md
+CALIBRATION_VS_VALIDATION.md
+CA_TBL_ADVISOR_HANDOFF.md
+CA_TBL_GITHUB_PUBLISH.md
+CA_TBL_GITHUB_PUBLISH_RUNBOOK.md
+CA_TBL_NEXT_STEPS_PLAN.md
+CA_TBL_NEXT_STEPS_PLAN_v2.md
+CA_TBL_NEXT_STEPS_PLAN_v3.md
+CA_TBL_OVERNIGHT_BATCH.md
+CA_TBL_PHASE10_AMENDMENT.md
+CA_TBL_PHASE10_PLAN.md
+CA_TBL_PHASE9_CLAIMS_RESCUE.md
+CA_TBL_PHASE9_KICKOFF.md
+CA_TBL_PHASE9_PARTB_TARGET.md
+CA_TBL_PHASE_E_INTEGRITY_SPEC.md
+CA_TBL_POST_PUSH_REMEDIATION.md
+CA_TBL_PUSH_EXECUTE.md
+CA_TBL_REPORT_DATA_REQUEST.md
+CA_TBL_REPORT_EXTRACTION_PROMPT.md
+CA_TBL_V6_KICKOFF_PROMPT.md
+CA_TBL_V7_PCS_V2_PROMPT.md
+CA_TBL_V7_PHASE_B_PROMPT.md
+CA_TBL_V7_PHASE_C_PROMPT.md
+CA_TBL_V7_PHASE_D_PROMPT.md
+CA_TBL_V7_PHASE_E_PROMPT.md
+CA_TBL_V7_PHASE_F_PROMPT.md
+CA_TBL_V7_PHASE_G_LONGRUN_QUEUE.md
+CA_TBL_V7_PHASE_H_ANALYSIS.md
+CA_TBL_V8_KICKOFF.md
+CA_TBL_VENDORED_IMPORT.md
+CA_TBL_VERIFICATION_AUDIT.md
+DATASET_GENERATION_CHECKLIST.md
+DATASET_GENERATION_README.md
+FINAL_DEPLOYMENT_VALIDATION_REPORT.md
+FINAL_PHYSICS_VALIDATION_REPORT.md
+IMPLEMENTATION_COMPLETE.md
+Status.md
+answers.md
+plan.md
+```

@@ -1677,3 +1677,60 @@ Each time the number looked like a document defect rate and was a tool property.
 standing rule this earns: **before reporting a count as a property of the subject, check
 whether it is a property of the instrument** — and the check is to hand-adjudicate a random
 sample, which caught all three.
+
+---
+
+## A status check must not run after the operation that changes the status
+
+`git ls-files --error-unmatch <path>` was used to establish whether the two reports were
+tracked. It reported **"tracked"** for `REPORT_1_Propagation_Module.md`, which is not in
+`HEAD`. The check had been run **after** `git add`, and `git ls-files` reads the **index** —
+which the `git add` had just populated. **The check consumed its own side effect.**
+
+The authoritative test reads the commit graph and cannot be contaminated by staging:
+
+    git cat-file -e HEAD:<path>
+
+Against that, both reports came back `NOT IN HEAD`, which is how the finding was actually
+established.
+
+Same family as the instrument-versus-subject rule above: an instrument that is downstream of
+the thing it measures reports the measurement back to you.
+
+### Other index-reading status checks, grepped rather than recalled
+
+`git ls-files` appears at `catbl_gates.sh:237` (G8), `:297` (G9), `publication_ready.sh:50`,
+and in `citation_audit.py`'s TRACKED category. **All four are correct as written**, because
+each runs in a gate suite that stages nothing — the suite asserts a clean tree at G7 and
+does its regeneration in `mktemp -d`. The defect was the *manual* check run mid-session
+after a `git add`, not the gates.
+
+Recorded anyway, because "correct today because nothing stages during the run" is a property
+of the caller, not of the check, and the next caller may not have it.
+
+## G9 asserted against a hardcoded list, so it could not see what was missing
+
+G9 asserts *named deliverables are tracked and committed*. It passed while
+`REPORT_1_Propagation_Module.md` (1354 lines) and `REPORT_2_Project_Retrospective.md`
+(957 lines) — tier-1 material, and the citation audit's own subject — were absent from the
+repository. They were not on its list.
+
+**Third instance in this audit of a check succeeding because its population excludes what it
+should have caught**, after `TRACKED_ELSEWHERE` passing a citation that does not resolve
+from the repository root, and an empty sidecar population reporting "all matching: yes".
+
+**Inverted as G9b:** every `.md` in the working tree must be tracked, except an enumerated
+allow-list parsed from `EXCLUDED.md`'s `reviewed-untracked-md` block. A must-be-tracked list
+goes stale in silence; a must-not-be-tracked list fails loudly the moment something new
+appears.
+
+The allow-list was built from the **measured** population — 148 untracked `.md` files,
+grouped — not from recall: four pattern classes with reasons (work orders and replies,
+G8-enforced handoffs, vendored and archived trees, campaign-local `results/**/*.md`), plus
+**39 legacy files enumerated individually**. Individually, deliberately: a `CA_TBL_*`
+pattern would let a *new* planning document inherit an exemption, and the fixture tests
+exactly that case.
+
+Fixture, four directions, all passing: the real tree passes; a new unlisted `.md` trips it;
+a new `CA_TBL_*` file does **not** inherit an exemption; and an allow-listed file that
+becomes tracked is caught by G8, which is this rule's mirror.

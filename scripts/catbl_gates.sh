@@ -245,6 +245,43 @@ done
 [ "$G8_BAD" -eq 0 ] || fail G8
 finish G8
 
+# ------------- G9b: every .md in the tree is tracked, except an enumerated allow-list
+# G9 asserts a HARDCODED list of deliverables is tracked. It passed while
+# REPORT_1_Propagation_Module.md and REPORT_2_Project_Retrospective.md -- 2311 lines of
+# tier-1 material and the citation audit's own subject -- sat untracked, because they
+# were not on the list. A check that succeeds because its population excludes the thing
+# it should have caught is the same defect as TRACKED_ELSEWHERE and as an empty
+# population reporting as a pass.
+#
+# Inverted here: every .md must be tracked unless allow-listed. The list is parsed from
+# EXCLUDED.md rather than duplicated, because two copies of a list drift.
+printf '\n--- G9b every .md is tracked, or allow-listed with a reason ---\n'
+G9B_LEGACY=$(awk '/^```reviewed-untracked-md$/{f=1;next} /^```$/{f=0} f' EXCLUDED.md 2>/dev/null)
+if [ -z "$G9B_LEGACY" ]; then
+    printf 'EXCLUDED.md has no reviewed-untracked-md block -- cannot judge\n'
+    fail G9b
+else
+    g9b_bad=0
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            WORK_ORDER_PROMPT_*|WORK_ORDER_REPLY_*|WORK_ORDER_KICKOFF_PROMPT.md) continue;;
+            CA_TBL_HANDOFF_v*.md|SESSION_CHANGELOG.md|CA_TBL_SIMULATION_REPORT.md) continue;;
+            src/lorawan/*|docs/archive/*|results/*) continue;;
+        esac
+        if printf '%s\n' "$G9B_LEGACY" | grep -qxF "$f"; then continue; fi
+        printf 'UNTRACKED AND NOT ALLOW-LISTED: %s\n' "$f"
+        printf '  remedy: track it, or add it to EXCLUDED.md reviewed-untracked-md with a reason\n'
+        g9b_bad=1
+    done < <(git ls-files --others --exclude-standard '*.md')
+    if [ "$g9b_bad" -eq 0 ]; then
+        printf 'every untracked .md is allow-listed with a reason\n'
+    else
+        fail G9b
+    fi
+fi
+finish G9b
+
 # ---------------------- G9: every named deliverable IS tracked, and is committed
 # G8 asserts certain files are NOT tracked. G9 is the opposite direction, and nothing
 # in the suite could see it: Simulation.md -- one of the two named deliverables --
