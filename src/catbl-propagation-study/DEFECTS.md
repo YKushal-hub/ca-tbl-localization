@@ -2017,3 +2017,73 @@ Under the engine's own number the surviving graph is a 5-cycle, and a cycle is n
 **Not generalised to tier 2.** Its intra-site chord is 259.8 m against a censored tier-2 r80 of
 ≥ 900 m (`:217-218`) — an order of magnitude of headroom, so no plausible model-engine gap reaches
 it. Tier 2's zero-redundancy finding is geometric and stands on its own.
+
+---
+
+## The redundancy account of Claim 9 is falsified by data already in the repository
+
+**The proposed second mechanism.** Tier 2 deploys three anchors per facility site; a 2-D range
+fix needs three; so a tag in range of one site has detection but *not* exclusion, which needs
+four, nor identification, which needs five. On that account the integrity check was placed in a
+geometry that cannot support integrity monitoring, and that would be a deployment design rule
+worth more than the architecture-specific result it explains.
+
+**It is a claim about how many anchors a tag can reach, and 57 600 measured cycles already
+answer it.** `scripts/redundancy_census.py`, over the 40-seed `h1_power` campaign, tier-2-active
+cycles only:
+
+| geometric redundancy | share of cycles |
+|---|---|
+| ≤ 2 — no fix possible | **0.00%** |
+| 3 — fix and residual, **detection only** | 21.06% |
+| **≥ 4 — exclusion possible** | **78.94%** |
+| ≥ 5 — identification possible | 70.46% |
+
+**Exclusion is available on four cycles in five, and identification on seven in ten. The premise
+is false.** The tag is almost never in range of a single site: mean anchors in range is 6.03.
+
+**Why the "one site" intuition was wrong.** Tier-2 sites are 1880 m apart and the scenario labels
+visibility at `nominalRangeM` = 900 m, under which a tag reaches exactly one site — which is what
+`vis2p4` reports, capping at 3 on 72.7% of cycles. But the source states plainly that 900 m is a
+**censored lower bound** (`ca_tbl_causal_sim.cc:217-218`): "the sweep ends at 900 m with PDR 0.804
+and the tier has not fallen off. 900 m is a LOWER BOUND, not a measurement." The effective range
+is ~1580 m, at which a tag reaches two or three sites routinely.
+
+**Three instruments, two of them wrong for this question** — the recurring failure in this project,
+and the reason the answer was not obvious:
+
+| instrument | policy-invariant? | why it is wrong here |
+|---|---|---|
+| `nAnchors`, the physics outcome | **no** — differs on 6.81% of cycles | the policy changes the estimate, which changes escalation, which changes what is counted. Conditioning on it conditions on a collider |
+| `vis2p4`, the scenario's label | yes, 0 of 57 600 differ | counts against the censored 900 m bound, so it measures the label's conservatism and caps at 3 |
+| recomputed from `trueX`/`trueY` | yes, 0 of 57 600 differ | — |
+
+The third is cross-validated on an observable it was not fitted to: at the analytic model's tier-2
+r80 of 1580.6 m it predicts **6.03** anchors in range against a measured `nAnchors` mean of
+**6.06**. That is also the second independent confirmation of the model's tier-2 range, and it
+stands in deliberate contrast to the tier-3 case recorded above, where model and engine disagree
+by 2×.
+
+**One thing the redundancy account does explain, exactly.** The `too_few` branch fired on **5.6%**
+of gate trips at `h = 1` (`results/hsweep/RESULT.md`); cycles with `nAnchors == 3` are **5.63%**
+of tier-2-active cycles. The branch fires precisely where leave-one-out has nothing left to test.
+The mechanism is real and correctly implemented — it is simply not the binding constraint, because
+it binds on one cycle in eighteen rather than on most of them.
+
+**What is not concluded, and why.** Whether exclusion's advantage *depends* on redundancy cannot
+be settled by stratifying these cycles. The EKF carries state, so a cycle's outcome depends on
+every prior branch, and under `exclude` the filter reaches any given cycle having decided
+differently earlier. A per-cycle stratification of a path-dependent estimator measures accumulated
+state, not the current branch. The stratified numbers are printed by the census for inspection and
+are **not** used as a verdict here. The availability fractions above do not share the problem;
+they are pure geometry.
+
+**Consequence for the planned anchors-per-site sweep.** Its registered prediction was that the
+exclusion advantage appears at four anchors and grows to five. Tags already have four on 78.94% of
+cycles and five on 70.46%. **The sweep would vary a quantity that is already past the thresholds
+its predictions turn on**, so it was not run. Correcting a falsified premise before spending a
+campaign is the same move as `experiments/B4_FAULT_NOTE.md`, and it is cheaper here because the
+falsifying data already existed.
+
+**Claim 9 is untouched.** Its falsification stands on its recorded reason. This removes a proposed
+*second* reason; it does not reopen the first.
