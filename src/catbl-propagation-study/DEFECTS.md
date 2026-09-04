@@ -2419,3 +2419,78 @@ This is the **degeneracy pre-flight rule applied to a stratum rather than to a m
 seed and screen it before spending twenty. The existing rule was stated for solver degeneracy; the
 same discipline governs any design that conditions on a category, and the check is the same shape
 — **count the category before designing around it.**
+
+---
+
+## Every improvement claim in the project rests on a baseline nobody maintained
+
+**The audit.** Each surviving PROVEN claim is an improvement *ratio*, so each rests on a "before"
+directory. Read from the sidecars, never from the documents:
+
+| directory | claims resting on it | sha | dirty | `nlosSource` | pre-D1? |
+|---|---|---|---|---|---|
+| `p10_plane` | 2 (before) | `a059203` | **3** | defaulted `legacy` | **YES** |
+| `p10_plane_fix` | 2 (after), 1, 8 | `a059203` | **3** | defaulted `legacy` | **YES** |
+| `p10_plane_v7` | 1 | `7c0c5e5` | 0 | defaulted `legacy` | no |
+| `p1_condfloor` | 4 | `a059203` | **4** | defaulted `legacy` | **YES** |
+| `p10_grid/c_ef0_legacy_dw800_b1500` | 3 (withdrawn W11) | `13a62bb` | 0 | explicit `legacy` | no |
+
+The D1 sensitivity correction is `0d5e747`, 2026-08-26. `a059203` is 2026-08-09 — **seventeen days
+earlier**, and `git merge-base --is-ancestor` confirms it is an ancestor.
+
+**Three of the five load-bearing directories predate D1, and all three carry a non-zero dirty
+counter.** Every one of the five defaulted to `legacy`.
+
+### Why baselines specifically, and it generalises past this project
+
+> An improvement claim is a ratio to a baseline. When the engine changes, the **after** number gets
+> regenerated, because it is the result being defended. The **before** number does not, because
+> nobody is defending it — so it silently keeps stale provenance, or loses it.
+
+That is the mechanism, and the evidence for it is that the pattern is **uniform**: not one of the
+three pre-D1 directories was regenerated after D1, while the post-D1 work of the last month
+regenerated results repeatedly. The baseline is the one number in an improvement claim that no
+subsequent campaign has a reason to touch.
+
+**Corollary for the ledger:** `[M-11]` cites *"`arm_summary.csv` energy columns"* and `[M-16]` cites
+a prediction document. Neither names a directory. **A citation that names a file type rather than a
+path cannot be checked against provenance at all** — the audit above was only possible because the
+directories were recoverable by matching the published means against directory aggregates, which is
+forensics, not citation.
+
+---
+
+## Naming a mediator in advance does not exempt it from being checked against what it measures
+
+`cycles_868` was registered as Claim 4's mediator and is the wrong column. It counts cycles where
+tier 1 was the **active** tier; the floor runs *concurrently beneath* a higher tier and never
+appears as active. It moved 1.7 → 2.1 between arms while the endpoint halved. The right column is
+`j_868`, floor energy, which accounts for 99.3% and 100.0% of the saving under the two sources.
+
+**The failure mode is specific and worth naming.** Pre-registration protects against post-hoc
+selection of a favourable measure. **It does not protect against instrument mis-specification** —
+and a mis-specified mediator is worse than no mediator, because the procedure around it is correct,
+so the wrong conclusion arrives with full methodological credentials. Reported as registered, this
+one would have shown **no mediator movement against a halved endpoint**, whose honest reading is
+"the mechanism account is wrong."
+
+This is the same failure as *state a check's population when you design it*, moved from the
+population of a check to the definition of a measurement. Both are instruments; both need
+validating against what they actually measure, not against what their names suggest.
+
+---
+
+## `git log -S` on a literal, and why it was not enough
+
+Tracing an unsourced number: `git log -S"<literal>" --all --reverse` finds the commit that
+introduced it. Here it found only documentation commits — the literal entered the repository
+already formed, so history named no measurement.
+
+**What found it was scanning directory aggregates rather than rows.** 622.92 matches no row in
+17 418 `arm_summary.csv` rows, and matches `results/p10_plane`'s 20-seed mean to three decimals.
+**A headline figure in this project is typically a mean over seeds, so a row-level search will
+report a correct absence and license a false conclusion.** I drew that false conclusion — "no
+source at all" — from a correct scan, having already seen Claim 4's headline figures be means.
+
+Method, in order: `git log -S` for the literal; then **directory aggregates**, not rows; then
+derived forms (sums, per-node, unit changes); then superseded directories.
