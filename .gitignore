@@ -1,0 +1,4 @@
+build/
+cmake-cache/
+*.o
+*.so
