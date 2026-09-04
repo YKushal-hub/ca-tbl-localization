@@ -58,6 +58,26 @@ and pushed `term3` down.
 **B-via-evidence-gate also binds**, and independently. Of the 11.09% where PCS does permit, the
 quality gate removes 94.5%, and the coverage gate removes **all** of the remainder.
 
+## 4. The deeper cause — **SUPERSEDED, see `SITING_REPAIR_RESULT.md`**
+
+> **CORRECTION, 2026-09-05.** The section below concludes that the anti-correlation is structural
+> and that repairing the PCS form alone could not help, because the far-from-facility cycles are
+> the demand "by definition". **That was tested and falsified.** Repairing the PCS form alone
+> takes tier-3 service from **0.0 to 83.0 cycles/seed**, CI [76.9, 89.2], on 20/20 seeds.
+>
+> The error is in the words *by definition*. The measurement below is correct: under the **sum**
+> form, PCS-permitting cycles are far from facilities. But that is a property of what the sum
+> measures — `term3 = nLos/nTotal` falls where links are NLOS, which is where anchors are absent.
+> Under a `min` form dominated by filter uncertainty, the demand moves to where the node **dwells**,
+> which is where the co-located anchors already are.
+>
+> **The anti-correlation is a property of the predicate, not of the deployment geometry.**
+> Co-location is self-defeating for a LOS-fraction trigger and *correct* for a filter-uncertainty
+> trigger. The design rule below is withdrawn and replaced by that one.
+>
+> The original text is retained unedited beneath, because a correction that rewrites its subject
+> leaves nothing to check.
+
 ## 4. The deeper cause: the predicate is self-defeating on a co-located deployment
 
 The coverage gate reaching exactly zero is not bad luck. Splitting tier-2 cycles by whether UWB
