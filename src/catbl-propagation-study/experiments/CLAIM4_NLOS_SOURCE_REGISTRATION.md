@@ -72,3 +72,26 @@ construction: all four cells come from one binary.
 | saving unchanged | **Falsifier fires.** Reported as such — an unchanged saving contradicts the parking mechanism, and both cannot be right |
 
 **Claim 9 is not touched.**
+
+---
+
+## Amendment, before any cell was scored: `--arms=ca_tbl_full`
+
+The design above said "everything from Claim 4's own sidecar except the two flags under test",
+and that sidecar carries no `--arms` flag, so the first launch ran all six arms. At 313 s per cell
+that is **6.0 hours** for 80 cells, and five of the six arms are irrelevant to a comparison in
+which **both sides are `ca_tbl_full`**. `static_uwb` alone averages 810 J of simulated radio
+activity in this directory.
+
+**The deviation is justified by measurement, not by convenience.** `RunArm()` calls
+`RngSeedManager::ResetNextStreamIndex()` per arm precisely so arms do not inherit each other's
+stream position. Tested rather than trusted: the same seed and flags, run with all six arms and
+with `--arms=ca_tbl_full`, produce a **byte-identical `ca_tbl_full` row** in `arm_summary.csv`.
+
+So restricting the arm set changes no measured quantity, and the campaign was killed and
+relaunched from scratch with the single arm. The eleven cells already completed were discarded
+rather than mixed with the new ones, so every cell in the final set has homogeneous provenance.
+
+**This is recorded as an amendment rather than folded silently into the design**, because a
+registration that quietly acquires flags after the run starts is not a registration. Nothing about
+the prediction, the falsifier, the mediator, the seed count or the consequences changes.
