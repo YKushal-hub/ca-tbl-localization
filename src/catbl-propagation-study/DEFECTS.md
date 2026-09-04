@@ -2622,3 +2622,72 @@ This is the single-axis mis-specification this project's own future-work section
 with a concrete instance: **the criterion and the claim disagree about which axis the architecture
 competes on.** Recorded rather than worked around; the trade-off is reported with both numbers and
 explicitly not as a verdict.
+
+---
+
+## The 3.92 J is occupancy, not overhead — one column settled it
+
+The repaired predicate raised tier-2 energy by **3.92 J**, sixteen times its UWB cost. Two causes
+were possible with opposite consequences: more tier-2 **occupancy** (bought capability) or
+refused-attempt **overhead** at the same occupancy (removable waste).
+
+| column | as-is | repaired | delta | 95% CI |
+|---|---|---|---|---|
+| `cycles_2p4` | 959.40 | **1355.30** | **+395.90** | [+358.2, +433.6] |
+| `cycles_868` | 480.60 | **1.65** | **−478.95** | [−514.6, −443.4] |
+| `cycles_uwb` | 0.00 | 83.05 | +83.05 | [+76.9, +89.2] |
+| `escalations` | 147.85 | **3.50** | −144.35 | [−154.0, −134.7] |
+| **J per tier-2 cycle** | **0.00847** | **0.00889** | +5% | — |
+
+**Occupancy.** Per-cycle cost is flat; the node simply spends its time differently. And the cycles
+are conserved: **−478.95 off tier 1 ≈ +395.90 on tier 2 + 83.05 on UWB.**
+
+**The as-is arm was thrashing.** 147.85 escalations and 146.95 de-escalations per seed — it climbed
+and fell back roughly 148 times, spending 480 cycles on the tier-1 floor. The repaired arm escalates
+**3.50** times and stays. That is why availability rises: the node holds a tier that can fix rather
+than oscillating into one that cannot.
+
+**So there is no reordering optimisation to pursue**, and the candidate in the work order — evaluate
+the geometric coverage test before whatever precedes it — does not apply, because nothing is being
+spent on refused attempts. **27.090 J is the honest price of 20/20, not a bill with waste in it.**
+
+---
+
+## The base is where the unmodelled term hides
+
+Predicting `totalJ` as `base + UWB cost` failed by 3.6 J while the `j_uwb` sub-prediction landed
+exactly (0.2396 against a registered 0.20–0.28). The base was not a constant: `j_2p4` rose 3.92 J.
+
+> **When predicting a total as `base + delta`, the base is not constant unless the mechanism is
+> shown not to touch it — and showing that is a step, not an assumption.**
+
+Distinct from the ratio rule already recorded. There, the mechanism moved both terms *of the
+expression written down*. Here every term written down was constrained correctly, and a term the
+shorthand omitted moved. The remedy differs too: the ratio rule says *check both terms*; this says
+*write down all the terms first*.
+
+**Diagnosable only because the sub-prediction was exact.** A wrong endpoint with a right mediator
+localises the error to what lies between them — which is the practical argument for registering
+mediators even when the endpoint seems well understood.
+
+---
+
+## A per-unit cost derived from the wrong configuration family was 200× wrong
+
+The sketch figure for UWB energy was 0.53 J/cycle, from a directory with the evidence gate **off**.
+The gate-on family runs at **0.003**.
+
+| directory | J/cycle | evidence gate |
+|---|---|---|
+| `legacy_evfalse` | 0.5331 | off |
+| `propagation_evfalse` | 0.6042 | off |
+| `legacy_evtrue` | 0.0026 | **on** |
+| `complementary_min` | 0.0031 | **on** |
+
+The split is on the gate, not the NLOS source, the predicate form or the siting: with the gate off
+the node escalates blindly and pays polling cost where no anchor answers.
+
+**Checking the spread across families before registering is what made `j_uwb` land exactly.** Had
+the sketch figure been used, the prediction would have been 200× wrong and the registration would
+have been noise — and the failure would have looked like a falsified mechanism rather than a
+mis-derived constant.
