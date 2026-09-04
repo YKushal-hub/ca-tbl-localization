@@ -1853,6 +1853,8 @@ RunArm(CaTblPolicyMode mode,
        double pcsW2,
        double pcsW3,
        double pcsGateFloor,
+       double pcsHysteresisBand,
+       uint32_t nDeescalateOverride,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
@@ -2014,6 +2016,21 @@ RunArm(CaTblPolicyMode mode,
         pcfg.multiStepDemote =
             (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
     }
+    // A6 / CAL-03 / CAL-04. Applied LAST so it composes with either score:
+    // ApplyV2Thresholds() has already run for v2, and the band is expressed
+    // RELATIVE to whatever thresholdUp ended up being. The BAND, not the two
+    // absolute thresholds, is the swept quantity -- every tier carries the
+    // same 0.20 gap today, so one number moves the hysteresis without also
+    // silently moving the operating point, which sweeping thresholdDown
+    // alone would do.
+    if (pcsHysteresisBand >= 0.0)
+    {
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            pcfg.pcsThresholdDown[k] = pcfg.pcsThresholdUp[k] + pcsHysteresisBand;
+        }
+    }
+    if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
@@ -3234,6 +3251,8 @@ main(int argc, char* argv[])
     double pcsW2Arg = -1.0;
     double pcsW3Arg = -1.0;
     double pcsGateFloorArg = -1.0;
+    double pcsHysteresisBandArg = -1.0;
+    uint32_t nDeescalateArg = 0;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3487,6 +3506,28 @@ main(int argc, char* argv[])
                  "not tracking to spec and the score should say so instead of "
                  "being carried by the other two terms.",
                  pcsGateFloorArg);
+    cmd.AddValue("pcsHysteresisBand",
+                 "Escalation/de-escalation hysteresis band: sets "
+                 "pcsThresholdDown = pcsThresholdUp + this, on every tier. "
+                 "Negative (default) leaves the built-in thresholds untouched "
+                 "so the baseline reproduces byte-for-byte. This is "
+                 "CAL-03/CAL-04, which the register defers to Phase 2.1 and "
+                 "which has NEVER been swept, because until now "
+                 "pcsThresholdDown was not registered with AddValue at all. "
+                 "The BAND is the swept quantity rather than the two absolute "
+                 "thresholds: every tier carries the same 0.20 gap today, so "
+                 "one number moves the hysteresis without silently also "
+                 "moving the operating point.",
+                 pcsHysteresisBandArg);
+    cmd.AddValue("nDeescalate",
+                 "Consecutive healthy cycles required before demoting a tier. "
+                 "Zero (default) keeps the built-in 5. The other half of "
+                 "CAL-04: the band sets how much better the score must get, "
+                 "this sets for how long. 5 was itself never calibrated -- 141 "
+                 "of 189 blind runs were exactly 5 cycles long, so the default "
+                 "encodes an observation about one campaign, not a design "
+                 "decision.",
+                 nDeescalateArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3872,6 +3913,8 @@ main(int argc, char* argv[])
                                        pcsW2Arg,
                                        pcsW3Arg,
                                        pcsGateFloorArg,
+                                       pcsHysteresisBandArg,
+                                       nDeescalateArg,
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
