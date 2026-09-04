@@ -2571,3 +2571,54 @@ with no number changing and no re-scoring.
 **Byte-identity is what made discard-and-re-run costless, and it had to be checked rather than
 assumed.** Had the cells differed, the honest course was re-running the whole stratum — because a
 single replaced cell in a set scored as a unit is a mixed population.
+
+---
+
+## Decomposing an endpoint does not license predicting it — the terms you omit still move
+
+Third instance of the ratio family, and the first that is **not** the same mistake as the previous
+two.
+
+| # | endpoint | what I wrote down | what actually moved |
+|---|---|---|---|
+| 1 | trigger precision | `tp/(tp+fp)`; reasoned about `fp` only | `tp` fell 44× against `fp`'s 5× |
+| 2 | Claim 4's saving | the mediator `cycles_868` | it measures active-tier cycles, not floor operation |
+| 3 | repaired arm `totalJ` | `base + UWB cost` | **`j_2p4` rose 3.92 J — a term the decomposition omitted** |
+
+In (3) the registration explicitly claimed *"the mechanism constrains both terms"*, and it did — both
+terms of `j_uwb`, which is why **that** prediction landed at 0.2396 J inside a registered
+0.20–0.28 J. The failure was that `totalJ = j_868 + j_2p4 + j_uwb`, and the decomposition wrote
+`base + UWB` as though `base` were a constant. The repaired predicate wants to escalate on 51% of
+tier-2 cycles and is refused on nearly all of them; the refused attempts are not free.
+
+> **Write the endpoint's full decomposition before predicting it, and require the mechanism to
+> constrain every term — including the ones the shorthand hides.** "Base plus the thing I changed"
+> is a shorthand, and the base is where the unmodelled term hides.
+
+The sub-prediction being exact while the endpoint failed by 3.6 J is what makes this diagnosable at
+all: a wrong endpoint with a right mediator localises the error to the terms between them.
+
+---
+
+## A registered criterion can be unable to express the advantage it is meant to adjudicate
+
+`b49df46` §4 returns **INCONCLUSIVE** for the repaired arm, correctly and as written:
+
+| arm | meets (A = 0.95, R = 25 m) | `totalJ` |
+|---|---|---|
+| `ca_tbl_full`, repaired | **20/20** | 27.090 |
+| `static_2p4` | **19/20** | 12.679 |
+
+The rule compares **energy among arms that both meet the requirement**. The repaired arm's advantage
+*is* meeting the requirement more often — 20/20 against 19/20 — and because the competitor fails to
+qualify, there is nothing to compare against and the rule declines to adjudicate.
+
+**The rule is not defective; it is answering a different question from the one the result poses.**
+It was written to prevent an uncontested win being recorded as superiority, and it does that. But an
+architecture whose benefit is *reliability* cannot be credited by a criterion whose only comparison
+is *cost at equal reliability* — the benefit disappears into the qualification test.
+
+This is the single-axis mis-specification this project's own future-work section names, arriving
+with a concrete instance: **the criterion and the claim disagree about which axis the architecture
+competes on.** Recorded rather than worked around; the trade-off is reported with both numbers and
+explicitly not as a verdict.
