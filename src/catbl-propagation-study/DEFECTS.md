@@ -2494,3 +2494,80 @@ source at all" — from a correct scan, having already seen Claim 4's headline f
 
 Method, in order: `git log -S` for the literal; then **directory aggregates**, not rows; then
 derived forms (sums, per-node, unit changes); then superseded directories.
+
+---
+
+## Nominal ranges in this engine are labels, not measurements — a class, now at three instances
+
+1. **`nominalRangeM[2P4] = 900 m`** — `ca_tbl_causal_sim.cc:217-219` states outright that 900 m is a
+   **censored lower bound**, the sweep having ended there with PDR still 0.804. Read as a range, it
+   produced the false conclusion that tier 2 lacked redundancy for exclusion.
+2. **`uwbTriadRadiusM = 10.0; // UWB r80 = 10 m`** — the comment restated a figure the corrected
+   model puts at **25.2 m**. Read as a range, it produced the false conclusion that tier 3 could not
+   self-calibrate.
+3. **`nominalRangeM[UWB] = 30 m`** — against a measured **r80 of 12.9 m** and **r50 of 29.5 m**
+   (`:220`). The trigger's ground truth therefore calls a cycle "should be on UWB" when three anchors
+   sit within a distance at which roughly half of packets get through.
+
+**The class: a nominal range is a siting or labelling constant, and the measured range is a
+different number.** Two analyses have been derailed by conflating them, and the third instance sits
+inside a ground truth. **Before a `nominalRangeM` or a range-like constant becomes a premise, state
+which of the two it is** — the same discipline as declaring a check's population.
+
+Instance 3 does *not* invalidate Claim 1's comparison, because the label is flag-invariant and
+`tp + fn = 90.9` was verified identical across all four cells. It affects the absolute precision
+value only, and that is recorded rather than corrected.
+
+---
+
+## A mechanism can be correct and still not license a prediction about a ratio
+
+Registered: Claim 1's baseline precision would **rise** under `propagation`, because the defect
+inflates false escalations. Measured: it **fell**, 0.0755 → 0.0129.
+
+The mediator separates the two readings, which is why it was registered:
+
+| ev=false | legacy | propagation | |
+|---|---|---|---|
+| `trig_fp` | 1081.8 | 210.2 | fell 5× — **the mechanism is confirmed** |
+| `trig_tp` | 88.3 | 2.0 | fell 44× — **never considered** |
+
+Precision is `tp/(tp+fp)`. The mechanism constrains `fp`; it does not constrain `tp`, and the
+corrected source suppresses *all* escalation into UWB rather than only the wrong escalations.
+
+> **Predict the mediator. Derive the endpoint only if the mechanism constrains every term in it.**
+
+Second consecutive pass in which the mediator is what made a result interpretable — here it
+prevented a falsified *endpoint* being read as a falsified *mechanism*, when the mechanism was in
+fact confirmed.
+
+---
+
+## The estimator-level VACUOUS
+
+Claim 2b's escalation efficiency (0.071 → 0.827) has **no column** in `arm_summary.csv`, and six
+candidates computable from the emitted columns — `tp/(tp+fp)`, `trig_precision`, `trig_f1`,
+`trig_recall`, `tp/escalations`, `cycles_uwb/escalations` — all miss it against the published
+directories.
+
+**The scan is not broken: the same sweep reproduces Claim 1's estimator**, `trig_precision` giving
+0.0776 → 0.9279 against a published 0.078 → 0.934. So the tool works and the estimator genuinely is
+not recoverable.
+
+**Verdict: not scoreable.** Substituting the nearest-looking estimator would have manufactured a
+result for a quantity the claim does not make. This is *an empty population is VACUOUS, not a pass*
+moved from the population of a check to the definition of a measurement — the same relocation the
+mediator rule makes.
+
+---
+
+## The `dirty 1` repair, and why it was costless
+
+`claim2_rebase/legacy_evfalse/seed_2` recorded `dirty 1` — a documentation file edited mid-campaign.
+The `causal_v7` precedent is **discard and re-run**, not keep and qualify, and that was followed. The
+clean re-run at `dirty 0` is **byte-identical** to the discarded cell, so provenance was repaired
+with no number changing and no re-scoring.
+
+**Byte-identity is what made discard-and-re-run costless, and it had to be checked rather than
+assumed.** Had the cells differed, the honest course was re-running the whole stratum — because a
+single replaced cell in a set scored as a unit is a mixed population.
