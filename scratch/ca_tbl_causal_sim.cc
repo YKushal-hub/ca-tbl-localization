@@ -1849,6 +1849,10 @@ RunArm(CaTblPolicyMode mode,
        CaTblNlosSource nlosSource,
        bool suspectForcesEscalation,
        CaTblPcsForm pcsForm,
+       double pcsW1,
+       double pcsW2,
+       double pcsW3,
+       double pcsGateFloor,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
@@ -1954,6 +1958,12 @@ RunArm(CaTblPolicyMode mode,
     }
     pcfg.suspectForcesEscalation = suspectForcesEscalation;
     pcfg.pcsForm = pcsForm;
+    // Non-positive means leave the built-in default, matching the sentinel
+    // convention fixedVarThresholdM2 and pcsSigmaTargetM already use below.
+    if (pcsW1 > 0.0) { pcfg.pcsW1 = pcsW1; }
+    if (pcsW2 > 0.0) { pcfg.pcsW2 = pcsW2; }
+    if (pcsW3 > 0.0) { pcfg.pcsW3 = pcsW3; }
+    if (pcsGateFloor > 0.0) { pcfg.pcsGateFloor = pcsGateFloor; }
     // Operating-point knobs for the Pareto sweep. Both express the SAME physical
     // quantity -- how much position uncertainty is tolerated before energy is
     // spent -- so the two decision rules can be swept over a common grid and
@@ -3220,6 +3230,10 @@ main(int argc, char* argv[])
     bool escalationRequiresEvidence = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
+    double pcsW1Arg = -1.0;
+    double pcsW2Arg = -1.0;
+    double pcsW3Arg = -1.0;
+    double pcsGateFloorArg = -1.0;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3436,6 +3450,43 @@ main(int argc, char* argv[])
                  "(up 0.0, down log10(2), one target for all tiers). See "
                  "report/PCS_REDESIGN_RESULTS.md §0.",
                  pcsFormArg);
+    cmd.AddValue("pcsW1",
+                 "CA_TBL_PCS_WEIGHTED weight on the filter-uncertainty term. "
+                 "Default 2.0. The defaults are HAND-SET, not from the "
+                 "leave-one-out cross-validation CAL-01 specifies -- that has "
+                 "still never been run. They are chosen for one property: "
+                 "pcsW2 + pcsW3 = 1.0 sits below every pcsThresholdUp, so "
+                 "term1 = 0 forces the score under the threshold whatever "
+                 "geometry and LOS do. The unweighted LEGACY sum cannot do "
+                 "that -- term2 + term3 alone reach 2.0 against 1.55 -- which "
+                 "is the saturation defect this form repairs. Restoring the "
+                 "veto is NOT the same as making the score informative; the "
+                 "monotone-of-filter-statistic control decides that, and two "
+                 "earlier forms failed it.",
+                 pcsW1Arg);
+    cmd.AddValue("pcsW2",
+                 "CA_TBL_PCS_WEIGHTED weight on the geometry term "
+                 "(1/max(gdop,1)). Default 0.5, held low deliberately: term 2 "
+                 "is INVERTED across tiers -- GDOP is worse for the tightly "
+                 "clustered facility triads than for spread gateways -- so it "
+                 "rewards the coarse tier, and a large weight would re-import "
+                 "that defect at full strength.",
+                 pcsW2Arg);
+    cmd.AddValue("pcsW3",
+                 "CA_TBL_PCS_WEIGHTED weight on the LOS fraction. Default 0.5, "
+                 "also held low: after the NLOS fix this term measured sd "
+                 "0.0097 on tier 2 and was EXACTLY CONSTANT on tier 3, and a "
+                 "near-constant term is an offset the threshold absorbs rather "
+                 "than information.",
+                 pcsW3Arg);
+    cmd.AddValue("pcsGateFloor",
+                 "CA_TBL_PCS_GATED veto floor on term 1. Default 0.10. OURS, "
+                 "not physical: term1 = traceRef/(traceRef+traceSigma), so "
+                 "0.10 is traceSigma = 9*traceRef, i.e. posterior radial sigma "
+                 "three times the 3.1623 m target. Below that the filter is "
+                 "not tracking to spec and the score should say so instead of "
+                 "being carried by the other two terms.",
+                 pcsGateFloorArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3467,10 +3518,18 @@ main(int argc, char* argv[])
     {
         pcsForm = CA_TBL_PCS_V2;
     }
+    else if (pcsFormArg == "weighted")
+    {
+        pcsForm = CA_TBL_PCS_WEIGHTED;
+    }
+    else if (pcsFormArg == "gated")
+    {
+        pcsForm = CA_TBL_PCS_GATED;
+    }
     else if (pcsFormArg != "legacy")
     {
-        std::cout << "ERROR: --pcsForm must be 'legacy' or 'v2', got '" << pcsFormArg
-                  << "'\n";
+        std::cout << "ERROR: --pcsForm must be 'legacy', 'v2', 'weighted' or "
+                  << "'gated', got '" << pcsFormArg << "'\n";
         return 1;
     }
 
@@ -3809,6 +3868,10 @@ main(int argc, char* argv[])
                                        nlosSource,
                                        suspectForcesEscalation,
                                        pcsForm,
+                                       pcsW1Arg,
+                                       pcsW2Arg,
+                                       pcsW3Arg,
+                                       pcsGateFloorArg,
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
