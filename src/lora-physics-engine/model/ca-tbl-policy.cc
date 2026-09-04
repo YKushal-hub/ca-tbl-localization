@@ -682,7 +682,11 @@ CaTblPolicy::ComputePcs(double traceSigma,
     // Term 3: fraction of contributing links believed line-of-sight.
     const double term3 = (nTotal == 0) ? 0.0 : static_cast<double>(nLos) / static_cast<double>(nTotal);
 
-    double pcs = term1 + term2 + term3;
+    // CA_TBL_PCS_MIN is the registered D5 repair; V2's sum is unchanged and remains
+    // the default, so this cannot move any committed result unless the flag is set.
+    double pcs = (m_config.pcsForm == CA_TBL_PCS_MIN)
+                     ? std::min(term1, std::min(term2, term3))
+                     : (term1 + term2 + term3);
 
     // Term 4: hop-provenance penalty. Inactive by default (hopWeight = 0)
     // because the current scenario is single-hop -- there is no mesh to
@@ -1124,7 +1128,14 @@ CaTblPolicy::Step(double dt,
     }
     else if (m_config.mode == CA_TBL_MODE_FULL || m_config.mode == CA_TBL_MODE_NO_INTEGRITY)
     {
-        wantEscalate = (pcs < m_config.pcsThresholdUp[m_tier]);
+        // Threshold carried across as the same FRACTION OF RANGE, not re-tuned:
+        // the V2 sum spans [0,3] and the MIN form spans [0,1], so the registered
+        // 1.70 becomes 1.70/3. No new calibrated constant is introduced -- see the
+        // note on CA_TBL_PCS_MIN.
+        const double upTh = (m_config.pcsForm == CA_TBL_PCS_MIN)
+                                ? m_config.pcsThresholdUp[m_tier] / 3.0
+                                : m_config.pcsThresholdUp[m_tier];
+        wantEscalate = (pcs < upTh);
         if (suspect && m_config.suspectForcesEscalation)
         {
             // A distrusted fix is itself grounds to escalate: the coarse tier

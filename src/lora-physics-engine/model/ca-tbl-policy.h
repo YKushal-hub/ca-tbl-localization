@@ -145,7 +145,21 @@ enum CaTblPcsForm
      * threshold. It is still emitted as a diagnostic so the exclusion stays visible.
      * See §0.1.1 of the pre-registration.
      */
-    CA_TBL_PCS_V2
+    CA_TBL_PCS_V2,
+    //! D5 repair, registered in experiments/SITING_REPAIR_REGISTRATION.md.
+    //!
+    //! V2 sums three terms each in [0,1] against a threshold of 1.70, and under an
+    //! honest NLOS source term2 + term3 alone reaches 1.70 on 85% of cycles -- so
+    //! term1 cannot make the sum fall below it and escalation is unrequestable.
+    //! MIN gives the score the semantics a confidence measure should have: as weak
+    //! as its weakest component, so any single term can trigger escalation.
+    //!
+    //! Parameter-free by choice. A weighting would introduce calibrated constants,
+    //! and this project has already withdrawn one uncalibrated scalar. The
+    //! threshold is carried across as the SAME FRACTION OF RANGE -- the sum spans
+    //! [0,3] and the min spans [0,1], so 1.70 becomes 1.70/3 -- introducing no new
+    //! constant. See CaTblPolicy::ComputePcs().
+    CA_TBL_PCS_MIN
 };
 
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */

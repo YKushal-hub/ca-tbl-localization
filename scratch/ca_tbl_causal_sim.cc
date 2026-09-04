@@ -178,7 +178,8 @@ BuildDeployment(uint32_t gwGrid,
                 double uwbTriadRadiusM,
                 double t2TriadRadiusM,
                 uint32_t uwbAnchorsPerSite,
-                uint32_t t2AnchorsPerSite)
+                uint32_t t2AnchorsPerSite,
+                bool uwbComplementarySiting)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -306,14 +307,39 @@ BuildDeployment(uint32_t gwGrid,
                         6.0)});
         }
 
+        // COMPLEMENTARY SITING, registered in experiments/SITING_REPAIR_REGISTRATION.md.
+        // Default false, so the co-located deployment every committed result was
+        // measured on is unchanged.
+        //
+        // The rule is derived from the measured escalation-demand surface, not placed
+        // by hand: cycles where the node wants to escalate but cannot sit at a median
+        // 698 m from any facility, and demand-weighted k-means (k=4) puts their
+        // centroids near the EDGE MIDPOINTS of the facility square. Facilities are the
+        // square's corners at (+/-f, +/-f); its edge midpoints are (+/-f, 0) and
+        // (0, +/-f). That is the rule implemented here -- it generalises with boxHalf,
+        // where hardcoding the four measured centroids would fit placement to one
+        // geometry. Offsets from the measured centroids: 57, 24, 315 and 215 m,
+        // against a demand distribution whose interquartile spread is ~260 m.
+        Vector uwbCentre = c;
+        if (uwbComplementarySiting)
+        {
+            const double fEdge = boxHalfM * 0.47;
+            switch (s % 4)
+            {
+            case 0: uwbCentre = Vector(fEdge, 0.0, 0.0); break;
+            case 1: uwbCentre = Vector(0.0, fEdge, 0.0); break;
+            case 2: uwbCentre = Vector(-fEdge, 0.0, 0.0); break;
+            default: uwbCentre = Vector(0.0, -fEdge, 0.0); break;
+            }
+        }
         for (uint32_t k = 0; k < uwbAnchorsPerSite; ++k)
         {
             const double th =
                 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(uwbAnchorsPerSite) + 0.3;
             dep.anchors[CA_TBL_TIER_UWB].push_back(
                 {idUwb++,
-                 Vector(c.x + uwbTriadRadiusM * std::cos(th),
-                        c.y + uwbTriadRadiusM * std::sin(th),
+                 Vector(uwbCentre.x + uwbTriadRadiusM * std::cos(th),
+                        uwbCentre.y + uwbTriadRadiusM * std::sin(th),
                         2.5)});
         }
     }
@@ -3483,6 +3509,7 @@ main(int argc, char* argv[])
     // Defaults false: the probe's default output stays byte-identical to every
     // run that preceded the D2 fix. See DEFECTS.md D2.
     bool traceDiagnostic = false;
+    bool uwbComplementarySiting = false;
     // B1. Default true = SURVEYED = the pre-B1 world, byte-identical.
     bool anchorSurveyed = true;
     double anchorRangePeriodS = 0.0;
@@ -3595,6 +3622,11 @@ main(int argc, char* argv[])
                  "enables the B1 survey; needs --anchorRangePeriodS > 0 and "
                  "--traceDiagnostic to emit anything",
                  anchorSurveyed);
+    cmd.AddValue("uwbSiting",
+                 "false (default) = tier-3 rings co-located with tier-2 facilities, the "
+                 "committed deployment. true = complementary siting at the facility "
+                 "square's edge midpoints, derived from the escalation-demand surface",
+                 uwbComplementarySiting);
     cmd.AddValue("anchorMaxConcurrent",
                  "the concurrency the anchor-survey schedule ASSERTS, per tier per epoch "
                  "(default 1). The run aborts if the actual count exceeds it -- a delivery "
@@ -3814,7 +3846,11 @@ main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
-    if (pcsFormArg == "v2")
+    if (pcsFormArg == "min")
+    {
+        pcsForm = CA_TBL_PCS_MIN;
+    }
+    else if (pcsFormArg == "v2")
     {
         pcsForm = CA_TBL_PCS_V2;
     }
@@ -3980,7 +4016,8 @@ main(int argc, char* argv[])
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
-                                           t2AnchorsPerSite);
+                                           t2AnchorsPerSite,
+                                           uwbComplementarySiting);
 
     const CaTblPolicyMode allArms[] = {CA_TBL_MODE_STATIC_868,
                                        CA_TBL_MODE_STATIC_2P4,
