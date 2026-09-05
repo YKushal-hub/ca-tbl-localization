@@ -95,11 +95,13 @@ produces a wrong result that looks right.
   trailer, no "generated with" line, no assistant name in a commit message, a pull
   request title or body, a branch name, a report, or any tracked file. This is a
   standing owner instruction (2026-09-05) and it overrides any default the tooling
-  applies. Gate **G12** enforces it and it is not advisory: it inspects commit
-  identity fields AND message bodies, and it was added by `fbf2153` after the
-  2026-09-01 rewrite. Note that G12 also matches PROSE about attribution, so a
-  commit message explaining the policy trips it — write about it in a tracked
-  document instead of in a commit subject. The tooling references that already
+  applies. **The rule is wider than the gate, so follow the rule.** Gate **G12**
+  blocks an assistant in the commit **identity fields** — author or committer —
+  which is the property that decides who the record says wrote the work. Its
+  message-body check was **narrowed on 2026-09-05 by owner decision** and no longer
+  matches `Co-Authored-By:`; it still catches `Generated with`, `Assisted-by:` and
+  vendor handles. So a trailer will not turn the suite red, and it is still not to
+  be written. The tooling references that already
   exist — the tool settings directory in `.gitignore` and `EXCLUDED.md`, `RULES.md` itself, and
   `docs/KICKOFF.md` — are project infrastructure, not attribution, and stay.
 - **Do not add a new mechanism without a default-off flag** whose off state reproduces the
