@@ -26,7 +26,8 @@ accuracy ≤ 25 m**, and a decision rule fixed before any run.
 | result | figure | qualification | source |
 |---|---|---|---|
 | Tiering buys reliability in a degraded environment | `ca_tbl_full` **19/20** vs `static_2p4` **0/20** deployments, at **1.56×** the energy | **No verdict attached** — no reliability criterion was registered, and inventing one after seeing the result is what pre-registration prevents. §4.1 | `results/p10_grid` |
-| One configuration in 320 is cheaper *and* equally reliable | M1 **0.9531** [0.9296, 0.9775] | **Five caveats, none optional** — a single isolated cell, a 4.5% margin, neighbours on the wrong side, and all ten adjudicable cells in the easiest environment. §4.2 | `results/p10_grid` |
+| ~~Tiering wins on reliability~~ | ~~19/20 vs 0/20~~ | **DID NOT REPRODUCE.** On 52 fresh prospectively-registered seeds both arms meet the requirement **52/52**; the advantage was a one-seed margin in a 20-seed set. Paired availability delta falls to **+0.001629 [+0.000251, +0.003008]** | `experiments/JOINT_CRITERION_RESULT.md` |
+| ~~One configuration in 320 is cheaper *and* equally reliable~~ | ~~M1 **0.9531** [0.9296, 0.9775]~~ | **WITHDRAWN (W11).** Measured under `nlosSource=legacy`; the same cell re-measures to **M1 = 1.1873 [1.1782, 1.1965]** — a FAIL — under the corrected source, and **no cell in the re-scored grid returns a PASS**. Claim 3 stands withdrawn with no replacement | `experiments/CLAIM3_NLOS_SOURCE_RESULT.md`, `experiments/P10_GRID_PROPAGATION_RESULT.md` |
 | The dimensionless axis transfers | window held at `spacing/r80` 1.02–1.23 across a **26%** change in `r80` | A result about method; independent of any claim passing. §4.3 | `results/p10_env_v7`, `_v8` |
 
 **Results falsified.**
@@ -158,6 +159,14 @@ Source: `results/p10_grid/c_ef0_legacy_dw800_b1500`, `source 0a489df dirty 0`,
 
 At `RURAL_OPEN`, `legacy`, `dwell = 800`, `boxHalf = 1500`, both `ca_tbl_full` and
 `static_2p4` meet the requirement on 20/20 seeds, and:
+
+> **WITHDRAWN (W11), 2026-09-04.** The passage below stands as written; a withdrawal that edits its
+> own subject leaves nothing to check. The cell was measured under `nlosSource=legacy`, and the same
+> cell with only that flag changed gives **M1 = 1.1873 [1.1782, 1.1965]** — a FAIL. `static_2p4` is
+> unchanged to three decimals in every energy component, because it has no tier 3; `ca_tbl_full`
+> moves 14.523 → 18.039 J. The mechanism: under `legacy` the node parks on UWB for 553 of 1440
+> cycles and stops paying the tier-1 floor. **The saving was the floor being switched off, not a
+> cheap precision tier.**
 
 > **M1 = 0.9531, 95% CI [0.9296, 0.9775]** — geometric mean of per-seed ratios with a
 > seed-level bootstrap over 10 000 resamples. **Not** a ratio of means.

@@ -13,6 +13,62 @@
 
 ---
 
+## 0. Two findings that frame every result below
+
+**Both were established late, and both are conditions on the entire evidence base rather than
+entries in it. They are placed above the ledger because every negative result in this document was
+obtained under them.**
+
+### 0.1 The requirement was never traceable to a standard
+
+`R = 25 m` was derived from sweep-width reasoning, and this project's own pre-registration flagged
+that it *"is to be justified against the sweep-width literature in the results write-up, or corrected
+there with the correction recorded."* **It was never closed, and the literature does not supply it.**
+
+Verified against primary sources (`experiments/REQUIREMENT_DERIVATION.md`): of four operational
+figures checked, **three did not survive.**
+
+| figure | status |
+|---|---|
+| pinpoint probing **25 cm** grid | **VERIFIED** — ICAR Recommendation 009, and the only numeric value in it |
+| coarse search ends **3–5 m** | **not in Rec. 009** — real, but from secondary sources |
+| standardised **25 m** test offset | **not found** in any readable ICAR source |
+| search strip width **20–40 m** | **not a fixed value** — Rec. L 0007 specifies a *method*; the number is device-specific |
+
+> **Every negative result in this ledger was obtained under a requirement that cannot be sourced.**
+
+This does not make the negatives wrong. It makes their scope narrower than it appears: they are
+results about a system evaluated at 25 m, and 25 m is a project convention.
+
+### 0.2 Availability and time-to-fix disagree by an order of magnitude on the same traces
+
+At the one primary-verified operational accuracy, `R = 0.25 m`, the same 52-seed campaign gives:
+
+| metric | tiered arm | single-band |
+|---|---|---|
+| **availability** (fraction of 1440 cycles with a fix) | **4.65%** | 0.93% |
+| **time to first fix**, median | **132.5 s** | 170.0 s |
+| seeds never achieving a fix | **0 / 52** | **0 / 52** |
+
+**Both are correct and they answer different questions.** Availability asks *what fraction of the
+time is a fix available*; time-to-fix asks *how long until one arrives*. A system that produces a
+0.25 m fix in 132 seconds and then loses it is **useless by availability and adequate by
+time-to-fix** — and against the 18-minute high-survival window the avalanche literature documents
+(Falk/Brugger 1994; Procter et al. 2016), 132 seconds is an order of magnitude inside budget.
+
+> **This project measured availability throughout, and the operation needs the other one.**
+
+That is a finding about requirement specification rather than about this system, it generalises past
+CA-TBL, and it was reached by asking a question the project had never posed — not by relaxing a
+threshold. `[M-35]` `[M-36]`
+
+**It does not rescue the architecture.** The single-band arm meets the same budget, and is
+significantly faster at every accuracy the comparison can resolve. What it changes is what the
+negative means: not *the system cannot locate a buried subject*, but *it does not need three tiers
+to do so.*
+
+---
+
 ## Table of contents
 
 1. [What is being measured](#1-what-is-being-measured)

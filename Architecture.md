@@ -147,6 +147,27 @@ flowchart TB
 | Decision                                                      | Rationale                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Tier-2 and tier-3 co-located** at the same four sites | Experimental control. If the precision tiers covered different places, an escalation failure could be a*siting* artefact rather than a *decision* error. Co-location makes escalation failures unambiguously attributable to the policy. |
+
+> **MEASURED CONSEQUENCE, added 2026-09-05.** The co-location rationale above is sound and the
+> decision was **not** the cause of the escalation failure — that was established by measurement
+> and an earlier diagnosis claiming otherwise is withdrawn
+> (`src/catbl-propagation-study/experiments/ESCALATION_PREDICATE_DIAGNOSIS.md` §4).
+>
+> **The anti-correlation is a property of the predicate, not the geometry.** The PCS *sum* form is
+> `term1 + term2 + term3` against a threshold of 1.70, and `term3 = nLos/nTotal` **falls where links
+> are NLOS — that is, far from anchors.** A predicate keyed on it wants to escalate exactly where
+> the precision tier is absent. Under an honest NLOS source `term2 + term3 ≥ 1.70` on **85.18%** of
+> tier-2 cycles, so `term1` cannot bring the sum below threshold and **escalation becomes
+> unrequestable**: `tp = 0`, `fp = 0`.
+>
+> A `min` form is dominated by `term1`, i.e. **filter uncertainty**, which peaks where the node
+> **dwells** — at the facilities, where the co-located anchors already are. Switching the form takes
+> tier-3 service from **0 to 83 cycles per seed** and cuts thrashing from **148 oscillations per
+> seed to 3.5**, with the anchors unmoved.
+>
+> **Co-location is self-defeating for a LOS-fraction trigger and correct for a filter-uncertainty
+> one.** Complementary siting, measured as its own arm, made things *worse* — it moves anchors away
+> from where the node dwells. The siting decision recorded above stands.
 | **Triad radii absolute, not scaled** with `boxHalf`   | Local anchor density stays invariant as the deployment scales, so results across box sizes lie on one comparable axis.                                                                                                                       |
 
 - Verified: `gwGrid` has **zero** effect on tier-2 coverage — identical to six decimal places across all `gwGrid` values at every `boxHalf`. It moves tier-1 gateways only. `[E-03]`

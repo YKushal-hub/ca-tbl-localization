@@ -41,17 +41,40 @@ CA-TBL set out to demonstrate that a three-tier radio architecture with a confid
 |---|---|---|
 | Build steps S1–S7 | 7 | **5 of 7** (S5, S6 never started) |
 | Novelty claim parts | 4 | **1 built and tested (falsified); 1 built but disabled; 2 never built** |
-| "Six things to prove" | 6 | **3 clean · 1 re-scoped · 1 heavily caveated · 1 delivered** |
-| Formal claims | 9 | **4 PROVEN · 1 IMPLEMENTED · 1 EXERCISED · 1 RE-SCOPED · 2 FALSIFIED · 1 WITHDRAWN-and-replaced** |
-| Verification gates | not planned | **13, each with a negative fixture** |
+| Formal claims | 9 | **2 stand · 3 re-scoped · 2 withdrawn · 2 falsified · 0 unqualified PROVEN** |
+| Verification gates | not planned | **15 in the suite (G1–G13, G9b, G12b), each with a negative fixture; G16 standalone; G14–G15 registered and deferred** |
 | Simulator defects found | not planned | **5 major, 1 of which invalidated the entire results tree** |
 | Independent physics model | not planned | **Built; reached a hard terminus; found the defect nothing else caught** |
+| Pre-registered adjudications | not planned | **Five independent lines, each with a falsifier scored** |
 
 ### 1.3 The three things a reader should take away
 
-1. **The architecture's central novelty claim is falsified.** The integrity check at the LoRa→UWB switching seam does not improve accuracy at the pre-registered requirement, on 240 cells across two fault models and four response policies, re-measured on clean provenance.
-2. **The architecture's premise survives, but only in a weakened form.** *No **deployable** radio is simultaneously long-range and precise.* The unconstrained premise is **false** — a counterexample exists in physics at 169 MHz and is forbidden by spectrum policy, not by the range-precision trade-off.
-3. **The most valuable output is the method, not the architecture.** The project built a verification regime that caught its own six-decibel physics defect, its own degenerate experiments, its own metric artefacts, and its own analyst's errors — and the record of that is more transferable than the architecture would have been if it had simply worked.
+1. **The system works and does not need its architecture.** It locates a subject to
+   **0.25 m in a median of 132.5 seconds**, an order of magnitude inside the 18-minute
+   high-survival window the avalanche literature documents. A **single 2.4 GHz band meets the same
+   budget** and is significantly faster at every accuracy the comparison can resolve. The
+   architecture's premise is sound in physics; its advantage does not survive measurement at any
+   requirement derivable from the operation. Established five ways, each prospectively registered:
+   the envelope, the operating-point grid, the integrity ablation, an accuracy ladder from 0.25 m to
+   25 m, and time-to-first-fix.
+
+2. **The requirement the whole evaluation rests on cannot be sourced, and the project flagged that
+   itself and never closed it.** `R = 25 m` came from sweep-width reasoning that the
+   pre-registration said needed justifying against the literature. Checked against primary sources,
+   **three of four operational figures did not survive** — only the 25 cm probe grid appears in ICAR
+   Recommendation 009. **Every negative result in this project was obtained under a requirement that
+   is a project convention.**
+
+3. **Availability and time-to-fix disagree by an order of magnitude on the same traces, and the
+   project measured the one the operation does not need.** At 0.25 m: **4.65% availability** against
+   a **132.5 s** median time to first fix and **zero** seeds never achieving one. Both are correct;
+   they answer different questions. For a burial, elapsed time is the operational question and duty
+   cycle is not. That is a finding about requirement specification, it generalises past this system,
+   and it arrived from asking a new question rather than relaxing a threshold.
+
+**The contribution is items 2 and 3, not item 1.** This is a methods result about how a systems
+claim should be specified and evaluated, demonstrated on a system built well enough to make the
+demonstration credible — not a systems paper that failed.
 
 ---
 
@@ -833,14 +856,16 @@ An audit found **27 commits carrying an assistant attribution in the message bod
 
 ### 13.1 What can be claimed
 
+**Every row below survived re-measurement under the corrected NLOS source.** Rows that did not are
+in §13.2 with their withdrawal.
+
 | Claim | Evidence |
 |---|---|
-| The escalation trigger fires correctly | Precision 0.078 → 0.934, geometric ground truth, 20 seeds |
-| Escalation policy saves energy at no accuracy cost | 25.68× reduction with accuracy *and* availability improving |
-| Coverage-floor optimisation works | 12/12 pre-registered predictions at two densities |
+| **The system locates a subject to 0.25 m in a median of 132.5 s** | 52 seeds, zero censored, against an 18-minute high-survival window (Falk/Brugger 1994; Procter 2016) |
+| Coverage-floor optimisation works | 12/12 pre-registered predictions at two densities; magnitude **24.5% [23.6, 25.3]** post-correction |
+| Escalation policy saves energy | **6.53× [5.11, 7.95]**, post-D1, NLOS source stated |
 | The MAC and packet layers work | 38/38 validator; emergent capture; duty governor enforced |
-| Tiering wins on **reliability** in forest | 19/20 against `static_2p4`'s 0/20, at 1.56× the energy — **no registered rule, so no verdict attached** |
-| Tiering wins on **cost** in one cell | M1 0.9531 [0.9296, 0.9775] — **one of 320, with five caveats** |
+| **The escalation predicate had a real defect, and the repair is measured** | Parameter-free; tier-3 service 0 → 20/20 seeds; thrashing 148 → 3.5 per seed |
 | `spacing/r80` transfers as a design axis | Held across a 26% change in `r80`; independently reproduced by a second model at 1.41 |
 | **No *deployable* radio is both long-range and precise** | Measured frontier; counterexample found and excluded on two independent grounds |
 | The engine has five defects, now documented | Each with `file:line`, mechanism, fix status and invalidation list |
@@ -850,17 +875,27 @@ An audit found **27 commits carrying an assistant attribution in the message bod
 
 | Not claimed | Reason |
 |---|---|
+| **The escalation trigger fires correctly** | **WITHDRAWN (W12).** Under the corrected source `tp = 0` and `fp = 0` — the trigger never fires into UWB. The published 0.078 → 0.934 was measured under a defective NLOS flag |
+| **Tiering wins on cost in any cell** | **WITHDRAWN (W11).** The single PASS re-measures to M1 = 1.1873 under the corrected source, and no cell in the re-scored grid returns a PASS |
+| **Tiering wins on reliability** | Did **not reproduce** on 52 fresh prospectively-registered seeds: both arms meet the requirement 52/52. The advantage was a one-seed margin in a 20-seed set |
+| **A general architectural advantage at any accuracy** | The ladder finds **no rung** from 0.25 m to 25 m where the tiered arm passes and the single-band arm does not |
 | The integrity check improves accuracy | **Falsified** on 240 + 160 cells, two fault models, four response policies, clean provenance |
-| The confidence model beats a flat threshold | **Falsified thin**; and the fair-evaluation caveat was never discharged |
-| A general architectural advantage across densities | The M1 CI is **above 1.0 at every density where the tiered arm meets the requirement at all** |
+| The confidence model beats a flat threshold | **Falsified**, and measured on a predicate since shown unable to fire under the corrected source |
 | Multi-hop confidence propagation | **The mechanism is disabled** (`hopWeight = 0`) |
-| Self-deployable mesh topology | **Never built** |
-| Identity-scoped multi-target arbitration | **Never built** |
-| Packet-level physics realism, unqualified | **Re-scoped** — unverified for receiver sensitivity |
-| That the independent model validates the engine | **G11b permanently red**; terrain is transcription-only |
-| The unconstrained range-precision premise | **False** — a counterexample exists in physics |
+| Self-deployable mesh topology | **Never built** — and now deliberately closed, not deferred: it would calibrate a tier with no operating point at any tested requirement |
 
-### 13.3 The reframing that the evidence actually supports
+### 13.3 The condition every negative was obtained under
+
+**`R = 25 m` cannot be sourced.** The pre-registration said it needed justifying against the
+sweep-width literature and that was never done; checked against primary sources, three of four
+operational figures did not survive. **The negatives are not wrong — their scope is narrower than it
+looks.** They are results about a system evaluated at a project convention.
+
+And **availability was the wrong metric for the operation.** At 0.25 m the same traces give 4.65%
+availability and a 132.5 s median time to first fix. Both correct, different questions, and the
+operation needs the second.
+
+### 13.4 The reframing that the evidence actually supports
 
 The project does not have *"my architecture is better."* It has:
 
@@ -872,7 +907,7 @@ The project does not have *"my architecture is better."* It has:
 2. **The negatives are honest negatives.** Each falsification was measured on clean provenance, with the mechanism named, and each was preceded by establishing that the mechanism had a fair test. Where a fair test was not possible — the `suspectForcesEscalation` confound, the degenerate arms, the six-decibel defect — the result was withdrawn rather than reported.
 3. **The method found its own limits.** The most valuable single finding — that a six-decibel physics defect passed every check in the project — was produced by the project's own apparatus, and the project says so in its own claim ledger rather than burying it.
 
-### 13.4 What a corrected study would register
+### 13.5 What a corrected study would register
 
 Named explicitly, with the numbers attached, so the next iteration does not repeat the structural error:
 
@@ -903,19 +938,48 @@ Named explicitly, with the numbers attached, so the next iteration does not repe
 
 ---
 
+### 14.1 Closed as decisions, not left open
+
+**Five items were deferred across successive passes. Each is now closed with its reason, because a
+decision reads as judgement and silence reads as drift.**
+
+| Item | Closed as | Reason |
+|---|---|---|
+| **B2 — anchor self-calibration** | **Not worth doing** | It calibrates tier-3 anchors, and the ladder finds **no operating point for tier 3 at any tested requirement** — from 0.25 m to 25 m. The reason is measured, not assumed. B1 was built and its null control holds; B2 onward is closed |
+| Claim 4's second density | **Not run** | The mechanism is established at `spacing/r80 = 0.78` and the second density would replicate it rather than test it. The magnitude is already restated with its interval |
+| The occupancy/service diagnosis | **Superseded** | It was to inform whether tier 3 was worth targeting. The ladder answers that question directly and more strongly |
+| Claim 8's re-measurement | **Not run** | The note is sufficient. Re-measuring a predicate shown structurally unable to fire measures the same absence a second time |
+| The adjudication ledger, G14, G15, tier-2 audit | **Deferred, reason already recorded** | The citation audit's value was realised — population known, drift found and corrected, expansion done. What remains is the durability layer, which keeps the corpus correct rather than making it correct. Restated here so it is not mistaken for an omission |
+
+**None of these is a gap in the evidence.** Each is a decision that further work would not change a
+conclusion, with the measurement that supports the decision named.
+
 ## Appendix A — full claim ledger
 
 | # | Claim | Status | Basis |
 |---|---|---|---|
-| 1 | Escalation triggers correctly | ✅ **PROVEN** | Precision 0.078 → 0.934, F1 0.803, FP cut 235×, geometric ground truth |
-| 2 | Energy reduction is real and cost-free | ✅ **PROVEN** | 25.68× reduction with accuracy *and* availability improving; structural explanation given |
-| 3 | Architectural advantage exists and is bounded | ⚠️ **WITHDRAWN (W4), REPLACED** | Window 1.0–1.3 withdrawn — inferred from a region where every verdict was FAIL or INCONCLUSIVE. Replaced by a single PASS, M1 = 0.9531 [0.9296, 0.9775], five caveats |
-| 4 | Coverage-floor optimisation | ✅ **PROVEN** | 12/12 pre-registered predictions met at two densities |
+| 1 | Escalation triggers correctly | ❌ **WITHDRAWN (W12)** | ~~Precision 0.078 → 0.934~~. Re-measured under `nlosSource=propagation`: `tp = 0.0` and `fp = 0.0` against 90.9 ground-truth opportunities per seed — **the trigger never fires into UWB at all**. The published figures were measured under `legacy`, which drives 1081.8 false positives per seed |
+| 2 | Energy reduction is real and cost-free | ⚠️ **RE-SCOPED** | ~~25.68×~~ → **6.53× [5.11, 7.95]**, post-D1 with the NLOS source stated. The published baseline was **97.4% UWB energy** driven by the `legacy` conflation — the defect inflated the *before* number |
+| 2b | Escalation efficiency 0.071 → 0.827 | ❌ **NOT SCOREABLE** | No column reproduces it; six candidate estimators all miss, while the same scan reproduces Claim 1's. The estimator is unrecoverable from the evidence |
+| 3 | Architectural advantage exists and is bounded | ❌ **WITHDRAWN (W4), REPLACEMENT ALSO WITHDRAWN (W11)** | ~~Window 1.0–1.3~~, then ~~M1 = 0.9531~~. The replacement re-measures to **1.1873 [1.1782, 1.1965]** — a FAIL — under the corrected source. **No replacement stands** |
+| 4 | Coverage-floor optimisation | ⚠️ **RE-SCOPED** | 12/12 pre-registered predictions met, direction unaffected. Magnitude ~~42.8%~~ → **24.5% [23.6, 25.3]**. Mechanism now measured: floor energy is 99–100% of the saving |
 | 5 | Specialized packet taxonomy | ✅ **IMPLEMENTED & VALIDATED** | 9 message types, 4 access categories, validator 38/38 |
 | 6 | Custom handshake / MAC | ✅ **IMPLEMENTED & EXERCISED** | Emergent capture 14 564 events; duty governor 0.0226 against 0.025 |
-| 7 | Physics realism on packets | ⚠️ **RE-SCOPED** | Verified for ranging precision (CRLB ratio 1.105) and energy (10 s.f.); **unverified for receiver sensitivity** — a 6 dB indexing defect passed every check |
-| 8 | Confidence model beats a flat threshold | ❌ **FALSIFIED (thin)** | 19/20 vs 18/20 at 24.26 J vs 22.77 J; the flat threshold escalates on nearly the same occasions |
-| 9 | Integrity check improves accuracy | ❌ **FALSIFIED at R = 25 m** | 240-cell ablation + 40-cell and 120-cell clean re-measurements. Detection sound (7.73×/16.45× separation, 20/20 detected); the requirement leaves no headroom. Scoped to **rejection alone** |
+| 7 | Physics realism on packets | ⚠️ **RE-SCOPED** | Verified for ranging precision and energy; **unverified for receiver sensitivity** — the D1 defect passed every check in this document |
+| 8 | Confidence model beats a flat threshold | ❌ **FALSIFIED**, and measured on a predicate that could not fire | 19/20 vs 18/20. The PCS sum form reaches its threshold on **85.18%** of tier-2 cycles before `term1` contributes, so it cannot request escalation under `propagation`; the `min` form fires readily. Not re-scored |
+| 9 | Integrity check improves accuracy | ❌ **FALSIFIED at R = 25 m** | 240-cell ablation + 40-cell and 120-cell clean re-measurement. **Unchanged**, and its evidence is the one set measured under `propagation` throughout |
+
+**Two stand. Three re-scoped. Two withdrawn. Two falsified. One not scoreable. Zero unqualified
+PROVEN.**
+
+**Results that are not claims:**
+
+| result | finding |
+|---|---|
+| The accuracy ladder | **No rung** where the tiered arm meets `A ≥ 0.95` and `static_2p4` does not. Three sign changes; at `R = 10 m` the single-band arm is the one passing 52/52 |
+| Time to first fix | **Zero censoring at every rung.** At 0.25 m, medians 132.5 s and 170.0 s against an 18-minute budget; the one rung where the tiered arm leads is the one 52 seeds cannot resolve |
+| The predicate repair | Parameter-free. Tier-3 service **0 → 20/20 seeds**; thrashing **148 → 3.5** oscillations per seed; costs 2.17× energy for +0.0016 availability |
+| The anti-correlation, corrected | A property of **the predicate, not the geometry**. Co-location is self-defeating for a LOS-fraction trigger and *correct* for a filter-uncertainty one |
 
 **Withdrawals, each with its reason retained:**
 
