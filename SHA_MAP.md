@@ -63,3 +63,57 @@ falsification. 1283 sidecars cite six SHAs that changed:
 Those sidecars resolve through this table. The verifier's four-outcome resolution
 already has a *does not resolve (history rewritten)* branch; these land in it, and this
 file is what turns that outcome from a dead end into a lookup.
+
+---
+
+# SHA map — attribution rewrite of 2026-09-05
+
+Second authorised rewrite, same purpose and same authority as the 2026-09-01 one
+above: the owner directed that the assistant attribution trailer be removed from
+commit messages entirely rather than merely avoided going forward.
+
+**Why it was needed.** Gate G12, added by the 2026-09-01 rewrite precisely to stop
+attribution returning, went red on 21 commits made during the 2026-09-05 session.
+The identity fields were already clean on all of them; only the `Co-Authored-By`
+trailer in the message body tripped it. G12 states its own remedy is a history
+rewrite authorised only by the owner, and that authorisation was given.
+
+**Metadata only.** `git diff <old-tip> <new-tip>` is **empty**: no file content
+changed. Commit count unchanged at **131**. Order, dates and subjects preserved,
+merge topology intact. Author and committer identity were correct throughout.
+
+**25 commits were rewritten** — the 21 carrying a trailer plus 4 descendants whose
+SHAs move because their ancestors did. The 106 before them are untouched.
+
+**Sidecars were not edited.** 793 `run_id.txt` files written during that session
+cite the SHAs below in their `source` field, chiefly `6d44895` (512 cells),
+`9723dfc` (169) and `1e8e527` (60). They keep citing what they recorded; this table
+is what resolves them. Editing evidence to match a rewrite would be falsification.
+
+| old | new | subject |
+|---|---|---|
+| `1b938fedead2` | `1eb09f0aa563` | lorawan links the physics engine its phy already calls |
+| `170cd209773e` | `09b13c74fe77` | docs: agent working rules, master plan, and work packages |
+| `134d3e6972c4` | `83f47de9f741` | pre-register C9-ESCALATE before the first cell runs |
+| `3c3c5f4aaaf7` | `ef78f8307736` | A2 stage 1 runner, with the fault label mapping corrected |
+| `6d4489553dae` | `e282f4d310dd` | pre-register A0, the joint availability/energy criterion |
+| `5f1ff7870624` | `590d6ca736e7` | the confidence score gets a form that can veto |
+| `f578f16bce8a` | `2817213da066` | the hysteresis band becomes a swept parameter instead of a const |
+| `5e8d2b6a2f08` | `894caf561b4a` | the section 4.1 reliability result has no sidecar in the tree |
+| `c1868ef6f897` | `e346f99ce96e` | CAL-05 exists: the integrity check is precise and insensitive |
+| `4fc556c679b3` | `d27ff99b3b11` | pre-register the PCS form comparison before running it |
+| `aa76e818a679` | `7d8ad4f32e92` | the PCS form campaign runner, with the registered abort check wi |
+| `d07acdf8a7d0` | `e170377eada1` | A0 returns FAIL in 64 of 64, and the reason is degenerate |
+| `ac41f6c39e56` | `dcc355a854e3` | the escalation handshake becomes a frame, not just a charge |
+| `4c0b1753d763` | `60932657a6a2` | C1 verified: the handshake, once it contends, costs 41 percent m |
+| `8fddef99f921` | `64da52cbfc81` | untrack the partial pcs_forms output that git add -A swept into  |
+| `9723dfc70f0c` | `64277c489937` | the PCS abort check was asking the wrong question |
+| `1e8e527709b5` | `5f6fa316848b` | CAL-05 as a curve: the integrity check is a working detector |
+| `ea900d244ef5` | `0279f6b8d67a` | terrain stops applying an 868 MHz wavelength to every tier |
+| `df67f2d305f0` | `b55db5774d7d` | D-1 repaired: the system works better, the confidence claim does |
+| `e5741a50d4b8` | `caac6214d760` | evidence: the pcs_forms and c9_stage2 campaigns, complete this t |
+| `cf1709de49b8` | `77b8e9b2d020` | evidence: c9_escalate, p10_grid and p10_reliability, with their  |
+| `89b9aaefbb60` | `39e931e12404` | Merge branch 'wip/lane-b' into main |
+| `36d6e90a0ae1` | `d85c10a4050f` | Merge branch 'wip/c1-handshake' into main |
+| `b1138820a429` | `1098ee3063aa` | session record: five work items, five campaigns, six errors |
+| `a67389618d23` | `7dc9f02a5162` | G12 is red because of this session commit trailers, and that is  |
