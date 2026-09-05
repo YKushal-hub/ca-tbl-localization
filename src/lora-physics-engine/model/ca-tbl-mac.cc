@@ -410,6 +410,101 @@ CaTblMac::GetNeighbourCount(CaTblTier tier, double nowS) const
 
 // ---- transmit path (§2.3) -------------------------------------------------
 
+bool
+CaTblMac::ArbitrateRequest(const CaTblHeader& hdr)
+{
+    // C4. U(r) = l1*T_deg + l2*T_batt + l3*T_stale + l4*T_query, ported from
+    // scratch/python_handoff/arbitration_harness.py rather than reinvented.
+    //
+    // T_deg and T_batt ride on the request because an anchor cannot see another
+    // node's filter history or its battery. T_stale and T_query are computed here
+    // because the anchor CAN see them: it knows when it last granted this target,
+    // and urgency is the frame's own access category.
+    const double now = Simulator::Now().GetSeconds();
+    const uint16_t who = hdr.GetOriginId();
+
+    const double tDeg = static_cast<double>(hdr.GetReqDegradation()) / 255.0;
+    const double tBatt = static_cast<double>(hdr.GetReqBattery()) / 255.0;
+
+    // STALENESS_BOUND = 10 s in the harness. A target never granted before is
+    // maximally stale, which is what stops a newcomer being starved by an
+    // incumbent that keeps renewing.
+    double dt = m_cfg.arbSlotHoldS;
+    std::map<uint16_t, double>::const_iterator it = m_lastGrantAtS.find(who);
+    if (it != m_lastGrantAtS.end())
+    {
+        dt = now - it->second;
+    }
+    const double tStale = std::min(1.0, dt / 10.0);
+
+    // Harness mapping: URGENT 1.0, normal 0.5, ambient 0.0. CA_TBL_AC_URGENT and
+    // CA_TBL_AC_HIGH both count as urgent here -- HIGH is the category the taxonomy
+    // assigns to UWB arbitration request/grant precisely because it is time-sensitive.
+    //
+    // NOTE, and it bounds what this term can do: EVERY ESC_REQUEST carries the same
+    // access category, so across competing requests T_query is a CONSTANT and
+    // contributes nothing to the ordering. It is scored anyway because the harness
+    // defines U(r) with four terms and dropping one silently would make this a
+    // different function; but lambda_4 cannot discriminate between UWB requests until
+    // the taxonomy gives them differing urgency.
+    const CaTblAccessCategory ac = hdr.GetAccessCategory();
+    const double tQuery = (ac == CA_TBL_AC_URGENT || ac == CA_TBL_AC_HIGH)
+                              ? 1.0
+                              : ((ac == CA_TBL_AC_NORMAL) ? 0.5 : 0.0);
+
+    const double u = m_cfg.arbLambdaDeg * tDeg + m_cfg.arbLambdaBatt * tBatt +
+                     m_cfg.arbLambdaStale * tStale + m_cfg.arbLambdaQuery * tQuery;
+
+    const bool slotFree = (m_slotGrantedAtS < 0.0) ||
+                          ((now - m_slotGrantedAtS) >= m_cfg.arbSlotHoldS) ||
+                          (m_slotHolder == who);
+
+    if (slotFree)
+    {
+        m_slotHolder = who;
+        m_slotGrantedAtS = now;
+        m_slotHolderScore = u;
+        m_lastGrantAtS[who] = now;
+        ++m_arbGrants;
+        ++m_grantsByTarget[who];
+        return true;
+    }
+
+    if (u > m_slotHolderScore)
+    {
+        // Pre-emption. Counted separately from an ordinary grant because
+        // "the arbiter changed its mind" and "the slot was free" are different
+        // events and pooling them would hide how often priority actually inverts.
+        m_slotHolder = who;
+        m_slotGrantedAtS = now;
+        m_slotHolderScore = u;
+        m_lastGrantAtS[who] = now;
+        ++m_arbGrants;
+        ++m_arbPreemptions;
+        ++m_grantsByTarget[who];
+        return true;
+    }
+
+    ++m_arbDenials;
+    return false;
+}
+
+void
+CaTblMac::SendQuery(CaTblTier tier, uint8_t manifestId)
+{
+    // C3. Identical to Send(QUERY, ...) except that the frame carries WHO is being
+    // looked for. A separate entry point because ns-3 Simulator::Schedule binds a
+    // member function at exact arity, so widening Send() with a defaulted parameter
+    // breaks every scheduled call to it.
+    //
+    // nEntries = 1: one manifest id. CaTblPayloadBytes(QUERY, n) already bills a
+    // query for carrying n manifest ids, so the airtime is charged correctly by the
+    // existing sizing and nothing about the wire format changes.
+    m_nextQueryManifest = manifestId;
+    Send(CA_TBL_MSG_QUERY, tier, 1, 0);
+    m_nextQueryManifest = 0;
+}
+
 void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
@@ -420,6 +515,13 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
     f.hdr.SetMsgType(type);
     f.hdr.SetTier(static_cast<uint8_t>(tier));
+    f.hdr.SetQueryManifestId(m_nextQueryManifest);
+    f.hdr.SetReqDegradation(m_nextReqDegradation);
+    f.hdr.SetReqBattery(m_nextReqBattery);
+    // Cleared immediately: these describe ONE request, and letting them persist
+    // would attach a stale degradation figure to the next unrelated frame.
+    m_nextReqDegradation = 0;
+    m_nextReqBattery = 0;
     f.tier = tier;
     f.nEntries = nEntries;
     f.destId = destId;
@@ -685,13 +787,52 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     // let through. That is the coupling C1 exists to expose -- under the
     // accounting path the handshake never contended for anything. The requester
     // surfaces the failure through its existing ACK timeout.
+    // ---- C3: identity-scoped search, independent of the handshake flag -----
+    //
+    // NOT nested in the sendHandshakeFrames guard below. They are unrelated
+    // mechanisms, and nesting them meant a query was only answered when the
+    // handshake flag happened to be on -- which is exactly how the first two-sided
+    // test came back showing no queries reaching the measured tag at all.
+    //
+    // THE SCOPING IS AT THE RESPONDER and it is the whole mechanism: a query floods,
+    // every target hears it, and only the one whose manifest id matches answers.
+    // Without the id every target answers every query and the search is a broadcast
+    // with extra steps. Anchors do not answer -- they issue.
+    if (hdr.GetMsgType() == CA_TBL_MSG_QUERY)
+    {
+        const CaTblTier qTier = static_cast<CaTblTier>(hdr.GetTier());
+        if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
+            hdr.GetQueryManifestId() == m_cfg.targetManifestId)
+        {
+            ++m_queriesAnswered;
+            Send(CA_TBL_MSG_RESPONSE, qTier, 1, hdr.GetOriginId());
+        }
+        else if (m_cfg.identityClass == CA_TBL_ID_TARGET)
+        {
+            // Counted, not dropped silently. A query that REACHES a target and is
+            // correctly not answered is the evidence that scoping works; a query
+            // that reaches nothing is evidence it does not, and without this counter
+            // the two look identical from the outside.
+            ++m_queriesIgnored;
+        }
+    }
+
     if (m_cfg.sendHandshakeFrames)
     {
         const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());
         if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
             m_cfg.identityClass == CA_TBL_ID_ANCHOR)
         {
-            Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+            if (!m_cfg.uwbArbitration)
+            {
+                // C1 behaviour: grant whoever asked, and let CAD and the duty
+                // governor decide whether it lands.
+                Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+            }
+            else if (ArbitrateRequest(hdr))
+            {
+                Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+            }
         }
         else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST)
         {
