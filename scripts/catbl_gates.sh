@@ -314,13 +314,18 @@ G12_ID_PAT='claude|anthropic|assistant|copilot|\bbot\b'
 # removed by the 2026-09-05 rewrite. The standing project rule in CLAUDE.md 2 is
 # unchanged -- do not write attribution -- this only stops the gate enforcing the
 # message-body half of it, which the owner deferred.
-# The colon binds per-alternative, not to the group. The previous pattern was
-# (co-authored-by|generated[- ]with|assisted-by): which required a colon after ALL
-# THREE, so 'Generated with <tool>' -- the commonest form, and the one used in pull
-# request bodies, which carries no colon -- was never matched. Found by running the
-# negative fixture for this gate after narrowing it (rule 6). Pre-existing hole,
-# not introduced by the narrowing.
-G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by:)|@anthropic|@openai'
+# REVERTED 2026-09-05, same day, and the reason is worth keeping. This briefly read
+# (generated[- ]with|assisted-by:) so that "Generated with <tool>", which carries no
+# colon, would be caught. That immediately turned G12 red on the very commit that
+# DOCUMENTED the change, because its message contains that phrase at the start of a
+# line -- the exact failure the note above already records, reintroduced.
+#
+# The note above is right and the widening was wrong. Attribution in a COMMIT MESSAGE
+# is a git trailer, which is Key: Value. "Generated with X" is not a trailer, it is a
+# pull-request body convention, and pull request bodies are not commit messages. The
+# colon is what distinguishes the form from prose about the form, and requiring it is
+# what lets this gate survive its own policy being written down.
+G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|@anthropic|@openai'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
