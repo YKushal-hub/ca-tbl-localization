@@ -2,7 +2,7 @@
 
 **Written** 2026-09-05 from `results/a6_hysteresis`, 300 cells, 5 bands × 3 dwells × 20
 paired seeds, **300/300 recording `dirty 0`**. Registered in
-`report/PREREG_A6_HYSTERESIS.md` (`57b3151`) **before the campaign ran**.
+`report/PREREG_A6_HYSTERESIS.md` (`4aa38aa`) **before the campaign ran**.
 
 **Verdict: LIVE AXIS.** Prediction 3 — which said the accuracy response would be flat —
 is **falsified**. CAL-03 and CAL-04 are not merely answerable now; they are parameters

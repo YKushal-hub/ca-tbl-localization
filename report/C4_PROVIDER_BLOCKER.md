@@ -76,8 +76,8 @@ No new flag. RULES.md §4 requires a default-off flag whose off state reproduces
 baseline byte-for-byte; `--nTags` already exists and already defaults to 1, and that is
 the off state.
 
-Pre-registered in `report/PREREG_PROVIDER.md`, committed at `ec78e97` **before the first
-run**. Code at `70e9329`.
+Pre-registered in `report/PREREG_PROVIDER.md`, committed at `ede157f` **before the first
+run**. Code at `3c95a86`.
 
 ---
 
