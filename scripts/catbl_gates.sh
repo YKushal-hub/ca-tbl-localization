@@ -387,6 +387,26 @@ python3 scripts/sensitivity_gate.py || fail G14
 bash scripts/sensitivity_gate_selftest.sh || fail G14
 finish G14
 
+# ---------------- G15: relayed-range admission (C5), A1-A5 with negative fixtures
+# A relayed range is NOT a range. r_AB + r_BG is an upper bound on |A-G| by the triangle
+# inequality, tight only when the three are collinear, and handing it to the filter as a
+# range is the same category error as applying a ToA Cramer-Rao bound to RSSI inversion
+# -- which this project has already made once. What a relay supplies is a pseudo-anchor
+# with a covariance: sigma_eff^2 = sigma_range^2 + u^T P_B u.
+#
+# The five admission conditions each mark a place where the error model STOPS HOLDING,
+# not a place where the measurement is merely poor. A poor measurement can be
+# down-weighted; one whose error model is wrong cannot, because the weight would be
+# computed from the same wrong model.
+#
+# The suite is its own negative fixture set (rule 6): each condition is violated in turn
+# and must produce ITS OWN rejection code, so one over-broad condition cannot mask the
+# absence of the other four. The positive control is the same measurement with the
+# single violation removed.
+printf '\n--- G15 relayed-range admission (C5) ---\n'
+./build/scratch/ns3.47-ca_tbl_relay_admission_test-optimized || fail G15
+finish G15
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
