@@ -130,59 +130,54 @@ Over 3205 directories: `tiering` 1.1%, `integrity` 27.3%, `trigger` 40.0%,
 
 ## 4. Results that stand
 
-### 4.1 Tiering buys reliability in a degraded environment
+### 4.1 Tiering buys reliability in a degraded environment — **WITHDRAWN 2026-09-05**
 
-Source: `results/p10_grid`, `source 0a489df dirty 0`, 20 seeds, digests verified.
+### 4.2 One configuration in 320 is cheaper and equally reliable — **WITHDRAWN 2026-09-05**
 
-At `envFacility = RURAL_FOREST`, `nlosSource = legacy`, `dwell = 800`,
-`boxHalf = 2000`:
+**Both are withdrawn, for one reason: the directory they cite is not in this
+repository.**
 
-| arm | deployments meeting (A ≥ 0.95, R ≤ 25 m) | energy |
+Both were sourced from `results/p10_grid` at `source 0a489df dirty 0`. That directory
+was **absent from the tree** — not excluded by `.gitignore`, not listed in
+`EXCLUDED.md`, simply not present — while `README.md` stated that every table in this
+report is sourced from a file in the repository. No gate caught it, because no gate
+asserts that a *cited* directory exists, and a check for a defect whose mode is
+absence cannot be a scan of what is present (rule 9).
+
+**What was withdrawn.**
+
+- §4.1 claimed `ca_tbl_full` **19/20** deployments against `static_2p4` **0/20** at
+  1.56× energy, at `RURAL_FOREST`, `dwell = 800`, `boxHalf = 2000`.
+- §4.2 claimed the only PASS in 320 cells: **M1 = 0.9531, CI [0.9296, 0.9775]**, both
+  arms meeting the requirement on 20/20 seeds at `RURAL_OPEN`, `dwell = 800`,
+  `boxHalf = 1500`.
+
+**What was measured instead**, on a regenerated grid that records its own provenance
+(`results/p10_grid`, 320 cells, `source 6d44895`, 320/320 `dirty 0`) and a focused
+20-seed run at §4.1's own configuration (`results/p10_reliability`, 40 cells):
+
+| | claimed | measured on a sourced grid |
 |---|---|---|
-| `ca_tbl_full` | **19 / 20** | 1.56× |
-| `static_2p4` | **0 / 20** | 1.00× |
+| §4.1 `ca_tbl_full` | 19/20 | **1/20** (legacy), **0/20** (propagation) |
+| §4.1 energy ratio | 1.56× | **52×** (legacy), **21×** (propagation) |
+| §4.2 cells meeting the requirement | 1 of 320 | **0 of 320** |
 
-Tier 2 fails completely in forest at that spacing; the tiered arm survives. The paired
-per-seed difference peaks at **+0.95** — near-perfect separation.
+**This is not a finding that the claims are false.** It is a finding that they cannot
+be checked. An energy ratio wrong by 13–33× is a different configuration, not a
+different metric, and no invocation recorded anywhere in this repository reproduces the
+published numbers — every `dwell = 800` sidecar in the tree was written by the
+2026-09-05 regeneration. The flag set the original campaigns used is unrecoverable.
 
-**No verdict is attached to this.** The project registered a decision rule for *cost*,
-not for reliability, and inventing a reliability criterion after seeing which cells
-would pass it is precisely what pre-registration exists to prevent. Whether +19
-deployments for 1.56× the energy is worth buying is a deployment decision, not a
-simulation result.
+**What survives from them.** The qualitative shape of §4.1 does: `static_2p4` ranges
+accurately (median R 3.0–3.2 m) and fails on availability (median A 0.78), while the
+tiered arm buys availability at a large energy multiple. That is visible in the
+regenerated grid. What does not survive is any number.
 
-### 4.2 One configuration in 320 is cheaper and equally reliable
+Full analysis: `report/P10_RELIABILITY_REPRODUCTION.md` and `report/A0_APPLIED.md`.
 
-Source: `results/p10_grid/c_ef0_legacy_dw800_b1500`, `source 0a489df dirty 0`,
-20 seeds.
-
-At `RURAL_OPEN`, `legacy`, `dwell = 800`, `boxHalf = 1500`, both `ca_tbl_full` and
-`static_2p4` meet the requirement on 20/20 seeds, and:
-
-> **M1 = 0.9531, 95% CI [0.9296, 0.9775]** — geometric mean of per-seed ratios with a
-> seed-level bootstrap over 10 000 resamples. **Not** a ratio of means.
-> `ca_tbl_full` 14.523 J against `static_2p4` 15.201 J: **4.5% cheaper, equally
-> reliable.**
-
-This is the **only PASS in 320 cells** under the registered rule, and the first in the
-project's history. **Five caveats travel with it and none is optional:**
-
-1. **A single isolated cell of 320.** A point, not a region.
-2. **A 4.5% margin.**
-3. **At the `dwell` level added to the grid after the preceding stage reported** —
-   disclosed in the pre-registration, and load-bearing: the same cell at `dwell = 90`
-   is 1.1571.
-4. **Its neighbours are on the wrong side** — 1.0878 at `boxHalf` 2000, 1.1980 at
-   2500. And **all ten adjudicable cells were `RURAL_OPEN`**: only there does a
-   single-band arm also qualify, giving the rule something to compare against. The
-   cost claim is decidable **only where tiering is least needed**.
-5. **The filter's calibration in this cell is imperfect** — NEES 2.95 at 20 seeds
-   against a 2-DOF expectation of 2.0, median 0.58, 3.3% of cycles above the 95%
-   bound, concentrated in UWB. The PASS is adjudicated on ground-truth error and
-   energy, neither of which reads the covariance, so its arithmetic is unaffected —
-   but the tier decisions leading to it were taken on a confidence score derived from
-   that covariance, and should not be described as confidence-driven in the sense the
-   architecture claims.
+**Consequence for §4.** This section is headed *Results that stand*. Two of its four
+entries no longer do, and the two that remain (§4.3, §4.4) should be read as the
+section's actual content.
 
 ### 4.3 The dimensionless axis transfers
 
