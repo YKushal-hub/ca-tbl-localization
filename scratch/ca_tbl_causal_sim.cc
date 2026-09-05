@@ -712,6 +712,83 @@ struct BeaconDriver
     }
 };
 
+/**
+ * \brief C3. An anchor asking "where is target N", on a period.
+ *
+ * Mirrors BeaconDriver deliberately: same shape, same jitter, same self-rescheduling.
+ * The only difference is that it carries the identity being searched for, which is
+ * what makes the flood a SEARCH rather than a broadcast.
+ */
+struct QueryDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    uint8_t manifestId;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->SendQuery(tier, manifestId);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &QueryDriver::Fire, this);
+        }
+    }
+};
+
+/**
+ * \brief C4. A peer asking for the UWB slot on a period, as SYNTHETIC LOAD.
+ *
+ * Exists because a peer has no policy and therefore never escalates on its own, so
+ * without it the arbiter is handed one requester and never has to choose. It is a
+ * timer, not a decision: the degradation and battery terms it carries are stated
+ * constants rather than measurements, and nothing about them reflects a real need.
+ *
+ * Use it to exercise deny and pre-empt. Do not read it as traffic a real second
+ * target would generate.
+ */
+struct PeerRequestDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    uint8_t degradation;
+    uint8_t battery;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->SetRequestTerms(degradation, battery);
+        mac->Send(CA_TBL_MSG_ESC_REQUEST, tier, 0, 0);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &PeerRequestDriver::Fire, this);
+        }
+    }
+};
+
+/** C4. Quantise a [0,1] term to a byte, saturating at both ends. */
+inline uint8_t
+CaTblQuantise(double x)
+{
+    if (!(x > 0.0))
+    {
+        return 0;
+    }
+    if (x >= 1.0)
+    {
+        return 255;
+    }
+    return static_cast<uint8_t>(x * 255.0 + 0.5);
+}
+
 /** Everything one arm produced, for the summary table. */
 struct ArmResult
 {
@@ -1939,6 +2016,10 @@ RunArm(CaTblPolicyMode mode,
        bool deferEscalationOnDutyLimit,
        bool intraCycleHandshakeDefer,
        uint32_t nTags,
+       double identityQueryPeriodS,
+       uint32_t identityQueryTarget,
+       bool uwbArbitration,
+       double arbBatteryCapJ,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM,
@@ -2182,6 +2263,10 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
+        // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
+        // this field before C3, so setting it explicitly changes no behaviour --
+        // and the null control confirms that rather than assuming it.
+        mc.targetManifestId = 1;
         mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
@@ -2208,6 +2293,8 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig mc;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
+            // C4. Only anchors arbitrate -- a target has no slot to award.
+            mc.uwbArbitration = uwbArbitration;
             mc.sendHandshakeFrames = sendHandshakeFrames;
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
@@ -2249,6 +2336,11 @@ RunArm(CaTblPolicyMode mode,
     // is deliberately not accounted. Anything that reports peer energy is wrong.
     std::deque<Tourist> peerWalkers;
     std::vector<uint32_t> peerIds;
+    // One MAC per tier per peer, recorded AT CONSTRUCTION. CaTblMac exposes no
+    // GetTier(), so a later search cannot tell a peer's three MACs apart -- and
+    // a search by node id alone matched the measured tag first, which is how
+    // every synthetic request ended up attributed to target 1.
+    std::vector<std::vector<CaTblMac*>> peerMacs;
     for (uint32_t pt = 1; pt < nTags; ++pt)
     {
         const uint32_t pid = nodeId + pt;
@@ -2268,6 +2360,7 @@ RunArm(CaTblPolicyMode mode,
         // Without this line the three calls above are inert for delivery.
         provider.RegisterPeerNode(static_cast<uint16_t>(pid), ppos);
         peerIds.push_back(pid);
+        peerMacs.push_back(std::vector<CaTblMac*>());
 
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
@@ -2286,6 +2379,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
             macs.emplace_back();
             CaTblMac* pm = &macs.back();
+            peerMacs.back().push_back(pm);
             pm->Configure(pmc);
             pm->SetRng(macRng);
             chan[ti].Register(pm);
@@ -2301,7 +2395,93 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
+    // ---- C3: identity-scoped queries from the anchors ----------------------
+    //
+    // Off unless identityQueryPeriodS > 0, and then ONE driver per tier on the first
+    // anchor of that tier -- not every anchor. The question being measured is whether
+    // the RIGHT target answers, not how much query traffic the medium carries, and
+    // every anchor querying would confound the two.
+    // The deque MUST live at RunArm scope. QueryDriver objects are scheduled into
+    // the simulator and Fire() runs long after this block; confining them to the
+    // branch destroys them while the scheduler still holds their addresses, which is
+    // a use-after-free that would most likely have appeared to work.
+    //
+    // The cost is a trace divergence with queries OFF: a deque local to RunArm
+    // changes the stack frame even when unused, and under -march=native that alone
+    // changes floating-point codegen. Measured: 1942 trace lines move by 1 ulp on
+    // estXhp, estYhp, meanSigmaM, meanSigmaRawM and one mahalanobis, while
+    // arm_summary.csv stays byte-identical. Correctness first.
+    std::deque<QueryDriver> queries;
+    // Lives at RunArm scope for the same reason queries does: the scheduler
+    // holds these addresses long after the block that creates them.
+    std::deque<PeerRequestDriver> peerReqs;
+    if (identityQueryPeriodS > 0.0)
+    {
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            for (size_t m = 0; m < macs.size(); ++m)
+            {
+                if (macs[m].GetIdentityClass() != CA_TBL_ID_ANCHOR)
+                {
+                    continue;
+                }
+                QueryDriver qd;
+                qd.mac = &macs[m];
+                qd.tier = static_cast<CaTblTier>(ti);
+                qd.periodS = identityQueryPeriodS;
+                qd.jitterMaxS = identityQueryPeriodS * 0.25;
+                qd.untilS = durationS;
+                qd.manifestId = static_cast<uint8_t>(identityQueryTarget);
+                qd.rng = macRng;
+                queries.push_back(qd);
+                break;
+            }
+        }
+    }
+
+    // C4. Peer UWB requests, so the arbiter has competing claims to resolve. Only
+    // when arbitration is on AND a peer exists -- otherwise there is nothing to
+    // arbitrate and this would just be extra traffic.
+    if (uwbArbitration && nTags > 1)
+    {
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        {
+            for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+            {
+                {
+                    PeerRequestDriver rd;
+                    rd.mac = peerMacs[pi][ti];
+                    rd.tier = static_cast<CaTblTier>(ti);
+                    rd.periodS = 30.0;
+                    rd.jitterMaxS = 7.5;
+                    rd.untilS = durationS;
+                    // STATED CONSTANTS, not measurements. A peer has no filter and no
+                    // energy account, so there is nothing to derive these from. Chosen
+                    // mid-range so the peer neither always wins nor always loses --
+                    // an arbiter that always resolves the same way is not exercised
+                    // either.
+                    rd.degradation = 128;
+                    rd.battery = 128;
+                    rd.rng = macRng;
+                    peerReqs.push_back(rd);
+                }
+            }
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
+    for (size_t r = 0; r < peerReqs.size(); ++r)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, peerReqs[r].periodS)),
+                            &PeerRequestDriver::Fire,
+                            &peerReqs[r]);
+    }
+    for (size_t q = 0; q < queries.size(); ++q)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, queries[q].periodS)),
+                            &QueryDriver::Fire,
+                            &queries[q]);
+    }
     for (size_t b = 0; b < beacons.size(); ++b)
     {
         Simulator::Schedule(Seconds(macRng->GetValue(0.0, beacons[b].periodS)),
@@ -2448,6 +2628,12 @@ RunArm(CaTblPolicyMode mode,
               << "floorRanged,nRangesEkf\n";
     }
 
+    // C4. The two U(r) terms this node contributes to an anchor's arbitration.
+    // Held here rather than recomputed at the handshake site, so the PCS history
+    // they derive from is the one the policy just used.
+    std::deque<double> pcsHist;
+    double pcsDegradation = 0.0;
+    double batteryUsedFrac = 0.0;
     std::vector<double> errors;
     std::vector<double> errorsFixed;
     uint64_t steps = 0;
@@ -2930,6 +3116,11 @@ RunArm(CaTblPolicyMode mode,
                 // unchanged, frame added.
                 if (sendHandshakeFrames && nodeMac[active] != nullptr)
                 {
+                    // C4. Fill the two terms the anchor cannot see: T_deg is this
+                    // node's own confidence degradation, T_batt how much of the stated
+                    // budget it has spent. Quantised to a byte over [0,1].
+                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                     CaTblQuantise(batteryUsedFrac));
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
@@ -2956,6 +3147,11 @@ RunArm(CaTblPolicyMode mode,
                 handshakeIntraCycleWaitS += (tDefer - t);
                 if (sendHandshakeFrames && nodeMac[active] != nullptr)
                 {
+                    // C4. Fill the two terms the anchor cannot see: T_deg is this
+                    // node's own confidence degradation, T_batt how much of the stated
+                    // budget it has spent. Quantised to a byte over [0,1].
+                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                     CaTblQuantise(batteryUsedFrac));
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
@@ -3187,6 +3383,36 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // C4. T_deg from the slope of the last five PCS values, T_batt from energy
+        // spent against a STATED capacity. Harness form is 1 - exp(-k*max(0,-slope));
+        // k = 1.0 here and is OURS, not calibrated -- calibrating it is part of
+        // CAL-09, which this mechanism exists to produce.
+        pcsHist.push_back(d.pcs);
+        while (pcsHist.size() > 5)
+        {
+            pcsHist.pop_front();
+        }
+        if (pcsHist.size() >= 3)
+        {
+            const size_t np = pcsHist.size();
+            double sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+            for (size_t i = 0; i < np; ++i)
+            {
+                const double x = static_cast<double>(i);
+                sx += x;
+                sy += pcsHist[i];
+                sxx += x * x;
+                sxy += x * pcsHist[i];
+            }
+            const double den = static_cast<double>(np) * sxx - sx * sx;
+            const double slope =
+                (den != 0.0) ? ((static_cast<double>(np) * sxy - sx * sy) / den) : 0.0;
+            pcsDegradation = 1.0 - std::exp(-std::max(0.0, -slope));
+        }
+        batteryUsedFrac = (arbBatteryCapJ > 0.0)
+                              ? std::min(1.0, energy.GetTotalJ() / arbBatteryCapJ)
+                              : 0.0;
+
         const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
         errors.push_back(err);
         if (d.hadFix)
@@ -3297,6 +3523,58 @@ RunArm(CaTblPolicyMode mode,
                   << (handshakeIntraCycleWaitS
                       / static_cast<double>(handshakeIntraCycleDefers))
                   << " s -- each is a next-cycle ranging exchange NOT pre-empted\n";
+    }
+    // C4. Arbiter outcomes, summed over the ANCHOR MACs -- the arbiter runs on the
+    // anchors, not on the tag. Per-target grant counts are printed so a fairness delta
+    // is measurable rather than asserted. To stdout and not arm_summary.csv: a new
+    // column changes the CSV header for every run and breaks byte-identity.
+    {
+        uint64_t g = 0, dn = 0, pe = 0;
+        std::map<uint16_t, uint64_t> byTarget;
+        for (std::deque<CaTblMac>::const_iterator mi = macs.begin(); mi != macs.end(); ++mi)
+        {
+            if (mi->GetIdentityClass() != CA_TBL_ID_ANCHOR)
+            {
+                continue;
+            }
+            g += mi->GetArbGrants();
+            dn += mi->GetArbDenials();
+            pe += mi->GetArbPreemptions();
+            const std::map<uint16_t, uint64_t>& t = mi->GetGrantsByTarget();
+            for (std::map<uint16_t, uint64_t>::const_iterator ti = t.begin(); ti != t.end(); ++ti)
+            {
+                byTarget[ti->first] += ti->second;
+            }
+        }
+        if (g + dn > 0)
+        {
+            std::cout << "    C4 arbitration: granted " << g << ", denied " << dn
+                      << ", pre-empted " << pe << "\n";
+            for (std::map<uint16_t, uint64_t>::const_iterator ti = byTarget.begin();
+                 ti != byTarget.end();
+                 ++ti)
+            {
+                std::cout << "        target " << ti->first << ": " << ti->second
+                          << " grants\n";
+            }
+        }
+    }
+
+    // C3. Queries answered and correctly ignored, summed over the tag's three
+    // MACs. To stdout rather than arm_summary.csv: a new column changes the CSV
+    // header for every run and breaks byte-identity against baseline_v7.
+    {
+        uint64_t qa = 0, qi = 0;
+        for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+        {
+            qa += nodeMac[i]->GetQueriesAnswered();
+            qi += nodeMac[i]->GetQueriesIgnored();
+        }
+        if (qa + qi > 0)
+        {
+            std::cout << "    C3 identity queries: answered " << qa
+                      << ", correctly ignored " << qi << "\n";
+        }
     }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
@@ -3481,6 +3759,10 @@ main(int argc, char* argv[])
     bool terrainPerTierFreqArg = false;
     bool intraCycleHandshakeDeferArg = false;
     uint32_t nTagsArg = 1;
+    double identityQueryPeriodSArg = 0.0;
+    uint32_t identityQueryTargetArg = 2;
+    bool uwbArbitrationArg = false;
+    double arbBatteryCapJArg = 1000.0;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3820,6 +4102,43 @@ main(int argc, char* argv[])
                  "Making a peer a measured system is the full per-tag refactor, "
                  "which is a separate and larger piece of work.",
                  nTagsArg);
+    cmd.AddValue("identityQueryPeriodS",
+                 "Seconds between identity-scoped QUERY floods from one anchor "
+                 "per tier. 0 (default) issues none, which is the scenario as it "
+                 "has always been. A query names a target manifest id and only "
+                 "the target carrying that id answers -- that scoping is the "
+                 "mechanism, and without it a query is a broadcast every target "
+                 "answers. One anchor per tier rather than all of them, because "
+                 "the question is whether the RIGHT target answers, not how much "
+                 "query traffic the medium carries.",
+                 identityQueryPeriodSArg);
+    cmd.AddValue("identityQueryTarget",
+                 "Which target manifest id the queries name. The measured tag is "
+                 "1; peers created by --nTags are 2, 3 and so on. Default 2, so "
+                 "with --nTags=2 the query names the PEER and the measured tag "
+                 "must correctly ignore it -- which is the observation that shows "
+                 "scoping works rather than that flooding works.",
+                 identityQueryTargetArg);
+    cmd.AddValue("uwbArbitration",
+                 "Whether anchors arbitrate between competing UWB requests rather "
+                 "than granting whoever asked. False (default) is the C1 "
+                 "behaviour: every ESC_REQUEST is granted and contention alone "
+                 "decides who lands. True scores U(r) = l1*T_deg + l2*T_batt + "
+                 "l3*T_stale + l4*T_query, ported from the arbitration harness "
+                 "rather than reinvented. T_deg and T_batt ride on the request "
+                 "because an anchor cannot see another node PCS history or its "
+                 "battery; T_stale and T_query it computes itself. NOTE that every "
+                 "ESC_REQUEST carries the same access category, so T_query is a "
+                 "constant across competing requests and cannot order them.",
+                 uwbArbitrationArg);
+    cmd.AddValue("arbBatteryCapJ",
+                 "Joule budget T_batt is measured against: spent/cap, saturating "
+                 "at 1. Default 1000 and it is OURS -- there is no battery model "
+                 "in this simulator, so this is a stated reference rather than a "
+                 "measured capacity. It sets how fast the battery term saturates "
+                 "and so how much it can influence arbitration; sweep it before "
+                 "trusting any conclusion that leans on T_batt.",
+                 arbBatteryCapJArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -4213,6 +4532,10 @@ main(int argc, char* argv[])
                                        deferEscalationOnDutyLimit,
                                        intraCycleHandshakeDeferArg,
                                        nTagsArg,
+                                       identityQueryPeriodSArg,
+                                       identityQueryTargetArg,
+                                       uwbArbitrationArg,
+                                       arbBatteryCapJArg,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM,
