@@ -1,0 +1,11 @@
+b602549944d71456
+build Sep  4 2026 18:34:39 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=5 --duration=3600 --envFacility=3 --nlosSource=legacy --dwell=800 --boxHalf=2000 --arms=static_2p4,ca_tbl_full,ca_tbl_no_integrity,fixed_threshold,static_868,static_uwb --trace=true --outdir=results/p10_grid/c_ef3_legacy_dw800_b2000/seed_5
+source 6d44895 dirty 0 profile optimized
+digest sha256
+f6193ce2709f16f0640dd015384e46497a43672b2427989f7f2d5a4376faa927  arm_summary.csv
+b38a3a9b34f3ad008c3ea7ab1b5c88fa29526da8bf8d5e0c425ce21220d3a734  trace_ca_tbl_full_seed5.csv
+4b09d80aa737dd4f76278b781b81d5be58bf9f96e1b1ed150e093d951d7ff9f2  trace_ca_tbl_no_integrity_seed5.csv
+a50f3c5c1935b9cb3d1b6edf7a44d0e2d093d1bc8ca553823cfe0734ae865df1  trace_fixed_threshold_seed5.csv
+35484e864288bd80251ab196fa775d841fc3206a797c276c5021ffe6014a15af  trace_static_2p4_seed5.csv
+719afe0c04bb5c4018df22c5aaf03f95101903007c55dd6c6d3b979a1363ac80  trace_static_868_seed5.csv
+3ceed4f2b3c9aef01c5e2d24ff4b9206a15c8a43a7d863521d5788e729ea1831  trace_static_uwb_seed5.csv
