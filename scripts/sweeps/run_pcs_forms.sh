@@ -48,17 +48,30 @@ export -f job
 { for s in $(seq 1 20); do echo "legacy $s"; done; } \
   | xargs -P 11 -n 2 bash -c 'job "$0" "$1"'
 
-# Registered abort: legacy at seed 7 must reproduce baseline_v7 byte-for-byte.
-# baseline_v7 lives in the OTHER worktree; both are the same commit history and the
-# file is tracked, so compare against it directly.
+# Registered abort (section 7): has the TREE moved? Run baseline_v7 with ITS OWN
+# recorded invocation and compare against it.
+#
+# CORRECTED. The first version of this check compared THIS CAMPAIGN's legacy seed-7
+# cell against baseline_v7, and aborted a healthy campaign because those two
+# configurations are not the same and never could be: the campaign runs at
+# --boxHalf=2000 with an explicit --arms list, exactly as PREREG_PCS_FORMS.md
+# section 2 registers, while baseline_v7 records neither flag. A geometry difference
+# is not a moved tree. The registered question is whether the binary still
+# reproduces the baseline, so the null control has to use the baseline's own flags.
 B7="$HOME/projects/ca-tbl-localization/results/baseline_v7/arm_summary.csv"
 if [ -f "$B7" ]; then
-  if diff -q "$B7" results/pcs_forms/legacy/seed_7/arm_summary.csv >/dev/null 2>&1; then
-    echo "ABORT CHECK PASS -- legacy seed 7 reproduces baseline_v7 byte-for-byte"
+  NULLDIR=$(mktemp -d "${TMPDIR:-/tmp}/pcs_null.XXXXXX")
+  ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized \
+    --seed=7 --duration=3600 --nlosSource=propagation \
+    --arbitrateDutyBudget=true --pcsForm=legacy --trace=true \
+    --outdir="$NULLDIR" > "$NULLDIR/run.log" 2>&1
+  if diff -q "$B7" "$NULLDIR/arm_summary.csv" >/dev/null 2>&1; then
+    echo "ABORT CHECK PASS -- the tree still reproduces baseline_v7 byte-for-byte"
+    rm -rf "$NULLDIR"
   else
-    echo "ABORT CHECK FAILED -- legacy seed 7 does not reproduce baseline_v7."
-    echo "Section 7 of the registration stops the campaign here. Diff:"
-    diff "$B7" results/pcs_forms/legacy/seed_7/arm_summary.csv | head -20
+    echo "ABORT CHECK FAILED -- the tree no longer reproduces baseline_v7."
+    echo "Section 7 stops the campaign here. Diff:"
+    diff "$B7" "$NULLDIR/arm_summary.csv" | cut -c1-200 | head -12
     exit 1
   fi
 else
