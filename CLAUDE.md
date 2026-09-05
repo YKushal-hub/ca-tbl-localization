@@ -236,6 +236,8 @@ report/
   PHASE10_PREREGISTRATION.md  the registered decision rule and its amendment
 docs/
   WORK_PACKAGES.md            what to build next, with entry points  ← start here
+  TECH_DEBT.md                everything known wrong/unfinished, ordered by risk to results
+  RELAYED_RANGING_ERROR_MODEL.md  C5 precondition: why a relayed range is not a range
   CONTEXT_PACK.md             parameter provenance, prior art, citation rules
   archive/                    superseded handoffs, retained for their findings
 MASTER_PLAN.md                strategy: built-vs-specified, gaps, tracks, sequencing
