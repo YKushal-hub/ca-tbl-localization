@@ -300,6 +300,24 @@ class CaTblHeader : public Header
      *  PCS hop-provenance term is a function of how far a fix has travelled, and
      *  a relay cannot know that from hop_limit alone. */
     void SetInitialHopLimit(uint8_t h) { m_initialHopLimit = h; }
+
+    /**
+     * \brief Which target identity a QUERY is scoped to. C3.
+     *
+     * Meaningful only on CA_TBL_MSG_QUERY. A responder answers only when this
+     * matches its own CaTblMacConfig::targetManifestId, which is what makes the
+     * search identity-scoped rather than a broadcast every target answers.
+     *
+     * CARRIED BUT NOT SERIALISED, exactly like m_initialHopLimit below, and for
+     * the same reason: it costs no wire bytes here because GetSerializedSize()
+     * is the fixed 9-byte MAC header and CaTblPayloadBytes(QUERY, nEntries)
+     * ALREADY charges a query for carrying manifest ids. On real hardware the
+     * id occupies those payload bytes, which are already billed; in simulation
+     * it rides here rather than through a serialiser that would re-derive the
+     * same size.
+     */
+    void SetQueryManifestId(uint8_t m) { m_queryManifestId = m; }
+    uint8_t GetQueryManifestId() const { return m_queryManifestId; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -317,6 +335,7 @@ class CaTblHeader : public Header
     // have to be an explicit payload field -- flagged so the report does not
     // claim a 9-byte header that secretly needs a tenth byte.
     uint8_t m_initialHopLimit;
+    uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
 };
 
 } // namespace ns3

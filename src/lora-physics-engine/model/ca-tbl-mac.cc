@@ -411,6 +411,22 @@ CaTblMac::GetNeighbourCount(CaTblTier tier, double nowS) const
 // ---- transmit path (§2.3) -------------------------------------------------
 
 void
+CaTblMac::SendQuery(CaTblTier tier, uint8_t manifestId)
+{
+    // C3. Identical to Send(QUERY, ...) except that the frame carries WHO is being
+    // looked for. A separate entry point because ns-3 Simulator::Schedule binds a
+    // member function at exact arity, so widening Send() with a defaulted parameter
+    // breaks every scheduled call to it.
+    //
+    // nEntries = 1: one manifest id. CaTblPayloadBytes(QUERY, n) already bills a
+    // query for carrying n manifest ids, so the airtime is charged correctly by the
+    // existing sizing and nothing about the wire format changes.
+    m_nextQueryManifest = manifestId;
+    Send(CA_TBL_MSG_QUERY, tier, 1, 0);
+    m_nextQueryManifest = 0;
+}
+
+void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
     PendingFrame f;
@@ -420,6 +436,7 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
     f.hdr.SetMsgType(type);
     f.hdr.SetTier(static_cast<uint8_t>(tier));
+    f.hdr.SetQueryManifestId(m_nextQueryManifest);
     f.tier = tier;
     f.nEntries = nEntries;
     f.destId = destId;
@@ -685,6 +702,36 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     // let through. That is the coupling C1 exists to expose -- under the
     // accounting path the handshake never contended for anything. The requester
     // surfaces the failure through its existing ACK timeout.
+    // ---- C3: identity-scoped search, independent of the handshake flag -----
+    //
+    // NOT nested in the sendHandshakeFrames guard below. They are unrelated
+    // mechanisms, and nesting them meant a query was only answered when the
+    // handshake flag happened to be on -- which is exactly how the first two-sided
+    // test came back showing no queries reaching the measured tag at all.
+    //
+    // THE SCOPING IS AT THE RESPONDER and it is the whole mechanism: a query floods,
+    // every target hears it, and only the one whose manifest id matches answers.
+    // Without the id every target answers every query and the search is a broadcast
+    // with extra steps. Anchors do not answer -- they issue.
+    if (hdr.GetMsgType() == CA_TBL_MSG_QUERY)
+    {
+        const CaTblTier qTier = static_cast<CaTblTier>(hdr.GetTier());
+        if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
+            hdr.GetQueryManifestId() == m_cfg.targetManifestId)
+        {
+            ++m_queriesAnswered;
+            Send(CA_TBL_MSG_RESPONSE, qTier, 1, hdr.GetOriginId());
+        }
+        else if (m_cfg.identityClass == CA_TBL_ID_TARGET)
+        {
+            // Counted, not dropped silently. A query that REACHES a target and is
+            // correctly not answered is the evidence that scoping works; a query
+            // that reaches nothing is evidence it does not, and without this counter
+            // the two look identical from the outside.
+            ++m_queriesIgnored;
+        }
+    }
+
     if (m_cfg.sendHandshakeFrames)
     {
         const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());

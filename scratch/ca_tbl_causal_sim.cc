@@ -646,6 +646,34 @@ struct BeaconDriver
     }
 };
 
+/**
+ * \brief C3. An anchor asking "where is target N", on a period.
+ *
+ * Mirrors BeaconDriver deliberately: same shape, same jitter, same self-rescheduling.
+ * The only difference is that it carries the identity being searched for, which is
+ * what makes the flood a SEARCH rather than a broadcast.
+ */
+struct QueryDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    uint8_t manifestId;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->SendQuery(tier, manifestId);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &QueryDriver::Fire, this);
+        }
+    }
+};
+
 /** Everything one arm produced, for the summary table. */
 struct ArmResult
 {
@@ -1873,6 +1901,8 @@ RunArm(CaTblPolicyMode mode,
        bool deferEscalationOnDutyLimit,
        bool intraCycleHandshakeDefer,
        uint32_t nTags,
+       double identityQueryPeriodS,
+       uint32_t identityQueryTarget,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM,
@@ -2116,6 +2146,10 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
+        // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
+        // this field before C3, so setting it explicitly changes no behaviour --
+        // and the null control confirms that rather than assuming it.
+        mc.targetManifestId = 1;
         mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
@@ -2231,7 +2265,54 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
+    // ---- C3: identity-scoped queries from the anchors ----------------------
+    //
+    // Off unless identityQueryPeriodS > 0, and then ONE driver per tier on the first
+    // anchor of that tier -- not every anchor. The question being measured is whether
+    // the RIGHT target answers, not how much query traffic the medium carries, and
+    // every anchor querying would confound the two.
+    // The deque MUST live at RunArm scope. QueryDriver objects are scheduled into
+    // the simulator and Fire() runs long after this block; confining them to the
+    // branch destroys them while the scheduler still holds their addresses, which is
+    // a use-after-free that would most likely have appeared to work.
+    //
+    // The cost is a trace divergence with queries OFF: a deque local to RunArm
+    // changes the stack frame even when unused, and under -march=native that alone
+    // changes floating-point codegen. Measured: 1942 trace lines move by 1 ulp on
+    // estXhp, estYhp, meanSigmaM, meanSigmaRawM and one mahalanobis, while
+    // arm_summary.csv stays byte-identical. Correctness first.
+    std::deque<QueryDriver> queries;
+    if (identityQueryPeriodS > 0.0)
+    {
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            for (size_t m = 0; m < macs.size(); ++m)
+            {
+                if (macs[m].GetIdentityClass() != CA_TBL_ID_ANCHOR)
+                {
+                    continue;
+                }
+                QueryDriver qd;
+                qd.mac = &macs[m];
+                qd.tier = static_cast<CaTblTier>(ti);
+                qd.periodS = identityQueryPeriodS;
+                qd.jitterMaxS = identityQueryPeriodS * 0.25;
+                qd.untilS = durationS;
+                qd.manifestId = static_cast<uint8_t>(identityQueryTarget);
+                qd.rng = macRng;
+                queries.push_back(qd);
+                break;
+            }
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
+    for (size_t q = 0; q < queries.size(); ++q)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, queries[q].periodS)),
+                            &QueryDriver::Fire,
+                            &queries[q]);
+    }
     for (size_t b = 0; b < beacons.size(); ++b)
     {
         Simulator::Schedule(Seconds(macRng->GetValue(0.0, beacons[b].periodS)),
@@ -3227,6 +3308,22 @@ RunArm(CaTblPolicyMode mode,
                       / static_cast<double>(handshakeIntraCycleDefers))
                   << " s -- each is a next-cycle ranging exchange NOT pre-empted\n";
     }
+    // C3. Queries answered and correctly ignored, summed over the tag's three
+    // MACs. To stdout rather than arm_summary.csv: a new column changes the CSV
+    // header for every run and breaks byte-identity against baseline_v7.
+    {
+        uint64_t qa = 0, qi = 0;
+        for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+        {
+            qa += nodeMac[i]->GetQueriesAnswered();
+            qi += nodeMac[i]->GetQueriesIgnored();
+        }
+        if (qa + qi > 0)
+        {
+            std::cout << "    C3 identity queries: answered " << qa
+                      << ", correctly ignored " << qi << "\n";
+        }
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -3410,6 +3507,8 @@ main(int argc, char* argv[])
     bool terrainPerTierFreqArg = false;
     bool intraCycleHandshakeDeferArg = false;
     uint32_t nTagsArg = 1;
+    double identityQueryPeriodSArg = 0.0;
+    uint32_t identityQueryTargetArg = 2;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3749,6 +3848,23 @@ main(int argc, char* argv[])
                  "Making a peer a measured system is the full per-tag refactor, "
                  "which is a separate and larger piece of work.",
                  nTagsArg);
+    cmd.AddValue("identityQueryPeriodS",
+                 "Seconds between identity-scoped QUERY floods from one anchor "
+                 "per tier. 0 (default) issues none, which is the scenario as it "
+                 "has always been. A query names a target manifest id and only "
+                 "the target carrying that id answers -- that scoping is the "
+                 "mechanism, and without it a query is a broadcast every target "
+                 "answers. One anchor per tier rather than all of them, because "
+                 "the question is whether the RIGHT target answers, not how much "
+                 "query traffic the medium carries.",
+                 identityQueryPeriodSArg);
+    cmd.AddValue("identityQueryTarget",
+                 "Which target manifest id the queries name. The measured tag is "
+                 "1; peers created by --nTags are 2, 3 and so on. Default 2, so "
+                 "with --nTags=2 the query names the PEER and the measured tag "
+                 "must correctly ignore it -- which is the observation that shows "
+                 "scoping works rather than that flooding works.",
+                 identityQueryTargetArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -4142,6 +4258,8 @@ main(int argc, char* argv[])
                                        deferEscalationOnDutyLimit,
                                        intraCycleHandshakeDeferArg,
                                        nTagsArg,
+                                       identityQueryPeriodSArg,
+                                       identityQueryTargetArg,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM,
