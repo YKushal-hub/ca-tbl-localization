@@ -1564,11 +1564,11 @@ before any count derived from it was trusted:
 
 | form | count | handled |
 |---|---|---|
-| `file.cc:N` single | 62 | yes |
-| `file.cc:N-M` range | 75 | yes, after the fix |
+| `<file>.cc:N` single | 62 | yes |
+| `<file>.cc:N-M` range | 75 | yes, after the fix |
 | `` `:N` `` bare continuation | 137 occurrences | **no — excluded, needs file context from a preceding citation** |
-| `file.md` bare | 67 | excluded — G10's population |
-| `file.md §N` section | 13 | excluded — no line to verify |
+| `<file>.md` bare | 67 | excluded — G10's population |
+| `<file>.md §N` section | 13 | excluded — no line to verify |
 | `Identifier()` symbol | 4 | excluded — no line cited |
 | `` `results/x` `` | 73 | excluded — G10's population |
 
