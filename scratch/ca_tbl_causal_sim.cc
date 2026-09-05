@@ -444,15 +444,39 @@ CaTblNlosFlag(CaTblNlosSource src, double nlosDb, bool propNlos, uint32_t hidden
  *    away: it means antenna-pattern asymmetry and TX-power asymmetry between the
  *    two ends are NOT modelled.
  *
- * 2. ANCHOR-TO-ANCHOR LINKS DO NOT EXIST. Only the field node is registered as a
- *    node on the engines; anchors are registered as gateways on their own tier's
- *    engine only. A pair of anchors has no evaluable link, so Evaluate() returns
- *    "not received" for it. The consequence is specific and worth stating: every
- *    anchor is a HIDDEN TERMINAL to every other anchor. Their CAD never detects
- *    each other, so they transmit into each other freely and collisions at the
- *    node are decided purely by arrival overlap and capture. That is a harsher
- *    contention regime than a real deployment with inter-anchor audibility, so
- *    beacon loss here is an upper bound, not an estimate.
+ * 2. LINKS EXIST BETWEEN A FIELD NODE AND AN ANCHOR, AND NOWHERE ELSE. Field
+ *    nodes are registered as nodes on the engines and anchors as gateways on
+ *    their own tier's engine, and Evaluate() resolves exactly one endpoint of
+ *    each kind. Two classes of pair therefore have no evaluable link and get
+ *    "not received":
+ *
+ *      ANCHOR-TO-ANCHOR. Every anchor is a HIDDEN TERMINAL to every other
+ *      anchor. Their CAD never detects each other, so they transmit into each
+ *      other freely and collisions at the node are decided purely by arrival
+ *      overlap and capture. That is a harsher contention regime than a real
+ *      deployment with inter-anchor audibility, so beacon loss here is an upper
+ *      bound, not an estimate.
+ *
+ *      NODE-TO-NODE, i.e. tag to tag. This one is reachable rather than
+ *      impossible: ProcessTransmission auto-registers an unknown receiver as a
+ *      gateway with fineTimestamp=false (lora-physics-engine.cc:298), which is
+ *      the correct hardware class for a tag, so the link budget itself would
+ *      evaluate. It is NOT enabled here because nothing would be entitled to
+ *      read the estimatedRangeM it produced: a tag-to-tag range enters the
+ *      solution as a RELAYED measurement, and the relayed-ranging error model
+ *      that says how such a measurement should be weighted is a written,
+ *      reviewed precondition of C5 that does not exist yet. Enabling the link
+ *      without it would produce ranges that look usable and are not attributable.
+ *      This is the C5 gate, not a shortcut.
+ *
+ * 2a. MULTI-NODE. Until 2026-09-05 this class held a single m_nodeId and a single
+ *    m_nodePos, and Evaluate() returned early for any frame with neither endpoint
+ *    equal to it. Because that early return happens BELOW the MAC, a peer tag's
+ *    frames were counted as sent, lost nothing to the duty governor, to CAD or to
+ *    collision -- and no anchor ever received one. Measured at nTags=2: 162
+ *    ESC_REQUESTs sent, zero dropped, zero delivered. The peer was a transmitter
+ *    that could not be heard, which is a silent failure of exactly the kind that
+ *    reads as a working mechanism. A position per node is what fixes it.
  *
  * 3. HOPS. hopsTraversed is forwarded to the engines, which previously always
  *    received 0 from this scenario. Any per-hop degradation the engines model now
@@ -493,6 +517,13 @@ class EnginePhyProvider : public CaTblPhyProvider
 
     void SetNodePosition(const Vector& p) { m_nodePos = p; }
 
+    //! Register an additional field node (a peer tag). The measured tag keeps its
+    //! own scalar id/position rather than joining this map, so that with nTags=1
+    //! the map stays empty and every branch below behaves as it did before.
+    void RegisterPeerNode(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
+
+    void SetPeerPosition(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
+
     CaTblLinkOutcome Evaluate(uint16_t txId,
                               uint16_t rxId,
                               CaTblTier tier,
@@ -501,8 +532,13 @@ class EnginePhyProvider : public CaTblPhyProvider
     {
         CaTblLinkOutcome o;
 
-        // Exactly one endpoint must be the field node -- see limitation 2 above.
+        // Exactly one endpoint must be a field node and the other an anchor --
+        // see limitation 2 above. The measured tag is checked first and by
+        // scalar compare, so with no peers registered this is the same test,
+        // in the same order, that it was before peers existed.
         uint16_t anchor = 0;
+        uint16_t node = m_nodeId;
+        const Vector* nodePos = &m_nodePos;
         if (txId == m_nodeId)
         {
             anchor = rxId;
@@ -510,6 +546,32 @@ class EnginePhyProvider : public CaTblPhyProvider
         else if (rxId == m_nodeId)
         {
             anchor = txId;
+        }
+        else if (!m_peerPos.empty())
+        {
+            // A peer tag transmitting to an anchor. Exactly one endpoint may be a
+            // peer: if both are, the pair is tag-to-tag and has no evaluable link.
+            std::map<uint16_t, Vector>::const_iterator pTx = m_peerPos.find(txId);
+            std::map<uint16_t, Vector>::const_iterator pRx = m_peerPos.find(rxId);
+            const bool txIsPeer = (pTx != m_peerPos.end());
+            const bool rxIsPeer = (pRx != m_peerPos.end());
+            if (txIsPeer && !rxIsPeer)
+            {
+                node = txId;
+                nodePos = &pTx->second;
+                anchor = rxId;
+            }
+            else if (rxIsPeer && !txIsPeer)
+            {
+                node = rxId;
+                nodePos = &pRx->second;
+                anchor = txId;
+            }
+            else
+            {
+                ++m_skipped;
+                return o;
+            }
         }
         else
         {
@@ -534,9 +596,9 @@ class EnginePhyProvider : public CaTblPhyProvider
 
         if (tier == CA_TBL_TIER_868)
         {
-            PhysicsResult r = m_e868.ProcessTransmission(m_nodeId,
+            PhysicsResult r = m_e868.ProcessTransmission(node,
                                                          anchor,
-                                                         m_nodePos,
+                                                         *nodePos,
                                                          anchorPos,
                                                          txPowerDbm,
                                                          m_phy[t].sf,
@@ -551,9 +613,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         }
         else if (tier == CA_TBL_TIER_2P4)
         {
-            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(m_nodeId,
+            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(node,
                                                             anchor,
-                                                            m_nodePos,
+                                                            *nodePos,
                                                             anchorPos,
                                                             txPowerDbm,
                                                             m_phy[t].sf,
@@ -568,9 +630,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         }
         else
         {
-            PhysicsResultUWB r = m_eUwb.ProcessTransmission(m_nodeId,
+            PhysicsResultUWB r = m_eUwb.ProcessTransmission(node,
                                                             anchor,
-                                                            m_nodePos,
+                                                            *nodePos,
                                                             anchorPos,
                                                             txPowerDbm,
                                                             m_phy[t].sf,
@@ -610,6 +672,10 @@ class EnginePhyProvider : public CaTblPhyProvider
     const TierPhy* m_phy;
     uint16_t m_nodeId;
     Vector m_nodePos;
+    //! Peer field nodes. EMPTY unless --nTags>1, which is the default-off flag
+    //! this mechanism sits behind: with it empty, Evaluate() takes the same
+    //! branches it always did.
+    std::map<uint16_t, Vector> m_peerPos;
     std::map<uint16_t, CaTblTier> m_anchorTier;
     std::map<uint16_t, Vector> m_anchorPos;
     uint64_t m_evaluations;
@@ -2197,6 +2263,10 @@ RunArm(CaTblPolicyMode mode,
         engine868.RegisterNode(pid, ppos);
         engine2p4.RegisterNode(pid, ppos);
         engineUwb.RegisterNode(pid, ppos);
+        // The engines were always told about the peer; the PROVIDER was not, and
+        // the provider is what decides whether a frame has an evaluable link.
+        // Without this line the three calls above are inert for delivery.
+        provider.RegisterPeerNode(static_cast<uint16_t>(pid), ppos);
         peerIds.push_back(pid);
 
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
@@ -2407,6 +2477,7 @@ RunArm(CaTblPolicyMode mode,
             engine868.UpdateNodePosition(peerIds[pi], pp);
             engine2p4.UpdateNodePosition(peerIds[pi], pp);
             engineUwb.UpdateNodePosition(peerIds[pi], pp);
+            provider.SetPeerPosition(static_cast<uint16_t>(peerIds[pi]), pp);
         }
 
         // Every engine tracks position so its internal correlation/mobility
