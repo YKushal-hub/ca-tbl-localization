@@ -2,7 +2,7 @@
 
 **2026-09-06.** Both mechanisms were previously measured while `EnginePhyProvider`
 modelled one field node, so the peer tag was inaudible to every anchor. The provider fix
-(`70e9329`) changes that substrate, which re-opens both results. This records what
+(`3c95a86`) changes that substrate, which re-opens both results. This records what
 survived, what got stronger, and what is measured for the first time.
 
 Tree: `wip/c34-on-provider` — `main` (provider fix) merged with `wip/c4-arbitration`,

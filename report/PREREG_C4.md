@@ -9,7 +9,7 @@ and **pre-empt** paths could not be exercised: `EnginePhyProvider` modelled one 
 node, so the peer's `ESC_REQUEST`s were never delivered and every anchor saw exactly one
 requester. Arbitration between one candidate is not arbitration.
 
-The provider now carries a position per node (`70e9329`), and peer frames are delivered:
+The provider now carries a position per node (`3c95a86`), and peer frames are delivered:
 `+112 325` channel deliveries at `--nTags=2`, seed 7. So the precondition C4 was blocked
 on is gone, and the question is whether that is *sufficient*.
 
