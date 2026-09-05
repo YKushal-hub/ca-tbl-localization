@@ -38,7 +38,7 @@ state reproduces the baseline byte-for-byte, and `--nTags=1` is that state. P1 t
 
 **P2 — the provider now evaluates peer links.** At `--nTags=2`, the new binary reports
 strictly more provider evaluations (an existing `arm_summary` column) than the pre-change
-binary `b8e1b3f` on the identical invocation.
+binary `6662df2` on the identical invocation.
 
 *Falsifier:* evaluations equal or lower.
 

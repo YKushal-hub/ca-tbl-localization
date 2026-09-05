@@ -1,7 +1,7 @@
 # Pre-registration — A6, the hysteresis sweep (CAL-03 / CAL-04)
 
 Written 2026-09-05, **before any cell of this campaign has run.**
-Source commit: `3420073`. Build profile: optimized.
+Source commit: `1164e5d`. Build profile: optimized.
 
 ## 1. Question
 
