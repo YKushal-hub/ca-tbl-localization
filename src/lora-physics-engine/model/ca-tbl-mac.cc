@@ -105,7 +105,8 @@ CaTblMacConfig::CaTblMacConfig()
       dutyWindowS(3600.0),
       sf(7),
       bandwidthHz(125e3),
-      codingRate(1)
+      codingRate(1),
+      sendHandshakeFrames(false)
 {
 }
 
@@ -667,6 +668,38 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     {
         ++Counters(CA_TBL_MSG_ACK).acksSent;
         Send(CA_TBL_MSG_ACK, static_cast<CaTblTier>(hdr.GetTier()), 0, hdr.GetOriginId());
+    }
+
+    // ---- C1: request/response semantics (default off) ---------------------
+    //
+    // Until this existed the MAC counted and charged per message type but
+    // implemented NO reply logic, so five of the nine types were defined in the
+    // header and never constructed on the live path. Two are constructed here.
+    //
+    // GRANT/DENY IS NOT A SEPARATE DECISION. The taxonomy has no deny type, and
+    // ca-tbl-header.cc is deliberately not being changed -- its sizes, access
+    // categories and ACK policies are already correct for all nine types and the
+    // validator covers them 38/38. So the anchor always ATTEMPTS the grant, and
+    // whether it reaches the requester is decided by CAD and the duty governor,
+    // which is the real constraint: a denial is a grant the regulation would not
+    // let through. That is the coupling C1 exists to expose -- under the
+    // accounting path the handshake never contended for anything. The requester
+    // surfaces the failure through its existing ACK timeout.
+    if (m_cfg.sendHandshakeFrames)
+    {
+        const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());
+        if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
+            m_cfg.identityClass == CA_TBL_ID_ANCHOR)
+        {
+            Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+        }
+        else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST)
+        {
+            // The reply StartHandshake's comment has always promised and nothing
+            // has ever generated. One entry: this node's own, which is what an
+            // anti-entropy digest exchange settles.
+            Send(CA_TBL_MSG_ENTRY_PUSH, rxTier, 1, hdr.GetOriginId());
+        }
     }
 
     if (hdr.GetMsgType() == CA_TBL_MSG_ACK)
