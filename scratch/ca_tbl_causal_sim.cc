@@ -1036,6 +1036,14 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // still collapsed by 10 m, because a 7.99 GHz link over 35 m of open ground was
 // being charged forested-PLE (2.3) plus canopy loss. Both are correct physics for
 // the wide-area mesh and wrong physics for an intra-facility link.
+// D-4. Terrain derived its wavelength from a hardcoded 868 MHz and applied the
+// resulting Fresnel and diffraction geometry to every tier, UWB at 7.99 GHz
+// included -- a wavelength wrong by 9.2x. This carries the per-tier carrier
+// into TerrainParams instead. It is a FILE-SCOPE GLOBAL because the configs are
+// built by a macro expanded at several call sites and a macro cannot see a
+// local; it is written once, after cmd.Parse(), and read-only thereafter.
+static bool g_terrainPerTierFreq = false;
+
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
                                                            WEATHER_CLEAR_DRY,                      \
@@ -1060,7 +1068,13 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
                                                                  MOB_CONSTANT_VELOCITY,            \
                                                                  false);                           \
     cUwb.randomSeed = (seed);                                                                      \
-    cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;
+    cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
+    if (g_terrainPerTierFreq)                                                                      \
+    {                                                                                              \
+        /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
+        c2p4.terrain.frequencyHz = 2.4e9;                                                          \
+        cUwb.terrain.frequencyHz = 7.9872e9;                                                       \
+    }
 
 /**
  * \brief Pre-flight geometry check.
@@ -1855,6 +1869,7 @@ RunArm(CaTblPolicyMode mode,
        double pcsGateFloor,
        double pcsHysteresisBand,
        uint32_t nDeescalateOverride,
+       bool sendHandshakeFrames,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
@@ -2099,6 +2114,7 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
+        mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
         mc.bandwidthHz = phy[ti].bandwidthHz;
@@ -2124,6 +2140,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig mc;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
+            mc.sendHandshakeFrames = sendHandshakeFrames;
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
             // tier-1 beacon period one gateway occupies 51.5 ms / 10 s = 0.51%,
@@ -2635,6 +2652,17 @@ RunArm(CaTblPolicyMode mode,
             // escape, so it is the correct thing to surrender under the rationale
             // above.
             energy.AccountEscalationHandshake(pendingHandshakeTier, t);
+            // C1: the frame ITSELF, in addition to the charge above. The
+            // accounting already sizes the handshake correctly; what it has
+            // never done is contend for the medium, pass CAD, or meet the
+            // duty governor as a frame. Adding rather than replacing keeps
+            // the energy axis fixed, so a change here is attributable to
+            // contention and to nothing else.
+            if (sendHandshakeFrames && nodeMac[pendingHandshakeTier] != nullptr)
+            {
+                nodeMac[pendingHandshakeTier]->Send(
+                    CA_TBL_MSG_ESC_REQUEST, pendingHandshakeTier, 0, 0);
+            }
             ++handshakePreemptions;
             pendingHandshake = false;
 
@@ -2745,6 +2773,12 @@ RunArm(CaTblPolicyMode mode,
             if (energy.CanTransmit(active, t))
             {
                 energy.AccountEscalationHandshake(active, t);
+                // C1: see the note at the pre-emption site above. Charge
+                // unchanged, frame added.
+                if (sendHandshakeFrames && nodeMac[active] != nullptr)
+                {
+                    nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                }
             }
             else
             {
@@ -3253,6 +3287,8 @@ main(int argc, char* argv[])
     double pcsGateFloorArg = -1.0;
     double pcsHysteresisBandArg = -1.0;
     uint32_t nDeescalateArg = 0;
+    bool sendHandshakeFramesArg = false;
+    bool terrainPerTierFreqArg = false;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3528,6 +3564,40 @@ main(int argc, char* argv[])
                  "encodes an observation about one campaign, not a design "
                  "decision.",
                  nDeescalateArg);
+    cmd.AddValue("sendHandshakeFrames",
+                 "Whether the escalation handshake is TRANSMITTED as well as "
+                 "charged. False (default) is the pre-existing behaviour and "
+                 "must reproduce results/baseline_v7 byte-for-byte: "
+                 "AccountEscalationHandshake() bills the airtime and the "
+                 "energy, and no frame exists -- so the handshake has never "
+                 "contended for the medium, never passed CAD, and never met "
+                 "the duty governor AS A FRAME. Every duty-cycle finding in "
+                 "the tree is therefore about a correctly-sized ACCOUNTING of "
+                 "a handshake, not about one that contended. True adds the "
+                 "frames and leaves the charge alone: adding rather than "
+                 "replacing holds the energy axis fixed, so any change is "
+                 "attributable to contention alone. It also avoids an energy "
+                 "defect -- CaTblMac has no TX callback and SetEnergyModel() "
+                 "is deliberately unset on every MAC, so a frame that "
+                 "REPLACED the charge would transmit for free. Expect every "
+                 "escalating arm to move when this is on; that is the "
+                 "treatment, not a regression, and it needs a re-baseline.",
+                 sendHandshakeFramesArg);
+    cmd.AddValue("terrainPerTierFreq",
+                 "Whether the terrain submodule uses each tier OWN carrier for "
+                 "its Fresnel and diffraction geometry. False (default) keeps "
+                 "the pre-existing behaviour, in which lora-terrain-submodule.cc "
+                 "hardcoded 868 MHz and applied that wavelength to all three "
+                 "tiers -- UWB Ch9 at 7.99 GHz included, where it is wrong by a "
+                 "factor of 9.2. That is a defect, not a modelling choice, but "
+                 "every result in the tree was measured under it, so it stays "
+                 "the default and moves only when asked. True sets 2.4 GHz and "
+                 "7.9872 GHz on tiers 2 and 3, the carriers Architecture.md 2.1 "
+                 "records. NOTE that terrain is transcription-only and G11b is "
+                 "permanently red, so this makes terrain LESS WRONG rather than "
+                 "validated -- and both headline conclusions were already shown "
+                 "invariant to terrain.",
+                 terrainPerTierFreqArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3553,6 +3623,8 @@ main(int argc, char* argv[])
                  "deliberately NOT added -- see the CaTblNlosSource comment.",
                  nlosSourceArg);
     cmd.Parse(argc, argv);
+
+    g_terrainPerTierFreq = terrainPerTierFreqArg;
 
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
     if (pcsFormArg == "v2")
@@ -3915,6 +3987,7 @@ main(int argc, char* argv[])
                                        pcsGateFloorArg,
                                        pcsHysteresisBandArg,
                                        nDeescalateArg,
+                                       sendHandshakeFramesArg,
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
