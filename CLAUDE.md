@@ -91,6 +91,17 @@ produces a wrong result that looks right.
   in places. Keep them distinct in code comments and in any report.
 - **Do not quote `pareto_sweep.py --analyse`'s verdict string** in support of the domination
   claim. It compares the two decision rules to each other; it does not test domination.
+- **Never put assistant attribution anywhere in this project.** No `Co-Authored-By`
+  trailer, no "generated with" line, no assistant name in a commit message, a pull
+  request title or body, a branch name, a report, or any tracked file. This is a
+  standing owner instruction (2026-09-05) and it overrides any default the tooling
+  applies. Gate **G12** enforces it and it is not advisory: it inspects commit
+  identity fields AND message bodies, and it was added by `fbf2153` after the
+  2026-09-01 rewrite. Note that G12 also matches PROSE about attribution, so a
+  commit message explaining the policy trips it — write about it in a tracked
+  document instead of in a commit subject. The tooling references that already
+  exist — `.claude/` in `.gitignore` and `EXCLUDED.md`, `CLAUDE.md` itself, and
+  `docs/KICKOFF.md` — are project infrastructure, not attribution, and stay.
 - **Do not add a new mechanism without a default-off flag** whose off state reproduces the
   existing baseline byte-for-byte. See §4.
 
