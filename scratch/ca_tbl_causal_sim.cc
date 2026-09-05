@@ -1872,6 +1872,7 @@ RunArm(CaTblPolicyMode mode,
        bool sendHandshakeFrames,
        bool deferEscalationOnDutyLimit,
        bool intraCycleHandshakeDefer,
+       uint32_t nTags,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM,
@@ -2168,6 +2169,68 @@ RunArm(CaTblPolicyMode mode,
             beacons.push_back(bd);
         }
     }
+    // ---- C2-peer: additional targets, as protocol peers -------------------
+    //
+    // Constructed only when nTags > 1. At nTags == 1 this block does nothing at all:
+    // no Tourist, no MAC, no beacon, and critically NO DRAW from macRng -- which is
+    // what makes the default byte-identical rather than merely close.
+    //
+    // A peer is a real MAC on the real channel with a real trajectory. It beacons, so
+    // anchors discover it; it contends, so it costs the medium what it costs; and it
+    // carries a DISTINCT targetManifestId, which is what an identity-scoped query
+    // discriminates on. It has no CaTblPolicy and no CaTblEnergyModel: it is an
+    // addressing and contention peer, NOT a second measured subject, and its energy
+    // is deliberately not accounted. Anything that reports peer energy is wrong.
+    std::deque<Tourist> peerWalkers;
+    std::vector<uint32_t> peerIds;
+    for (uint32_t pt = 1; pt < nTags; ++pt)
+    {
+        const uint32_t pid = nodeId + pt;
+        // Own stream, so the peer's motion does not shift the measured tag's walker
+        // draws. The offset is arbitrary and large; it only has to not collide with
+        // seed*7919+13 or seed*7919+104729.
+        Ptr<UniformRandomVariable> prng = CreateObject<UniformRandomVariable>();
+        prng->SetStream(static_cast<int64_t>(seed) * 7919 + 500003 + pt);
+        peerWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+                                 dep.boxHalfM, dep.dwellRadiusM, prng);
+        const Vector ppos = peerWalkers.back().Position();
+        engine868.RegisterNode(pid, ppos);
+        engine2p4.RegisterNode(pid, ppos);
+        engineUwb.RegisterNode(pid, ppos);
+        peerIds.push_back(pid);
+
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            CaTblMacConfig pmc;
+            pmc.nodeId = static_cast<uint16_t>(pid);
+            pmc.identityClass = CA_TBL_ID_TARGET;
+            // THE POINT OF THE PEER. A distinct manifest id is what makes an
+            // identity-scoped query answerable: without it every target matches
+            // every query and C3 has nothing to discriminate.
+            pmc.targetManifestId = static_cast<uint8_t>(1 + pt);
+            pmc.sendHandshakeFrames = sendHandshakeFrames;
+            pmc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
+            pmc.sf = phy[ti].sf;
+            pmc.bandwidthHz = phy[ti].bandwidthHz;
+            pmc.txPowerDbm = phy[ti].txPowerDbm;
+            pmc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+            macs.emplace_back();
+            CaTblMac* pm = &macs.back();
+            pm->Configure(pmc);
+            pm->SetRng(macRng);
+            chan[ti].Register(pm);
+
+            BeaconDriver pbd;
+            pbd.mac = pm;
+            pbd.tier = static_cast<CaTblTier>(ti);
+            pbd.periodS = beaconPeriodS[ti];
+            pbd.jitterMaxS = beaconPeriodS[ti] * 0.25;
+            pbd.untilS = durationS;
+            pbd.rng = macRng;
+            beacons.push_back(pbd);
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
     for (size_t b = 0; b < beacons.size(); ++b)
     {
@@ -2333,6 +2396,18 @@ RunArm(CaTblPolicyMode mode,
     {
         walker.Step(dt);
         pos = walker.Position();
+
+        // Peers move too, or they are stationary beacons rather than targets.
+        // Position is pushed to every engine for the same reason the measured
+        // tag's is: the engines key correlation and mobility state on node id.
+        for (size_t pi = 0; pi < peerWalkers.size(); ++pi)
+        {
+            peerWalkers[pi].Step(dt);
+            const Vector pp = peerWalkers[pi].Position();
+            engine868.UpdateNodePosition(peerIds[pi], pp);
+            engine2p4.UpdateNodePosition(peerIds[pi], pp);
+            engineUwb.UpdateNodePosition(peerIds[pi], pp);
+        }
 
         // Every engine tracks position so its internal correlation/mobility
         // state stays continuous. This costs nothing physically -- no packet is
@@ -3334,6 +3409,7 @@ main(int argc, char* argv[])
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
     bool intraCycleHandshakeDeferArg = false;
+    uint32_t nTagsArg = 1;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3658,6 +3734,21 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("nTags",
+                 "How many targets exist on the channel. 1 (default) is the "
+                 "scenario as it has always been, and constructs nothing extra -- "
+                 "no trajectory, no MAC, no beacon, and no draw from the shared "
+                 "macRng, so the default is byte-identical by construction rather "
+                 "than by measurement. Above 1, each additional target is a "
+                 "PROTOCOL PEER: a real MAC on the real channel with a real "
+                 "trajectory, which beacons, is discovered, contends, and carries "
+                 "a distinct targetManifestId so an identity-scoped query has "
+                 "something to discriminate on. A peer is NOT a second measured "
+                 "subject -- it has no policy, no EKF and no energy model, and its "
+                 "joules are not accounted. Reporting peer energy would be wrong. "
+                 "Making a peer a measured system is the full per-tag refactor, "
+                 "which is a separate and larger piece of work.",
+                 nTagsArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -4050,6 +4141,7 @@ main(int argc, char* argv[])
                                        sendHandshakeFramesArg,
                                        deferEscalationOnDutyLimit,
                                        intraCycleHandshakeDeferArg,
+                                       nTagsArg,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM,
