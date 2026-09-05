@@ -63,6 +63,19 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     pcsThresholdDown[CA_TBL_TIER_UWB] = 2.55;
 
     nDeescalate = 5;
+
+    // CA_TBL_PCS_WEIGHTED. Hand-set, NOT from LOOCV -- CAL-01 remains unmet. The
+    // one property they are chosen for: pcsW2 + pcsW3 = 1.0 is below the lowest
+    // pcsThresholdUp (1.55), so term1 = 0 puts the score under threshold whatever
+    // geometry and LOS do. That is the veto the unweighted sum cannot express.
+    pcsW1 = 2.0;
+    pcsW2 = 0.5;
+    pcsW3 = 0.5;
+    // CA_TBL_PCS_GATED. Ours. term1 = traceRef/(traceRef+traceSigma), so 0.10
+    // corresponds to traceSigma = 9*traceRef, i.e. posterior radial sigma 3x the
+    // 3.1623 m target. Below that the filter is not tracking to spec and the
+    // score should say so rather than being carried by the other two terms.
+    pcsGateFloor = 0.10;
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
     multiStepDemote = false;            // default preserves the pre-existing baseline
 
@@ -670,7 +683,22 @@ CaTblPolicy::ComputePcs(double traceSigma,
     // Term 3: fraction of contributing links believed line-of-sight.
     const double term3 = (nTotal == 0) ? 0.0 : static_cast<double>(nLos) / static_cast<double>(nTotal);
 
-    double pcs = term1 + term2 + term3;
+    // LEGACY sums these unweighted, which is the saturation defect: term2 + term3
+    // alone reach 2.0 against a 1.55 threshold, so term1 cannot veto. The two
+    // repairs below are opt-in; the LEGACY path is byte-unchanged.
+    double pcs;
+    if (m_config.pcsForm == CA_TBL_PCS_WEIGHTED)
+    {
+        pcs = m_config.pcsW1 * term1 + m_config.pcsW2 * term2 + m_config.pcsW3 * term3;
+    }
+    else if (m_config.pcsForm == CA_TBL_PCS_GATED && term1 < m_config.pcsGateFloor)
+    {
+        pcs = 0.0;
+    }
+    else
+    {
+        pcs = term1 + term2 + term3;
+    }
 
     // Term 4: hop-provenance penalty. Inactive by default (hopWeight = 0)
     // because the current scenario is single-hop -- there is no mesh to
