@@ -1871,6 +1871,7 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nDeescalateOverride,
        bool sendHandshakeFrames,
        bool deferEscalationOnDutyLimit,
+       bool intraCycleHandshakeDefer,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM,
@@ -2215,6 +2216,12 @@ RunArm(CaTblPolicyMode mode,
     // delaying a handoff is a cyber-physical coupling, not an accounting detail:
     // it converts a legal constraint into position error.
     uint64_t handshakeDeferrals = 0;
+    // A3. Handshakes that did NOT slip to the next cycle because the tier-1
+    // budget refilled before this one ended. Deliberately NOT an arm_summary
+    // column: adding one changes the CSV header for every run and breaks
+    // byte-identity against baseline_v7. Printed instead.
+    uint64_t handshakeIntraCycleDefers = 0;
+    double handshakeIntraCycleWaitS = 0.0;
     double handshakeDeferralDelayS = 0.0;
     //! Escalations rolled back because the handshake could not be sent. Distinct
     //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
@@ -2780,6 +2787,32 @@ RunArm(CaTblPolicyMode mode,
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
+            else if (intraCycleHandshakeDefer &&
+                     energy.GetNextAllowedTxS(active) < t + dt)
+            {
+                // A3. The budget refills BEFORE this cycle ends, so the handshake does
+                // not have to slip into the next one and cost it a ranging slot.
+                //
+                // The arithmetic is the whole argument. One SF7/125 kHz/CR4-5 frame is
+                // 56.58 ms of airtime, which at the 2.5% WPC G.S.R. 853(E) Table-II cap
+                // arms 2.263 s of off-time. Against dt = 2.5 s that refill lands inside
+                // the same cycle, with 0.237 s to spare -- so the pre-emption the
+                // arbiter performs is avoidable at any dt above about 2.32 s, and below
+                // that this branch simply does not fire because the condition fails.
+                //
+                // It is charged AT THE REFILL TIME, not at t. The wait is real: the
+                // handoff is later by that much, and the latency is accumulated so it
+                // can be reported rather than assumed away. What is NOT paid is the
+                // next cycle's ranging exchange.
+                const double tDefer = energy.GetNextAllowedTxS(active);
+                energy.AccountEscalationHandshake(active, tDefer);
+                ++handshakeIntraCycleDefers;
+                handshakeIntraCycleWaitS += (tDefer - t);
+                if (sendHandshakeFrames && nodeMac[active] != nullptr)
+                {
+                    nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                }
+            }
             else
             {
                 energy.NoteDeferred(active);
@@ -3108,6 +3141,17 @@ RunArm(CaTblPolicyMode mode,
     res.deescalations = policy.GetDeescalationCount();
     res.suspects = policy.GetSuspectCount();
     res.noFixCycles = policy.GetNoFixCount();
+    // A3 counter, to stdout rather than to arm_summary.csv: a new column changes
+    // the CSV header for every run and breaks byte-identity against baseline_v7.
+    if (handshakeIntraCycleDefers > 0)
+    {
+        std::cout << "    A3 intra-cycle handshake deferrals: "
+                  << handshakeIntraCycleDefers << ", mean wait "
+                  << std::fixed << std::setprecision(3)
+                  << (handshakeIntraCycleWaitS
+                      / static_cast<double>(handshakeIntraCycleDefers))
+                  << " s -- each is a next-cycle ranging exchange NOT pre-empted\n";
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -3289,6 +3333,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool intraCycleHandshakeDeferArg = false;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3598,6 +3643,21 @@ main(int argc, char* argv[])
                  "validated -- and both headline conclusions were already shown "
                  "invariant to terrain.",
                  terrainPerTierFreqArg);
+    cmd.AddValue("intraCycleHandshakeDefer",
+                 "Whether a handshake blocked by the tier-1 duty budget waits "
+                 "for the budget to refill WITHIN this cycle instead of slipping "
+                 "to the next one. False (default) keeps the existing behaviour, "
+                 "in which the handshake is deferred and the arbiter then "
+                 "pre-empts the next cycle ranging exchange to make room -- so a "
+                 "tier-1 handoff costs a ranging slot. One SF7 frame is 56.58 ms, "
+                 "which at the 2.5 percent WPC cap arms 2.263 s of off-time, and "
+                 "that refill lands inside a 2.5 s cycle with 0.237 s to spare. "
+                 "So the pre-emption is avoidable above dt of about 2.32 s, and "
+                 "below it this simply never fires. The handshake is charged at "
+                 "the refill time, not at the cycle start: the handoff really is "
+                 "later, and that latency is accumulated and reported rather than "
+                 "assumed away. What is not paid is the next cycle ranging.",
+                 intraCycleHandshakeDeferArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3989,6 +4049,7 @@ main(int argc, char* argv[])
                                        nDeescalateArg,
                                        sendHandshakeFramesArg,
                                        deferEscalationOnDutyLimit,
+                                       intraCycleHandshakeDeferArg,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM,
