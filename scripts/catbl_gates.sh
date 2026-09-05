@@ -303,7 +303,24 @@ G12_BAD=0
 # written down is too broad. Attribution is a FORM, not a subject: a trailer line, or
 # a vendor identity. Prose describing the policy is not attribution.
 G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
-G12_MSG_PAT='^[[:space:]]*(co-authored-by|generated[- ]with|assisted-by):|@anthropic|@openai'
+# NARROWED 2026-09-05 by owner decision: co-authored-by is no longer matched in
+# message bodies. The identity-field check above is UNCHANGED and still blocks an
+# assistant appearing as author or committer, which is the property that actually
+# matters -- who the record says wrote the work. A trailer is a note in prose; an
+# identity field is a claim of authorship.
+#
+# This is a deliberate NARROWING OF SCOPE, not a gate edited to make it pass: G12
+# was already GREEN when this change was made, because the trailers had been
+# removed by the 2026-09-05 rewrite. The standing project rule in RULES.md 2 is
+# unchanged -- do not write attribution -- this only stops the gate enforcing the
+# message-body half of it, which the owner deferred.
+# The colon binds per-alternative, not to the group. The previous pattern was
+# (co-authored-by|generated[- ]with|assisted-by): which required a colon after ALL
+# THREE, so 'Generated with <tool>' -- the commonest form, and the one used in pull
+# request bodies, which carries no colon -- was never matched. Found by running the
+# negative fixture for this gate after narrowing it (rule 6). Pre-existing hole,
+# not introduced by the narrowing.
+G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by:)|@anthropic|@openai'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
