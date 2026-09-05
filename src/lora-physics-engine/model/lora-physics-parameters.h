@@ -527,6 +527,15 @@ struct TerrainParams {
     DistributionParam terrainIrregularityM;
     DistributionParam losScaleDistanceM;
     double fresnelClearanceFraction;  // Standard is 0.6
+    //! Wavelength basis for the Fresnel and diffraction geometry.
+    //!
+    //! Defaults to 868e6 on EVERY tier, which is what the submodule
+    //! hardcoded before this field existed. That is wrong for the other two
+    //! tiers -- UWB Ch9 is 7.99 GHz, so its wavelength is out by a factor of
+    //! 9.2 -- but it is the behaviour every result in the tree was measured
+    //! under, so it stays the default and moves only behind
+    //! --terrainPerTierFreq.
+    double frequencyHz;
     double effectiveEarthRadiusFactor; // Standard K-factor is 4/3
     
     static TerrainParams Defaults();
