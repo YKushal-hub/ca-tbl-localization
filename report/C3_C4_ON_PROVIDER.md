@@ -72,6 +72,15 @@ new one, and its predictions were fixed by the original result, but rule 13 says
 
 ---
 
+
+**A provenance gap in the original, worth recording.** The original C3 measurement's
+duration appears in **no sidecar and no results directory** — only the prose "seed 7,
+`--nTags=2`, one anchor per tier querying every 60 s" in a commit message. That the counts
+match at 3600 s is *evidence* the original was a 3600 s run, not a *record* of one. This is
+the same class of gap that withdrew §4.1: a number whose invocation was never written to
+disk. It costs nothing here because the finding reproduced, and it would have cost the
+result if it had not.
+
 ## C4 — arbitration: deny and pre-empt execute for the first time
 
 Pre-registered at `b877030` before the run. `--nTags=2 --uwbArbitration=true
