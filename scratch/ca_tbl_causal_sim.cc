@@ -2270,6 +2270,11 @@ RunArm(CaTblPolicyMode mode,
     // is deliberately not accounted. Anything that reports peer energy is wrong.
     std::deque<Tourist> peerWalkers;
     std::vector<uint32_t> peerIds;
+    // One MAC per tier per peer, recorded AT CONSTRUCTION. CaTblMac exposes no
+    // GetTier(), so a later search cannot tell a peer's three MACs apart -- and
+    // a search by node id alone matched the measured tag first, which is how
+    // every synthetic request ended up attributed to target 1.
+    std::vector<std::vector<CaTblMac*>> peerMacs;
     for (uint32_t pt = 1; pt < nTags; ++pt)
     {
         const uint32_t pid = nodeId + pt;
@@ -2285,6 +2290,7 @@ RunArm(CaTblPolicyMode mode,
         engine2p4.RegisterNode(pid, ppos);
         engineUwb.RegisterNode(pid, ppos);
         peerIds.push_back(pid);
+        peerMacs.push_back(std::vector<CaTblMac*>());
 
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
@@ -2303,6 +2309,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
             macs.emplace_back();
             CaTblMac* pm = &macs.back();
+            peerMacs.back().push_back(pm);
             pm->Configure(pmc);
             pm->SetRng(macRng);
             chan[ti].Register(pm);
@@ -2367,19 +2374,13 @@ RunArm(CaTblPolicyMode mode,
     // arbitrate and this would just be extra traffic.
     if (uwbArbitration && nTags > 1)
     {
-        for (size_t pi = 0; pi < peerIds.size(); ++pi)
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
         {
-            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
             {
-                for (size_t m = 0; m < macs.size(); ++m)
                 {
-                    if (macs[m].GetIdentityClass() != CA_TBL_ID_TARGET ||
-                        macs[m].GetNodeId() != static_cast<uint16_t>(peerIds[pi]))
-                    {
-                        continue;
-                    }
                     PeerRequestDriver rd;
-                    rd.mac = &macs[m];
+                    rd.mac = peerMacs[pi][ti];
                     rd.tier = static_cast<CaTblTier>(ti);
                     rd.periodS = 30.0;
                     rd.jitterMaxS = 7.5;
@@ -2393,7 +2394,6 @@ RunArm(CaTblPolicyMode mode,
                     rd.battery = 128;
                     rd.rng = macRng;
                     peerReqs.push_back(rd);
-                    break;
                 }
             }
         }
