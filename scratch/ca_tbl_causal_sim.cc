@@ -1977,6 +1977,59 @@ RunProbe(EnvironmentClass envWide,
  * Every such object in this file sets its stream explicitly, before first use, for
  * exactly that reason. Do not add one that does not.
  */
+/**
+ * \brief Everything belonging to ONE target.
+ *
+ * Promoted out of RunArm so a second target is a MEASURED subject rather than a
+ * protocol peer: its own filter, its own confidence score, its own energy account
+ * and its own per-cycle statistics. The section 6 invariant becomes per-tag --
+ * exactly one tier transmits per cycle PER TAG, and only that tier is charged on
+ * that tag account.
+ *
+ * The trajectory is a pointer because Tourist has no default constructor. The
+ * objects pointed into are owned by a deque in RunArm, so push_back cannot
+ * invalidate a pointer already handed out.
+ */
+struct CaTblTagState
+{
+    uint32_t nodeId = 0;
+    Tourist* walker = nullptr;
+    Vector pos;
+    CaTblEnergyModel energy;
+    CaTblPolicy policy;
+    CaTblMac* nodeMac[CA_TBL_TIER_COUNT] = {nullptr, nullptr, nullptr};
+
+    double beaconToaS[CA_TBL_TIER_COUNT];
+    uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
+    double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+    uint64_t blindCycles = 0;
+    uint32_t floorHealthyStreak = 0;
+    uint64_t cycleIndex = 0;
+    uint64_t floorRangedCycles = 0;
+    uint64_t handshakeDeferrals = 0;
+    uint64_t handshakeIntraCycleDefers = 0;
+    double handshakeIntraCycleWaitS = 0.0;
+    double handshakeDeferralDelayS = 0.0;
+    uint64_t handshakePreemptions = 0;
+    uint64_t escalationsDeferredAway = 0;
+    bool pendingHandshake = false;
+    CaTblTier pendingHandshakeTier = CA_TBL_TIER_868;
+    uint64_t directEngineCalls = 0;
+    //! C4: this tag's own arbitration terms. See the note at the use site.
+    std::deque<double> pcsHist;
+    double pcsDegradation = 0.0;
+    double batteryUsedFrac = 0.0;
+    std::vector<double> errors;
+    std::vector<double> errorsFixed;
+    uint64_t steps = 0;
+    uint64_t tp = 0;
+    uint64_t fp = 0;
+    uint64_t fn = 0;
+    uint64_t tn = 0;
+    uint64_t inCov = 0;
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -2068,7 +2121,46 @@ RunArm(CaTblPolicyMode mode,
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
 
-    const uint32_t nodeId = 1;
+    // C2. All per-tag state lives here now. tags[0] is the tag this arm has always
+    // measured; tags[1..] are additional MEASURED targets, each with its own filter,
+    // confidence score, energy account and statistics.
+    //
+    // The aliases below are what let every line of setup and cycle code stay exactly
+    // as it was: they bind the old names to tag 0's members. Without them this would
+    // be a rename across roughly 750 lines, which is not a diff anyone can review.
+    std::vector<CaTblTagState> tags(std::max<uint32_t>(1, nTags));
+    tags[0].nodeId = 1;
+    const uint32_t nodeId = tags[0].nodeId;
+    CaTblEnergyModel& energy = tags[0].energy;
+    CaTblPolicy& policy = tags[0].policy;
+    CaTblMac** nodeMac = tags[0].nodeMac;
+    // Setup-scope aliases to tag 0, so every line below is unchanged.
+    CaTblTagState& TS0 = tags[0];
+    auto& beaconToaS = TS0.beaconToaS;
+    auto& lastRx = TS0.lastRx;
+    auto& lastNonEmptyAtS = TS0.lastNonEmptyAtS;
+    auto& nbrSum = TS0.nbrSum;
+    auto& blindCycles = TS0.blindCycles;
+    auto& floorHealthyStreak = TS0.floorHealthyStreak;
+    auto& cycleIndex = TS0.cycleIndex;
+    auto& floorRangedCycles = TS0.floorRangedCycles;
+    auto& handshakeDeferrals = TS0.handshakeDeferrals;
+    auto& handshakeIntraCycleDefers = TS0.handshakeIntraCycleDefers;
+    auto& handshakeIntraCycleWaitS = TS0.handshakeIntraCycleWaitS;
+    auto& handshakeDeferralDelayS = TS0.handshakeDeferralDelayS;
+    auto& handshakePreemptions = TS0.handshakePreemptions;
+    auto& escalationsDeferredAway = TS0.escalationsDeferredAway;
+    auto& pendingHandshake = TS0.pendingHandshake;
+    auto& pendingHandshakeTier = TS0.pendingHandshakeTier;
+    auto& directEngineCalls = TS0.directEngineCalls;
+    auto& errors = TS0.errors;
+    auto& errorsFixed = TS0.errorsFixed;
+    auto& steps = TS0.steps;
+    auto& tp = TS0.tp;
+    auto& fp = TS0.fp;
+    auto& fn = TS0.fn;
+    auto& tn = TS0.tn;
+    auto& inCov = TS0.inCov;
 
     // Each tier's anchors are registered only on that tier's engine. Registering
     // all anchors on all engines would put UWB anchors kilometres out of range
@@ -2096,12 +2188,12 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
     engine2p4.RegisterNode(nodeId, pos);
     engineUwb.RegisterNode(nodeId, pos);
 
-    CaTblEnergyModel energy;
     for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
     {
         energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
@@ -2195,7 +2287,6 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
-    CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
@@ -2253,7 +2344,6 @@ RunArm(CaTblPolicyMode mode,
     CaTblChannel chan[CA_TBL_TIER_COUNT];
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
-    CaTblMac* nodeMac[CA_TBL_TIER_COUNT];
     std::map<uint16_t, Vector> anchorPosById;
 
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
@@ -2490,7 +2580,6 @@ RunArm(CaTblPolicyMode mode,
     }
 
     // Airtime of one DISCOVERY beacon per tier, for the listen charge below.
-    double beaconToaS[CA_TBL_TIER_COUNT];
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
         const uint32_t payload =
@@ -2502,7 +2591,6 @@ RunArm(CaTblPolicyMode mode,
                                                                 payload,
                                                                 1);
     }
-    uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
 
     // Last simulated time at which each tier's neighbour table was non-empty.
     // This SURVIVES ClearNeighbours(), and that is the entire point: the live table
@@ -2511,9 +2599,6 @@ RunArm(CaTblPolicyMode mode,
     // question "was anything ever there", and reading the live table for it would
     // make every sleeping tier look absent and collapse every demotion to 868.
     // -1.0 means "never seen populated".
-    double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
-    double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
-    uint64_t blindCycles = 0;
     // Floor-ranging-on-demand bookkeeping. floorHealthyStreak counts consecutive
     // cycles on which the ACTIVE tier delivered a solvable set; cycleIndex drives
     // the optional heartbeat. Both are inert unless --floorOnDemand is set.
@@ -2521,33 +2606,22 @@ RunArm(CaTblPolicyMode mode,
     // straddles the EKF's initial convergence. Same for every arm at a given seed.
     const double biasStartS =
         durationS * (0.25 + 0.5 * static_cast<double>(seed % 7) / 7.0);
-    uint32_t floorHealthyStreak = 0;
-    uint64_t cycleIndex = 0;
-    uint64_t floorRangedCycles = 0;
     // Escalation handshakes suppressed by the tier-1 duty-cycle governor, and the
     // total time the node had to wait for the budget to refill. The regulation
     // delaying a handoff is a cyber-physical coupling, not an accounting detail:
     // it converts a legal constraint into position error.
-    uint64_t handshakeDeferrals = 0;
     // A3. Handshakes that did NOT slip to the next cycle because the tier-1
     // budget refilled before this one ended. Deliberately NOT an arm_summary
     // column: adding one changes the CSV header for every run and breaks
     // byte-identity against baseline_v7. Printed instead.
-    uint64_t handshakeIntraCycleDefers = 0;
-    double handshakeIntraCycleWaitS = 0.0;
-    double handshakeDeferralDelayS = 0.0;
     //! Escalations rolled back because the handshake could not be sent. Distinct
     //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
     //! those defer the charge but never the transition.
-    uint64_t escalationsDeferredAway = 0;
     //! Cycles where ranging on the CAPPED tier was pre-empted so a pending
     //! handshake could use the duty budget. The cost is this cycle's tier-1
     //! measurements.
-    uint64_t handshakePreemptions = 0;
     //! Set when an escalation is deferred this cycle; the NEXT cycle will
     //! pre-empt ranging to send the handshake (if arbitrateDutyBudget is on).
-    bool pendingHandshake = false;
-    CaTblTier pendingHandshakeTier = CA_TBL_TIER_868;
 
     // Divergence instrument. ca_tbl_full and ca_tbl_no_integrity are identical
     // through t=5.0 and differ from t=7.5 onward, with suspect=0 on every cycle of
@@ -2560,7 +2634,6 @@ RunArm(CaTblPolicyMode mode,
     // counts are equal at the cycle where nAnchors first differs, the sampler is
     // NOT the mechanism and the fault is per-link cached state inside the engines.
     // If they differ, the extra consumer is between here and there.
-    uint64_t directEngineCalls = 0;
 
     std::ofstream trace;
     if (writeTrace)
@@ -2628,20 +2701,18 @@ RunArm(CaTblPolicyMode mode,
               << "floorRanged,nRangesEkf\n";
     }
 
-    // C4. The two U(r) terms this node contributes to an anchor's arbitration.
-    // Held here rather than recomputed at the handshake site, so the PCS history
-    // they derive from is the one the policy just used.
-    std::deque<double> pcsHist;
-    double pcsDegradation = 0.0;
-    double batteryUsedFrac = 0.0;
-    std::vector<double> errors;
-    std::vector<double> errorsFixed;
-    uint64_t steps = 0;
-    uint64_t tp = 0;
-    uint64_t fp = 0;
-    uint64_t fn = 0;
-    uint64_t tn = 0;
-    uint64_t inCov = 0;
+    // C4. The two U(r) terms this tag contributes to an anchor's arbitration.
+    // Held rather than recomputed at the handshake site, so the PCS history they
+    // derive from is the one the policy just used.
+    //
+    // C2: PER TAG, and that is not bookkeeping. With a second MEASURED target both
+    // tags issue their own ESC_REQUEST and the anchor arbitrates between them. A
+    // single shared deque would score both requests off whichever tag wrote to it
+    // last, which would look exactly like arbitration and would not be one.
+    // The remaining per-cycle counters moved into CaTblTagState with everything else.
+    auto& pcsHist = TS0.pcsHist;
+    auto& pcsDegradation = TS0.pcsDegradation;
+    auto& batteryUsedFrac = TS0.batteryUsedFrac;
 
     // Step count is fixed up front and time is read back from the scheduler rather
     // than accumulated in the loop variable. With an event layer running, the
