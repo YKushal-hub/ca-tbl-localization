@@ -153,7 +153,7 @@ print("\n\n### THE MONOTONE-OF-FILTER-STATISTIC CONTROL")
 print("rho(PCS, err) against rho(-traceSigma, err). A score carrying information")
 print("beyond the filter statistic must BEAT the control by more than the CI.")
 print("\n  %-10s %-20s %9s %9s %9s   %s"
-      % ("form", "arm", "rho_pcs", "rho_ctrl", "delta", "95% CI on delta"))
+      % ("form", "arm", "rho_pcs", "rho_ctrl", "advantg", "95% CI on advantage"))
 
 for form in FORMS:
     for arm in ARMS:
@@ -167,7 +167,15 @@ for form in FORMS:
             continue
         rp = sum(r[0] for r in rows) / len(rows)
         rc = sum(r[1] for r in rows) / len(rows)
-        deltas = [r[0] - r[1] for r in rows]
+        # ADVANTAGE, not raw difference. Both correlations are NEGATIVE -- higher
+        # confidence goes with lower error -- so a score carries information beyond
+        # the filter statistic only when it is MORE negatively correlated than the
+        # control. abs(rho_pcs) - abs(rho_ctrl) > 0 is PCS winning. Taking the raw
+        # difference rho_pcs - rho_ctrl and testing it against zero inverts the
+        # verdict, which is exactly what the first version of this script did: it
+        # printed BEATS CONTROL for every cell while the control was in fact the
+        # better predictor in all of them.
+        deltas = [abs(r[0]) - abs(r[1]) for r in rows]
         d = sum(deltas) / len(deltas)
         boot = []
         n = len(deltas)
@@ -177,7 +185,12 @@ for form in FORMS:
         boot.sort()
         lo = boot[int(0.025 * NBOOT)]
         hi = boot[int(0.975 * NBOOT)]
-        verdict = "BEATS CONTROL" if (lo > 0 or hi < 0) else "indistinguishable"
+        if lo > 0:
+            verdict = "PCS BEATS CONTROL"
+        elif hi < 0:
+            verdict = "LOSES TO CONTROL"
+        else:
+            verdict = "indistinguishable"
         print("  %-10s %-20s %9.4f %9.4f %9.4f   [%+.4f, %+.4f]  %s"
               % (form, arm, rp, rc, d, lo, hi, verdict))
 
