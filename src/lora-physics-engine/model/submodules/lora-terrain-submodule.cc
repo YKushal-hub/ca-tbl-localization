@@ -67,7 +67,10 @@ TerrainResult TerrainSubmodule::ComputeTerrainPenaltyDb(
     double dz = txPos.z - rxPos.z;
     double totalDist = std::max(1.0, std::sqrt(dx*dx + dy*dy + dz*dz));
     
-    double frequencyHz = 868e6;
+    // WAS hardcoded 868e6 here, applied to all three tiers. Now carried on
+    // TerrainParams, which still defaults to 868e6 so nothing moves unless
+    // --terrainPerTierFreq asks it to.
+    double frequencyHz = (params.frequencyHz > 0.0) ? params.frequencyHz : 868e6;
     double lambda = 299792458.0 / frequencyHz;
     
     int nPoints = 30;
