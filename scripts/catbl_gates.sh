@@ -369,6 +369,24 @@ printf '\n--- G13 sidecar source SHAs resolve ---\n'
 python3 scripts/sidecar_sha_audit.py || fail G13
 finish G13
 
+# ---------------- G14: the sensitivity tables and their SF index agree
+# A7. The six-decibel SF-index defect -- `sf - 7` against tables whose index 0 is SF5 --
+# sat on the tier carrying ~95% of active cycles and PASSED EVERY GATE, VERIFIER CHECK
+# AND VALIDATION IN THIS PROJECT. What found it was an independent closed-form model
+# refusing to reconcile, not a check.
+#
+# The existing fidelity checks verify ranging precision and energy accounting, both of
+# which are downstream of whether a packet was received at all. None of them reads the
+# sensitivity table. This one does, and it asserts the table's declared base against the
+# index expression the engine actually uses.
+#
+# Its negative fixtures are in scripts/sensitivity_gate_selftest.sh and include D1
+# itself. Run BOTH -- a gate that has only ever passed proves nothing (rule 6).
+printf '\n--- G14 sensitivity table SF-index fidelity ---\n'
+python3 scripts/sensitivity_gate.py || fail G14
+bash scripts/sensitivity_gate_selftest.sh || fail G14
+finish G14
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
