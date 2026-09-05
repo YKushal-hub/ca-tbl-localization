@@ -474,6 +474,8 @@ TerrainParams TerrainParams::Defaults() {
     t.terrainIrregularityM = DistributionParam::Normal(15.0, 10.0, 0.0, 100.0);
     t.losScaleDistanceM = DistributionParam::Normal(1000.0, 300.0, 100.0, 5000.0);
     t.fresnelClearanceFraction = 0.6;
+    // 868 MHz on every tier: preserves the pre-existing hardcode exactly.
+    t.frequencyHz = 868e6;
     t.effectiveEarthRadiusFactor = 4.0 / 3.0; // Standard atmospheric refraction
     return t;
 }

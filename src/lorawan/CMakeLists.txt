@@ -107,6 +107,7 @@ build_lib(
     ${libenergy}
     ${libpoint-to-point}
     ${libbuildings}
+    ${liblora-physics-engine}
   TEST_SOURCES
     test/utilities.cc
     test/lorawan-test-suite.cc
