@@ -126,6 +126,18 @@ observed to fire. **Not built, deliberately:**
 goes on the air. Continuing would have put the energy axis at risk to add an untested
 consumer.
 
+**And there is now a named structural blocker: C5 requires C2-full.** A relay is a
+pseudo-anchor, so it must report its own position estimate `x̂_B` *and* its covariance
+`P_B`. The peer has **no `CaTblPolicy`** — it is an addressing and contention peer, not a
+measured subject — so `P_B` does not exist to be transmitted. **Until a second tag has a
+filter, there is nothing to relay.**
+
+Note the shape of this: C4 was *believed* to need C2-full and did not. C5 *does*, and for a
+reason that is visible in the type system rather than inferred from a measurement. The EKF
+side is already ready — `CaTblEkf::Update(meas, varM2)` takes a per-measurement variance and
+`CaTblRangeMeasurement` is already an (anchor position, range) pair, which is exactly the
+pseudo-anchor shape.
+
 ### 3.2 `hopWeight` stays 0, and the PCS hop term is the wrong shape
 `ca-tbl-policy.cc:672`, `:708`. The current term is **unbounded below**, penalises a
 *count* rather than an *uncertainty the covariance already carries*, and does not encode
@@ -137,9 +149,17 @@ Also: **A2 caps hop depth at 1, so `hopCount` is binary.** A term linear in it h
 reachable values. Worth knowing before anyone tunes a weight expecting a gradient.
 
 ### 3.3 C2-full — the peer is not a measured subject
-Parked at `d789e09` by owner decision. The peer has no `CaTblPolicy` and no
-`CaTblEnergyModel`; it is an addressing and contention peer. **No longer blocks anything**
-— the provider fix removed its blocking role — but multi-target *accuracy* results need it.
+Rebased onto current main as `wip/c2-on-main` (`7cbfead`), builds, and the C4 conflict is
+resolved with `pcsHist` / `pcsDegradation` / `batteryUsedFrac` made **per tag** — with two
+measured targets both issue their own `ESC_REQUEST` and a shared deque would score both
+off whichever tag wrote last.
+
+**It now blocks C5** (§3.1), which is a change from the previous entry: the provider fix
+removed its role as C4's blocker, but a relay with no filter has no `P_B` to report.
+
+**Merge decision is open and is the owner's**, against a bar rather than a judgement:
+RULES.md §4.2 requires byte-identical output — `arm_summary` **and every trace**. This is
+result-exact and not bit-exact (§4.1), so it does not meet that bar as written.
 
 ### 3.4 A4 / A5 — blocked on data that does not exist
 A4 says to compare reported sigma against realised error *"from the existing traces"*.
@@ -166,10 +186,30 @@ addition to `RunArm` changes the stack frame and therefore the codegen under
 `-march=native`. The provider fix grew a `RunArm` local by a `std::map` and left **all six
 traces byte-identical**, which falsifies that as a general claim.
 
-*Why it matters.* The byte-identity criterion is the project's main null-control gate. If
-it fires on something other than behaviour, its meaning is unclear — and right now nobody
-knows what makes it fire. *Suggested test:* rebuild both binaries with `-march=x86-64`
-instead of `native`; if the divergence disappears it is vectorisation/FMA contraction.
+**Measured 2026-09-06, and it is TWO phenomena rather than one:**
+
+| branch | differing cells | largest relative difference | affected |
+|---|---:|---:|---|
+| C3 / C4 | 161 / 63 360 | **3.3e-13** | 5 columns |
+| C2-full | 2 379 / 380 160 | **5.35e-09** | `estXhp`, `estYhp`, `meanSigmaM`, `meanSigmaRawM`, `mahalanobis` |
+
+**Four orders of magnitude apart, so they are not the same effect.** 3.3e-13 is last-digit
+rounding at double precision. 5.35e-09 is a rounding difference **accumulated through an
+iterative filter** over 3600 s: moving per-tag state from the stack into a heap vector
+changes the codegen once, and the EKF then compounds it every cycle.
+
+**`mahalanobis` is in the affected set, and that quantity is compared against a threshold**
+(χ²₀.₉₉ = 9.21). A divergence in a *compared* quantity can flip a decision where a
+divergence in a *reported* one cannot — rule 10's territory. So it was checked rather than
+argued: `suspects`, `escalations`, `deescalations`, `noFixCycles` and `fixCycles` are
+identical across all six arms, and `arm_summary.csv` is byte-identical. **No threshold
+decision moved.**
+
+*Why it still matters.* The byte-identity criterion is the project's main null-control
+gate, and it currently fires on stack layout as well as on behaviour. *Suggested test:*
+rebuild both binaries with `-march=x86-64` instead of `native`; if the C3/C4 divergence
+disappears it is vectorisation/FMA contraction. The C2-full one probably will not, since
+accumulation through the filter is not a codegen artefact once it has started.
 
 ### 4.2 `-march=native` makes byte-identity machine-dependent
 Every null control compares against digests produced on a specific machine. Reproduction
