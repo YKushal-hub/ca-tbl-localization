@@ -45,6 +45,14 @@ produces a wrong result that looks right.
 8. **A single-seed cross-arm difference is never a result.** Arms share the RNG stream but
    consume it at their own rate — two arms with identical filter state reached 334 and 336
    engine evaluations by t = 2.5 s.
+   **The same hazard applies ACROSS BINARIES, and that is the form that has actually bitten.**
+   `LoRaDistributionSampler` draws from the default stream with no `SetStream`, and every
+   submodule on the `ProcessTransmission` path draws from it, so *any change in the number of
+   transmissions displaces the stream for every link in the run*. The multi-node provider fix
+   moved collisions by −8 000 and captures by +5 500 per arm; **none of that was
+   interpretable**, and only the control-flow claims survived. Before comparing a magnitude
+   across a code change, check that both binaries perform the same number of engine
+   evaluations. If they do not, the only admissible claims are about which code paths execute.
 9. **Design against the failure mode.** Before writing a check, write down what a firing looks
    like *on disk*. A check for a defect whose mode is *absence* cannot be a scan of present data.
 10. **An enumeration of a loss sum will not find a term that lives in the threshold.** Audit
@@ -174,9 +182,14 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
   verifier check and validation in the project.** It was found by an independent closed-form
   model refusing to reconcile, not by a gate. No check in the project would catch it today.
   Fixed at `0d5e747`; `r80` moved 909.5 → 1149.5 m and every prior result was regenerated.
-- **The CRLB gate should not run on tier 1** (open defect). Tier 1 is RSSI inversion, not a
-  time-of-arrival estimator; `lora-ranging-submodule.cc:151` says so in its own comment and calls
-  applying a ToA Cramér–Rao bound to it a category error.
+- **The CRLB gate no longer runs on tier 1 — CLOSED (D-3), verified 2026-09-06.** Tier 1 is
+  RSSI inversion, not a time-of-arrival estimator, so a ToA Cramér–Rao bound does not apply and
+  applying one is a category error. `lora-ranging-submodule.cc:151` now takes the shadowing
+  standard deviation and explicitly discards the ToA inputs (`bandwidthHz`, `snrDbInBand`,
+  `spreadingFactor` are `(void)`-cast with the reason stated). **This entry said "open defect"
+  until 2026-09-06 while the register said D-3 was done** — the contradiction is recorded in
+  `docs/TECH_DEBT.md` §2.5 rather than silently corrected, because a stale line in the
+  authoritative rules file is exactly the failure §8 of this document warns about.
 - **`LoRaDistributionSampler` ignores its seed** (`lora-distribution-sampler.cc:8-17`): 5 random
   variables created, 0 `SetStream` calls. Recorded as a **decision not to fix**. Determinism
   holds at defaults and at six non-default flag settings, so no result is known to be affected.

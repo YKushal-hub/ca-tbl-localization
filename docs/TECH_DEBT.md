@@ -91,10 +91,18 @@ narrower than the work package asks.** The six-decibel defect that passed every 
 the project was of the *indexing* kind, which G14 now catches; a *transcription* error in
 the values themselves would still pass.
 
-### 2.5 Tier-1 CRLB: register and RULES.md disagree
-`report/NOT_DONE_2026_09_05.md` lists **D-3 as Done**; `RULES.md:177` still calls the
-tier-1 CRLB gate an **open defect**. No commit was found confirming either.
-**Reconcile and verify before citing tier-1 sigma anywhere.** *Cost:* under an hour.
+### 2.5 Tier-1 CRLB — RESOLVED 2026-09-06, kept as a record
+`report/NOT_DONE_2026_09_05.md` listed **D-3 as Done** while `RULES.md:177` called the
+tier-1 CRLB gate an **open defect**, and no commit confirmed either.
+
+**Verified from the code, not from either document.** `lora-ranging-submodule.cc:151`
+takes the shadowing standard deviation for tier 1 and explicitly discards the ToA inputs
+-- `bandwidthHz`, `snrDbInBand` and `spreadingFactor` are `(void)`-cast with the reason
+stated in the comment. **D-3 is genuinely complete; RULES.md was stale.** Fixed there.
+
+Kept here because the interesting part is not the answer but that the authoritative rules
+file and the register disagreed for an unknown period and nothing detected it. See
+sect 5.3.
 
 ---
 
