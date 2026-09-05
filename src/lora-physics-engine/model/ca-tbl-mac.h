@@ -294,6 +294,20 @@ class CaTblMac
      */
     void Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId = 0);
 
+    //! C3. A separate entry point rather than a defaulted parameter on Send(): ns-3
+    //! Simulator::Schedule binds a member function at EXACT arity, so widening Send
+    //! breaks every scheduled call to it. Found by the compiler, not by inspection.
+    void SendQuery(CaTblTier tier, uint8_t manifestId);
+
+    //! Which identity class this MAC was configured as. Needed by the scenario to
+    //! pick an anchor to originate queries from; the config is otherwise private.
+    CaTblIdentityClass GetIdentityClass() const { return m_cfg.identityClass; }
+
+    //! C3: identity-scoped queries answered, and responses sent. Counted so the
+    //! mechanism is measurable rather than asserted.
+    uint64_t GetQueriesAnswered() const { return m_queriesAnswered; }
+    uint64_t GetQueriesIgnored() const { return m_queriesIgnored; }
+
     /**
      * \brief The §2.9 handshake: mobility state selects which messages get sent.
      *
@@ -377,6 +391,9 @@ class CaTblMac
     Ptr<UniformRandomVariable> m_rng;
     CaTblMobilityState m_mobility;
     RxCallback m_rxCb;
+    uint8_t m_nextQueryManifest = 0; //!< C3, consumed by the next Send()
+    uint64_t m_queriesAnswered = 0;
+    uint64_t m_queriesIgnored = 0;
     DropCallback m_dropCb;
 
     double m_txPowerDbm;
