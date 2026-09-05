@@ -300,6 +300,44 @@ class CaTblHeader : public Header
      *  PCS hop-provenance term is a function of how far a fix has travelled, and
      *  a relay cannot know that from hop_limit alone. */
     void SetInitialHopLimit(uint8_t h) { m_initialHopLimit = h; }
+
+    /**
+     * \brief Which target identity a QUERY is scoped to. C3.
+     *
+     * Meaningful only on CA_TBL_MSG_QUERY. A responder answers only when this
+     * matches its own CaTblMacConfig::targetManifestId, which is what makes the
+     * search identity-scoped rather than a broadcast every target answers.
+     *
+     * CARRIED BUT NOT SERIALISED, exactly like m_initialHopLimit below, and for
+     * the same reason: it costs no wire bytes here because GetSerializedSize()
+     * is the fixed 9-byte MAC header and CaTblPayloadBytes(QUERY, nEntries)
+     * ALREADY charges a query for carrying manifest ids. On real hardware the
+     * id occupies those payload bytes, which are already billed; in simulation
+     * it rides here rather than through a serialiser that would re-derive the
+     * same size.
+     */
+    void SetQueryManifestId(uint8_t m) { m_queryManifestId = m; }
+    uint8_t GetQueryManifestId() const { return m_queryManifestId; }
+
+    /**
+     * \brief C4. The two arbitration terms an anchor cannot observe for itself.
+     *
+     * U(r) = l1*T_deg + l2*T_batt + l3*T_stale + l4*T_query. The anchor can see
+     * T_stale (when it last granted this target) and T_query (the frame's access
+     * category). It cannot see T_deg, which is the slope of the requester's own
+     * PCS history, or T_batt, which is its remaining charge. Those are private to
+     * the requester and must travel with the request, or the arbiter is scoring a
+     * different function under the same name.
+     *
+     * Both are quantised to a byte, 0..255 mapping [0,1]. Carried and not
+     * serialised, like m_queryManifestId: GetSerializedSize() is the fixed 9-byte
+     * MAC header and CaTblPayloadBytes already sizes ESC_REQUEST, so the billed
+     * airtime does not change.
+     */
+    void SetReqDegradation(uint8_t d) { m_reqDegradation = d; }
+    uint8_t GetReqDegradation() const { return m_reqDegradation; }
+    void SetReqBattery(uint8_t b) { m_reqBattery = b; }
+    uint8_t GetReqBattery() const { return m_reqBattery; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -317,6 +355,9 @@ class CaTblHeader : public Header
     // have to be an explicit payload field -- flagged so the report does not
     // claim a 9-byte header that secretly needs a tenth byte.
     uint8_t m_initialHopLimit;
+    uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
+    uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input
+    uint8_t m_reqBattery = 0;      //!< C4, quantised T_batt input
 };
 
 } // namespace ns3
