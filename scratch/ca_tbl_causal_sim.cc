@@ -1036,6 +1036,14 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // still collapsed by 10 m, because a 7.99 GHz link over 35 m of open ground was
 // being charged forested-PLE (2.3) plus canopy loss. Both are correct physics for
 // the wide-area mesh and wrong physics for an intra-facility link.
+// D-4. Terrain derived its wavelength from a hardcoded 868 MHz and applied the
+// resulting Fresnel and diffraction geometry to every tier, UWB at 7.99 GHz
+// included -- a wavelength wrong by 9.2x. This carries the per-tier carrier
+// into TerrainParams instead. It is a FILE-SCOPE GLOBAL because the configs are
+// built by a macro expanded at several call sites and a macro cannot see a
+// local; it is written once, after cmd.Parse(), and read-only thereafter.
+static bool g_terrainPerTierFreq = false;
+
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
                                                            WEATHER_CLEAR_DRY,                      \
@@ -1060,7 +1068,13 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
                                                                  MOB_CONSTANT_VELOCITY,            \
                                                                  false);                           \
     cUwb.randomSeed = (seed);                                                                      \
-    cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;
+    cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
+    if (g_terrainPerTierFreq)                                                                      \
+    {                                                                                              \
+        /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
+        c2p4.terrain.frequencyHz = 2.4e9;                                                          \
+        cUwb.terrain.frequencyHz = 7.9872e9;                                                       \
+    }
 
 /**
  * \brief Pre-flight geometry check.
@@ -3274,6 +3288,7 @@ main(int argc, char* argv[])
     double pcsHysteresisBandArg = -1.0;
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
+    bool terrainPerTierFreqArg = false;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3568,6 +3583,21 @@ main(int argc, char* argv[])
                  "escalating arm to move when this is on; that is the "
                  "treatment, not a regression, and it needs a re-baseline.",
                  sendHandshakeFramesArg);
+    cmd.AddValue("terrainPerTierFreq",
+                 "Whether the terrain submodule uses each tier OWN carrier for "
+                 "its Fresnel and diffraction geometry. False (default) keeps "
+                 "the pre-existing behaviour, in which lora-terrain-submodule.cc "
+                 "hardcoded 868 MHz and applied that wavelength to all three "
+                 "tiers -- UWB Ch9 at 7.99 GHz included, where it is wrong by a "
+                 "factor of 9.2. That is a defect, not a modelling choice, but "
+                 "every result in the tree was measured under it, so it stays "
+                 "the default and moves only when asked. True sets 2.4 GHz and "
+                 "7.9872 GHz on tiers 2 and 3, the carriers Architecture.md 2.1 "
+                 "records. NOTE that terrain is transcription-only and G11b is "
+                 "permanently red, so this makes terrain LESS WRONG rather than "
+                 "validated -- and both headline conclusions were already shown "
+                 "invariant to terrain.",
+                 terrainPerTierFreqArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3593,6 +3623,8 @@ main(int argc, char* argv[])
                  "deliberately NOT added -- see the CaTblNlosSource comment.",
                  nlosSourceArg);
     cmd.Parse(argc, argv);
+
+    g_terrainPerTierFreq = terrainPerTierFreqArg;
 
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
     if (pcsFormArg == "v2")
