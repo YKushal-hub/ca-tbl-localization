@@ -1855,6 +1855,7 @@ RunArm(CaTblPolicyMode mode,
        double pcsGateFloor,
        double pcsHysteresisBand,
        uint32_t nDeescalateOverride,
+       bool sendHandshakeFrames,
        bool deferEscalationOnDutyLimit,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
@@ -2099,6 +2100,7 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
+        mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
         mc.bandwidthHz = phy[ti].bandwidthHz;
@@ -2124,6 +2126,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig mc;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
+            mc.sendHandshakeFrames = sendHandshakeFrames;
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
             // tier-1 beacon period one gateway occupies 51.5 ms / 10 s = 0.51%,
@@ -2635,6 +2638,17 @@ RunArm(CaTblPolicyMode mode,
             // escape, so it is the correct thing to surrender under the rationale
             // above.
             energy.AccountEscalationHandshake(pendingHandshakeTier, t);
+            // C1: the frame ITSELF, in addition to the charge above. The
+            // accounting already sizes the handshake correctly; what it has
+            // never done is contend for the medium, pass CAD, or meet the
+            // duty governor as a frame. Adding rather than replacing keeps
+            // the energy axis fixed, so a change here is attributable to
+            // contention and to nothing else.
+            if (sendHandshakeFrames && nodeMac[pendingHandshakeTier] != nullptr)
+            {
+                nodeMac[pendingHandshakeTier]->Send(
+                    CA_TBL_MSG_ESC_REQUEST, pendingHandshakeTier, 0, 0);
+            }
             ++handshakePreemptions;
             pendingHandshake = false;
 
@@ -2745,6 +2759,12 @@ RunArm(CaTblPolicyMode mode,
             if (energy.CanTransmit(active, t))
             {
                 energy.AccountEscalationHandshake(active, t);
+                // C1: see the note at the pre-emption site above. Charge
+                // unchanged, frame added.
+                if (sendHandshakeFrames && nodeMac[active] != nullptr)
+                {
+                    nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                }
             }
             else
             {
@@ -3253,6 +3273,7 @@ main(int argc, char* argv[])
     double pcsGateFloorArg = -1.0;
     double pcsHysteresisBandArg = -1.0;
     uint32_t nDeescalateArg = 0;
+    bool sendHandshakeFramesArg = false;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3528,6 +3549,25 @@ main(int argc, char* argv[])
                  "encodes an observation about one campaign, not a design "
                  "decision.",
                  nDeescalateArg);
+    cmd.AddValue("sendHandshakeFrames",
+                 "Whether the escalation handshake is TRANSMITTED as well as "
+                 "charged. False (default) is the pre-existing behaviour and "
+                 "must reproduce results/baseline_v7 byte-for-byte: "
+                 "AccountEscalationHandshake() bills the airtime and the "
+                 "energy, and no frame exists -- so the handshake has never "
+                 "contended for the medium, never passed CAD, and never met "
+                 "the duty governor AS A FRAME. Every duty-cycle finding in "
+                 "the tree is therefore about a correctly-sized ACCOUNTING of "
+                 "a handshake, not about one that contended. True adds the "
+                 "frames and leaves the charge alone: adding rather than "
+                 "replacing holds the energy axis fixed, so any change is "
+                 "attributable to contention alone. It also avoids an energy "
+                 "defect -- CaTblMac has no TX callback and SetEnergyModel() "
+                 "is deliberately unset on every MAC, so a frame that "
+                 "REPLACED the charge would transmit for free. Expect every "
+                 "escalating arm to move when this is on; that is the "
+                 "treatment, not a regression, and it needs a re-baseline.",
+                 sendHandshakeFramesArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3915,6 +3955,7 @@ main(int argc, char* argv[])
                                        pcsGateFloorArg,
                                        pcsHysteresisBandArg,
                                        nDeescalateArg,
+                                       sendHandshakeFramesArg,
                                        deferEscalationOnDutyLimit,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
