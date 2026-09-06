@@ -79,6 +79,7 @@
  *              --outdir=results/causal --trace=false"
  */
 
+#include "ns3/ca-tbl-relay-admission.h"
 #include "ns3/core-module.h"
 #include "ns3/ca-tbl-energy-model.h"
 #include "ns3/ca-tbl-header.h"
@@ -2746,6 +2747,19 @@ RunArm(CaTblPolicyMode mode,
     // single shared deque would score both requests off whichever tag wrote to it
     // last, which would look exactly like arbitration and would not be one.
     // The remaining per-cycle counters moved into CaTblTagState with everything else.
+    // C5 admission tallies, for stdout. Counted per verdict rather than as a single
+    // reject total, because "the measurement was refused" and "it was refused for the
+    // reason the model says it should be" are different claims, and only the second
+    // one is evidence the admission test is doing its job.
+    uint64_t relayAdmitted = 0;
+    uint64_t relayRejTier = 0;
+    uint64_t relayRejDepth = 0;
+    uint64_t relayRejGeom = 0;
+    uint64_t relayRejStale = 0;
+    uint64_t relayRejDup = 0;
+    double relaySigmaEffSum = 0.0;
+    double relaySigmaRawSum = 0.0;
+
     auto& pcsHist = TS0.pcsHist;
     auto& pcsDegradation = TS0.pcsDegradation;
     auto& batteryUsedFrac = TS0.batteryUsedFrac;
@@ -3267,6 +3281,152 @@ RunArm(CaTblPolicyMode mode,
         {
             ++floorRangedCycles;
         }
+        // C5. Form a RELAYED measurement against each relay, admit it, and let the
+        // admitted ones into this cycle's measurement set.
+        //
+        // THE §6 INVARIANT IS THE CONSTRAINT HERE, not an afterthought. Exactly one
+        // tier transmits per cycle and only that tier is charged. So a relayed
+        // exchange is formed ONLY when the relay's tier is already the active tier --
+        // then it is one more exchange on a tier that was transmitting anyway, and it
+        // is charged there. If the relay sat on a different tier, forming this would
+        // make two tiers transmit in one cycle and the energy axis would stop meaning
+        // anything.
+        //
+        // A1 also excludes tier 1, so this can only ever engage on 2.4 GHz or UWB.
+        // Both conditions are checked rather than assumed, and the A1 rejection is
+        // still counted when relayTier is forced to 0, because a condition that is
+        // never exercised is not evidence of anything.
+        if (relayedRanging && !usedFloor)
+        {
+            const CaTblTier rt = static_cast<CaTblTier>(
+                std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+            if (rt == active)
+            {
+                std::set<uint16_t> relaysUsedThisUpdate;
+                for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+                {
+                    const double bx = tags[pt].policy.EstX();
+                    const double by = tags[pt].policy.EstY();
+                    // The tag's OWN prior estimate, not its true position: a node does
+                    // not know where it is, and using the truth here would leak the
+                    // answer into the geometry test and the range direction.
+                    const double ax = policy.EstX();
+                    const double ay = policy.EstY();
+                    const double ddx = ax - bx;
+                    const double ddy = ay - by;
+                    const double dist = std::sqrt(ddx * ddx + ddy * ddy);
+
+                    // The tag-to-tag link. ProcessTransmission auto-registers an
+                    // unknown receiver as a gateway with fineTimestamp=false, which is
+                    // the correct hardware class for a tag.
+                    double rAB = 0.0;
+                    double sigRaw = 0.0;
+                    bool got = false;
+                    const int ati = static_cast<int>(active);
+                    if (active == CA_TBL_TIER_2P4)
+                    {
+                        PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+                    else if (active == CA_TBL_TIER_UWB)
+                    {
+                        PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+                    else
+                    {
+                        PhysicsResult r = engine868.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+
+                    // Charged on the active tier, whether or not the measurement is
+                    // ultimately admitted. The energy was spent on the exchange; a
+                    // later software decision to discard the result does not refund it.
+                    energy.AccountRangingExchange(active, 1, got ? 1 : 0, t);
+
+                    if (!got || !std::isfinite(rAB) || rAB <= 0.0 || dist <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    CaTblRelayedRange rr;
+                    rr.relayId = static_cast<uint16_t>(tags[pt].nodeId);
+                    rr.tier = active;
+                    rr.hopDepth = 1;
+                    rr.sigmaRangeM = sigRaw;
+                    rr.relayP[0][0] = tags[pt].policy.Pxx();
+                    rr.relayP[0][1] = tags[pt].policy.Pxy();
+                    rr.relayP[1][0] = tags[pt].policy.Pxy();
+                    rr.relayP[1][1] = tags[pt].policy.Pyy();
+                    // The relay filtered this same cycle, so its covariance is current.
+                    rr.relayAgeS = 0.0;
+                    rr.relayFixIntervalS = dt;
+                    rr.ux = ddx / dist;
+                    rr.uy = ddy / dist;
+                    rr.distToRelayM = dist;
+
+                    double sigmaEff = 0.0;
+                    const CaTblRelayVerdict v =
+                        CaTblAdmitRelayedRange(rr, relaysUsedThisUpdate, &sigmaEff);
+                    switch (v)
+                    {
+                    case CA_TBL_RELAY_ADMIT:
+                        break;
+                    case CA_TBL_RELAY_REJECT_TIER:
+                        ++relayRejTier;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_DEPTH:
+                        ++relayRejDepth;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_GEOMETRY:
+                        ++relayRejGeom;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_STALE:
+                        ++relayRejStale;
+                        continue;
+                    default:
+                        ++relayRejDup;
+                        continue;
+                    }
+
+                    // The PSEUDO-ANCHOR. The anchor position is the relay's ESTIMATE,
+                    // not its true position, and the inflated sigma is what pays for
+                    // that estimate being wrong. Passing the true position with the
+                    // inflated sigma would be the same category error in the opposite
+                    // direction: a measurement that is better than the model claims.
+                    CaTblRangeMeasurement m;
+                    m.anchorX = bx;
+                    m.anchorY = by;
+                    m.rangeM = rAB;
+                    m.nlos = false;
+                    m.nlosPropagation = false;
+                    m.hiddenChannelActive = false;
+                    m.sigmaM = sigmaEff;
+                    activeMeas.push_back(m);
+
+                    relaysUsedThisUpdate.insert(rr.relayId);
+                    ++relayAdmitted;
+                    relaySigmaEffSum += sigmaEff;
+                    relaySigmaRawSum += sigRaw;
+                }
+            }
+        }
+
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
@@ -3788,6 +3948,23 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    if (relayedRanging)
+    {
+        std::cout << "    C5 relayed measurements: admitted " << relayAdmitted
+                  << ", rejected A1(tier) " << relayRejTier << ", A2(depth) "
+                  << relayRejDepth << ", A3(geometry) " << relayRejGeom
+                  << ", A4(stale) " << relayRejStale << ", A5(duplicate) "
+                  << relayRejDup << "\n";
+        if (relayAdmitted > 0)
+        {
+            std::cout << "        mean sigma: raw "
+                      << (relaySigmaRawSum / static_cast<double>(relayAdmitted))
+                      << " m -> inflated "
+                      << (relaySigmaEffSum / static_cast<double>(relayAdmitted))
+                      << " m -- the relay position uncertainty, priced in\n";
+        }
+    }
+
     // C5 relay state, to stdout rather than to arm_summary.csv: a new column changes
     // the CSV header for every run and breaks byte-identity against baseline_v7.
     //
