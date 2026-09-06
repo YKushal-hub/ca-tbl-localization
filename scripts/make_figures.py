@@ -35,6 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.lines import Line2D
+from matplotlib.colors import to_rgba
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIGDIR = os.path.join(ROOT, "figures")
@@ -165,8 +166,33 @@ BOX_HALF, GW_GRID = 2000.0, 5
 T2_RING, T3_RING = 150.0, 10.0
 T2_PER_SITE, T3_PER_SITE = 3, 5
 RING_PHASE = 0.3                 # ca_tbl_causal_sim.cc BuildDeployment
-R80_T2, R80_T3 = 1149.5, 12.9    # measured, post sensitivity correction
 FIG1_SEED = 21
+PROBE_CSV = "results/probe_v7/probe_range_sweep.csv"
+R80_PDR = 0.80
+
+
+def r80_from_probe(path=PROBE_CSV, target=R80_PDR):
+    """r80 per tier: the distance at which packet delivery falls through 0.80,
+    linearly interpolated between the bracketing sweep points.
+
+    Validated against the probe's own printed figure: run on
+    results/probe_audit/probe_range_sweep.csv this reproduces the r80 values
+    that probe_stdout.txt reports for all three tiers (1515.3 / 909.5 / 12.8 m).
+    Returns {} for a tier that never crosses, so a missing radius is visible
+    rather than substituted."""
+    by = {}
+    with open(os.path.join(ROOT, path)) as fh:
+        for r in csv.DictReader(fh):
+            by.setdefault(r["tier"], []).append((float(r["distance_m"]), float(r["pdr"])))
+    out = {}
+    for tier, pts in by.items():
+        pts.sort()
+        for i in range(1, len(pts)):
+            (d0, p0), (d1, p1) = pts[i - 1], pts[i]
+            if p0 >= target > p1:
+                out[tier] = d0 + (p0 - target) * (d1 - d0) / (p0 - p1)
+                break
+    return out
 
 
 def deployment(box_half=BOX_HALF, gw_grid=GW_GRID):
@@ -194,15 +220,37 @@ TIER_STYLE = {
     "2.4GHz": (C_T2, "Tier 2 - 2.4 GHz"),
     "UWB":    (C_T3, "Tier 3 - UWB"),
 }
+DISK_LS = [(0, (7, 4)), (0, (2, 3)), (0, (9, 3, 2, 3)), (0, (1, 2)), (0, (5, 2, 1, 2))]
+
+
+def _infrastructure(a, gws, sites, t2, t3, s_gw=150, s_t2=52, s_t3=34, s_site=110):
+    """Markers repeat on every panel for orientation. Shape, not colour, is the
+    primary tier encoding."""
+    a.scatter([p[0] for p in gws], [p[1] for p in gws], s=s_gw, marker="H",
+              facecolor="none", edgecolor=C_T1, lw=1.7, zorder=6)
+    a.scatter([p[0] for p in t2], [p[1] for p in t2], s=s_t2, marker="s",
+              facecolor="white", edgecolor=C_T2, lw=1.6, zorder=8)
+    a.scatter([p[0] for p in t3], [p[1] for p in t3], s=s_t3, marker="^",
+              facecolor="white", edgecolor=C_T3, lw=1.3, zorder=9)
+    a.scatter([p[0] for p in sites], [p[1] for p in sites], s=s_site, marker="P",
+              c=C_ACCENT, zorder=10)
 
 
 def figure1():
     gws, sites, t2, t3 = deployment()
+    r80 = r80_from_probe()
+    r1 = r80.get("868MHz")
+    r2 = r80.get("2.4GHz")
+    r3 = r80.get("UWB")
+
     check("Fig1 tier-1 gateway count", len(gws), 25, 0)
     check("Fig1 facility site count", len(sites), 4, 0)
     check("Fig1 tier-2 anchor count", len(t2), 12, 0)
     check("Fig1 tier-3 anchor count", len(t3), 20, 0)
     check("Fig1 site spacing m", 2 * 0.47 * BOX_HALF, 1880.0, 0.5)
+    # The document states ONE r80: tier 2, post-D1. Tier 1 and tier 3 are
+    # computed and reported, with no documented value to assert against.
+    check("Fig1 tier-2 r80 m (documented)", r2, 1149.5, 0.05)
     enforce("Fig1")
 
     cell = os.path.join(ROOT, "results/joint_criterion/seed_%d" % FIG1_SEED)
@@ -213,87 +261,118 @@ def figure1():
     check("Fig1 trajectory cycles", len(rows), 1440, 0)
     enforce("Fig1")
 
-    fig = plt.figure(figsize=(12.6, 8.2))
-    ax = fig.add_axes([0.055, 0.10, 0.60, 0.84])
-    axz = fig.add_axes([0.70, 0.36, 0.28, 0.42])
-
-    for a, zoom in ((ax, False), (axz, True)):
-        # Coverage as OUTLINE-dominant: twelve filled r80 discs at this scale
-        # merge into a single wash that hides the trajectory the figure is about.
-        for (cx, cy) in t2:
-            a.add_patch(Circle((cx, cy), R80_T2, facecolor=C_T2, alpha=0.022,
-                               edgecolor=C_T2, lw=0.9, ls=(0, (6, 5)), zorder=1))
-        for (cx, cy) in t3:
-            a.add_patch(Circle((cx, cy), R80_T3, facecolor=C_T3, alpha=0.55,
-                               edgecolor=C_T3, lw=0.8, zorder=3))
-        # path, then per-cycle tier marks
-        a.plot(xs, ys, color="#B0B0B0", lw=0.5, alpha=0.7, zorder=4)
-        for key, mk, sz, zo in (("2.4GHz", "s", 5, 5), ("868MHz", "o", 30, 8), ("UWB", "^", 46, 9)):
-            px = [x for x, t in zip(xs, tiers) if t == key]
-            py = [y for y, t in zip(ys, tiers) if t == key]
-            if px:
-                a.scatter(px, py, s=sz, marker=mk, c=TIER_STYLE[key][0],
-                          linewidths=0.4 if key != "2.4GHz" else 0,
-                          edgecolors="white" if key != "2.4GHz" else "none",
-                          alpha=0.95, zorder=zo)
-        a.scatter([p[0] for p in gws], [p[1] for p in gws], s=190, marker="H",
-                  facecolor="none", edgecolor=C_T1, lw=1.9, zorder=6)
-        a.scatter([p[0] for p in t2], [p[1] for p in t2], s=64, marker="s",
-                  facecolor="white", edgecolor=C_T2, lw=1.7, zorder=8)
-        a.scatter([p[0] for p in t3], [p[1] for p in t3], s=40, marker="^",
-                  facecolor="white", edgecolor=C_T3, lw=1.4, zorder=9)
-        a.scatter([p[0] for p in sites], [p[1] for p in sites], s=140, marker="P",
-                  c=C_ACCENT, zorder=10)
-        a.set_aspect("equal")
-
-    ax.set_xlim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
-    ax.set_ylim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
-    ax.set_xlabel("x  (m)"); ax.set_ylabel("y  (m)")
-    ax.set_title("Deployment and the tier that served each cycle", loc="left", pad=10)
     from collections import Counter
     cnt = Counter(tiers)
-    ax.text(0.015, 0.985, "seed %d cycles served:  tier 1 = %d    tier 2 = %d    tier 3 = %d"
-            % (FIG1_SEED, cnt.get("868MHz", 0), cnt.get("2.4GHz", 0), cnt.get("UWB", 0)),
-            transform=ax.transAxes, va="top", ha="left", fontsize=9.6,
-            bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#CCCCCC", lw=0.8))
-    ax.annotate("", xy=(sites[0][0], sites[0][1]), xytext=(sites[1][0], sites[1][1]),
-                arrowprops=dict(arrowstyle="<->", color=C_ACCENT, lw=1.4))
-    ax.text(0, sites[0][1] - 118, "site spacing %d m" % round(2 * 0.47 * BOX_HALF),
-            ha="center", color=C_ACCENT, fontsize=9.5)
+    disparity = r2 / r3
+    site = sites[2]
 
-    zc = sites[2]
-    pad = 235.0
-    axz.set_xlim(zc[0] - pad, zc[0] + pad); axz.set_ylim(zc[1] - pad, zc[1] + pad)
-    axz.set_title("One facility site", loc="left", fontsize=11, pad=6)
-    axz.tick_params(labelsize=8)
-    axz.add_patch(Circle(zc, T2_RING, facecolor="none", edgecolor=C_T2, lw=1.0, ls=":"))
-    axz.add_patch(Circle(zc, T3_RING, facecolor="none", edgecolor=C_T3, lw=1.0, ls=":"))
-    axz.annotate("tier-2 ring 150 m", xy=(zc[0] + T2_RING * 0.71, zc[1] + T2_RING * 0.71),
-                 xytext=(zc[0] - 215, zc[1] + 175), fontsize=8.6, color=C_T2,
-                 arrowprops=dict(arrowstyle="->", color=C_T2, lw=0.9))
-    axz.annotate("tier-3 ring 10 m\ncoverage r80 12.9 m", xy=(zc[0] + T3_RING, zc[1]),
-                 xytext=(zc[0] + 55, zc[1] - 160), fontsize=8.6, color=C_T3,
-                 arrowprops=dict(arrowstyle="->", color=C_T3, lw=0.9))
+    fig, axes = plt.subplots(2, 2, figsize=(15.0, 13.6))
+    (axA, axB), (axC, axD) = axes
+
+    # ---- Panel A: topology and who served each cycle -----------------------
+    axA.plot(xs, ys, color="#B0B0B0", lw=0.5, alpha=0.7, zorder=4)
+    for key, mk, sz, zo in (("2.4GHz", "s", 5, 5), ("868MHz", "o", 30, 8), ("UWB", "^", 46, 9)):
+        px = [x for x, t in zip(xs, tiers) if t == key]
+        py = [y for y, t in zip(ys, tiers) if t == key]
+        if px:
+            axA.scatter(px, py, s=sz, marker=mk, c=TIER_STYLE[key][0],
+                        linewidths=0.4 if key != "2.4GHz" else 0,
+                        edgecolors="white" if key != "2.4GHz" else "none",
+                        alpha=0.95, zorder=zo)
+    _infrastructure(axA, gws, sites, t2, t3)
+    axA.annotate("", xy=sites[0], xytext=sites[1],
+                 arrowprops=dict(arrowstyle="<->", color=C_ACCENT, lw=1.4))
+    axA.text(0, sites[0][1] - 130, "site spacing %d m" % round(2 * 0.47 * BOX_HALF),
+             ha="center", color=C_ACCENT, fontsize=9.5)
+    axA.text(0.015, 0.985,
+             "seed %d cycles served:  tier 1 = %d    tier 2 = %d    tier 3 = %d"
+             % (FIG1_SEED, cnt.get("868MHz", 0), cnt.get("2.4GHz", 0), cnt.get("UWB", 0)),
+             transform=axA.transAxes, va="top", ha="left", fontsize=9.4,
+             bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="#CCCCCC", lw=0.8))
+    axA.set_xlim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
+    axA.set_ylim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
+    axA.set_title("A   Topology and the tier that served each cycle\n"
+                  "full box, boxHalf 2000 m - no coverage disks", loc="left", fontsize=11.5, pad=8)
+
+    # ---- Panel B: tier-1 coverage ------------------------------------------
+    if r1 is not None:
+        for (cx, cy) in gws:
+            # alpha= on a patch dims the EDGE as well; put the transparency in
+            # the face colour so the outline stays readable.
+            axB.add_patch(Circle((cx, cy), r1, facecolor=to_rgba(C_T1, 0.045),
+                                 edgecolor=to_rgba(C_T1, 0.55), lw=0.9,
+                                 ls=(0, (6, 4)), zorder=1))
+        b_title = ("B   Tier-1 coverage - r80 %.1f m at each of 25 gateways\n"
+                   "full box, boxHalf 2000 m" % r1)
+    else:
+        b_title = ("B   Tier-1 coverage - NO r80 IN THE SOURCE DATA, disks omitted\n"
+                   "full box, boxHalf 2000 m")
+    _infrastructure(axB, gws, sites, t2, t3)
+    axB.set_xlim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
+    axB.set_ylim(-BOX_HALF * 1.02, BOX_HALF * 1.02)
+    axB.set_title(b_title, loc="left", fontsize=11.5, pad=8)
+
+    # ---- Panel C: tier-2 coverage, window derived from r80_tier2 -----------
+    wC = 1.2 * r2                                   # computed, never fixed
+    for i, (cx, cy) in enumerate([p for p in t2
+                                  if abs(p[0] - site[0]) < T2_RING * 2
+                                  and abs(p[1] - site[1]) < T2_RING * 2]):
+        axC.add_patch(Circle((cx, cy), r2, facecolor=to_rgba(C_T2, 0.06),
+                             edgecolor=C_T2, lw=2.4, ls=DISK_LS[i % len(DISK_LS)],
+                             zorder=1 + i))
+    _infrastructure(axC, gws, sites, t2, t3, s_gw=150, s_t2=90, s_t3=44)
+    axC.set_xlim(site[0] - wC, site[0] + wC); axC.set_ylim(site[1] - wC, site[1] + wC)
+    axC.set_title("C   Tier-2 coverage - r80 %.1f m at each of 3 anchors on one site's 150 m ring\n"
+                  "window +/-1.2 x r80_tier2 = +/-%.0f m, centred on one site" % (r2, wC),
+                  loc="left", fontsize=11.5, pad=8)
+
+    # ---- Panel D: tier-3 coverage, window derived from r80_tier3 -----------
+    wD = T3_RING + 1.8 * r3                         # computed, never fixed
+    for i, (cx, cy) in enumerate([p for p in t3
+                                  if abs(p[0] - site[0]) < T3_RING * 3
+                                  and abs(p[1] - site[1]) < T3_RING * 3]):
+        axD.add_patch(Circle((cx, cy), r3, facecolor=to_rgba(C_T3, 0.11),
+                             edgecolor=C_T3, lw=2.2, ls=DISK_LS[i % len(DISK_LS)],
+                             zorder=1 + i))
+    _infrastructure(axD, gws, sites, t2, t3, s_gw=150, s_t2=90, s_t3=150, s_site=200)
+    axD.add_patch(Circle(site, T3_RING, facecolor="none", edgecolor=C_GREY, lw=1.0, ls=":", zorder=2))
+    axD.set_xlim(site[0] - wD, site[0] + wD); axD.set_ylim(site[1] - wD, site[1] + wD)
+    axD.set_title("D   Tier-3 coverage - r80 %.1f m at each of 5 anchors on the same site's 10 m ring\n"
+                  "window 10 m ring + 1.8 x r80_tier3 = +/-%.1f m, same site as C" % (r3, wD),
+                  loc="left", fontsize=11.5, pad=8)
+
+    for a in (axA, axB, axC, axD):
+        a.set_aspect("equal")
+        a.set_xlabel("x  (m)"); a.set_ylabel("y  (m)")
+
+    axD.text(0.985, 0.02,
+             "scale disparity  r80_tier2 / r80_tier3 = %.1f m / %.1f m = %.0f x\n"
+             "no single crop shows both bands" % (r2, r3, disparity),
+             transform=axD.transAxes, ha="right", va="bottom", fontsize=9.8,
+             color=C_ACCENT, fontweight="bold",
+             bbox=dict(boxstyle="round,pad=0.4", fc="white", ec=C_ACCENT, lw=1.2))
 
     handles = [
-        Line2D([], [], marker="H", ls="none", mfc="none", mec=C_T1, mew=1.9, ms=12,
+        Line2D([], [], marker="H", ls="none", mfc="none", mec=C_T1, mew=1.7, ms=11,
                label="Tier-1 gateway  (25)"),
-        Line2D([], [], marker="P", ls="none", color=C_ACCENT, ms=10, label="Facility site  (4)"),
-        Line2D([], [], marker="s", ls="none", mfc="white", mec=C_T2, mew=1.7, ms=8,
+        Line2D([], [], marker="P", ls="none", color=C_ACCENT, ms=9, label="Facility site  (4)"),
+        Line2D([], [], marker="s", ls="none", mfc="white", mec=C_T2, mew=1.6, ms=7.5,
                label="Tier-2 anchor  (12, 150 m ring)"),
-        Line2D([], [], marker="^", ls="none", mfc="white", mec=C_T3, mew=1.4, ms=8,
+        Line2D([], [], marker="^", ls="none", mfc="white", mec=C_T3, mew=1.3, ms=7.5,
                label="Tier-3 anchor  (20, 10 m ring)"),
-        Line2D([], [], marker="o", ls="none", color=C_T1, ms=6, label="Cycle served by tier 1"),
-        Line2D([], [], marker="s", ls="none", color=C_T2, ms=6, label="Cycle served by tier 2"),
-        Line2D([], [], marker="^", ls="none", color=C_T3, ms=7, label="Cycle served by tier 3"),
-        Line2D([], [], color=C_T2, lw=0.8, ls=(0, (5, 4)), label="Tier-2 coverage r80 1149.5 m"),
-        Line2D([], [], color=C_T3, lw=4, alpha=0.35, label="Tier-3 coverage r80 12.9 m"),
+        Line2D([], [], marker="o", ls="none", color=C_T1, ms=6, label="Cycle served by tier 1 (A)"),
+        Line2D([], [], marker="s", ls="none", color=C_T2, ms=6, label="Cycle served by tier 2 (A)"),
+        Line2D([], [], marker="^", ls="none", color=C_T3, ms=7, label="Cycle served by tier 3 (A)"),
     ]
-    fig.legend(handles=handles, loc="lower right", bbox_to_anchor=(0.995, 0.055),
-               frameon=False, ncol=1)
-    caption(fig, "boxHalf 2000 m, gwGrid 5. Geometry derived from the placement rule; "
-                 "per-cycle tier read from fixTier. Trajectory: seed 21, all 1440 cycles. "
-                 "Source results/joint_criterion, source ec48e90 dirty 0.")
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.028),
+               frameon=False, ncol=4)
+
+    r1txt = ("tier 1 %.1f m, " % r1) if r1 is not None else "tier 1 absent, "
+    caption(fig, "Geometry derived from the placement rule; per-cycle tier read from fixTier. "
+                 "r80 computed from %s column pdr at the 0.80 crossing (%stier 2 %.1f m, tier 3 %.1f m); "
+                 "the document states only the tier-2 value. Trajectory: seed %d, all 1440 cycles. "
+                 "Source results/joint_criterion, source ec48e90 dirty 0, n=1 seed."
+                 % (PROBE_CSV, r1txt, r2, r3, FIG1_SEED), reserve=0.085)
     return save(fig, "fig1_deployment")
 
 
