@@ -506,6 +506,19 @@ class CaTblEkf
     double Vy() const { return m_x[3]; }
 
     double TracePos() const { return m_P[0][0] + m_P[1][1]; }
+
+    /** The 2x2 POSITION covariance, not just its trace.
+     *
+     *  C5 needs the matrix, not the scalar: a relayed measurement inflates the range
+     *  variance by u^T P u, the relay's uncertainty projected onto the RANGE
+     *  DIRECTION. The trace throws the direction away, and a relay whose error is
+     *  strongly directional -- which is the normal case, since anchor geometry is
+     *  never isotropic -- would be inflated by the wrong amount in both directions.
+     *  Pxy is the term that carries that, and it is the one a diagonal
+     *  approximation silently drops. */
+    double Pxx() const { return m_P[0][0]; }
+    double Pxy() const { return m_P[0][1]; }
+    double Pyy() const { return m_P[1][1]; }
     double PriorX() const { return m_xPrior[0]; }
     double PriorY() const { return m_xPrior[1]; }
 
@@ -554,6 +567,14 @@ class CaTblPolicy
 
     /** Tier that should transmit on the next cycle. */
     CaTblTier GetActiveTier() const { return m_tier; }
+
+    //! Position estimate and its covariance -- what a RELAY must report for its
+    //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
+    double EstX() const { return m_ekf.X(); }
+    double EstY() const { return m_ekf.Y(); }
+    double Pxx() const { return m_ekf.Pxx(); }
+    double Pxy() const { return m_ekf.Pxy(); }
+    double Pyy() const { return m_ekf.Pyy(); }
 
     /**
      * \brief Advance one cycle.
