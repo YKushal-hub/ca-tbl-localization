@@ -2069,6 +2069,8 @@ RunArm(CaTblPolicyMode mode,
        bool deferEscalationOnDutyLimit,
        bool intraCycleHandshakeDefer,
        uint32_t nTags,
+       bool relayedRanging,
+       uint32_t relayTier,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2559,6 +2561,40 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
+    // C5. A RELAY MUST BE A MEASURED SUBJECT, or it has nothing to relay.
+    //
+    // A relayed measurement treats the relay as a PSEUDO-ANCHOR: the range is used
+    // against the relay's own position ESTIMATE, with the variance inflated by
+    // u^T P_B u. Both halves need the relay to run a filter. A peer with no
+    // CaTblPolicy has no x_hat and no P_B, so there is nothing to put on the wire --
+    // which is what blocked C5, and it was the link budget that was never the issue.
+    //
+    // The relay is a FIXED-TIER measured node: it ranges, filters and is charged, but
+    // does not escalate. Stated limitation, not an approximation of one -- escalation
+    // for peer tags is the remaining half of C2, and a relay that escalated would earn
+    // its P_B on a different tier between one report and the next, which the error
+    // model does not cover.
+    if (relayedRanging)
+    {
+        for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+        {
+            const size_t pi = pt - 1;
+            if (pi >= peerWalkers.size())
+            {
+                break;
+            }
+            tags[pt].nodeId = peerIds[pi];
+            tags[pt].walker = &peerWalkers[pi];
+            tags[pt].pos = peerWalkers[pi].Position();
+            // The SAME configuration as the measured tag. A relay filtered under
+            // different settings would report a P_B not comparable with the covariance
+            // the consumer's own filter carries, and admission test A3 compares
+            // exactly those two quantities.
+            tags[pt].policy.Configure(pcfg);
+            tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
     for (size_t r = 0; r < peerReqs.size(); ++r)
     {
@@ -2735,6 +2771,10 @@ RunArm(CaTblPolicyMode mode,
             engine2p4.UpdateNodePosition(peerIds[pi], pp);
             engineUwb.UpdateNodePosition(peerIds[pi], pp);
             provider.SetPeerPosition(static_cast<uint16_t>(peerIds[pi]), pp);
+            if (relayedRanging && (pi + 1) < tags.size())
+            {
+                tags[pi + 1].pos = pp;
+            }
         }
 
         // Every engine tracks position so its internal correlation/mobility
@@ -2757,6 +2797,107 @@ RunArm(CaTblPolicyMode mode,
 
         const Time now = Simulator::Now();
         const double t = now.GetSeconds();
+
+        // C5. Each relay's own ranging and filter for this cycle.
+        //
+        // The engine calls are the SAME calls the measured tag makes -- same
+        // ProcessTransmission, same tier parameters, same neighbour-table poll set --
+        // so a relay's fix comes from the modelled physics rather than a stand-in.
+        // Energy is charged to ITS OWN account, which keeps the §6 invariant per tag:
+        // exactly one tier transmits per cycle for this tag and only that tier is
+        // charged on this tag's account. Nothing here touches the measured tag's
+        // energy, and with relayedRanging off none of it runs at all.
+        if (relayedRanging)
+        {
+            const CaTblTier rt = static_cast<CaTblTier>(
+                std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+            const int rti = static_cast<int>(rt);
+            for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+            {
+                const size_t pi = pt - 1;
+                if (pi >= peerMacs.size() ||
+                    static_cast<size_t>(rti) >= peerMacs[pi].size())
+                {
+                    continue;
+                }
+                const std::vector<CaTblNeighbour> nb =
+                    peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
+                std::vector<CaTblRangeMeasurement> pmeas;
+                for (size_t a = 0; a < nb.size(); ++a)
+                {
+                    const uint16_t anchorId = nb[a].id;
+                    std::map<uint16_t, Vector>::const_iterator ap =
+                        anchorPosById.find(anchorId);
+                    if (ap == anchorPosById.end())
+                    {
+                        continue;
+                    }
+                    const Vector& anchorPos = ap->second;
+                    bool received = false;
+                    double range = 0.0;
+                    double sigmaM = 0.0;
+                    bool nlosProp = false;
+                    bool hiddenActive = false;
+                    if (rt == CA_TBL_TIER_868)
+                    {
+                        PhysicsResult r = engine868.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    else if (rt == CA_TBL_TIER_2P4)
+                    {
+                        PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    else
+                    {
+                        PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    if (received && std::isfinite(range) && range > 0.0)
+                    {
+                        CaTblRangeMeasurement m;
+                        m.anchorX = anchorPos.x;
+                        m.anchorY = anchorPos.y;
+                        m.rangeM = range;
+                        m.nlos = nlosProp || hiddenActive;
+                        m.nlosPropagation = nlosProp;
+                        m.hiddenChannelActive = hiddenActive;
+                        m.sigmaM = sigmaM;
+                        pmeas.push_back(m);
+                    }
+                }
+                // Charged on the relay's own account, RX timeouts of anchors that did
+                // not answer included -- the same rule the measured tag pays.
+                tags[pt].energy.AccountRangingExchange(
+                    rt, static_cast<uint32_t>(nb.size()),
+                    static_cast<uint32_t>(pmeas.size()), t);
+                tags[pt].policy.Step(dt, pmeas, 0,
+                                     static_cast<int32_t>(pmeas.size()),
+                                     static_cast<int32_t>(nb.size()), 0);
+                ++tags[pt].steps;
+            }
+        }
 
         const CaTblTier active = policy.GetActiveTier();
 
@@ -3647,6 +3788,33 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    // C5 relay state, to stdout rather than to arm_summary.csv: a new column changes
+    // the CSV header for every run and breaks byte-identity against baseline_v7.
+    //
+    // WHY THIS IS PRINTED AT ALL. Rule 4 -- an exact zero is a control-flow claim, not
+    // a measurement. Without this, "the relay filter runs" would be an assertion about
+    // code that produces no observable, and a relay whose Step() silently never ran
+    // would look exactly like one that ran and converged. trace(P) is the quantity that
+    // distinguishes them: an initialised-but-never-updated filter keeps its seeded
+    // covariance, so a trace that has MOVED off 2 * 100^2 is evidence the update path
+    // executed.
+    if (relayedRanging)
+    {
+        for (size_t rt2 = 1; rt2 < tags.size(); ++rt2)
+        {
+            const double trP = tags[rt2].policy.Pxx() + tags[rt2].policy.Pyy();
+            const double ex = tags[rt2].policy.EstX();
+            const double ey = tags[rt2].policy.EstY();
+            const double dx = ex - tags[rt2].pos.x;
+            const double dy = ey - tags[rt2].pos.y;
+            std::cout << "    C5 relay node " << tags[rt2].nodeId << ": steps "
+                      << tags[rt2].steps << ", trace(P) " << std::fixed
+                      << std::setprecision(3) << trP << " m^2 (seeded 20000), Pxy "
+                      << tags[rt2].policy.Pxy() << ", err "
+                      << std::sqrt(dx * dx + dy * dy) << " m, energy "
+                      << tags[rt2].energy.GetTotalJ() << " J\n";
+        }
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -3830,6 +3998,8 @@ main(int argc, char* argv[])
     bool terrainPerTierFreqArg = false;
     bool intraCycleHandshakeDeferArg = false;
     uint32_t nTagsArg = 1;
+    bool relayedRangingArg = false;
+    uint32_t relayTierArg = 1;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
@@ -4158,6 +4328,31 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("relayedRanging",
+                 "Whether peer tags run their own filter, so that a relay has a "
+                 "position estimate and a covariance to report. FALSE (default) "
+                 "reproduces every existing result byte-for-byte, because with it "
+                 "off not one additional engine evaluation is made and the shared "
+                 "random stream is untouched. A relay is a PSEUDO-ANCHOR: its range "
+                 "is used against its own estimate with the variance inflated by "
+                 "u^T P_B u, so both halves need a filter on the relay. A peer "
+                 "without one has nothing to put on the wire, which is what blocked "
+                 "C5 -- not the link budget. The relay is modelled as a FIXED-TIER "
+                 "measured node: it ranges, filters and is charged, but does not "
+                 "escalate, because a relay that escalated would earn its P_B on a "
+                 "different tier between one report and the next and the error model "
+                 "does not cover that.",
+                 relayedRangingArg);
+    cmd.AddValue("relayTier",
+                 "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
+                 "NOT 0, and that is an admission condition rather than a preference "
+                 "-- A1 excludes tier 1 from relayed ranging because its error is a "
+                 "spatially correlated shadowing field, so two nearby tags' errors "
+                 "are correlated before any relaying happens and the independence "
+                 "the measurement equation assumes is absent in the medium. Setting "
+                 "this to 0 produces relayed measurements that A1 will reject, which "
+                 "is the intended behaviour and is worth being able to demonstrate.",
+                 relayTierArg);
     cmd.AddValue("nTags",
                  "How many targets exist on the channel. 1 (default) is the "
                  "scenario as it has always been, and constructs nothing extra -- "
@@ -4603,6 +4798,8 @@ main(int argc, char* argv[])
                                        deferEscalationOnDutyLimit,
                                        intraCycleHandshakeDeferArg,
                                        nTagsArg,
+                                       relayedRangingArg,
+                                       relayTierArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
