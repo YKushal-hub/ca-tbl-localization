@@ -179,7 +179,8 @@ BuildDeployment(uint32_t gwGrid,
                 double uwbTriadRadiusM,
                 double t2TriadRadiusM,
                 uint32_t uwbAnchorsPerSite,
-                uint32_t t2AnchorsPerSite)
+                uint32_t t2AnchorsPerSite,
+                uint32_t sitingMode)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -290,11 +291,47 @@ BuildDeployment(uint32_t gwGrid,
     // several anchors, not exactly the mathematical minimum. This raises
     // reliability without inflating the assumed range, which is the distinction
     // that matters -- range is measured, redundancy is a design choice.
+    // ---- A5: where tier 3 goes ---------------------------------------------
+    //
+    // sitingMode 0 (DEFAULT) co-locates tier 3 with tier 2, which is the siting every
+    // existing result was produced under and the reason the co-location comment above
+    // exists: if the two refinement tiers covered different ground, an escalation
+    // failure could be a siting artefact rather than a decision error.
+    //
+    // sitingMode 1 is COMPLEMENTARY siting, and it is the thing A5 asks about. The
+    // facility square has its corners at (+-f, +-f), radius f*sqrt(2). Rotating that
+    // square by 45 degrees puts tier 3 at (+-f*sqrt(2), 0) and (0, +-f*sqrt(2)) -- the
+    // SAME radius from the centre, in the GAPS BETWEEN the tier-2 clusters.
+    //
+    // Same radius is the point. Moving tier 3 outward would confound "different place"
+    // with "further from the middle", and the comparison would no longer isolate
+    // siting. The only thing that changes is the angle.
+    //
+    // Tier 2 stays where it is in both modes: the question is whether tier 3 should
+    // complement tier 2, not whether the whole deployment should move. And
+    // dep.facilities is untouched, because the walker dwells there -- moving it would
+    // change the MOBILITY as well as the siting and the arms would no longer be
+    // comparable.
+    std::vector<Vector> uwbSites;
+    if (sitingMode == 1)
+    {
+        const double fr = f * std::sqrt(2.0);
+        uwbSites.push_back(Vector(fr, 0.0, 0.0));
+        uwbSites.push_back(Vector(0.0, fr, 0.0));
+        uwbSites.push_back(Vector(-fr, 0.0, 0.0));
+        uwbSites.push_back(Vector(0.0, -fr, 0.0));
+    }
+    else
+    {
+        uwbSites = dep.facilities;
+    }
+
     id = 201;
     uint32_t idUwb = 301;
     for (size_t s = 0; s < dep.facilities.size(); ++s)
     {
         const Vector c = dep.facilities[s];
+        const Vector cUwb = (s < uwbSites.size()) ? uwbSites[s] : c;
 
         for (uint32_t k = 0; k < t2AnchorsPerSite; ++k)
         {
@@ -313,8 +350,8 @@ BuildDeployment(uint32_t gwGrid,
                 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(uwbAnchorsPerSite) + 0.3;
             dep.anchors[CA_TBL_TIER_UWB].push_back(
                 {idUwb++,
-                 Vector(c.x + uwbTriadRadiusM * std::cos(th),
-                        c.y + uwbTriadRadiusM * std::sin(th),
+                 Vector(cUwb.x + uwbTriadRadiusM * std::cos(th),
+                        cUwb.y + uwbTriadRadiusM * std::sin(th),
                         2.5)});
         }
     }
@@ -4177,6 +4214,7 @@ main(int argc, char* argv[])
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
     uint32_t relayTierArg = 1;
+    uint32_t sitingModeArg = 0;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
@@ -4505,6 +4543,20 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("sitingMode",
+                 "Where tier-3 anchors go. 0 (default) CO-LOCATES them with tier 2 at "
+                 "the four facility sites, which is the siting every existing result "
+                 "was produced under and is deliberate: if the two refinement tiers "
+                 "covered different ground, an escalation failure could be a siting "
+                 "artefact rather than a decision error. 1 is COMPLEMENTARY siting -- "
+                 "the facility square rotated 45 degrees, so tier 3 sits at the SAME "
+                 "radius from the centre but in the GAPS between the tier-2 clusters. "
+                 "Same radius is the point: moving tier 3 outward would confound "
+                 "\"different place\" with \"further out\" and the comparison would "
+                 "stop isolating siting. Tier 2 does not move in either mode, and "
+                 "neither do the facilities themselves, because the walker dwells "
+                 "there and moving them would change the mobility as well.",
+                 sitingModeArg);
     cmd.AddValue("relayedRanging",
                  "Whether peer tags run their own filter, so that a relay has a "
                  "position estimate and a covariance to report. FALSE (default) "
@@ -4784,7 +4836,8 @@ main(int argc, char* argv[])
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
-                                           t2AnchorsPerSite);
+                                           t2AnchorsPerSite,
+                                           sitingModeArg);
 
     const CaTblPolicyMode allArms[] = {CA_TBL_MODE_STATIC_868,
                                        CA_TBL_MODE_STATIC_2P4,
