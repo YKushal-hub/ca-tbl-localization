@@ -1119,6 +1119,13 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         if (lost)
         {
             ++m_totalCollisions;
+            if (m_eventLog != nullptr)
+            {
+                *m_eventLog << Simulator::Now().GetSeconds() << ',' << static_cast<int>(me.tier)
+                            << ',' << me.txId << ',' << rxId << ','
+                            << CaTblMsgTypeName(me.hdr.GetMsgType()) << ",collision,"
+                            << mine.rxPowerDbm << '\n';
+            }
             rx->NoteCollisionLoss(me.hdr.GetMsgType());
             continue;
         }
@@ -1129,6 +1136,14 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         }
 
         ++m_totalDeliveries;
+        if (m_eventLog != nullptr)
+        {
+            *m_eventLog << Simulator::Now().GetSeconds() << ',' << static_cast<int>(me.tier)
+                        << ',' << me.txId << ',' << rxId << ','
+                        << CaTblMsgTypeName(me.hdr.GetMsgType()) << ','
+                        << (captured ? "capture" : "delivered") << ',' << mine.rxPowerDbm
+                        << '\n';
+        }
         rx->DeliverRx(me.hdr, mine);
     }
 

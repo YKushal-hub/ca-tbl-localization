@@ -50,6 +50,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <ostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -496,6 +497,12 @@ class CaTblChannel
     CaTblChannel();
 
     void SetPhyProvider(CaTblPhyProvider* phy) { m_phy = phy; }
+
+    /** Per-frame event sink for the visualiser. NOT a simulation input: the channel
+     *  writes to it and never reads it, and when it is null nothing is written. The
+     *  aggregate counters remain the authority on what happened; this is the same
+     *  events, itemised, so an animation can show them. */
+    void SetEventLog(std::ostream* os) { m_eventLog = os; }
     void SetCaptureThresholdDb(double db) { m_captureThresholdDb = db; }
     double GetCaptureThresholdDb() const { return m_captureThresholdDb; }
 
@@ -543,6 +550,7 @@ class CaTblChannel
     void PruneExpired();
 
     CaTblPhyProvider* m_phy;
+    std::ostream* m_eventLog = nullptr;
     std::map<uint16_t, CaTblMac*> m_nodes;
     std::vector<InFlight> m_inFlight;
     double m_captureThresholdDb;
