@@ -256,6 +256,13 @@ struct CaTblPolicyConfig
     // mechanism is always on.
 
     //! Refuse an escalation when the filter's displacement disagrees with the body's.
+    /** Hop-provenance form. 0 = the legacy linear subtraction, kept so prior results
+     *  reproduce. 1 = bounded multiplicative on the relayed VARIANCE FRACTION, which is
+     *  what docs/RELAYED_RANGING_ERROR_MODEL.md section 5 specifies. */
+    uint32_t hopProvenanceForm;
+    //! Strength of the bounded penalty. 0 disables it whatever the form.
+    double hopPenalty;
+
     bool imuCrossCheck;
     //! How many combined sigmas of disagreement are tolerated before the confidence
     //! signal is treated as untrustworthy. OURS, not cited.
@@ -600,6 +607,11 @@ class CaTblPolicy
      *                           this node's estimate given the measured range to them
      *  \param corroborable      neighbours against which that test could be run at all
      */
+    /** What fraction of this cycle's measurement information arrived through a
+     *  relay, by variance share. Supplied by the caller because the policy does not
+     *  see where a measurement came from. */
+    void SetRelayedVarFraction(double f) { m_relayedVarFrac = f; }
+
     void SetCrossCheck(double imuDisagreementM, double imuToleranceM,
                        int32_t corroborating, int32_t corroborable)
     {
@@ -751,6 +763,9 @@ class CaTblPolicy
 
   private:
   private:
+    //! Bounded multiplicative provenance penalty; identity unless form 1 is set.
+    double ApplyProvenance(double pcs) const;
+
     double ComputePcs(double traceSigma,
                       double gdop,
                       uint32_t nLos,
@@ -762,6 +777,7 @@ class CaTblPolicy
     CaTblEkf m_ekf;
     double m_imuDispM = 0.0;
     double m_imuTolM = 0.0;
+    double m_relayedVarFrac = 0.0;
     int32_t m_corrOk = 0;
     int32_t m_corrTotal = 0;
     bool m_crossCheckFresh = false;

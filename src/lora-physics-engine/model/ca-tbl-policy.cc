@@ -94,6 +94,8 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     uwbPredictMaxSigmaFrac = 0.25;
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
+    hopProvenanceForm = 0;
+    hopPenalty = 0.0;
 
     // Switching-point integrity, both off by default so the effect can be measured.
     imuCrossCheck = false;
@@ -681,6 +683,7 @@ CaTblPolicy::ComputePcs(double traceSigma,
         {
             pcs -= m_config.hopWeight * static_cast<double>(hopCount);
         }
+        pcs = ApplyProvenance(pcs);
         return pcs;
     }
 
@@ -718,7 +721,26 @@ CaTblPolicy::ComputePcs(double traceSigma,
         pcs -= m_config.hopWeight * static_cast<double>(hopCount);
     }
 
+    pcs = ApplyProvenance(pcs);
     return pcs;
+}
+
+double
+CaTblPolicy::ApplyProvenance(double pcs) const
+{
+    if (m_config.hopProvenanceForm != 1 || m_config.hopPenalty <= 0.0)
+    {
+        return pcs;
+    }
+    // Bounded and multiplicative. The divisor is at least 1, so the factor lies in
+    // (0, 1] and the score can be reduced towards zero but never driven through it --
+    // which the legacy subtraction could do, and did so without limit.
+    //
+    // Driven by the relayed VARIANCE share rather than a hop count: one relayed range
+    // among nine direct ones is a different thing from a fix built entirely out of
+    // relayed ones, and a count cannot tell those apart.
+    const double f = std::min(1.0, std::max(0.0, m_relayedVarFrac));
+    return pcs / (1.0 + m_config.hopPenalty * f);
 }
 
 void

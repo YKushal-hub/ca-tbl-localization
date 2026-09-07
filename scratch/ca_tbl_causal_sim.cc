@@ -2256,6 +2256,8 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nFinders,
        uint32_t finderMode,
        double finderDigestPeriodS,
+       uint32_t hopProvenanceForm,
+       double hopPenalty,
        bool imuCrossCheck,
        double imuDriftMps,
        double imuConsistencyK,
@@ -2481,6 +2483,8 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
+    pcfg.hopProvenanceForm = hopProvenanceForm;
+    pcfg.hopPenalty = hopPenalty;
     pcfg.imuCrossCheck = imuCrossCheck;
     pcfg.corroborationCheck = corroborationCheck;
     policy.Configure(pcfg);
@@ -3045,6 +3049,9 @@ RunArm(CaTblPolicyMode mode,
     // reject total, because "the measurement was refused" and "it was refused for the
     // reason the model says it should be" are different claims, and only the second
     // one is evidence the admission test is doing its job.
+    double relayedVarThisCycle = 0.0;
+    double relayedFracSum = 0.0;
+    uint64_t relayedFracN = 0;
     uint64_t relayAdmitted = 0;
     uint64_t relayRejTier = 0;
     uint64_t relayRejDepth = 0;
@@ -3737,6 +3744,7 @@ RunArm(CaTblPolicyMode mode,
         // Both conditions are checked rather than assumed, and the A1 rejection is
         // still counted when relayTier is forced to 0, because a condition that is
         // never exercised is not evidence of anything.
+        relayedVarThisCycle = 0.0;
         if (relayedRanging && !usedFloor)
         {
             const CaTblTier rt = static_cast<CaTblTier>(
@@ -3861,6 +3869,7 @@ RunArm(CaTblPolicyMode mode,
                     activeMeas.push_back(m);
 
                     relaysUsedThisUpdate.insert(rr.relayId);
+                    relayedVarThisCycle += sigmaEff * sigmaEff;
                     ++relayAdmitted;
                     relaySigmaEffSum += sigmaEff;
                     relaySigmaRawSum += sigRaw;
@@ -3938,6 +3947,26 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
         }
+        // Share of this cycle's measurement variance that arrived through a relay.
+        // Over the set actually used, so a floor fallback -- which contains no relayed
+        // measurement at all -- correctly reports zero rather than inheriting the
+        // active set's share.
+        {
+            double totVar = 0.0;
+            for (size_t mi = 0; mi < meas.size(); ++mi)
+            {
+                totVar += meas[mi].sigmaM * meas[mi].sigmaM;
+            }
+            const double rvf =
+                (totVar > 0.0) ? std::min(1.0, relayedVarThisCycle / totVar) : 0.0;
+            if (rvf > 0.0)
+            {
+                relayedFracSum += rvf;
+                ++relayedFracN;
+            }
+            policy.SetRelayedVarFraction(rvf);
+        }
+
         policy.SetCrossCheck(imuDisagreeM, imuCrossCheck ? imuTolM : 0.0,
                              corrOk, corrTotal);
 
@@ -4500,6 +4529,12 @@ RunArm(CaTblPolicyMode mode,
 
     if (relayedRanging)
     {
+        if (relayedFracN > 0)
+        {
+            std::cout << "    C5 relayed variance share: mean "
+                      << (relayedFracSum / static_cast<double>(relayedFracN))
+                      << " over " << relayedFracN << " cycles that had any\n";
+        }
         std::cout << "    C5 relayed measurements: admitted " << relayAdmitted
                   << ", rejected A1(tier) " << relayRejTier << ", A2(depth) "
                   << relayRejDepth << ", A3(geometry) " << relayRejGeom
@@ -4731,6 +4766,8 @@ main(int argc, char* argv[])
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     double finderDigestPeriodSArg = 30.0;
+    uint32_t hopProvenanceFormArg = 0;
+    double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
     double imuDriftMpsArg = 0.15;
     double imuConsistencyKArg = 3.0;
@@ -5081,6 +5118,23 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("hopProvenanceForm",
+                 "How hop provenance enters the confidence score. 0 (default) is the "
+                 "legacy linear subtraction, kept so prior results reproduce and pinned "
+                 "inert by hopWeight=0. 1 is the bounded multiplicative form the relayed-"
+                 "ranging error model specifies: pcs /= (1 + hopPenalty * relayed "
+                 "variance share). The legacy shape is UNBOUNDED BELOW, penalises a "
+                 "COUNT rather than an uncertainty, and encodes nothing about shared "
+                 "error -- all three of which the error model records as wrong.",
+                 hopProvenanceFormArg);
+    cmd.AddValue("hopPenalty",
+                 "Strength of the bounded provenance penalty. 0 (default) disables it "
+                 "whatever the form is set to. This is the ONE quantity in the "
+                 "confidence score that the filter covariance cannot already contain: "
+                 "the trace is the RESULT of a fix, provenance is HOW it was obtained, "
+                 "and two fixes with the same trace and different provenance are equally "
+                 "certain by the filter own account and not equally trustworthy.",
+                 hopPenaltyArg);
     cmd.AddValue("imuCrossCheck",
                  "Refuse an escalation when the filter's displacement disagrees with "
                  "the body's, measured by dead reckoning. FALSE by default so the check "
@@ -5711,6 +5765,8 @@ main(int argc, char* argv[])
                                        nFindersArg,
                                        finderModeArg,
                                        finderDigestPeriodSArg,
+                                       hopProvenanceFormArg,
+                                       hopPenaltyArg,
                                        imuCrossCheckArg,
                                        imuDriftMpsArg,
                                        imuConsistencyKArg,
