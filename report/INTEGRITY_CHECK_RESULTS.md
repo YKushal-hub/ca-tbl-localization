@@ -71,7 +71,7 @@ is refusing, not re-timing.
 
 ## The interval, added 2026-09-08
 
-`catbl_work/analyse_integrity_ci.py` over the same eight paired cells in
+`scratch/python_handoff/analyse_integrity_ci.py` over the same eight paired cells in
 `catbl_work/cc/`. No new runs: this adds an interval to differences already measured,
 and it does not widen the configuration they came from.
 
