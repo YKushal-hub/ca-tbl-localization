@@ -2261,6 +2261,7 @@ RunArm(CaTblPolicyMode mode,
        bool finderPseudoAnchor,
        bool bidirectionalDigest,
        bool tier1ChargeReplies,
+       double finderDispersal,
        uint32_t hopProvenanceForm,
        double hopPenalty,
        bool imuCrossCheck,
@@ -3294,6 +3295,40 @@ RunArm(CaTblPolicyMode mode,
                         gx = te.x;
                         gy = te.y;
                         known = true;
+
+                        // SPREAD OVER THE REPORTED UNCERTAINTY, DO NOT STACK ON THE
+                        // POINT.
+                        //
+                        // Every finder walking to the same coordinate is four searchers
+                        // covering one spot. That is the worst allocation exactly when
+                        // it matters: the reported position is 36 m wrong and UWB
+                        // reaches 13.5 m, so a stack of finders at the centroid is a
+                        // stack of finders all equally out of range, and tier 3 is
+                        // never reached at all. Measured before this: cycles_uwb 0.
+                        //
+                        // The entry already carries the casualty's OWN covariance --
+                        // varX, varY -- because that is what an anti-entropy entry is
+                        // for. So the search region is known to the searcher without
+                        // anyone being told anything they could not have. Finder i is
+                        // placed on the ellipse at angle 2*pi*i/n, scaled by
+                        // finderDispersal sigmas.
+                        //
+                        // AXIS-ALIGNED, and that is a simplification worth naming: the
+                        // entry carries covXY too, so the true ellipse is rotated. Using
+                        // sqrt(varX) and sqrt(varY) ignores that rotation. It is the
+                        // conservative direction -- a wrongly oriented spread still
+                        // covers the region, just less efficiently -- and it avoids an
+                        // eigen decomposition on a 2x2 for a search pattern that is
+                        // heuristic anyway.
+                        if (finderDispersal > 0.0 && nFinders > 1)
+                        {
+                            const double sx = std::sqrt(std::max(te.varX, 0.0));
+                            const double sy = std::sqrt(std::max(te.varY, 0.0));
+                            const double th = 2.0 * M_PI * static_cast<double>(fi) /
+                                              static_cast<double>(nFinders);
+                            gx += finderDispersal * sx * std::cos(th);
+                            gy += finderDispersal * sy * std::sin(th);
+                        }
                     }
                 }
                 if (!known)
@@ -5057,6 +5092,7 @@ main(int argc, char* argv[])
     bool finderPseudoAnchorArg = false;
     bool bidirectionalDigestArg = false;
     bool tier1ChargeRepliesArg = false;
+    double finderDispersalArg = 0.0;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
@@ -5419,6 +5455,19 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("finderDispersal",
+                 "Spread finders over the casualty's REPORTED position uncertainty "
+                 "instead of stacking them on its centroid, in sigmas. 0.0 by default, "
+                 "which is the pre-existing behaviour: every finder walks to the same "
+                 "coordinate. That is the worst allocation precisely when it matters -- "
+                 "the reported position is tens of metres wrong and UWB reaches ~13.5 m, "
+                 "so a stack of finders at the centroid is a stack all equally out of "
+                 "range and tier 3 is never reached. The search region comes from varX "
+                 "and varY in the entry the finder already holds, so nothing is assumed "
+                 "that a searcher could not have been told. Axis-aligned: covXY is "
+                 "carried but not used, so a rotated ellipse is covered less efficiently "
+                 "rather than wrongly.",
+                 finderDispersalArg);
     cmd.AddValue("tier1ChargeReplies",
                  "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
                  "default, which preserves every published number. Tier 1 is billed as "
@@ -6121,6 +6170,7 @@ main(int argc, char* argv[])
                                        finderPseudoAnchorArg,
                                        bidirectionalDigestArg,
                                        tier1ChargeRepliesArg,
+                                       finderDispersalArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
                                        imuCrossCheckArg,
