@@ -399,7 +399,22 @@ Takes precedence over anything above it that it contradicts.
 
 ## H. New, and the first two are the important ones
 
-### H.1 Tier 3 is unreachable in the tested configuration, and the gate now makes that visible
+### H.1 Tier 3 is reached rarely, and the metric could not see it at all
+**CORRECTED 2026-09-08.** This entry originally read *"Tier 3 is unreachable in the
+tested configuration"*. That was too strong, and part of the zero it rested on was a
+defect in the measurement rather than in the deployment: `VisibleCount()` labels
+ground-truth UWB coverage from the STATIC anchor list, which does not contain finders,
+so `cyclesInUwbCoverage` was structurally 0 and every UWB escalation scored a false
+positive (`2af5702`).
+
+Measured with the label corrected and the full stack on: **three UWB neighbours on 12
+of 480 cycles**, four cycles labelled in coverage, trigger recall 1.0 at precision 0.19.
+So tier 3 **is** reached — on roughly 2.5% of cycles — and the policy escalates on every
+cycle that genuinely had coverage while over-escalating about five to one. That is a
+readable result about the trigger. The original text below still describes the size of
+the problem correctly; only the word "unreachable" was wrong.
+
+### H.1 (original text) Tier 3 is scarce in the tested configuration
 `--uwbEvidenceFromNeighbours` takes UWB cycles from 176.5 to **0.0** and energy from
 72.03 J to 5.69 J. The saving is real and it is 92% of the budget, but the mechanism is
 *not using tier 3 at all* — the node had been escalating to UWB for 176 of 240 cycles
@@ -529,3 +544,65 @@ then every document citing the old numbers has to be repointed.
 figure most worth re-establishing first is the §7 reliability result — 82% more
 deployments for 27% more energy — because it is the project's one headline number that
 is not a negative, and it currently rests on the old geometry.
+
+## J. Moved here by owner decision, 2026-09-08
+
+### J.1 G11 — which of the analytic model and the engines is wrong
+**Registered as debt rather than as a work item, and it must not be closed by tuning.**
+
+Two independent implementations of the same physics disagree: the ns-3 engines (~35
+submodules per tier) and a closed-form link budget (`linkbudget.py`, which imports only
+`math` and cannot read the probe). G11 assertion 2 asks them to reconcile at a criterion
+registered before the comparison — `r80` within 15%, margin within 3 dB. Measured:
+
+| tier | disagreement |
+|---|---|
+| 868 MHz | model `r80` 1811.7 m vs engine 1515.3 m → **19.6%**; worst margin gap **4.95 dB** |
+| 2.4 GHz | margin gap **grows monotonically with distance**: −0.51 dB at 10 m → **+11.69 dB** at 6 km |
+
+**The growth pattern is the diagnostic and it is worth writing down.** A calibration
+constant that was simply wrong would show a flat offset at every distance. A gap that
+scales with range points at a **distance-dependent term** — a path-loss exponent, or
+something multiplying `log10(d)` — and the two tiers disagree in opposite directions,
+which a single shared constant cannot produce. That narrows the search considerably and
+nobody has run it down.
+
+**Why this must not be made green.** The gate prints its own instruction: *"Do NOT tune
+the analytic model to match. Report which term differs and which of the two is more
+likely wrong."* `CLAUDE.md` repeats it as a standing rule. The reason is on the record:
+the six-decibel receiver-sensitivity error — which sat on the tier carrying ~95% of
+active cycles and **passed every gate, verifier check and validation in the project** —
+was found by this model refusing to reconcile, not by any gate. Adjusting the analytic
+model to agree would destroy the only instrument that has ever caught a defect of that
+class, in exchange for a green line.
+
+*Fix:* research. Instrument both implementations term by term at two distances on
+2.4 GHz, difference the loss sums, and identify which term carries the growth. *Cost:*
+days, and the answer may be that the engines are wrong, which would invalidate results.
+*Status:* **stays red, deliberately. 14/15 is the ceiling and that is correct.**
+
+### J.2 Tier-1 TDoA: build the timing layer, or keep re-billing
+`2a61fd2` took the cheap half of this — `--tier1ChargeReplies` now measures what the
+downlink costs, and it nearly doubles tier-1 energy (13.586 → 25.860 J at seed 7). What
+it does **not** do is make tier 1 a time-of-arrival estimator, which is what the
+blueprint specifies (`ch09 §9.3`, TDoA multilateration by Chan/Foy) and what the energy
+model's frame shape has always implied.
+
+*What building it needs, in order:*
+1. **A timing layer.** Anchors must timestamp a received frame with sub-microsecond
+   resolution; 1 µs of timing error is ~300 m of ranging error, so this is the whole
+   difficulty.
+2. **Clock synchronisation, which this project does not have.** The GPS-PPS row in
+   `MASTER_PLAN.md` §2.1 is ABSENT and marked *"not needed, because there is no TDoA"* —
+   circular with this item, and the circularity is why both have sat still.
+3. **A hyperbolic solver.** Chan's closed form or Foy's Taylor-series least squares over
+   ≥3 anchors. The smallest piece.
+4. **Re-deriving tier-1 sigma.** `A4` measured tier-1 uncertainty as over-stated ~1.7×
+   against an RSSI-inversion model. That number does not survive a change of observable.
+
+*Cost:* multi-day, and it invalidates every tier-1 result. *Recommendation on the
+record:* do **not** build it unless TDoA is a claim the thesis needs to make. If it is
+not, the honest resolution is to say tier 1 localises by RSSI inversion, bill it that
+way, and correct `ch09 §9.3` — which is a documentation change, not an engineering one.
+The DIVERGENT row already says the code and the spec disagree here; this decides which
+one moves.
