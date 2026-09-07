@@ -2148,6 +2148,12 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nFinders,
        uint32_t finderMode,
        double finderDigestPeriodS,
+       bool imuCrossCheck,
+       double imuScaleBias,
+       double imuNoiseM,
+       bool corroborationCheck,
+       double corroborationK,
+       double corroborationRangeSigmaM,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2366,6 +2372,8 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
+    pcfg.imuCrossCheck = imuCrossCheck;
+    pcfg.corroborationCheck = corroborationCheck;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
@@ -2508,6 +2516,10 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* am = &macs.back();
             am->Configure(mc);
             am->SetRng(macRng);
+            // A gateway is surveyed and a finder has GPS, so each can state its own
+            // position with small uncertainty. This is what the lost node corroborates
+            // AGAINST -- without it there are no witnesses, only its own opinion.
+            am->PublishSelfEntry(ad.pos.x, ad.pos.y, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(am);
 
             BeaconDriver bd;
@@ -2751,6 +2763,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* fm = &macs.back();
             fm->Configure(fc);
             fm->SetRng(macRng);
+            fm->PublishSelfEntry(fpos.x, fpos.y, 4.0, 4.0, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(fm);
             if (ti == 0)
             {
@@ -2931,6 +2944,18 @@ RunArm(CaTblPolicyMode mode,
     uint64_t relayRejDup = 0;
     double relaySigmaEffSum = 0.0;
     double relaySigmaRawSum = 0.0;
+
+    // Independent-witness state for the switching-point integrity check.
+    std::vector<std::pair<uint16_t, double>> rangedThisCycle;
+    Vector prevTruePos = pos;
+    double imuDispThisCycle = 0.0;
+    double imuBias = 0.0;
+    Ptr<UniformRandomVariable> imuRng = CreateObject<UniformRandomVariable>();
+    // Own stream, set before first use, so the inertial model cannot shift a single
+    // draw the radio layer makes.
+    imuRng->SetStream(static_cast<int64_t>(seed) * 7919 + 1300021);
+    imuBias = imuScaleBias;
+    uint64_t ccImuRej = 0, ccCorrRej = 0;
 
     auto& pcsHist = TS0.pcsHist;
     auto& pcsDegradation = TS0.pcsDegradation;
@@ -3298,6 +3323,7 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
             //
@@ -3436,6 +3462,7 @@ RunArm(CaTblPolicyMode mode,
 
                 if (received && std::isfinite(range) && range > 0.0)
                 {
+                    rangedThisCycle.push_back(std::make_pair(anchorId, range));
                     CaTblRangeMeasurement m;
                     m.anchorX = anchorPos.x;
                     m.anchorY = anchorPos.y;
@@ -3741,6 +3768,46 @@ RunArm(CaTblPolicyMode mode,
                 tierEvidenceMask |= (1u << k);
             }
         }
+
+        // WITNESS 1 -- the body. True displacement seen through a drifting sensor.
+        {
+            const double tdx = pos.x - prevTruePos.x, tdy = pos.y - prevTruePos.y;
+            const double trueDisp = std::sqrt(tdx * tdx + tdy * tdy);
+            const double noise = (imuNoiseM > 0.0)
+                                     ? imuRng->GetValue(-imuNoiseM, imuNoiseM)
+                                     : 0.0;
+            imuDispThisCycle = std::max(0.0, trueDisp * (1.0 + imuBias) + noise);
+            prevTruePos = pos;
+        }
+
+        // WITNESS 2 -- the neighbours. Does the range actually measured to a node agree
+        // with where that node says it is, given where this node thinks IT is?
+        int32_t corrOk = 0, corrTotal = 0;
+        if (corroborationCheck && nodeMac[active] != nullptr)
+        {
+            const double sigMine = std::sqrt(std::max((policy.Pxx() + policy.Pyy()), 0.0));
+            for (size_t k = 0; k < rangedThisCycle.size(); ++k)
+            {
+                CaTblTableEntry te;
+                if (!nodeMac[active]->GetTableEntry(rangedThisCycle[k].first, te))
+                {
+                    continue; // never heard where it claims to be: not a witness
+                }
+                ++corrTotal;
+                const double ex = policy.EstX() - te.x, ey = policy.EstY() - te.y;
+                const double predicted = std::sqrt(ex * ex + ey * ey);
+                const double resid = std::fabs(rangedThisCycle[k].second - predicted);
+                const double sigTheirs = std::sqrt(std::max(te.varX + te.varY, 0.0));
+                const double tol = corroborationK *
+                                   std::sqrt(sigMine * sigMine + sigTheirs * sigTheirs +
+                                             corroborationRangeSigmaM * corroborationRangeSigmaM);
+                if (resid <= tol)
+                {
+                    ++corrOk;
+                }
+            }
+        }
+        policy.SetCrossCheck(imuDispThisCycle, corrOk, corrTotal);
 
         CaTblDecision d = policy.Step(dt,
                                             meas,
@@ -4243,6 +4310,13 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    if (imuCrossCheck || corroborationCheck)
+    {
+        std::cout << "    INTEGRITY: escalations refused -- IMU inconsistency "
+                  << policy.GetImuRejections() << ", weak corroboration "
+                  << policy.GetCorroborationRejections() << "\n";
+    }
+
     if (nFinders > 0)
     {
         uint32_t knowing = 0;
@@ -4509,6 +4583,12 @@ main(int argc, char* argv[])
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     double finderDigestPeriodSArg = 30.0;
+    bool imuCrossCheckArg = false;
+    double imuScaleBiasArg = 0.08;
+    double imuNoiseMArg = 0.5;
+    bool corroborationCheckArg = false;
+    double corroborationKArg = 3.0;
+    double corroborationRangeSigmaMArg = 30.0;
     uint32_t sitingModeArg = 0;
     uint32_t topologyArg = 0;
     double identityQueryPeriodSArg = 0.0;
@@ -4850,6 +4930,42 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("imuCrossCheck",
+                 "Refuse an escalation when the filter's displacement disagrees with "
+                 "the body's, measured by dead reckoning. FALSE by default so the check "
+                 "can be run on against off, which is the comparison the project brief "
+                 "asks for and one you cannot make if the mechanism is always on. "
+                 "SUPPRESS-ONLY: it can withhold an escalation, never cause one, so it "
+                 "cannot manufacture the behaviour it is policing.",
+                 imuCrossCheckArg);
+    cmd.AddValue("imuScaleBias",
+                 "Dead-reckoning scale error, as a fraction. Default 0.08, i.e. the "
+                 "inertial estimate of distance travelled runs 8% long. OURS, not "
+                 "cited -- a real figure comes from a datasheet and a gait model.",
+                 imuScaleBiasArg);
+    cmd.AddValue("imuNoiseM",
+                 "Per-cycle dead-reckoning noise, metres, uniform. Default 0.5. Drawn "
+                 "on its own random stream so the inertial model cannot shift a single "
+                 "draw the radio layer makes.",
+                 imuNoiseMArg);
+    cmd.AddValue("corroborationCheck",
+                 "Refuse an escalation when too few neighbours corroborate this node's "
+                 "estimate. For every node ranged this cycle whose own reported position "
+                 "is held in the table, the measured range is compared against the "
+                 "distance from this node's estimate to where that node SAYS it is. "
+                 "FALSE by default. This is the independent witness: it uses residuals "
+                 "and other nodes' reports, and NOT the filter's covariance, which is "
+                 "the quantity the confidence signal is made of.",
+                 corroborationCheckArg);
+    cmd.AddValue("corroborationK",
+                 "How many combined sigmas of range residual still count as agreement. "
+                 "Default 3. OURS.",
+                 corroborationKArg);
+    cmd.AddValue("corroborationRangeSigmaM",
+                 "Assumed ranging sigma in the corroboration tolerance, metres. Default "
+                 "30, which is tier-1 scale -- the loosest tier, so the test is "
+                 "deliberately reluctant to call a disagreement.",
+                 corroborationRangeSigmaMArg);
     cmd.AddValue("finderDigestPeriodS",
                  "How often each finder broadcasts a digest asking for table entries, "
                  "seconds. Default 30. This is what makes the casualty's position reach "
@@ -5420,6 +5536,12 @@ main(int argc, char* argv[])
                                        nFindersArg,
                                        finderModeArg,
                                        finderDigestPeriodSArg,
+                                       imuCrossCheckArg,
+                                       imuScaleBiasArg,
+                                       imuNoiseMArg,
+                                       corroborationCheckArg,
+                                       corroborationKArg,
+                                       corroborationRangeSigmaMArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
