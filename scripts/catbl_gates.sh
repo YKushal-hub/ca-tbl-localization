@@ -325,7 +325,25 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # pull-request body convention, and pull request bodies are not commit messages. The
 # colon is what distinguishes the form from prose about the form, and requiring it is
 # what lets this gate survive its own policy being written down.
-G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|@anthropic|@openai'
+# ANCHORED 2026-09-08, and it is the same lesson a third time. The vendor-handle
+# alternatives were the only unanchored ones in this pattern, so they matched a handle
+# ANYWHERE IN PROSE -- including in the commits that document this gate. e431eff says
+# in its own body "those two alternatives are unanchored, unlike the trailer
+# alternatives", diagnosing precisely this and never fixing it; 1164e5d trips on a line
+# listing the pattern's own alternatives. Identity fields are clean across every commit.
+#
+# The note above already states the principle and the trailer alternatives already obey
+# it: attribution is a FORM, not a subject, and the colon is what distinguishes the form
+# from prose about the form. A vendor handle is attribution when it appears as a
+# TRAILER VALUE -- Key: something@anthropic -- and is prose when it appears in a
+# sentence. Anchored to that form, both documenting commits pass and a real trailer
+# still does not.
+#
+# co-authored-by lines are stripped BEFORE matching, which preserves the 2026-09-05
+# owner narrowing exactly: that trailer is deliberately not enforced in message bodies,
+# and anchoring the handles to trailer form would otherwise have re-widened it by the
+# back door.
+G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|^[[:space:]]*[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthropic|openai)'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
@@ -335,7 +353,7 @@ else
 fi
 n_msg=0
 while read -r h; do
-    if git log -1 --format='%B' "$h" | grep -qiE "$G12_MSG_PAT"; then
+    if git log -1 --format='%B' "$h" | grep -viE '^[[:space:]]*co-authored-by:' | grep -qiE "$G12_MSG_PAT"; then
         n_msg=$((n_msg + 1))
         [ "$n_msg" -le 3 ] && printf '  offending commit: %s %s\n' "$(git rev-parse --short "$h")" "$(git log -1 --format='%s' "$h" | cut -c1-50)"
     fi
