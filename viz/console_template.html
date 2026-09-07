@@ -1,0 +1,434 @@
+<title>CA-TBL Field Console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F3F5F4; --panel:#FFFFFF; --panel-2:#EAEEEE; --line:#D2DAD9;
+  --ink:#14202A; --ink-2:#4A5C66; --ink-3:#7B8D96;
+  --t1:#B06E12; --t2:#0E7C8C; --t3:#8E3FB0;
+  --ok:#2F7D51; --cap:#B06E12; --bad:#C0393E;
+  --accent:#0E7C8C;
+  --grid:#DDE4E3;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A;
+    --ink:#DCE6E9; --ink-2:#93A7B0; --ink-3:#6B808A;
+    --t1:#E8A33D; --t2:#3DC8D8; --t3:#C87BE8;
+    --ok:#4FB477; --cap:#E8A33D; --bad:#E2555A;
+    --accent:#3DC8D8;
+    --grid:#1B292F;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A;
+  --ink:#DCE6E9; --ink-2:#93A7B0; --ink-3:#6B808A;
+  --t1:#E8A33D; --t2:#3DC8D8; --t3:#C87BE8;
+  --ok:#4FB477; --cap:#E8A33D; --bad:#E2555A;
+  --accent:#3DC8D8;
+  --grid:#1B292F;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:14px; line-height:1.45;
+}
+.wrap{max-width:1560px;margin:0 auto;padding:18px 20px 26px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+.sub{color:var(--ink-2);font-size:13px}
+.runid{
+  margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
+  color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);
+  padding:4px 9px;border-radius:4px;
+}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+@media (max-width:1080px){.main{grid-template-columns:minmax(0,1fr)}}
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+canvas{display:block;width:100%;height:auto;background:transparent}
+.legend{
+  display:flex;flex-wrap:wrap;gap:14px 20px;padding:11px 14px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--ink-2);
+}
+.lg{display:flex;align-items:center;gap:6px}
+.sw{width:11px;height:11px;border-radius:2px;flex:none}
+.sw.round{border-radius:50%}
+.rail{display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+.card h2{
+  margin:0 0 10px;font-size:10.5px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);
+}
+.kv{display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:baseline}
+.kv dt{color:var(--ink-2);font-size:12.5px}
+.kv dd{
+  margin:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+.big{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:26px;font-weight:500;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
+.unit{font-size:12px;color:var(--ink-3);font-weight:400}
+.pill{
+  display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;
+  font-size:11.5px;font-weight:500;border:1px solid transparent;
+}
+.tierbar{display:flex;gap:5px;margin-top:2px}
+.tierbar div{
+  flex:1;text-align:center;padding:6px 2px;border-radius:5px;font-size:11px;font-weight:500;
+  border:1px solid var(--line);color:var(--ink-3);background:var(--panel-2);
+}
+.tierbar div.on{color:#fff;border-color:transparent}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{
+  text-align:left;font-weight:600;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-3);padding:0 0 6px;border-bottom:1px solid var(--line);
+}
+td{padding:5px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;
+  font-family:"IBM Plex Mono",ui-monospace,monospace}
+tr:last-child td{border-bottom:none}
+td.name{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-2)}
+.transport{
+  margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:11px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+button{
+  font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+  padding:7px 14px;cursor:pointer;
+}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);min-width:82px}
+button.primary:hover{opacity:.9;color:var(--bg)}
+input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
+.clock{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px;font-variant-numeric:tabular-nums;
+  color:var(--ink);min-width:118px
+}
+.speed{display:flex;gap:4px}
+.speed button{padding:5px 9px;font-size:12px;min-width:auto}
+.speed button.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.note{
+  margin-top:14px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:6px;font-size:12.5px;color:var(--ink-2);
+}
+.note b{color:var(--ink);font-weight:600}
+.evrow{display:flex;gap:6px;margin-top:8px}
+.evrow div{flex:1;text-align:center;padding:7px 4px;border-radius:5px;background:var(--panel-2);
+  border:1px solid var(--line)}
+.evrow .n{font-family:"IBM Plex Mono",monospace;font-size:16px;font-variant-numeric:tabular-nums;display:block}
+.evrow .l{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>CA-TBL Field Console</h1>
+    <span class="sub">Confidence-Aware Tier-Based Localization &middot; recorded run, replayed</span>
+    <span class="runid" id="runid">&mdash;</span>
+  </header>
+
+  <div class="main">
+    <div>
+      <div class="stage">
+        <canvas id="map" width="1000" height="1000"></canvas>
+        <div class="legend">
+          <span class="lg"><i class="sw round" style="background:var(--t1)"></i>Tier 1 &middot; 868 MHz LoRa</span>
+          <span class="lg"><i class="sw round" style="background:var(--t2)"></i>Tier 2 &middot; 2.4 GHz</span>
+          <span class="lg"><i class="sw round" style="background:var(--t3)"></i>Tier 3 &middot; UWB</span>
+          <span class="lg"><i class="sw" style="background:var(--ok)"></i>delivered</span>
+          <span class="lg"><i class="sw" style="background:var(--cap)"></i>capture</span>
+          <span class="lg"><i class="sw" style="background:var(--bad)"></i>collision</span>
+          <span class="lg"><i class="sw" style="background:var(--ink);border-radius:50%"></i>tag (true)</span>
+          <span class="lg"><i class="sw" style="border:1.5px dashed var(--ink-2);background:none"></i>estimate + &sigma;</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="primary" id="play">Pause</button>
+        <span class="clock" id="clock">t = 0.0 s</span>
+        <input type="range" id="scrub" min="0" max="100" value="0" step="1" aria-label="Timeline">
+        <span class="speed">
+          <button data-sp="1">1&times;</button>
+          <button data-sp="4" class="on">4&times;</button>
+          <button data-sp="12">12&times;</button>
+        </span>
+      </div>
+
+      <div class="note">
+        <b>What you are looking at.</b> A recorded 600 s run replayed frame by frame &mdash; every
+        position, packet outcome and tier change is what the simulator produced, not a re-enactment.
+        Region shading shows the <b>configured environment class</b> per region, not measured ground:
+        this project models terrain as a propagation penalty and carries no height field, so none is drawn.
+        Packet lines are a capped sample per cycle (<span id="capnote">28</span> drawn); the counters
+        below total <b>every</b> event.
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="card">
+        <h2>Active tier</h2>
+        <div class="tierbar">
+          <div id="tb0">868 MHz</div><div id="tb1">2.4 GHz</div><div id="tb2">UWB</div>
+        </div>
+        <dl class="kv" style="margin-top:11px">
+          <dt>Fix this cycle</dt><dd id="fix">&mdash;</dd>
+          <dt>Escalations</dt><dd id="esc">0</dd>
+          <dt>De-escalations</dt><dd id="des">0</dd>
+          <dt>Integrity firings</dt><dd id="sus">0</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Position error</h2>
+        <div class="big"><span id="err">&mdash;</span> <span class="unit">m</span></div>
+        <dl class="kv" style="margin-top:9px">
+          <dt>Filter &sigma; (radial)</dt><dd id="sig">&mdash;</dd>
+          <dt>Confidence score</dt><dd id="pcs">&mdash;</dd>
+          <dt>Anchors ranged</dt><dd id="na">&mdash;</dd>
+          <dt>of which NLOS</dt><dd id="nlos">&mdash;</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Packets this cycle</h2>
+        <div class="evrow">
+          <div><span class="n" id="ed" style="color:var(--ok)">0</span><span class="l">delivered</span></div>
+          <div><span class="n" id="ec" style="color:var(--cap)">0</span><span class="l">capture</span></div>
+          <div><span class="n" id="ex" style="color:var(--bad)">0</span><span class="l">collision</span></div>
+        </div>
+        <dl class="kv" style="margin-top:11px">
+          <dt>Run total delivered</dt><dd id="td">&mdash;</dd>
+          <dt>Run total collisions</dt><dd id="tx">&mdash;</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Neighbour table</h2>
+        <table>
+          <thead><tr><th>Tier</th><th style="text-align:right">Heard</th><th style="text-align:right">In range</th></tr></thead>
+          <tbody>
+            <tr><td class="name"><span style="color:var(--t1)">&#9679;</span> 868 MHz</td><td id="nb0" style="text-align:right">0</td><td id="vs0" style="text-align:right">0</td></tr>
+            <tr><td class="name"><span style="color:var(--t2)">&#9679;</span> 2.4 GHz</td><td id="nb1" style="text-align:right">0</td><td id="vs1" style="text-align:right">0</td></tr>
+            <tr><td class="name"><span style="color:var(--t3)">&#9679;</span> UWB</td><td id="nb2" style="text-align:right">0</td><td id="vs2" style="text-align:right">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Energy</h2>
+        <div class="big"><span id="j">&mdash;</span> <span class="unit">J cumulative</span></div>
+        <canvas id="spark" width="580" height="90" style="margin-top:9px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/ null;
+
+const ENV = ["Rural open","Rural forested","Suburban","Urban moderate","Urban dense",
+             "Industrial","Indoor office","Concrete bunker","Tunnel confined"];
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const map = document.getElementById('map');
+const ctx = map.getContext('2d');
+const spark = document.getElementById('spark');
+const sctx = spark.getContext('2d');
+
+const D = DATA;
+const cyc = D.cycles, dep = D.deployment, B = dep.boxHalfM;
+const anchorPos = {};
+[0,1,2].forEach(t => (dep.anchors[t]||[]).forEach(a => anchorPos[a.id] = {x:a.x, y:a.y, tier:t}));
+
+document.getElementById('runid').textContent =
+  `arm ${D.arm} · seed ${D.seed} · Δt ${D.dt}s · ${cyc.length} cycles · box ±${B} m`;
+document.getElementById('capnote').textContent = D.drawCap;
+document.getElementById('td').textContent = (D.totals.delivered||0).toLocaleString();
+document.getElementById('tx').textContent = (D.totals.collision||0).toLocaleString();
+
+// Scale: world (-B..B) -> canvas, with a margin for anchors just outside the box.
+const PAD = 34, SPAN = B * 2.05;
+function sx(x){ return PAD + (x + SPAN/2) / SPAN * (map.width  - PAD*2); }
+function sy(y){ return PAD + (SPAN/2 - y) / SPAN * (map.height - PAD*2); }
+const sr = m => m / SPAN * (map.width - PAD*2);
+
+const TIER_VARS = ['--t1','--t2','--t3'];
+const OUT_VARS  = ['--ok','--cap','--bad'];
+// Nominal tier ranges, metres. Tier 1 from the project's measured r80; tiers 2 and 3
+// from the ring radii the deployment is built around.
+const TIER_RANGE = [1149.5, 300, 60];
+
+let idx = 0, playing = true, speed = 4, acc = 0, last = performance.now();
+
+function draw(){
+  const c = cyc[idx];
+  const W = map.width, H = map.height;
+  ctx.clearRect(0,0,W,H);
+
+  // --- configured environment: the box, then the facility discs ---------------
+  ctx.fillStyle = css('--panel-2');
+  ctx.fillRect(sx(-B), sy(B), sr(2*B), sr(2*B));
+  ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+  ctx.strokeRect(sx(-B), sy(B), sr(2*B), sr(2*B));
+
+  ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
+  for(let g=-B; g<=B; g+=B/2){
+    ctx.beginPath(); ctx.moveTo(sx(g), sy(B)); ctx.lineTo(sx(g), sy(-B)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx(-B), sy(g)); ctx.lineTo(sx(B), sy(g)); ctx.stroke();
+  }
+
+  (dep.facilities||[]).forEach(f => {
+    const R = sr(Math.max(dep.dwellRadiusM*6, B*0.13));
+    const g = ctx.createRadialGradient(sx(f[0]), sy(f[1]), 0, sx(f[0]), sy(f[1]), R);
+    g.addColorStop(0, css('--accent') + '2E');
+    g.addColorStop(1, css('--accent') + '00');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(sx(f[0]), sy(f[1]), R, 0, 6.284); ctx.fill();
+    ctx.strokeStyle = css('--line');
+    ctx.setLineDash([3,4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(sx(f[0]), sy(f[1]), R, 0, 6.284); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // --- active-tier range ring around the tag --------------------------------
+  const rr = sr(TIER_RANGE[c.tier]);
+  ctx.strokeStyle = css(TIER_VARS[c.tier]) + '66';
+  ctx.setLineDash([5,5]); ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), rr, 0, 6.284); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // --- packet lines ----------------------------------------------------------
+  ctx.lineWidth = 1.3;
+  (c.ev||[]).forEach(e => {
+    const a = anchorPos[e[0]], b = anchorPos[e[1]];
+    const p1 = a ? {x:a.x, y:a.y} : {x:c.tx, y:c.ty};
+    const p2 = b ? {x:b.x, y:b.y} : {x:c.tx, y:c.ty};
+    ctx.strokeStyle = css(OUT_VARS[e[3]]) + (e[3]===2 ? 'CC' : '77');
+    ctx.beginPath(); ctx.moveTo(sx(p1.x), sy(p1.y)); ctx.lineTo(sx(p2.x), sy(p2.y)); ctx.stroke();
+  });
+
+  // --- anchors ---------------------------------------------------------------
+  [0,1,2].forEach(t => {
+    ctx.fillStyle = css(TIER_VARS[t]);
+    (dep.anchors[t]||[]).forEach(a => {
+      const on = (t === c.tier);
+      ctx.globalAlpha = on ? 1 : 0.34;
+      const R = t===0 ? 5.5 : (t===1 ? 4.2 : 3.4);
+      ctx.beginPath(); ctx.arc(sx(a.x), sy(a.y), R, 0, 6.284); ctx.fill();
+      if(on){
+        ctx.globalAlpha = 0.28;
+        ctx.beginPath(); ctx.arc(sx(a.x), sy(a.y), R+4, 0, 6.284); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    });
+  });
+
+  // --- estimate + uncertainty, then true position ----------------------------
+  const sigR = sr(Math.sqrt(Math.max(c.sig,0)));
+  ctx.strokeStyle = css('--ink-2') + '99';
+  ctx.setLineDash([4,4]); ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.arc(sx(c.ex), sy(c.ey), Math.max(sigR,3), 0, 6.284); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = css('--ink-2');
+  ctx.beginPath(); ctx.moveTo(sx(c.ex), sy(c.ey)); ctx.lineTo(sx(c.tx), sy(c.ty)); ctx.stroke();
+
+  ctx.fillStyle = css('--ink');
+  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), 6, 0, 6.284); ctx.fill();
+  ctx.fillStyle = css('--bg');
+  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), 2.4, 0, 6.284); ctx.fill();
+
+  // --- labels ---------------------------------------------------------------
+  ctx.font = '500 12px "IBM Plex Mono", monospace';
+  ctx.fillStyle = css('--ink-3');
+  ctx.fillText(`${ENV[dep.envWide]||'env '+dep.envWide} · wide area`, PAD, 20);
+  ctx.textAlign = 'right';
+  ctx.fillText(`facility sites: ${ENV[dep.envFacility]||'env '+dep.envFacility}`, W - PAD, 20);
+  ctx.textAlign = 'left';
+
+  paintRail(c);
+  paintSpark();
+}
+
+let cumEsc = 0, cumDes = 0, cumSus = 0;
+function recount(upto){
+  cumEsc = cumDes = cumSus = 0;
+  for(let i=0;i<=upto;i++){ cumEsc += cyc[i].esc; cumDes += cyc[i].des; cumSus += cyc[i].sus; }
+}
+
+function paintRail(c){
+  [0,1,2].forEach(t => {
+    const el = document.getElementById('tb'+t);
+    el.classList.toggle('on', t === c.tier);
+    el.style.background = (t === c.tier) ? css(TIER_VARS[t]) : '';
+  });
+  const S = (id,v) => document.getElementById(id).textContent = v;
+  S('fix', c.fix ? (['868 MHz','2.4 GHz','UWB'][c.fixTier] || 'yes') : 'no fix');
+  S('esc', cumEsc); S('des', cumDes); S('sus', cumSus);
+  S('err', c.fix ? c.err.toFixed(1) : '—');
+  S('sig', Math.sqrt(Math.max(c.sig,0)).toFixed(1) + ' m');
+  S('pcs', c.pcs.toFixed(3));
+  S('na', c.na); S('nlos', c.nlos);
+  S('ed', c.ec[0]); S('ec', c.ec[1]); S('ex', c.ec[2]);
+  [0,1,2].forEach(t => { S('nb'+t, c.nb[t]); S('vs'+t, c.vis[t]); });
+  S('j', c.j.toFixed(2));
+  document.getElementById('clock').textContent = `t = ${c.t.toFixed(1)} s`;
+  document.getElementById('scrub').value = idx;
+}
+
+function paintSpark(){
+  const W = spark.width, H = spark.height;
+  sctx.clearRect(0,0,W,H);
+  const maxJ = cyc[cyc.length-1].j || 1;
+  sctx.strokeStyle = css('--line'); sctx.lineWidth = 1;
+  sctx.beginPath(); sctx.moveTo(0,H-1); sctx.lineTo(W,H-1); sctx.stroke();
+  sctx.beginPath();
+  cyc.forEach((c,i) => {
+    const x = i/(cyc.length-1)*W, y = H - (c.j/maxJ)*(H-8) - 2;
+    i ? sctx.lineTo(x,y) : sctx.moveTo(x,y);
+  });
+  sctx.strokeStyle = css('--accent'); sctx.lineWidth = 1.8; sctx.stroke();
+  sctx.lineTo(W,H); sctx.lineTo(0,H); sctx.closePath();
+  sctx.fillStyle = css('--accent') + '22'; sctx.fill();
+  const x = idx/(cyc.length-1)*W, y = H - (cyc[idx].j/maxJ)*(H-8) - 2;
+  sctx.fillStyle = css('--accent');
+  sctx.beginPath(); sctx.arc(x,y,3.2,0,6.284); sctx.fill();
+}
+
+function tick(now){
+  const dtms = now - last; last = now;
+  if(playing){
+    acc += dtms * speed / 1000;
+    while(acc >= D.dt){
+      acc -= D.dt;
+      idx = (idx + 1) % cyc.length;
+      if(idx === 0) recount(0); else { cumEsc+=cyc[idx].esc; cumDes+=cyc[idx].des; cumSus+=cyc[idx].sus; }
+    }
+    draw();
+  }
+  requestAnimationFrame(tick);
+}
+
+const scrub = document.getElementById('scrub');
+scrub.max = cyc.length - 1;
+scrub.addEventListener('input', () => { idx = +scrub.value; recount(idx); draw(); });
+
+const playBtn = document.getElementById('play');
+playBtn.addEventListener('click', () => {
+  playing = !playing;
+  playBtn.textContent = playing ? 'Pause' : 'Play';
+});
+
+document.querySelectorAll('.speed button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.speed button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); speed = +b.dataset.sp;
+  });
+});
+
+recount(0);
+draw();
+requestAnimationFrame(tick);
+</script>

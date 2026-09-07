@@ -2109,6 +2109,7 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nTags,
        bool relayedRanging,
        uint32_t relayTier,
+       bool vizEventsOn,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2382,6 +2383,27 @@ RunArm(CaTblPolicyMode mode,
     // instead of 8.0 ms, a factor of 6.4 straight into the duty-cycle governor and
     // the collision overlap test.
     CaTblChannel chan[CA_TBL_TIER_COUNT];
+
+    // Per-frame event log for the visualiser. Opened only when asked for, and the
+    // channel treats it as write-only, so with the flag off no stream exists, nothing
+    // is written and no branch differs. It records the SAME events the aggregate
+    // counters already count -- itemised, so an animation can show them one at a time
+    // rather than as a total.
+    std::ofstream vizEvents;
+    if (vizEventsOn)
+    {
+        std::ostringstream vfn;
+        vfn << traceDir << "/events_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        vizEvents.open(vfn.str().c_str());
+        if (vizEvents.is_open())
+        {
+            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm\n";
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                chan[ti].SetEventLog(&vizEvents);
+            }
+        }
+    }
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
     std::map<uint16_t, Vector> anchorPosById;
@@ -4214,6 +4236,7 @@ main(int argc, char* argv[])
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
     uint32_t relayTierArg = 1;
+    bool vizEventsArg = false;
     uint32_t sitingModeArg = 0;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
@@ -4543,6 +4566,17 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("vizEvents",
+                 "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
+                 "deployment geometry (deployment.json), for the trace-driven "
+                 "visualiser. FALSE by default. These are OUTPUTS ONLY -- the channel "
+                 "writes to the stream and never reads it, and nothing in the "
+                 "simulation reads either file back, so this cannot change a result. "
+                 "It records the same events the aggregate counters already count, "
+                 "itemised, so an animation can show them one at a time. Costs disk "
+                 "and a little I/O; it is off by default because a 3600 s six-arm run "
+                 "writes a lot of frames.",
+                 vizEventsArg);
     cmd.AddValue("sitingMode",
                  "Where tier-3 anchors go. 0 (default) CO-LOCATES them with tier 2 at "
                  "the four facility sites, which is the siting every existing result "
@@ -4839,6 +4873,42 @@ main(int argc, char* argv[])
                                            t2AnchorsPerSite,
                                            sitingModeArg);
 
+    if (vizEventsArg)
+    {
+        // Geometry the animation needs and the trace does not carry. Written once, in
+        // main, because the deployment is identical for every arm -- writing it per arm
+        // would invite someone to believe otherwise.
+        std::ofstream dj((outdir + "/deployment.json").c_str());
+        if (dj.is_open())
+        {
+            dj << "{\n";
+            dj << "  \"boxHalfM\": " << boxHalfM << ",\n";
+            dj << "  \"dwellRadiusM\": " << dep.dwellRadiusM << ",\n";
+            dj << "  \"envWide\": " << static_cast<int>(env) << ",\n";
+            dj << "  \"envFacility\": " << static_cast<int>(envFacility) << ",\n";
+            dj << "  \"facilities\": [";
+            for (size_t i = 0; i < dep.facilities.size(); ++i)
+            {
+                dj << (i ? ", " : "") << "[" << dep.facilities[i].x << ", "
+                   << dep.facilities[i].y << "]";
+            }
+            dj << "],\n";
+            dj << "  \"anchors\": {\n";
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                dj << "    \"" << ti << "\": [";
+                for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+                {
+                    dj << (i ? ", " : "") << "{\"id\": " << dep.anchors[ti][i].id
+                       << ", \"x\": " << dep.anchors[ti][i].pos.x
+                       << ", \"y\": " << dep.anchors[ti][i].pos.y << "}";
+                }
+                dj << "]" << (ti + 1 < CA_TBL_TIER_COUNT ? "," : "") << "\n";
+            }
+            dj << "  }\n}\n";
+        }
+    }
+
     const CaTblPolicyMode allArms[] = {CA_TBL_MODE_STATIC_868,
                                        CA_TBL_MODE_STATIC_2P4,
                                        CA_TBL_MODE_STATIC_UWB,
@@ -5030,6 +5100,7 @@ main(int argc, char* argv[])
                                        nTagsArg,
                                        relayedRangingArg,
                                        relayTierArg,
+                                       vizEventsArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
