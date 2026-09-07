@@ -606,3 +606,121 @@ not, the honest resolution is to say tier 1 localises by RSSI inversion, bill it
 way, and correct `ch09 §9.3` — which is a documentation change, not an engineering one.
 The DIVERGENT row already says the code and the spec disagree here; this decides which
 one moves.
+
+---
+
+# Addendum — 2026-09-08 (second), the propagation session
+
+Takes precedence over anything above it that it contradicts.
+
+## K. The environment split, and what it does to everything above
+
+### K.1 Tiers 2 and 3 are simulated in a different environment from tier 1 — DEFECT
+
+Full write-up: `report/ENV_SPLIT_DEFECT.md`. In one paragraph: `envFacility` /
+`vegFacility` put 2.4 GHz and UWB in `ENV_RURAL_OPEN` + `VEG_SPARSE_SHRUBS` while tier 1
+sits in `ENV_RURAL_FORESTED` + `VEG_DENSE_FOREST`. The code says why at
+`ca_tbl_causal_sim.cc:1271-1274` — tiers 2/3 "range against anchors AT a facility site" —
+which was true of the three-population model and false since the tri-band correction put
+all three radios on the same nodes.
+
+**Effect, `boxHalf=2000` seed 7:** `static_2p4` mean neighbours 10.463 → 4.088, fix
+cycles 1437 → 863, rmse 2.28 m → 271.96 m; `static_868` moves 0.2%. At the default,
+**2.4 GHz out-ranges 868 MHz** against ~27 dB of link budget in tier 1's favour
+(17 dB sensitivity + 8.8 dB path loss + 1.5 dB transmit power).
+
+**Why it outranks I.6.** I.6 says the tree is provisional because the *geometry* moved.
+This says the *link budget* moved, by tens of decibels, on two of the three tiers. A
+geometry change moves which anchors are in range; this changes what "in range" means.
+
+*Status:* measured over 20 paired seeds in cell `k1e_split1000`. Default change written
+and null-controlled — see K.2.
+
+### K.2 The default is changed; the old configuration stays reachable
+
+`envFacility` and `vegFacility` now default to a sentinel meaning **follow the wide-area
+setting**, and an explicit value still wins. `--envFacility=0 --vegFacility=1` reproduces
+a pre-2026-09-08 run byte-for-byte, which is the null control.
+
+**This changes the physics default, so no result in the tree reproduces under it.** They
+were already provisional under I.6; this is the second and larger reason, and the two
+compound rather than overlap.
+
+*Order of re-running, and it is not the order of the register:*
+1. The **integrity-check result** (`report/INTEGRITY_CHECK_RESULTS.md`) — 8/8 seeds on
+   energy, 7/8 on accuracy, the strongest finding in the repository. It is a comparison
+   *within* tier-2 behaviour and its sign could move.
+2. The **PCS forms** campaign, because `gated` was adopted on its evidence.
+3. Everything else, per I.6.
+
+### K.3 `RULES.md` §6 states an invariant the code does not hold
+
+§6 says "exactly one tier transmits per cycle, and only that tier is charged". The
+**tier-1 floor** breaks the literal statement: when the active tier is 2.4 GHz or UWB and
+`FloorRangingWanted()` says yes, `rangeTier(CA_TBL_TIER_868)` runs in the *same* cycle and
+`AccountRangingExchange` charges it. Two tiers transmit; both are charged.
+
+The invariant's **purpose** survives — an arm that never escalates still accrues zero on
+the tiers it never used, because `runFloor` is false when the active tier is 868 — and
+that is the part the energy axis actually needs. But the statement as written misleads in
+a specific, checkable way: a reader concludes tier-1 energy is proportional to
+`cycles_868`. It is not, and the arithmetic is exact rather than approximate.
+
+`baseline_v8`, one 868 MHz exchange costs `12.098212 / 1440 = 8.4015 mJ` from
+`static_868`, where every cycle is an 868 cycle. Dividing each arm's `tx_868` by that
+gives the number of 868 transmissions, against `cycles_868`, the cycles where 868 was the
+**active** tier:
+
+| arm | `cycles_868` | 868 transmissions | floor cycles | of non-868 cycles |
+|---|---|---|---|---|
+| `static_868` | 1440 | 1440 | 0 | — |
+| `ca_tbl_no_integrity` | 1355 | 1435 | 80 | 80/85 = 94.1% |
+| `fixed_threshold` | 541 | 1391 | 850 | 850/899 = 94.6% |
+| `ca_tbl_full` | 334 | 1380 | 1046 | 1046/1106 = 94.6% |
+
+**868 MHz transmits on ~96% of every arm's cycles no matter which tier is active.** So
+tier-1 energy is very nearly a constant across arms — 13.19 J of `ca_tbl_full`'s 26.66 J,
+49.5% — and escalation *adds* tier-2/3 energy on top rather than substituting for tier 1.
+The code says as much at `:3614` ("runFloor is true on 99.9% of cycles"); §6 does not, and
+§6 is the document a reviewer is told to check first.
+
+This is also why `--floorOnDemand` is the single largest energy lever in the codebase, and
+why K1's P3 is worth measuring: it turns that ~96% into "only when the active tier failed
+to solve".
+
+*Fix:* restate §6 to separate the invariant that holds — the per-cycle loop owns every
+transmission, and a tier that did not transmit is not charged — from the sentence that
+does not. *Cost:* a documentation change. *Risk of leaving it:* a reader reasons about
+the energy axis from a false premise, which is the exact failure mode §6 exists to prevent.
+
+### K.4 Gateways as edge servers — built, and it can only cost energy
+
+The brief puts the EKF fusion on the gateway. `--gatewayEdgeServer` (default off) now
+charges the field node for the downlink that returns the answer, which is what the
+previous "changes where computation happens, not what is computed" note left out.
+
+**It does not make the ranging network-side, and that is physics rather than scope.**
+Tiers 2 and 3 range by two-way time-of-flight *precisely because* the endpoints share no
+clock. One-way anchor-side timestamping — where the saving would be, since UWB is 99.7%
+receive energy — needs the synchronisation J.2 records as ABSENT, and J.2 records that
+the sync row is marked "not needed, because there is no TDoA", which is circular with the
+TDoA row. Building it here would be assuming that layer into existence.
+
+So the honest shape of the brief's split under this model is **a cost, not a saving**.
+That is a finding about what this simulation can price, not a criticism of the brief: the
+split buys things this simulation does not measure — a gateway that fuses across
+subjects, and a field node carrying no filter state at all.
+
+### K.5 What the K1 campaign does not settle
+
+- **P3 is a joint effect.** `gated` PCS and floor-on-demand move together; the cell that
+  would separate them was dropped for compute. Recorded in Amendment 1 §A1.4.
+- **Tier 3 is barely exercised.** Even with four converging finders the smoke run showed
+  `meanNbr_uwb` at 0.03 and no UWB fix cycles. H.1 says tier 3 is reached on ~2.5% of
+  cycles; under the corrected propagation it may be less. **A three-tier claim resting on
+  a tier that fires this rarely is not yet a three-tier claim.**
+- **One duration, one mobility model, one fault model.** Every cell is 3600 s of the same
+  waypoint walk.
+- **The environment is now uniformly `RURAL_FORESTED`.** That is one scenario. The
+  correction makes the tiers consistent with each other; it does not make the forest the
+  right forest.
