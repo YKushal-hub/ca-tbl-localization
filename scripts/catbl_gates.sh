@@ -174,8 +174,23 @@ G6_MISMATCH=0
 # the tracked evidence lives at results/<x>_v7 while the fresh run writes to
 # $WORK/<x>. Deriving one from the other made the gate compare a real file against a
 # path that never existed, and report a disagreement where there was none.
-for spec in "causal_v7/arm_summary.csv:causal/arm_summary.csv" \
-            "det_a_v7/arm_summary.csv:det_a/arm_summary.csv"; do
+# REPOINTED 2026-09-08 to the post-topology generation, which is this gate's own
+# documented remedy applied a second time. The 2026-09-07 correction changed the
+# DEPLOYMENT -- one population of tri-band nodes instead of three disjoint anchor
+# populations -- so results/{causal,det_a}_v7 were produced by a geometry the scenario
+# no longer builds and disagreed with every fresh run, permanently and correctly.
+#
+# Nothing was overwritten to make this gate green: causal_v7 and det_a_v7 are still
+# tracked, still cited, and still describe what those runs produced. causal_v8 and
+# det_a_v8 are NEW paths, generated at exactly the flags G3 and G2 use so the
+# comparison is like for like, on a clean tree at 233f98a with dirty 0.
+#
+# They are the v8 generation, same as baseline_v8, at DIFFERENT flags: baseline_v8
+# carries --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy and is
+# the null-control reference, while these two are pure defaults and are the evidence
+# this gate compares against. Do not substitute one for the other.
+for spec in "causal_v8/arm_summary.csv:causal/arm_summary.csv" \
+            "det_a_v8/arm_summary.csv:det_a/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
