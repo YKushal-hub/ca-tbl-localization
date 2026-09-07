@@ -3877,6 +3877,20 @@ RunArm(CaTblPolicyMode mode,
         // ordering falls out of the policy's own premise.
         std::vector<CaTblRangeMeasurement> activeMeas;
         std::vector<CaTblRangeMeasurement> floorMeas;
+        // RESET BEFORE THE FIRST CONTRIBUTOR, not between two of them.
+        //
+        // This accumulator has two sources: the pseudo-anchor substitution inside
+        // rangeTier(), and the C5 relayed exchange below. It used to be cleared
+        // between them -- after the ranging calls and before the relay block -- which
+        // was correct while C5 was the only contributor and silently wrong once
+        // 937a55a added the first. Every substitution's variance was zeroed before
+        // policy.SetRelayedVarFraction() could read it, so the share was always 0.00
+        // and the hop-provenance term had no input no matter how often it fired.
+        //
+        // MEASURED: 1513 substitutions in a 240-cycle run, and identical output with
+        // --hopProvenanceForm 0 and 1. A mechanism that cannot change its own output
+        // is not enabled, whatever its flag says.
+        relayedVarThisCycle = 0.0;
 
         if (pendingHandshake && arbitrateDutyBudget)
         {
@@ -3986,7 +4000,6 @@ RunArm(CaTblPolicyMode mode,
         // Both conditions are checked rather than assumed, and the A1 rejection is
         // still counted when relayTier is forced to 0, because a condition that is
         // never exercised is not evidence of anything.
-        relayedVarThisCycle = 0.0;
         if (relayedRanging && !usedFloor)
         {
             const CaTblTier rt = static_cast<CaTblTier>(
@@ -4783,7 +4796,18 @@ RunArm(CaTblPolicyMode mode,
                           << " s";
             }
             std::cout << "\n    TABLE(reverse): " << pseudoAnchorSubs
-                      << " pseudo-anchor substitutions\n";
+                      << " pseudo-anchor substitutions";
+            // The provenance term's actual input, reported where the substitution is
+            // reported. The C5 block below prints the same quantity but only when
+            // --relayedRanging is on, and the pseudo-anchor path feeds the accumulator
+            // without it -- so the share was being computed and never shown.
+            if (relayedFracN > 0)
+            {
+                std::cout << ", relayed variance share "
+                          << (relayedFracSum / static_cast<double>(relayedFracN))
+                          << " over " << relayedFracN << " cycles";
+            }
+            std::cout << "\n";
         }
     }
 
