@@ -69,7 +69,7 @@ Availability  A ≥ 0.95   at   Accuracy  R ≤ 25 m
 | - | ------------------ | -------------- | ------------------------------------------ | ------------------ | ---------- |
 | 1 | 868 MHz sub-GHz    | SX1262-class   | Wide-area coverage floor; always reachable | **1515.3 m** | `[E-01]` |
 | 2 | 2.4 GHz ISM        | SX1280-class   | Mid-range refinement, two-way ToF          | **1149.5 m**  | `[E-01]` |
-| 3 | UWB Ch9 (7.99 GHz) | DW3000-class   | Short-range precision, TWR                 | **12.8 m**   | `[E-01]` |
+| 3 | UWB Ch9 (7.99 GHz) | DW3000-class   | Short-range precision, TWR. At this range a *fixed* gateway offers tier 3 only to something beside it — a **finder** is what carries it to the casualty (§3.3) | **12.8 m**   | `[E-01]` |
 
 > **r80** = distance at which 80 % of packets are still received, from the built-in probe sweep. Limitation stated at `[E-02]`.
 
@@ -97,19 +97,19 @@ flowchart TB
         POL -->|"active tier for next cycle"| MAC
     end
 
-    subgraph INF["DEPLOYED INFRASTRUCTURE"]
-        GW["Tier-1 gateways<br/>gwGrid x gwGrid array"]
-        F1["Facility site 1<br/>3x tier-2 @150 m<br/>5x tier-3 @10 m"]
-        F2["Facility site 2"]
-        F3["Facility site 3"]
-        F4["Facility site 4"]
+    subgraph INF["THE OTHER NODES — each carries ALL THREE radios"]
+        GW["GATEWAYS · immobile<br/>gwGrid x gwGrid array<br/>868 + 2.4 GHz + UWB on ONE node<br/>10% duty cap"]
+        FD["FINDERS · mobile<br/>--nFinders, converge on the ESTIMATE<br/>868 + 2.4 GHz + UWB on ONE node<br/>2.5% duty cap"]
+        FAC["Facility sites x4<br/>MOBILITY TARGETS ONLY<br/>no anchors sited here"]
     end
 
-    R1 -.->|"868 MHz link"| GW
-    R2 -.->|"2.4 GHz link"| F1
-    R3 -.->|"UWB link"| F1
-    R2 -.-> F2
-    R3 -.-> F2
+    R1 -.->|"868 MHz"| GW
+    R2 -.->|"2.4 GHz"| GW
+    R3 -.->|"UWB · only if standing beside it"| GW
+    R1 -.-> FD
+    R2 -.-> FD
+    R3 -.->|"UWB · the finder carries tier 3 to the casualty"| FD
+    POL -.->|"dwells at"| FAC
 
     NRG --> OUT["arm_summary.csv"]
     POL --> TR["trace_arm_seedN.csv"]
@@ -135,31 +135,119 @@ flowchart TB
 
 ## 3. Deployment geometry
 
-### 3.1 Placement rules
+> **Corrected 2026-09-07 (`99fdf1a`).** This section previously specified three
+> *disjoint* anchor populations, one per tier, in different places. That was wrong, and
+> the code implemented the wrong thing because this document specified it. The system has
+> **one population of tri-band nodes**; a tier is a choice of **which radio to use**, not
+> of **whom to talk to**. The superseded text is preserved in §3.5 as the legacy model,
+> because results published before that date were produced under it.
 
-- **Tier-1 gateways** — `gwGrid × gwGrid` regular array spanning ±0.9 × `boxHalf`. Reference: 5 × 5 = 25.
-- **Facility sites** — 4, at (±0.47·`boxHalf`, ±0.47·`boxHalf`).
-- **Tier-2 anchors** — 3 per site, ring radius **150 m**.
-- **Tier-3 anchors** — 5 per site, ring radius **10 m**.
+### 3.1 Node classes
 
-### 3.2 Two deliberate design decisions
+There are three classes, and they differ in **mobility and role only**. Every node in
+every class carries **all three radios** — 868 MHz, 2.4 GHz and UWB.
 
-| Decision                                                      | Rationale                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tier-2 and tier-3 co-located** at the same four sites | Experimental control. If the precision tiers covered different places, an escalation failure could be a*siting* artefact rather than a *decision* error. Co-location makes escalation failures unambiguously attributable to the policy. |
-| **Triad radii absolute, not scaled** with `boxHalf`   | Local anchor density stays invariant as the deployment scales, so results across box sizes lie on one comparable axis.                                                                                                                       |
+| Class | Mobile? | ids | Role | Duty cap `[R-04]` |
+| --- | --- | --- | --- | --- |
+| **Gateway** | no — the only immobile class | `101+` | Fixed infrastructure. Beacons on all three tiers. | 10 % (access point) |
+| **Finder** | yes | `501+` | A searcher carrying a radio. Registered on all three tiers exactly like a gateway; the *only* difference is that its position changes. | 2.5 % (field device) |
+| **Field node** | yes | lost node `1`, peer/relay tags `2+` | The subject being localised. Runs the filter, makes the tier decision. | 2.5 % (field device) |
 
-- Verified: `gwGrid` has **zero** effect on tier-2 coverage — identical to six decimal places across all `gwGrid` values at every `boxHalf`. It moves tier-1 gateways only. `[E-03]`
+- A finder needs **no special case** anywhere in the ranging, energy or MAC path — which
+  is why it is modelled as a mobile gateway rather than as a new kind of thing. It
+  therefore cannot accidentally receive accounting a gateway would not.
+- Finder mobility is a **modelling choice not fixed by the project brief**, and the
+  strongest assumption in the corrected system. It is recorded, with what it was chosen
+  over, in `docs/DESIGN_DECISIONS.md` §1.
 
-### 3.3 The dimensionless scaling axis
+### 3.2 Placement rules
 
-- **Axis:** `spacing / r80`, where `spacing = 0.47 × boxHalf` and `r80 = 1149.5 m` (tier 2, measured after the six-decibel sensitivity-table correction; the pre-correction value was 909.5 m and every figure derived from it was regenerated).
-- **Why dimensionless:** a result stated as "needed above `boxHalf` = 2200 m" is a fact about this simulator. A result stated as "needed above `spacing/r80` ≈ 1.0" transfers to any radio pair with a known r80.
+- **Gateways** — `gwGrid × gwGrid` regular array spanning ±0.9 × `boxHalf`, at 15 m
+  height. Default `gwGrid = 3`, i.e. **9 gateways**. The same id and the same position
+  are registered in **all three** tier lists, so the setup loop builds one MAC per
+  (gateway, tier) on that tier's channel — three radios on one node.
+- **Finders** — `--nFinders`, default **0**. Start at the box centre; motion per
+  `--finderMode`.
+- **Facility sites** — 4, at (±0.47·`boxHalf`, ±0.47·`boxHalf`). They are **mobility
+  targets only** and host **no anchors**. The field node dwells at them; that is all they
+  do.
+
+> **`--uwbTriad`, `--t2Triad`, `--uwbAnchors`, `--t2Anchors` and `--sitingMode` have no
+> effect under the default topology.** They parameterise the legacy per-tier rings and are
+> read only when `--topology=1`.
+
+### 3.3 Why this is the mechanism, not a detail
+
+UWB reaches **tens of metres** (`r80` ≈ 12.8 m, §2.1). A *fixed* gateway can therefore
+offer tier 3 only to something already standing beside it.
+
+Measured under the corrected topology, seed 7, 600 s, `boxHalf` 1000, `ca_tbl_full`:
+
+| finders | UWB fixes | mean UWB neighbours | total energy |
+| --- | --- | --- | --- |
+| 0 | 0 | **0.01** | 109.0 J |
+| 4, touring (`--finderMode=0`) | 0 | 0.15 | 94.3 J |
+| 4, converging (`--finderMode=1`) | **21** | **0.78** | **51.0 J** |
+
+**Escalation to UWB is a statement about a searcher having arrived**, not about the
+casualty having wandered somewhere useful. Under the legacy model the lost node reached
+UWB by walking near a facility, which *manufactured* tier-3 coverage the architecture is
+supposed to earn — and in doing so it hid the mechanism the whole design rests on.
+
+### 3.4 Ground-truth visibility labels
+
+`vis868 / vis2p4 / visUwb` count anchors of each tier within a **nominal** radius of the
+node's **true** position. These are labels for the trigger confusion matrix, **not**
+reception gates — the engines decide reception.
+
+| tier | nominal radius | basis |
+| --- | --- | --- |
+| 868 MHz | 3000 m | r50, 64-site decorrelated probe |
+| 2.4 GHz | 900 m | r50, **censored** — the sweep ends at 900 m with PDR 0.804 and the tier has not fallen off. A lower bound. |
+| UWB | 30 m | r50 29.5 m |
+
+**These are r50, deliberately, and an earlier "correction" to r80 silently zeroed the
+entire trigger metric.** A fix needs three ranges out of N anchors, not one: at per-link
+p = 0.5 with N = 5, P(≥3 of 5) = 0.5, so r50 *is* the distance at which a fix becomes a
+coin flip — which is what "could this tier plausibly have solved here" means. A label
+radius must also never equal the anchor ring radius it labels; setting both to 10.0 m made
+the label unsatisfiable and `visUwb` identically zero on every arm.
+
+### 3.5 The legacy model (`--topology=1`)
+
+Three disjoint anchor populations: tier-1 gateways on the grid, **tier-2 anchors 3 per
+facility site on a 150 m ring**, **tier-3 anchors 5 per site on a 10 m ring**, with
+`--sitingMode` choosing whether tier 3 co-located with tier 2 or sat in the gaps between
+the tier-2 clusters at the same radius.
+
+**Retained only so results published before 2026-09-07 remain reproducible. It does not
+describe the system and is not a configuration to run for new work.**
+
+`--topology=0` and `--topology=1` are **different deployments**. They do not share a
+baseline, no null control relates them, and `baseline_v7` does not reproduce under the
+corrected topology — it is not supposed to. Switching this flag is a change of *scenario*,
+not of *configuration*.
+
+### 3.6 The dimensionless scaling axis
+
+- **Axis:** `spacing / r80`, where `spacing = 0.47 × boxHalf` and `r80 = 1149.5 m` (tier
+  2, measured after the six-decibel sensitivity-table correction; the pre-correction value
+  was 909.5 m and every figure derived from it was regenerated).
+- **Why dimensionless:** a result stated as "needed above `boxHalf` = 2200 m" is a fact
+  about this simulator. A result stated as "needed above `spacing/r80` ≈ 1.0" transfers to
+  any radio pair with a known r80.
 
 | `boxHalf` (m)             | 1500           | 2000           | 2500           | 3000           | 4000           | 5000           | 6000           |
 | --------------------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- | -------------- |
 | site spacing (m)            | 705            | 940            | 1175           | 1410           | 1880           | 2350           | 2820           |
 | **`spacing / r80`** | **0.78** | **1.03** | **1.29** | **1.55** | **2.07** | **2.58** | **3.10** |
+
+> **Scope, under the corrected topology.** `spacing` is the *facility* spacing, and
+> facilities no longer host anchors — so this axis now describes the **mobility** scale
+> (how far the node walks between dwell points) rather than the tier-2 *anchor* spacing it
+> was constructed to describe. The gateway pitch is `0.9 × boxHalf × 2/(gwGrid−1)`, which
+> is the quantity a tier-2 coverage argument now needs. Every published figure on this
+> axis predates the correction; see §12.
 
 ---
 
@@ -604,7 +692,7 @@ Two conditions, checked **before** an escalation to tier 3 is permitted:
 
 1. **Quality** — `√traceSigma ≤ 0.25 × predictRadius` (20 m).
    *If the node does not know where it is, it cannot predict whether tier 3 will reach.*
-2. **Coverage** — ≥ 3 tier-3 anchors within `predictRadius` of the estimated position.
+2. **Coverage** — ≥ 3 UWB-capable nodes within `predictRadius` of the estimated position. Under the corrected topology those are gateways and finders (§3.1), not a dedicated tier-3 anchor population.
 
 Properties:
 
@@ -745,7 +833,7 @@ flowchart BT
 | ---- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | E-01 | r80 per tier; probe monotonicity                               | `probe_range_sweep.csv`, `--probe=true` sweep                                                           |
 | E-02 | Probe node velocity is structurally zero; consequences bounded | Code trace:`RunProbe` never calls `Simulator::Run()`; `UpdateNodePosition` reads `Simulator::Now()` |
-| E-03 | `gwGrid` does not affect tier-2 coverage                     | Geometry sweep, identical to 6 d.p. across all`gwGrid` at every `boxHalf`                               |
+| E-03 | `gwGrid` does not affect tier-2 coverage — **LEGACY TOPOLOGY ONLY, no longer true**   | Geometry sweep, identical to 6 d.p. across all`gwGrid` at every `boxHalf`. Held because tier-2 anchors were ringed at facilities and `gwGrid` moved only tier-1 gateways. Under `--topology=0` every gateway carries all three radios, so `gwGrid` sets tier-2 **and** tier-3 anchor count directly. |
 | E-04 | Cited-vs-ours parameter discipline                             | Source comments in`ca-tbl-policy.cc`; parameter provenance table                                          |
 | E-05 | Message taxonomy validator 38/38                               | S4 header validator                                                                                         |
 | E-06 | 200 k TX / 40 k collisions / 14 564 captures                   | Reference run MAC statistics                                                                                |
