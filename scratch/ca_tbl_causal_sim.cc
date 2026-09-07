@@ -2147,6 +2147,7 @@ RunArm(CaTblPolicyMode mode,
        bool vizEventsOn,
        uint32_t nFinders,
        uint32_t finderMode,
+       double finderDigestPeriodS,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2714,6 +2715,7 @@ RunArm(CaTblPolicyMode mode,
     std::deque<Tourist> finderWalkers;
     std::vector<uint32_t> finderIds;
     std::vector<Vector> finderPos;
+    std::vector<CaTblMac*> finderMac; // tier-0 MAC per finder, for its table
     for (uint32_t fi = 0; fi < nFinders; ++fi)
     {
         const uint32_t fid = 501 + fi;
@@ -2750,6 +2752,10 @@ RunArm(CaTblPolicyMode mode,
             fm->Configure(fc);
             fm->SetRng(macRng);
             chan[ti].Register(fm);
+            if (ti == 0)
+            {
+                finderMac.push_back(fm);
+            }
 
             BeaconDriver fb;
             fb.mac = fm;
@@ -2989,6 +2995,45 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // A searcher polls for entries. Broadcast, because a finder looking for a
+        // casualty does not yet know which id it is looking for -- that is the whole
+        // problem -- and the responder replies with its own entry regardless of who
+        // asked. Charged like any other frame: this is airtime the dissemination costs,
+        // and it should show up against the energy the finders save.
+        if (finderDigestPeriodS > 0.0 && sendHandshakeFrames)
+        {
+            for (size_t fi = 0; fi < finderMac.size(); ++fi)
+            {
+                if (finderMac[fi] == nullptr)
+                {
+                    continue;
+                }
+                const double phase = static_cast<double>(fi) * 3.0; // stagger
+                const double prev = t - dt;
+                const double a = std::floor((prev - phase) / finderDigestPeriodS);
+                const double b = std::floor((t - phase) / finderDigestPeriodS);
+                if (b > a && t >= phase)
+                {
+                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                }
+            }
+        }
+
+        // PUBLISH. The lost node puts its current estimate and its own uncertainty
+        // into its table, which is what an ENTRY_PUSH then carries to anyone who asks.
+        // Published on every tier's MAC because any of them may be the one that gets
+        // the airtime, and a node that only advertised on the tier it happens to be
+        // using would go silent exactly when it escalated.
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            if (nodeMac[ti] != nullptr)
+            {
+                nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(),
+                                              policy.Pxx(), policy.Pyy(), policy.Pxy(),
+                                              0.0, 0.0, t);
+            }
+        }
+
         // Finders move. Their position is pushed to the engines (which key correlation
         // and mobility state on node id), to the provider (which computes the link) and
         // to anchorPosById (which the ranging poll reads for the far-end position). All
@@ -3002,7 +3047,33 @@ RunArm(CaTblPolicyMode mode,
                 // Stand off once inside standoff metres rather than walking onto the
                 // casualty, so the finder stays put and keeps the short-range link up
                 // instead of oscillating across the estimate every cycle.
-                const double gx = policy.EstX(), gy = policy.EstY();
+                // What this finder was TOLD, over the air. If the casualty's
+                // entry has not reached it, it has nowhere to go and holds position:
+                // that is the honest behaviour, and it makes dissemination failure
+                // visible as searchers standing still rather than as a silent success.
+                double gx = 0.0, gy = 0.0;
+                bool known = false;
+                if (fi < finderMac.size() && finderMac[fi] != nullptr)
+                {
+                    CaTblTableEntry te;
+                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+                    {
+                        gx = te.x;
+                        gy = te.y;
+                        known = true;
+                    }
+                }
+                if (!known)
+                {
+                    finderPos[fi] = finderPos[fi];
+                    fp = finderPos[fi];
+                    engine868.UpdateNodePosition(finderIds[fi], fp);
+                    engine2p4.UpdateNodePosition(finderIds[fi], fp);
+                    engineUwb.UpdateNodePosition(finderIds[fi], fp);
+                    provider.SetAnchorPosition(static_cast<uint16_t>(finderIds[fi]), fp);
+                    anchorPosById[static_cast<uint16_t>(finderIds[fi])] = fp;
+                    continue;
+                }
                 Vector c = finderPos[fi];
                 const double dx = gx - c.x, dy = gy - c.y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
@@ -4172,6 +4243,39 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    if (nFinders > 0)
+    {
+        uint32_t knowing = 0;
+        double sumAge = 0.0, sumErr = 0.0;
+        for (size_t fi = 0; fi < finderMac.size(); ++fi)
+        {
+            CaTblTableEntry te;
+            if (finderMac[fi] != nullptr &&
+                finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+            {
+                ++knowing;
+                sumAge += (durationS - te.timestampS);
+                sumErr += std::sqrt((te.x - pos.x) * (te.x - pos.x) +
+                                    (te.y - pos.y) * (te.y - pos.y));
+            }
+        }
+        std::cout << "    TABLE: " << knowing << "/" << finderMac.size()
+                  << " finders hold the casualty entry";
+        if (knowing > 0)
+        {
+            std::cout << ", mean age " << std::fixed << std::setprecision(1)
+                      << (sumAge / knowing) << " s, mean error "
+                      << (sumErr / knowing) << " m vs truth";
+        }
+        std::cout << "\n";
+        uint64_t merges = 0;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            merges += macs[m].GetTableMerges();
+        }
+        std::cout << "    TABLE: " << merges << " entry merges network-wide\n";
+    }
+
     if (relayedRanging)
     {
         std::cout << "    C5 relayed measurements: admitted " << relayAdmitted
@@ -4404,6 +4508,7 @@ main(int argc, char* argv[])
     bool vizEventsArg = false;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
+    double finderDigestPeriodSArg = 30.0;
     uint32_t sitingModeArg = 0;
     uint32_t topologyArg = 0;
     double identityQueryPeriodSArg = 0.0;
@@ -4745,6 +4850,15 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("finderDigestPeriodS",
+                 "How often each finder broadcasts a digest asking for table entries, "
+                 "seconds. Default 30. This is what makes the casualty's position reach "
+                 "a searcher AT ALL: the responder side of the anti-entropy exchange has "
+                 "always replied to a digest with its own entry, but nothing ever asked, "
+                 "so nothing propagated. Set 0 to disable and watch the finders stand "
+                 "still, which is what they should do when nobody has told them anything. "
+                 "Requires --sendHandshakeFrames, since that is what gates the responder.",
+                 finderDigestPeriodSArg);
     cmd.AddValue("finderMode",
                  "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
                  "position ESTIMATE of the lost node, standing off 8 m once there. Not "
@@ -5305,6 +5419,7 @@ main(int argc, char* argv[])
                                        vizEventsArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       finderDigestPeriodSArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
