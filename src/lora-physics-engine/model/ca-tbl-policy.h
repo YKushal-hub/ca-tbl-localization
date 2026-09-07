@@ -600,9 +600,11 @@ class CaTblPolicy
      *                           this node's estimate given the measured range to them
      *  \param corroborable      neighbours against which that test could be run at all
      */
-    void SetCrossCheck(double imuDisplacementM, int32_t corroborating, int32_t corroborable)
+    void SetCrossCheck(double imuDisagreementM, double imuToleranceM,
+                       int32_t corroborating, int32_t corroborable)
     {
-        m_imuDispM = imuDisplacementM;
+        m_imuDispM = imuDisagreementM;
+        m_imuTolM = imuToleranceM;
         m_corrOk = corroborating;
         m_corrTotal = corroborable;
         m_crossCheckFresh = true;
@@ -759,6 +761,7 @@ class CaTblPolicy
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
     double m_imuDispM = 0.0;
+    double m_imuTolM = 0.0;
     int32_t m_corrOk = 0;
     int32_t m_corrTotal = 0;
     bool m_crossCheckFresh = false;

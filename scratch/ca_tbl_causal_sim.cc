@@ -80,6 +80,8 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/lora-shs-engine.h"
+#include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
 #include "ns3/ca-tbl-energy-model.h"
 #include "ns3/ca-tbl-header.h"
@@ -2103,6 +2105,88 @@ struct CaTblTagState
     uint64_t inCov = 0;
 };
 
+/**
+ * \brief Drives the SHS engine from a trajectory, by synthesising the gait an IMU sees.
+ *
+ * The engine samples at 100 Hz and expects trunk accelerations and yaw rate; the
+ * scenario knows only where the walker is once per cycle. This fills the gap the same
+ * way the engine's own example does -- a periodic bounce and anterior-posterior swing at
+ * a walking cadence, plus the centripetal term from turning.
+ *
+ * SIMPLIFICATIONS, and they are real: trunk lean during turns is not modelled (the
+ * example ramps it, this holds it at zero), and cadence is fixed rather than scaling
+ * with speed. Both make the synthetic gait cleaner than a real one, so step detection
+ * here is easier than in the field. Recorded in docs/DESIGN_DECISIONS.md.
+ */
+struct ShsDriver
+{
+    lorawan::ShsEngine* engine = nullptr;
+    double prevHeading = 0.0;
+    bool have = false;
+    double cadenceHz = 1.8;
+    double bounceAmp = 6.0;
+    double apAmp = 3.0;
+    bool seeded = false;
+
+    void Advance(double tStart, double dt, const Vector& from, const Vector& to)
+    {
+        if (engine == nullptr || dt <= 0.0)
+        {
+            return;
+        }
+        const double dx = to.x - from.x, dy = to.y - from.y;
+        const double disp = std::sqrt(dx * dx + dy * dy);
+        const double speed = disp / dt;
+        const double heading = (disp > 1e-6) ? std::atan2(dy, dx) : prevHeading;
+        // Seed on the first cycle with real motion: before that the node has no
+        // heading to state, and stating zero is a claim that it faces +x.
+        if (!seeded && disp > 1e-6)
+        {
+            engine->SetInitialState(from.x, from.y, heading);
+            seeded = true;
+            prevHeading = heading;
+        }
+        double omegaZ = 0.0;
+        if (have)
+        {
+            double d = heading - prevHeading;
+            while (d > M_PI) d -= 2.0 * M_PI;
+            while (d < -M_PI) d += 2.0 * M_PI;
+            omegaZ = d / dt;
+        }
+        prevHeading = heading;
+        have = true;
+
+        const double sampleDt = 1.0 / 100.0; // ImuSensorParams::sampleRateHz
+        // Cadence must carry the speed, or the engine integrates a distance
+        // proportional to elapsed time instead of to how far the node actually went.
+        // Nominal step length is the Weinberg model at this bounce amplitude and the
+        // engine's fallback k_w; the clamp is the step detector's own passband, so a
+        // speed the model cannot represent is under-counted rather than rescaled.
+        const double nominalStepM = 0.7 * std::pow(bounceAmp, 0.25);
+        const double wantCadence = (nominalStepM > 1e-6) ? (speed / nominalStepM) : 0.0;
+        const double effCadence = std::min(3.0, std::max(0.5, wantCadence));
+        const double gaitPeriod = 1.0 / effCadence;
+        const bool resting = (speed < 0.05) || (wantCadence < 0.5);
+        const int n = static_cast<int>(dt / sampleDt);
+        for (int k = 0; k < n; ++k)
+        {
+            const double t = tStart + k * sampleDt;
+            const double phase = std::fmod(t, gaitPeriod) / gaitPeriod;
+            double bounce = (phase < 0.4) ? bounceAmp * std::sin(M_PI * phase / 0.4) : 0.0;
+            double ap = apAmp * std::sin(2.0 * M_PI * phase);
+            if (resting)
+            {
+                bounce = 0.0;
+                ap = 0.0;
+            }
+            const double lateral = speed * omegaZ;
+            const double vertical = 9.80665 + bounce;
+            engine->Tick(t, sampleDt, ap, vertical, lateral, omegaZ, 0.0);
+        }
+    }
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -2149,8 +2233,9 @@ RunArm(CaTblPolicyMode mode,
        uint32_t finderMode,
        double finderDigestPeriodS,
        bool imuCrossCheck,
-       double imuScaleBias,
-       double imuNoiseM,
+       double imuDriftMps,
+       double imuConsistencyK,
+       double imuSigmaFloorM,
        bool corroborationCheck,
        double corroborationK,
        double corroborationRangeSigmaM,
@@ -2948,14 +3033,24 @@ RunArm(CaTblPolicyMode mode,
     // Independent-witness state for the switching-point integrity check.
     std::vector<std::pair<uint16_t, double>> rangedThisCycle;
     Vector prevTruePos = pos;
-    double imuDispThisCycle = 0.0;
-    double imuBias = 0.0;
-    Ptr<UniformRandomVariable> imuRng = CreateObject<UniformRandomVariable>();
-    // Own stream, set before first use, so the inertial model cannot shift a single
-    // draw the radio layer makes.
-    imuRng->SetStream(static_cast<int64_t>(seed) * 7919 + 1300021);
-    imuBias = imuScaleBias;
-    uint64_t ccImuRej = 0, ccCorrRej = 0;
+    double imuDisagreeM = 0.0;
+    double imuTolM = 0.0;
+    double lastTrustedFixS = 0.0;
+
+    // The real step-and-heading system from IMU_SHS_V1.1, not a scale-error stub.
+    lorawan::ShsEngineParams shsParams;
+    Ptr<NormalRandomVariable> shsRng = CreateObject<NormalRandomVariable>();
+    // Own stream, set before first use: the inertial sensor model must not shift a
+    // single draw the radio layer makes.
+    shsRng->SetStream(static_cast<int64_t>(seed) * 7919 + 1300021);
+    lorawan::ShsEngine shsEngine(shsParams, shsRng);
+    // Seeded with the true deployment state, which is what the engine's own
+    // documentation says removes the cold start: without it heading stays on a
+    // fallback until two fixes happen to bracket a straight walk.
+    // NOT seeded here: the deployment heading is not known until the node moves, and
+    // seeding zero would assert it faces +x. ShsDriver seeds on the first moving cycle.
+    ShsDriver shsDriver;
+    shsDriver.engine = &shsEngine;
 
     auto& pcsHist = TS0.pcsHist;
     auto& pcsDegradation = TS0.pcsDegradation;
@@ -3769,15 +3864,27 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
-        // WITNESS 1 -- the body. True displacement seen through a drifting sensor.
+        // WITNESS 1 -- the body, through a real step-and-heading system.
+        //
+        // The engine is ticked at its own 100 Hz sample rate across this cycle from the
+        // gait the walker's motion implies, then asked where it thinks the node is. The
+        // disagreement between that and the filter is the evidence.
+        //
+        // The tolerance grows with TIME SINCE THE LAST TRUSTED FIX, which is the SHS
+        // error model: heading drift and step-length error accumulate while the engine
+        // runs unaided, and a strapdown-style tolerance on distance walked would be the
+        // wrong shape entirely. The engine's own header refuses to be wired to a
+        // strapdown-derived check for exactly this reason.
         {
-            const double tdx = pos.x - prevTruePos.x, tdy = pos.y - prevTruePos.y;
-            const double trueDisp = std::sqrt(tdx * tdx + tdy * tdy);
-            const double noise = (imuNoiseM > 0.0)
-                                     ? imuRng->GetValue(-imuNoiseM, imuNoiseM)
-                                     : 0.0;
-            imuDispThisCycle = std::max(0.0, trueDisp * (1.0 + imuBias) + noise);
+            shsDriver.Advance(t - dt, dt, prevTruePos, pos);
             prevTruePos = pos;
+            const double sdx = shsEngine.GetX() - policy.EstX();
+            const double sdy = shsEngine.GetY() - policy.EstY();
+            imuDisagreeM = std::sqrt(sdx * sdx + sdy * sdy);
+            const double unaidedS = std::max(0.0, t - lastTrustedFixS);
+            imuTolM = imuConsistencyK *
+                      std::max(imuSigmaFloorM, std::sqrt(std::max(policy.Pxx() + policy.Pyy(), 0.0))) +
+                      imuDriftMps * unaidedS;
         }
 
         // WITNESS 2 -- the neighbours. Does the range actually measured to a node agree
@@ -3807,7 +3914,8 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
         }
-        policy.SetCrossCheck(imuDispThisCycle, corrOk, corrTotal);
+        policy.SetCrossCheck(imuDisagreeM, imuCrossCheck ? imuTolM : 0.0,
+                             corrOk, corrTotal);
 
         CaTblDecision d = policy.Step(dt,
                                             meas,
@@ -3815,6 +3923,15 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+
+        // The engine takes the integrity verdict back: a fix the check calls SUSPECT
+        // must not be used to reset inertial drift, or a bad fix would launder itself
+        // into the one estimate that was independent of it.
+        if (d.hadFix && !d.suspect)
+        {
+            shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
+            lastTrustedFixS = t;
+        }
 
         if (d.escalated || d.deescalated)
         {
@@ -4312,6 +4429,13 @@ RunArm(CaTblPolicyMode mode,
     }
     if (imuCrossCheck || corroborationCheck)
     {
+        std::cout << "    SHS: engine at (" << std::fixed << std::setprecision(1)
+                  << shsEngine.GetX() << ", " << shsEngine.GetY() << ") vs true ("
+                  << pos.x << ", " << pos.y << "), error "
+                  << std::sqrt((shsEngine.GetX() - pos.x) * (shsEngine.GetX() - pos.x) +
+                               (shsEngine.GetY() - pos.y) * (shsEngine.GetY() - pos.y))
+                  << " m; last disagreement " << imuDisagreeM << " m against tolerance "
+                  << imuTolM << " m\n";
         std::cout << "    INTEGRITY: escalations refused -- IMU inconsistency "
                   << policy.GetImuRejections() << ", weak corroboration "
                   << policy.GetCorroborationRejections() << "\n";
@@ -4584,8 +4708,9 @@ main(int argc, char* argv[])
     uint32_t finderModeArg = 1;
     double finderDigestPeriodSArg = 30.0;
     bool imuCrossCheckArg = false;
-    double imuScaleBiasArg = 0.08;
-    double imuNoiseMArg = 0.5;
+    double imuDriftMpsArg = 0.15;
+    double imuConsistencyKArg = 3.0;
+    double imuSigmaFloorMArg = 5.0;
     bool corroborationCheckArg = false;
     double corroborationKArg = 3.0;
     double corroborationRangeSigmaMArg = 30.0;
@@ -4938,16 +5063,23 @@ main(int argc, char* argv[])
                  "SUPPRESS-ONLY: it can withhold an escalation, never cause one, so it "
                  "cannot manufacture the behaviour it is policing.",
                  imuCrossCheckArg);
-    cmd.AddValue("imuScaleBias",
-                 "Dead-reckoning scale error, as a fraction. Default 0.08, i.e. the "
-                 "inertial estimate of distance travelled runs 8% long. OURS, not "
-                 "cited -- a real figure comes from a datasheet and a gait model.",
-                 imuScaleBiasArg);
-    cmd.AddValue("imuNoiseM",
-                 "Per-cycle dead-reckoning noise, metres, uniform. Default 0.5. Drawn "
-                 "on its own random stream so the inertial model cannot shift a single "
-                 "draw the radio layer makes.",
-                 imuNoiseMArg);
+    cmd.AddValue("imuDriftMps",
+                 "How fast the step-and-heading estimate is allowed to drift away "
+                 "from the filter while running unaided, metres per second. Default "
+                 "0.15. This sets the SHAPE of the consistency tolerance and it is the "
+                 "SHS error model rather than a strapdown one: drift accumulates with "
+                 "TIME SINCE THE LAST TRUSTED FIX, through heading error and step-length "
+                 "miscalibration, not with distance walked. OURS, not cited.",
+                 imuDriftMpsArg);
+    cmd.AddValue("imuConsistencyK",
+                 "How many filter sigmas of disagreement are tolerated before the "
+                 "inertial witness refuses an escalation. Default 3. OURS.",
+                 imuConsistencyKArg);
+    cmd.AddValue("imuSigmaFloorM",
+                 "Floor on the sigma term of that tolerance, metres, so a confident "
+                 "filter cannot be tripped by a disagreement smaller than the inertial "
+                 "system could ever resolve. Default 5.",
+                 imuSigmaFloorMArg);
     cmd.AddValue("corroborationCheck",
                  "Refuse an escalation when too few neighbours corroborate this node's "
                  "estimate. For every node ranged this cycle whose own reported position "
@@ -5537,8 +5669,9 @@ main(int argc, char* argv[])
                                        finderModeArg,
                                        finderDigestPeriodSArg,
                                        imuCrossCheckArg,
-                                       imuScaleBiasArg,
-                                       imuNoiseMArg,
+                                       imuDriftMpsArg,
+                                       imuConsistencyKArg,
+                                       imuSigmaFloorMArg,
                                        corroborationCheckArg,
                                        corroborationKArg,
                                        corroborationRangeSigmaMArg,

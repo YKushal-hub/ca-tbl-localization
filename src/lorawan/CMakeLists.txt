@@ -1,5 +1,13 @@
 set(source_files
     model/lora-net-device.cc
+    model/lora-gyro-bias-observer.cc
+    model/lora-heading-submodule.cc
+    model/lora-imu-sensor-submodule.cc
+    model/lora-position-update-submodule.cc
+    model/lora-shs-engine.cc
+    model/lora-step-detector-submodule.cc
+    model/lora-step-length-submodule.cc
+    model/lora-turn-detector.cc
     model/lorawan-mac.cc
     model/lora-phy.cc
     model/building-penetration-loss.cc
@@ -50,6 +58,15 @@ set(source_files
 
 set(header_files
     model/lora-net-device.h
+    model/lora-gyro-bias-observer.h
+    model/lora-heading-submodule.h
+    model/lora-imu-sensor-submodule.h
+    model/lora-position-update-submodule.h
+    model/lora-shs-engine.h
+    model/lora-step-detector-submodule.h
+    model/lora-step-length-submodule.h
+    model/lora-turn-detector.h
+    model/lora-shs-parameters.h
     model/lorawan-mac.h
     model/packet-id-tag.h
     model/lora-phy.h
