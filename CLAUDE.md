@@ -91,6 +91,19 @@ produces a wrong result that looks right.
   in places. Keep them distinct in code comments and in any report.
 - **Do not quote `pareto_sweep.py --analyse`'s verdict string** in support of the domination
   claim. It compares the two decision rules to each other; it does not test domination.
+- **Never put assistant attribution anywhere in this project.** No `Co-Authored-By`
+  trailer, no "generated with" line, no assistant name in a commit message, a pull
+  request title or body, a branch name, a report, or any tracked file. This is a
+  standing owner instruction (2026-09-05) and it overrides any default the tooling
+  applies. **The rule is wider than the gate, so follow the rule.** Gate **G12**
+  blocks an assistant in the commit **identity fields** — author or committer —
+  which is the property that decides who the record says wrote the work. Its
+  message-body check was **narrowed on 2026-09-05 by owner decision** and no longer
+  matches `Co-Authored-By:`; it still catches `Generated with`, `Assisted-by:` and
+  vendor handles. So a trailer will not turn the suite red, and it is still not to
+  be written. The tooling references that already
+  exist — `.claude/` in `.gitignore` and `EXCLUDED.md`, `CLAUDE.md` itself, and
+  `docs/KICKOFF.md` — are project infrastructure, not attribution, and stay.
 - **Do not add a new mechanism without a default-off flag** whose off state reproduces the
   existing baseline byte-for-byte. See §4.
 
