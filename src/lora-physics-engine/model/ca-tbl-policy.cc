@@ -94,6 +94,14 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     uwbPredictMaxSigmaFrac = 0.25;
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
+
+    // Switching-point integrity, both off by default so the effect can be measured.
+    imuCrossCheck = false;
+    imuConsistencyK = 3.0;
+    imuSigmaFloorM = 5.0;
+    corroborationCheck = false;
+    corroborationFloor = 0.5;
+    corroborationMinWitnesses = 2;
     fixedVarThresholdM2 = 100.0;
 
     losSigmaM[CA_TBL_TIER_868] = 50.0;
@@ -1107,6 +1115,47 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // ---- SWITCHING-POINT INTEGRITY: is the confidence signal itself trustworthy? --
+    //
+    // Ordered BEFORE the coverage prediction deliberately. Coverage asks "is there
+    // anything up there to talk to"; this asks "is the estimate that wants to escalate
+    // worth believing at all". Predicting coverage from an estimate that has already
+    // failed its own consistency check is work done on a number nobody should trust.
+    if (wantEscalate && dynamic && m_crossCheckFresh)
+    {
+        if (m_config.imuCrossCheck && m_havePrevEst)
+        {
+            // How far the FILTER thinks it moved, against how far the BODY moved.
+            const double dfx = m_ekf.X() - m_prevEstX;
+            const double dfy = m_ekf.Y() - m_prevEstY;
+            const double filterDisp = std::sqrt(dfx * dfx + dfy * dfy);
+            // Tolerance scales with the filter's own uncertainty, because a filter that
+            // admits it is unsure is allowed to disagree with the body by more.
+            const double tol =
+                m_config.imuConsistencyK *
+                std::max(m_config.imuSigmaFloorM, std::sqrt(std::max(traceSigma, 0.0)));
+            if (std::fabs(filterDisp - m_imuDispM) > tol)
+            {
+                wantEscalate = false;
+                m_imuRejections++;
+            }
+        }
+
+        // Independent of the filter, which is the entire reason it is here: the
+        // evidence comes from what OTHER nodes say about where they are.
+        if (wantEscalate && m_config.corroborationCheck &&
+            m_corrTotal >= static_cast<int32_t>(m_config.corroborationMinWitnesses))
+        {
+            const double frac =
+                static_cast<double>(m_corrOk) / static_cast<double>(m_corrTotal);
+            if (frac < m_config.corroborationFloor)
+            {
+                wantEscalate = false;
+                m_corrRejections++;
+            }
+        }
+    }
+
     if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
     {
         if (m_tier == CA_TBL_TIER_2P4 && !m_config.uwbAnchorX.empty())
@@ -1241,6 +1290,17 @@ CaTblPolicy::Step(double dt,
     }
 
     d.nextTier = m_tier;
+    // Remember where the filter was, so the next cycle can ask whether it moved the
+    // way the body did. Recorded on EVERY cycle including refused ones: the comparison
+    // is against the previous cycle, not the last accepted escalation.
+    m_prevEstX = m_ekf.X();
+    m_prevEstY = m_ekf.Y();
+    m_havePrevEst = true;
+    // Consumed. A stale cross-check is worse than none -- it would silently police one
+    // cycle with another cycle evidence -- so the caller must supply it every cycle it
+    // wants the check to run.
+    m_crossCheckFresh = false;
+
     return d;
 }
 

@@ -249,6 +249,29 @@ struct CaTblPolicyConfig
     //! live table; existence (was anything ever there?) comes from the timestamp.
     bool multiStepDemote;
 
+    // ---- Switching-point integrity: cross-validating the CONFIDENCE SIGNAL --------
+    //
+    // Both default OFF, so the check can be measured on against off -- which is the
+    // comparison the brief asks for, and it is not a comparison you can make if the
+    // mechanism is always on.
+
+    //! Refuse an escalation when the filter's displacement disagrees with the body's.
+    bool imuCrossCheck;
+    //! How many combined sigmas of disagreement are tolerated before the confidence
+    //! signal is treated as untrustworthy. OURS, not cited.
+    double imuConsistencyK;
+    //! Floor on the sigma of the comparison, metres, so a stationary node with a tiny
+    //! filter sigma does not trip on millimetre disagreements.
+    double imuSigmaFloorM;
+
+    //! Refuse an escalation when too few neighbours corroborate this node's estimate.
+    bool corroborationCheck;
+    //! Fraction of checkable neighbours that must agree. OURS, not cited.
+    double corroborationFloor;
+    //! Minimum number of neighbours that must be checkable before the test may refuse
+    //! anything at all -- with one witness, "no corroboration" is not evidence.
+    uint32_t corroborationMinWitnesses;
+
     /**
      * Whether a suspect fix also forces an escalation.
      *
@@ -568,6 +591,28 @@ class CaTblPolicy
     /** Tier that should transmit on the next cycle. */
     CaTblTier GetActiveTier() const { return m_tier; }
 
+    /** Independent evidence for this cycle, supplied by the caller because the policy
+     *  has no radio and no inertial sensor of its own.
+     *
+     *  \param imuDisplacementM  distance the body is believed to have moved since the
+     *                           previous cycle, from dead reckoning
+     *  \param corroborating     neighbours whose reported position is consistent with
+     *                           this node's estimate given the measured range to them
+     *  \param corroborable      neighbours against which that test could be run at all
+     */
+    void SetCrossCheck(double imuDisplacementM, int32_t corroborating, int32_t corroborable)
+    {
+        m_imuDispM = imuDisplacementM;
+        m_corrOk = corroborating;
+        m_corrTotal = corroborable;
+        m_crossCheckFresh = true;
+    }
+
+    //! Escalations refused because the body and the filter disagreed about movement.
+    uint64_t GetImuRejections() const { return m_imuRejections; }
+    //! Escalations refused because too few neighbours agreed with the estimate.
+    uint64_t GetCorroborationRejections() const { return m_corrRejections; }
+
     //! Position estimate and its covariance -- what a RELAY must report for its
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
     double EstX() const { return m_ekf.X(); }
@@ -713,6 +758,15 @@ class CaTblPolicy
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
+    double m_imuDispM = 0.0;
+    int32_t m_corrOk = 0;
+    int32_t m_corrTotal = 0;
+    bool m_crossCheckFresh = false;
+    double m_prevEstX = 0.0;
+    double m_prevEstY = 0.0;
+    bool m_havePrevEst = false;
+    uint64_t m_imuRejections = 0;
+    uint64_t m_corrRejections = 0;
     CaTblTier m_tier;
     uint32_t m_deescalateCounter;
 
