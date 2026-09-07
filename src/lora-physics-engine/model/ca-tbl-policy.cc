@@ -92,6 +92,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     escalationRequiresEvidenceT2 = false; // BROKEN -- see the header. Never enable.
     uwbPredictRadiusM = 20.0;
     uwbPredictMaxSigmaFrac = 0.25;
+    uwbEvidenceFromNeighbours = false; // default preserves the pre-existing baseline
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
     hopProvenanceForm = 0;
@@ -1177,21 +1178,49 @@ CaTblPolicy::Step(double dt,
 
     if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
     {
-        if (m_tier == CA_TBL_TIER_2P4 && !m_config.uwbAnchorX.empty())
+        const bool haveMap = !m_config.uwbAnchorX.empty();
+        if (m_tier == CA_TBL_TIER_2P4 &&
+            (m_config.uwbEvidenceFromNeighbours || haveMap))
         {
-            // PREDICTED. UWB anchors are not discoverable at range, so there is
-            // nothing to observe until after the escalation the observation would
-            // justify. Two stages, and the order matters: a coverage prediction
-            // computed from a bad estimate is worse than no prediction, so the
-            // estimate-quality gate runs first.
+            // Two stages, and the order matters: a coverage judgement computed from
+            // a bad estimate is worse than none, so the estimate-quality gate runs
+            // first. It runs in BOTH forms -- the observed form still escalates on
+            // the strength of an estimate, and an estimate too poor to trust is a
+            // reason to stay regardless of what is audible.
             const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
             if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
             {
                 wantEscalate = false;
                 m_predictBlockedQuality++;
             }
+            else if (m_config.uwbEvidenceFromNeighbours)
+            {
+                // OBSERVED, symmetric with the 868 -> 2.4GHz half above. The mask
+                // carries "tier 3's neighbour table has been non-empty recently",
+                // refreshed every cycle for all tiers regardless of which is
+                // active, so it sees a finder that walked into range while the node
+                // sat on tier 2. The static map cannot: finders are not in it.
+                //
+                // Counted under the SAME counter as the predicted form, because it
+                // is the same refusal for the same reason -- tier 3 has nothing
+                // here. Splitting them would make the two forms incomparable across
+                // runs for no gain.
+                if ((tierEvidenceMask & (1u << CA_TBL_TIER_UWB)) == 0)
+                {
+                    d.predictedVisUwb = 0;
+                    wantEscalate = false;
+                    m_predictBlockedCoverage++;
+                }
+                else
+                {
+                    d.predictedVisUwb = -1; // observed, so a count was never formed
+                }
+            }
             else
             {
+                // PREDICTED, the pre-existing form. Retained unchanged: it is what
+                // every published result was measured under, and the legacy
+                // topology it was written for is still reachable via --topology=1.
                 const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
                 uint32_t vis = 0;
                 for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)

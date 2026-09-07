@@ -386,6 +386,35 @@ struct CaTblPolicyConfig
     std::vector<double> uwbAnchorX;
     std::vector<double> uwbAnchorY;
     /**
+     * Take the UWB half of the evidence gate from the LIVE neighbour table instead
+     * of the static anchor map above. FALSE by default.
+     *
+     * That map is a snapshot taken once at scenario start. It was adequate while
+     * tier 3 sat in fixed rings around facility sites. Under the corrected tri-band
+     * topology it is not: UWB now comes from FINDERS, which move and are never in
+     * the map, so the predicate answers a question about a deployment the system no
+     * longer has.
+     *
+     * The stated reason for predicting rather than observing -- "UWB anchors are
+     * not discoverable at range" -- is also false under that topology. Finders
+     * beacon on every tier, so a UWB neighbour IS discoverable, and
+     * tierEvidenceMask already carries exactly that bit, refreshed every cycle for
+     * all tiers regardless of which one is active. The 868 -> 2.4GHz half of this
+     * same gate has always used it. This gives the UWB half the same treatment.
+     *
+     * PRESENCE, NOT COUNT, and deliberately. A fix needs three anchors; this asks
+     * only whether the tier has anything here at all. That is the question a
+     * suppress-only gate should ask -- it exists to stop the node paying UWB rates
+     * to sit in an empty tier, not to predict whether a fix will solve. Counting
+     * would need a per-tier neighbour vector threaded through Step(), and the
+     * binary form is symmetric with the sibling half that already works.
+     *
+     * When on, the static map is NOT consulted as a fallback. A second way to pass
+     * would defeat the gate, and observation subsumes the map here: a gateway close
+     * enough to be inside the predicate radius is close enough to have been heard.
+     */
+    bool uwbEvidenceFromNeighbours;
+    /**
      * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
      *
      * A SPECIFICATION, not a tuned constant, and stating it as the target rather
