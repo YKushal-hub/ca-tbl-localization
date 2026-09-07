@@ -56,9 +56,10 @@ is refusing, not re-timing.
 
 - **One configuration.** 600 s, 1 km box, four finders, one mobility model. Nothing is
   claimed about how this varies with density, area, finder count or casualty motion.
-- **No interval.** Sign consistency across eight paired seeds is reported as sign
-  consistency. A bootstrap CI on the paired difference is the next step, not a
-  formality to skip.
+- ~~**No interval.**~~ **Done, 2026-09-08** -- see the section below. The sentence that
+  stood here said a bootstrap CI on the paired difference was the next step and not a
+  formality to skip. It was neither skipped nor a formality: both intervals exclude
+  zero.
 - **The IMU witness barely fires.** One refusal at seed 7 against 16 from corroboration.
   On this scenario the effect is **almost entirely the neighbour check**, and reporting
   it as "IMU cross-validation works" would be crediting the quiet witness for the loud
@@ -67,6 +68,34 @@ is refusing, not re-timing.
 - **The corroboration constants are ours.** `corroborationK = 3`, assumed ranging sigma
   30 m, agreement floor 0.5, minimum two witnesses. None is cited, and the result's
   sensitivity to them is untested.
+
+## The interval, added 2026-09-08
+
+`catbl_work/analyse_integrity_ci.py` over the same eight paired cells in
+`catbl_work/cc/`. No new runs: this adds an interval to differences already measured,
+and it does not widen the configuration they came from.
+
+Percentile bootstrap, B = 20 000, **resampling seeds rather than runs** -- the seed is
+the unit, because off and on are the same trajectory under two flag settings, and that
+pairing is the whole design. Fixed RNG seed, so the interval is reproducible.
+Completeness is asserted before anything is pooled: every cell present, exactly one data
+row each, seed sets matching (rule 12).
+
+| quantity | mean paired difference | 95% CI | seeds improved | exact sign test |
+|---|---:|---|---:|---:|
+| energy | **-15.360 J** | **[-21.433, -9.233]** | 8 / 8 | p = 0.0039 |
+| accuracy (rmse) | **-0.743 m** | **[-1.052, -0.416]** | 7 / 8 | p = 0.0352 |
+| escalations | -5.625 | [-8.000, -3.000] | 7 / 8 | p = 0.0352 |
+
+**All three intervals exclude zero.** The escalation row is what makes the other two
+mechanistically legible rather than coincidental: the check is refusing escalations, and
+the energy follows from the refusals.
+
+**n = 8, and a percentile bootstrap at n = 8 is an interval, not a guarantee.** It
+resamples the eight differences observed. It cannot speak to configurations not run, and
+every caveat above it still stands -- one duration, one box size, one finder count, one
+mobility model, uncalibrated corroboration constants, and an inertial witness that
+contributes almost nothing.
 
 ## Where this sits against the brief
 
