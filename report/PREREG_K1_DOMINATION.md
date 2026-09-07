@@ -292,3 +292,85 @@ either cell has run.
 **Nothing in this amendment was written after looking at a cell.** The abort conditions,
 the domination definition, the predictions and the falsifiers of the original
 registration are unchanged, P3 excepted, and F1 in particular still stands as written.
+
+---
+
+# Amendment 2 — 2026-09-08, cells dropped for compute, before any cell was analysed
+
+Seven cells were started and killed. They are listed here rather than omitted, because a
+sweep with holes in it should say where the holes are and why.
+
+## A2.1 Cost per seed is not uniform across the sweep, and that was not anticipated
+
+Measured, mid-campaign, from CPU time against completed seeds:
+
+| `boxHalf` | s / seed |
+|---|---|
+| 2500 (the brief's ring) | 157 |
+| 3000 | 276 |
+| 2000 | 370 |
+| 1500 | 371 |
+| 1000 | 561 |
+| 750 | 564 |
+| 400 | 924 |
+| 500 | 1204 |
+| 200 | no seed completed in 2040 CPU-s |
+
+A smaller box puts every gateway and every finder in range of everything, so neighbour
+counts, ranging exchanges and MAC contention all rise. The registration sized the sweep
+by *deployment scale*, which was the right axis for the question and the wrong one for
+the budget.
+
+**The binding constraint is the slowest single cell, not the total.** Each cell is one
+single-threaded process running its 20 seeds in sequence, so idle cores cannot shorten
+it: `boxHalf=400` needed ~16 400 CPU-s, which is 4.5 hours of wall clock on an otherwise
+empty machine.
+
+## A2.2 What was dropped
+
+| cell | reason |
+|---|---|
+| `k1a_box200`, `k1b_box200` | >11 h each. A 400 m search area is also the least defensible cell in the sweep as a search-and-rescue deployment. |
+| `k1a_box500`, `k1b_box500` | 6.7 h each. |
+| `k1a_box400`, `k1b_box400` | 4.5 h each, and single-threaded, so no amount of free machine helps. |
+| `k1e_split1000` | 6.7 h. Its question is answered better without it — see A2.3. |
+
+## A2.3 `k1e_split1000` is superseded, not merely abandoned
+
+That cell was registered in Amendment 1 §A1.5 to put 20 paired seeds under the
+environment-split defect. The probe answers the same question **deterministically and
+without seeds**, by measuring r80 per tier under each configuration directly:
+
+| tier r80 | split (old default) | unified (corrected) |
+|---|---|---|
+| 868 MHz | 1515.3 m | 1515.3 m |
+| 2.4 GHz | **1149.5 m** | **156.0 m** |
+| UWB | 12.8 m | 0.0 m (r50 5.3 m) |
+
+A factor of 7.4 on tier 2's range, with tier 1 unchanged to four significant figures, is
+a stronger statement than a paired sign test over 20 seeds of end-to-end rmse would have
+been: it isolates the link budget from the policy, the geometry and the mobility, and it
+has no sampling error to argue about. The registered cell would have measured the
+*consequence*; the probe measures the *cause*.
+
+## A2.4 What the surviving sweep can and cannot answer
+
+Surviving: `boxHalf` ∈ {750, 1000, 1500, 2000, 3000} × {repaired, unrepaired}, plus
+`k1c_brief`. Thirteen cells at launch, eleven after the trims, 20 seeds each.
+
+Gateway spacing runs 675 m to 2700 m and the walker tours out to 0.47·`boxHalf`. Against
+the measured 2.4 GHz r80 of 156 m, that spans **tier 2 usable** — at `boxHalf=750` the
+walker passes within 156 m of the centre gateway for a substantial part of the run — to
+**tier 2 effectively absent** at 3000. The crossover the domination question needs is
+inside the surviving range.
+
+**Not measured, and this is a gap rather than a finding:** the regime below
+`boxHalf ≈ 400`, where tier 2 reaches comfortably from several gateways at once. If
+`ca_tbl_full` turns out non-dominated across the surviving sweep, that says nothing about
+what happens when tier 2 is abundant, and the honest report says so rather than
+extrapolating a curve off the end of its own data.
+
+**F1 is unchanged and still binding.** If `ca_tbl_full` is dominated at every surviving
+scale and in `k1c_brief`, the claim is false as tested, and the permitted response is to
+state the envelope in which it holds — or that there is none — not to reinstate the
+dropped cells in the hope that a smaller box is kinder.
