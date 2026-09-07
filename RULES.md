@@ -11,6 +11,44 @@ unmodified except where noted.
 thesis registers still say CA-DBL; that is a known divergence being corrected on the thesis
 side, not here. Do not rename anything in this repo.
 
+**THE TOPOLOGY, because getting this wrong cost the project every result once already.**
+
+> **There is ONE population of tri-band nodes. Every node carries all three radios.
+> A tier is a choice of WHICH RADIO TO USE, not of WHOM TO TALK TO.**
+
+The classes differ in **mobility and role only**:
+
+| class | mobile? | ids | duty cap |
+| --- | --- | --- | --- |
+| **gateway** | **no** — the only immobile class | `101+` | 10 % (access point) |
+| **finder** | yes | `501+` | 2.5 % (field device) |
+| **field node** (lost node, peer/relay tags) | yes | `1`, `2+` | 2.5 % (field device) |
+
+- The **facility sites are mobility targets and host no anchors.** They are where the field
+  node dwells; that is all they do.
+- `--uwbTriad`, `--t2Triad`, `--uwbAnchors`, `--t2Anchors` and `--sitingMode` **do nothing**
+  under the default topology. They parameterise the legacy rings and are read only under
+  `--topology=1`.
+- **UWB reaches tens of metres, so a fixed gateway offers tier 3 only to something standing
+  beside it.** A **finder** is what carries tier 3 to the casualty. Escalation to UWB is a
+  statement about a searcher having arrived. With `--nFinders=0` measured mean UWB
+  neighbours is **0.01** — if a run shows tier-3 coverage without finders, suspect the
+  topology before believing the number.
+
+**Until 2026-09-07 (`99fdf1a`) the simulator modelled three DISJOINT anchor populations** —
+tier-1 gateways on a grid, tier-2 anchors ringed at 150 m and tier-3 at 10 m around four
+facility sites. `Architecture.md` specified it that way too, **so this was not code drifting
+from a spec; the spec was wrong and the code implemented the wrong thing faithfully.** That
+model manufactured tier-3 coverage the architecture is supposed to earn. It survives only as
+`--topology=1`, only so pre-correction results stay reproducible, and it does not describe
+the system.
+
+`--topology=0` and `--topology=1` are **different deployments**: no shared baseline, no null
+control relates them, and `baseline_v7` does not reproduce under the corrected topology and is
+not supposed to. Switching it is a change of *scenario*, not of *configuration*.
+
+**Every result in `results/` predates the correction and is provisional until re-run.**
+
 **Your remit is the engine.** ns-3 code, experiments, gates, analysis scripts. **Do not write
 thesis prose, chapters, or literature review in this repository.** That work is Phase 1 and
 lives in the thesis project. If asked for it here, say so and stop.
@@ -236,6 +274,9 @@ report/
   PHASE10_PREREGISTRATION.md  the registered decision rule and its amendment
 docs/
   WORK_PACKAGES.md            what to build next, with entry points  ← start here
+  DESIGN_DECISIONS.md         choices the project brief does NOT specify, each with what it
+                              was chosen over — finder mobility, the 8 m stand-off, the duty
+                              category, the unresolved gateway-count divergence
   TECH_DEBT.md                everything known wrong/unfinished, ordered by risk to results
   RELAYED_RANGING_ERROR_MODEL.md  C5 precondition: why a relayed range is not a range
   CONTEXT_PACK.md             parameter provenance, prior art, citation rules
@@ -269,6 +310,22 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `cmd.AddValue` block at `scratch/ca_tbl_causal_sim.cc:3178-3450`, and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
+
+**EVERY DOCUMENT DATED BEFORE 2026-09-07 DESCRIBES THE LEGACY TOPOLOGY.** That is the single
+largest staleness axis in the repository and it cuts across all five tiers of the precedence
+list above. Anything discussing "tier-2 anchors", "tier-3 anchors", "the triads", "anchors per
+facility site", "co-located precision tiers" or `--sitingMode` is describing `--topology=1`.
+
+The **current** topology is stated in three places and nowhere else:
+
+1. this file, the topology block at the top;
+2. `Architecture.md` §3 — the design as built;
+3. `BuildDeployment()` in `scratch/ca_tbl_causal_sim.cc:177` — **the ground truth.**
+
+`report/*.md` and `docs/archive/*` were deliberately **not** rewritten. They are dated records
+of what was measured under the deployment that was in force at the time, and editing them to
+match a later model would falsify the evidence chain — the same principle as
+`run_id.txt` sidecars and `report/REPORT_DATA_PACK.md` in §2. Read them as history.
 
 **Line numbers in `docs/archive/` are stale.** `CA_TBL_PHASE8_SCOPE.md` was written 2026-08-04
 and its citations have drifted by ~100 lines in `ca_tbl_causal_sim.cc`. Its *findings* hold; its
