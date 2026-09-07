@@ -2260,6 +2260,7 @@ RunArm(CaTblPolicyMode mode,
        double finderPosSigmaM,
        bool finderPseudoAnchor,
        bool bidirectionalDigest,
+       bool tier1ChargeReplies,
        uint32_t hopProvenanceForm,
        double hopPenalty,
        bool imuCrossCheck,
@@ -2397,6 +2398,7 @@ RunArm(CaTblPolicyMode mode,
     for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
     {
         energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
+        energy.SetTier1ChargeReplies(tier1ChargeReplies);
     }
 
     CaTblPolicyConfig pcfg;
@@ -5054,6 +5056,7 @@ main(int argc, char* argv[])
     double finderPosSigmaMArg = 0.0;
     bool finderPseudoAnchorArg = false;
     bool bidirectionalDigestArg = false;
+    bool tier1ChargeRepliesArg = false;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
@@ -5416,6 +5419,20 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("tier1ChargeReplies",
+                 "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
+                 "default, which preserves every published number. Tier 1 is billed as "
+                 "ONE BROADCAST AND NOTHING ELSE -- a TDoA shape, and the right cost "
+                 "when the NETWORK localises. But CaTblPolicy runs on the FIELD NODE and "
+                 "consumes a range per anchor per cycle, and nothing charges for those "
+                 "ranges arriving: there is no per-beacon RX accounting and AccountListen "
+                 "fires only when the neighbour table is empty. So tier 1's structural "
+                 "energy advantage, which every accuracy-per-joule figure rests on, is "
+                 "measured against an exchange one message short of closing. This "
+                 "measures the gap; it does not decide which shape is right, because that "
+                 "is the CONTRADICTION row in MASTER_PLAN 2.1 -- the spec puts the "
+                 "estimator on the gateway and the code puts it on the tag.",
+                 tier1ChargeRepliesArg);
     cmd.AddValue("bidirectionalDigest",
                  "Let the lost node ASK as well as answer, so the anti-entropy exchange "
                  "runs both ways. FALSE by default. Only searchers used to ask, which "
@@ -6103,6 +6120,7 @@ main(int argc, char* argv[])
                                        finderPosSigmaMArg,
                                        finderPseudoAnchorArg,
                                        bidirectionalDigestArg,
+                                       tier1ChargeRepliesArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
                                        imuCrossCheckArg,
