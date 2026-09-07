@@ -12,6 +12,37 @@ for short-range precision — with a decision layer that escalates between tiers
 position-confidence score. Six arms are compared against identical channel
 realisations, with per-action energy accounting traceable to datasheet currents.
 
+## The deployment, in one paragraph
+
+**There is one population of tri-band nodes. Every node carries all three radios, and a
+tier is a choice of *which radio to use*, not of *whom to talk to*.** The classes differ
+in mobility and role only:
+
+| class | mobile? | ids | duty cap | flag |
+|---|---|---|---|---|
+| **gateway** | **no** — the only immobile class | `101+` | 10 % | `--gwGrid` (default 3 → 9 gateways) |
+| **finder** — a searcher carrying a radio | yes | `501+` | 2.5 % | `--nFinders` (default 0), `--finderMode` |
+| **field node** — the subject being localised | yes | `1`, peers `2+` | 2.5 % | `--nTags` |
+
+Four facility sites exist as **mobility targets only** and host no anchors; the field node
+dwells at them.
+
+**Why finders matter, and why the default of 0 is not the interesting configuration.** UWB
+reaches tens of metres, so a *fixed* gateway can offer tier 3 only to something already
+standing beside it. With `--nFinders=0`, measured mean UWB neighbours is **0.01** — tier 3
+is effectively unreachable and escalating to it is pure cost. **A finder is what carries
+tier 3 to the casualty**, so escalation to UWB is a statement about a searcher having
+arrived. If a run shows tier-3 coverage without finders, suspect the topology before
+believing the number.
+
+> **Corrected 2026-09-07 (`99fdf1a`).** Before that date the simulator modelled three
+> *disjoint* anchor populations — tier-1 gateways on a grid, tier-2 anchors ringed at 150 m
+> and tier-3 at 10 m around the facility sites — and `Architecture.md` specified it that
+> way, so the code implemented the wrong model faithfully. It survives as `--topology=1`
+> **only** so pre-correction results reproduce. **Every result in `results/` and every
+> number in the technical report predates the correction and is provisional pending
+> re-run.**
+
 ## What it found, as of 2026-08-05
 
 **The escalation architecture does not beat static provisioning.** Against single-band
@@ -57,6 +88,19 @@ bash scripts/catbl_gates.sh
 python3 scratch/python_handoff/verify_causal_sim.py results/causal
 ```
 
+**A run that actually exercises all three tiers** needs finders, because nothing else
+brings UWB within range (see above). The default `--nFinders=0` does not:
+
+```bash
+mkdir -p /tmp/catbl_demo
+./ns3 run "ca_tbl_causal_sim --seed=7 --duration=600 --boxHalf=1000 \
+  --gwGrid=3 --nFinders=4 --finderMode=1 --outdir=/tmp/catbl_demo"
+```
+
+Check it worked: `meanNbr_uwb` in `arm_summary.csv` should be well above zero for
+`ca_tbl_full` (≈0.8 at these settings, against ≈0.01 with no finders), and `cycles_uwb`
+non-zero. Do **not** write new runs into `results/` — that tree is tracked evidence.
+
 `scripts/catbl_gates.sh` runs five gates: build, determinism, null ablation, the
 invariant verifier, and a self-test that checks the verifier *fails* when its inputs are
 broken. G3 currently fails by design — the integrity check fires once at seed 7, so
@@ -72,6 +116,9 @@ contamination.
 | `report/PCS_REDESIGN_RESULTS.md` | working evidence chain, Parts 0–8, with corrections registers |
 | `CA_TBL_AUDIT_REPORT.md` | independent adversarial re-audit of the result set |
 | `CA_TBL_SIM_AUDIT.md`, `simstatus.md` | cited from source comments; kept at root for that reason |
+| `Architecture.md` §3 | the deployment as built — **authoritative for topology** |
+| `docs/DESIGN_DECISIONS.md` | choices the project brief does not specify, each with what it was chosen over |
+| `CLAUDE.md` | working rules; read first if you are changing anything |
 | `docs/archive/` | superseded handoffs and scope documents, retained for their findings |
 
 ## A note on what is shipped

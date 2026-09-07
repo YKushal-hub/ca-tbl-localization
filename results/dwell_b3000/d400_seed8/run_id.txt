@@ -1,0 +1,9 @@
+654c7a32de88080f
+build Sep  5 2026 18:54:13 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=8 --duration=3600 --boxHalf=3000 --gwGrid=3 --dwell=400 --arms=ca_tbl_full,fixed_threshold,static_2p4,static_868 --trace=true --outdir=results/dwell_b3000/d400_seed8
+source 67ef735 dirty 0 profile optimized
+digest sha256
+869071bde48854e2865e38bb12b98b0e9b20a4513f7b9517abeb09ecbcb48f3c  arm_summary.csv
+83d1c8b7775471cc206483cdbf124f70e288f2560f8705b341aa19e06026fa27  trace_ca_tbl_full_seed8.csv
+c576c3bacf9f6a6964e8b1c69396c102997d32350d612162c322456718e2d984  trace_fixed_threshold_seed8.csv
+37be6863e23241a3f6048258e2a32f12d1d5d57d69ecfe33a318a64e24c64499  trace_static_2p4_seed8.csv
+c9065e800dea322887ded3a0280527365b6b1447f38986d8aa2ac73e5f1007b2  trace_static_868_seed8.csv

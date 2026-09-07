@@ -79,6 +79,7 @@
  *              --outdir=results/causal --trace=false"
  */
 
+#include "ns3/ca-tbl-relay-admission.h"
 #include "ns3/core-module.h"
 #include "ns3/ca-tbl-energy-model.h"
 #include "ns3/ca-tbl-header.h"
@@ -178,7 +179,9 @@ BuildDeployment(uint32_t gwGrid,
                 double uwbTriadRadiusM,
                 double t2TriadRadiusM,
                 uint32_t uwbAnchorsPerSite,
-                uint32_t t2AnchorsPerSite)
+                uint32_t t2AnchorsPerSite,
+                uint32_t sitingMode,
+                uint32_t topology)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -274,6 +277,31 @@ BuildDeployment(uint32_t gwGrid,
     dep.facilities.push_back(Vector(f, f, 0.0));
     dep.facilities.push_back(Vector(-f, f, 0.0));
 
+    // ---- TRI-BAND GATEWAYS (topology 0, the default and the correct model) ----
+    //
+    // Every gateway is ONE fixed node carrying ALL THREE radios. The same id and the
+    // same position appear in all three tier lists, so the setup loop below builds one
+    // MAC per (gateway, tier) on that tier's channel -- three radios on one node --
+    // and the provider admits that node on any of the three.
+    //
+    // This is what makes tier selection a RADIO decision instead of a destination
+    // decision. It also makes tier-3 coverage honest: UWB reaches tens of metres, so a
+    // fixed gateway offers it only to something standing next to the gateway. Closing
+    // that gap is a FINDER's job -- a moving node that carries UWB to the casualty --
+    // not a ring of UWB posts at a facility the casualty may never visit.
+    if (topology == 0)
+    {
+        for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_868].size(); ++i)
+        {
+            dep.anchors[CA_TBL_TIER_2P4].push_back(dep.anchors[CA_TBL_TIER_868][i]);
+            dep.anchors[CA_TBL_TIER_UWB].push_back(dep.anchors[CA_TBL_TIER_868][i]);
+        }
+        return dep;
+    }
+
+    // ---- LEGACY per-tier anchors (topology 1) ------------------------------
+    // Retained ONLY so results produced before 2026-09-07 stay reproducible. It models
+    // three separate anchor populations, which the system does not have.
     // ---- Tiers 2 and 3: anchor rings at each site. -------------------------
     // Co-location is deliberate. If tier-2 and tier-3 coverage were in different
     // places, an escalation failure could be a siting artefact rather than a
@@ -289,11 +317,47 @@ BuildDeployment(uint32_t gwGrid,
     // several anchors, not exactly the mathematical minimum. This raises
     // reliability without inflating the assumed range, which is the distinction
     // that matters -- range is measured, redundancy is a design choice.
+    // ---- A5: where tier 3 goes ---------------------------------------------
+    //
+    // sitingMode 0 (DEFAULT) co-locates tier 3 with tier 2, which is the siting every
+    // existing result was produced under and the reason the co-location comment above
+    // exists: if the two refinement tiers covered different ground, an escalation
+    // failure could be a siting artefact rather than a decision error.
+    //
+    // sitingMode 1 is COMPLEMENTARY siting, and it is the thing A5 asks about. The
+    // facility square has its corners at (+-f, +-f), radius f*sqrt(2). Rotating that
+    // square by 45 degrees puts tier 3 at (+-f*sqrt(2), 0) and (0, +-f*sqrt(2)) -- the
+    // SAME radius from the centre, in the GAPS BETWEEN the tier-2 clusters.
+    //
+    // Same radius is the point. Moving tier 3 outward would confound "different place"
+    // with "further from the middle", and the comparison would no longer isolate
+    // siting. The only thing that changes is the angle.
+    //
+    // Tier 2 stays where it is in both modes: the question is whether tier 3 should
+    // complement tier 2, not whether the whole deployment should move. And
+    // dep.facilities is untouched, because the walker dwells there -- moving it would
+    // change the MOBILITY as well as the siting and the arms would no longer be
+    // comparable.
+    std::vector<Vector> uwbSites;
+    if (sitingMode == 1)
+    {
+        const double fr = f * std::sqrt(2.0);
+        uwbSites.push_back(Vector(fr, 0.0, 0.0));
+        uwbSites.push_back(Vector(0.0, fr, 0.0));
+        uwbSites.push_back(Vector(-fr, 0.0, 0.0));
+        uwbSites.push_back(Vector(0.0, -fr, 0.0));
+    }
+    else
+    {
+        uwbSites = dep.facilities;
+    }
+
     id = 201;
     uint32_t idUwb = 301;
     for (size_t s = 0; s < dep.facilities.size(); ++s)
     {
         const Vector c = dep.facilities[s];
+        const Vector cUwb = (s < uwbSites.size()) ? uwbSites[s] : c;
 
         for (uint32_t k = 0; k < t2AnchorsPerSite; ++k)
         {
@@ -312,8 +376,8 @@ BuildDeployment(uint32_t gwGrid,
                 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(uwbAnchorsPerSite) + 0.3;
             dep.anchors[CA_TBL_TIER_UWB].push_back(
                 {idUwb++,
-                 Vector(c.x + uwbTriadRadiusM * std::cos(th),
-                        c.y + uwbTriadRadiusM * std::sin(th),
+                 Vector(cUwb.x + uwbTriadRadiusM * std::cos(th),
+                        cUwb.y + uwbTriadRadiusM * std::sin(th),
                         2.5)});
         }
     }
@@ -444,15 +508,39 @@ CaTblNlosFlag(CaTblNlosSource src, double nlosDb, bool propNlos, uint32_t hidden
  *    away: it means antenna-pattern asymmetry and TX-power asymmetry between the
  *    two ends are NOT modelled.
  *
- * 2. ANCHOR-TO-ANCHOR LINKS DO NOT EXIST. Only the field node is registered as a
- *    node on the engines; anchors are registered as gateways on their own tier's
- *    engine only. A pair of anchors has no evaluable link, so Evaluate() returns
- *    "not received" for it. The consequence is specific and worth stating: every
- *    anchor is a HIDDEN TERMINAL to every other anchor. Their CAD never detects
- *    each other, so they transmit into each other freely and collisions at the
- *    node are decided purely by arrival overlap and capture. That is a harsher
- *    contention regime than a real deployment with inter-anchor audibility, so
- *    beacon loss here is an upper bound, not an estimate.
+ * 2. LINKS EXIST BETWEEN A FIELD NODE AND AN ANCHOR, AND NOWHERE ELSE. Field
+ *    nodes are registered as nodes on the engines and anchors as gateways on
+ *    their own tier's engine, and Evaluate() resolves exactly one endpoint of
+ *    each kind. Two classes of pair therefore have no evaluable link and get
+ *    "not received":
+ *
+ *      ANCHOR-TO-ANCHOR. Every anchor is a HIDDEN TERMINAL to every other
+ *      anchor. Their CAD never detects each other, so they transmit into each
+ *      other freely and collisions at the node are decided purely by arrival
+ *      overlap and capture. That is a harsher contention regime than a real
+ *      deployment with inter-anchor audibility, so beacon loss here is an upper
+ *      bound, not an estimate.
+ *
+ *      NODE-TO-NODE, i.e. tag to tag. This one is reachable rather than
+ *      impossible: ProcessTransmission auto-registers an unknown receiver as a
+ *      gateway with fineTimestamp=false (lora-physics-engine.cc:298), which is
+ *      the correct hardware class for a tag, so the link budget itself would
+ *      evaluate. It is NOT enabled here because nothing would be entitled to
+ *      read the estimatedRangeM it produced: a tag-to-tag range enters the
+ *      solution as a RELAYED measurement, and the relayed-ranging error model
+ *      that says how such a measurement should be weighted is a written,
+ *      reviewed precondition of C5 that does not exist yet. Enabling the link
+ *      without it would produce ranges that look usable and are not attributable.
+ *      This is the C5 gate, not a shortcut.
+ *
+ * 2a. MULTI-NODE. Until 2026-09-05 this class held a single m_nodeId and a single
+ *    m_nodePos, and Evaluate() returned early for any frame with neither endpoint
+ *    equal to it. Because that early return happens BELOW the MAC, a peer tag's
+ *    frames were counted as sent, lost nothing to the duty governor, to CAD or to
+ *    collision -- and no anchor ever received one. Measured at nTags=2: 162
+ *    ESC_REQUESTs sent, zero dropped, zero delivered. The peer was a transmitter
+ *    that could not be heard, which is a silent failure of exactly the kind that
+ *    reads as a working mechanism. A position per node is what fixes it.
  *
  * 3. HOPS. hopsTraversed is forwarded to the engines, which previously always
  *    received 0 from this scenario. Any per-hop degradation the engines model now
@@ -485,13 +573,27 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! becomes a live defect the day someone wires it up.
     void SetNlosSource(CaTblNlosSource src) { m_nlosSource = src; }
 
+    //! A gateway carries ALL THREE radios, so a node id maps to a SET of tiers and
+    //! not to one. Storing a single tier per id was what forced the three-population
+    //! model: the last registration won and the node became "a UWB anchor" or "a
+    //! 2.4 GHz anchor" rather than a gateway that has both.
     void RegisterAnchor(CaTblTier tier, uint16_t id, const Vector& p)
     {
-        m_anchorTier[id] = tier;
+        m_anchorTiers[id] |= static_cast<uint8_t>(1u << static_cast<int>(tier));
         m_anchorPos[id] = p;
     }
 
     void SetNodePosition(const Vector& p) { m_nodePos = p; }
+
+    //! Register an additional field node (a peer tag). The measured tag keeps its
+    //! own scalar id/position rather than joining this map, so that with nTags=1
+    //! the map stays empty and every branch below behaves as it did before.
+    void RegisterPeerNode(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
+
+    void SetPeerPosition(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
+
+    //! A FINDER is a gateway that moves. Same link evaluation, new position each cycle.
+    void SetAnchorPosition(uint16_t id, const Vector& p) { m_anchorPos[id] = p; }
 
     CaTblLinkOutcome Evaluate(uint16_t txId,
                               uint16_t rxId,
@@ -501,8 +603,13 @@ class EnginePhyProvider : public CaTblPhyProvider
     {
         CaTblLinkOutcome o;
 
-        // Exactly one endpoint must be the field node -- see limitation 2 above.
+        // Exactly one endpoint must be a field node and the other an anchor --
+        // see limitation 2 above. The measured tag is checked first and by
+        // scalar compare, so with no peers registered this is the same test,
+        // in the same order, that it was before peers existed.
         uint16_t anchor = 0;
+        uint16_t node = m_nodeId;
+        const Vector* nodePos = &m_nodePos;
         if (txId == m_nodeId)
         {
             anchor = rxId;
@@ -510,6 +617,32 @@ class EnginePhyProvider : public CaTblPhyProvider
         else if (rxId == m_nodeId)
         {
             anchor = txId;
+        }
+        else if (!m_peerPos.empty())
+        {
+            // A peer tag transmitting to an anchor. Exactly one endpoint may be a
+            // peer: if both are, the pair is tag-to-tag and has no evaluable link.
+            std::map<uint16_t, Vector>::const_iterator pTx = m_peerPos.find(txId);
+            std::map<uint16_t, Vector>::const_iterator pRx = m_peerPos.find(rxId);
+            const bool txIsPeer = (pTx != m_peerPos.end());
+            const bool rxIsPeer = (pRx != m_peerPos.end());
+            if (txIsPeer && !rxIsPeer)
+            {
+                node = txId;
+                nodePos = &pTx->second;
+                anchor = rxId;
+            }
+            else if (rxIsPeer && !txIsPeer)
+            {
+                node = rxId;
+                nodePos = &pRx->second;
+                anchor = txId;
+            }
+            else
+            {
+                ++m_skipped;
+                return o;
+            }
         }
         else
         {
@@ -521,8 +654,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         // registered MAC on a completed transmission, so without this an 868
         // frame would be handed to the 2.4 GHz engine with a gateway id that
         // engine has never seen registered.
-        std::map<uint16_t, CaTblTier>::const_iterator at = m_anchorTier.find(anchor);
-        if (at == m_anchorTier.end() || at->second != tier)
+        std::map<uint16_t, uint8_t>::const_iterator at = m_anchorTiers.find(anchor);
+        if (at == m_anchorTiers.end() ||
+            (at->second & static_cast<uint8_t>(1u << static_cast<int>(tier))) == 0)
         {
             ++m_skipped;
             return o;
@@ -534,9 +668,9 @@ class EnginePhyProvider : public CaTblPhyProvider
 
         if (tier == CA_TBL_TIER_868)
         {
-            PhysicsResult r = m_e868.ProcessTransmission(m_nodeId,
+            PhysicsResult r = m_e868.ProcessTransmission(node,
                                                          anchor,
-                                                         m_nodePos,
+                                                         *nodePos,
                                                          anchorPos,
                                                          txPowerDbm,
                                                          m_phy[t].sf,
@@ -551,9 +685,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         }
         else if (tier == CA_TBL_TIER_2P4)
         {
-            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(m_nodeId,
+            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(node,
                                                             anchor,
-                                                            m_nodePos,
+                                                            *nodePos,
                                                             anchorPos,
                                                             txPowerDbm,
                                                             m_phy[t].sf,
@@ -568,9 +702,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         }
         else
         {
-            PhysicsResultUWB r = m_eUwb.ProcessTransmission(m_nodeId,
+            PhysicsResultUWB r = m_eUwb.ProcessTransmission(node,
                                                             anchor,
-                                                            m_nodePos,
+                                                            *nodePos,
                                                             anchorPos,
                                                             txPowerDbm,
                                                             m_phy[t].sf,
@@ -610,7 +744,12 @@ class EnginePhyProvider : public CaTblPhyProvider
     const TierPhy* m_phy;
     uint16_t m_nodeId;
     Vector m_nodePos;
-    std::map<uint16_t, CaTblTier> m_anchorTier;
+    //! Peer field nodes. EMPTY unless --nTags>1, which is the default-off flag
+    //! this mechanism sits behind: with it empty, Evaluate() takes the same
+    //! branches it always did.
+    std::map<uint16_t, Vector> m_peerPos;
+    //! id -> bitmask of tiers this node has a radio for.
+    std::map<uint16_t, uint8_t> m_anchorTiers;
     std::map<uint16_t, Vector> m_anchorPos;
     uint64_t m_evaluations;
     uint64_t m_skipped;
@@ -645,6 +784,83 @@ struct BeaconDriver
         }
     }
 };
+
+/**
+ * \brief C3. An anchor asking "where is target N", on a period.
+ *
+ * Mirrors BeaconDriver deliberately: same shape, same jitter, same self-rescheduling.
+ * The only difference is that it carries the identity being searched for, which is
+ * what makes the flood a SEARCH rather than a broadcast.
+ */
+struct QueryDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    uint8_t manifestId;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->SendQuery(tier, manifestId);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &QueryDriver::Fire, this);
+        }
+    }
+};
+
+/**
+ * \brief C4. A peer asking for the UWB slot on a period, as SYNTHETIC LOAD.
+ *
+ * Exists because a peer has no policy and therefore never escalates on its own, so
+ * without it the arbiter is handed one requester and never has to choose. It is a
+ * timer, not a decision: the degradation and battery terms it carries are stated
+ * constants rather than measurements, and nothing about them reflects a real need.
+ *
+ * Use it to exercise deny and pre-empt. Do not read it as traffic a real second
+ * target would generate.
+ */
+struct PeerRequestDriver
+{
+    CaTblMac* mac;
+    CaTblTier tier;
+    double periodS;
+    double jitterMaxS;
+    double untilS;
+    uint8_t degradation;
+    uint8_t battery;
+    Ptr<UniformRandomVariable> rng;
+
+    void Fire()
+    {
+        mac->SetRequestTerms(degradation, battery);
+        mac->Send(CA_TBL_MSG_ESC_REQUEST, tier, 0, 0);
+        const double next = periodS + rng->GetValue(0.0, jitterMaxS);
+        if (Simulator::Now().GetSeconds() + next < untilS)
+        {
+            Simulator::Schedule(Seconds(next), &PeerRequestDriver::Fire, this);
+        }
+    }
+};
+
+/** C4. Quantise a [0,1] term to a byte, saturating at both ends. */
+inline uint8_t
+CaTblQuantise(double x)
+{
+    if (!(x > 0.0))
+    {
+        return 0;
+    }
+    if (x >= 1.0)
+    {
+        return 255;
+    }
+    return static_cast<uint8_t>(x * 255.0 + 0.5);
+}
 
 /** Everything one arm produced, for the summary table. */
 struct ArmResult
@@ -1834,6 +2050,59 @@ RunProbe(EnvironmentClass envWide,
  * Every such object in this file sets its stream explicitly, before first use, for
  * exactly that reason. Do not add one that does not.
  */
+/**
+ * \brief Everything belonging to ONE target.
+ *
+ * Promoted out of RunArm so a second target is a MEASURED subject rather than a
+ * protocol peer: its own filter, its own confidence score, its own energy account
+ * and its own per-cycle statistics. The section 6 invariant becomes per-tag --
+ * exactly one tier transmits per cycle PER TAG, and only that tier is charged on
+ * that tag account.
+ *
+ * The trajectory is a pointer because Tourist has no default constructor. The
+ * objects pointed into are owned by a deque in RunArm, so push_back cannot
+ * invalidate a pointer already handed out.
+ */
+struct CaTblTagState
+{
+    uint32_t nodeId = 0;
+    Tourist* walker = nullptr;
+    Vector pos;
+    CaTblEnergyModel energy;
+    CaTblPolicy policy;
+    CaTblMac* nodeMac[CA_TBL_TIER_COUNT] = {nullptr, nullptr, nullptr};
+
+    double beaconToaS[CA_TBL_TIER_COUNT];
+    uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
+    double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+    uint64_t blindCycles = 0;
+    uint32_t floorHealthyStreak = 0;
+    uint64_t cycleIndex = 0;
+    uint64_t floorRangedCycles = 0;
+    uint64_t handshakeDeferrals = 0;
+    uint64_t handshakeIntraCycleDefers = 0;
+    double handshakeIntraCycleWaitS = 0.0;
+    double handshakeDeferralDelayS = 0.0;
+    uint64_t handshakePreemptions = 0;
+    uint64_t escalationsDeferredAway = 0;
+    bool pendingHandshake = false;
+    CaTblTier pendingHandshakeTier = CA_TBL_TIER_868;
+    uint64_t directEngineCalls = 0;
+    //! C4: this tag's own arbitration terms. See the note at the use site.
+    std::deque<double> pcsHist;
+    double pcsDegradation = 0.0;
+    double batteryUsedFrac = 0.0;
+    std::vector<double> errors;
+    std::vector<double> errorsFixed;
+    uint64_t steps = 0;
+    uint64_t tp = 0;
+    uint64_t fp = 0;
+    uint64_t fn = 0;
+    uint64_t tn = 0;
+    uint64_t inCov = 0;
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -1871,6 +2140,17 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nDeescalateOverride,
        bool sendHandshakeFrames,
        bool deferEscalationOnDutyLimit,
+       bool intraCycleHandshakeDefer,
+       uint32_t nTags,
+       bool relayedRanging,
+       uint32_t relayTier,
+       bool vizEventsOn,
+       uint32_t nFinders,
+       uint32_t finderMode,
+       double identityQueryPeriodS,
+       uint32_t identityQueryTarget,
+       bool uwbArbitration,
+       double arbBatteryCapJ,
        bool arbitrateDutyBudget,
        double fixedVarThresholdM2,
        double pcsSigmaTargetM,
@@ -1919,7 +2199,46 @@ RunArm(CaTblPolicyMode mode,
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
 
-    const uint32_t nodeId = 1;
+    // C2. All per-tag state lives here now. tags[0] is the tag this arm has always
+    // measured; tags[1..] are additional MEASURED targets, each with its own filter,
+    // confidence score, energy account and statistics.
+    //
+    // The aliases below are what let every line of setup and cycle code stay exactly
+    // as it was: they bind the old names to tag 0's members. Without them this would
+    // be a rename across roughly 750 lines, which is not a diff anyone can review.
+    std::vector<CaTblTagState> tags(std::max<uint32_t>(1, nTags));
+    tags[0].nodeId = 1;
+    const uint32_t nodeId = tags[0].nodeId;
+    CaTblEnergyModel& energy = tags[0].energy;
+    CaTblPolicy& policy = tags[0].policy;
+    CaTblMac** nodeMac = tags[0].nodeMac;
+    // Setup-scope aliases to tag 0, so every line below is unchanged.
+    CaTblTagState& TS0 = tags[0];
+    auto& beaconToaS = TS0.beaconToaS;
+    auto& lastRx = TS0.lastRx;
+    auto& lastNonEmptyAtS = TS0.lastNonEmptyAtS;
+    auto& nbrSum = TS0.nbrSum;
+    auto& blindCycles = TS0.blindCycles;
+    auto& floorHealthyStreak = TS0.floorHealthyStreak;
+    auto& cycleIndex = TS0.cycleIndex;
+    auto& floorRangedCycles = TS0.floorRangedCycles;
+    auto& handshakeDeferrals = TS0.handshakeDeferrals;
+    auto& handshakeIntraCycleDefers = TS0.handshakeIntraCycleDefers;
+    auto& handshakeIntraCycleWaitS = TS0.handshakeIntraCycleWaitS;
+    auto& handshakeDeferralDelayS = TS0.handshakeDeferralDelayS;
+    auto& handshakePreemptions = TS0.handshakePreemptions;
+    auto& escalationsDeferredAway = TS0.escalationsDeferredAway;
+    auto& pendingHandshake = TS0.pendingHandshake;
+    auto& pendingHandshakeTier = TS0.pendingHandshakeTier;
+    auto& directEngineCalls = TS0.directEngineCalls;
+    auto& errors = TS0.errors;
+    auto& errorsFixed = TS0.errorsFixed;
+    auto& steps = TS0.steps;
+    auto& tp = TS0.tp;
+    auto& fp = TS0.fp;
+    auto& fn = TS0.fn;
+    auto& tn = TS0.tn;
+    auto& inCov = TS0.inCov;
 
     // Each tier's anchors are registered only on that tier's engine. Registering
     // all anchors on all engines would put UWB anchors kilometres out of range
@@ -1947,12 +2266,12 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
     engine2p4.RegisterNode(nodeId, pos);
     engineUwb.RegisterNode(nodeId, pos);
 
-    CaTblEnergyModel energy;
     for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
     {
         energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
@@ -2046,7 +2365,6 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
-    CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
@@ -2102,9 +2420,37 @@ RunArm(CaTblPolicyMode mode,
     // instead of 8.0 ms, a factor of 6.4 straight into the duty-cycle governor and
     // the collision overlap test.
     CaTblChannel chan[CA_TBL_TIER_COUNT];
+
+    // Per-frame event log for the visualiser. Opened only when asked for, and the
+    // channel treats it as write-only, so with the flag off no stream exists, nothing
+    // is written and no branch differs. It records the SAME events the aggregate
+    // counters already count -- itemised, so an animation can show them one at a time
+    // rather than as a total.
+    std::ofstream vizEvents;
+    std::ofstream vizNodes;
+    if (vizEventsOn)
+    {
+        std::ostringstream vfn;
+        vfn << traceDir << "/events_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        vizEvents.open(vfn.str().c_str());
+        if (vizEvents.is_open())
+        {
+            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm\n";
+        }
+        std::ostringstream nfn;
+        nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        vizNodes.open(nfn.str().c_str());
+        if (vizNodes.is_open())
+        {
+            vizNodes << "t,nodeId,x,y\n";
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                chan[ti].SetEventLog(&vizEvents);
+            }
+        }
+    }
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
-    CaTblMac* nodeMac[CA_TBL_TIER_COUNT];
     std::map<uint16_t, Vector> anchorPosById;
 
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
@@ -2114,6 +2460,10 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
+        // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
+        // this field before C3, so setting it explicitly changes no behaviour --
+        // and the null control confirms that rather than assuming it.
+        mc.targetManifestId = 1;
         mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
@@ -2140,6 +2490,8 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig mc;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
+            // C4. Only anchors arbitrate -- a target has no slot to award.
+            mc.uwbArbitration = uwbArbitration;
             mc.sendHandshakeFrames = sendHandshakeFrames;
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
@@ -2167,7 +2519,262 @@ RunArm(CaTblPolicyMode mode,
             beacons.push_back(bd);
         }
     }
+    // ---- C2-peer: additional targets, as protocol peers -------------------
+    //
+    // Constructed only when nTags > 1. At nTags == 1 this block does nothing at all:
+    // no Tourist, no MAC, no beacon, and critically NO DRAW from macRng -- which is
+    // what makes the default byte-identical rather than merely close.
+    //
+    // A peer is a real MAC on the real channel with a real trajectory. It beacons, so
+    // anchors discover it; it contends, so it costs the medium what it costs; and it
+    // carries a DISTINCT targetManifestId, which is what an identity-scoped query
+    // discriminates on. It has no CaTblPolicy and no CaTblEnergyModel: it is an
+    // addressing and contention peer, NOT a second measured subject, and its energy
+    // is deliberately not accounted. Anything that reports peer energy is wrong.
+    std::deque<Tourist> peerWalkers;
+    std::vector<uint32_t> peerIds;
+    // One MAC per tier per peer, recorded AT CONSTRUCTION. CaTblMac exposes no
+    // GetTier(), so a later search cannot tell a peer's three MACs apart -- and
+    // a search by node id alone matched the measured tag first, which is how
+    // every synthetic request ended up attributed to target 1.
+    std::vector<std::vector<CaTblMac*>> peerMacs;
+    for (uint32_t pt = 1; pt < nTags; ++pt)
+    {
+        const uint32_t pid = nodeId + pt;
+        // Own stream, so the peer's motion does not shift the measured tag's walker
+        // draws. The offset is arbitrary and large; it only has to not collide with
+        // seed*7919+13 or seed*7919+104729.
+        Ptr<UniformRandomVariable> prng = CreateObject<UniformRandomVariable>();
+        prng->SetStream(static_cast<int64_t>(seed) * 7919 + 500003 + pt);
+        peerWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+                                 dep.boxHalfM, dep.dwellRadiusM, prng);
+        const Vector ppos = peerWalkers.back().Position();
+        engine868.RegisterNode(pid, ppos);
+        engine2p4.RegisterNode(pid, ppos);
+        engineUwb.RegisterNode(pid, ppos);
+        // The engines were always told about the peer; the PROVIDER was not, and
+        // the provider is what decides whether a frame has an evaluable link.
+        // Without this line the three calls above are inert for delivery.
+        provider.RegisterPeerNode(static_cast<uint16_t>(pid), ppos);
+        peerIds.push_back(pid);
+        peerMacs.push_back(std::vector<CaTblMac*>());
+
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            CaTblMacConfig pmc;
+            pmc.nodeId = static_cast<uint16_t>(pid);
+            pmc.identityClass = CA_TBL_ID_TARGET;
+            // THE POINT OF THE PEER. A distinct manifest id is what makes an
+            // identity-scoped query answerable: without it every target matches
+            // every query and C3 has nothing to discriminate.
+            pmc.targetManifestId = static_cast<uint8_t>(1 + pt);
+            pmc.sendHandshakeFrames = sendHandshakeFrames;
+            pmc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
+            pmc.sf = phy[ti].sf;
+            pmc.bandwidthHz = phy[ti].bandwidthHz;
+            pmc.txPowerDbm = phy[ti].txPowerDbm;
+            pmc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+            macs.emplace_back();
+            CaTblMac* pm = &macs.back();
+            peerMacs.back().push_back(pm);
+            pm->Configure(pmc);
+            pm->SetRng(macRng);
+            chan[ti].Register(pm);
+
+            BeaconDriver pbd;
+            pbd.mac = pm;
+            pbd.tier = static_cast<CaTblTier>(ti);
+            pbd.periodS = beaconPeriodS[ti];
+            pbd.jitterMaxS = beaconPeriodS[ti] * 0.25;
+            pbd.untilS = durationS;
+            pbd.rng = macRng;
+            beacons.push_back(pbd);
+        }
+    }
+
+    // ---- C3: identity-scoped queries from the anchors ----------------------
+    //
+    // Off unless identityQueryPeriodS > 0, and then ONE driver per tier on the first
+    // anchor of that tier -- not every anchor. The question being measured is whether
+    // the RIGHT target answers, not how much query traffic the medium carries, and
+    // every anchor querying would confound the two.
+    // The deque MUST live at RunArm scope. QueryDriver objects are scheduled into
+    // the simulator and Fire() runs long after this block; confining them to the
+    // branch destroys them while the scheduler still holds their addresses, which is
+    // a use-after-free that would most likely have appeared to work.
+    //
+    // The cost is a trace divergence with queries OFF: a deque local to RunArm
+    // changes the stack frame even when unused, and under -march=native that alone
+    // changes floating-point codegen. Measured: 1942 trace lines move by 1 ulp on
+    // estXhp, estYhp, meanSigmaM, meanSigmaRawM and one mahalanobis, while
+    // arm_summary.csv stays byte-identical. Correctness first.
+    std::deque<QueryDriver> queries;
+    // Lives at RunArm scope for the same reason queries does: the scheduler
+    // holds these addresses long after the block that creates them.
+    std::deque<PeerRequestDriver> peerReqs;
+    if (identityQueryPeriodS > 0.0)
+    {
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            for (size_t m = 0; m < macs.size(); ++m)
+            {
+                if (macs[m].GetIdentityClass() != CA_TBL_ID_ANCHOR)
+                {
+                    continue;
+                }
+                QueryDriver qd;
+                qd.mac = &macs[m];
+                qd.tier = static_cast<CaTblTier>(ti);
+                qd.periodS = identityQueryPeriodS;
+                qd.jitterMaxS = identityQueryPeriodS * 0.25;
+                qd.untilS = durationS;
+                qd.manifestId = static_cast<uint8_t>(identityQueryTarget);
+                qd.rng = macRng;
+                queries.push_back(qd);
+                break;
+            }
+        }
+    }
+
+    // C4. Peer UWB requests, so the arbiter has competing claims to resolve. Only
+    // when arbitration is on AND a peer exists -- otherwise there is nothing to
+    // arbitrate and this would just be extra traffic.
+    if (uwbArbitration && nTags > 1)
+    {
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        {
+            for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+            {
+                {
+                    PeerRequestDriver rd;
+                    rd.mac = peerMacs[pi][ti];
+                    rd.tier = static_cast<CaTblTier>(ti);
+                    rd.periodS = 30.0;
+                    rd.jitterMaxS = 7.5;
+                    rd.untilS = durationS;
+                    // STATED CONSTANTS, not measurements. A peer has no filter and no
+                    // energy account, so there is nothing to derive these from. Chosen
+                    // mid-range so the peer neither always wins nor always loses --
+                    // an arbiter that always resolves the same way is not exercised
+                    // either.
+                    rd.degradation = 128;
+                    rd.battery = 128;
+                    rd.rng = macRng;
+                    peerReqs.push_back(rd);
+                }
+            }
+        }
+    }
+
+    // C5. A RELAY MUST BE A MEASURED SUBJECT, or it has nothing to relay.
+    //
+    // A relayed measurement treats the relay as a PSEUDO-ANCHOR: the range is used
+    // against the relay's own position ESTIMATE, with the variance inflated by
+    // u^T P_B u. Both halves need the relay to run a filter. A peer with no
+    // CaTblPolicy has no x_hat and no P_B, so there is nothing to put on the wire --
+    // which is what blocked C5, and it was the link budget that was never the issue.
+    //
+    // The relay is a FIXED-TIER measured node: it ranges, filters and is charged, but
+    // does not escalate. Stated limitation, not an approximation of one -- escalation
+    // for peer tags is the remaining half of C2, and a relay that escalated would earn
+    // its P_B on a different tier between one report and the next, which the error
+    // model does not cover.
+    if (relayedRanging)
+    {
+        for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+        {
+            const size_t pi = pt - 1;
+            if (pi >= peerWalkers.size())
+            {
+                break;
+            }
+            tags[pt].nodeId = peerIds[pi];
+            tags[pt].walker = &peerWalkers[pi];
+            tags[pt].pos = peerWalkers[pi].Position();
+            // The SAME configuration as the measured tag. A relay filtered under
+            // different settings would report a P_B not comparable with the covariance
+            // the consumer's own filter carries, and admission test A3 compares
+            // exactly those two quantities.
+            tags[pt].policy.Configure(pcfg);
+            tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
+        }
+    }
+
+    // ---- FINDERS: moving nodes carrying all three radios ---------------------
+    //
+    // Registered on every tier exactly like a gateway, because that is what they are --
+    // a gateway whose position changes. They beacon, so the lost node discovers them
+    // through the ordinary neighbour table and ranges to them through the ordinary
+    // poll set; no ranging or energy code knows they are special.
+    //
+    // isAccessPoint is FALSE: a finder is a person carrying a radio, not installed
+    // infrastructure, so it takes the 2.5% WPC Table-II field cap and not the 10%
+    // access-point cap. Getting that backwards would hand searchers four times the
+    // airtime budget they are entitled to.
+    std::deque<Tourist> finderWalkers;
+    std::vector<uint32_t> finderIds;
+    std::vector<Vector> finderPos;
+    for (uint32_t fi = 0; fi < nFinders; ++fi)
+    {
+        const uint32_t fid = 501 + fi;
+        Ptr<UniformRandomVariable> frng = CreateObject<UniformRandomVariable>();
+        frng->SetStream(static_cast<int64_t>(seed) * 7919 + 900007 + fi);
+        finderWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+                                   dep.boxHalfM, dep.dwellRadiusM, frng);
+        const Vector fpos = finderWalkers.back().Position();
+        finderIds.push_back(fid);
+        finderPos.push_back(fpos);
+
+        engine868.RegisterNode(fid, fpos);
+        engine2p4.RegisterNode(fid, fpos);
+        engineUwb.RegisterNode(fid, fpos);
+
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            const CaTblTier tier = static_cast<CaTblTier>(ti);
+            provider.RegisterAnchor(tier, static_cast<uint16_t>(fid), fpos);
+            anchorPosById[static_cast<uint16_t>(fid)] = fpos;
+
+            CaTblMacConfig fc;
+            fc.nodeId = static_cast<uint16_t>(fid);
+            fc.identityClass = CA_TBL_ID_RESCUER;
+            fc.isAccessPoint = false;
+            fc.uwbArbitration = uwbArbitration;
+            fc.sendHandshakeFrames = sendHandshakeFrames;
+            fc.sf = phy[ti].sf;
+            fc.bandwidthHz = phy[ti].bandwidthHz;
+            fc.txPowerDbm = phy[ti].txPowerDbm;
+            fc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+            macs.emplace_back();
+            CaTblMac* fm = &macs.back();
+            fm->Configure(fc);
+            fm->SetRng(macRng);
+            chan[ti].Register(fm);
+
+            BeaconDriver fb;
+            fb.mac = fm;
+            fb.tier = tier;
+            fb.periodS = beaconPeriodS[ti];
+            fb.jitterMaxS = beaconPeriodS[ti] * 0.25;
+            fb.untilS = durationS;
+            fb.rng = macRng;
+            beacons.push_back(fb);
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
+    for (size_t r = 0; r < peerReqs.size(); ++r)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, peerReqs[r].periodS)),
+                            &PeerRequestDriver::Fire,
+                            &peerReqs[r]);
+    }
+    for (size_t q = 0; q < queries.size(); ++q)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, queries[q].periodS)),
+                            &QueryDriver::Fire,
+                            &queries[q]);
+    }
     for (size_t b = 0; b < beacons.size(); ++b)
     {
         Simulator::Schedule(Seconds(macRng->GetValue(0.0, beacons[b].periodS)),
@@ -2176,7 +2783,6 @@ RunArm(CaTblPolicyMode mode,
     }
 
     // Airtime of one DISCOVERY beacon per tier, for the listen charge below.
-    double beaconToaS[CA_TBL_TIER_COUNT];
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
         const uint32_t payload =
@@ -2188,7 +2794,6 @@ RunArm(CaTblPolicyMode mode,
                                                                 payload,
                                                                 1);
     }
-    uint64_t lastRx[CA_TBL_TIER_COUNT] = {0, 0, 0};
 
     // Last simulated time at which each tier's neighbour table was non-empty.
     // This SURVIVES ClearNeighbours(), and that is the entire point: the live table
@@ -2197,9 +2802,6 @@ RunArm(CaTblPolicyMode mode,
     // question "was anything ever there", and reading the live table for it would
     // make every sleeping tier look absent and collapse every demotion to 868.
     // -1.0 means "never seen populated".
-    double lastNonEmptyAtS[CA_TBL_TIER_COUNT] = {-1.0, -1.0, -1.0};
-    double nbrSum[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
-    uint64_t blindCycles = 0;
     // Floor-ranging-on-demand bookkeeping. floorHealthyStreak counts consecutive
     // cycles on which the ACTIVE tier delivered a solvable set; cycleIndex drives
     // the optional heartbeat. Both are inert unless --floorOnDemand is set.
@@ -2207,27 +2809,22 @@ RunArm(CaTblPolicyMode mode,
     // straddles the EKF's initial convergence. Same for every arm at a given seed.
     const double biasStartS =
         durationS * (0.25 + 0.5 * static_cast<double>(seed % 7) / 7.0);
-    uint32_t floorHealthyStreak = 0;
-    uint64_t cycleIndex = 0;
-    uint64_t floorRangedCycles = 0;
     // Escalation handshakes suppressed by the tier-1 duty-cycle governor, and the
     // total time the node had to wait for the budget to refill. The regulation
     // delaying a handoff is a cyber-physical coupling, not an accounting detail:
     // it converts a legal constraint into position error.
-    uint64_t handshakeDeferrals = 0;
-    double handshakeDeferralDelayS = 0.0;
+    // A3. Handshakes that did NOT slip to the next cycle because the tier-1
+    // budget refilled before this one ended. Deliberately NOT an arm_summary
+    // column: adding one changes the CSV header for every run and breaks
+    // byte-identity against baseline_v7. Printed instead.
     //! Escalations rolled back because the handshake could not be sent. Distinct
     //! from handshakeDeferrals, which also counts deferred DEMOTION handshakes --
     //! those defer the charge but never the transition.
-    uint64_t escalationsDeferredAway = 0;
     //! Cycles where ranging on the CAPPED tier was pre-empted so a pending
     //! handshake could use the duty budget. The cost is this cycle's tier-1
     //! measurements.
-    uint64_t handshakePreemptions = 0;
     //! Set when an escalation is deferred this cycle; the NEXT cycle will
     //! pre-empt ranging to send the handshake (if arbitrateDutyBudget is on).
-    bool pendingHandshake = false;
-    CaTblTier pendingHandshakeTier = CA_TBL_TIER_868;
 
     // Divergence instrument. ca_tbl_full and ca_tbl_no_integrity are identical
     // through t=5.0 and differ from t=7.5 onward, with suspect=0 on every cycle of
@@ -2240,7 +2837,6 @@ RunArm(CaTblPolicyMode mode,
     // counts are equal at the cycle where nAnchors first differs, the sampler is
     // NOT the mechanism and the fault is per-link cached state inside the engines.
     // If they differ, the extra consumer is between here and there.
-    uint64_t directEngineCalls = 0;
 
     std::ofstream trace;
     if (writeTrace)
@@ -2308,14 +2904,31 @@ RunArm(CaTblPolicyMode mode,
               << "floorRanged,nRangesEkf\n";
     }
 
-    std::vector<double> errors;
-    std::vector<double> errorsFixed;
-    uint64_t steps = 0;
-    uint64_t tp = 0;
-    uint64_t fp = 0;
-    uint64_t fn = 0;
-    uint64_t tn = 0;
-    uint64_t inCov = 0;
+    // C4. The two U(r) terms this tag contributes to an anchor's arbitration.
+    // Held rather than recomputed at the handshake site, so the PCS history they
+    // derive from is the one the policy just used.
+    //
+    // C2: PER TAG, and that is not bookkeeping. With a second MEASURED target both
+    // tags issue their own ESC_REQUEST and the anchor arbitrates between them. A
+    // single shared deque would score both requests off whichever tag wrote to it
+    // last, which would look exactly like arbitration and would not be one.
+    // The remaining per-cycle counters moved into CaTblTagState with everything else.
+    // C5 admission tallies, for stdout. Counted per verdict rather than as a single
+    // reject total, because "the measurement was refused" and "it was refused for the
+    // reason the model says it should be" are different claims, and only the second
+    // one is evidence the admission test is doing its job.
+    uint64_t relayAdmitted = 0;
+    uint64_t relayRejTier = 0;
+    uint64_t relayRejDepth = 0;
+    uint64_t relayRejGeom = 0;
+    uint64_t relayRejStale = 0;
+    uint64_t relayRejDup = 0;
+    double relaySigmaEffSum = 0.0;
+    double relaySigmaRawSum = 0.0;
+
+    auto& pcsHist = TS0.pcsHist;
+    auto& pcsDegradation = TS0.pcsDegradation;
+    auto& batteryUsedFrac = TS0.batteryUsedFrac;
 
     // Step count is fixed up front and time is read back from the scheduler rather
     // than accumulated in the loop variable. With an event layer running, the
@@ -2326,6 +2939,23 @@ RunArm(CaTblPolicyMode mode,
     {
         walker.Step(dt);
         pos = walker.Position();
+
+        // Peers move too, or they are stationary beacons rather than targets.
+        // Position is pushed to every engine for the same reason the measured
+        // tag's is: the engines key correlation and mobility state on node id.
+        for (size_t pi = 0; pi < peerWalkers.size(); ++pi)
+        {
+            peerWalkers[pi].Step(dt);
+            const Vector pp = peerWalkers[pi].Position();
+            engine868.UpdateNodePosition(peerIds[pi], pp);
+            engine2p4.UpdateNodePosition(peerIds[pi], pp);
+            engineUwb.UpdateNodePosition(peerIds[pi], pp);
+            provider.SetPeerPosition(static_cast<uint16_t>(peerIds[pi]), pp);
+            if (relayedRanging && (pi + 1) < tags.size())
+            {
+                tags[pi + 1].pos = pp;
+            }
+        }
 
         // Every engine tracks position so its internal correlation/mobility
         // state stays continuous. This costs nothing physically -- no packet is
@@ -2347,6 +2977,165 @@ RunArm(CaTblPolicyMode mode,
 
         const Time now = Simulator::Now();
         const double t = now.GetSeconds();
+
+        if (vizNodes.is_open())
+        {
+            vizNodes << std::fixed << std::setprecision(2) << t << ',' << nodeId << ','
+                     << pos.x << ',' << pos.y << '\n';
+            for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+            {
+                vizNodes << t << ',' << tags[pt].nodeId << ',' << tags[pt].pos.x << ','
+                         << tags[pt].pos.y << '\n';
+            }
+        }
+
+        // Finders move. Their position is pushed to the engines (which key correlation
+        // and mobility state on node id), to the provider (which computes the link) and
+        // to anchorPosById (which the ranging poll reads for the far-end position). All
+        // three, or a finder ranges from a position it has left.
+        for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
+        {
+            Vector fp;
+            if (finderMode == 1)
+            {
+                // Converge on the ESTIMATE, which is all a searcher is ever given.
+                // Stand off once inside standoff metres rather than walking onto the
+                // casualty, so the finder stays put and keeps the short-range link up
+                // instead of oscillating across the estimate every cycle.
+                const double gx = policy.EstX(), gy = policy.EstY();
+                Vector c = finderPos[fi];
+                const double dx = gx - c.x, dy = gy - c.y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double standoff = 8.0;
+                const double stepM = walkSpeedMps * dt;
+                if (dist > standoff && dist > 1e-9)
+                {
+                    const double f = std::min(1.0, stepM / dist);
+                    c.x += dx * f;
+                    c.y += dy * f;
+                }
+                finderPos[fi] = c;
+                fp = c;
+            }
+            else
+            {
+                finderWalkers[fi].Step(dt);
+                fp = finderWalkers[fi].Position();
+                finderPos[fi] = fp;
+            }
+            const uint16_t fid = static_cast<uint16_t>(finderIds[fi]);
+            engine868.UpdateNodePosition(fid, fp);
+            engine2p4.UpdateNodePosition(fid, fp);
+            engineUwb.UpdateNodePosition(fid, fp);
+            provider.SetAnchorPosition(fid, fp);
+            anchorPosById[fid] = fp;
+            if (vizNodes.is_open())
+            {
+                vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid << ','
+                         << fp.x << ',' << fp.y << '\n';
+            }
+        }
+
+        // C5. Each relay's own ranging and filter for this cycle.
+        //
+        // The engine calls are the SAME calls the measured tag makes -- same
+        // ProcessTransmission, same tier parameters, same neighbour-table poll set --
+        // so a relay's fix comes from the modelled physics rather than a stand-in.
+        // Energy is charged to ITS OWN account, which keeps the §6 invariant per tag:
+        // exactly one tier transmits per cycle for this tag and only that tier is
+        // charged on this tag's account. Nothing here touches the measured tag's
+        // energy, and with relayedRanging off none of it runs at all.
+        if (relayedRanging)
+        {
+            const CaTblTier rt = static_cast<CaTblTier>(
+                std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+            const int rti = static_cast<int>(rt);
+            for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+            {
+                const size_t pi = pt - 1;
+                if (pi >= peerMacs.size() ||
+                    static_cast<size_t>(rti) >= peerMacs[pi].size())
+                {
+                    continue;
+                }
+                const std::vector<CaTblNeighbour> nb =
+                    peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
+                std::vector<CaTblRangeMeasurement> pmeas;
+                for (size_t a = 0; a < nb.size(); ++a)
+                {
+                    const uint16_t anchorId = nb[a].id;
+                    std::map<uint16_t, Vector>::const_iterator ap =
+                        anchorPosById.find(anchorId);
+                    if (ap == anchorPosById.end())
+                    {
+                        continue;
+                    }
+                    const Vector& anchorPos = ap->second;
+                    bool received = false;
+                    double range = 0.0;
+                    double sigmaM = 0.0;
+                    bool nlosProp = false;
+                    bool hiddenActive = false;
+                    if (rt == CA_TBL_TIER_868)
+                    {
+                        PhysicsResult r = engine868.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    else if (rt == CA_TBL_TIER_2P4)
+                    {
+                        PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    else
+                    {
+                        PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                            tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
+                            phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
+                            now);
+                        received = r.packetReceived;
+                        range = r.estimatedRangeM;
+                        sigmaM = r.rangingSigmaM;
+                        nlosProp = r.isNLOS;
+                        hiddenActive = (r.hiddenChannelState > 0);
+                    }
+                    if (received && std::isfinite(range) && range > 0.0)
+                    {
+                        CaTblRangeMeasurement m;
+                        m.anchorX = anchorPos.x;
+                        m.anchorY = anchorPos.y;
+                        m.rangeM = range;
+                        m.nlos = nlosProp || hiddenActive;
+                        m.nlosPropagation = nlosProp;
+                        m.hiddenChannelActive = hiddenActive;
+                        m.sigmaM = sigmaM;
+                        pmeas.push_back(m);
+                    }
+                }
+                // Charged on the relay's own account, RX timeouts of anchors that did
+                // not answer included -- the same rule the measured tag pays.
+                tags[pt].energy.AccountRangingExchange(
+                    rt, static_cast<uint32_t>(nb.size()),
+                    static_cast<uint32_t>(pmeas.size()), t);
+                tags[pt].policy.Step(dt, pmeas, 0,
+                                     static_cast<int32_t>(pmeas.size()),
+                                     static_cast<int32_t>(nb.size()), 0);
+                ++tags[pt].steps;
+            }
+        }
 
         const CaTblTier active = policy.GetActiveTier();
 
@@ -2716,6 +3505,152 @@ RunArm(CaTblPolicyMode mode,
         {
             ++floorRangedCycles;
         }
+        // C5. Form a RELAYED measurement against each relay, admit it, and let the
+        // admitted ones into this cycle's measurement set.
+        //
+        // THE §6 INVARIANT IS THE CONSTRAINT HERE, not an afterthought. Exactly one
+        // tier transmits per cycle and only that tier is charged. So a relayed
+        // exchange is formed ONLY when the relay's tier is already the active tier --
+        // then it is one more exchange on a tier that was transmitting anyway, and it
+        // is charged there. If the relay sat on a different tier, forming this would
+        // make two tiers transmit in one cycle and the energy axis would stop meaning
+        // anything.
+        //
+        // A1 also excludes tier 1, so this can only ever engage on 2.4 GHz or UWB.
+        // Both conditions are checked rather than assumed, and the A1 rejection is
+        // still counted when relayTier is forced to 0, because a condition that is
+        // never exercised is not evidence of anything.
+        if (relayedRanging && !usedFloor)
+        {
+            const CaTblTier rt = static_cast<CaTblTier>(
+                std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+            if (rt == active)
+            {
+                std::set<uint16_t> relaysUsedThisUpdate;
+                for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+                {
+                    const double bx = tags[pt].policy.EstX();
+                    const double by = tags[pt].policy.EstY();
+                    // The tag's OWN prior estimate, not its true position: a node does
+                    // not know where it is, and using the truth here would leak the
+                    // answer into the geometry test and the range direction.
+                    const double ax = policy.EstX();
+                    const double ay = policy.EstY();
+                    const double ddx = ax - bx;
+                    const double ddy = ay - by;
+                    const double dist = std::sqrt(ddx * ddx + ddy * ddy);
+
+                    // The tag-to-tag link. ProcessTransmission auto-registers an
+                    // unknown receiver as a gateway with fineTimestamp=false, which is
+                    // the correct hardware class for a tag.
+                    double rAB = 0.0;
+                    double sigRaw = 0.0;
+                    bool got = false;
+                    const int ati = static_cast<int>(active);
+                    if (active == CA_TBL_TIER_2P4)
+                    {
+                        PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+                    else if (active == CA_TBL_TIER_UWB)
+                    {
+                        PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+                    else
+                    {
+                        PhysicsResult r = engine868.ProcessTransmission(
+                            nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
+                            tags[pt].pos, phy[ati].txPowerDbm, phy[ati].sf,
+                            phy[ati].bandwidthHz, 1, now);
+                        got = r.packetReceived;
+                        rAB = r.estimatedRangeM;
+                        sigRaw = r.rangingSigmaM;
+                    }
+
+                    // Charged on the active tier, whether or not the measurement is
+                    // ultimately admitted. The energy was spent on the exchange; a
+                    // later software decision to discard the result does not refund it.
+                    energy.AccountRangingExchange(active, 1, got ? 1 : 0, t);
+
+                    if (!got || !std::isfinite(rAB) || rAB <= 0.0 || dist <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    CaTblRelayedRange rr;
+                    rr.relayId = static_cast<uint16_t>(tags[pt].nodeId);
+                    rr.tier = active;
+                    rr.hopDepth = 1;
+                    rr.sigmaRangeM = sigRaw;
+                    rr.relayP[0][0] = tags[pt].policy.Pxx();
+                    rr.relayP[0][1] = tags[pt].policy.Pxy();
+                    rr.relayP[1][0] = tags[pt].policy.Pxy();
+                    rr.relayP[1][1] = tags[pt].policy.Pyy();
+                    // The relay filtered this same cycle, so its covariance is current.
+                    rr.relayAgeS = 0.0;
+                    rr.relayFixIntervalS = dt;
+                    rr.ux = ddx / dist;
+                    rr.uy = ddy / dist;
+                    rr.distToRelayM = dist;
+
+                    double sigmaEff = 0.0;
+                    const CaTblRelayVerdict v =
+                        CaTblAdmitRelayedRange(rr, relaysUsedThisUpdate, &sigmaEff);
+                    switch (v)
+                    {
+                    case CA_TBL_RELAY_ADMIT:
+                        break;
+                    case CA_TBL_RELAY_REJECT_TIER:
+                        ++relayRejTier;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_DEPTH:
+                        ++relayRejDepth;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_GEOMETRY:
+                        ++relayRejGeom;
+                        continue;
+                    case CA_TBL_RELAY_REJECT_STALE:
+                        ++relayRejStale;
+                        continue;
+                    default:
+                        ++relayRejDup;
+                        continue;
+                    }
+
+                    // The PSEUDO-ANCHOR. The anchor position is the relay's ESTIMATE,
+                    // not its true position, and the inflated sigma is what pays for
+                    // that estimate being wrong. Passing the true position with the
+                    // inflated sigma would be the same category error in the opposite
+                    // direction: a measurement that is better than the model claims.
+                    CaTblRangeMeasurement m;
+                    m.anchorX = bx;
+                    m.anchorY = by;
+                    m.rangeM = rAB;
+                    m.nlos = false;
+                    m.nlosPropagation = false;
+                    m.hiddenChannelActive = false;
+                    m.sigmaM = sigmaEff;
+                    activeMeas.push_back(m);
+
+                    relaysUsedThisUpdate.insert(rr.relayId);
+                    ++relayAdmitted;
+                    relaySigmaEffSum += sigmaEff;
+                    relaySigmaRawSum += sigRaw;
+                }
+            }
+        }
+
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
@@ -2777,6 +3712,42 @@ RunArm(CaTblPolicyMode mode,
                 // unchanged, frame added.
                 if (sendHandshakeFrames && nodeMac[active] != nullptr)
                 {
+                    // C4. Fill the two terms the anchor cannot see: T_deg is this
+                    // node's own confidence degradation, T_batt how much of the stated
+                    // budget it has spent. Quantised to a byte over [0,1].
+                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                     CaTblQuantise(batteryUsedFrac));
+                    nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                }
+            }
+            else if (intraCycleHandshakeDefer &&
+                     energy.GetNextAllowedTxS(active) < t + dt)
+            {
+                // A3. The budget refills BEFORE this cycle ends, so the handshake does
+                // not have to slip into the next one and cost it a ranging slot.
+                //
+                // The arithmetic is the whole argument. One SF7/125 kHz/CR4-5 frame is
+                // 56.58 ms of airtime, which at the 2.5% WPC G.S.R. 853(E) Table-II cap
+                // arms 2.263 s of off-time. Against dt = 2.5 s that refill lands inside
+                // the same cycle, with 0.237 s to spare -- so the pre-emption the
+                // arbiter performs is avoidable at any dt above about 2.32 s, and below
+                // that this branch simply does not fire because the condition fails.
+                //
+                // It is charged AT THE REFILL TIME, not at t. The wait is real: the
+                // handoff is later by that much, and the latency is accumulated so it
+                // can be reported rather than assumed away. What is NOT paid is the
+                // next cycle's ranging exchange.
+                const double tDefer = energy.GetNextAllowedTxS(active);
+                energy.AccountEscalationHandshake(active, tDefer);
+                ++handshakeIntraCycleDefers;
+                handshakeIntraCycleWaitS += (tDefer - t);
+                if (sendHandshakeFrames && nodeMac[active] != nullptr)
+                {
+                    // C4. Fill the two terms the anchor cannot see: T_deg is this
+                    // node's own confidence degradation, T_batt how much of the stated
+                    // budget it has spent. Quantised to a byte over [0,1].
+                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                     CaTblQuantise(batteryUsedFrac));
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
@@ -3008,6 +3979,36 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // C4. T_deg from the slope of the last five PCS values, T_batt from energy
+        // spent against a STATED capacity. Harness form is 1 - exp(-k*max(0,-slope));
+        // k = 1.0 here and is OURS, not calibrated -- calibrating it is part of
+        // CAL-09, which this mechanism exists to produce.
+        pcsHist.push_back(d.pcs);
+        while (pcsHist.size() > 5)
+        {
+            pcsHist.pop_front();
+        }
+        if (pcsHist.size() >= 3)
+        {
+            const size_t np = pcsHist.size();
+            double sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+            for (size_t i = 0; i < np; ++i)
+            {
+                const double x = static_cast<double>(i);
+                sx += x;
+                sy += pcsHist[i];
+                sxx += x * x;
+                sxy += x * pcsHist[i];
+            }
+            const double den = static_cast<double>(np) * sxx - sx * sx;
+            const double slope =
+                (den != 0.0) ? ((static_cast<double>(np) * sxy - sx * sy) / den) : 0.0;
+            pcsDegradation = 1.0 - std::exp(-std::max(0.0, -slope));
+        }
+        batteryUsedFrac = (arbBatteryCapJ > 0.0)
+                              ? std::min(1.0, energy.GetTotalJ() / arbBatteryCapJ)
+                              : 0.0;
+
         const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
         errors.push_back(err);
         if (d.hadFix)
@@ -3108,6 +4109,113 @@ RunArm(CaTblPolicyMode mode,
     res.deescalations = policy.GetDeescalationCount();
     res.suspects = policy.GetSuspectCount();
     res.noFixCycles = policy.GetNoFixCount();
+    // A3 counter, to stdout rather than to arm_summary.csv: a new column changes
+    // the CSV header for every run and breaks byte-identity against baseline_v7.
+    if (handshakeIntraCycleDefers > 0)
+    {
+        std::cout << "    A3 intra-cycle handshake deferrals: "
+                  << handshakeIntraCycleDefers << ", mean wait "
+                  << std::fixed << std::setprecision(3)
+                  << (handshakeIntraCycleWaitS
+                      / static_cast<double>(handshakeIntraCycleDefers))
+                  << " s -- each is a next-cycle ranging exchange NOT pre-empted\n";
+    }
+    // C4. Arbiter outcomes, summed over the ANCHOR MACs -- the arbiter runs on the
+    // anchors, not on the tag. Per-target grant counts are printed so a fairness delta
+    // is measurable rather than asserted. To stdout and not arm_summary.csv: a new
+    // column changes the CSV header for every run and breaks byte-identity.
+    {
+        uint64_t g = 0, dn = 0, pe = 0;
+        std::map<uint16_t, uint64_t> byTarget;
+        for (std::deque<CaTblMac>::const_iterator mi = macs.begin(); mi != macs.end(); ++mi)
+        {
+            if (mi->GetIdentityClass() != CA_TBL_ID_ANCHOR)
+            {
+                continue;
+            }
+            g += mi->GetArbGrants();
+            dn += mi->GetArbDenials();
+            pe += mi->GetArbPreemptions();
+            const std::map<uint16_t, uint64_t>& t = mi->GetGrantsByTarget();
+            for (std::map<uint16_t, uint64_t>::const_iterator ti = t.begin(); ti != t.end(); ++ti)
+            {
+                byTarget[ti->first] += ti->second;
+            }
+        }
+        if (g + dn > 0)
+        {
+            std::cout << "    C4 arbitration: granted " << g << ", denied " << dn
+                      << ", pre-empted " << pe << "\n";
+            for (std::map<uint16_t, uint64_t>::const_iterator ti = byTarget.begin();
+                 ti != byTarget.end();
+                 ++ti)
+            {
+                std::cout << "        target " << ti->first << ": " << ti->second
+                          << " grants\n";
+            }
+        }
+    }
+
+    // C3. Queries answered and correctly ignored, summed over the tag's three
+    // MACs. To stdout rather than arm_summary.csv: a new column changes the CSV
+    // header for every run and breaks byte-identity against baseline_v7.
+    {
+        uint64_t qa = 0, qi = 0;
+        for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+        {
+            qa += nodeMac[i]->GetQueriesAnswered();
+            qi += nodeMac[i]->GetQueriesIgnored();
+        }
+        if (qa + qi > 0)
+        {
+            std::cout << "    C3 identity queries: answered " << qa
+                      << ", correctly ignored " << qi << "\n";
+        }
+    }
+    if (relayedRanging)
+    {
+        std::cout << "    C5 relayed measurements: admitted " << relayAdmitted
+                  << ", rejected A1(tier) " << relayRejTier << ", A2(depth) "
+                  << relayRejDepth << ", A3(geometry) " << relayRejGeom
+                  << ", A4(stale) " << relayRejStale << ", A5(duplicate) "
+                  << relayRejDup << "\n";
+        if (relayAdmitted > 0)
+        {
+            std::cout << "        mean sigma: raw "
+                      << (relaySigmaRawSum / static_cast<double>(relayAdmitted))
+                      << " m -> inflated "
+                      << (relaySigmaEffSum / static_cast<double>(relayAdmitted))
+                      << " m -- the relay position uncertainty, priced in\n";
+        }
+    }
+
+    // C5 relay state, to stdout rather than to arm_summary.csv: a new column changes
+    // the CSV header for every run and breaks byte-identity against baseline_v7.
+    //
+    // WHY THIS IS PRINTED AT ALL. Rule 4 -- an exact zero is a control-flow claim, not
+    // a measurement. Without this, "the relay filter runs" would be an assertion about
+    // code that produces no observable, and a relay whose Step() silently never ran
+    // would look exactly like one that ran and converged. trace(P) is the quantity that
+    // distinguishes them: an initialised-but-never-updated filter keeps its seeded
+    // covariance, so a trace that has MOVED off 2 * 100^2 is evidence the update path
+    // executed.
+    if (relayedRanging)
+    {
+        for (size_t rt2 = 1; rt2 < tags.size(); ++rt2)
+        {
+            const double trP = tags[rt2].policy.Pxx() + tags[rt2].policy.Pyy();
+            const double ex = tags[rt2].policy.EstX();
+            const double ey = tags[rt2].policy.EstY();
+            const double dx = ex - tags[rt2].pos.x;
+            const double dy = ey - tags[rt2].pos.y;
+            std::cout << "    C5 relay node " << tags[rt2].nodeId << ": steps "
+                      << tags[rt2].steps << ", trace(P) " << std::fixed
+                      << std::setprecision(3) << trP << " m^2 (seeded 20000), Pxy "
+                      << tags[rt2].policy.Pxy() << ", err "
+                      << std::sqrt(dx * dx + dy * dy) << " m, energy "
+                      << tags[rt2].energy.GetTotalJ() << " J\n";
+        }
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -3289,6 +4397,19 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool intraCycleHandshakeDeferArg = false;
+    uint32_t nTagsArg = 1;
+    bool relayedRangingArg = false;
+    uint32_t relayTierArg = 1;
+    bool vizEventsArg = false;
+    uint32_t nFindersArg = 0;
+    uint32_t finderModeArg = 1;
+    uint32_t sitingModeArg = 0;
+    uint32_t topologyArg = 0;
+    double identityQueryPeriodSArg = 0.0;
+    uint32_t identityQueryTargetArg = 2;
+    bool uwbArbitrationArg = false;
+    double arbBatteryCapJArg = 1000.0;
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -3598,6 +4719,156 @@ main(int argc, char* argv[])
                  "validated -- and both headline conclusions were already shown "
                  "invariant to terrain.",
                  terrainPerTierFreqArg);
+    cmd.AddValue("intraCycleHandshakeDefer",
+                 "Whether a handshake blocked by the tier-1 duty budget waits "
+                 "for the budget to refill WITHIN this cycle instead of slipping "
+                 "to the next one. False (default) keeps the existing behaviour, "
+                 "in which the handshake is deferred and the arbiter then "
+                 "pre-empts the next cycle ranging exchange to make room -- so a "
+                 "tier-1 handoff costs a ranging slot. One SF7 frame is 56.58 ms, "
+                 "which at the 2.5 percent WPC cap arms 2.263 s of off-time, and "
+                 "that refill lands inside a 2.5 s cycle with 0.237 s to spare. "
+                 "So the pre-emption is avoidable above dt of about 2.32 s, and "
+                 "below it this simply never fires. The handshake is charged at "
+                 "the refill time, not at the cycle start: the handoff really is "
+                 "later, and that latency is accumulated and reported rather than "
+                 "assumed away. What is not paid is the next cycle ranging.",
+                 intraCycleHandshakeDeferArg);
+    cmd.AddValue("vizEvents",
+                 "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
+                 "deployment geometry (deployment.json), for the trace-driven "
+                 "visualiser. FALSE by default. These are OUTPUTS ONLY -- the channel "
+                 "writes to the stream and never reads it, and nothing in the "
+                 "simulation reads either file back, so this cannot change a result. "
+                 "It records the same events the aggregate counters already count, "
+                 "itemised, so an animation can show them one at a time. Costs disk "
+                 "and a little I/O; it is off by default because a 3600 s six-arm run "
+                 "writes a lot of frames.",
+                 vizEventsArg);
+    cmd.AddValue("finderMode",
+                 "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
+                 "position ESTIMATE of the lost node, standing off 8 m once there. Not "
+                 "the true position -- nobody knows that -- so a bad fix sends searchers "
+                 "to the wrong place, and the cost of poor localisation shows up as "
+                 "distance walked rather than only as a number. 0 = tour the facility "
+                 "sites like any other field node, which is what a finder does before it "
+                 "has been given anywhere to go. NOTE this is a MODELLING CHOICE not "
+                 "specified by the project brief; see docs/DESIGN_DECISIONS.md.",
+                 finderModeArg);
+    cmd.AddValue("nFinders",
+                 "Number of FINDERS: moving nodes carrying all three radios, which the "
+                 "lost node discovers and ranges against exactly as it does a fixed "
+                 "gateway. Default 0. This is the mechanism the architecture turns on: "
+                 "UWB reaches tens of metres, so a FIXED gateway can offer tier 3 only "
+                 "to something already beside it, and escalation to UWB becomes a "
+                 "statement about a searcher having arrived rather than about the "
+                 "casualty having wandered somewhere useful. Finders take the 2.5% WPC "
+                 "Table-II field cap, NOT the 10% access-point cap -- a searcher is a "
+                 "person carrying a radio, not installed infrastructure.",
+                 nFindersArg);
+    cmd.AddValue("topology",
+                 "0 (DEFAULT) = TRI-BAND GATEWAYS, the correct model: every gateway is "
+                 "one fixed node carrying all three radios -- 868 MHz, 2.4 GHz and UWB "
+                 "-- so the tier is a choice of which radio to use, not of whom to talk "
+                 "to. 1 = the legacy three-population model, in which tier 1, tier 2 and "
+                 "tier 3 had SEPARATE anchors in different places. Legacy is retained "
+                 "only so results produced before 2026-09-07 remain reproducible; it "
+                 "does not describe the system. NOTE that 0 and 1 are different "
+                 "deployments, so they do not share a baseline and no null control "
+                 "relates them -- switching this is a change of scenario, not of "
+                 "configuration.",
+                 topologyArg);
+    cmd.AddValue("sitingMode",
+                 "Where tier-3 anchors go. 0 (default) CO-LOCATES them with tier 2 at "
+                 "the four facility sites, which is the siting every existing result "
+                 "was produced under and is deliberate: if the two refinement tiers "
+                 "covered different ground, an escalation failure could be a siting "
+                 "artefact rather than a decision error. 1 is COMPLEMENTARY siting -- "
+                 "the facility square rotated 45 degrees, so tier 3 sits at the SAME "
+                 "radius from the centre but in the GAPS between the tier-2 clusters. "
+                 "Same radius is the point: moving tier 3 outward would confound "
+                 "\"different place\" with \"further out\" and the comparison would "
+                 "stop isolating siting. Tier 2 does not move in either mode, and "
+                 "neither do the facilities themselves, because the walker dwells "
+                 "there and moving them would change the mobility as well.",
+                 sitingModeArg);
+    cmd.AddValue("relayedRanging",
+                 "Whether peer tags run their own filter, so that a relay has a "
+                 "position estimate and a covariance to report. FALSE (default) "
+                 "reproduces every existing result byte-for-byte, because with it "
+                 "off not one additional engine evaluation is made and the shared "
+                 "random stream is untouched. A relay is a PSEUDO-ANCHOR: its range "
+                 "is used against its own estimate with the variance inflated by "
+                 "u^T P_B u, so both halves need a filter on the relay. A peer "
+                 "without one has nothing to put on the wire, which is what blocked "
+                 "C5 -- not the link budget. The relay is modelled as a FIXED-TIER "
+                 "measured node: it ranges, filters and is charged, but does not "
+                 "escalate, because a relay that escalated would earn its P_B on a "
+                 "different tier between one report and the next and the error model "
+                 "does not cover that.",
+                 relayedRangingArg);
+    cmd.AddValue("relayTier",
+                 "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
+                 "NOT 0, and that is an admission condition rather than a preference "
+                 "-- A1 excludes tier 1 from relayed ranging because its error is a "
+                 "spatially correlated shadowing field, so two nearby tags' errors "
+                 "are correlated before any relaying happens and the independence "
+                 "the measurement equation assumes is absent in the medium. Setting "
+                 "this to 0 produces relayed measurements that A1 will reject, which "
+                 "is the intended behaviour and is worth being able to demonstrate.",
+                 relayTierArg);
+    cmd.AddValue("nTags",
+                 "How many targets exist on the channel. 1 (default) is the "
+                 "scenario as it has always been, and constructs nothing extra -- "
+                 "no trajectory, no MAC, no beacon, and no draw from the shared "
+                 "macRng, so the default is byte-identical by construction rather "
+                 "than by measurement. Above 1, each additional target is a "
+                 "PROTOCOL PEER: a real MAC on the real channel with a real "
+                 "trajectory, which beacons, is discovered, contends, and carries "
+                 "a distinct targetManifestId so an identity-scoped query has "
+                 "something to discriminate on. A peer is NOT a second measured "
+                 "subject -- it has no policy, no EKF and no energy model, and its "
+                 "joules are not accounted. Reporting peer energy would be wrong. "
+                 "Making a peer a measured system is the full per-tag refactor, "
+                 "which is a separate and larger piece of work.",
+                 nTagsArg);
+    cmd.AddValue("identityQueryPeriodS",
+                 "Seconds between identity-scoped QUERY floods from one anchor "
+                 "per tier. 0 (default) issues none, which is the scenario as it "
+                 "has always been. A query names a target manifest id and only "
+                 "the target carrying that id answers -- that scoping is the "
+                 "mechanism, and without it a query is a broadcast every target "
+                 "answers. One anchor per tier rather than all of them, because "
+                 "the question is whether the RIGHT target answers, not how much "
+                 "query traffic the medium carries.",
+                 identityQueryPeriodSArg);
+    cmd.AddValue("identityQueryTarget",
+                 "Which target manifest id the queries name. The measured tag is "
+                 "1; peers created by --nTags are 2, 3 and so on. Default 2, so "
+                 "with --nTags=2 the query names the PEER and the measured tag "
+                 "must correctly ignore it -- which is the observation that shows "
+                 "scoping works rather than that flooding works.",
+                 identityQueryTargetArg);
+    cmd.AddValue("uwbArbitration",
+                 "Whether anchors arbitrate between competing UWB requests rather "
+                 "than granting whoever asked. False (default) is the C1 "
+                 "behaviour: every ESC_REQUEST is granted and contention alone "
+                 "decides who lands. True scores U(r) = l1*T_deg + l2*T_batt + "
+                 "l3*T_stale + l4*T_query, ported from the arbitration harness "
+                 "rather than reinvented. T_deg and T_batt ride on the request "
+                 "because an anchor cannot see another node PCS history or its "
+                 "battery; T_stale and T_query it computes itself. NOTE that every "
+                 "ESC_REQUEST carries the same access category, so T_query is a "
+                 "constant across competing requests and cannot order them.",
+                 uwbArbitrationArg);
+    cmd.AddValue("arbBatteryCapJ",
+                 "Joule budget T_batt is measured against: spent/cap, saturating "
+                 "at 1. Default 1000 and it is OURS -- there is no battery model "
+                 "in this simulator, so this is a stated reference rather than a "
+                 "measured capacity. It sets how fast the battery term saturates "
+                 "and so how much it can influence arbitration; sweep it before "
+                 "trusting any conclusion that leans on T_batt.",
+                 arbBatteryCapJArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -3800,7 +5071,45 @@ main(int argc, char* argv[])
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
-                                           t2AnchorsPerSite);
+                                           t2AnchorsPerSite,
+                                           sitingModeArg,
+                                           topologyArg);
+
+    if (vizEventsArg)
+    {
+        // Geometry the animation needs and the trace does not carry. Written once, in
+        // main, because the deployment is identical for every arm -- writing it per arm
+        // would invite someone to believe otherwise.
+        std::ofstream dj((outdir + "/deployment.json").c_str());
+        if (dj.is_open())
+        {
+            dj << "{\n";
+            dj << "  \"boxHalfM\": " << boxHalfM << ",\n";
+            dj << "  \"dwellRadiusM\": " << dep.dwellRadiusM << ",\n";
+            dj << "  \"envWide\": " << static_cast<int>(env) << ",\n";
+            dj << "  \"envFacility\": " << static_cast<int>(envFacility) << ",\n";
+            dj << "  \"facilities\": [";
+            for (size_t i = 0; i < dep.facilities.size(); ++i)
+            {
+                dj << (i ? ", " : "") << "[" << dep.facilities[i].x << ", "
+                   << dep.facilities[i].y << "]";
+            }
+            dj << "],\n";
+            dj << "  \"anchors\": {\n";
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                dj << "    \"" << ti << "\": [";
+                for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+                {
+                    dj << (i ? ", " : "") << "{\"id\": " << dep.anchors[ti][i].id
+                       << ", \"x\": " << dep.anchors[ti][i].pos.x
+                       << ", \"y\": " << dep.anchors[ti][i].pos.y << "}";
+                }
+                dj << "]" << (ti + 1 < CA_TBL_TIER_COUNT ? "," : "") << "\n";
+            }
+            dj << "  }\n}\n";
+        }
+    }
 
     const CaTblPolicyMode allArms[] = {CA_TBL_MODE_STATIC_868,
                                        CA_TBL_MODE_STATIC_2P4,
@@ -3989,6 +5298,17 @@ main(int argc, char* argv[])
                                        nDeescalateArg,
                                        sendHandshakeFramesArg,
                                        deferEscalationOnDutyLimit,
+                                       intraCycleHandshakeDeferArg,
+                                       nTagsArg,
+                                       relayedRangingArg,
+                                       relayTierArg,
+                                       vizEventsArg,
+                                       nFindersArg,
+                                       finderModeArg,
+                                       identityQueryPeriodSArg,
+                                       identityQueryTargetArg,
+                                       uwbArbitrationArg,
+                                       arbBatteryCapJArg,
                                        arbitrateDutyBudget,
                                        fixedVarThresholdM2,
                                        pcsSigmaTargetM,

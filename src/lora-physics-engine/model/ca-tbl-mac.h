@@ -50,6 +50,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <ostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -224,6 +225,21 @@ struct CaTblMacConfig
      */
     bool sendHandshakeFrames;
 
+    // ---- C4: multi-target UWB arbitration --------------------------------
+    //! Whether an anchor arbitrates between competing UWB requests instead of
+    //! granting whoever asked. False (default) keeps the C1 behaviour, in which
+    //! every ESC_REQUEST is granted and contention alone decides who lands.
+    bool uwbArbitration = false;
+    //! U(r) weights, in the order the Python harness defines them:
+    //! degradation, battery, staleness, query urgency. All 1.0 is the harness
+    //! default and is OURS pending CAL-09, which this mechanism produces.
+    double arbLambdaDeg = 1.0;
+    double arbLambdaBatt = 1.0;
+    double arbLambdaStale = 1.0;
+    double arbLambdaQuery = 1.0;
+    //! Seconds after which a held UWB slot is considered free again.
+    double arbSlotHoldS = 10.0;
+
     CaTblMacConfig();
 };
 
@@ -293,6 +309,46 @@ class CaTblMac
      * \param destId   0 for broadcast, otherwise the directed peer
      */
     void Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId = 0);
+
+    //! C3. A separate entry point rather than a defaulted parameter on Send(): ns-3
+    //! Simulator::Schedule binds a member function at EXACT arity, so widening Send
+    //! breaks every scheduled call to it. Found by the compiler, not by inspection.
+    void SendQuery(CaTblTier tier, uint8_t manifestId);
+
+    //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
+    //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
+    //! so a stale value cannot leak onto an unrelated frame.
+    void SetRequestTerms(uint8_t degradation, uint8_t battery)
+    {
+        m_nextReqDegradation = degradation;
+        m_nextReqBattery = battery;
+    }
+
+  private:
+    //! C4. Returns true if this request wins the UWB slot.
+    bool ArbitrateRequest(const CaTblHeader& hdr);
+
+  public:
+
+    //! Which identity class this MAC was configured as. Needed by the scenario to
+    //! pick an anchor to originate queries from; the config is otherwise private.
+    CaTblIdentityClass GetIdentityClass() const { return m_cfg.identityClass; }
+
+    //! C3: identity-scoped queries answered, and responses sent. Counted so the
+    //! mechanism is measurable rather than asserted.
+    uint64_t GetQueriesAnswered() const { return m_queriesAnswered; }
+    uint64_t GetQueriesIgnored() const { return m_queriesIgnored; }
+
+    //! C4. Grants, arbitration denials, and pre-emptions of a held slot.
+    uint64_t GetArbGrants() const { return m_arbGrants; }
+    uint64_t GetArbDenials() const { return m_arbDenials; }
+    uint64_t GetArbPreemptions() const { return m_arbPreemptions; }
+    //! Per-target grant counts, so a fairness delta is measurable rather than
+    //! asserted. Keyed by originating node id.
+    const std::map<uint16_t, uint64_t>& GetGrantsByTarget() const
+    {
+        return m_grantsByTarget;
+    }
 
     /**
      * \brief The §2.9 handshake: mobility state selects which messages get sent.
@@ -377,6 +433,20 @@ class CaTblMac
     Ptr<UniformRandomVariable> m_rng;
     CaTblMobilityState m_mobility;
     RxCallback m_rxCb;
+    uint8_t m_nextQueryManifest = 0; //!< C3, consumed by the next Send()
+    uint8_t m_nextReqDegradation = 0; //!< C4, consumed by the next Send()
+    uint8_t m_nextReqBattery = 0;     //!< C4, consumed by the next Send()
+    uint64_t m_queriesAnswered = 0;
+    // C4 arbiter state: which target holds the slot and since when.
+    uint16_t m_slotHolder = 0;
+    double m_slotGrantedAtS = -1.0;
+    double m_slotHolderScore = 0.0;
+    std::map<uint16_t, double> m_lastGrantAtS;
+    uint64_t m_arbGrants = 0;
+    uint64_t m_arbDenials = 0;
+    uint64_t m_arbPreemptions = 0;
+    std::map<uint16_t, uint64_t> m_grantsByTarget;
+    uint64_t m_queriesIgnored = 0;
     DropCallback m_dropCb;
 
     double m_txPowerDbm;
@@ -427,6 +497,12 @@ class CaTblChannel
     CaTblChannel();
 
     void SetPhyProvider(CaTblPhyProvider* phy) { m_phy = phy; }
+
+    /** Per-frame event sink for the visualiser. NOT a simulation input: the channel
+     *  writes to it and never reads it, and when it is null nothing is written. The
+     *  aggregate counters remain the authority on what happened; this is the same
+     *  events, itemised, so an animation can show them. */
+    void SetEventLog(std::ostream* os) { m_eventLog = os; }
     void SetCaptureThresholdDb(double db) { m_captureThresholdDb = db; }
     double GetCaptureThresholdDb() const { return m_captureThresholdDb; }
 
@@ -474,6 +550,7 @@ class CaTblChannel
     void PruneExpired();
 
     CaTblPhyProvider* m_phy;
+    std::ostream* m_eventLog = nullptr;
     std::map<uint16_t, CaTblMac*> m_nodes;
     std::vector<InFlight> m_inFlight;
     double m_captureThresholdDb;
