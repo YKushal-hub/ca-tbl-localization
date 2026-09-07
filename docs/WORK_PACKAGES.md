@@ -29,8 +29,8 @@ after a commit touches the file. The symbol names are stable; the line numbers a
 
 ## The 48–72 hour cut
 
-**What fits, and what does not.** Costs below assume Claude Code working the code while engine
-runs proceed in parallel on your machine.
+**What fits, and what does not.** Costs below assume an agent session working the code while
+engine runs proceed in parallel on your machine.
 
 ### In scope
 
