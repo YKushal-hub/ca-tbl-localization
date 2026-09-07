@@ -1123,18 +1123,15 @@ CaTblPolicy::Step(double dt,
     // failed its own consistency check is work done on a number nobody should trust.
     if (wantEscalate && dynamic && m_crossCheckFresh)
     {
-        if (m_config.imuCrossCheck && m_havePrevEst)
+        if (m_config.imuCrossCheck && m_imuTolM > 0.0)
         {
-            // How far the FILTER thinks it moved, against how far the BODY moved.
-            const double dfx = m_ekf.X() - m_prevEstX;
-            const double dfy = m_ekf.Y() - m_prevEstY;
-            const double filterDisp = std::sqrt(dfx * dfx + dfy * dfy);
-            // Tolerance scales with the filter's own uncertainty, because a filter that
-            // admits it is unsure is allowed to disagree with the body by more.
-            const double tol =
-                m_config.imuConsistencyK *
-                std::max(m_config.imuSigmaFloorM, std::sqrt(std::max(traceSigma, 0.0)));
-            if (std::fabs(filterDisp - m_imuDispM) > tol)
+            // The inertial estimate is an independent ABSOLUTE position that drifts.
+            // The caller supplies both the disagreement and the tolerance, because the
+            // drift model belongs with the engine that produces it -- an SHS is bounded
+            // by time since its last correction, not by distance walked, and a policy
+            // that assumed otherwise would be applying a strapdown error model to a
+            // step-and-heading one.
+            if (m_imuDispM > m_imuTolM)
             {
                 wantEscalate = false;
                 m_imuRejections++;
