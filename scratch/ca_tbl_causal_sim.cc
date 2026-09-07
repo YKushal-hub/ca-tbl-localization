@@ -2235,6 +2235,7 @@ RunArm(CaTblPolicyMode mode,
        double suspectInflateFactor,
        uint32_t suspectRecoveryN,
        bool escalationRequiresEvidence,
+       bool uwbEvidenceFromNeighbours,
        int multiStepMode,
        double demoteStalenessS,
        CaTblNlosSource nlosSource,
@@ -2403,6 +2404,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.suspectInflateFactor = suspectInflateFactor;
     pcfg.suspectRecoveryN = suspectRecoveryN;
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
+    pcfg.uwbEvidenceFromNeighbours = uwbEvidenceFromNeighbours;
     // The map the predicate needs. The node must already hold anchor coordinates to
     // multilaterate at all, so supplying them grants no information it lacks; an
     // empty vector disables the UWB half of the predicate by construction.
@@ -4785,6 +4787,7 @@ main(int argc, char* argv[])
     double suspectInflateFactor = 4.0;
     uint32_t suspectRecoveryN = 5;
     bool escalationRequiresEvidence = false;
+    bool uwbEvidenceFromNeighboursArg = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
     double pcsW1Arg = -1.0;
@@ -4912,6 +4915,16 @@ main(int argc, char* argv[])
                  "Suppress-only; never creates an escalation. Does NOT gate 868->2.4 -- "
                  "see escalationRequiresEvidenceT2 for why that one does not work.",
                  escalationRequiresEvidence);
+    cmd.AddValue("uwbEvidenceFromNeighbours",
+                 "Take the UWB half of that gate from the LIVE neighbour table rather "
+                 "than the static anchor map. FALSE by default. The map is a snapshot "
+                 "taken at scenario start, and under the tri-band topology tier 3 comes "
+                 "from FINDERS, which move and are never in it -- so the predicate asks "
+                 "about a deployment this system no longer has. Presence, not count: a "
+                 "suppress-only gate should ask whether the tier has anything here, not "
+                 "whether a fix will solve. Symmetric with the 868->2.4 half, which has "
+                 "always read the same live evidence.",
+                 uwbEvidenceFromNeighboursArg);
     cmd.AddValue("mahalUseR",
                  "Use the correctly specified integrity gate: weighted "
                  "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
@@ -5793,6 +5806,7 @@ main(int argc, char* argv[])
                                        suspectInflateFactor,
                                        suspectRecoveryN,
                                        escalationRequiresEvidence,
+                                       uwbEvidenceFromNeighboursArg,
                                        multiStepMode,
                                        demoteStalenessS,
                                        nlosSource,
