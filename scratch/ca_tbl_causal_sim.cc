@@ -3786,8 +3786,39 @@ RunArm(CaTblPolicyMode mode,
                             const double un = std::sqrt(ux * ux + uy * uy);
                             if (un > 1e-6)
                             {
-                                const double fp2[2][2] = {{fe.varX, fe.covXY},
-                                                          {fe.covXY, fe.varY}};
+                                // AGE IS PART OF THE UNCERTAINTY, and leaving it out
+                                // is not conservative -- it is wrong in the dangerous
+                                // direction. The entry carries the variance the
+                                // reporter had WHEN IT REPORTED, a couple of metres of
+                                // GNSS error. The position is as old as the last
+                                // digest that reached us, and a searcher walks the
+                                // whole time. Handing the filter a several-minute-old
+                                // point under a two-metre variance tells it to trust
+                                // an anchor that is hundreds of metres from where it
+                                // now stands. Measured before this was added: 238
+                                // substitutions on entries averaging 242 s old drove
+                                // rmse from 7.4 m to 86.7 m.
+                                //
+                                // Bounded by how far the reporter COULD have gone:
+                                // walkSpeedMps is the searcher speed this deployment
+                                // assumes, so speed x age is a travel bound and its
+                                // square is the variance that bound implies. Isotropic
+                                // because a bound carries no direction -- the entry's
+                                // velocity fields are not populated, and inventing a
+                                // heading from a stale fix would claim more than is
+                                // known.
+                                //
+                                // This also makes A3 do its job. The admission test
+                                // refuses a relay whose position uncertainty is large
+                                // against the range being measured, and staleness is
+                                // exactly such an uncertainty -- so an entry too old
+                                // to use is now rejected by the existing guard rather
+                                // than needing a staleness cutoff of its own.
+                                const double ageS = std::max(0.0, t - fe.timestampS);
+                                const double travel = walkSpeedMps * ageS;
+                                const double ageVar = travel * travel;
+                                const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
+                                                          {fe.covXY, fe.varY + ageVar}};
                                 const double proj =
                                     CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
                                 if (proj >= 0.0)
