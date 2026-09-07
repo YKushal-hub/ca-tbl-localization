@@ -11,6 +11,29 @@
 | **Evidence convention** | Every measured figure carries a tag`[M-nn]` resolved in §12                                                 |
 | **Diagrams**            | Mermaid — render/interactive in GitHub, VS Code, Obsidian, Typora,`mermaid.live`                            |
 
+> ## ⚠ SCOPE: the results in this document were measured under the LEGACY topology
+>
+> **Corrected 2026-09-07 (`99fdf1a`).** Until then the simulator modelled three **disjoint**
+> anchor populations — tier-1 gateways on a grid, tier-2 anchors ringed at 150 m and tier-3
+> at 10 m around four facility sites. The system actually has **one population of tri-band
+> nodes**: every node carries all three radios, and a tier is a choice of *which radio to
+> use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are
+> mobile nodes carrying all three radios; facility sites are **mobility targets that host no
+> anchors**. See `Architecture.md` §3 and `RULES.md`.
+>
+> **What that means for this document, section by section.**
+>
+> - **§2 specifications** — corrected in place below, and marked where a value applied only
+>   to the legacy deployment.
+> - **§4 onward, the results, predictions and analyses** — **left exactly as measured.**
+>   Every one ran under `--topology=1`. They still reproduce from their own sidecars, but
+>   they reproduce a deployment the system does not have, and are **provisional pending
+>   re-run**. Rewriting a dated evidence chain to agree with a later model would falsify it.
+>
+> Reasoning that turns on tier-2/tier-3 anchors *ringing four facility sites* — §8.2's
+> registered prediction and §13.3's coverage-limit diagnosis in particular — is reasoning
+> about the legacy geometry and does not carry over unexamined.
+
 ---
 
 ## Table of contents
@@ -104,22 +127,22 @@ Availability  A ≥ 0.95     at     Accuracy  R ≤ 25 m
 ```mermaid
 flowchart LR
     A["Select facility site<br/>from 4"] --> B["Transit at 1.5 m/s"]
-    B --> C["Enter tier-2 ring<br/>150 m radius"]
-    C --> D["Enter tier-3 ring<br/>10 m radius"]
-    D --> E["Dwell"]
-    E --> F["Exit tier-3 ring"]
-    F --> G["Exit tier-2 ring"]
+    B --> C["Approach the site"]
+    C --> E["Dwell"]
+    E --> G["Depart"]
     G --> A
     style C fill:#e8f4ea
-    style D fill:#d4ead9
-    style F fill:#fdf0e3
-    style G fill:#fbe4e4
+    style E fill:#d4ead9
+    style G fill:#fdf0e3
 ```
 
-- An unconstrained random walk almost never enters a 10 m ring → the escalation question is
-  never posed → the experiment measures nothing.
-- The tour poses it **repeatedly and in both directions** — entering coverage and leaving it.
-- This is what makes hysteresis and de-escalation observable at all.
+- The tour poses the escalation question **repeatedly and in both directions** — entering
+  coverage and leaving it. That is what makes hysteresis and de-escalation observable at all.
+- **Legacy note.** The sites used to carry a 150 m tier-2 ring and a 10 m tier-3 ring, and
+  the tour existed partly because an unconstrained random walk almost never enters a 10 m
+  ring, so the escalation question was never posed. **Under the corrected topology the sites
+  host no anchors**, and what poses the escalation question is a **finder arriving** rather
+  than the node entering a ring.
 
 ### 2.4 The density sweep
 
@@ -268,8 +291,9 @@ cross-arm claim, not a refinement of a single-seed one.
 ### 6.1 The question and its ground truth
 
 - **Question:** when the system decides to activate the precision radio, is it right?
-- **Ground truth:** `shouldUwb := visUwb ≥ 3` — at least three tier-3 anchors within nominal
-  range of the node's **true** position.
+- **Ground truth:** `shouldUwb := visUwb ≥ 3` — at least three **UWB-capable nodes** within
+  nominal range of the node's **true** position. Under the corrected topology those are
+  gateways and finders; under the legacy topology they were dedicated tier-3 anchors.
 - **Why it is not circular:** the label is **pure geometry**, computed independently of any
   physics outcome. It answers "could tier 3 have solved this cycle?", not "did it".
 
@@ -300,7 +324,7 @@ cross-arm claim, not a refinement of a single-seed one.
 flowchart TD
     A["Confidence rule requests<br/>escalation to tier 3"] --> B{"QUALITY<br/>sqrt(traceSigma) <= 0.25 x 20 m ?"}
     B -->|no| S["SUPPRESS<br/>predictBlockedQuality++"]
-    B -->|yes| C{"COVERAGE<br/>>= 3 tier-3 anchors within<br/>20 m of estimated position ?"}
+    B -->|yes| C{"COVERAGE<br/>>= 3 UWB-capable nodes within<br/>20 m of estimated position ?"}
     C -->|no| S2["SUPPRESS<br/>predictBlockedCoverage++"]
     C -->|yes| D["PERMIT escalation"]
     style B fill:#e8f4ea

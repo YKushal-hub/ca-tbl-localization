@@ -5,6 +5,10 @@
 
 **Scope.** One document covering both halves of the project: what the ns-3 implementation has built against what the Phase 1 blueprint specifies, where the two contradict, what remains unbuilt, what is measurably broken, and two branching routes forward with an explicit branch point and abort criteria.
 
+> **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after this plan was written.** This document was drafted against the legacy deployment model of three **disjoint** anchor populations (tier-1 gateways on a grid; tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites). **That model was wrong.** The system has **one population of tri-band nodes** — every node carries all three radios, and a tier is a choice of *which radio to use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are mobile tri-band nodes; facility sites are mobility targets that **host no anchors**. Authoritative: `Architecture.md` §3, `RULES.md`, and `BuildDeployment()` at `scratch/ca_tbl_causal_sim.cc:177`.
+>
+> **Consequences for this plan.** Any row, gap or track whose reasoning rests on *anchors clustered at four facility sites* — notably the M-4 / §13.3 "coverage limit" diagnosis and the complementary-siting track — is reasoning about a geometry the system does not have, and needs re-deriving rather than re-reading. Every results figure quoted here predates the correction and is **provisional pending re-run**.
+
 ---
 
 ## 0. Source basis
@@ -114,7 +118,7 @@ The 8 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, sp
 |---|---|---|
 | **CA-DBL** | **CA-TBL** ("Confidence-Aware Tier-Based Localization") | Every file, every commit message, the repository name itself |
 | Field Node | "field tag", "tag", "node" — all three are on the forbidden list | `Architecture.md` §2.3, throughout |
-| Anchor/Gateway Node | "gateways", "anchors", "facility sites" | `Architecture.md` §3.1 |
+| Anchor/Gateway Node | "gateways", "anchors", "facility sites" — note that since 2026-09-07 "anchor" means *any node reachable on a tier*, and facility sites host none | `Architecture.md` §3 |
 | Tier 1 (LoRa 868 MHz) | "868 MHz", "tier 1", "static_868" | Throughout; arm names are baked into 89 results directories |
 | progressive handoff | "handoff", "escalation" used interchangeably for the whole mechanism | `Architecture.md` §9 |
 | Position Confidence Score (PCS) | "confidence score", "PCS" | Consistent enough |
@@ -406,6 +410,14 @@ So the check has been falsified **as rejection alone, under its own fault model,
 
 ### A4 — Tier-1 measurement calibration *(scheduled before A5)*
 
+> **DONE 2026-09-06, and its framing is superseded.** Tier-1 sigma is over-stated by ~1.7×
+> consistently across a 2.2× density range, but the baseline NEES of 2.95 does not reconcile
+> against 1.342, so **no calibration was applied** and the 1.7× is not attributable to tier-1
+> `R` alone (NEES normalises by the posterior covariance, which carries `Q` too). See
+> `report/A4_CALIBRATION_RESULTS.md`. Separately, the "coverage limit" framing below counts
+> *tier-2 anchors ringed at facility sites*, a geometry the 2026-09-07 topology correction
+> removed — re-derive it before acting on it.
+
 **Problem.** Above `spacing/r80` ≈ 1.55 no arm meets the requirement, and **96–99.6 % of inadequate fixes occur on cycles where fewer than three tier-2 anchors are in range**. Open question: is tier-1 range uncertainty over-stated relative to realised error? If so, the filter is discounting exactly the measurements that would carry those cycles.
 
 **Change.** Compare tier-1 reported sigma against realised error across the density sweep; recalibrate if over-stated. Interacts with C2 and D-3: the RSSI-inversion sigma is proportional to range by construction, which is both the reason the CRLB gate does not apply and a candidate reason the sigma is mis-scaled.
@@ -419,6 +431,14 @@ So the check has been falsified **as rejection alone, under its own fault model,
 ---
 
 ### A5 — Complementary siting as a second treatment arm
+
+> **DONE 2026-09-06, and the question is now VOID.** Complementary siting forfeited tier 3
+> outright — coverage 50.2 → 0 across all five seeds — because the nearest rotated site was
+> 1526 m away against a UWB range of tens of metres (`report/A5_SITING_RESULTS.md`). The
+> 2026-09-07 topology correction then removed the premise entirely: **tier 2 and tier 3 live
+> on the same tri-band nodes and cannot be sited apart.** `--sitingMode` is read only under
+> `--topology=1`. The surviving lesson is the arithmetic: it is *why a fixed gateway cannot
+> serve tier 3 at all*, and therefore why finders exist.
 
 **Change.** Distribute tier-2 anchors rather than ringing four facilities; run **alongside** the co-located control so siting is not confounded with everything else. Requires a `BuildDeployment()` change — the four sites are hardcoded at `±0.47 × boxHalf`.
 
