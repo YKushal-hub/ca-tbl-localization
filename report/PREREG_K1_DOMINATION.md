@@ -197,3 +197,98 @@ and does not test domination (`CLAUDE.md` §2).
   here. Domination is a systems claim, not a claim for PCS.
 - Anything about tier 1 as a time-of-arrival estimator (`TECH_DEBT.md` J.2).
 - G11's model-versus-engine disagreement (`TECH_DEBT.md` J.1), which stays red.
+
+---
+
+# Amendment 1 — 2026-09-08, before any cell was analysed
+
+Two launches were started and discarded before a single number was looked at. Both are
+recorded here rather than quietly replaced, because a registration that only shows the
+launch that worked is not a registration.
+
+## A1.1 The first launch took the CLI defaults, and one of them is disqualifying
+
+§2 named `--pcsForm`, `--floorOnDemand`, `--gwGrid` and `--boxHalf` and left everything
+else at its default. Those defaults are a historical baseline, not the designed system.
+Most of the gaps were merely unflattering; one was fatal:
+
+**`nFinders` defaults to 0.** Its own help text calls finders *"the mechanism the
+architecture turns on"* — UWB reaches tens of metres, so a fixed gateway can offer tier 3
+only to something already beside it. With no finders, tier 3 has **no source**, every
+escalation to it is pure loss, and the campaign would have measured a two-tier system
+while reporting on a three-tier one.
+
+Also defaulted off and part of the design: `--escalationRequiresEvidence`,
+`--corroborationCheck` (the mechanism behind the strongest result in the repository),
+`--bidirectionalDigest`, `--sendHandshakeFrames` (four other flags are silently
+conditional on it — `TECH_DEBT` I.4), `--terrainPerTierFreq`, and
+`--uwbCoverageIncludesFinders`.
+
+**Change:** every cell now runs the designed deployment, identical across arms, so the
+comparison is one physical world with different radio policies.
+
+`--imuCrossCheck`, `--relayedRanging` and `--hopPenalty` stay **off**, each for a
+measured reason and not to save time: the SHS driver does not track (330 m,
+`DESIGN_DECISIONS` §8), and A3 admitted a relayed measurement on 2 cycles of 240, which
+makes the provenance term inert rather than helpful.
+
+## A1.2 The second launch was on the wrong propagation
+
+A one-seed smoke test at `boxHalf=2000` showed `static_2p4` holding **10.46 mean
+neighbours against tier 1's 9.71** — 2.4 GHz out-ranging 868 MHz on the same deployment,
+against ~27 dB of link budget in tier 1's favour. The cause is
+`report/ENV_SPLIT_DEFECT.md`: tiers 2 and 3 are simulated in `ENV_RURAL_OPEN` with
+`VEG_SPARSE_SHRUBS` while tier 1 is in `ENV_RURAL_FORESTED` with `VEG_DENSE_FOREST`,
+a leftover from the pre-2026-09-07 topology in which tiers 2/3 were separate anchors
+"at a facility site". Under the tri-band correction they are the same nodes.
+
+**A three-tier architecture whose second tier out-ranges its first cannot demonstrate
+anything about tiering.** The domination question was unanswerable at that default, and
+the answer it would have given — *use one radio* — is an artefact of a vegetation
+constant.
+
+**Change:** every cell now passes `--envFacility=1 --vegFacility=3`, putting all three
+radios in the environment their shared node actually stands in.
+
+## A1.3 The envelope moved, in both directions and for stated reasons
+
+The original sweep was `boxHalf` ∈ {1000 … 3000}. It moved twice:
+
+- **up**, when the smoke test at 2000 showed tier 2 still solving 1437 of 1440 cycles,
+  putting the crossover outside the range;
+- **back down**, when the environment correction collapsed tier 2's reach — 863 of 1440
+  cycles at the same scale — putting the crossover *below* the original range instead.
+
+Final sweep: **{500, 750, 1000, 1500, 2000, 3000}**, which spans tier 2 comfortable to
+tier 2 hopeless at the corrected propagation. The range was set by where the tiers
+change behaviour, and both moves are recorded above so that is checkable.
+
+## A1.4 P3 is a joint effect, and is restated
+
+K1a moves `--pcsForm` **and** `--floorOnDemand` together, so K1a − K1b is their joint
+effect and P3, which names the floor alone, was not answerable as written. P3 now reads:
+
+> **P3′.** The repaired configuration (gated PCS + floor on demand, together) cuts
+> `ca_tbl_full` `totalJ` by ≥ 30% at every scale.
+
+The attribution cell that would separate them is dropped for compute, and this is
+recorded as a limitation rather than left for a reader to discover.
+
+## A1.5 A new cell, to put 20 seeds under §A1.2
+
+`k1e_split1000` — the K1a policy at `boxHalf=1000` with the environment split **left
+at its defective default**. Against `k1a_box500…3000` it measures the defect over 20
+paired seeds instead of the one seed that motivated the change. Registered now, before
+either cell has run.
+
+## A1.6 Two corrections to §2 as written
+
+- Seeds are **7–26**, not 1–20: `seedStart` defaults to 7 and the campaign passes
+  `--seedCount=20`. Every cell shares the same set, so the pairing is unaffected.
+- §6.5 asks for `cyclesInUwbCoverage`. It is readable only because A1.1 turned
+  `--uwbCoverageIncludesFinders` on; at the default the column is structurally zero and
+  would have been quoted as evidence of something it cannot see.
+
+**Nothing in this amendment was written after looking at a cell.** The abort conditions,
+the domination definition, the predictions and the falsifiers of the original
+registration are unchanged, P3 excepted, and F1 in particular still stands as written.
