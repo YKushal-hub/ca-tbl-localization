@@ -358,7 +358,21 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # owner narrowing exactly: that trailer is deliberately not enforced in message bodies,
 # and anchoring the handles to trailer form would otherwise have re-widened it by the
 # back door.
-G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|^[[:space:]]*[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthropic|openai)'
+# TIGHTENED 2026-09-08, hours later, because the anchoring commit tripped its own gate
+# -- the FOURTH time this check has fired on a commit that documents it. 233f98a's body
+# lists its negative fixtures as literal trailer lines, and "Signed-off-by: bot
+# <x@anthropic.com>" is indistinguishable from the real thing unless indentation counts.
+#
+# It counts, and it is the right discriminator rather than a convenient one. A GIT
+# TRAILER SITS AT COLUMN 0 in the trailer block; git's own parser will not read an
+# indented line as a trailer. So an indented Key: Value is documentation quoting the
+# form, and an unindented one is the form. Requiring column 0 is therefore STRICTER
+# about what counts as a trailer, not laxer: nothing git would treat as attribution can
+# hide behind indentation, and prose quoting a fixture no longer convicts.
+#
+# The leading [[:space:]]* was inherited from the original pattern and was never
+# examined. It is what made every documenting commit an offender.
+G12_MSG_PAT='^(generated[- ]with|assisted-by):|^[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthropic|openai)'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
