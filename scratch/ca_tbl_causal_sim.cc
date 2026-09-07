@@ -2257,6 +2257,7 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nFinders,
        uint32_t finderMode,
        double finderDigestPeriodS,
+       double finderPosSigmaM,
        bool finderPseudoAnchor,
        uint32_t hopProvenanceForm,
        double hopPenalty,
@@ -2844,6 +2845,22 @@ RunArm(CaTblPolicyMode mode,
     std::vector<uint32_t> finderIds;
     std::vector<Vector> finderPos;
     std::vector<CaTblMac*> finderMac; // tier-0 MAC per finder, for its table
+    std::vector<std::vector<CaTblMac*>> finderMacAll; // [finder][tier], to republish
+    // WHAT A FINDER BELIEVES ABOUT ITSELF, as distinct from where it is.
+    //
+    // A searcher is not GPS-denied -- that is the casualty's problem, and the whole
+    // premise of the deployment -- but it is not surveyed infrastructure either. It
+    // knows where it is to within its receiver's error, and every position it
+    // publishes or navigates by carries that error. Modelled as a CONSTANT per-finder
+    // offset rather than fresh noise each cycle, because GNSS error over a 600 s walk
+    // is dominated by slowly varying terms (geometry, multipath, ionosphere) and
+    // white noise would wash out under averaging and understate the effect.
+    //
+    // Drawn from its own stream, so enabling this does not displace the shared RNG
+    // stream and move every unrelated fading realisation with it (TECH_DEBT sect 1.1).
+    std::vector<Vector> finderGpsOffset;
+    const double finderPosVar =
+        (finderPosSigmaM > 0.0) ? (finderPosSigmaM * finderPosSigmaM) : 4.0;
     for (uint32_t fi = 0; fi < nFinders; ++fi)
     {
         const uint32_t fid = 501 + fi;
@@ -2854,6 +2871,19 @@ RunArm(CaTblPolicyMode mode,
         const Vector fpos = finderWalkers.back().Position();
         finderIds.push_back(fid);
         finderPos.push_back(fpos);
+        Vector goff(0.0, 0.0, 0.0);
+        if (finderPosSigmaM > 0.0)
+        {
+            Ptr<NormalRandomVariable> grng = CreateObject<NormalRandomVariable>();
+            grng->SetAttribute("Mean", DoubleValue(0.0));
+            grng->SetAttribute("Variance",
+                               DoubleValue(finderPosSigmaM * finderPosSigmaM));
+            grng->SetStream(static_cast<int64_t>(seed) * 7919 + 910007 + fi);
+            goff.x = grng->GetValue();
+            goff.y = grng->GetValue();
+        }
+        finderGpsOffset.push_back(goff);
+        finderMacAll.push_back(std::vector<CaTblMac*>(CA_TBL_TIER_COUNT, nullptr));
 
         engine868.RegisterNode(fid, fpos);
         engine2p4.RegisterNode(fid, fpos);
@@ -2879,8 +2909,14 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* fm = &macs.back();
             fm->Configure(fc);
             fm->SetRng(macRng);
-            fm->PublishSelfEntry(fpos.x, fpos.y, 4.0, 4.0, 0.0, 0.0, 0.0, 0.0);
+            // What it BELIEVES, with the variance that belief actually carries.
+            // Publishing the true position under a non-zero variance would claim an
+            // uncertainty the reported number does not have, which is the silent
+            // perfect-knowledge assumption this flag exists to remove.
+            fm->PublishSelfEntry(fpos.x + goff.x, fpos.y + goff.y, finderPosVar,
+                                 finderPosVar, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(fm);
+            finderMacAll.back()[ti] = fm;
             if (ti == 0)
             {
                 finderMac.push_back(fm);
@@ -3188,6 +3224,36 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // A FINDER REPUBLISHES WHERE IT BELIEVES IT IS, EVERY CYCLE.
+        //
+        // It used to publish once, inside the CONSTRUCTION loop, at its spawn
+        // position -- and then walk for the whole run. Nothing read the entry, so
+        // nothing broke, but the moment anything does (the pseudo-anchor
+        // substitution, or a rescuer's console) it would be handed a position stale
+        // by however far the searcher had walked. A stale entry that looks fresh is
+        // worse than no entry, because a consumer cannot tell the difference.
+        //
+        // Costs no airtime: PublishSelfEntry writes this node's own table slot and
+        // bumps its sequence number. What goes on the air is the ENTRY_PUSH that a
+        // digest already asks for, billed by entry count and not by content.
+        auto republishFinder = [&](size_t fi, const Vector& truePos, double nowS) {
+            if (fi >= finderMacAll.size())
+            {
+                return;
+            }
+            const Vector& off = finderGpsOffset[fi];
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (finderMacAll[fi][ti] != nullptr)
+                {
+                    finderMacAll[fi][ti]->PublishSelfEntry(truePos.x + off.x,
+                                                           truePos.y + off.y,
+                                                           finderPosVar, finderPosVar,
+                                                           0.0, 0.0, 0.0, nowS);
+                }
+            }
+        };
+
         // Finders move. Their position is pushed to the engines (which key correlation
         // and mobility state on node id), to the provider (which computes the link) and
         // to anchorPosById (which the ranging poll reads for the far-end position). All
@@ -3226,10 +3292,17 @@ RunArm(CaTblPolicyMode mode,
                     engineUwb.UpdateNodePosition(finderIds[fi], fp);
                     provider.SetAnchorPosition(static_cast<uint16_t>(finderIds[fi]), fp);
                     anchorPosById[static_cast<uint16_t>(finderIds[fi])] = fp;
+                    republishFinder(fi, fp, t);
                     continue;
                 }
                 Vector c = finderPos[fi];
-                const double dx = gx - c.x, dy = gy - c.y;
+                // Steers from where it BELIEVES it is, and walks in the real world.
+                // A GPS offset therefore bends the approach: the finder closes on a
+                // point displaced by its own error, which is the honest consequence
+                // and the reason the offset is not merely cosmetic.
+                const Vector bel(c.x + finderGpsOffset[fi].x,
+                                 c.y + finderGpsOffset[fi].y, c.z);
+                const double dx = gx - bel.x, dy = gy - bel.y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
                 const double standoff = 8.0;
                 const double stepM = walkSpeedMps * dt;
@@ -3254,6 +3327,7 @@ RunArm(CaTblPolicyMode mode,
             engineUwb.UpdateNodePosition(fid, fp);
             provider.SetAnchorPosition(fid, fp);
             anchorPosById[fid] = fp;
+            republishFinder(fi, fp, t);
             if (vizNodes.is_open())
             {
                 vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid << ','
@@ -4806,6 +4880,7 @@ main(int argc, char* argv[])
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     double finderDigestPeriodSArg = 30.0;
+    double finderPosSigmaMArg = 0.0;
     bool finderPseudoAnchorArg = false;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
@@ -5169,6 +5244,19 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("finderPosSigma",
+                 "Metres of GNSS position error a finder carries, as a per-finder "
+                 "constant offset. 0.0 by default, which is the PRE-EXISTING and "
+                 "flattering assumption: a finder reports its position exactly. The "
+                 "self-consistent setting is 2.0 -- the variance a finder entry has "
+                 "always claimed is 4.0 m^2, while the position it carried was true, "
+                 "so the claim and the number disagreed. A searcher is not GPS-denied "
+                 "(that is the casualty's problem) but it is not surveyed "
+                 "infrastructure either. Constant rather than per-cycle noise because "
+                 "GNSS error over a 600 s walk is dominated by slowly varying terms; "
+                 "white noise would average out and understate it. Drawn from its own "
+                 "stream, so it displaces nothing else.",
+                 finderPosSigmaMArg);
     cmd.AddValue("finderPseudoAnchor",
                  "Treat a finder as a PSEUDO-ANCHOR rather than a perfectly known one: "
                  "the filter gets the position the finder REPORTS and a variance "
@@ -5828,6 +5916,7 @@ main(int argc, char* argv[])
                                        nFindersArg,
                                        finderModeArg,
                                        finderDigestPeriodSArg,
+                                       finderPosSigmaMArg,
                                        finderPseudoAnchorArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
