@@ -1195,25 +1195,46 @@ CaTblPolicy::Step(double dt,
             }
             else if (m_config.uwbEvidenceFromNeighbours)
             {
-                // OBSERVED, symmetric with the 868 -> 2.4GHz half above. The mask
-                // carries "tier 3's neighbour table has been non-empty recently",
-                // refreshed every cycle for all tiers regardless of which is
-                // active, so it sees a finder that walked into range while the node
-                // sat on tier 2. The static map cannot: finders are not in it.
+                // PREDICTED FROM OBSERVATION, on a radio that is actually awake.
                 //
-                // Counted under the SAME counter as the predicted form, because it
-                // is the same refusal for the same reason -- tier 3 has nothing
-                // here. Splitting them would make the two forms incomparable across
-                // runs for no gain.
-                if ((tierEvidenceMask & (1u << CA_TBL_TIER_UWB)) == 0)
+                // The first version of this read tierEvidenceMask's UWB bit, and it
+                // could never fire. A tier the node is not using is put in deep
+                // sleep and its neighbour table is CLEARED every cycle, deliberately
+                // -- keeping it would hand the policy free knowledge of a radio it
+                // had switched off and make re-escalation instantaneous. So the UWB
+                // table is only ever non-empty WHILE ALREADY ON UWB, and a gate that
+                // demands UWB evidence before entering UWB is a permanent veto on
+                // tier 3. Measured: uwbCycles 0 and meanNbr_uwb 0.0000 even in a
+                // 300 m box with four converging finders over 1200 s.
+                //
+                // The comment this replaced was therefore RIGHT that there is
+                // nothing to observe on tier 3 before escalating to it, and the
+                // reason it gave -- discoverability -- was not the operative one.
+                // The operative one is that the radio is asleep.
+                //
+                // What IS observable is range on the tier currently in use. The
+                // measurements handed to this Step() were taken by an awake radio,
+                // and a neighbour ranged at less than the UWB predicate radius is a
+                // neighbour UWB would reach. That is an observation about geometry
+                // rather than about a map, so it follows finders, which is what the
+                // static map cannot do.
+                //
+                // Presence, not count, and counted under the SAME counter as the
+                // predicted form: it is the same refusal for the same reason.
+                int32_t near = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
                 {
-                    d.predictedVisUwb = 0;
+                    if (meas[i].rangeM > 0.0 &&
+                        meas[i].rangeM <= m_config.uwbPredictRadiusM)
+                    {
+                        ++near;
+                    }
+                }
+                d.predictedVisUwb = near;
+                if (near < 1)
+                {
                     wantEscalate = false;
                     m_predictBlockedCoverage++;
-                }
-                else
-                {
-                    d.predictedVisUwb = -1; // observed, so a count was never formed
                 }
             }
             else
