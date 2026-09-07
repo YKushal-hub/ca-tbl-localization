@@ -370,6 +370,33 @@ CaTblEnergyModel::AccountRangingExchange(CaTblTier tier,
         Charge(tier, toa, p.txCurrentMa, a.txJ, a.txTimeS);
         a.txFrames++;
         airtimeThisExchange += toa;
+
+        // THE MISSING HALF. The paragraph above is the cost when the NETWORK
+        // localises. This model runs the estimator on the field node, which means a
+        // range per anchor has to come back, and nothing charges for its arrival --
+        // there is no per-beacon RX accounting and AccountListen fires only when the
+        // neighbour table is empty. Off by default so every published number stands;
+        // on, it charges the downlink at the same rates tier 2 already pays.
+        //
+        // No second TX is added. RSSI inversion needs no two-way exchange, only the
+        // answer coming back, so a reply-shaped tier 1 is strictly cheaper than a
+        // two-way-ToF tier 2 with the same anchor count -- which is the comparison
+        // the energy axis is for.
+        if (m_tier1ChargeReplies)
+        {
+            for (uint32_t i = 0; i < replies; ++i)
+            {
+                Charge(tier, p.turnaroundS, p.idleCurrentMa, a.idleJ, a.idleTimeS);
+                Charge(tier, toa + p.rxWindowGuardS, p.rxCurrentMa, a.rxJ, a.rxTimeS);
+                a.rxFrames++;
+            }
+            for (uint32_t i = 0; i < misses; ++i)
+            {
+                // Addressed and silent: the receiver stays open for the full timeout.
+                Charge(tier, p.turnaroundS, p.idleCurrentMa, a.idleJ, a.idleTimeS);
+                Charge(tier, p.rxTimeoutS, p.rxCurrentMa, a.rxJ, a.rxTimeS);
+            }
+        }
     }
     else if (tier == CA_TBL_TIER_2P4)
     {

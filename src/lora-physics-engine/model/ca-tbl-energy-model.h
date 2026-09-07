@@ -215,6 +215,40 @@ class CaTblEnergyModel
                                 uint32_t payloadBytes = 20);
 
     /**
+     * \brief Charge tier 1 for the downlink that carries the ranges back.
+     *
+     * FALSE by default, which preserves every published number.
+     *
+     * Tier 1 is billed as ONE BROADCAST AND NOTHING ELSE: the node transmits, the
+     * anchors timestamp and measure, and the node's cost does not scale with how
+     * many heard it. That is a TDoA shape, and it is the correct cost when THE
+     * NETWORK localises -- anchors measure, a gateway multilaterates, and the field
+     * node is never told the answer.
+     *
+     * But this model does not do that. `CaTblPolicy` runs ON THE FIELD NODE, and it
+     * consumes a range per anchor every cycle. Those ranges have to reach it, and
+     * nothing charges for their arrival: there is no per-beacon RX accounting, and
+     * AccountListen only fires when the neighbour table is EMPTY. So the node runs a
+     * filter on data it was never billed to receive, and tier 1's structural energy
+     * advantage -- the thing every accuracy-per-joule figure rests on -- is measured
+     * against an exchange that is one message short of closing.
+     *
+     * Setting this true charges the missing half: an RX window per responding anchor
+     * and a full rxTimeoutS per silent one, the same treatment tier 2 already gets
+     * for its replies. It does NOT add a second TX, because RSSI inversion needs no
+     * two-way exchange -- only the answer coming back.
+     *
+     * This is a MEASUREMENT of the gap, not a claim that either shape is right. The
+     * shapes answer different questions: TDoA-shaped is what a gateway-side estimator
+     * costs the node, reply-shaped is what a node-side estimator costs it. Which one
+     * applies is decided by the CONTRADICTION row in MASTER_PLAN 2.1 -- the spec puts
+     * the estimator on the gateway and the code puts it on the tag -- and that is not
+     * settled here.
+     */
+    void SetTier1ChargeReplies(bool on) { m_tier1ChargeReplies = on; }
+    bool GetTier1ChargeReplies() const { return m_tier1ChargeReplies; }
+
+    /**
      * \brief Charge the escalation request/grant round-trip.
      *
      * Escalation is the one ACK'd message class in the MAC design, so it costs a
@@ -300,6 +334,8 @@ class CaTblEnergyModel
     uint8_t m_sf[CA_TBL_TIER_COUNT];
     double m_bandwidthHz[CA_TBL_TIER_COUNT];
     uint8_t m_codingRate[CA_TBL_TIER_COUNT];
+
+    bool m_tier1ChargeReplies = false;
 
     double m_dutyLimit[CA_TBL_TIER_COUNT];
     double m_nextAllowedTxS[CA_TBL_TIER_COUNT];
