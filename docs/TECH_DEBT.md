@@ -445,3 +445,53 @@ substitute an anchor position for a UWB measurement. Physically sound (the repor
 about position, not about the radio), and worth knowing before anyone reasons about
 per-tier isolation. The one-hop neighbour table is **not** unioned, deliberately, because
 it drives the poll set.
+
+## I. What a flag-efficacy sweep found, 2026-09-08
+
+`scripts/flag_efficacy.sh` runs every boolean flag both ways and compares output byte
+for byte. It exists because two defects this session were invisible to the gate suite,
+to the null controls and to reading the code, and both were found by one question:
+**can this flag change its own output?**
+
+### I.1 The Mahalanobis integrity check has an empty eligible population
+`--mahalUseR` and `--suspectForcesEscalation` produce byte-identical output because
+`suspects == 0` in every run tested. The verifier says the same thing from the other
+side: *"all-LOS on 0/1431 fix cycles (0.00%). The all-LOS rate is the integrity gate's
+eligible population."*
+
+The check is specified to run on all-LOS cycles, and under the corrected topology there
+are none. So the mechanism the thesis register calls the central contribution **cannot
+fire at all** in the configuration everything else is measured in, and two flags that
+configure it are consequently untestable.
+
+**Distinguish it from the new one.** The *switching-point integrity check* built on
+2026-09-07 — IMU and neighbour corroboration — does fire, and is the 8/8 result in
+`report/INTEGRITY_CHECK_RESULTS.md`. It is the older Mahalanobis test that is dead here.
+*Fix:* a configuration with a non-empty all-LOS population, or an explicit statement
+that the Mahalanobis form is not exercised under this topology. Uncosted, and it needs
+deciding before either is written up as a contribution.
+
+### I.2 `--uwbEvidenceFromNeighbours` was broken on arrival, and is fixed
+Recorded in full at `c236834`. It read a neighbour table belonging to a radio that is
+put in deep sleep and cleared every cycle, so it was a permanent veto on tier 3 and
+produced byte-identical output to the static map on all 8 seeds. **Two mechanisms
+agreeing exactly is not agreement.** Now predicts from measured range on the awake tier;
+tier 3 goes from 0.0 to 5.4 cycles.
+
+### I.3 The 66 J was attributed to the wrong flag
+`report/EVIDENCE_GATE_AND_EXCHANGE.md` originally credited the saving to
+`--uwbEvidenceFromNeighbours`. The campaign compared *neither* against *both* and could
+not separate them. The third arm shows the saving belongs to
+`--escalationRequiresEvidence`. Corrected in `88a3f91`. **Rule 5, and it is now the
+second time a claim in this project has needed the untested arm checked.**
+
+### I.4 Four flags are silently conditional on `--sendHandshakeFrames`
+`--bidirectionalDigest`, `--finderPseudoAnchor` and `--corroborationCheck` do nothing
+without it and say so nowhere except in one flag's help text. Not a defect; a
+documentation gap that costs an afternoon to anyone sweeping them. *Fix:* say it in each
+flag's help, which is the house style for explaining a default.
+
+### I.5 Suggested gate
+A gate asserting that a mechanism's *input* is non-zero whenever its *firing counter*
+is. Both defects above had a counter reporting healthy activity while the quantity it
+fed read zero. Nothing in the suite compares the two.
