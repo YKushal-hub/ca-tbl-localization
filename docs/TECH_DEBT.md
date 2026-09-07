@@ -379,3 +379,69 @@ strongest thing in the repository and it is still four qualifications short of a
 | 4 | Gateways as edge servers | the energy claim is about the wrong node until this moves |
 | 5 | Seed sweep + CI on the integrity result | turns the best finding into a claim |
 | 6 | SHS driver | needs a mobility model with finite turn rates; largest and least certain |
+
+---
+
+# Addendum — 2026-09-08
+
+Takes precedence over anything above it that it contradicts.
+
+## G. Closed since the 2026-09-07 addendum
+
+| item | where it stood | now |
+|---|---|---|
+| **A. No baseline for the corrected topology** | "outranks everything else" | **Closed.** `baseline_v8` (`ae1faf5`), `dirty 0`, reproduces 7/7. Null controls work again and five changes have since used it. |
+| **B. Gateway count/placement to the brief** | 9 over 2 km vs the brief's 3 over 5 km | **Closed.** `--nGateways` / `--gwRingFrac` (`089a9f1`). |
+| **C.1 Hop weight is zero / provenance inert** | "the confidence side is untouched" | **Partly closed.** The provenance term reaches the score (`57ebb41`) and now has a non-zero input (`edf73a5`): share 0.20 over 180 cycles, and `--hopProvenanceForm` 0 vs 1 finally differ. **Still open:** whether it carries information the covariance does not, and per-hop RSSI/SNR variance, which still never reaches the score. |
+| **B. Only the self-entry propagates / exchange is one-directional** | listed as missing | **Closed.** `cf25341`. The casualty asks as well as answers, and a node reads the union of its own three tables. |
+| **E. The integrity result has no confidence interval** | "four qualifications short of a claim" | **One qualification closed.** All three intervals exclude zero (`cf09176`). The other three stand. |
+| **B. Finder entries are stale by construction** | not previously recorded | **Closed.** A finder published its spawn position once and then walked for the whole run (`5262c59`). |
+
+## H. New, and the first two are the important ones
+
+### H.1 Tier 3 is unreachable in the tested configuration, and the gate now makes that visible
+`--uwbEvidenceFromNeighbours` takes UWB cycles from 176.5 to **0.0** and energy from
+72.03 J to 5.69 J. The saving is real and it is 92% of the budget, but the mechanism is
+*not using tier 3 at all* — the node had been escalating to UWB for 176 of 240 cycles
+and getting **zero UWB fixes** against 0.01–0.22 mean UWB neighbours.
+
+**This is the architecture's central open question, not a defect to fix.** The premise is
+that a finder carries UWB to the casualty. In 600 s at a 1 km box with four converging
+finders, it does not get there. Until it does, the tiered arm's third tier is dead
+weight and the honest headline is "the policy was wasting almost all of its energy",
+not "tiering works". *Fix:* not a code change — a configuration in which tier 3 is
+reachable (longer runs, closer convergence, more finders), measured. Uncosted.
+
+### H.2 Dissemination latency is bounded at the consumer, not at the source
+The pseudo-anchor now prices an entry's age into its variance (`f88e224`), so a stale
+entry degrades gracefully instead of poisoning the filter. **Nothing bounds the age
+itself.** Finders act on a casualty position 79–240 s old, and the casualty on finder
+entries of similar age, with no maximum and no re-request when an entry goes stale. The
+digest period is a fixed 30 s regardless of how fast anything is moving. *Fix:* an
+age-triggered digest, or a staleness ceiling above which an entry is dropped rather than
+inflated. *Cost:* small; the question of what the ceiling should be is the expensive part.
+
+### H.3 The gate suite cannot see a mechanism that fires into a zero
+`edf73a5` fixed an accumulator cleared between its two contributors. For the whole life
+of `937a55a` the substitution counter reported 1513 firings while the term it fed read
+0.00, and `--hopProvenanceForm` 0 and 1 produced byte-identical output. **Two counters
+each looked right and disagreed about the same cycle.** No gate tests for it, and it is
+the same family as the 51 J artefact: a mechanism whose stated effect depends on a
+quantity nobody checked was non-zero. *Fix:* a gate asserting that a mechanism's input
+is non-zero whenever its firing counter is, on at least one configuration.
+
+### H.4 Constants introduced this session, ours and uncited
+- `--finderPosSigma` default 0.0; 2.0 m is argued from the variance the entry already
+  claimed, not from a receiver datasheet.
+- The staleness bound uses `walkSpeedMps` as the searcher-speed bound. Defensible — it is
+  the speed the deployment already assumes — but it is an assumption the consumer makes
+  about the reporter, and a reporter that ran would break it.
+- The casualty's digest period reuses `finderDigestPeriodS`. Not swept.
+
+### H.5 Knowledge is unioned across tiers; the poll set deliberately is not
+`cf25341` has a node read the union of its three per-tier tables. That is correct — one
+node, three interfaces — but it means an entry heard on 868 can now be used to
+substitute an anchor position for a UWB measurement. Physically sound (the report is
+about position, not about the radio), and worth knowing before anyone reasons about
+per-tier isolation. The one-hop neighbour table is **not** unioned, deliberately, because
+it drives the poll set.
