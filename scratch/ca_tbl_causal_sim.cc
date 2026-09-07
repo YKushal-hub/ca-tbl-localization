@@ -183,7 +183,9 @@ BuildDeployment(uint32_t gwGrid,
                 uint32_t uwbAnchorsPerSite,
                 uint32_t t2AnchorsPerSite,
                 uint32_t sitingMode,
-                uint32_t topology)
+                uint32_t topology,
+                uint32_t nGateways,
+                double gwRingFrac)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -258,14 +260,36 @@ BuildDeployment(uint32_t gwGrid,
     const double g = boxHalfM * 0.9;
     const double gwH = 15.0;
     uint32_t id = 101;
-    const int gw = std::max(2, static_cast<int>(gwGrid));
-    for (int gx = 0; gx < gw; ++gx)
+    if (nGateways > 0)
     {
-        for (int gy = 0; gy < gw; ++gy)
+        // RING placement. The brief asks for three gateways, and a square grid cannot
+        // produce three; the closest it manages is four. Evenly spaced on a ring gives
+        // an equilateral triangle at N = 3 -- the minimum geometry for a 2-D fix, and
+        // the best conditioning three points can offer the interior.
+        //
+        // The ring radius is a fraction of boxHalf rather than an absolute, so the
+        // deployment scales with the area the way the grid does and the two remain
+        // comparable across box sizes.
+        const double R = gwRingFrac * boxHalfM;
+        for (uint32_t k = 0; k < nGateways; ++k)
         {
-            const double fx = -g + 2.0 * g * static_cast<double>(gx) / (gw - 1);
-            const double fy = -g + 2.0 * g * static_cast<double>(gy) / (gw - 1);
-            dep.anchors[CA_TBL_TIER_868].push_back({id++, Vector(fx, fy, gwH)});
+            const double th =
+                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(nGateways) + M_PI / 2.0;
+            dep.anchors[CA_TBL_TIER_868].push_back(
+                {id++, Vector(R * std::cos(th), R * std::sin(th), gwH)});
+        }
+    }
+    else
+    {
+        const int gw = std::max(2, static_cast<int>(gwGrid));
+        for (int gx = 0; gx < gw; ++gx)
+        {
+            for (int gy = 0; gy < gw; ++gy)
+            {
+                const double fx = -g + 2.0 * g * static_cast<double>(gx) / (gw - 1);
+                const double fy = -g + 2.0 * g * static_cast<double>(gy) / (gw - 1);
+                dep.anchors[CA_TBL_TIER_868].push_back({id++, Vector(fx, fy, gwH)});
+            }
         }
     }
 
@@ -4716,6 +4740,8 @@ main(int argc, char* argv[])
     double corroborationRangeSigmaMArg = 30.0;
     uint32_t sitingModeArg = 0;
     uint32_t topologyArg = 0;
+    uint32_t nGatewaysArg = 0;
+    double gwRingFracArg = 0.6;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
@@ -5128,6 +5154,21 @@ main(int argc, char* argv[])
                  "Table-II field cap, NOT the 10% access-point cap -- a searcher is a "
                  "person carrying a radio, not installed infrastructure.",
                  nFindersArg);
+    cmd.AddValue("nGateways",
+                 "Place exactly N gateways evenly on a ring instead of a gwGrid x gwGrid "
+                 "square array. 0 (default) keeps the grid. Exists because the project "
+                 "brief asks for THREE gateways and three is not a square number, so the "
+                 "grid cannot express the deployment at all -- its nearest options are "
+                 "four and nine. At N=3 the ring is an equilateral triangle, which is "
+                 "the minimum geometry for a 2-D trilateration fix and the best "
+                 "conditioning three points can give the interior.",
+                 nGatewaysArg);
+    cmd.AddValue("gwRingFrac",
+                 "Ring radius as a fraction of boxHalf when --nGateways is used. Default "
+                 "0.6. A fraction rather than an absolute so the deployment scales with "
+                 "the area the way the grid does, and the two stay comparable across "
+                 "box sizes.",
+                 gwRingFracArg);
     cmd.AddValue("topology",
                  "0 (DEFAULT) = TRI-BAND GATEWAYS, the correct model: every gateway is "
                  "one fixed node carrying all three radios -- 868 MHz, 2.4 GHz and UWB "
@@ -5435,7 +5476,9 @@ main(int argc, char* argv[])
                                            uwbAnchorsPerSite,
                                            t2AnchorsPerSite,
                                            sitingModeArg,
-                                           topologyArg);
+                                           topologyArg,
+                                           nGatewaysArg,
+                                           gwRingFracArg);
 
     if (vizEventsArg)
     {
