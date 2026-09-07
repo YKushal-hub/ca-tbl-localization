@@ -297,3 +297,85 @@ Recorded so nobody mistakes them for debt:
 | 5 | §4.1 diagnose the 1-ulp divergence | the main null-control gate has unclear meaning | half a day |
 | 6 | §3.1 C5 remaining, with the §6 invariant check | finishes Chapter 12 | 1–2 days |
 | 7 | §1.1 sampler streams | correct, but forces full regeneration | campaign |
+
+---
+
+# Addendum — 2026-09-07, after the topology correction
+
+The model changed shape today. Every item below is new or materially changed, and this
+addendum takes precedence over anything above it that contradicts it.
+
+## A. The blocker that outranks everything else
+
+**There is no baseline for the corrected topology.** `baseline_v7` describes the old
+three-population deployment and does not reproduce, correctly. Until a new baseline
+exists and is pinned, **no null control can be run for any future change** — the
+project's main safety mechanism is offline.
+
+*Cost:* one clean run at fixed flags, its digests recorded, and a sidecar. Under an
+hour. **Do this before any further code change**, because every change made without it
+is unverifiable after the fact.
+
+**Consequence:** every published number in the tree is now provisional. A4, A5, C1, C3,
+C4, C5, A6, A1 and the PCS forms were all measured on the old deployment.
+
+## B. Newly built, and what each still lacks
+
+| built today | still missing |
+|---|---|
+| Tri-band gateways | gateway **count/placement** (brief: 3 over 5 km; built: 9 over 2 km, and 3 is not a square number so the grid cannot express it) |
+| Finders as mobile tri-band nodes | dispersal — all finders converge on the **same point**; real teams spread over the uncertainty region |
+| Table entries with contents | only the **self-entry** propagates. Digest carries no sequence summary, so the anti-entropy exchange is one-directional and cannot detect what a peer is missing |
+| Position dissemination | staleness is unmanaged: finders act on a **39 s-old, 36 m-wrong** position and nothing bounds that |
+| Corroboration witness | constants uncalibrated — `k = 3`, assumed range sigma 30 m, floor 0.5, minimum 2 witnesses. Sensitivity untested |
+| SHS inertial engine | **driver does not work** — see `docs/DESIGN_DECISIONS.md` §8 |
+
+## C. Still unbuilt from the brief
+
+1. **Hop weight is zero.** `hopWeight = 0.0` with the comment "no mesh yet". The
+   confidence score's hop term is inert, and per-hop RSSI/SNR variance and per-hop NLOS
+   likelihood — both named in the brief — never reach it. C5 built the *measurement*
+   side; the *confidence* side is untouched.
+2. **Gateways are not edge servers.** The brief has them performing the EKF fusion and
+   NLOS/hop computation instead of the battery-constrained field node. The field node
+   runs its own filter. This matters for the energy claim specifically, since that claim
+   is about the field node's budget.
+3. **Tier-1 TDoA is billed but not estimated.** The energy model charges a TDoA-shaped
+   exchange — one broadcast, anchors timestamp it — while the position comes from RSSI
+   inversion alone, and the ranging code states outright that it is not a time-of-arrival
+   estimator.
+4. **Multi-hop localisation.** Flood forwarding exists; the poll set is strictly one-hop
+   and relayed ranging is capped at depth 1, so "mesh" means single-hop to gateways and
+   finders.
+5. **Self-deployable mesh.** Deployment is a fixed grid plus mobile finders.
+
+## D. A methodological failure worth keeping
+
+The finder-convergence result reported earlier today — UWB reachable, energy 51 J — was
+an **artefact**. The finders were steering on `policy.EstX()` read straight out of the
+simulator, a number no packet ever carried. The honest figure, once the position had to
+travel over the air, is **80.1 J**, and the 29 J difference is the cost of dissemination
+latency the artefact hid.
+
+It was caught only because instrumentation was added to ask whether any finder actually
+held the entry — the answer was 0 of 4. **A result that depends on a channel should be
+checked against whether that channel exists**, and nothing in the gate suite tests for
+this class of error.
+
+## E. Where the good result actually stands
+
+`report/INTEGRITY_CHECK_RESULTS.md` — energy improved 8/8 seeds, accuracy 7/8, paired.
+That result is **corroboration alone**; the inertial witness is off and contributes
+nothing. It is one configuration, at one duration, with no confidence interval. It is the
+strongest thing in the repository and it is still four qualifications short of a claim.
+
+## F. Suggested order
+
+| # | item | why first |
+|---|---|---|
+| 1 | New baseline on the corrected topology | nothing is verifiable without it |
+| 2 | Hop weight + per-hop variance into the score | smallest step that makes the confidence score carry information the covariance does not |
+| 3 | Gateway count/placement to the brief | cheap, and every number depends on the deployment |
+| 4 | Gateways as edge servers | the energy claim is about the wrong node until this moves |
+| 5 | Seed sweep + CI on the integrity result | turns the best finding into a claim |
+| 6 | SHS driver | needs a mobility model with finite turn rates; largest and least certain |
