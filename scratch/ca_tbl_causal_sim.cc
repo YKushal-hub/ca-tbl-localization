@@ -2259,6 +2259,7 @@ RunArm(CaTblPolicyMode mode,
        double finderDigestPeriodS,
        double finderPosSigmaM,
        bool finderPseudoAnchor,
+       bool bidirectionalDigest,
        uint32_t hopProvenanceForm,
        double hopPenalty,
        bool imuCrossCheck,
@@ -3089,6 +3090,16 @@ RunArm(CaTblPolicyMode mode,
     // reason the model says it should be" are different claims, and only the second
     // one is evidence the admission test is doing its job.
     double relayedVarThisCycle = 0.0;
+    // The reverse half of the anti-entropy exchange, measured rather than assumed.
+    // A mechanism that depends on a node HOLDING an entry has to be checked against
+    // whether the entry arrived -- that is the class of error that made the 51 J
+    // finder result an artefact, and nothing in the gate suite tests for it.
+    uint64_t pseudoAnchorSubs = 0;
+    uint64_t casualtyDigests = 0;
+    double finderEntryAgeSum = 0.0;
+    uint64_t finderEntryAgeN = 0;
+    uint64_t finderEntryHeldSum = 0;
+    uint64_t finderEntryCycles = 0;
     double relayedFracSum = 0.0;
     uint64_t relayedFracN = 0;
     uint64_t relayAdmitted = 0;
@@ -3438,6 +3449,93 @@ RunArm(CaTblPolicyMode mode,
 
         const CaTblTier active = policy.GetActiveTier();
 
+        // ONE NODE, THREE RADIOS, ONE BODY OF KNOWLEDGE.
+        //
+        // Each tier owns its own CaTblMac and therefore its own table, so an entry
+        // learned on 868 was invisible to a lookup made while up on UWB. That is an
+        // artefact of the interface split, not a property of the node: the header
+        // calls the shared table "knowledge, not a work list", and knowledge does not
+        // stop being true because a different radio heard it. Reading the union is
+        // free -- it is a read, nothing goes on the air -- and it is what a single
+        // node with three interfaces actually knows.
+        //
+        // Freshest wins, by the reporter's own timestamp rather than by arrival: two
+        // radios may both hold an entry for the same node from different digests, and
+        // the useful one is the later OBSERVATION, not the later delivery.
+        //
+        // The one-hop neighbour table is deliberately NOT unioned. It drives the poll
+        // set, and merging it across tiers would have the node calling peers a
+        // different radio heard -- burning a receive timeout every cycle on a link
+        // that cannot close. That is the distinction the header draws, kept.
+        auto freshestEntry = [&](uint16_t id, CaTblTableEntry& out) -> bool {
+            bool found = false;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                CaTblTableEntry e;
+                if (nodeMac[ti] != nullptr && nodeMac[ti]->GetTableEntry(id, e) &&
+                    e.valid && (!found || e.timestampS > out.timestampS))
+                {
+                    out = e;
+                    found = true;
+                }
+            }
+            return found;
+        };
+
+        // THE EXCHANGE RUNS BOTH WAYS.
+        //
+        // Only searchers used to ask. A finder broadcasts a digest, every node that
+        // hears it answers with its own entry, and that is why 4 of 4 finders learn
+        // where the casualty is -- and why the casualty learns nothing about them.
+        // The responder half has always been identity-agnostic (ca-tbl-mac.cc:909),
+        // so nothing new goes on the wire here: the casualty simply asks the
+        // question its searchers were already asking.
+        //
+        // ON THE ACTIVE TIER, and that is not a detail. Sending on 868 while the
+        // node is up on UWB would charge a tier outside this cycle's transmission
+        // and break the one invariant the energy axis rests on (CLAUDE.md sect 6).
+        // Asking on the tier already transmitting is the same discipline C5 uses for
+        // a relayed exchange. It also happens to be the only choice that WORKS: each
+        // tier owns its own CaTblMac and therefore its own table, so an entry learned
+        // on 868 is invisible to a UWB ranging lookup. Asking on the active tier puts
+        // the answer in exactly the table the ranging path will read.
+        //
+        // Phase-offset by half a period so the casualty's question does not land in
+        // lockstep with the finders' every time and contend with the answers.
+        if (bidirectionalDigest && sendHandshakeFrames && finderDigestPeriodS > 0.0 &&
+            nodeMac[active] != nullptr)
+        {
+            const double phase = finderDigestPeriodS * 0.5;
+            const double prevT = t - dt;
+            const double ka = std::floor((prevT - phase) / finderDigestPeriodS);
+            const double kb = std::floor((t - phase) / finderDigestPeriodS);
+            if (kb > ka && t >= phase)
+            {
+                nodeMac[active]->Send(CA_TBL_MSG_DIGEST, active, 1, 0);
+                ++casualtyDigests;
+            }
+        }
+
+        // Did the answers arrive? Counted every cycle against the table the ranging
+        // path actually reads, so "the mechanism fired" and "the entry was there to
+        // fire on" are separate observations.
+        if (!finderIds.empty())
+        {
+            uint32_t held = 0;
+            for (size_t fi = 0; fi < finderIds.size(); ++fi)
+            {
+                CaTblTableEntry fe;
+                if (freshestEntry(static_cast<uint16_t>(finderIds[fi]), fe))
+                {
+                    ++held;
+                    finderEntryAgeSum += (t - fe.timestampS);
+                    ++finderEntryAgeN;
+                }
+            }
+            finderEntryHeldSum += held;
+            ++finderEntryCycles;
+        }
+
         // ---- Which radios this arm physically has ---------------------------
         //
         // Tier 1 runs CONTINUOUSLY on the hybrid arms. The design specifies a field
@@ -3526,7 +3624,6 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
-            const int ti0 = static_cast<int>(tier);
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -3679,10 +3776,10 @@ RunArm(CaTblPolicyMode mode,
                     //
                     // The physics above is untouched: the radio link is physical and
                     // does not care what anyone believes about where they are.
-                    if (finderPseudoAnchor && anchorId >= 501 && nodeMac[ti0] != nullptr)
+                    if (finderPseudoAnchor && anchorId >= 501)
                     {
                         CaTblTableEntry fe;
-                        if (nodeMac[ti0]->GetTableEntry(anchorId, fe) && fe.valid)
+                        if (freshestEntry(anchorId, fe))
                         {
                             const double ux = policy.EstX() - fe.x;
                             const double uy = policy.EstY() - fe.y;
@@ -3701,6 +3798,7 @@ RunArm(CaTblPolicyMode mode,
                                         std::sqrt(sigmaM * sigmaM + proj);
                                     relayedVarThisCycle += inflated * inflated;
                                     sigmaM = inflated;
+                                    ++pseudoAnchorSubs;
                                 }
                             }
                         }
@@ -4638,6 +4736,24 @@ RunArm(CaTblPolicyMode mode,
             merges += macs[m].GetTableMerges();
         }
         std::cout << "    TABLE: " << merges << " entry merges network-wide\n";
+        if (bidirectionalDigest || pseudoAnchorSubs > 0)
+        {
+            std::cout << "    TABLE(reverse): casualty sent " << casualtyDigests
+                      << " digests, holds "
+                      << (finderEntryCycles > 0
+                              ? static_cast<double>(finderEntryHeldSum) /
+                                    static_cast<double>(finderEntryCycles)
+                              : 0.0)
+                      << " finder entries per cycle (of " << finderIds.size() << ")";
+            if (finderEntryAgeN > 0)
+            {
+                std::cout << ", mean age " << std::fixed << std::setprecision(1)
+                          << (finderEntryAgeSum / static_cast<double>(finderEntryAgeN))
+                          << " s";
+            }
+            std::cout << "\n    TABLE(reverse): " << pseudoAnchorSubs
+                      << " pseudo-anchor substitutions\n";
+        }
     }
 
     if (relayedRanging)
@@ -4882,6 +4998,7 @@ main(int argc, char* argv[])
     double finderDigestPeriodSArg = 30.0;
     double finderPosSigmaMArg = 0.0;
     bool finderPseudoAnchorArg = false;
+    bool bidirectionalDigestArg = false;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
@@ -5244,6 +5361,18 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("bidirectionalDigest",
+                 "Let the lost node ASK as well as answer, so the anti-entropy exchange "
+                 "runs both ways. FALSE by default. Only searchers used to ask, which "
+                 "is why 4 of 4 finders learn where the casualty is and the casualty "
+                 "learns nothing about them -- and why --finderPseudoAnchor and the hop "
+                 "provenance term were both built and both inert: neither has an entry "
+                 "to act on. The digest goes out on the ACTIVE tier, because sending on "
+                 "868 while up on UWB would charge a tier outside the cycle's "
+                 "transmission and break the sect 6 invariant, and because each tier "
+                 "owns its own table, so the answer must land in the one the ranging "
+                 "path reads.",
+                 bidirectionalDigestArg);
     cmd.AddValue("finderPosSigma",
                  "Metres of GNSS position error a finder carries, as a per-finder "
                  "constant offset. 0.0 by default, which is the PRE-EXISTING and "
@@ -5918,6 +6047,7 @@ main(int argc, char* argv[])
                                        finderDigestPeriodSArg,
                                        finderPosSigmaMArg,
                                        finderPseudoAnchorArg,
+                                       bidirectionalDigestArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
                                        imuCrossCheckArg,
