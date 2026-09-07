@@ -11,6 +11,44 @@ unmodified except where noted.
 thesis registers still say CA-DBL; that is a known divergence being corrected on the thesis
 side, not here. Do not rename anything in this repo.
 
+**THE TOPOLOGY, because getting this wrong cost the project every result once already.**
+
+> **There is ONE population of tri-band nodes. Every node carries all three radios.
+> A tier is a choice of WHICH RADIO TO USE, not of WHOM TO TALK TO.**
+
+The classes differ in **mobility and role only**:
+
+| class | mobile? | ids | duty cap |
+| --- | --- | --- | --- |
+| **gateway** | **no** — the only immobile class | `101+` | 10 % (access point) |
+| **finder** | yes | `501+` | 2.5 % (field device) |
+| **field node** (lost node, peer/relay tags) | yes | `1`, `2+` | 2.5 % (field device) |
+
+- The **facility sites are mobility targets and host no anchors.** They are where the field
+  node dwells; that is all they do.
+- `--uwbTriad`, `--t2Triad`, `--uwbAnchors`, `--t2Anchors` and `--sitingMode` **do nothing**
+  under the default topology. They parameterise the legacy rings and are read only under
+  `--topology=1`.
+- **UWB reaches tens of metres, so a fixed gateway offers tier 3 only to something standing
+  beside it.** A **finder** is what carries tier 3 to the casualty. Escalation to UWB is a
+  statement about a searcher having arrived. With `--nFinders=0` measured mean UWB
+  neighbours is **0.01** — if a run shows tier-3 coverage without finders, suspect the
+  topology before believing the number.
+
+**Until 2026-09-07 (`99fdf1a`) the simulator modelled three DISJOINT anchor populations** —
+tier-1 gateways on a grid, tier-2 anchors ringed at 150 m and tier-3 at 10 m around four
+facility sites. `Architecture.md` specified it that way too, **so this was not code drifting
+from a spec; the spec was wrong and the code implemented the wrong thing faithfully.** That
+model manufactured tier-3 coverage the architecture is supposed to earn. It survives only as
+`--topology=1`, only so pre-correction results stay reproducible, and it does not describe
+the system.
+
+`--topology=0` and `--topology=1` are **different deployments**: no shared baseline, no null
+control relates them, and `baseline_v7` does not reproduce under the corrected topology and is
+not supposed to. Switching it is a change of *scenario*, not of *configuration*.
+
+**Every result in `results/` predates the correction and is provisional until re-run.**
+
 **Your remit is the engine.** ns-3 code, experiments, gates, analysis scripts. **Do not write
 thesis prose, chapters, or literature review in this repository.** That work is Phase 1 and
 lives in the thesis project. If asked for it here, say so and stop.
@@ -45,6 +83,14 @@ produces a wrong result that looks right.
 8. **A single-seed cross-arm difference is never a result.** Arms share the RNG stream but
    consume it at their own rate — two arms with identical filter state reached 334 and 336
    engine evaluations by t = 2.5 s.
+   **The same hazard applies ACROSS BINARIES, and that is the form that has actually bitten.**
+   `LoRaDistributionSampler` draws from the default stream with no `SetStream`, and every
+   submodule on the `ProcessTransmission` path draws from it, so *any change in the number of
+   transmissions displaces the stream for every link in the run*. The multi-node provider fix
+   moved collisions by −8 000 and captures by +5 500 per arm; **none of that was
+   interpretable**, and only the control-flow claims survived. Before comparing a magnitude
+   across a code change, check that both binaries perform the same number of engine
+   evaluations. If they do not, the only admissible claims are about which code paths execute.
 9. **Design against the failure mode.** Before writing a check, write down what a firing looks
    like *on disk*. A check for a defect whose mode is *absence* cannot be a scan of present data.
 10. **An enumeration of a loss sum will not find a term that lives in the threshold.** Audit
@@ -174,9 +220,14 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
   verifier check and validation in the project.** It was found by an independent closed-form
   model refusing to reconcile, not by a gate. No check in the project would catch it today.
   Fixed at `0d5e747`; `r80` moved 909.5 → 1149.5 m and every prior result was regenerated.
-- **The CRLB gate should not run on tier 1** (open defect). Tier 1 is RSSI inversion, not a
-  time-of-arrival estimator; `lora-ranging-submodule.cc:151` says so in its own comment and calls
-  applying a ToA Cramér–Rao bound to it a category error.
+- **The CRLB gate no longer runs on tier 1 — CLOSED (D-3), verified 2026-09-06.** Tier 1 is
+  RSSI inversion, not a time-of-arrival estimator, so a ToA Cramér–Rao bound does not apply and
+  applying one is a category error. `lora-ranging-submodule.cc:151` now takes the shadowing
+  standard deviation and explicitly discards the ToA inputs (`bandwidthHz`, `snrDbInBand`,
+  `spreadingFactor` are `(void)`-cast with the reason stated). **This entry said "open defect"
+  until 2026-09-06 while the register said D-3 was done** — the contradiction is recorded in
+  `docs/TECH_DEBT.md` §2.5 rather than silently corrected, because a stale line in the
+  authoritative rules file is exactly the failure §8 of this document warns about.
 - **`LoRaDistributionSampler` ignores its seed** (`lora-distribution-sampler.cc:8-17`): 5 random
   variables created, 0 `SetStream` calls. Recorded as a **decision not to fix**. Determinism
   holds at defaults and at six non-default flag settings, so no result is known to be affected.
@@ -223,6 +274,11 @@ report/
   PHASE10_PREREGISTRATION.md  the registered decision rule and its amendment
 docs/
   WORK_PACKAGES.md            what to build next, with entry points  ← start here
+  DESIGN_DECISIONS.md         choices the project brief does NOT specify, each with what it
+                              was chosen over — finder mobility, the 8 m stand-off, the duty
+                              category, the unresolved gateway-count divergence
+  TECH_DEBT.md                everything known wrong/unfinished, ordered by risk to results
+  RELAYED_RANGING_ERROR_MODEL.md  C5 precondition: why a relayed range is not a range
   CONTEXT_PACK.md             parameter provenance, prior art, citation rules
   archive/                    superseded handoffs, retained for their findings
 MASTER_PLAN.md                strategy: built-vs-specified, gaps, tracks, sequencing
@@ -254,6 +310,22 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `cmd.AddValue` block at `scratch/ca_tbl_causal_sim.cc:3178-3450`, and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
+
+**EVERY DOCUMENT DATED BEFORE 2026-09-07 DESCRIBES THE LEGACY TOPOLOGY.** That is the single
+largest staleness axis in the repository and it cuts across all five tiers of the precedence
+list above. Anything discussing "tier-2 anchors", "tier-3 anchors", "the triads", "anchors per
+facility site", "co-located precision tiers" or `--sitingMode` is describing `--topology=1`.
+
+The **current** topology is stated in three places and nowhere else:
+
+1. this file, the topology block at the top;
+2. `Architecture.md` §3 — the design as built;
+3. `BuildDeployment()` in `scratch/ca_tbl_causal_sim.cc:177` — **the ground truth.**
+
+`report/*.md` and `docs/archive/*` were deliberately **not** rewritten. They are dated records
+of what was measured under the deployment that was in force at the time, and editing them to
+match a later model would falsify the evidence chain — the same principle as
+`run_id.txt` sidecars and `report/REPORT_DATA_PACK.md` in §2. Read them as history.
 
 **Line numbers in `docs/archive/` are stale.** `CA_TBL_PHASE8_SCOPE.md` was written 2026-08-04
 and its citations have drifted by ~100 lines in `ca_tbl_causal_sim.cc`. Its *findings* hold; its

@@ -12,6 +12,32 @@ on disk. **One exception exists and is named in §9.**
 
 ---
 
+> ## ⚠ SCOPE: every number in this report predates the topology correction
+>
+> **On 2026-09-07 (`99fdf1a`) the deployment model was corrected.** Until then the
+> simulator modelled three **disjoint** anchor populations — tier-1 gateways on a grid,
+> tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites.
+> `Architecture.md` specified it that way too, so the code was not drifting from a spec:
+> **the spec was wrong.** The system has one population of **tri-band** nodes, and a tier
+> is a choice of *which radio to use*, not of *whom to talk to*. See `Architecture.md` §3.
+>
+> **Why it changes results rather than only wording.** The old model let the field node
+> reach UWB by walking near a facility. It therefore *manufactured* tier-3 coverage that
+> the architecture is supposed to earn, and hid the mechanism the design rests on — a
+> **finder** carrying tier 3 to the casualty. With no finders, measured mean UWB
+> neighbours is **0.01**.
+>
+> **Status of this document.** Every campaign cited here ran under `--topology=1`. The
+> provenance is intact and each number still reproduces from its own sidecar — but it
+> reproduces a **deployment the system does not have**. Every result below is therefore
+> **provisional pending re-run**, including the falsifications in §5. `baseline_v7` does
+> not reproduce under the corrected topology and is not supposed to.
+>
+> This report has **not** been rewritten to match the new model. Editing a dated evidence
+> chain to agree with a later understanding would falsify it. It is scoped instead.
+
+---
+
 ## 1. Executive summary
 
 **What was built.** A three-tier GPS-denied localization stack for search and rescue,
@@ -66,7 +92,9 @@ Design intent, in the past tense. Nothing in this section is a claim.
 coverage, ranging by inverting RSSI through a path-loss model. Tier 2, 2.4 GHz
 (SX1280-class), SF7, 800 kHz, 12.5 dBm — mid-range refinement by symmetric two-way
 time-of-flight; measured `r80` **1149.5 m**. Tier 3, UWB (DW3000-class), 499.2 MHz at
-7.99 GHz, −16.47 dBm — precision two-way ranging at facilities, `r80` ≈ 13.5 m.
+7.99 GHz, −16.47 dBm — precision two-way ranging, `r80` ≈ 13.5 m. *(As run: "at
+facilities", from a dedicated tier-3 anchor ring. Under the corrected topology tier 3
+lives on every node and is reached from a gateway or a finder — see the scope banner.)*
 
 **The estimator.** A four-state EKF (position, velocity) with sequential scalar
 updates, process noise 1.0 m/cycle in position, fed by multilateration over the

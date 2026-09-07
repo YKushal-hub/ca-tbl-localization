@@ -12,12 +12,25 @@ after a commit touches the file. The symbol names are stable; the line numbers a
 **Status legend:** `READY` all prerequisites met · `GATED` blocked on a named item ·
 `DECISION` blocked on a human answer.
 
+> **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after these packages were written.**
+> Every package below was specified against the legacy model of three **disjoint** anchor
+> populations. The system has **one population of tri-band nodes**: every node carries all
+> three radios, gateways are the only immobile class, **finders** are mobile tri-band nodes,
+> and facility sites are mobility targets hosting **no anchors**. See `RULES.md` and
+> `Architecture.md` §3.
+>
+> All 15 packages are complete (14 done, A8 closed by result — see
+> `report/NOT_DONE_2026_09_05.md`), **but every one was measured under `--topology=1`.**
+> Treat the numbers in the "how to know it worked" clauses as legacy references, not as
+> current expectations. A5 in particular no longer poses a meaningful question — see its
+> own note.
+
 ---
 
 ## The 48–72 hour cut
 
-**What fits, and what does not.** Costs below assume the coding tool working the code while engine
-runs proceed in parallel on your machine.
+**What fits, and what does not.** Costs below assume an agent session working the code while
+engine runs proceed in parallel on your machine.
 
 ### In scope
 
@@ -434,6 +447,18 @@ highest- and lowest-priority targets** under simultaneous contention, plus a fai
 ---
 
 ## A5 — Complementary siting
+
+**DONE, and SUPERSEDED by the 2026-09-07 topology correction.** A5 asked where a *dedicated
+tier-3 anchor population* should sit relative to a *dedicated tier-2 population*. **Neither
+population exists.** Tier 2 and tier 3 now live on the same tri-band nodes, so they cannot be
+sited apart and the question is void — `--sitingMode` is read only under `--topology=1`.
+
+Its measured finding stands as a legacy result and its *reasoning* survives the correction:
+complementary siting forfeited tier 3 outright (coverage 50.2 → 0, all five seeds) because the
+nearest rotated site was 1526 m away against a UWB range of tens of metres. **The same
+arithmetic is why a fixed gateway cannot serve tier 3 at all, and therefore why finders exist.**
+
+*Original specification, retained for the record:*
 
 **GATED on A4.**
 

@@ -314,13 +314,18 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # removed by the 2026-09-05 rewrite. The standing project rule in RULES.md 2 is
 # unchanged -- do not write attribution -- this only stops the gate enforcing the
 # message-body half of it, which the owner deferred.
-# The colon binds per-alternative, not to the group. The previous pattern was
-# (co-authored-by|generated[- ]with|assisted-by): which required a colon after ALL
-# THREE, so 'Generated with <tool>' -- the commonest form, and the one used in pull
-# request bodies, which carries no colon -- was never matched. Found by running the
-# negative fixture for this gate after narrowing it (rule 6). Pre-existing hole,
-# not introduced by the narrowing.
-G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by:)|@anthropic|@openai'
+# REVERTED 2026-09-05, same day, and the reason is worth keeping. This briefly read
+# (generated[- ]with|assisted-by:) so that "Generated with <tool>", which carries no
+# colon, would be caught. That immediately turned G12 red on the very commit that
+# DOCUMENTED the change, because its message contains that phrase at the start of a
+# line -- the exact failure the note above already records, reintroduced.
+#
+# The note above is right and the widening was wrong. Attribution in a COMMIT MESSAGE
+# is a git trailer, which is Key: Value. "Generated with X" is not a trailer, it is a
+# pull-request body convention, and pull request bodies are not commit messages. The
+# colon is what distinguishes the form from prose about the form, and requiring it is
+# what lets this gate survive its own policy being written down.
+G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|@anthropic|@openai'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
@@ -363,6 +368,44 @@ finish G11
 printf '\n--- G13 sidecar source SHAs resolve ---\n'
 python3 scripts/sidecar_sha_audit.py || fail G13
 finish G13
+
+# ---------------- G14: the sensitivity tables and their SF index agree
+# A7. The six-decibel SF-index defect -- `sf - 7` against tables whose index 0 is SF5 --
+# sat on the tier carrying ~95% of active cycles and PASSED EVERY GATE, VERIFIER CHECK
+# AND VALIDATION IN THIS PROJECT. What found it was an independent closed-form model
+# refusing to reconcile, not a check.
+#
+# The existing fidelity checks verify ranging precision and energy accounting, both of
+# which are downstream of whether a packet was received at all. None of them reads the
+# sensitivity table. This one does, and it asserts the table's declared base against the
+# index expression the engine actually uses.
+#
+# Its negative fixtures are in scripts/sensitivity_gate_selftest.sh and include D1
+# itself. Run BOTH -- a gate that has only ever passed proves nothing (rule 6).
+printf '\n--- G14 sensitivity table SF-index fidelity ---\n'
+python3 scripts/sensitivity_gate.py || fail G14
+bash scripts/sensitivity_gate_selftest.sh || fail G14
+finish G14
+
+# ---------------- G15: relayed-range admission (C5), A1-A5 with negative fixtures
+# A relayed range is NOT a range. r_AB + r_BG is an upper bound on |A-G| by the triangle
+# inequality, tight only when the three are collinear, and handing it to the filter as a
+# range is the same category error as applying a ToA Cramer-Rao bound to RSSI inversion
+# -- which this project has already made once. What a relay supplies is a pseudo-anchor
+# with a covariance: sigma_eff^2 = sigma_range^2 + u^T P_B u.
+#
+# The five admission conditions each mark a place where the error model STOPS HOLDING,
+# not a place where the measurement is merely poor. A poor measurement can be
+# down-weighted; one whose error model is wrong cannot, because the weight would be
+# computed from the same wrong model.
+#
+# The suite is its own negative fixture set (rule 6): each condition is violated in turn
+# and must produce ITS OWN rejection code, so one over-broad condition cannot mask the
+# absence of the other four. The positive control is the same measurement with the
+# single violation removed.
+printf '\n--- G15 relayed-range admission (C5) ---\n'
+./build/scratch/ns3.47-ca_tbl_relay_admission_test-optimized || fail G15
+finish G15
 
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"

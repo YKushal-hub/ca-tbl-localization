@@ -1,11 +1,11 @@
 # CA-TBL — thesis-side task list
 
-**Not for the engine repository, and not for a working session working the engine.** Claude
-Code's remit here is code, experiments and gates. This file is for the thesis work, which happens
-in the thesis project against `outline.md`, `terminology_lock.md` and the registers.
+**Not for the engine repository, and not for an agent session working the engine.** The remit
+here is code, experiments and gates. This file is for the thesis work, which happens in the
+thesis project against `outline.md`, `terminology_lock.md` and the registers.
 
-Kept in the repo only so the two halves stay reconciled. If a working session is asked to
-draft thesis prose in this repository, the answer is no — say so and stop.
+Kept in the repo only so the two halves stay reconciled. If an agent session is asked to draft
+thesis prose in this repository, the answer is no — say so and stop.
 
 ---
 

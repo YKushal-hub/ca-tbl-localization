@@ -1,0 +1,5 @@
+adfc74132b0ee219
+build Sep  5 2026 18:54:13 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=12 --duration=3600 --boxHalf=2000 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy --pcsHysteresisBand=0.0 --nDeescalate=1 --arms=ca_tbl_full,fixed_threshold --trace=false --outdir=results/a6_hysteresis/b0.0_n1/seed_12
+source 67ef735 dirty 0 profile optimized
+digest sha256
+da8918769e27ade4c2f3ae5368557fcef641f70df87ccbae55d4ee2d30ed0559  arm_summary.csv

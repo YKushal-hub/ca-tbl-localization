@@ -1,4 +1,4 @@
-# Feeding this to the coding tool — 48–72 hour run
+# Feeding this to an agent session — 48–72 hour run
 
 Literal prompts. Paste them one at a time, in order. Do not paste them all at once.
 
@@ -20,7 +20,7 @@ builds `ESC_REQUEST`/`ESC_GRANT` on the wire; Lane B closes the measurement stor
 
 ---
 
-## Hour 0 — start the compute yourself, before any working session
+## Hour 0 — start the compute yourself, before any agent session
 
 This is the one thing that must not wait, because it runs while everything else happens. It needs
 no code change.

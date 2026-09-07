@@ -5,6 +5,10 @@
 
 **Scope.** One document covering both halves of the project: what the ns-3 implementation has built against what the Phase 1 blueprint specifies, where the two contradict, what remains unbuilt, what is measurably broken, and two branching routes forward with an explicit branch point and abort criteria.
 
+> **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after this plan was written.** This document was drafted against the legacy deployment model of three **disjoint** anchor populations (tier-1 gateways on a grid; tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites). **That model was wrong.** The system has **one population of tri-band nodes** — every node carries all three radios, and a tier is a choice of *which radio to use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are mobile tri-band nodes; facility sites are mobility targets that **host no anchors**. Authoritative: `Architecture.md` §3, `RULES.md`, and `BuildDeployment()` at `scratch/ca_tbl_causal_sim.cc:177`.
+>
+> **Consequences for this plan.** Any row, gap or track whose reasoning rests on *anchors clustered at four facility sites* — notably the M-4 / §13.3 "coverage limit" diagnosis and the complementary-siting track — is reasoning about a geometry the system does not have, and needs re-deriving rather than re-reading. Every results figure quoted here predates the correction and is **provisional pending re-run**.
+
 ---
 
 ## 0. Source basis
@@ -88,18 +92,21 @@ Status codes: **BUILT** implemented and exercised · **PARTIAL** implemented but
 | CAD-based CSMA/CA, priority contention windows | ch11 §11.4–11.5 | Built. 200 k TX / 40 k collisions / **14 564 capture events** — capture is emergent, not drawn | S1 §7.4 | BUILT |
 | 9-byte MAC header, 9 message types | ch11 §11.9 | `CaTblHeader`, validator 38/38 | S1 §7.2–7.3 | BUILT |
 | **`ESC_REQUEST` / `ESC_GRANT` on the wire** | ch11 §11.6 | **Now sent**, behind `--sendHandshakeFrames` (default off), `ac41f6c`. `DeliverRx` gained the receive-side dispatch it never had; `ESC_REQUEST`→`ESC_GRANT` and `DIGEST`→`ENTRY_PUSH` are constructed on the live path for the first time. The charge is KEPT and the frame ADDED — replacing it would transmit uncharged frames, since the MAC has no TX callback | S5 §3; `ac41f6c`, `4c0b175` | **BUILT** (2026-09-05) |
-| `QUERY` / `RESPONSE` / `ENTRY_PUSH` on the wire | ch12 §12.4, ch11 | Defined in the header switch statements only; never constructed anywhere in `src/` or `scratch/` | S5 §3 | ABSENT |
+| `QUERY` / `RESPONSE` / `ENTRY_PUSH` on the wire | ch12 §12.4, ch11 | **All three now constructed and answered on the live path.** `ENTRY_PUSH` via the `DIGEST` exchange (C1); `QUERY`/`RESPONSE` via `SendQuery()` and the responder in `DeliverRx` (C3), behind `--identityQueryPeriodS` (default 0). The header field the query needs is carried and not serialised, so airtime is unchanged | S5 §3 | **BUILT** (2026-09-06) |
 | Mobility-state-conditioned message selection | ch11 §11.11 | `m_mobility` is never set to `CA_TBL_MOB_RECEDING`; the receding branch is dead code | S5 §3 | PARTIAL |
-| Mesh routing, hop count, confidence-weighted path selection | ch12 §12.2–12.3 | **Absent.** `CaTblMac::NoteNeighbour()` rejects any frame with `GetHopsTraversed() != 0`, deliberately, to avoid a documented energy defect | S5 §2 | ABSENT |
-| Identity-scoped query and proxy response | ch12 §12.4 | Absent | S5 §3 | ABSENT |
-| Identity-scoped UWB arbitration | ch12 §12.6 | `U(r)` scorer exists in Python; **no scenario instantiates a second target** | S5 §0, §1 | ABSENT |
+| Multi-node PHY substrate (a second tag that can be heard) | ch12 §12.1 | **Built.** `EnginePhyProvider` carried one node id and one position and returned early below the MAC, so a peer's frames counted as sent, lost nothing to duty, CAD or collision, and were never delivered. It now carries a position per node: +112k channel deliveries and link evaluations 518k->955k at `--nTags=2`. Null control reproduces all seven `baseline_v7` digests | `report/C4_PROVIDER_BLOCKER.md` | **BUILT** (2026-09-05) |
+| Mesh routing, hop count, confidence-weighted path selection | ch12 §12.2–12.3 | **Hop-provenance BUILT; multi-hop routing absent.** A relayed range is admitted under A1–A5 and weighted by `σ_eff² = σ_range² + uᵀP_B u`, behind `--relayedRanging` (default off): 78/31/11/11 admitted at seed 7, σ 3.0 m → 39–52 m inflated, and A1 rejects 54/40/11/11 when forced onto tier 1. **Routing beyond one hop is not built and is bounded by the model, not by effort** — A2 caps depth at 1, because at depth 2 the relay's own position is itself relayed and `P_B` understates its error by exactly the term this model adds | `docs/RELAYED_RANGING_ERROR_MODEL.md`; G15 | **PARTIAL** (2026-09-06) |
+| Identity-scoped query and proxy response | ch12 §12.4 | **Scoping built and measured; proxy response not built.** The scoping is at the RESPONDER: a query floods, every target hears it, only the one whose `targetManifestId` matches answers. 36 cells (3 seeds x 6 arms x 2 directions), discrimination perfect in every one — naming the tag gives 23-34 answered / 0 ignored, naming the peer gives 0 answered / 23-34 correctly ignored. A **proxy** answering on another node's behalf is a different mechanism and is not implemented | S5 §3; `report/C3_C4_ON_PROVIDER.md` | **PARTIAL** (2026-09-06) |
+| Identity-scoped UWB arbitration | ch12 §12.6 | **Built, and both contended paths execute.** `U(r)` ported into `CaTblMac::ArbitrateRequest()`, behind `--uwbArbitration` (default off). Anchors see requests from both manifest ids; **deny 148-248 and pre-empt 75-201** on the arms that reach UWB, against 0/0 before. The three static arms are the internal control and correctly show one requester and zero of each | S5 §0, §1; `report/C3_C4_ON_PROVIDER.md` | **BUILT** (2026-09-06) |
 | Transport / application layer, session lifecycle | ch13 | Absent | S6 §3.1 | ABSENT |
 | Per-action energy accounting | ch14 §14.10 | Built. Reconciles to datasheet currents to 10 significant figures | S1 §8.5 | BUILT |
 | Fault injection | ch14 §14.15 | Built; see the row above. One bias magnitude (40 m) and one window fraction (0.2) tested | `results/*/run_id.txt` | BUILT |
 
 **Count.** Of 30 rows: **11 BUILT, 4 PARTIAL, 2 DIVERGENT, 1 CONTRADICTION, 12 ABSENT.**
 
-The 12 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, sparse-anchor geometry), 4 in Ch. 10 (IMU prior, sequence supersession, CI fusion, PCS calibration), 4 in Ch. 12 (message types on the wire, mesh routing, identity query, arbitration), 1 in Ch. 13. **Chapter 12 has no implemented mechanism at all** — it is the only chapter of the framework with zero substrate.
+The 8 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, sparse-anchor geometry), 4 in Ch. 10 (IMU prior, sequence supersession, CI fusion, PCS calibration), 1 in Ch. 13. **Chapter 12 now has no ABSENT row at all.**
+
+**Chapter 12 previously had zero substrate. It now has four rows built and one partial**, and the reason the whole chapter moved at once is that a single defect was holding all of it: the PHY provider modelled one field node, so no second target could be heard no matter what was built above it. **Its one remaining ABSENT row is mesh routing / hop-provenance (C5)**, which is gated on the relayed-ranging error model — now written (`docs/RELAYED_RANGING_ERROR_MODEL.md`) — and on enabling tag-to-tag links, which is deliberately still off: the link budget would evaluate, but a relayed range is not admissible until the model that weights it is wired in.
 
 > **Correction, 2026-09-04.** Two rows above were first written as ABSENT on the strength of S4 §7.10 item 5 (*"S7 environmental fault injection. Not implemented, no flag."*), which is dated 2026-08-05. That note is **superseded**: the harness was built and the campaigns ran on 2026-08-27. Verified against the flag registrations at `ca_tbl_causal_sim.cc:3345-3364`, the bias application at `:2496-2510`, and 162 `run_id.txt` sidecars. The F1/F3 columns in S2 §5.1 are those results. **This is a live instance of the project's own staleness problem** — a superseded status note in a working document propagated into a plan. Any agent reading S4 must check the flag table and the results tree before treating a *not implemented* note as current.
 
@@ -111,7 +118,7 @@ The 12 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, s
 |---|---|---|
 | **CA-DBL** | **CA-TBL** ("Confidence-Aware Tier-Based Localization") | Every file, every commit message, the repository name itself |
 | Field Node | "field tag", "tag", "node" — all three are on the forbidden list | `Architecture.md` §2.3, throughout |
-| Anchor/Gateway Node | "gateways", "anchors", "facility sites" | `Architecture.md` §3.1 |
+| Anchor/Gateway Node | "gateways", "anchors", "facility sites" — note that since 2026-09-07 "anchor" means *any node reachable on a tier*, and facility sites host none | `Architecture.md` §3 |
 | Tier 1 (LoRa 868 MHz) | "868 MHz", "tier 1", "static_868" | Throughout; arm names are baked into 89 results directories |
 | progressive handoff | "handoff", "escalation" used interchangeably for the whole mechanism | `Architecture.md` §9 |
 | Position Confidence Score (PCS) | "confidence score", "PCS" | Consistent enough |
@@ -403,6 +410,14 @@ So the check has been falsified **as rejection alone, under its own fault model,
 
 ### A4 — Tier-1 measurement calibration *(scheduled before A5)*
 
+> **DONE 2026-09-06, and its framing is superseded.** Tier-1 sigma is over-stated by ~1.7×
+> consistently across a 2.2× density range, but the baseline NEES of 2.95 does not reconcile
+> against 1.342, so **no calibration was applied** and the 1.7× is not attributable to tier-1
+> `R` alone (NEES normalises by the posterior covariance, which carries `Q` too). See
+> `report/A4_CALIBRATION_RESULTS.md`. Separately, the "coverage limit" framing below counts
+> *tier-2 anchors ringed at facility sites*, a geometry the 2026-09-07 topology correction
+> removed — re-derive it before acting on it.
+
 **Problem.** Above `spacing/r80` ≈ 1.55 no arm meets the requirement, and **96–99.6 % of inadequate fixes occur on cycles where fewer than three tier-2 anchors are in range**. Open question: is tier-1 range uncertainty over-stated relative to realised error? If so, the filter is discounting exactly the measurements that would carry those cycles.
 
 **Change.** Compare tier-1 reported sigma against realised error across the density sweep; recalibrate if over-stated. Interacts with C2 and D-3: the RSSI-inversion sigma is proportional to range by construction, which is both the reason the CRLB gate does not apply and a candidate reason the sigma is mis-scaled.
@@ -416,6 +431,14 @@ So the check has been falsified **as rejection alone, under its own fault model,
 ---
 
 ### A5 — Complementary siting as a second treatment arm
+
+> **DONE 2026-09-06, and the question is now VOID.** Complementary siting forfeited tier 3
+> outright — coverage 50.2 → 0 across all five seeds — because the nearest rotated site was
+> 1526 m away against a UWB range of tens of metres (`report/A5_SITING_RESULTS.md`). The
+> 2026-09-07 topology correction then removed the premise entirely: **tier 2 and tier 3 live
+> on the same tri-band nodes and cannot be sited apart.** `--sitingMode` is read only under
+> `--topology=1`. The surviving lesson is the arithmetic: it is *why a fixed gateway cannot
+> serve tier 3 at all*, and therefore why finders exist.
 
 **Change.** Distribute tier-2 anchors rather than ringing four facilities; run **alongside** the co-located control so siting is not confounded with everything else. Requires a `BuildDeployment()` change — the four sites are hardcoded at `±0.47 × boxHalf`.
 
