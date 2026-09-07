@@ -2262,6 +2262,7 @@ RunArm(CaTblPolicyMode mode,
        bool bidirectionalDigest,
        bool tier1ChargeReplies,
        double finderDispersal,
+       bool uwbCoverageIncludesFinders,
        uint32_t hopProvenanceForm,
        double hopPenalty,
        bool imuCrossCheck,
@@ -4552,7 +4553,38 @@ RunArm(CaTblPolicyMode mode,
         // ---- Ground-truth coverage labels and trigger confusion matrix -----
         const uint32_t vis868 = VisibleCount(dep, CA_TBL_TIER_868, pos);
         const uint32_t vis2p4 = VisibleCount(dep, CA_TBL_TIER_2P4, pos);
-        const uint32_t visUwb = VisibleCount(dep, CA_TBL_TIER_UWB, pos);
+        uint32_t visUwb = VisibleCount(dep, CA_TBL_TIER_UWB, pos);
+        // THE GROUND-TRUTH LABEL COULD NOT SEE THE ONLY SOURCE OF UWB.
+        //
+        // VisibleCount() reads dep.anchors, the STATIC deployment. Under the tri-band
+        // correction tier 3 comes from FINDERS, which are not in that list, so visUwb
+        // was structurally 0 and shouldUwb structurally false. Every escalation to UWB
+        // was therefore scored a FALSE POSITIVE and trig_f1 was 0.000 by construction:
+        // measured 0 tp / 21 fp / 0 fn / 459 tn on a run where the node genuinely had
+        // three UWB neighbours on 12 cycles.
+        //
+        // The comment at the top of this file records this exact symptom occurring
+        // once before -- "VisibleCount() returned 0 at every step of every arm, visUwb
+        // was identically zero, and trigF1 was therefore 0.000 on all six arms" -- and
+        // it was fixed then by widening the label radius. This is the same symptom from
+        // a different cause: the radius is fine, the POPULATION is wrong.
+        //
+        // Off by default because it changes a reported column and every published
+        // trigger figure was computed without it. It changes no decision: shouldUwb
+        // feeds the confusion matrix and nothing else.
+        if (uwbCoverageIncludesFinders)
+        {
+            const double rUwb = dep.nominalRangeM[CA_TBL_TIER_UWB];
+            for (size_t fi = 0; fi < finderPos.size(); ++fi)
+            {
+                const double dx = finderPos[fi].x - pos.x;
+                const double dy = finderPos[fi].y - pos.y;
+                if (std::sqrt(dx * dx + dy * dy) <= rUwb)
+                {
+                    ++visUwb;
+                }
+            }
+        }
         const bool shouldUwb = (visUwb >= 3);
         const bool onUwb = (active == CA_TBL_TIER_UWB);
         if (shouldUwb)
@@ -5093,6 +5125,7 @@ main(int argc, char* argv[])
     bool bidirectionalDigestArg = false;
     bool tier1ChargeRepliesArg = false;
     double finderDispersalArg = 0.0;
+    bool uwbCoverageIncludesFindersArg = false;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
@@ -5455,6 +5488,16 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("uwbCoverageIncludesFinders",
+                 "Count finders when labelling ground-truth UWB coverage. FALSE by "
+                 "default. VisibleCount() reads the STATIC deployment, and under the "
+                 "tri-band correction tier 3 comes from finders, which are not in it -- "
+                 "so visUwb is structurally 0, shouldUwb structurally false, every UWB "
+                 "escalation is scored a false positive and trig_f1 is 0.000 by "
+                 "construction. Measured: 0 tp / 21 fp / 0 fn / 459 tn on a run with "
+                 "three UWB neighbours on 12 cycles. Changes a reported column and no "
+                 "decision -- shouldUwb feeds the confusion matrix and nothing else.",
+                 uwbCoverageIncludesFindersArg);
     cmd.AddValue("finderDispersal",
                  "Spread finders over the casualty's REPORTED position uncertainty "
                  "instead of stacking them on its centroid, in sigmas. 0.0 by default, "
@@ -6171,6 +6214,7 @@ main(int argc, char* argv[])
                                        bidirectionalDigestArg,
                                        tier1ChargeRepliesArg,
                                        finderDispersalArg,
+                                       uwbCoverageIncludesFindersArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
                                        imuCrossCheckArg,
