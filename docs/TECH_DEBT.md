@@ -495,3 +495,37 @@ flag's help, which is the house style for explaining a default.
 A gate asserting that a mechanism's *input* is non-zero whenever its *firing counter*
 is. Both defects above had a counter reporting healthy activity while the quantity it
 fed read zero. Nothing in the suite compares the two.
+
+### I.6 The evidence tree predates the deployment it describes — THE LARGEST ITEM
+**Most of the results tree was measured on the pre-2026-09-07 topology and is
+provisional.** Of the 98 directories under `results/`, only a handful carry a sidecar
+whose commit post-dates the correction; the rest were produced when the model built
+three disjoint anchor populations at facility sites instead of one population of
+tri-band nodes.
+
+That is not a small annotation. It means A4, A5, C1, C3, C4, C5, A6, A1, the PCS forms
+and the p10 surfaces were all measured against a geometry the scenario no longer builds
+— and the topology commit (`99fdf1a`) says so in its own message. Every figure derived
+from them inherits the same status.
+
+**This is compute, not design.** The campaigns are scripted, the flags are in the
+sidecars, and `baseline_v8` plus `causal_v8`/`det_a_v8` establish that the current
+engine reproduces byte-for-byte. Nothing has to be re-decided; it has to be re-run, and
+then every document citing the old numbers has to be repointed.
+
+*Sequence, and the order is load-bearing:*
+1. Settle §H.1 first — whether tier 3 is reachable at the scale being measured, or
+   whether the runs should state that it is not. Re-running 20 hours of campaigns
+   against an unresolved tier-3 question produces numbers that need throwing away a
+   second time.
+2. Re-run to **new paths**. Never regenerate a tracked directory in place (rule 7); the
+   old directories stay as the record of what those runs produced.
+3. Repoint citations, and add a corrections register entry for every number this makes
+   wrong. G10 will catch a citation that no longer resolves; nothing will catch a
+   citation that still resolves but now points at a superseded number, so that half is
+   manual.
+
+*Cost:* uncosted, and it is the single largest remaining item in this register. The
+figure most worth re-establishing first is the §7 reliability result — 82% more
+deployments for 27% more energy — because it is the project's one headline number that
+is not a negative, and it currently rests on the old geometry.
