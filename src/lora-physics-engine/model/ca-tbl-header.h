@@ -189,6 +189,39 @@ enum CaTblIdentityClass : uint8_t
  */
 static const uint32_t CA_TBL_TABLE_ENTRY_BYTES = 28;
 
+/**
+ * \brief The record the constant above sizes, now with contents.
+ *
+ * This is what the network knows ABOUT a node, as distinct from CaTblNeighbour, which
+ * is what a node has personally HEARD. Keeping the two apart is load-bearing: the
+ * neighbour table drives the poll set and must stay strictly one-hop, or a node burns a
+ * full receive timeout every cycle calling peers it cannot reach. The shared table has
+ * no such restriction, because nothing is ever polled from it -- it is knowledge, not a
+ * work list.
+ */
+struct CaTblTableEntry
+{
+    uint16_t nodeId;
+    double x;           //!< reported position estimate
+    double y;
+    double varX;        //!< the reporter's OWN uncertainty, travelling with the fix
+    double varY;
+    double covXY;
+    double timestampS;
+    uint16_t seqNo;     //!< wraps; supersession is modular
+    uint8_t hopCount;
+    uint8_t sourceType; //!< tier in the low nibble, identity class in the high
+    double vx;          //!< velocity estimate
+    double vy;
+    bool valid;
+
+    CaTblTableEntry();
+};
+
+//! Modular supersession: true if \p a is newer than \p b on a wrapping counter.
+bool CaTblSeqNewer(uint16_t a, uint16_t b);
+
+
 /** Digest carries { node_id, seq_no } per known peer: 4 bytes each. This is the
  *  whole point of the digest -- 4 bytes to say "I have version N of peer X"
  *  versus 28 to send the entry itself. */
@@ -317,6 +350,14 @@ class CaTblHeader : public Header
      * same size.
      */
     void SetQueryManifestId(uint8_t m) { m_queryManifestId = m; }
+    void SetSelfEntry(const CaTblTableEntry& e)
+    {
+        m_selfEntry = e;
+        m_hasSelfEntry = true;
+    }
+    const CaTblTableEntry& GetSelfEntry() const { return m_selfEntry; }
+    bool HasSelfEntry() const { return m_hasSelfEntry; }
+
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
 
     /**
@@ -355,6 +396,11 @@ class CaTblHeader : public Header
     // have to be an explicit payload field -- flagged so the report does not
     // claim a 9-byte header that secretly needs a tenth byte.
     uint8_t m_initialHopLimit;
+    //! The sender's own entry, riding an ENTRY_PUSH. CARRIED, NOT SERIALISED --
+    //! CaTblPayloadBytes already charges for it, so writing the bytes again would
+    //! double-count the airtime this design exists to measure.
+    CaTblTableEntry m_selfEntry;
+    bool m_hasSelfEntry;
     uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
     uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input
     uint8_t m_reqBattery = 0;      //!< C4, quantised T_batt input

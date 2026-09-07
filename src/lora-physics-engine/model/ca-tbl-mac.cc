@@ -122,6 +122,8 @@ CaTblMac::CaTblMac()
       m_apcReportCount(0),
       m_apcMarginAccum(0.0),
       m_packetIdCounter(0),
+      m_selfSeq(0),
+      m_tableMerges(0),
       m_neighbourInsertions(0),
       m_dutyViolationAttempts(0)
 {
@@ -160,6 +162,39 @@ CaTblMac::Reset()
     m_apcMarginAccum = 0.0;
     m_txPowerDbm = m_cfg.txPowerDbm;
     m_packetIdCounter = static_cast<uint32_t>(m_cfg.nodeId) << 20;
+}
+
+void
+CaTblMac::PublishSelfEntry(double x, double y, double varX, double varY, double covXY,
+                           double vx, double vy, double nowS)
+{
+    CaTblTableEntry& e = m_table[m_cfg.nodeId];
+    e.nodeId = m_cfg.nodeId;
+    e.x = x;
+    e.y = y;
+    e.varX = varX;
+    e.varY = varY;
+    e.covXY = covXY;
+    e.vx = vx;
+    e.vy = vy;
+    e.timestampS = nowS;
+    e.hopCount = 0; // produced here, so zero hops by definition
+    e.sourceType = static_cast<uint8_t>((static_cast<uint8_t>(m_cfg.identityClass) << 4) |
+                                        (m_cfg.sf & 0x0F));
+    e.seqNo = ++m_selfSeq;
+    e.valid = true;
+}
+
+bool
+CaTblMac::GetTableEntry(uint16_t id, CaTblTableEntry& out) const
+{
+    std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.find(id);
+    if (it == m_table.end() || !it->second.valid)
+    {
+        return false;
+    }
+    out = it->second;
+    return true;
 }
 
 uint32_t
@@ -510,6 +545,18 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
 {
     PendingFrame f;
     f.hdr.SetPacketId(NextPacketId());
+    // The anti-entropy exchange the design specifies: an ENTRY_PUSH carries the
+    // sender's own entry. Attached only when this node has actually published one, so
+    // a node with nothing to say sends nothing and is not billed as though it had.
+    if (type == CA_TBL_MSG_ENTRY_PUSH || type == CA_TBL_MSG_TRIGGERED_UPDATE)
+    {
+        std::map<uint16_t, CaTblTableEntry>::const_iterator se =
+            m_table.find(m_cfg.nodeId);
+        if (se != m_table.end() && se->second.valid)
+        {
+            f.hdr.SetSelfEntry(se->second);
+        }
+    }
     f.hdr.SetOriginId(m_cfg.nodeId);
     f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
@@ -756,6 +803,31 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     // Before the flood-forwarding branch below, which is where a relayed copy
     // would otherwise become indistinguishable from a direct one.
     NoteNeighbour(hdr, out);
+
+    // Anti-entropy merge. Accepted from ANY hop, unlike the neighbour table above --
+    // knowing where a node is does not imply being able to reach it, and only the
+    // neighbour table feeds the poll set, so admitting a far-away entry here costs
+    // nothing in airtime. Strictly superseded: an older copy of something already held
+    // is dropped rather than overwriting a newer one, which is what the modular
+    // sequence comparison exists for.
+    if (hdr.HasSelfEntry())
+    {
+        const CaTblTableEntry& in = hdr.GetSelfEntry();
+        if (in.valid && in.nodeId != m_cfg.nodeId)
+        {
+            std::map<uint16_t, CaTblTableEntry>::iterator ex = m_table.find(in.nodeId);
+            if (ex == m_table.end() || CaTblSeqNewer(in.seqNo, ex->second.seqNo))
+            {
+                CaTblTableEntry e = in;
+                // One more hop than the sender recorded, saturating rather than
+                // wrapping: a hop count that rolled over would read as a direct entry.
+                e.hopCount =
+                    (in.hopCount < 255) ? static_cast<uint8_t>(in.hopCount + 1) : 255;
+                m_table[in.nodeId] = e;
+                ++m_tableMerges;
+            }
+        }
+    }
 
     UpdateApc(out.rxPowerDbm, static_cast<CaTblTier>(hdr.GetTier()));
 

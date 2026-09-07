@@ -283,6 +283,22 @@ class CaTblMac
     const CaTblMacConfig& GetConfig() const { return m_cfg; }
     uint16_t GetNodeId() const { return m_cfg.nodeId; }
 
+    /** Publish this node's own position estimate and bump its sequence number. This
+     *  is what an ENTRY_PUSH from this node then carries. */
+    void PublishSelfEntry(double x, double y, double varX, double varY, double covXY,
+                          double vx, double vy, double nowS);
+
+    //! What this node knows about \p id, from any source. False if never heard of.
+    bool GetTableEntry(uint16_t id, CaTblTableEntry& out) const;
+
+    //! Everything this node knows. Read-only; nothing is polled from it.
+    const std::map<uint16_t, CaTblTableEntry>& GetTable() const { return m_table; }
+
+    //! Entries that ARRIVED rather than being produced here, so propagation is
+    //! measurable instead of assumed.
+    uint64_t GetTableMerges() const { return m_tableMerges; }
+
+
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
     void SetEnergyModel(CaTblEnergyModel* e) { m_energy = e; }
     void SetRng(Ptr<UniformRandomVariable> rng) { m_rng = rng; }
@@ -454,6 +470,9 @@ class CaTblMac
     double m_apcMarginAccum;
 
     uint32_t m_packetIdCounter;
+    std::map<uint16_t, CaTblTableEntry> m_table;
+    uint16_t m_selfSeq;
+    uint64_t m_tableMerges;
 
     // Dedup: bounded LRU with a time window (§2.6).
     std::deque<std::pair<uint32_t, Time>> m_dedupOrder;
