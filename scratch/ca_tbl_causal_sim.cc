@@ -2256,6 +2256,7 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nFinders,
        uint32_t finderMode,
        double finderDigestPeriodS,
+       bool finderPseudoAnchor,
        uint32_t hopProvenanceForm,
        double hopPenalty,
        bool imuCrossCheck,
@@ -3449,6 +3450,7 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            const int ti0 = static_cast<int>(tier);
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -3592,6 +3594,41 @@ RunArm(CaTblPolicyMode mode,
                     CaTblRangeMeasurement m;
                     m.anchorX = anchorPos.x;
                     m.anchorY = anchorPos.y;
+                    // A FINDER IS A PSEUDO-ANCHOR. It knows where it is to within its
+                    // own GPS error, so the filter gets the position it REPORTS and a
+                    // variance inflated by that position's uncertainty along the range
+                    // direction -- the same treatment, and the same formula, C5 applies
+                    // to any relayed measurement. Handing over its true position would
+                    // credit it with knowledge no node has.
+                    //
+                    // The physics above is untouched: the radio link is physical and
+                    // does not care what anyone believes about where they are.
+                    if (finderPseudoAnchor && anchorId >= 501 && nodeMac[ti0] != nullptr)
+                    {
+                        CaTblTableEntry fe;
+                        if (nodeMac[ti0]->GetTableEntry(anchorId, fe) && fe.valid)
+                        {
+                            const double ux = policy.EstX() - fe.x;
+                            const double uy = policy.EstY() - fe.y;
+                            const double un = std::sqrt(ux * ux + uy * uy);
+                            if (un > 1e-6)
+                            {
+                                const double fp2[2][2] = {{fe.varX, fe.covXY},
+                                                          {fe.covXY, fe.varY}};
+                                const double proj =
+                                    CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                if (proj >= 0.0)
+                                {
+                                    m.anchorX = fe.x;
+                                    m.anchorY = fe.y;
+                                    const double inflated =
+                                        std::sqrt(sigmaM * sigmaM + proj);
+                                    relayedVarThisCycle += inflated * inflated;
+                                    sigmaM = inflated;
+                                }
+                            }
+                        }
+                    }
                     m.rangeM = range;
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
@@ -4766,6 +4803,7 @@ main(int argc, char* argv[])
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     double finderDigestPeriodSArg = 30.0;
+    bool finderPseudoAnchorArg = false;
     uint32_t hopProvenanceFormArg = 0;
     double hopPenaltyArg = 0.0;
     bool imuCrossCheckArg = false;
@@ -5118,6 +5156,17 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("finderPseudoAnchor",
+                 "Treat a finder as a PSEUDO-ANCHOR rather than a perfectly known one: "
+                 "the filter gets the position the finder REPORTS and a variance "
+                 "inflated by that position's own uncertainty along the range "
+                 "direction. FALSE by default. With it off, a finder's TRUE position is "
+                 "handed to the filter, which credits it with knowledge no node has and "
+                 "flatters every result that depends on finders -- which, since finders "
+                 "are what make tier 3 reachable at all, is most of them. The physics is "
+                 "unaffected either way: the radio link is physical and does not care "
+                 "what anyone believes.",
+                 finderPseudoAnchorArg);
     cmd.AddValue("hopProvenanceForm",
                  "How hop provenance enters the confidence score. 0 (default) is the "
                  "legacy linear subtraction, kept so prior results reproduce and pinned "
@@ -5765,6 +5814,7 @@ main(int argc, char* argv[])
                                        nFindersArg,
                                        finderModeArg,
                                        finderDigestPeriodSArg,
+                                       finderPseudoAnchorArg,
                                        hopProvenanceFormArg,
                                        hopPenaltyArg,
                                        imuCrossCheckArg,
