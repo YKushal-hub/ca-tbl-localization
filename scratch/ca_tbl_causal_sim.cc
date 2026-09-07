@@ -180,7 +180,8 @@ BuildDeployment(uint32_t gwGrid,
                 double t2TriadRadiusM,
                 uint32_t uwbAnchorsPerSite,
                 uint32_t t2AnchorsPerSite,
-                uint32_t sitingMode)
+                uint32_t sitingMode,
+                uint32_t topology)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -276,6 +277,31 @@ BuildDeployment(uint32_t gwGrid,
     dep.facilities.push_back(Vector(f, f, 0.0));
     dep.facilities.push_back(Vector(-f, f, 0.0));
 
+    // ---- TRI-BAND GATEWAYS (topology 0, the default and the correct model) ----
+    //
+    // Every gateway is ONE fixed node carrying ALL THREE radios. The same id and the
+    // same position appear in all three tier lists, so the setup loop below builds one
+    // MAC per (gateway, tier) on that tier's channel -- three radios on one node --
+    // and the provider admits that node on any of the three.
+    //
+    // This is what makes tier selection a RADIO decision instead of a destination
+    // decision. It also makes tier-3 coverage honest: UWB reaches tens of metres, so a
+    // fixed gateway offers it only to something standing next to the gateway. Closing
+    // that gap is a FINDER's job -- a moving node that carries UWB to the casualty --
+    // not a ring of UWB posts at a facility the casualty may never visit.
+    if (topology == 0)
+    {
+        for (size_t i = 0; i < dep.anchors[CA_TBL_TIER_868].size(); ++i)
+        {
+            dep.anchors[CA_TBL_TIER_2P4].push_back(dep.anchors[CA_TBL_TIER_868][i]);
+            dep.anchors[CA_TBL_TIER_UWB].push_back(dep.anchors[CA_TBL_TIER_868][i]);
+        }
+        return dep;
+    }
+
+    // ---- LEGACY per-tier anchors (topology 1) ------------------------------
+    // Retained ONLY so results produced before 2026-09-07 stay reproducible. It models
+    // three separate anchor populations, which the system does not have.
     // ---- Tiers 2 and 3: anchor rings at each site. -------------------------
     // Co-location is deliberate. If tier-2 and tier-3 coverage were in different
     // places, an escalation failure could be a siting artefact rather than a
@@ -547,9 +573,13 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! becomes a live defect the day someone wires it up.
     void SetNlosSource(CaTblNlosSource src) { m_nlosSource = src; }
 
+    //! A gateway carries ALL THREE radios, so a node id maps to a SET of tiers and
+    //! not to one. Storing a single tier per id was what forced the three-population
+    //! model: the last registration won and the node became "a UWB anchor" or "a
+    //! 2.4 GHz anchor" rather than a gateway that has both.
     void RegisterAnchor(CaTblTier tier, uint16_t id, const Vector& p)
     {
-        m_anchorTier[id] = tier;
+        m_anchorTiers[id] |= static_cast<uint8_t>(1u << static_cast<int>(tier));
         m_anchorPos[id] = p;
     }
 
@@ -561,6 +591,9 @@ class EnginePhyProvider : public CaTblPhyProvider
     void RegisterPeerNode(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
 
     void SetPeerPosition(uint16_t id, const Vector& p) { m_peerPos[id] = p; }
+
+    //! A FINDER is a gateway that moves. Same link evaluation, new position each cycle.
+    void SetAnchorPosition(uint16_t id, const Vector& p) { m_anchorPos[id] = p; }
 
     CaTblLinkOutcome Evaluate(uint16_t txId,
                               uint16_t rxId,
@@ -621,8 +654,9 @@ class EnginePhyProvider : public CaTblPhyProvider
         // registered MAC on a completed transmission, so without this an 868
         // frame would be handed to the 2.4 GHz engine with a gateway id that
         // engine has never seen registered.
-        std::map<uint16_t, CaTblTier>::const_iterator at = m_anchorTier.find(anchor);
-        if (at == m_anchorTier.end() || at->second != tier)
+        std::map<uint16_t, uint8_t>::const_iterator at = m_anchorTiers.find(anchor);
+        if (at == m_anchorTiers.end() ||
+            (at->second & static_cast<uint8_t>(1u << static_cast<int>(tier))) == 0)
         {
             ++m_skipped;
             return o;
@@ -714,7 +748,8 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! this mechanism sits behind: with it empty, Evaluate() takes the same
     //! branches it always did.
     std::map<uint16_t, Vector> m_peerPos;
-    std::map<uint16_t, CaTblTier> m_anchorTier;
+    //! id -> bitmask of tiers this node has a radio for.
+    std::map<uint16_t, uint8_t> m_anchorTiers;
     std::map<uint16_t, Vector> m_anchorPos;
     uint64_t m_evaluations;
     uint64_t m_skipped;
@@ -2110,6 +2145,8 @@ RunArm(CaTblPolicyMode mode,
        bool relayedRanging,
        uint32_t relayTier,
        bool vizEventsOn,
+       uint32_t nFinders,
+       uint32_t finderMode,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2390,6 +2427,7 @@ RunArm(CaTblPolicyMode mode,
     // counters already count -- itemised, so an animation can show them one at a time
     // rather than as a total.
     std::ofstream vizEvents;
+    std::ofstream vizNodes;
     if (vizEventsOn)
     {
         std::ostringstream vfn;
@@ -2398,6 +2436,13 @@ RunArm(CaTblPolicyMode mode,
         if (vizEvents.is_open())
         {
             vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm\n";
+        }
+        std::ostringstream nfn;
+        nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        vizNodes.open(nfn.str().c_str());
+        if (vizNodes.is_open())
+        {
+            vizNodes << "t,nodeId,x,y\n";
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 chan[ti].SetEventLog(&vizEvents);
@@ -2655,6 +2700,68 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
+    // ---- FINDERS: moving nodes carrying all three radios ---------------------
+    //
+    // Registered on every tier exactly like a gateway, because that is what they are --
+    // a gateway whose position changes. They beacon, so the lost node discovers them
+    // through the ordinary neighbour table and ranges to them through the ordinary
+    // poll set; no ranging or energy code knows they are special.
+    //
+    // isAccessPoint is FALSE: a finder is a person carrying a radio, not installed
+    // infrastructure, so it takes the 2.5% WPC Table-II field cap and not the 10%
+    // access-point cap. Getting that backwards would hand searchers four times the
+    // airtime budget they are entitled to.
+    std::deque<Tourist> finderWalkers;
+    std::vector<uint32_t> finderIds;
+    std::vector<Vector> finderPos;
+    for (uint32_t fi = 0; fi < nFinders; ++fi)
+    {
+        const uint32_t fid = 501 + fi;
+        Ptr<UniformRandomVariable> frng = CreateObject<UniformRandomVariable>();
+        frng->SetStream(static_cast<int64_t>(seed) * 7919 + 900007 + fi);
+        finderWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+                                   dep.boxHalfM, dep.dwellRadiusM, frng);
+        const Vector fpos = finderWalkers.back().Position();
+        finderIds.push_back(fid);
+        finderPos.push_back(fpos);
+
+        engine868.RegisterNode(fid, fpos);
+        engine2p4.RegisterNode(fid, fpos);
+        engineUwb.RegisterNode(fid, fpos);
+
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            const CaTblTier tier = static_cast<CaTblTier>(ti);
+            provider.RegisterAnchor(tier, static_cast<uint16_t>(fid), fpos);
+            anchorPosById[static_cast<uint16_t>(fid)] = fpos;
+
+            CaTblMacConfig fc;
+            fc.nodeId = static_cast<uint16_t>(fid);
+            fc.identityClass = CA_TBL_ID_RESCUER;
+            fc.isAccessPoint = false;
+            fc.uwbArbitration = uwbArbitration;
+            fc.sendHandshakeFrames = sendHandshakeFrames;
+            fc.sf = phy[ti].sf;
+            fc.bandwidthHz = phy[ti].bandwidthHz;
+            fc.txPowerDbm = phy[ti].txPowerDbm;
+            fc.neighbourTtlS = beaconPeriodS[ti] * nbrTtlMult;
+            macs.emplace_back();
+            CaTblMac* fm = &macs.back();
+            fm->Configure(fc);
+            fm->SetRng(macRng);
+            chan[ti].Register(fm);
+
+            BeaconDriver fb;
+            fb.mac = fm;
+            fb.tier = tier;
+            fb.periodS = beaconPeriodS[ti];
+            fb.jitterMaxS = beaconPeriodS[ti] * 0.25;
+            fb.untilS = durationS;
+            fb.rng = macRng;
+            beacons.push_back(fb);
+        }
+    }
+
     // Scheduled only after every push_back, so the addresses are final.
     for (size_t r = 0; r < peerReqs.size(); ++r)
     {
@@ -2870,6 +2977,64 @@ RunArm(CaTblPolicyMode mode,
 
         const Time now = Simulator::Now();
         const double t = now.GetSeconds();
+
+        if (vizNodes.is_open())
+        {
+            vizNodes << std::fixed << std::setprecision(2) << t << ',' << nodeId << ','
+                     << pos.x << ',' << pos.y << '\n';
+            for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
+            {
+                vizNodes << t << ',' << tags[pt].nodeId << ',' << tags[pt].pos.x << ','
+                         << tags[pt].pos.y << '\n';
+            }
+        }
+
+        // Finders move. Their position is pushed to the engines (which key correlation
+        // and mobility state on node id), to the provider (which computes the link) and
+        // to anchorPosById (which the ranging poll reads for the far-end position). All
+        // three, or a finder ranges from a position it has left.
+        for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
+        {
+            Vector fp;
+            if (finderMode == 1)
+            {
+                // Converge on the ESTIMATE, which is all a searcher is ever given.
+                // Stand off once inside standoff metres rather than walking onto the
+                // casualty, so the finder stays put and keeps the short-range link up
+                // instead of oscillating across the estimate every cycle.
+                const double gx = policy.EstX(), gy = policy.EstY();
+                Vector c = finderPos[fi];
+                const double dx = gx - c.x, dy = gy - c.y;
+                const double dist = std::sqrt(dx * dx + dy * dy);
+                const double standoff = 8.0;
+                const double stepM = walkSpeedMps * dt;
+                if (dist > standoff && dist > 1e-9)
+                {
+                    const double f = std::min(1.0, stepM / dist);
+                    c.x += dx * f;
+                    c.y += dy * f;
+                }
+                finderPos[fi] = c;
+                fp = c;
+            }
+            else
+            {
+                finderWalkers[fi].Step(dt);
+                fp = finderWalkers[fi].Position();
+                finderPos[fi] = fp;
+            }
+            const uint16_t fid = static_cast<uint16_t>(finderIds[fi]);
+            engine868.UpdateNodePosition(fid, fp);
+            engine2p4.UpdateNodePosition(fid, fp);
+            engineUwb.UpdateNodePosition(fid, fp);
+            provider.SetAnchorPosition(fid, fp);
+            anchorPosById[fid] = fp;
+            if (vizNodes.is_open())
+            {
+                vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid << ','
+                         << fp.x << ',' << fp.y << '\n';
+            }
+        }
 
         // C5. Each relay's own ranging and filter for this cycle.
         //
@@ -4237,7 +4402,10 @@ main(int argc, char* argv[])
     bool relayedRangingArg = false;
     uint32_t relayTierArg = 1;
     bool vizEventsArg = false;
+    uint32_t nFindersArg = 0;
+    uint32_t finderModeArg = 1;
     uint32_t sitingModeArg = 0;
+    uint32_t topologyArg = 0;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
@@ -4577,6 +4745,39 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("finderMode",
+                 "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
+                 "position ESTIMATE of the lost node, standing off 8 m once there. Not "
+                 "the true position -- nobody knows that -- so a bad fix sends searchers "
+                 "to the wrong place, and the cost of poor localisation shows up as "
+                 "distance walked rather than only as a number. 0 = tour the facility "
+                 "sites like any other field node, which is what a finder does before it "
+                 "has been given anywhere to go. NOTE this is a MODELLING CHOICE not "
+                 "specified by the project brief; see docs/DESIGN_DECISIONS.md.",
+                 finderModeArg);
+    cmd.AddValue("nFinders",
+                 "Number of FINDERS: moving nodes carrying all three radios, which the "
+                 "lost node discovers and ranges against exactly as it does a fixed "
+                 "gateway. Default 0. This is the mechanism the architecture turns on: "
+                 "UWB reaches tens of metres, so a FIXED gateway can offer tier 3 only "
+                 "to something already beside it, and escalation to UWB becomes a "
+                 "statement about a searcher having arrived rather than about the "
+                 "casualty having wandered somewhere useful. Finders take the 2.5% WPC "
+                 "Table-II field cap, NOT the 10% access-point cap -- a searcher is a "
+                 "person carrying a radio, not installed infrastructure.",
+                 nFindersArg);
+    cmd.AddValue("topology",
+                 "0 (DEFAULT) = TRI-BAND GATEWAYS, the correct model: every gateway is "
+                 "one fixed node carrying all three radios -- 868 MHz, 2.4 GHz and UWB "
+                 "-- so the tier is a choice of which radio to use, not of whom to talk "
+                 "to. 1 = the legacy three-population model, in which tier 1, tier 2 and "
+                 "tier 3 had SEPARATE anchors in different places. Legacy is retained "
+                 "only so results produced before 2026-09-07 remain reproducible; it "
+                 "does not describe the system. NOTE that 0 and 1 are different "
+                 "deployments, so they do not share a baseline and no null control "
+                 "relates them -- switching this is a change of scenario, not of "
+                 "configuration.",
+                 topologyArg);
     cmd.AddValue("sitingMode",
                  "Where tier-3 anchors go. 0 (default) CO-LOCATES them with tier 2 at "
                  "the four facility sites, which is the siting every existing result "
@@ -4871,7 +5072,8 @@ main(int argc, char* argv[])
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
                                            t2AnchorsPerSite,
-                                           sitingModeArg);
+                                           sitingModeArg,
+                                           topologyArg);
 
     if (vizEventsArg)
     {
@@ -5101,6 +5303,8 @@ main(int argc, char* argv[])
                                        relayedRangingArg,
                                        relayTierArg,
                                        vizEventsArg,
+                                       nFindersArg,
+                                       finderModeArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
