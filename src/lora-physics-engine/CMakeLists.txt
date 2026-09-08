@@ -64,6 +64,7 @@ set(source_files
     model/ca-tbl-routing.cc        # CA-TBL Network layer 2/3
     model/ca-tbl-sparse-anchor.cc  # CA-TBL sect 7 sparse-anchor geometry
     model/ca-tbl-grant-coord.cc    # CA-TBL Network sect 6 grant coordination
+    model/ca-tbl-node-lifecycle.cc # CA-TBL sect 24-27 node lifecycle
 )
 
 set(header_files
@@ -132,6 +133,7 @@ set(header_files
     model/ca-tbl-routing.h         # CA-TBL Network layer 2/3
     model/ca-tbl-sparse-anchor.h   # CA-TBL sect 7 sparse-anchor geometry
     model/ca-tbl-grant-coord.h     # CA-TBL Network sect 6 grant coordination
+    model/ca-tbl-node-lifecycle.h  # CA-TBL sect 24-27 node lifecycle
 )
 
 build_lib(
