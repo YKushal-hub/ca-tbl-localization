@@ -6045,7 +6045,7 @@ main(int argc, char* argv[])
                  "Mode 2 sweeps an expanding spiral from the LAST KNOWN POSITION "
                  "until an entry is more informative than the sweep, then converges. "
                  "Radius is capped at how far the subject could have walked. Needs "
-                 "--baseCampFrac. ",
+                 "--baseCampFrac. "
                  "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
                  "position ESTIMATE of the lost node, standing off 8 m once there. Not "
                  "the true position -- nobody knows that -- so a bad fix sends searchers "
