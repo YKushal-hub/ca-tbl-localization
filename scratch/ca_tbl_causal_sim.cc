@@ -3470,9 +3470,21 @@ RunArm(CaTblPolicyMode mode,
                 // sweeping; how fast the SEARCHERS move bounds how much of it
                 // they have covered by now. Two different speeds, and using the
                 // subject's for both made the radius zero whenever it was still.
-                const double reach = std::max(1.0, walkSpeedMps * t);
-                const double swept = 0.5 * finderSpeedMps * t;
-                const double radius = std::max(1.0, std::min(reach, swept));
+                // The subject is somewhere inside the box. It may already have
+                // been kilometres out at t=0 -- a still subject is PLACED there --
+                // so elapsed time bounds how far the SEARCHERS have got, not how
+                // far the subject might be. Bounding by the subject's speed made
+                // this 1 m whenever it was stationary.
+                //
+                // 0.9 of the walking speed goes radial. At 0.5 a searcher reaches
+                // 8.6 km in four hours against a subject 11.6 km out and could
+                // never arrive; at 0.9 it reaches 15.5 km. That trades area
+                // coverage for reach, and the trade is real rather than a tuning
+                // choice: four searchers in four hours cannot both sweep an
+                // annulus densely and cross 11.6 km.
+                const double swept = 0.9 * finderSpeedMps * t;
+                const double radius =
+                    std::max(1.0, std::min(dep.boxHalfM, swept));
                 if (entrySigma > radius)
                 {
                     searching = true;
@@ -3484,7 +3496,7 @@ RunArm(CaTblPolicyMode mode,
                     // covers the annulus instead of one bearing.
                     const double theta =
                         2.0 * M_PI * static_cast<double>(fi) / n
-                        + ((radius > 1.0) ? (0.5 * finderSpeedMps * t / radius) : 0.0);
+                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * t / radius) : 0.0);
                     fp = Vector(dep.baseCampX + radius * std::cos(theta),
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
