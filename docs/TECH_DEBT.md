@@ -799,3 +799,67 @@ PCS is a re-encoding of works better than the re-encoding.
 *Order, if it is ever picked up:* run the monotone control FIRST as an acceptance test,
 then CAL-01, then give the hop and NLOS terms real inputs. Not the other way round — there
 is no point calibrating a score that has already been measured not to carry information.
+
+### K.9 The SHS gait calibration diverges where fixes are sparse — DEBT, by owner decision
+
+`--imuFusion` gives the filter the dead-reckoned position on no-fix cycles, which is the
+interval the inertial engine exists to cover. The fusion path itself is correct and
+null-controlled. **What is not usable is the thing being fused.**
+
+MEASURED, seed 7, 3600 s, `--shsTrustedFixK=5.0 --maxTurnRate=0.5`:
+
+| arm | radio fixes | SHS position error | cep95 no fusion → fusion |
+|---|---|---|---|
+| `static_uwb` | 0 (never calibrates) | **13.0 m** | 749.0 → 52.6 |
+| `static_868` | 1433 | 45.4 m | 334.9 → 291.1 |
+| `fixed_threshold` | ~220 | 709 610 m | 269.7 → 30 694 |
+| `static_2p4` | 7 | 1 897 933 m | 5 172.8 → 2 350 560 |
+| `ca_tbl_full` | ~50 | 4 004 307 m | 276.6 → 317 444 |
+
+**The arm that never calibrates is the most accurate one.** A free-running engine on its
+0.7 m fallback step is merely imprecise; a mis-calibrated one is confidently, catastrophically
+wrong.
+
+WHY. Step length and heading are calibrated from the displacement between consecutive
+trusted fixes. The node truly moves ~3 m per cycle and the fixes carry ~167 m of error, so
+the measured displacement is roughly 1 part signal to 56 parts noise: the implied step
+length is wrong by a large factor and the implied heading — the *direction* of that same
+noisy vector — is close to uniformly random. Scale error and heading error then compound
+multiplicatively under integration. `lora-step-length-submodule.cc:101` adopts the FIRST
+calibration whole, with no EMA history, so on a sparse arm the first bad estimate *is* the
+gait model permanently.
+
+`--shsTrustedFixK` (calibrate only on informative displacement) fixed the high-availability
+arms — 5–14 km → 20–206 m — but cannot fix the sparse ones, where "sparse and informative"
+becomes three samples.
+
+TWO GUARDS ARE BUILT, both default off, both positive-controlled:
+
+- `--shsStepBounds` refuses a calibration implying a step outside 0.25–1.10 m. `chord /
+  steps` is an implied step length and a 167 m chord over 3 steps implies 55 m per step. The
+  bound is on step length rather than on k_w because step length is the quantity with a
+  physiological range; k_w = chord / |Σ q u| has no upper bound at all. This removes the
+  divergence: 1.9e6 → 301 m, 4.0e6 → 459 m.
+- `--shsSnapPosition` anchors the SHS position at each clean fix. Required by `--imuFusion`
+  and only correct together with it: the fusion variance is
+  `imuSigmaFloor + imuDrift·(t − lastTrustedFix)`, which asserts the position error is as old
+  as the last trusted fix — but a trusted fix calibrates GAIT and does not touch position, so
+  unsnapped that error accumulates from seeding and is never reset. Measured 459 m of SHS
+  error while the variance claimed 5.4 m, and the filter duly followed it.
+
+**Bounded, fusion is still net-negative on the high-availability arms** (`ca_tbl_full` cep95
+276.6 → 1 499.8): a 459 m measurement labelled 5.4 m degrades a filter already at 141 m RMS.
+So the guards make the SHS survivable, not yet useful.
+
+DECISION (owner, 2026-09-08): do not fix the gait calibration now. Measure the architecture
+against `--imuIdeal`, a PERFECT dead reckoner anchored at the last clean fix and advanced by
+true displacement. That is a **CEILING, not a system result** — every figure produced under
+it is an upper bound on what a flawless IMU could contribute here, and must be reported as a
+bound. It is not error-free: the anchor is the filter's estimate and carries that fix's
+error, held constant rather than compounded, which is what separates a perfect inertial
+system from an oracle.
+
+WHAT CLOSING THIS WOULD TAKE: an error model for the SHS that is actually measured rather
+than asserted, so the fusion variance describes the engine's real accuracy; and a
+calibration that is robust to a first bad sample — at minimum, refusing to adopt a first
+estimate whole, and preferring a running median over an EMA seeded by one point.
