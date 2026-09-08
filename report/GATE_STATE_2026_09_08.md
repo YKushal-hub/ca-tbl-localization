@@ -17,9 +17,11 @@ new reds are the gate doing its job.
 
 ## G4 — the default deployment no longer exercises tier 2
 
-The single failing check:
+The single failing check, with the trace file named by arm rather than by filename
+because trace files are deliberately untracked and G10 is right to refuse a citation
+that cannot resolve:
 
-> `trace_static_2p4_seed7.csv`: fix coverage above 50%: only **41/1440 (2.8%)** steps
+> [the `static_2p4` trace]: fix coverage above 50%: only **41/1440 (2.8%)** steps
 > produced a fix — this arm's RMSE is dead reckoning, not localisation
 
 That is correct and it is not a regression in the engine. With 2.4 GHz r80 corrected from
