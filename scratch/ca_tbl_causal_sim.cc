@@ -2252,7 +2252,7 @@ struct CaTblTagState
     uint32_t sessionId = 0;
     uint64_t renderCounts[4] = {0, 0, 0, 0};
     uint64_t caseAAttempts = 0;
-    uint64_t caseSolved[4] = {0, 0, 0, 0}; // [0]=D 3+anchors [1]=A [2]=B [3]=C-refused
+    uint64_t caseSolved[5] = {0, 0, 0, 0, 0}; // [0]=D 3+ [1]=A [2]=B [3]=C [4]=floor
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
@@ -4521,7 +4521,27 @@ RunArm(CaTblPolicyMode mode,
             // how often the normal path ran.
             ++caseSolved[0];
         }
-        else if (activeMeas.size() == 0 || (activeMeas.size() == 1 && floorMeas.size() < 3))
+        else if (floorMeas.size() >= 3)
+        {
+            // THE FIFTH BUCKET, AND IT IS THE ONE THAT WAS MISSING. The active tier came
+            // up short but the TIER-1 FLOOR solved, so the cycle is localised and is
+            // none of D, A, B or C: not D because the active tier had fewer than three,
+            // not A or B because those only run once the floor has failed, not C because
+            // the node was not unlocalisable.
+            //
+            // Without it the census summed to ~404-421 of 480 and looked like a
+            // partition with cycles missing. It was never a partition; it was four
+            // categories with a hole where the commonest outcome lived.
+            ++caseSolved[4];
+        }
+        else if (activeMeas.size() == 2 && !sparseCaseA)
+        {
+            // Two ranges, no floor, and sparse solving disabled: the estimator coasts.
+            // Unlocalisable in the same sense as C, and counted there so the census does
+            // not silently depend on whether --sparseCaseA happens to be on.
+            ++caseSolved[3];
+        }
+        else if (activeMeas.size() == 0 || activeMeas.size() == 1)
         {
             // CASE C -- no usable absolute geometry. CaTblSolveCaseC() always refuses by
             // construction: with no surveyed anchor there is no absolute frame, and the
@@ -4592,6 +4612,12 @@ RunArm(CaTblPolicyMode mode,
             else if (sr.verdict < 4)
             {
                 ++caseARefused[sr.verdict];
+                // A REFUSED SPARSE SOLVE IS AN UNLOCALISABLE CYCLE, and it belongs in C.
+                // Leaving it uncounted is what made the census incomplete at 412 of 480:
+                // the two-range cycles that Case A/B declined fell through every branch.
+                // Counting the refusal as C is not bookkeeping convenience -- the node
+                // genuinely ended the cycle without a position, which is what C means.
+                ++caseSolved[3];
             }
         }
 
@@ -5762,7 +5788,16 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    sect 7 CASES: D(3+ anchors) " << caseSolved[0]
                       << ", A(2 gateways) " << caseSolved[1]
                       << ", B(anchor+peer) " << caseSolved[2]
-                      << ", C(unlocalisable) " << caseSolved[3] << "\n";
+                      << ", C(unlocalisable) " << caseSolved[3] << ", floor-solved "
+                      << caseSolved[4] << "\n";
+            const uint64_t caseTotal = caseSolved[0] + caseSolved[1] + caseSolved[2] +
+                                       caseSolved[3] + caseSolved[4];
+            // Printed so the census can be CHECKED rather than trusted. If these two
+            // disagree the breakdown has a hole, which is exactly the defect this line
+            // exists to make visible.
+            std::cout << "    sect 7 CASES: classified " << caseTotal << " of " << steps
+                      << " cycles" << ((caseTotal == steps) ? " (complete)" : " (INCOMPLETE)")
+                      << "\n";
         }
         if (caseAAttempts > 0)
         {
