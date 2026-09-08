@@ -251,3 +251,76 @@ the only prediction about the comparison that did.
   not make this forest the right forest.
 - **None of this vindicates the confidence score.** `PCS_FORMS_RESULTS` §2 answered that
   separately and negatively. Domination is a systems claim, not a claim for PCS.
+
+---
+
+# K4 — the small-box regime, measured. The gap does not close.
+
+**Registered** `report/PREREG_K4_SMALLBOX.md` (`cc8aebb`), committed before the cell ran.
+`boxHalf=400`, gateway spacing 360 m against the measured 156 m tier-2 range — the regime
+§7 above recorded as a **gap** and said nothing extrapolated into.
+
+**Abort conditions cleared before analysis:** 120 rows exactly, all ten shards at the same
+commit `cc8aebb`, all `dirty 0`.
+
+## The result
+
+| arm | rmse | energy | fix cycles |
+|---|---|---|---|
+| `ca_tbl_full` | 6.800 m | 17.832 J | 1428 |
+| `static_868` | 44.911 m | 15.401 J | 1439 |
+| `static_2p4` | **3.256 m** | **14.063 J** | 1414 |
+| `static_uwb` | 203.411 m | 871.729 J | 0 |
+| `fixed_threshold` | 9.247 m | 17.423 J | 1426 |
+| `ca_tbl_no_integrity` | 8.555 m | 17.367 J | 1428 |
+
+| vs | rmse | energy | verdict |
+|---|---|---|---|
+| `static_868` | **+37.133 m, 20+/0− p<0.0001** | −2.429 J, 0+/20− | **incomparable** |
+| `static_2p4` | −3.699 m, 0+/20− | −3.698 J, 0+/20− | **DOMINATED** |
+| `static_uwb` | +197.210 m | +853.416 J | DOMINATES |
+| `fixed_threshold` | **+2.607 m, 19+/1− p<0.0001** | −0.353 J, 2+/18− | **incomparable** |
+| `ca_tbl_no_integrity` | +1.735 m, 17+/3− p 0.0026 | −0.398 J, 0+/20− | incomparable |
+
+**All three predictions held, including T2, which predicted the system still loses.**
+
+- **T1 held.** `ca_tbl_full` is non-dominated by `static_868`: **37.1 m of accuracy for
+  2.43 J**, 20 of 20 seeds. This is the strongest showing of the tiering mechanism in the
+  project.
+- **T3 held.** It also beats `fixed_threshold` on accuracy for the first time at
+  significance — 2.61 m on 19 of 20 seeds — for 0.35 J. That is an improvement on the tie
+  at 750 and 1000 and the domination from 1500 up.
+- **T2 held.** `static_2p4` still dominates, on **both** axes, at **20 of 20 seeds each**.
+
+## U1 does not fire, and the trend it was about is real but does not save the claim
+
+The favourable trend §7 reported is genuine — `ca_tbl_full` improves from 276.9 m at
+`box3000` to **6.80 m** at `box400`, and its standing against `static_868` goes from
+dominated to non-dominated, against `fixed_threshold` from dominated to better-on-accuracy.
+
+**But `static_2p4` improves faster.** The ratio of `ca_tbl_full`'s rmse to `static_2p4`'s
+barely moves as the box shrinks — 3.87× at `box1000`, 2.15× at 750, **2.09× at 400** — and
+the coverage argument that qualified the earlier cells disappears here: `static_2p4` holds
+**1414 of 1440** fix cycles at `box400`, against 1082 at 750 and 570 at 3000. At this
+scale it is not winning by declining to answer.
+
+**So the answer stands, and is now measured rather than extrapolated: across
+`boxHalf` 400–3000, there is no scale at which CA-TBL beats a single 2.4 GHz radio.**
+As tier 2's coverage improves, the single-band arm improves at least as fast.
+
+## What K4 changes
+
+- §7's gap is closed for `boxHalf=400`. The regime below that is still unmeasured.
+- The architecture demonstrably works *as a mechanism*: it converts tier-2 availability
+  into accuracy over tier 1, at 20 of 20 seeds, and it beats the fixed threshold on
+  accuracy where tier 2 is reachable.
+- **What it does not do is beat carrying one 2.4 GHz radio**, in any cell of this project,
+  and that is now sixteen cells across seven deployment scales.
+
+## The technique, which is reusable
+
+The cell ran as **ten processes of two seeds** and was concatenated. The split is
+byte-identical — the registration carries the proof, seed 8 alone against the same seed as
+the second of twenty inside `k1a_box1500`, `cmp` clean on all six arms. That turns a
+5-hour single-threaded cell into a 30-minute one, and it is why this regime was measurable
+at all. Every future campaign whose makespan is set by one slow cell should use it.
