@@ -3390,6 +3390,10 @@ RunArm(CaTblPolicyMode mode,
     // displacement. A ceiling on inertial contribution, not a sensor model.
     double idealX = 0.0, idealY = 0.0;
     bool idealAnchored = false;
+    // The position covariance the dead reckoner was anchored WITH. A dead
+    // reckoner inherits its anchor's error and holds it constant, so this is a
+    // floor on its accuracy that drift-since-anchor cannot see.
+    double imuAnchorVarM2 = 0.0;
     shsDriver.engine = &shsEngine;
 
     auto& pcsHist = TS0.pcsHist;
@@ -4622,11 +4626,14 @@ RunArm(CaTblPolicyMode mode,
         {
             const double unaidedFuseS = std::max(0.0, t - lastTrustedFixS);
             const double sigShs = imuSigmaFloorM + imuDriftMps * unaidedFuseS;
-            if (sigShs > 0.0)
+            // Independent by construction: the error the anchor was placed with,
+            // plus what the engine has accumulated since. They add as variances.
+            const double fuseVarM2 = imuAnchorVarM2 + sigShs * sigShs;
+            if (fuseVarM2 > 0.0)
             {
                 const double fx = imuIdeal ? idealX : shsEngine.GetX();
                 const double fy = imuIdeal ? idealY : shsEngine.GetY();
-                policy.FusePosition(fx, fy, sigShs * sigShs);
+                policy.FusePosition(fx, fy, fuseVarM2);
                 ++imuFusedCycles;
             }
         }
@@ -4671,6 +4678,10 @@ RunArm(CaTblPolicyMode mode,
                 idealX = policy.EstX();
                 idealY = policy.EstY();
                 idealAnchored = true;
+                // Recorded at the instant of anchoring, not read later: the
+                // filter's covariance moves every cycle, and what this engine
+                // inherited is the value it had HERE.
+                imuAnchorVarM2 = policy.Pxx() + policy.Pyy();
                 lastTrustedX = policy.EstX();
                 lastTrustedY = policy.EstY();
                 haveTrusted = true;
