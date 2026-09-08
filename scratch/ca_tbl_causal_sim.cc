@@ -2252,6 +2252,7 @@ struct CaTblTagState
     uint32_t sessionId = 0;
     uint64_t renderCounts[4] = {0, 0, 0, 0};
     uint64_t caseAAttempts = 0;
+    uint64_t caseSolved[4] = {0, 0, 0, 0}; // [0]=D 3+anchors [1]=A [2]=B [3]=C-refused
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
@@ -2527,6 +2528,7 @@ RunArm(CaTblPolicyMode mode,
     auto& sessionId = TS0.sessionId;
     auto& renderCounts = TS0.renderCounts;
     auto& caseAAttempts = TS0.caseAAttempts;
+    auto& caseSolved = TS0.caseSolved;
     auto& caseAAdmitted = TS0.caseAAdmitted;
     auto& caseARefused = TS0.caseARefused;
 
@@ -4512,17 +4514,68 @@ RunArm(CaTblPolicyMode mode,
         // replace COASTING, which is what the estimator does when nothing solves --
         // not replace a fallback that was already working.
         bool caseAUsed = false;
+        if (activeMeas.size() >= 3)
+        {
+            // CASE D -- the ordinary overdetermined solve. Counted so the sparse cases
+            // have a denominator: "Case A fired 8 times" means nothing without knowing
+            // how often the normal path ran.
+            ++caseSolved[0];
+        }
+        else if (activeMeas.size() == 0 || (activeMeas.size() == 1 && floorMeas.size() < 3))
+        {
+            // CASE C -- no usable absolute geometry. CaTblSolveCaseC() always refuses by
+            // construction: with no surveyed anchor there is no absolute frame, and the
+            // peer set fixes a SHAPE that can be translated and rotated freely without
+            // contradicting any measurement. Counted rather than called, because calling
+            // a function whose answer is known is theatre; what matters is that the
+            // cycle is CLASSIFIED as unlocalisable rather than silently coasting.
+            ++caseSolved[3];
+        }
         if (sparseCaseA && activeMeas.size() == 2 && floorMeas.size() < 3)
         {
             ++caseAAttempts;
+            // A OR B IS DECIDED BY PROVENANCE, NOT BY GEOMETRY. The arithmetic is the
+            // same two-circle intersection either way; what differs is what the second
+            // reference IS. A surveyed gateway is known infrastructure. A finder or peer
+            // is a node reporting its own estimate, and a fix that leaned on one is not
+            // the evidence two gateways give -- so it must not be reported as though it
+            // were. Ids below 500 are gateways; 500 and above are finders and peers.
+            // Provenance is read from the POSITION, because CaTblRangeMeasurement does
+            // not carry the id and rangedThisCycle holds the floor's ids by this point
+            // (the floor is ranged after the active tier). A reference standing exactly
+            // where a surveyed gateway stands IS that gateway.
+            auto isSurveyed = [&](double ax, double ay) {
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    for (size_t k = 0; k < dep.anchors[ti].size(); ++k)
+                    {
+                        const Vector& gp = dep.anchors[ti][k].pos;
+                        if (std::fabs(gp.x - ax) < 0.01 && std::fabs(gp.y - ay) < 0.01)
+                        {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+            const bool bothSurveyed = isSurveyed(activeMeas[0].anchorX, activeMeas[0].anchorY) &&
+                                      isSurveyed(activeMeas[1].anchorX, activeMeas[1].anchorY);
             const CaTblSparseResult sr =
-                CaTblSolveCaseA(activeMeas[0].anchorX, activeMeas[0].anchorY,
-                                activeMeas[0].rangeM,
-                                activeMeas[1].anchorX, activeMeas[1].anchorY,
-                                activeMeas[1].rangeM,
-                                policy.EstX(), policy.EstY(),
-                                policy.Pxx(), policy.Pxy(), policy.Pyy(),
-                                sparseCaseAMarginM);
+                bothSurveyed
+                    ? CaTblSolveCaseA(activeMeas[0].anchorX, activeMeas[0].anchorY,
+                                      activeMeas[0].rangeM,
+                                      activeMeas[1].anchorX, activeMeas[1].anchorY,
+                                      activeMeas[1].rangeM,
+                                      policy.EstX(), policy.EstY(),
+                                      policy.Pxx(), policy.Pxy(), policy.Pyy(),
+                                      sparseCaseAMarginM)
+                    : CaTblSolveCaseB(activeMeas[0].anchorX, activeMeas[0].anchorY,
+                                      activeMeas[0].rangeM,
+                                      activeMeas[1].anchorX, activeMeas[1].anchorY,
+                                      activeMeas[1].rangeM,
+                                      policy.EstX(), policy.EstY(),
+                                      policy.Pxx(), policy.Pxy(), policy.Pyy(),
+                                      sparseCaseAMarginM);
             if (sr.verdict == CA_TBL_SPARSE_OK)
             {
                 // Conservative on purpose. A proper propagation would carry the geometry
@@ -4534,6 +4587,7 @@ RunArm(CaTblPolicyMode mode,
                 policy.FusePosition(sr.x, sr.y, 2.0 * (s0 * s0 + s1 * s1));
                 caseAUsed = true;
                 ++caseAAdmitted;
+                ++caseSolved[(sr.solvedBy == CA_TBL_CASE_B) ? 2 : 1];
             }
             else if (sr.verdict < 4)
             {
@@ -5699,7 +5753,11 @@ RunArm(CaTblPolicyMode mode,
         }
         if (caseAAttempts > 0)
         {
-            std::cout << "    sect 7 CASE A: attempts " << caseAAttempts << ", admitted "
+            std::cout << "    sect 7 CASES: D(3+ anchors) " << caseSolved[0]
+                      << ", A(2 gateways) " << caseSolved[1]
+                      << ", B(anchor+peer) " << caseSolved[2]
+                      << ", C(unlocalisable) " << caseSolved[3] << "\n";
+            std::cout << "    sect 7 CASE A/B: attempts " << caseAAttempts << ", admitted "
                       << caseAAdmitted << ", refused ambiguous "
                       << caseARefused[CA_TBL_SPARSE_AMBIGUOUS] << ", degenerate "
                       << caseARefused[CA_TBL_SPARSE_DEGENERATE] << ", no-prior "
