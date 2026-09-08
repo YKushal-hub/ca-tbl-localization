@@ -106,7 +106,8 @@ CaTblMacConfig::CaTblMacConfig()
       sf(7),
       bandwidthHz(125e3),
       codingRate(1),
-      sendHandshakeFrames(false)
+      sendHandshakeFrames(false),
+      tableFuseCI(false)
 {
 }
 
@@ -124,6 +125,8 @@ CaTblMac::CaTblMac()
       m_packetIdCounter(0),
       m_selfSeq(0),
       m_tableMerges(0),
+      m_tableFuses(0),
+      m_tableDiscards(0),
       m_neighbourInsertions(0),
       m_dutyViolationAttempts(0)
 {
@@ -581,7 +584,13 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
         // an answer; reporting it would state a position nothing currently
         // supports. Counted rather than dropped silently, so a search that found
         // only stale knowledge is distinguishable from one that found none.
-        if (nowS - e.timestampS > m_cfg.queryStalenessBoundS)
+        // Classified rather than compared, so the refusal reason is nameable. The
+        // bound stays exactly where the spec puts it -- agingS defaults to the same
+        // 120 s -- so this changes what can be REPORTED, not what is refused.
+        CaTblFreshnessBounds fb;
+        fb.agingS = m_cfg.queryStalenessBoundS;
+        const CaTblFreshness fresh = CaTblClassifyFreshness(nowS - e.timestampS, fb);
+        if (fresh == CA_TBL_STALE || fresh == CA_TBL_EXPIRED)
         {
             ++m_proxyRefusedStale;
             continue;
@@ -917,6 +926,11 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         if (in.valid && in.nodeId != m_cfg.nodeId)
         {
             std::map<uint16_t, CaTblTableEntry>::iterator ex = m_table.find(in.nodeId);
+            // THE SPEC'S RULE HAS THREE BRANCHES AND THIS HAD TWO. Newer supersedes,
+            // older is discarded, and EQUAL was silently falling into the discard
+            // path. Equal is the interesting case: the same report arriving by a
+            // second mesh route, which is independent evidence about the same instant
+            // from a path that saw different NLOS.
             if (ex == m_table.end() || CaTblSeqNewer(in.seqNo, ex->second.seqNo))
             {
                 CaTblTableEntry e = in;
@@ -926,6 +940,34 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
                     (in.hopCount < 255) ? static_cast<uint8_t>(in.hopCount + 1) : 255;
                 m_table[in.nodeId] = e;
                 ++m_tableMerges;
+            }
+            else if (m_cfg.tableFuseCI && in.seqNo == ex->second.seqNo)
+            {
+                // Covariance Intersection, because the two copies share an upstream
+                // relay that cannot be identified from the entry. A Kalman fuse here
+                // would assume independence and return a covariance tighter than
+                // either input -- the double-counting failure that makes a mesh
+                // confidently wrong.
+                CaTblTableEntry fused;
+                if (CaTblCovarianceIntersect(ex->second, in, fused))
+                {
+                    fused.hopCount = (ex->second.hopCount <= in.hopCount)
+                                         ? ex->second.hopCount
+                                         : static_cast<uint8_t>(
+                                               (in.hopCount < 255) ? in.hopCount + 1 : 255);
+                    m_table[in.nodeId] = fused;
+                    ++m_tableFuses;
+                }
+                else
+                {
+                    // A fuse that cannot be computed must not silently keep one side
+                    // and call it a fuse.
+                    ++m_tableDiscards;
+                }
+            }
+            else
+            {
+                ++m_tableDiscards;
             }
         }
     }

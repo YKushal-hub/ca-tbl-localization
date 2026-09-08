@@ -231,6 +231,75 @@ struct CaTblTableEntry
 //! Modular supersession: true if \p a is newer than \p b on a wrapping counter.
 bool CaTblSeqNewer(uint16_t a, uint16_t b);
 
+/**
+ * \brief Covariance Intersection (Julier & Uhlmann 1997) over two table entries.
+ *
+ * WHY NOT A KALMAN UPDATE, which is the thing everyone reaches for first. A Kalman
+ * fuse assumes the two estimates are INDEPENDENT. Two copies of the same entry that
+ * reached this node by different mesh paths are not: they share an upstream relay,
+ * and which one cannot be identified from the entry. Fusing them as independent
+ * returns a covariance SMALLER THAN EITHER INPUT -- an estimate more confident than
+ * either thing it was built from, which is the classic double-counting failure and
+ * is exactly how a mesh talks itself into a wrong position with high confidence.
+ *
+ * CI is conservative BY CONSTRUCTION under any unknown correlation. The price is
+ * real and should be stated rather than hidden: the result is never as tight as a
+ * correct independent fuse would have been. That is the trade -- never overconfident,
+ * sometimes needlessly humble -- and for a system whose whole premise is that a
+ * confidence number drives an escalation decision, it is the right side to err on.
+ *
+ * omega is chosen to minimise trace(P_fused) by a bounded scan. trace rather than
+ * det because trace is the quantity the confidence score already consumes, so the
+ * fuse optimises the number the policy actually reads.
+ *
+ * \return false if either covariance is singular or non-positive, in which case
+ *         nothing is written to \p out and the caller must fall back. A fuse that
+ *         cannot be computed must not silently return one of its inputs.
+ */
+/**
+ * \brief Age classes for a held entry (spec sect 23).
+ *
+ * The code already inflated variance with age, which is the right thing to do to a
+ * NUMBER. What it could not do is answer a question about a DECISION -- may this entry
+ * be proxied, may it steer a searcher, may it be shown to an operator as a position --
+ * because those are threshold questions and a continuous inflation has no threshold in
+ * it. Four classes, and each names an action rather than a feeling:
+ *
+ *   FRESH    usable as a position without qualification
+ *   AGING    usable, and must be shown with its age
+ *   STALE    may steer a search, must NOT be reported as a position
+ *   EXPIRED  may not leave this node at all
+ *
+ * The boundaries are OURS, not cited, and are recorded as such: the spec fixes only
+ * the proxy bound at 120 s. Anything downstream that treats them as measured is wrong.
+ */
+enum CaTblFreshness : uint8_t
+{
+    CA_TBL_FRESH = 0,
+    CA_TBL_AGING = 1,
+    CA_TBL_STALE = 2,
+    CA_TBL_EXPIRED = 3
+};
+
+//! Age boundaries in seconds. Defaults are ours; see the enum's note.
+struct CaTblFreshnessBounds
+{
+    double freshS = 30.0;
+    double agingS = 120.0; //!< the spec's proxy staleness bound
+    double staleS = 600.0;
+};
+
+//! Classify an entry by age. \p ageS below zero (a clock that went backwards) is
+//! EXPIRED rather than FRESH: an entry from the future is not evidence.
+CaTblFreshness CaTblClassifyFreshness(double ageS, const CaTblFreshnessBounds& b);
+
+//! Human-readable class name, for traces and operator output.
+const char* CaTblFreshnessName(CaTblFreshness f);
+
+bool CaTblCovarianceIntersect(const CaTblTableEntry& a,
+                              const CaTblTableEntry& b,
+                              CaTblTableEntry& out);
+
 
 /** Digest carries { node_id, seq_no } per known peer: 4 bytes each. This is the
  *  whole point of the digest -- 4 bytes to say "I have version N of peer X"
