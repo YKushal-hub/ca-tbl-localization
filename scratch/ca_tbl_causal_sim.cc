@@ -2381,6 +2381,7 @@ RunArm(CaTblPolicyMode mode,
        bool imuFusion,
        bool imuIdeal,
        bool queryProxy,
+       bool tableFuseCI,
        double queryStalenessBoundS,
        bool reversePath,
        bool shsStepBounds,
@@ -2778,6 +2779,7 @@ RunArm(CaTblPolicyMode mode,
 
         CaTblMacConfig mc;
         mc.queryProxy = queryProxy;
+        mc.tableFuseCI = tableFuseCI;
         mc.queryStalenessBoundS = queryStalenessBoundS;
         mc.reversePath = reversePath;
         mc.nodeId = static_cast<uint16_t>(nodeId);
@@ -2811,6 +2813,7 @@ RunArm(CaTblPolicyMode mode,
 
             CaTblMacConfig mc;
             mc.queryProxy = queryProxy;
+            mc.tableFuseCI = tableFuseCI;
             mc.queryStalenessBoundS = queryStalenessBoundS;
             mc.reversePath = reversePath;
             mc.nodeId = aid;
@@ -2892,6 +2895,7 @@ RunArm(CaTblPolicyMode mode,
         {
             CaTblMacConfig pmc;
             pmc.queryProxy = queryProxy;
+            pmc.tableFuseCI = tableFuseCI;
             pmc.queryStalenessBoundS = queryStalenessBoundS;
             pmc.reversePath = reversePath;
             pmc.nodeId = static_cast<uint16_t>(pid);
@@ -5636,6 +5640,7 @@ main(int argc, char* argv[])
     bool imuFusionArg = false;
     bool imuIdealArg = false;
     bool queryProxyArg = false;
+    bool tableFuseCIArg = false;
     double queryStalenessBoundSArg = 120.0;
     bool reversePathArg = false;
     bool shsStepBoundsArg = false;
@@ -5853,6 +5858,17 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("tableFuseCI",
+                 "Fuse a table entry whose sequence number EQUALS the held one by "
+                 "Covariance Intersection, instead of discarding it. FALSE by default. "
+                 "The spec's table rule has three branches and the code had two -- equal "
+                 "was falling into the discard path, and equal is the interesting case: "
+                 "the same report arriving by a second mesh route, seen through different "
+                 "NLOS. CI rather than a Kalman fuse because the two copies share an "
+                 "unidentifiable upstream relay, and fusing them as independent returns a "
+                 "covariance smaller than either input -- which is how a mesh talks itself "
+                 "into a wrong position with high confidence.",
+                 tableFuseCIArg);
     cmd.AddValue("queryProxy",
                  "Network Layer 4: answer a QUERY on behalf of a FRESH table entry, not "
                  "only when this node IS the target. FALSE by default. The spec calls "
@@ -7150,6 +7166,7 @@ main(int argc, char* argv[])
                                        imuFusionArg,
                                        imuIdealArg,
                                        queryProxyArg,
+                                       tableFuseCIArg,
                                        queryStalenessBoundSArg,
                                        reversePathArg,
                                        shsStepBoundsArg,
