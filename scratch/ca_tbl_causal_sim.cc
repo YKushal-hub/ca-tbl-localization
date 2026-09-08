@@ -5760,7 +5760,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 sess = &si->second;
             }
-            std::cout << "    SESSION: final state "
+            std::cout << "    SESSION: path "
+                      << (sess ? sess->Path().c_str() : "none") << ", ever precise "
+                      << (sess ? (sess->EverPrecise() ? "YES" : "NO") : "-")
+                      << ", final state "
                       << (sess ? CaTblSessionStateName(sess->State()) : "none")
                       << ", renders VERIFY " << renderCounts[CA_TBL_RENDER_VERIFY]
                       << " / HIGH " << renderCounts[CA_TBL_RENDER_HIGH]
