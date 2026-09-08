@@ -160,6 +160,7 @@ CaTblSession::OnResult(const CaTblResult& r, double nowS)
 
     // ---- state advance ----------------------------------------------------
     const bool precise = (r.tierSource == CA_TBL_TIER_UWB);
+    const CaTblSessionState before = m_state;
     switch (m_state)
     {
     case CA_TBL_SESSION_SEARCHING:
@@ -185,6 +186,24 @@ CaTblSession::OnResult(const CaTblResult& r, double nowS)
         break;
     default:
         break;
+    }
+
+    // Record the transition, not just the destination. A session that climbed
+    // SEARCHING > COARSE > PRECISE > TRACKING and one that limped
+    // SEARCHING > COARSE > STALE > TRACKING both end in TRACKING and are not the same
+    // event; the path is what tells them apart.
+    if (m_state != before)
+    {
+        if (m_path.empty())
+        {
+            m_path = CaTblSessionStateName(before);
+        }
+        m_path += ">";
+        m_path += CaTblSessionStateName(m_state);
+    }
+    if (m_state == CA_TBL_SESSION_LOCATED_PRECISE)
+    {
+        m_everPrecise = true;
     }
 }
 

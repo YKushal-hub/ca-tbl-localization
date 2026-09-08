@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace ns3
@@ -166,6 +167,26 @@ class CaTblSession
     uint64_t StaleEpisodes() const { return m_staleEpisodes; }
     uint64_t Recoveries() const { return m_recoveries; }
 
+    /**
+     * \brief Did this session EVER obtain a precise fix?
+     *
+     * TRACKING DOES NOT IMPLY PRECISION AND THE STATE NAME SUGGESTS IT DOES. The spec's
+     * FSM recovers a STALE session to TRACKING rather than reopening it -- deliberately,
+     * so a target that was found, lost and found again does not report a second "first
+     * fix". A session that reached only LOCATED_COARSE, went stale, and recovered is
+     * therefore in TRACKING having never once had a precise fix.
+     *
+     * That is correct per the FSM and misleading per the name, and it is exactly the
+     * reading a viewer takes from a status line. This is the discriminator: the state
+     * says what the session is doing, this says what it ever achieved.
+     */
+    bool EverPrecise() const { return m_everPrecise; }
+
+    //! How the session arrived where it is, as a compact path -- "SEARCHING>COARSE>
+    //! STALE>TRACKING". A final state alone cannot distinguish a session that climbed
+    //! to precision from one that recovered into the same name.
+    const std::string& Path() const { return m_path; }
+
     bool Wants(uint8_t manifestId) const;
 
   private:
@@ -182,6 +203,8 @@ class CaTblSession
     uint64_t m_suspect;
     uint64_t m_staleEpisodes;
     uint64_t m_recoveries;
+    bool m_everPrecise = false;
+    std::string m_path;
 };
 
 /**
