@@ -246,6 +246,24 @@ class CaTblEnergyModel
      * settled here.
      */
     void SetTier1ChargeReplies(bool on) { m_tier1ChargeReplies = on; }
+
+    /**
+     * \brief Put the estimator on the gateways.
+     *
+     * The node broadcasts once; the gateways measure and report over the
+     * backhaul; the network computes the fix and sends back ONE downlink. So the
+     * tier-1 reply windows are not charged to the node -- there are none -- and a
+     * single guarded RX is charged instead, on cycles that produced a fix.
+     *
+     * Tier 1 only. Tiers 2 and 3 range by two-way time-of-flight because the
+     * endpoints share no clock, so their exchange cannot move network-side
+     * without the synchronisation TECH_DEBT J.2 records as absent.
+     */
+    void SetEdgeServer(bool on) { m_edgeServer = on; }
+    bool GetEdgeServer() const { return m_edgeServer; }
+
+    //! Charge the one downlink that returns a network-computed fix.
+    void AccountEdgeServerDownlink(CaTblTier tier, uint32_t payloadBytes = 12);
     bool GetTier1ChargeReplies() const { return m_tier1ChargeReplies; }
 
     /**
@@ -336,6 +354,7 @@ class CaTblEnergyModel
     uint8_t m_codingRate[CA_TBL_TIER_COUNT];
 
     bool m_tier1ChargeReplies = false;
+    bool m_edgeServer = false;
 
     double m_dutyLimit[CA_TBL_TIER_COUNT];
     double m_nextAllowedTxS[CA_TBL_TIER_COUNT];

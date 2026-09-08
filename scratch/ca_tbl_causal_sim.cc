@@ -2324,6 +2324,8 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nTags,
        bool relayedRanging,
        uint32_t relayTier,
+       uint32_t maxRelayDepth,
+       double relayVarBudgetM2,
        bool vizEventsOn,
        uint32_t nFinders,
        uint32_t finderMode,
@@ -2333,6 +2335,7 @@ RunArm(CaTblPolicyMode mode,
        bool finderPseudoAnchor,
        bool bidirectionalDigest,
        bool tier1ChargeReplies,
+       bool gatewayEdgeServer,
        double processNoiseStdPos,
        double processNoiseStdVel,
        double finderDispersal,
@@ -2496,6 +2499,7 @@ RunArm(CaTblPolicyMode mode,
     {
         energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
         energy.SetTier1ChargeReplies(tier1ChargeReplies);
+        energy.SetEdgeServer(gatewayEdgeServer);
     }
 
     CaTblPolicyConfig pcfg;
@@ -4336,7 +4340,13 @@ RunArm(CaTblPolicyMode mode,
                     CaTblRelayedRange rr;
                     rr.relayId = static_cast<uint16_t>(tags[pt].nodeId);
                     rr.tier = active;
+                    // Depth is the relay's own hop count plus one. A relay whose
+                    // position came from infrastructure is at depth 1; one whose
+                    // position came from another relay is deeper, and carries the
+                    // uncertainty it inherited in its covariance.
                     rr.hopDepth = 1;
+                    rr.maxRelayDepth = maxRelayDepth;
+                    rr.relayVarBudgetM2 = relayVarBudgetM2;
                     rr.sigmaRangeM = sigRaw;
                     rr.relayP[0][0] = tags[pt].policy.Pxx();
                     rr.relayP[0][1] = tags[pt].policy.Pxy();
@@ -4500,6 +4510,14 @@ RunArm(CaTblPolicyMode mode,
         // The engine takes the integrity verdict back: a fix the check calls SUSPECT
         // must not be used to reset inertial drift, or a bad fix would launder itself
         // into the one estimate that was independent of it.
+        // THE ANSWER HAS TO COME BACK. With the estimator on the gateways the node
+        // does not compute this fix -- it is sent one -- and that is a frame it
+        // must be awake to receive. Only a cycle that produced a fix generates a
+        // downlink: a network with nothing to say sends nothing.
+        if (gatewayEdgeServer && d.hadFix)
+        {
+            energy.AccountEdgeServerDownlink(active);
+        }
         if (d.hadFix && !d.suspect)
         {
             shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
@@ -5454,6 +5472,8 @@ main(int argc, char* argv[])
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
     uint32_t relayTierArg = 1;
+    uint32_t maxRelayDepthArg = 1;
+    double relayVarBudgetM2Arg = 0.0;
     bool vizEventsArg = false;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
@@ -5464,7 +5484,14 @@ main(int argc, char* argv[])
     double finderPosSigmaMArg = 0.0;
     bool finderPseudoAnchorArg = false;
     bool bidirectionalDigestArg = false;
-    bool tier1ChargeRepliesArg = false;
+    // TRUE since 2026-09-08. Tier 1 was billed as one broadcast -- a TDoA shape,
+    // right when the NETWORK localises -- while CaTblPolicy runs on the FIELD
+    // NODE and consumes a range per anchor, so the replies have to come back and
+    // nothing charged for them. TECH_DEBT J.2 recommends billing what tier 1
+    // actually does, which is RSSI inversion with replies. Roughly doubles
+    // tier-1 energy. Pass false to reproduce anything measured before.
+    bool tier1ChargeRepliesArg = true;
+    bool gatewayEdgeServerArg = false;
     // The values ca-tbl-policy.cc already sets, so passing nothing is
     // byte-identical to every run taken before this flag existed.
     double processNoiseStdPosArg = 1.0;
@@ -5941,6 +5968,20 @@ main(int argc, char* argv[])
     cmd.AddValue("processNoiseStdVel",
                  "EKF process-noise std on velocity, m/s. Default 0.5, as above.",
                  processNoiseStdVelArg);
+    cmd.AddValue("gatewayEdgeServer",
+                 "Put the estimator on the GATEWAYS, as the brief specifies. FALSE by "
+                 "default. The node broadcasts once, the gateways measure and report "
+                 "over the BACKHAUL, the network computes the fix, and the node gets "
+                 "ONE downlink -- so the tier-1 reply windows vanish and tier 1 "
+                 "legitimately costs one broadcast again, against roughly double that "
+                 "for node-side estimation. NO CLOCK SYNC IS INVOLVED: this is RSSI "
+                 "multilateration performed network-side, which is what LoRaWAN "
+                 "geolocation does in practice, and the estimator itself does not "
+                 "change -- only where it runs. TIER 1 ONLY: tiers 2 and 3 range by "
+                 "two-way time-of-flight precisely because the endpoints share no "
+                 "clock, so their exchange cannot move without the synchronisation "
+                 "TECH_DEBT J.2 records as absent.",
+                 gatewayEdgeServerArg);
     cmd.AddValue("tier1ChargeReplies",
                  "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
                  "default, which preserves every published number. Tier 1 is billed as "
@@ -6155,6 +6196,24 @@ main(int argc, char* argv[])
                  "different tier between one report and the next and the error model "
                  "does not cover that.",
                  relayedRangingArg);
+    cmd.AddValue("maxRelayDepth",
+                 "Hard ceiling on how many hops a relayed measurement may have crossed. "
+                 "1 (default) is the single-hop behaviour every result before 2026-09-08 "
+                 "was measured under, and it made the mesh single-hop by construction: "
+                 "a relay three kilometres out was invisible even with another node "
+                 "standing between. Above 1 the UNCERTAINTY BUDGET is normally what "
+                 "binds, not this -- see --relayVarBudget.",
+                 maxRelayDepthArg);
+    cmd.AddValue("relayVarBudget",
+                 "Accumulated positional variance a relayed measurement may carry, "
+                 "m^2. 0 (default) disables the budget and leaves depth bounded only "
+                 "by --maxRelayDepth. This is the ADAPTIVE half: what decides whether "
+                 "a relayed range is worth fusing is not how many hops it crossed but "
+                 "how much uncertainty it picked up doing so, and a relay carries what "
+                 "it inherited in its own covariance -- so the test needs no knowledge "
+                 "of the chain length. As a scale, tier-2 r80 is 156 m, so a budget "
+                 "of 156^2 admits a chain no more uncertain than one tier-2 hop.",
+                 relayVarBudgetM2Arg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -6728,6 +6787,8 @@ main(int argc, char* argv[])
                                        nTagsArg,
                                        relayedRangingArg,
                                        relayTierArg,
+                                       maxRelayDepthArg,
+                                       relayVarBudgetM2Arg,
                                        vizEventsArg,
                                        nFindersArg,
                                        finderModeArg,
@@ -6739,6 +6800,7 @@ main(int argc, char* argv[])
                                        finderPseudoAnchorArg,
                                        bidirectionalDigestArg,
                                        tier1ChargeRepliesArg,
+                                       gatewayEdgeServerArg,
                                        processNoiseStdPosArg,
                                        processNoiseStdVelArg,
                                        finderDispersalArg,
