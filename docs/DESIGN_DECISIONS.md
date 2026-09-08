@@ -133,3 +133,55 @@ packet log.
   infrastructure; they are ranging targets only.
 - **A still lost node.** Supported via `--speed=0`, not yet exercised as a scenario.
 - **5 km radius.** Untested; all corrected-topology runs so far are at `boxHalf=1000`.
+
+---
+
+## 8. The SHS inertial witness is ported but NOT usable, and is off by default
+
+**2026-09-07.** The step-and-heading system from `IMU_SHS_V1.1` is now on main: 17 files,
+builds, runs, and is wired as the inertial witness behind `--imuCrossCheck` (default
+**false**). It replaced a stub that modelled dead reckoning as a scale error on distance
+— a strapdown error model, which the SHS header explicitly says does not apply to it.
+
+The consistency test was rebuilt on the right error model at the same time: an SHS
+produces an absolute position whose drift is bounded by **time since the last trusted
+fix**, not by distance walked, so the tolerance grows with unaided running time. The
+engine also takes the CLEAN/SUSPECT verdict back through `OnTrustedFix`, so a fix the
+check calls suspect cannot launder itself into the one estimate that was independent
+of it.
+
+### It does not track well enough to be used, and the fault is the driver
+
+Measured, seed 7, 600 s: the engine ends **330 m** from truth.
+
+Two bugs of mine were found and fixed on the way:
+
+- **Cadence was fixed at 1.8 Hz**, so the distance the engine accumulated was
+  proportional to elapsed time rather than to speed — and the node dwells for long
+  stretches. Cadence now derives from speed through the Weinberg step length.
+- **`SetInitialState` was seeded with heading zero**, asserting the node faced +x.
+  That alone was the difference between 1023 m and 330 m of final error. The seed is
+  now deferred to the first cycle in which the node actually moves, which is the first
+  moment its heading is defined at all.
+
+### What remains is a model mismatch, not a bug
+
+The scenario's walker turns **instantaneously** at waypoints and reports position once
+per 2.5 s cycle. A step-and-heading system estimates heading by integrating yaw rate,
+and a step-function turn smeared into a 2.5 s average is not something it can follow.
+The engine's own documentation notes that heading is only re-derived when two fixes
+bracket a stretch walked approximately straight, which such a route rarely provides.
+
+Fixing it properly means one of: a mobility model with finite turn rates, a higher
+position-report rate into the driver, or driving the engine from a continuous
+trajectory rather than from waypoint samples. None is a small change and none was
+attempted.
+
+### Consequence for the integrity check
+
+The result in `report/INTEGRITY_CHECK_RESULTS.md` — 8/8 seeds on energy, 7/8 on
+accuracy — was produced with **corroboration alone**, and re-measuring after this port
+gives identical numbers. The inertial witness contributes nothing at present and is off.
+
+**Any claim that this system currently performs IMU cross-validation would be false.**
+That is written here rather than left for a reader to infer from the existence of a flag.

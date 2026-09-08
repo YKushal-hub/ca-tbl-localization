@@ -89,11 +89,24 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     suspectInflateFactor = 4.0;
     suspectRecoveryN = 5;
     escalationRequiresEvidence = false;   // default preserves the pre-existing baseline
-    escalationRequiresEvidenceT2 = false; // BROKEN -- see the header. Never enable.
+    escalationRequiresEvidenceT2 = false; // rebuilt as a predictor; see the header
+    t2PredictRadiusM = 156.0;             // probe r80, post environment correction
+    t2PredictMinAnchors = 3;              // three is what a fix needs
     uwbPredictRadiusM = 20.0;
     uwbPredictMaxSigmaFrac = 0.25;
+    uwbEvidenceFromNeighbours = false; // default preserves the pre-existing baseline
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
+    hopProvenanceForm = 0;
+    hopPenalty = 0.0;
+
+    // Switching-point integrity, both off by default so the effect can be measured.
+    imuCrossCheck = false;
+    imuConsistencyK = 3.0;
+    imuSigmaFloorM = 5.0;
+    corroborationCheck = false;
+    corroborationFloor = 0.5;
+    corroborationMinWitnesses = 2;
     fixedVarThresholdM2 = 100.0;
 
     losSigmaM[CA_TBL_TIER_868] = 50.0;
@@ -137,7 +150,8 @@ CaTblDecision::CaTblDecision()
       meanSigmaM(0.0),
       meanSigmaRawM(0.0),
       sigmaGeoM(-1.0),
-      predictedVisUwb(-1)
+      predictedVisUwb(-1),
+      predictedVis2p4(-1)
 {
 }
 
@@ -299,6 +313,83 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
         // Enforce symmetry. Sequential scalar updates accumulate asymmetry over
         // long runs and an asymmetric covariance silently corrupts the
         // Mahalanobis gate downstream.
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = i + 1; j < 4; ++j)
+            {
+                const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+                m_P[i][j] = avg;
+                m_P[j][i] = avg;
+            }
+        }
+    }
+}
+
+void
+CaTblEkf::FusePosition(double zx, double zy, double varM2)
+{
+    if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) ||
+        !std::isfinite(zy))
+    {
+        return;
+    }
+
+    // Two scalar updates rather than one 2x2 solve. R is diagonal here, so the
+    // two are algebraically the joint update, and this reuses Update()'s scalar
+    // arithmetic instead of introducing a second inversion path to keep correct.
+    const double z[2] = {zx, zy};
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        // H selects one position component. H[2] = H[3] = 0: a position
+        // observation says nothing DIRECTLY about velocity -- what reaches
+        // velocity arrives through P's off-diagonal block below.
+        double H[4] = {0.0, 0.0, 0.0, 0.0};
+        H[axis] = 1.0;
+
+        // PH = P * H^T reduces to one column of P.
+        double PH[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            PH[i] = m_P[i][axis];
+        }
+
+        const double S = PH[axis] + varM2;
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+
+        double K[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            K[i] = PH[i] / S;
+        }
+
+        const double innovation = z[axis] - m_x[axis];
+        for (int i = 0; i < 4; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+
+        // P <- (I - K H) P, with H selecting a single row.
+        double newP[4][4];
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                newP[i][j] = m_P[i][j] - K[i] * m_P[axis][j];
+            }
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                m_P[i][j] = newP[i][j];
+            }
+        }
+
+        // Same reason as Update(): sequential scalar updates accumulate
+        // asymmetry, and an asymmetric P silently corrupts the Mahalanobis gate.
         for (int i = 0; i < 4; ++i)
         {
             for (int j = i + 1; j < 4; ++j)
@@ -673,6 +764,7 @@ CaTblPolicy::ComputePcs(double traceSigma,
         {
             pcs -= m_config.hopWeight * static_cast<double>(hopCount);
         }
+        pcs = ApplyProvenance(pcs);
         return pcs;
     }
 
@@ -710,7 +802,26 @@ CaTblPolicy::ComputePcs(double traceSigma,
         pcs -= m_config.hopWeight * static_cast<double>(hopCount);
     }
 
+    pcs = ApplyProvenance(pcs);
     return pcs;
+}
+
+double
+CaTblPolicy::ApplyProvenance(double pcs) const
+{
+    if (m_config.hopProvenanceForm != 1 || m_config.hopPenalty <= 0.0)
+    {
+        return pcs;
+    }
+    // Bounded and multiplicative. The divisor is at least 1, so the factor lies in
+    // (0, 1] and the score can be reduced towards zero but never driven through it --
+    // which the legacy subtraction could do, and did so without limit.
+    //
+    // Driven by the relayed VARIANCE share rather than a hop count: one relayed range
+    // among nine direct ones is a different thing from a fix built entirely out of
+    // relayed ones, and a count cannot tell those apart.
+    const double f = std::min(1.0, std::max(0.0, m_relayedVarFrac));
+    return pcs / (1.0 + m_config.hopPenalty * f);
 }
 
 void
@@ -1079,51 +1190,150 @@ CaTblPolicy::Step(double dt,
     // TWO SEPARATE FLAGS, because the two steps have genuinely different evidence
     // situations and one of them does not work.
     //
-    // escalationRequiresEvidenceT2 (868 -> 2.4) IS BROKEN AND DEFAULTS OFF. It was
-    // written on the premise that the tier-2 neighbour table is observable from tier
-    // 1. It is not: the tier-2 radio is asleep while another tier is active, so
-    // GetNeighbourCount returns 0 and the evidence bit is never set. MEASURED, in the
-    // run that enabled it: activeTier occupancy {868MHz: 1440} at both boxHalf 1000
-    // and 2000, nbr2p4 nonzero on 0/1440 cycles, escalations 0. The node latches at
-    // the floor permanently and the arm degenerates into static_868 (availability
-    // 99.9%, actionable 4.9%, 14.96 J).
+    // escalationRequiresEvidenceT2 (868 -> 2.4), REBUILT 2026-09-08.
     //
-    // The prior comment here asserted the opposite as established fact. It was
-    // verified by checking that the refresh LOOP iterates all three tiers each cycle,
-    // which is true and irrelevant -- the loop cannot observe a sleeping radio. The
-    // check's population excluded the failure.
+    // The original asked the MAC neighbour cache whether tier 2 was audible. It is
+    // not observable that way: the tier-2 radio is asleep while another tier is
+    // active, so GetNeighbourCount returns 0, the evidence bit never sets, and the
+    // node latched at the floor for the whole run -- measured, activeTier occupancy
+    // {868MHz: 1440} at both boxHalf 1000 and 2000, escalations 0.
     //
-    // The fix is a tier-2 predictor symmetric with the UWB one below, using the same
-    // anchor map and a radius derived from the measured tier-2 r80 of 909.5 m. Not
-    // built yet: it only matters where tier 2 actually fails, which is the regime the
-    // density envelope is being mapped to find.
+    // This asks a question that CAN be answered from tier 1, and it is the same
+    // question uwbEvidenceFromNeighbours asks one tier up: the ranges in `meas` were
+    // taken by an AWAKE radio this cycle, so a neighbour ranged closer than the
+    // tier-2 radius is a neighbour 2.4 GHz would reach. Geometry, not a map, so it
+    // follows finders -- which a static anchor map cannot do and which is the whole
+    // point under the tri-band topology.
+    //
+    // Three anchors, not presence. Tier 3 is a contact indicator and one is enough to
+    // be worth confirming; tier 2 is a localisation tier and one reachable anchor
+    // cannot solve, so escalating on it spends the handshake for nothing.
+    //
+    // Suppress-only, like every other evidence predicate here: it can refuse an
+    // escalation the score already wanted and can never create one.
     if (m_config.escalationRequiresEvidenceT2 && wantEscalate && dynamic &&
         m_tier == CA_TBL_TIER_868)
     {
-        if ((tierEvidenceMask & (1u << CA_TBL_TIER_2P4)) == 0)
+        int32_t nearT2 = 0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.t2PredictRadiusM)
+            {
+                ++nearT2;
+            }
+        }
+        d.predictedVis2p4 = nearT2;
+        if (nearT2 < static_cast<int32_t>(m_config.t2PredictMinAnchors))
         {
             wantEscalate = false;
             m_evidenceBlockedT2++;
         }
     }
 
+    // ---- SWITCHING-POINT INTEGRITY: is the confidence signal itself trustworthy? --
+    //
+    // Ordered BEFORE the coverage prediction deliberately. Coverage asks "is there
+    // anything up there to talk to"; this asks "is the estimate that wants to escalate
+    // worth believing at all". Predicting coverage from an estimate that has already
+    // failed its own consistency check is work done on a number nobody should trust.
+    if (wantEscalate && dynamic && m_crossCheckFresh)
+    {
+        if (m_config.imuCrossCheck && m_imuTolM > 0.0)
+        {
+            // The inertial estimate is an independent ABSOLUTE position that drifts.
+            // The caller supplies both the disagreement and the tolerance, because the
+            // drift model belongs with the engine that produces it -- an SHS is bounded
+            // by time since its last correction, not by distance walked, and a policy
+            // that assumed otherwise would be applying a strapdown error model to a
+            // step-and-heading one.
+            if (m_imuDispM > m_imuTolM)
+            {
+                wantEscalate = false;
+                m_imuRejections++;
+            }
+        }
+
+        // Independent of the filter, which is the entire reason it is here: the
+        // evidence comes from what OTHER nodes say about where they are.
+        if (wantEscalate && m_config.corroborationCheck &&
+            m_corrTotal >= static_cast<int32_t>(m_config.corroborationMinWitnesses))
+        {
+            const double frac =
+                static_cast<double>(m_corrOk) / static_cast<double>(m_corrTotal);
+            if (frac < m_config.corroborationFloor)
+            {
+                wantEscalate = false;
+                m_corrRejections++;
+            }
+        }
+    }
+
     if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
     {
-        if (m_tier == CA_TBL_TIER_2P4 && !m_config.uwbAnchorX.empty())
+        const bool haveMap = !m_config.uwbAnchorX.empty();
+        if (m_tier == CA_TBL_TIER_2P4 &&
+            (m_config.uwbEvidenceFromNeighbours || haveMap))
         {
-            // PREDICTED. UWB anchors are not discoverable at range, so there is
-            // nothing to observe until after the escalation the observation would
-            // justify. Two stages, and the order matters: a coverage prediction
-            // computed from a bad estimate is worse than no prediction, so the
-            // estimate-quality gate runs first.
+            // Two stages, and the order matters: a coverage judgement computed from
+            // a bad estimate is worse than none, so the estimate-quality gate runs
+            // first. It runs in BOTH forms -- the observed form still escalates on
+            // the strength of an estimate, and an estimate too poor to trust is a
+            // reason to stay regardless of what is audible.
             const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
             if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
             {
                 wantEscalate = false;
                 m_predictBlockedQuality++;
             }
+            else if (m_config.uwbEvidenceFromNeighbours)
+            {
+                // PREDICTED FROM OBSERVATION, on a radio that is actually awake.
+                //
+                // The first version of this read tierEvidenceMask's UWB bit, and it
+                // could never fire. A tier the node is not using is put in deep
+                // sleep and its neighbour table is CLEARED every cycle, deliberately
+                // -- keeping it would hand the policy free knowledge of a radio it
+                // had switched off and make re-escalation instantaneous. So the UWB
+                // table is only ever non-empty WHILE ALREADY ON UWB, and a gate that
+                // demands UWB evidence before entering UWB is a permanent veto on
+                // tier 3. Measured: uwbCycles 0 and meanNbr_uwb 0.0000 even in a
+                // 300 m box with four converging finders over 1200 s.
+                //
+                // The comment this replaced was therefore RIGHT that there is
+                // nothing to observe on tier 3 before escalating to it, and the
+                // reason it gave -- discoverability -- was not the operative one.
+                // The operative one is that the radio is asleep.
+                //
+                // What IS observable is range on the tier currently in use. The
+                // measurements handed to this Step() were taken by an awake radio,
+                // and a neighbour ranged at less than the UWB predicate radius is a
+                // neighbour UWB would reach. That is an observation about geometry
+                // rather than about a map, so it follows finders, which is what the
+                // static map cannot do.
+                //
+                // Presence, not count, and counted under the SAME counter as the
+                // predicted form: it is the same refusal for the same reason.
+                int32_t near = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
+                {
+                    if (meas[i].rangeM > 0.0 &&
+                        meas[i].rangeM <= m_config.uwbPredictRadiusM)
+                    {
+                        ++near;
+                    }
+                }
+                d.predictedVisUwb = near;
+                if (near < 1)
+                {
+                    wantEscalate = false;
+                    m_predictBlockedCoverage++;
+                }
+            }
             else
             {
+                // PREDICTED, the pre-existing form. Retained unchanged: it is what
+                // every published result was measured under, and the legacy
+                // topology it was written for is still reachable via --topology=1.
                 const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
                 uint32_t vis = 0;
                 for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
@@ -1241,6 +1451,17 @@ CaTblPolicy::Step(double dt,
     }
 
     d.nextTier = m_tier;
+    // Remember where the filter was, so the next cycle can ask whether it moved the
+    // way the body did. Recorded on EVERY cycle including refused ones: the comparison
+    // is against the previous cycle, not the last accepted escalation.
+    m_prevEstX = m_ekf.X();
+    m_prevEstY = m_ekf.Y();
+    m_havePrevEst = true;
+    // Consumed. A stale cross-check is worse than none -- it would silently police one
+    // cycle with another cycle evidence -- so the caller must supply it every cycle it
+    // wants the check to run.
+    m_crossCheckFresh = false;
+
     return d;
 }
 

@@ -174,8 +174,23 @@ G6_MISMATCH=0
 # the tracked evidence lives at results/<x>_v7 while the fresh run writes to
 # $WORK/<x>. Deriving one from the other made the gate compare a real file against a
 # path that never existed, and report a disagreement where there was none.
-for spec in "causal_v7/arm_summary.csv:causal/arm_summary.csv" \
-            "det_a_v7/arm_summary.csv:det_a/arm_summary.csv"; do
+# REPOINTED 2026-09-08 to the post-topology generation, which is this gate's own
+# documented remedy applied a second time. The 2026-09-07 correction changed the
+# DEPLOYMENT -- one population of tri-band nodes instead of three disjoint anchor
+# populations -- so results/{causal,det_a}_v7 were produced by a geometry the scenario
+# no longer builds and disagreed with every fresh run, permanently and correctly.
+#
+# Nothing was overwritten to make this gate green: causal_v7 and det_a_v7 are still
+# tracked, still cited, and still describe what those runs produced. causal_v8 and
+# det_a_v8 are NEW paths, generated at exactly the flags G3 and G2 use so the
+# comparison is like for like, on a clean tree at 233f98a with dirty 0.
+#
+# They are the v8 generation, same as baseline_v8, at DIFFERENT flags: baseline_v8
+# carries --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy and is
+# the null-control reference, while these two are pure defaults and are the evidence
+# this gate compares against. Do not substitute one for the other.
+for spec in "causal_v11/arm_summary.csv:causal/arm_summary.csv" \
+            "det_a_v11/arm_summary.csv:det_a/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
@@ -325,7 +340,39 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # pull-request body convention, and pull request bodies are not commit messages. The
 # colon is what distinguishes the form from prose about the form, and requiring it is
 # what lets this gate survive its own policy being written down.
-G12_MSG_PAT='^[[:space:]]*(generated[- ]with|assisted-by):|@anthropic|@openai'
+# ANCHORED 2026-09-08, and it is the same lesson a third time. The vendor-handle
+# alternatives were the only unanchored ones in this pattern, so they matched a handle
+# ANYWHERE IN PROSE -- including in the commits that document this gate. e431eff says
+# in its own body "those two alternatives are unanchored, unlike the trailer
+# alternatives", diagnosing precisely this and never fixing it; 1164e5d trips on a line
+# listing the pattern's own alternatives. Identity fields are clean across every commit.
+#
+# The note above already states the principle and the trailer alternatives already obey
+# it: attribution is a FORM, not a subject, and the colon is what distinguishes the form
+# from prose about the form. A vendor handle is attribution when it appears as a
+# TRAILER VALUE -- Key: something@anthropic -- and is prose when it appears in a
+# sentence. Anchored to that form, both documenting commits pass and a real trailer
+# still does not.
+#
+# co-authored-by lines are stripped BEFORE matching, which preserves the 2026-09-05
+# owner narrowing exactly: that trailer is deliberately not enforced in message bodies,
+# and anchoring the handles to trailer form would otherwise have re-widened it by the
+# back door.
+# TIGHTENED 2026-09-08, hours later, because the anchoring commit tripped its own gate
+# -- the FOURTH time this check has fired on a commit that documents it. 233f98a's body
+# lists its negative fixtures as literal trailer lines, and "Signed-off-by: bot
+# <x@anthropic.com>" is indistinguishable from the real thing unless indentation counts.
+#
+# It counts, and it is the right discriminator rather than a convenient one. A GIT
+# TRAILER SITS AT COLUMN 0 in the trailer block; git's own parser will not read an
+# indented line as a trailer. So an indented Key: Value is documentation quoting the
+# form, and an unindented one is the form. Requiring column 0 is therefore STRICTER
+# about what counts as a trailer, not laxer: nothing git would treat as attribution can
+# hide behind indentation, and prose quoting a fixture no longer convicts.
+#
+# The leading [[:space:]]* was inherited from the original pattern and was never
+# examined. It is what made every documenting commit an offender.
+G12_MSG_PAT='^(generated[- ]with|assisted-by):|^[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthropic|openai)'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
@@ -335,7 +382,7 @@ else
 fi
 n_msg=0
 while read -r h; do
-    if git log -1 --format='%B' "$h" | grep -qiE "$G12_MSG_PAT"; then
+    if git log -1 --format='%B' "$h" | grep -viE '^[[:space:]]*co-authored-by:' | grep -qiE "$G12_MSG_PAT"; then
         n_msg=$((n_msg + 1))
         [ "$n_msg" -le 3 ] && printf '  offending commit: %s %s\n' "$(git rev-parse --short "$h")" "$(git log -1 --format='%s' "$h" | cut -c1-50)"
     fi

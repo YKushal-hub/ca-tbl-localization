@@ -1,0 +1,5 @@
+5f449d5d5453442b
+build Sep  8 2026 08:22:18 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=5 --trace=false --arbitrateDutyBudget=true --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --corroborationCheck=true --bidirectionalDigest=true --gwGrid=3 --boxHalf=1500 --mahalUseR=true --seedStart=17 --outdir=results/k7_mahalR_box1500_s17
+source 410c998 dirty 0 profile optimized
+digest sha256
+bcf3ebe86ec73d02bad29954ffb4e88f953d3962ede79481ccc50d1b05955ef6  arm_summary.csv

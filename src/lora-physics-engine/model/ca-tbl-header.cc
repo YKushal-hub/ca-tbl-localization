@@ -8,6 +8,24 @@
 namespace ns3
 {
 
+CaTblTableEntry::CaTblTableEntry()
+    : nodeId(0), x(0.0), y(0.0), varX(0.0), varY(0.0), covXY(0.0), timestampS(0.0),
+      seqNo(0), hopCount(0), sourceType(0), vx(0.0), vy(0.0), targetManifestId(0),
+      valid(false)
+{
+}
+
+bool
+CaTblSeqNewer(uint16_t a, uint16_t b)
+{
+    // Modular comparison, as the seq_no field comment requires: the counter wraps, so
+    // a plain a > b would treat 0 as older than 65535 forever and the table would
+    // freeze the first time a node wrapped. Half the space is "newer".
+    return static_cast<uint16_t>(a - b) != 0 &&
+           static_cast<uint16_t>(a - b) < 0x8000;
+}
+
+
 NS_LOG_COMPONENT_DEFINE("CaTblHeader");
 NS_OBJECT_ENSURE_REGISTERED(CaTblHeader);
 

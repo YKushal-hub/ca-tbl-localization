@@ -1,0 +1,5 @@
+c360aaa14834cbcd
+build Sep  8 2026 13:37:40 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=7 --duration=3600 --trace=false --outdir=results/det_a_v11
+source 51a2e5e dirty 0 profile optimized
+digest sha256
+26e855408a9d3bd2e5ab381bdd6eb83fe52f2fb91ffa05998921869486713c57  arm_summary.csv

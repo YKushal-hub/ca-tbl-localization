@@ -1,0 +1,5 @@
+684ed86c700b4dc5
+build Sep  8 2026 10:23:19 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=5 --trace=false --arbitrateDutyBudget=true --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --corroborationCheck=true --bidirectionalDigest=true --gwGrid=3 --baseCampFrac=0.9 --mahalUseR=true --escalationRequiresEvidenceT2=true --boxHalf=5000 --seedStart=12 --outdir=results/k8_camp_box5000_s12
+source ba2c003 dirty 0 profile optimized
+digest sha256
+ec96d6f351e2876ffbd0893c5f8f2bd5ec4f86ae73721f959fc4f892529089e7  arm_summary.csv
