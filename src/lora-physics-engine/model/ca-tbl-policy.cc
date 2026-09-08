@@ -326,6 +326,83 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
 }
 
 void
+CaTblEkf::FusePosition(double zx, double zy, double varM2)
+{
+    if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) ||
+        !std::isfinite(zy))
+    {
+        return;
+    }
+
+    // Two scalar updates rather than one 2x2 solve. R is diagonal here, so the
+    // two are algebraically the joint update, and this reuses Update()'s scalar
+    // arithmetic instead of introducing a second inversion path to keep correct.
+    const double z[2] = {zx, zy};
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        // H selects one position component. H[2] = H[3] = 0: a position
+        // observation says nothing DIRECTLY about velocity -- what reaches
+        // velocity arrives through P's off-diagonal block below.
+        double H[4] = {0.0, 0.0, 0.0, 0.0};
+        H[axis] = 1.0;
+
+        // PH = P * H^T reduces to one column of P.
+        double PH[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            PH[i] = m_P[i][axis];
+        }
+
+        const double S = PH[axis] + varM2;
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+
+        double K[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            K[i] = PH[i] / S;
+        }
+
+        const double innovation = z[axis] - m_x[axis];
+        for (int i = 0; i < 4; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+
+        // P <- (I - K H) P, with H selecting a single row.
+        double newP[4][4];
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                newP[i][j] = m_P[i][j] - K[i] * m_P[axis][j];
+            }
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                m_P[i][j] = newP[i][j];
+            }
+        }
+
+        // Same reason as Update(): sequential scalar updates accumulate
+        // asymmetry, and an asymmetric P silently corrupts the Mahalanobis gate.
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = i + 1; j < 4; ++j)
+            {
+                const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+                m_P[i][j] = avg;
+                m_P[j][i] = avg;
+            }
+        }
+    }
+}
+
+void
 CaTblEkf::RevertToPrior()
 {
     for (int i = 0; i < 4; ++i)
