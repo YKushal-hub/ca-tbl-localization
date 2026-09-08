@@ -2261,6 +2261,8 @@ RunArm(CaTblPolicyMode mode,
        bool finderPseudoAnchor,
        bool bidirectionalDigest,
        bool tier1ChargeReplies,
+       double processNoiseStdPos,
+       double processNoiseStdVel,
        double finderDispersal,
        bool uwbCoverageIncludesFinders,
        uint32_t hopProvenanceForm,
@@ -2421,6 +2423,8 @@ RunArm(CaTblPolicyMode mode,
     }
     pcfg.suspectForcesEscalation = suspectForcesEscalation;
     pcfg.pcsForm = pcsForm;
+    pcfg.processNoiseStdPos = processNoiseStdPos;
+    pcfg.processNoiseStdVel = processNoiseStdVel;
     // Non-positive means leave the built-in default, matching the sentinel
     // convention fixedVarThresholdM2 and pcsSigmaTargetM already use below.
     if (pcsW1 > 0.0) { pcfg.pcsW1 = pcsW1; }
@@ -5141,6 +5145,10 @@ main(int argc, char* argv[])
     bool finderPseudoAnchorArg = false;
     bool bidirectionalDigestArg = false;
     bool tier1ChargeRepliesArg = false;
+    // The values ca-tbl-policy.cc already sets, so passing nothing is
+    // byte-identical to every run taken before this flag existed.
+    double processNoiseStdPosArg = 1.0;
+    double processNoiseStdVelArg = 0.5;
     double finderDispersalArg = 0.0;
     bool uwbCoverageIncludesFindersArg = false;
     uint32_t hopProvenanceFormArg = 0;
@@ -5541,6 +5549,21 @@ main(int argc, char* argv[])
                  "carried but not used, so a rotated ellipse is covered less efficiently "
                  "rather than wrongly.",
                  finderDispersalArg);
+    cmd.AddValue("processNoiseStdPos",
+                 "EKF process-noise std on position, metres. Default 1.0, the value "
+                 "ca-tbl-policy.cc already set and the scenario never touched. "
+                 "EXPOSED FOR A REASON: K2 measured 465 suspects in 1440 cycles, "
+                 "32.3%, against the 1% chi-squared 0.99 = 9.21 gives on a "
+                 "consistent filter, and ruled out corroboration and the forced "
+                 "escalation. With 2.4 GHz corrected to r80 156 m the node coasts "
+                 "far longer between fixes, and a Q tuned when coasting was short "
+                 "leaves the covariance under-grown -- which is a Mahalanobis "
+                 "distance that over-fires. Sweep this to test that; do NOT move "
+                 "the 9.21 threshold, which is a distributional constant.",
+                 processNoiseStdPosArg);
+    cmd.AddValue("processNoiseStdVel",
+                 "EKF process-noise std on velocity, m/s. Default 0.5, as above.",
+                 processNoiseStdVelArg);
     cmd.AddValue("tier1ChargeReplies",
                  "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
                  "default, which preserves every published number. Tier 1 is billed as "
@@ -6254,6 +6277,8 @@ main(int argc, char* argv[])
                                        finderPseudoAnchorArg,
                                        bidirectionalDigestArg,
                                        tier1ChargeRepliesArg,
+                                       processNoiseStdPosArg,
+                                       processNoiseStdVelArg,
                                        finderDispersalArg,
                                        uwbCoverageIncludesFindersArg,
                                        hopProvenanceFormArg,
