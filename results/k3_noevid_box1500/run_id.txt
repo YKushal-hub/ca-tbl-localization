@@ -1,0 +1,5 @@
+6a59fe5bbe0e6fbb
+build Sep  8 2026 02:15:51 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=20 --trace=false --arbitrateDutyBudget=true --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --gwGrid=3 --boxHalf=1500 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=false --corroborationCheck=true --bidirectionalDigest=true --outdir=results/k3_noevid_box1500
+source 0a060dc dirty 0 profile optimized
+digest sha256
+e60412bdff8712613a98bcc35f6f7b1b1c023a4ab4154ae9ecc2e7c2d70fbc75  arm_summary.csv
