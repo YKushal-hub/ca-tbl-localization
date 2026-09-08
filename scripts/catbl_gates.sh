@@ -189,8 +189,8 @@ G6_MISMATCH=0
 # carries --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy and is
 # the null-control reference, while these two are pure defaults and are the evidence
 # this gate compares against. Do not substitute one for the other.
-for spec in "causal_v9/arm_summary.csv:causal/arm_summary.csv" \
-            "det_a_v9/arm_summary.csv:det_a/arm_summary.csv"; do
+for spec in "causal_v10/arm_summary.csv:causal/arm_summary.csv" \
+            "det_a_v10/arm_summary.csv:det_a/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then

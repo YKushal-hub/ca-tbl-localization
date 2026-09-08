@@ -5113,7 +5113,11 @@ main(int argc, char* argv[])
     std::string suspectRecoveryArg = "none";
     double suspectInflateFactor = 4.0;
     uint32_t suspectRecoveryN = 5;
-    bool escalationRequiresEvidence = false;
+    // TRUE by default since 2026-09-08. K3 measured it worth 323.75 J of a
+    // 339 J arm -- 95% -- at 20 of 20 seeds, p < 0.0001, with no significant
+    // accuracy change and a zero noise floor. Pass false to reproduce a run
+    // taken before that date.
+    bool escalationRequiresEvidence = true;
     bool uwbEvidenceFromNeighboursArg = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
@@ -5250,7 +5254,15 @@ main(int argc, char* argv[])
                  "Escalate 2.4->UWB only when the node's own EKF estimate predicts >=3 "
                  "UWB anchors within uwbPredictRadiusM, behind an estimate-quality gate. "
                  "Suppress-only; never creates an escalation. Does NOT gate 868->2.4 -- "
-                 "see escalationRequiresEvidenceT2 for why that one does not work.",
+                 "see escalationRequiresEvidenceT2 for why that one does not work. "
+                 "TRUE by default: K3 measured it worth 323.75 J of a 339 J arm "
+                 "at 20 of 20 seeds, p < 0.0001, with no significant accuracy "
+                 "change -- without it the policy escalates to UWB 92 more times "
+                 "per run, into a tier that obtained ZERO fix cycles in all "
+                 "eleven cells of K1. THE CAVEAT: this was measured where tier 3 "
+                 "never delivers, and the gate is suppress-only, so where tier 3 "
+                 "DOES work suppression could cost. Pass false to reproduce a run "
+                 "taken before 2026-09-08.",
                  escalationRequiresEvidence);
     cmd.AddValue("uwbEvidenceFromNeighbours",
                  "Take the UWB half of that gate from the LIVE neighbour table rather "
