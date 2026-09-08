@@ -564,6 +564,27 @@ class CaTblEkf
     /** Sequential scalar update with per-measurement variance. */
     void Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
 
+    /** Fuse an absolute POSITION observation with isotropic variance \p varM2.
+     *
+     *  The filter's only other measurement path is a range against an anchor,
+     *  which is why dead reckoning could not be fused before: it produces a
+     *  position and there was no door for one.
+     *
+     *  Implemented as two sequential scalar updates with H = [1 0 0 0] and
+     *  [0 1 0 0]. With a diagonal R that is algebraically the joint 2x2 update,
+     *  and it reuses the scalar path whose numerical behaviour -- symmetry
+     *  enforcement included -- is already exercised by Update().
+     *
+     *  Velocity moves too, through P[2][0] and P[3][1]. The prediction step
+     *  builds that correlation, so a position observation carries velocity
+     *  information; withholding it would discard evidence.
+     *
+     *  DOES NOT TOUCH THE STORED PRIOR. m_xPrior is what the integrity gate
+     *  tests this cycle's radio fix against. If a dead-reckoned position became
+     *  that reference, the gate would be validating the radio against the
+     *  inertial engine instead of against the filter's own prediction. */
+    void FusePosition(double zx, double zy, double varM2);
+
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
 
@@ -676,6 +697,16 @@ class CaTblPolicy
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
     double EstX() const { return m_ekf.X(); }
     double EstY() const { return m_ekf.Y(); }
+    /** Fuse an absolute position observation into the filter -- the door the
+     *  inertial engine needs, since every other measurement path takes a range.
+     *  The caller owns the error model: this takes the variance it is given and
+     *  does not invent one, because only the caller knows how long the engine has
+     *  been running unaided. See CaTblEkf::FusePosition. */
+    void FusePosition(double zx, double zy, double varM2)
+    {
+        m_ekf.FusePosition(zx, zy, varM2);
+    }
+
     double Pxx() const { return m_ekf.Pxx(); }
     double Pxy() const { return m_ekf.Pxy(); }
     double Pyy() const { return m_ekf.Pyy(); }
