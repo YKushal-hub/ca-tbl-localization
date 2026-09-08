@@ -80,6 +80,7 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
@@ -2242,6 +2243,9 @@ struct CaTblTagState
     uint64_t fn = 0;
     uint64_t tn = 0;
     uint64_t inCov = 0;
+    uint64_t caseAAttempts = 0;
+    uint64_t caseAAdmitted = 0;
+    uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
 
 /**
@@ -2383,6 +2387,8 @@ RunArm(CaTblPolicyMode mode,
        bool queryProxy,
        bool tableFuseCI,
        bool digestSummary,
+       bool sparseCaseA,
+       double sparseCaseAMarginM,
        uint32_t injectSilentId,
        double injectSilentStartS,
        double injectSilentEndS,
@@ -2502,6 +2508,9 @@ RunArm(CaTblPolicyMode mode,
     auto& fn = TS0.fn;
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
+    auto& caseAAttempts = TS0.caseAAttempts;
+    auto& caseAAdmitted = TS0.caseAAdmitted;
+    auto& caseARefused = TS0.caseARefused;
 
     // Each tier's anchors are registered only on that tier's engine. Registering
     // all anchors on all engines would put UWB anchors kilometres out of range
@@ -4418,7 +4427,58 @@ RunArm(CaTblPolicyMode mode,
         // keeps each cycle's fix attributable to exactly one tier, which the ablation
         // between arms depends on. Cross-tier fusion would produce a better number and
         // a worse experiment.
-        const bool activeSolved = (activeMeas.size() >= 3);
+        // sect 7 CASE A. Two ranges are not nothing. Multilateration needs three
+        // anchors and below that the estimator coasted; two circles cut the plane to two
+        // points and the prior chooses between them.
+        //
+        // TRIED ON THE ACTIVE TIER, NOT THE FLOOR. The floor is 868 MHz and almost
+        // always has three anchors already -- runFloor is true on 99.9% of cycles and
+        // static_868 records zero no-fix cycles. The tier short of anchors is the one
+        // the node escalated TO, tier 3 especially: UWB reaches ~13.5 m, so three
+        // neighbours at once is rare and two is markedly less rare. That is where a
+        // two-anchor solve is worth having, and it is the open question in TECH_DEBT H.1.
+        //
+        // FUSED AS A POSITION, NOT AS RANGES. Case A has already consumed both ranges to
+        // produce the point; handing the same two ranges to the filter afterwards would
+        // count one measurement twice.
+        //
+        // LAST RESORT, AND THIS WAS MEASURED THE WRONG WAY FIRST. Gating only on
+        // "the active tier has two" let a two-anchor solve win the cycle from the
+        // TIER-1 FLOOR, which usually has three anchors and solves better. Measured:
+        // noFix 1 -> 13, rmse 16.88 -> 23.57 m, tier-3 cycles 5 -> 0. Case A must
+        // replace COASTING, which is what the estimator does when nothing solves --
+        // not replace a fallback that was already working.
+        bool caseAUsed = false;
+        if (sparseCaseA && activeMeas.size() == 2 && floorMeas.size() < 3)
+        {
+            ++caseAAttempts;
+            const CaTblSparseResult sr =
+                CaTblSolveCaseA(activeMeas[0].anchorX, activeMeas[0].anchorY,
+                                activeMeas[0].rangeM,
+                                activeMeas[1].anchorX, activeMeas[1].anchorY,
+                                activeMeas[1].rangeM,
+                                policy.EstX(), policy.EstY(),
+                                policy.Pxx(), policy.Pxy(), policy.Pyy(),
+                                sparseCaseAMarginM);
+            if (sr.verdict == CA_TBL_SPARSE_OK)
+            {
+                // Conservative on purpose. A proper propagation would carry the geometry
+                // through; a point standing on two circles is worse conditioned than a
+                // three-anchor solve of the same sigmas, so the honest direction to err
+                // is wide.
+                const double s0 = activeMeas[0].sigmaM;
+                const double s1 = activeMeas[1].sigmaM;
+                policy.FusePosition(sr.x, sr.y, 2.0 * (s0 * s0 + s1 * s1));
+                caseAUsed = true;
+                ++caseAAdmitted;
+            }
+            else if (sr.verdict < 4)
+            {
+                ++caseARefused[sr.verdict];
+            }
+        }
+
+        const bool activeSolved = (activeMeas.size() >= 3) || caseAUsed;
         const bool usedFloor = (!activeSolved && floorMeas.size() >= 3);
 
         // Streak bookkeeping for --floorSkipK. Reset on any shortfall so a single
@@ -5442,6 +5502,14 @@ RunArm(CaTblPolicyMode mode,
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
         }
+        if (caseAAttempts > 0)
+        {
+            std::cout << "    sect 7 CASE A: attempts " << caseAAttempts << ", admitted "
+                      << caseAAdmitted << ", refused ambiguous "
+                      << caseARefused[CA_TBL_SPARSE_AMBIGUOUS] << ", degenerate "
+                      << caseARefused[CA_TBL_SPARSE_DEGENERATE] << ", no-prior "
+                      << caseARefused[CA_TBL_SPARSE_NO_PRIOR] << "\n";
+        }
         if (digPush + digNoOp > 0)
         {
             std::cout << "    ANTI-ENTROPY: digest pushes " << digPush
@@ -5720,6 +5788,8 @@ main(int argc, char* argv[])
     bool queryProxyArg = false;
     bool tableFuseCIArg = false;
     bool digestSummaryArg = false;
+    bool sparseCaseAArg = false;
+    double sparseCaseAMarginMArg = 1.0;
     uint32_t injectSilentIdArg = 0;
     double injectSilentStartSArg = 0.0;
     double injectSilentEndSArg = 0.0;
@@ -5940,6 +6010,19 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("sparseCaseA",
+                 "sect 7: solve a fix from TWO anchors when the active tier has only two, "
+                 "by two-circle intersection with the prior choosing the branch. FALSE by "
+                 "default. Below three anchors the estimator coasts; this is the cheapest "
+                 "lever on tier-3 reachability, since UWB reaches ~13.5 m so three "
+                 "neighbours at once is rare and two is markedly less rare. REFUSED rather "
+                 "than guessed when the prior cannot separate the candidates -- a coin "
+                 "flip between points tens of metres apart is worse than coasting.",
+                 sparseCaseAArg);
+    cmd.AddValue("sparseCaseAMargin",
+                 "sect 7: Mahalanobis separation the two candidates must have before one "
+                 "is accepted. Larger refuses more.",
+                 sparseCaseAMarginMArg);
     cmd.AddValue("injectSilentId",
                  "sect 49: node id whose TRANSMIT goes silent for a window, then returns. "
                  "0 = off. The node is not removed and still HEARS everything -- this is a "
@@ -7268,6 +7351,8 @@ main(int argc, char* argv[])
                                        queryProxyArg,
                                        tableFuseCIArg,
                                        digestSummaryArg,
+                                       sparseCaseAArg,
+                                       sparseCaseAMarginMArg,
                                        injectSilentIdArg,
                                        injectSilentStartSArg,
                                        injectSilentEndSArg,
