@@ -80,6 +80,7 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/ca-tbl-session.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
@@ -2243,6 +2244,9 @@ struct CaTblTagState
     uint64_t fn = 0;
     uint64_t tn = 0;
     uint64_t inCov = 0;
+    CaTblSessionManager sessions;
+    uint32_t sessionId = 0;
+    uint64_t renderCounts[4] = {0, 0, 0, 0};
     uint64_t caseAAttempts = 0;
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
@@ -2387,6 +2391,7 @@ RunArm(CaTblPolicyMode mode,
        bool queryProxy,
        bool tableFuseCI,
        bool digestSummary,
+       bool sessionLayer,
        bool sparseCaseA,
        double sparseCaseAMarginM,
        uint32_t injectSilentId,
@@ -2508,6 +2513,9 @@ RunArm(CaTblPolicyMode mode,
     auto& fn = TS0.fn;
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
+    auto& sessions = TS0.sessions;
+    auto& sessionId = TS0.sessionId;
+    auto& renderCounts = TS0.renderCounts;
     auto& caseAAttempts = TS0.caseAAttempts;
     auto& caseAAdmitted = TS0.caseAAdmitted;
     auto& caseARefused = TS0.caseARefused;
@@ -3169,6 +3177,17 @@ RunArm(CaTblPolicyMode mode,
             fb.rng = macRng;
             beacons.push_back(fb);
         }
+    }
+
+    // Application sect 4. A rescuer opens the search before anything runs, which is what
+    // makes time-to-first-fix meaningful: the clock starts when the request was made,
+    // not when the system happened to succeed.
+    if (sessionLayer)
+    {
+        // Manifest id 1 is the measured tag's, set at mc.targetManifestId above. The
+        // requester id is the base station, which is not a simulated node -- nothing is
+        // routed to it here, so any non-colliding id serves.
+        sessionId = sessions.SearchAndLocalize(1u, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
     }
 
     // Scheduled only after every push_back, so the addresses are final.
@@ -4796,6 +4815,38 @@ RunArm(CaTblPolicyMode mode,
         {
             energy.AccountEdgeServerDownlink(active);
         }
+
+        // TRANSPORT sect 2 / APPLICATION sect 3-5. The layer above the MAC, driven by the
+        // running simulator rather than only by its unit suite.
+        //
+        // A RESULT CARRIES ITS LINEAGE, not just coordinates -- tier, PCS, hop count,
+        // the integrity verdict, and the covariance itself so an ellipse comes from the
+        // filter rather than a stylised radius. Surfacing the SUSPECT verdict is the
+        // entire reason the integrity check exists, and CaTblRenderFor lets it override
+        // tier and PCS: a sub-metre UWB fix that failed the Mahalanobis gate is the
+        // dangerous case precisely because its tier would otherwise earn it the most
+        // confident marker on the screen.
+        if (sessionLayer)
+        {
+            sessions.Tick(t);
+            if (d.hadFix)
+            {
+                CaTblResult res;
+                res.targetManifestId = 1u;
+                res.x = policy.EstX();
+                res.y = policy.EstY();
+                res.varX = policy.Pxx();
+                res.varY = policy.Pyy();
+                res.covXY = policy.Pxy();
+                res.tierSource = fixTier;
+                res.pcs = d.pcs;
+                res.hopCountAtFix = 0;
+                res.suspect = d.suspect;
+                res.timestampS = t;
+                sessions.OnResult(res, t);
+                ++renderCounts[CaTblRenderFor(res)];
+            }
+        }
         if (d.hadFix && !d.suspect)
         {
             // ONLY IF THE FIX SAYS SOMETHING ABOUT MOTION.
@@ -5502,6 +5553,22 @@ RunArm(CaTblPolicyMode mode,
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
         }
+        if (sessionLayer)
+        {
+            const CaTblSession* sess = nullptr;
+            std::map<uint32_t, CaTblSession>::const_iterator si =
+                sessions.Sessions().find(sessionId);
+            if (si != sessions.Sessions().end())
+            {
+                sess = &si->second;
+            }
+            std::cout << "    SESSION: final state "
+                      << (sess ? CaTblSessionStateName(sess->State()) : "none")
+                      << ", renders VERIFY " << renderCounts[CA_TBL_RENDER_VERIFY]
+                      << " / HIGH " << renderCounts[CA_TBL_RENDER_HIGH]
+                      << " / MEDIUM " << renderCounts[CA_TBL_RENDER_MEDIUM]
+                      << " / COARSE " << renderCounts[CA_TBL_RENDER_COARSE] << "\n";
+        }
         if (caseAAttempts > 0)
         {
             std::cout << "    sect 7 CASE A: attempts " << caseAAttempts << ", admitted "
@@ -5788,6 +5855,7 @@ main(int argc, char* argv[])
     bool queryProxyArg = false;
     bool tableFuseCIArg = false;
     bool digestSummaryArg = false;
+    bool sessionLayerArg = false;
     bool sparseCaseAArg = false;
     double sparseCaseAMarginMArg = 1.0;
     uint32_t injectSilentIdArg = 0;
@@ -6010,6 +6078,13 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("sessionLayer",
+                 "Drive the Transport/Application layer from the run: a session opened at "
+                 "t=0, every fix delivered to it as a RESULT carrying its lineage, and the "
+                 "render rule applied. FALSE by default. Adds no frames and changes no "
+                 "decision -- it consumes what the policy already produced -- so it is "
+                 "observation, not mechanism.",
+                 sessionLayerArg);
     cmd.AddValue("sparseCaseA",
                  "sect 7: solve a fix from TWO anchors when the active tier has only two, "
                  "by two-circle intersection with the prior choosing the branch. FALSE by "
@@ -7351,6 +7426,7 @@ main(int argc, char* argv[])
                                        queryProxyArg,
                                        tableFuseCIArg,
                                        digestSummaryArg,
+                                       sessionLayerArg,
                                        sparseCaseAArg,
                                        sparseCaseAMarginMArg,
                                        injectSilentIdArg,
