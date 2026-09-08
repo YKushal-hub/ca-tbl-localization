@@ -1042,7 +1042,14 @@ class Tourist
         {
             // Milling about inside a site rather than standing perfectly still.
             m_dwellLeft -= dt;
-            m_heading += m_rng->GetValue(-1.2, 1.2) * dt;
+            {
+                const double w = m_rng->GetValue(-1.2, 1.2);
+                const double lim = (m_maxTurnRate > 0.0)
+                                       ? std::max(-m_maxTurnRate,
+                                                  std::min(m_maxTurnRate, w))
+                                       : w;
+                m_heading += lim * dt;
+            }
             m_x += 0.3 * m_speed * std::cos(m_heading) * dt;
             m_y += 0.3 * m_speed * std::sin(m_heading) * dt;
 
@@ -1058,7 +1065,23 @@ class Tourist
                 const double s = m_dwellRadius / dr;
                 m_x = site.x + (m_x - site.x) * s;
                 m_y = site.y + (m_y - site.y) * s;
-                m_heading += M_PI; // turn back inward rather than pressing the edge
+                // Turn back inward. Unbounded this was an INSTANTANEOUS half-turn,
+                // which is exactly what a yaw integrator cannot follow -- and it
+                // fired every time the mill-about touched the dwell radius. With a
+                // rate set, steer toward the site centre at that rate instead.
+                if (m_maxTurnRate > 0.0)
+                {
+                    const double inward = std::atan2(site.y - m_y, site.x - m_x);
+                    double d = inward - m_heading;
+                    while (d > M_PI) d -= 2.0 * M_PI;
+                    while (d < -M_PI) d += 2.0 * M_PI;
+                    m_heading += std::max(-m_maxTurnRate * dt,
+                                          std::min(m_maxTurnRate * dt, d));
+                }
+                else
+                {
+                    m_heading += M_PI;
+                }
             }
 
             if (m_dwellLeft <= 0.0)
@@ -1133,6 +1156,9 @@ class Tourist
     double m_dwellS;
     double m_boxHalf;
     double m_dwellRadius;
+    //! Max heading change per second, rad/s. 0 = unbounded, the behaviour every
+    //! run before 2026-09-08 had. See SetMaxTurnRate().
+    double m_maxTurnRate = 0.0;
     Ptr<UniformRandomVariable> m_rng;
     size_t m_target;
     double m_dwellLeft;
@@ -1144,6 +1170,15 @@ class Tourist
     //! Place the walker. Used to start finders at a base camp rather than in the
     //! middle of the search area; the tour target is unaffected, so the walker
     //! simply sets off from somewhere else.
+    //! Bound how fast the walker may change heading.
+    //!
+    //! A yaw-integrating heading estimator cannot follow a discontinuity, and the
+    //! dwell had two: a mill-about wander up to 1.2 rad/s, and an INSTANTANEOUS
+    //! half-turn when the walker reached the dwell radius. With a rate set, the
+    //! wander is clamped and the reversal becomes a bounded turn back toward the
+    //! site centre, taken over several steps the way a person turns around.
+    void SetMaxTurnRate(double radPerS) { m_maxTurnRate = radPerS; }
+
     void SetPosition(double x, double y)
     {
         m_x = x;
@@ -2329,6 +2364,8 @@ RunArm(CaTblPolicyMode mode,
        bool vizEventsOn,
        uint32_t nFinders,
        uint32_t finderMode,
+       double maxTurnRateRadS,
+       double shsTrustedFixK,
        double finderSpeedMps,
        double finderDigestPeriodS,
        double finderPosSigmaM,
@@ -2468,6 +2505,9 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    // The SUBJECT is the one the SHS rides on, so this is the walker whose
+    // continuity decides whether a yaw integrator can track it at all.
+    walker.SetMaxTurnRate(maxTurnRateRadS);
     // LAST KNOWN POSITION. With a base camp the subject starts AT it and walks
     // out, which is what a search actually begins from and what gives the finders
     // something to converge on. The RNG draw in the constructor happens either
@@ -3006,6 +3046,7 @@ RunArm(CaTblPolicyMode mode,
         // every still cell measured a paralysed search.
         finderWalkers.emplace_back(dep.facilities, finderSpeedMps, dwellS,
                                    dep.boxHalfM, dep.dwellRadiusM, frng);
+        finderWalkers.back().SetMaxTurnRate(maxTurnRateRadS);
         // A search party sets out FROM somewhere. Without this the finders spawn in
         // the middle of the search area, which hands them the answer at t = 0 and
         // flatters the finder-hop mechanism the base-camp scenario exists to test.
@@ -3293,6 +3334,12 @@ RunArm(CaTblPolicyMode mode,
     double imuDisagreeM = 0.0;
     double imuTolM = 0.0;
     double lastTrustedFixS = 0.0;
+    // Where the SHS was last calibrated, and whether it ever was.
+    double lastTrustedX = 0.0;
+    double lastTrustedY = 0.0;
+    bool haveTrusted = false;
+    uint64_t shsTrustedFixes = 0;
+    uint64_t shsFixesSkipped = 0;
 
     // The real step-and-heading system from IMU_SHS_V1.1, not a scale-error stub.
     lorawan::ShsEngineParams shsParams;
@@ -4520,7 +4567,39 @@ RunArm(CaTblPolicyMode mode,
         }
         if (d.hadFix && !d.suspect)
         {
-            shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
+            // ONLY IF THE FIX SAYS SOMETHING ABOUT MOTION.
+            //
+            // OnTrustedFix calibrates step length and heading from the
+            // displacement between consecutive fixes. The node walks ~3 m per
+            // cycle and the fixes carry ~167 m of error, so at every cycle that
+            // displacement is about 1 part signal to 56 parts noise, and the
+            // heading it implies is noise. Measured: arms that fed every fix ran
+            // 5-18 km off, while the one arm that never fed any stayed at 20-42 m.
+            //
+            // So wait until the node has actually moved, relative to how well its
+            // position is known. The threshold scales with the filter's own
+            // covariance rather than with a chosen constant, and skipping simply
+            // leaves the SHS dead-reckoning, which is its job.
+            const double sigPos =
+                std::sqrt(std::max(0.0, policy.Pxx() + policy.Pyy()));
+            const double moved =
+                std::hypot(policy.EstX() - lastTrustedX,
+                           policy.EstY() - lastTrustedY);
+            const bool informative =
+                (shsTrustedFixK <= 0.0) || !haveTrusted ||
+                (moved > shsTrustedFixK * sigPos);
+            if (informative)
+            {
+                shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
+                lastTrustedX = policy.EstX();
+                lastTrustedY = policy.EstY();
+                haveTrusted = true;
+                ++shsTrustedFixes;
+            }
+            else
+            {
+                ++shsFixesSkipped;
+            }
             lastTrustedFixS = t;
         }
 
@@ -5387,6 +5466,9 @@ main(int argc, char* argv[])
     // 0.0 = off. See --baseCampFrac.
     double baseCampFrac = 0.0;
     double subjectKeepOutM = 0.0;
+    double maxTurnRateRadS = 0.0;
+    // 0 = feed every fix, which is what every run before 2026-09-08 did.
+    double shsTrustedFixKArg = 0.0;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
     double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
     uint32_t uwbAnchorsPerSite = 5;
@@ -5577,6 +5659,29 @@ main(int argc, char* argv[])
                  "leaving them central would put the searchers in the search area at "
                  "t=0 and flatter the very mechanism this is meant to test.",
                  baseCampFrac);
+    cmd.AddValue("shsTrustedFixK",
+                 "Offer a fix to the SHS only when the node has moved more than K "
+                 "position-sigmas since the last one. 0 (default) feeds every fix, "
+                 "which is what every run before 2026-09-08 did. WHY: OnTrustedFix "
+                 "CALIBRATES step length and heading from the displacement between "
+                 "consecutive fixes, and the node walks ~3 m per cycle while the "
+                 "fixes carry ~167 m of error -- about 1 part signal to 56 parts "
+                 "noise, so the implied heading is noise and the engine dead-reckons "
+                 "on it for kilometres. Measured: arms feeding every fix ran 5-18 km "
+                 "off while the one arm that fed none stayed at 20-42 m. K around 2-3 "
+                 "makes calibration sparse and informative.",
+                 shsTrustedFixKArg);
+    cmd.AddValue("maxTurnRate",
+                 "Bound the walkers' heading change, rad/s. 0.0 (default) is unbounded, "
+                 "which is every run before 2026-09-08. WHY IT EXISTS: the SHS reaches "
+                 "~330 m of final error and DESIGN_DECISIONS section 8 names the cause -- "
+                 "the walker changes heading discontinuously while the engine "
+                 "integrates yaw rate. The travel leg already clamps to 0.35 rad/s; the "
+                 "dwell did not, and reversed heading INSTANTANEOUSLY on reaching the "
+                 "dwell radius. A yaw integrator cannot follow that. 0.35 matches the "
+                 "travel leg. THIS CHANGES THE MOBILITY, so with it on no earlier "
+                 "number is comparable.",
+                 maxTurnRateRadS);
     cmd.AddValue("subjectKeepOutM",
                  "With a base camp, drop any tour site within this many metres of it, "
                  "so the subject does not wander back into coverage. 0.0 = off. The "
@@ -6792,6 +6897,8 @@ main(int argc, char* argv[])
                                        vizEventsArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       maxTurnRateRadS,
+                                       shsTrustedFixKArg,
                                        (finderSpeedMpsArg >= 0.0)
                                            ? finderSpeedMpsArg
                                            : walkSpeedMps,
