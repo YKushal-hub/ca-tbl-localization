@@ -724,3 +724,38 @@ subjects, and a field node carrying no filter state at all.
 - **The environment is now uniformly `RURAL_FORESTED`.** That is one scenario. The
   correction makes the tiers consistent with each other; it does not make the forest the
   right forest.
+
+### K.6 G4 and G5 are red because the default deployment no longer exercises tier 2
+
+Full write-up: `report/GATE_STATE_2026_09_08.md`. In short: with 2.4 GHz r80 corrected
+from 1149.5 m to 156.0 m, the default `boxHalf=1000` with 900 m gateway spacing leaves
+`static_2p4` with **41/1440 fix cycles (2.8%)**, and the verifier correctly refuses to
+certify an RMSE that is dead reckoning. G5 fails only because its "healthy input" fixture
+is that same run; its six negative fixtures all still fire.
+
+Four derived defaults are now contradicted by their own comments, all of them taken from
+the split-environment probe: `boxHalfM = 1000` ("868 r80 = 1000 m", measured 1515.3 m),
+`t2TriadRadiusM = 150` ("2p4 r80 >= 900 m, siting-limited", measured 156.0 m and
+range-limited), and the `uwbTriadRadiusM` / `gwGrid` pair alongside them.
+
+*Fix, in order:* resize the default deployment from a fresh probe — tier 2 needs spacing
+below ~312 m, which is `boxHalf` below ~350 — and then generalise the verifier's
+single-band coverage exemption from "UWB is exempt" to "an arm whose measured r80 cannot
+cover this deployment is a documented finding", with its negative fixture per rule 6.
+
+*Why it is not done here:* K1 measured 924 s/seed at `boxHalf=400` against 157 s at 2500,
+so a default of 350 makes the gate suite roughly five times slower on every future run.
+That is a decision about the project's tooling budget, not a bug fix to be made at the end
+of a session.
+
+### K.7 `--escalationRequiresEvidence` should default true, and does not yet
+
+K3 measured it worth **323.75 J of a 339 J arm**, 20 of 20 seeds, p < 0.0001, zero noise
+floor, with no significant accuracy change (`report/K2_K3_RESULTS.md`). It is still
+`false`.
+
+*Why not landed:* it is a second physics/policy default change requiring its own
+reference regeneration, stacked on a suite already red from the first. Two default changes
+in flight before the first is settled is how a tree stops being verifiable. The patch is
+written and its help text carries the caveat — the gate is suppress-only and was measured
+where tier 3 never delivers, so where tier 3 works suppression could cost.
