@@ -2327,6 +2327,7 @@ RunArm(CaTblPolicyMode mode,
        bool vizEventsOn,
        uint32_t nFinders,
        uint32_t finderMode,
+       double finderSpeedMps,
        double finderDigestPeriodS,
        double finderPosSigmaM,
        bool finderPseudoAnchor,
@@ -2995,7 +2996,11 @@ RunArm(CaTblPolicyMode mode,
         const uint32_t fid = 501 + fi;
         Ptr<UniformRandomVariable> frng = CreateObject<UniformRandomVariable>();
         frng->SetStream(static_cast<int64_t>(seed) * 7919 + 900007 + fi);
-        finderWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+        // The SEARCH PARTY's speed, not the subject's. They are separate because
+        // a stationary casualty does not imply stationary searchers -- and while
+        // they shared one flag, --speed=0 pinned all four finders to the spot and
+        // every still cell measured a paralysed search.
+        finderWalkers.emplace_back(dep.facilities, finderSpeedMps, dwellS,
                                    dep.boxHalfM, dep.dwellRadiusM, frng);
         // A search party sets out FROM somewhere. Without this the finders spawn in
         // the middle of the search area, which hands them the answer at t = 0 and
@@ -3461,8 +3466,13 @@ RunArm(CaTblPolicyMode mode,
                 }
                 // How far the subject could physically have gone since it was last
                 // seen. Sweeping beyond that is sweeping ground it cannot occupy.
+                // How far the SUBJECT could have gone bounds the area worth
+                // sweeping; how fast the SEARCHERS move bounds how much of it
+                // they have covered by now. Two different speeds, and using the
+                // subject's for both made the radius zero whenever it was still.
                 const double reach = std::max(1.0, walkSpeedMps * t);
-                const double radius = std::min(reach, 0.5 * walkSpeedMps * t);
+                const double swept = 0.5 * finderSpeedMps * t;
+                const double radius = std::max(1.0, std::min(reach, swept));
                 if (entrySigma > radius)
                 {
                     searching = true;
@@ -3474,7 +3484,7 @@ RunArm(CaTblPolicyMode mode,
                     // covers the annulus instead of one bearing.
                     const double theta =
                         2.0 * M_PI * static_cast<double>(fi) / n
-                        + ((radius > 1.0) ? (0.5 * walkSpeedMps * t / radius) : 0.0);
+                        + ((radius > 1.0) ? (0.5 * finderSpeedMps * t / radius) : 0.0);
                     fp = Vector(dep.baseCampX + radius * std::cos(theta),
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
@@ -5435,6 +5445,9 @@ main(int argc, char* argv[])
     bool vizEventsArg = false;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
+    // Sentinel: negative means follow --speed, which is what every run before
+    // 2026-09-08 did, so the default is byte-identical.
+    double finderSpeedMpsArg = -1.0;
     double finderDigestPeriodSArg = 30.0;
     double finderPosSigmaMArg = 0.0;
     bool finderPseudoAnchorArg = false;
@@ -6035,6 +6048,14 @@ main(int argc, char* argv[])
                  "still, which is what they should do when nobody has told them anything. "
                  "Requires --sendHandshakeFrames, since that is what gates the responder.",
                  finderDigestPeriodSArg);
+    cmd.AddValue("finderSpeed",
+                 "Walking speed of the SEARCHERS, m/s. Negative (default) means follow "
+                 "--speed, which is what every run before 2026-09-08 did. THEY NEEDED "
+                 "SEPARATING: --speed sets one variable that built both the subject's "
+                 "walker and every finder's, so --speed=0 -- how a still casualty is "
+                 "specified -- also pinned all four searchers to the spot, and every "
+                 "still cell measured a paralysed search party rather than a search.",
+                 finderSpeedMpsArg);
     cmd.AddValue("finderMode",
                  "2 = SEARCH THEN CONVERGE. Mode 1 converges on the casualty's "
                  "reported position and, with no entry, deliberately HOLDS POSITION "
@@ -6698,6 +6719,9 @@ main(int argc, char* argv[])
                                        vizEventsArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       (finderSpeedMpsArg >= 0.0)
+                                           ? finderSpeedMpsArg
+                                           : walkSpeedMps,
                                        finderDigestPeriodSArg,
                                        finderPosSigmaMArg,
                                        finderPseudoAnchorArg,
