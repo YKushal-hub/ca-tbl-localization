@@ -146,6 +146,12 @@ struct Deployment
     double nominalRangeM[CA_TBL_TIER_COUNT];
     std::vector<Vector> facilities;
     double boxHalfM;
+    //! Where the infrastructure stands. hasBaseCamp is false for every deployment
+    //! before 2026-09-08, in which the gateways surround the casualty rather than
+    //! sitting somewhere a search sets out FROM.
+    bool hasBaseCamp = false;
+    double baseCampX = 0.0;
+    double baseCampY = 0.0;
     /** How far the node may wander from a site centre while dwelling there.
      *  Tied to the UWB ring radius so "at a facility" and "in UWB range" cannot
      *  drift apart. */
@@ -1127,6 +1133,16 @@ class Tourist
     double m_heading;
     double m_x;
     double m_y;
+
+  public:
+    //! Place the walker. Used to start finders at a base camp rather than in the
+    //! middle of the search area; the tour target is unaffected, so the walker
+    //! simply sets off from somewhere else.
+    void SetPosition(double x, double y)
+    {
+        m_x = x;
+        m_y = y;
+    }
 };
 
 double
@@ -2883,6 +2899,14 @@ RunArm(CaTblPolicyMode mode,
         frng->SetStream(static_cast<int64_t>(seed) * 7919 + 900007 + fi);
         finderWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
                                    dep.boxHalfM, dep.dwellRadiusM, frng);
+        // A search party sets out FROM somewhere. Without this the finders spawn in
+        // the middle of the search area, which hands them the answer at t = 0 and
+        // flatters the finder-hop mechanism the base-camp scenario exists to test.
+        // The draw above is consumed either way, so the RNG stream does not move.
+        if (dep.hasBaseCamp)
+        {
+            finderWalkers.back().SetPosition(dep.baseCampX, dep.baseCampY);
+        }
         const Vector fpos = finderWalkers.back().Position();
         finderIds.push_back(fid);
         finderPos.push_back(fpos);
@@ -5063,6 +5087,8 @@ main(int argc, char* argv[])
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
+    // 0.0 = off. See --baseCampFrac.
+    double baseCampFrac = 0.0;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
     double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
     uint32_t uwbAnchorsPerSite = 5;
@@ -5225,6 +5251,22 @@ main(int argc, char* argv[])
                  "default output is byte-identical to pre-D2-fix runs.",
                  traceDiagnostic);
     cmd.AddValue("boxHalf", "Half-width of the deployment box, metres", boxHalfM);
+    cmd.AddValue("baseCampFrac",
+                 "Put the infrastructure at a BASE CAMP at (f*boxHalf, f*boxHalf) and "
+                 "start the finders there, leaving the casualty touring the centre. "
+                 "0.0 = off, which is every run before 2026-09-08. WHY IT EXISTS: at "
+                 "0.0 the casualty starts within 0.2*boxHalf of the centre and tours "
+                 "corners at 0.47*boxHalf while a 3x3 gateway grid sits at 0.9*boxHalf "
+                 "WITH ONE AT THE ORIGIN -- so it is permanently inside the footprint "
+                 "and the searchers begin beside it. That is asset tracking in a "
+                 "covered yard, and the condition the architecture exists for -- no "
+                 "single band spanning the mission -- never occurs. At 0.9 with "
+                 "boxHalf 3000 the camp is at (2700,2700) and the tour corners are "
+                 "1824-5813 m away, mostly beyond 868 r80 of 1515 m, so reaching the "
+                 "casualty needs a searcher to walk out. Finders move with the camp: "
+                 "leaving them central would put the searchers in the search area at "
+                 "t=0 and flatter the very mechanism this is meant to test.",
+                 baseCampFrac);
     cmd.AddValue("uwbTriad", "UWB triad radius at each facility, metres", uwbTriadRadiusM);
     cmd.AddValue("t2Triad", "2.4 GHz triad radius at each facility, metres", t2TriadRadiusM);
     cmd.AddValue("uwbAnchors", "UWB anchors per facility site (>=3)", uwbAnchorsPerSite);
@@ -6068,7 +6110,7 @@ main(int argc, char* argv[])
         return 1;
     }
 
-    const Deployment dep = BuildDeployment(gwGrid,
+    Deployment dep = BuildDeployment(gwGrid,
                                            boxHalfM,
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
@@ -6078,6 +6120,28 @@ main(int argc, char* argv[])
                                            topologyArg,
                                            nGatewaysArg,
                                            gwRingFracArg);
+
+    // BASE CAMP. Move the infrastructure to a corner and leave the casualty's tour
+    // where it is, so the subject is OUTSIDE the gateway footprint for much of the
+    // run and reaching it needs a searcher to walk out. Applied here rather than
+    // inside BuildDeployment so every arm sees the identical deployment and the
+    // legacy topology path is untouched.
+    if (baseCampFrac > 0.0)
+    {
+        const double bcx = baseCampFrac * boxHalfM;
+        const double bcy = baseCampFrac * boxHalfM;
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+            {
+                dep.anchors[ti][i].pos.x += bcx;
+                dep.anchors[ti][i].pos.y += bcy;
+            }
+        }
+        dep.hasBaseCamp = true;
+        dep.baseCampX = bcx;
+        dep.baseCampY = bcy;
+    }
 
     if (vizEventsArg)
     {
