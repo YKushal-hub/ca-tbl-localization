@@ -3513,6 +3513,38 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // AND SO DOES EVERY PEER TARGET, for the same reason and none of its own.
+        //
+        // Peers published nowhere at all until a positive control refused to fire:
+        // an identity-scoped query for a peer's manifest id could never be
+        // answered, because the peer's position had never entered any table and no
+        // proxy could stand in for an entry that did not exist. Every mechanism
+        // reading the position table -- gossip, proxy answering, relay admission,
+        // corroboration -- was structurally blind to the peer targets.
+        //
+        // What it believes and the uncertainty that belief carries, exactly as the
+        // measured tag reports its own. Publishing a truer position than the peer
+        // actually holds would hand every consumer a confidence nothing earned.
+        for (uint32_t pt = 1; pt < nTags; ++pt)
+        {
+            const size_t pi = static_cast<size_t>(pt - 1);
+            if (pi >= peerMacs.size())
+            {
+                continue;
+            }
+            for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+            {
+                if (peerMacs[pi][ti] == nullptr)
+                {
+                    continue;
+                }
+                peerMacs[pi][ti]->PublishSelfEntry(
+                    tags[pt].policy.EstX(), tags[pt].policy.EstY(),
+                    tags[pt].policy.Pxx(), tags[pt].policy.Pyy(),
+                    tags[pt].policy.Pxy(), 0.0, 0.0, t);
+            }
+        }
+
         // A FINDER REPUBLISHES WHERE IT BELIEVES IT IS, EVERY CYCLE.
         //
         // It used to publish once, inside the CONSTRUCTION loop, at its spawn
