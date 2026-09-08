@@ -891,3 +891,139 @@ WHAT CLOSING THIS WOULD TAKE: an error model for the SHS that is actually measur
 than asserted, so the fusion variance describes the engine's real accuracy; and a
 calibration that is robust to a first bad sample — at minimum, refusing to adopt a first
 estimate whole, and preferring a running median over an EMA seeded by one point.
+
+---
+
+# L. Definition of done — 2026-09-09
+
+**Why this section exists.** Everything above records what is wrong. Nothing above says
+what "finished" would look like, so every status conversation restarts the argument about
+whether the project is 32% or 60% or done. This fixes the bar.
+
+**Read the three bars separately. They are not stages of one thing.** A system can clear
+1 and fail 3 permanently, and that is an acceptable outcome — it is what a negative result
+IS.
+
+| bar | question it answers | current |
+|---|---|---|
+| **B1 Engine complete** | does every specified mechanism exist and execute? | **near** |
+| **B2 Spec-conformant** | does the running simulator do what `finalyearprojectcontext.docx` describes? | **partial** |
+| **B3 Claim-supported** | is there evidence for the claims the thesis makes? | **no, and partly by measurement** |
+
+---
+
+## L.1 Bar 1 — engine complete
+
+**Done when:** every mechanism the docx names has code, that code is reachable from a
+running configuration, and a negative fixture has been observed to fire for each gate
+guarding it.
+
+**Where it stands:** essentially met. 152 checks across eight suites; every docx-named
+mechanism greps to code; §51 (the demo scenario) is the only fully-absent item and is not
+an engine feature.
+
+**What is left for B1**
+
+| # | item | what is wrong | what closes it | done when |
+|---|---|---|---|---|
+| L.1.1 | Routing unwired | `CaTblRoutingTable` + ETX + 21 checks exist; **0 scenario call sites**. The poll set is one-hop, so there is no route to choose | Multi-hop forwarding of position-fix traffic: a node that cannot reach a gateway directly relays through one that can | A run reports a next-hop that is not the destination, and `Divergences()` is non-zero between ETX and the confidence metric |
+| L.1.2 | Net §5 depth 2 unreachable | `CaTblComposeRelayChain` and `--maxRelayDepth` exist; **finders never relay through each other**, so `hopDepth` is always 1 | Let a finder with <3 anchor ranges range against a finder that already holds a fix this cycle, inheriting depth+1 and the relay's covariance | `hopDepth == 2` appears in a run and A2 is observed both admitting and rejecting on the budget |
+| L.1.3 | Case B / Case C unwired | library only | Call Case B where one anchor + one peer is the geometry | Case B appears in a run's verdict counts |
+| L.1.4 | Anchor tie-break unwired | `CaTblGrantCoordinator` + suite; anchors do not gossip grants | Anchor-to-anchor grant gossip on the existing low-priority class | Two anchors are observed reaching opposite verdicts on one target in a run |
+| L.1.5 | `CA_TBL_MOB_RECEDING` never set | the receding → eager-push branch is dead code in the scenario | Drive mobility state from the walker's range trend | The branch executes and `TRIGGERED_UPDATE` count is non-zero |
+
+**B1 is worth finishing and is cheap.** None of it requires a campaign or a decision.
+
+---
+
+## L.2 Bar 2 — spec-conformant
+
+**Done when:** for each docx section, the *running simulator* does what the section
+describes, or the divergence is recorded in `MASTER_PLAN.md` §2.1 with a reason.
+
+**The honest obstacle, and it is one fact rather than five.** Four mechanisms are correct,
+reachable and have **nothing to act on**:
+
+| mechanism | population | why |
+|---|---|---|
+| Covariance Intersection | 0 firings | equal-sequence entries never arrive; dedup drops the duplicate |
+| Case A | ~8 attempts / 480 cycles | the tier-1 floor solves first |
+| Mahalanobis integrity check | 0 eligible cycles | it runs on all-LOS cycles; there are none |
+| Routing | no route to select | poll set is one-hop |
+
+**All four are the same fact: tier 1 blankets the box.** `runFloor` is true on 99.9% of
+cycles, `static_868` records zero no-fix cycles, and every mechanism built to handle
+scarcity never encounters any.
+
+**This is the single highest-value thing left in the project**, because it is what stands
+between "the mechanism exists" and "the mechanism does something". It is also cheap to
+test and expensive to ignore.
+
+*What closes it:* a deployment where tier 1 does **not** cover — a larger box, a lower
+tier-1 power, or an arm with `--floorOnDemand`. `TECH_DEBT` K.3 records that the floor is
+the single largest energy lever in the codebase and that ~96% of every arm's cycles carry
+an 868 transmission regardless of active tier. A sweep over that is one afternoon.
+
+*Done when:* each of the four reports a non-trivial population in at least one registered
+configuration, **or** the register states that it cannot and why.
+
+**Remaining B2 divergences**
+
+| # | item | what is wrong | what closes it | done when |
+|---|---|---|---|---|
+| L.2.1 | Tier-1 observable | Spec says TDoA (Chan/Foy). Code does RSSI inversion. The energy model bills the **TDoA shape** — one broadcast, anchors timestamp — so the system pays for TDoA and localises with RSSI | Either build the timing layer + hyperbolic solver (needs GPS-PPS sync, absent, and circularly justified as "not needed, because there is no TDoA"), **or** re-bill as RSSI and amend ch09 §9.3 | Billing and observable agree, and the DIVERGENT row names which one moved. `--tier1ChargeReplies` already measures the gap: tier-1 energy 13.59 → 25.86 J |
+| L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create |
+| L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` now exists (32–42% energy saving, accuracy byte-identical) but is **off by default** | Default it true after its own reference regeneration | The CONTRADICTION row in §2.1 is resolved rather than described |
+| L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values |
+| L.2.5 | Proxy staleness | The proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound) | Faster dissemination, or an explicit statement that the spec bound is too tight for this topology | The bound is justified by measurement rather than inherited |
+
+---
+
+## L.3 Bar 3 — claim-supported
+
+**Done when:** every claim in the thesis has evidence that survives its own registered
+control, or is withdrawn.
+
+**This bar is partly unreachable, and that is a finding rather than a failure.**
+
+| claim | status | what would change it |
+|---|---|---|
+| Confidence-awareness (PCS) earns its place | **measured negative.** Every form loses the monotone control, whole 95% CI below zero. In the sparse regime ρ turns **positive** | Give the hop and NLOS terms real inputs (both currently dead), then re-run the control. K.8 gives the order and warns a refit alone cannot fix it |
+| Tiering beats single-band | **not supported.** Statistically indistinguishable from `static_868`; `fixed_threshold` ties or wins | A regime where tier 1 does not cover — the same fix as L.2 |
+| The architecture beats published estimators | **supported.** K10: 2 016 m vs MLAT 20 831 m, 20+/0−, p ≤ 0.0004 | Re-run on the corrected environment (K.2) before quoting |
+| The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
+| Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1 | L.1.2 then a registered PCS campaign |
+
+**Before any of these can be re-stated, two things must happen and they are not optional:**
+
+1. **I.6 + K.2 — regenerate the evidence tree.** Most of the 98 results directories
+   predate the topology correction, and *all* of them predate the environment-split
+   default change. `TECH_DEBT` K.2: *"no result in the tree reproduces under it."*
+   Order: the integrity result first (its sign could move), then the PCS forms, then the
+   rest. **Compute, not design.**
+2. **1.1 — the unseeded sampler.** Any change in transmission count displaces every
+   link's draws, so cross-binary magnitude comparisons are inadmissible. Either assign
+   streams and regenerate everything, or state the limit on every cross-binary number.
+
+---
+
+## L.4 When the system is truly done
+
+**B1 done:** L.1.1–L.1.5 wired, each observed to execute. *Estimate: 1–2 days.*
+
+**B2 done:** the coverage question settled (a regime where tier 1 does not blanket), plus
+L.2.1–L.2.5 resolved or recorded. *Estimate: 3–5 days, one of which is compute.*
+
+**B3 done:** the tree regenerated on the corrected environment, the sampler decision made,
+and every claim either re-established or withdrawn in the corrections register.
+*Estimate: 1–2 weeks, mostly compute and writing.*
+
+**And the honest end state.** B3 will most likely conclude with **PCS and tiering
+withdrawn** and the architecture's value resting on the mesh, the filter, the integrity
+check and the measurement apparatus. That is a complete and defensible project. It is not
+the project the novelty claims describe, and the gap between those two is the thing to
+decide deliberately rather than discover at a viva.
+
+**The system is done when the register is empty or every remaining entry is a stated
+decision.** Not when the gates are green — G11 is red on purpose and closing it by tuning
+would destroy the only instrument that has ever caught a defect of its class.
