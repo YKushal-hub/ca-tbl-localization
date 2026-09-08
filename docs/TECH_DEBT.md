@@ -759,3 +759,43 @@ reference regeneration, stacked on a suite already red from the first. Two defau
 in flight before the first is settled is how a tree stops being verifiable. The patch is
 written and its help text carries the caveat — the gate is suppress-only and was measured
 where tier 3 never delivers, so where tier 3 works suppression could cost.
+
+### K.8 PCS is uncalibrated, and measurement says it re-encodes a number we get free
+
+**Owner decision 2026-09-08: registered as debt, not fixed.** The evidence says fixing it
+is probably not the right call either.
+
+*Uncalibrated.* `pcsW1 = 2.0`, `pcsW2 = 0.5`, `pcsW3 = 0.5` are HAND-SET — the header says
+so — chosen for one structural property, that `pcsW2 + pcsW3` stays below the lowest
+escalation threshold so term 1 keeps a veto. `pcsGateFloor = 0.10` is marked "OURS, not
+physical". **CAL-01, the LOOCV weight calibration the blueprint specified, has never been
+run**, and it is the direct cause of the saturation defect A8 closed by result.
+
+*And measured to add nothing.* `report/PCS_FORMS_RESULTS.md` §2 ran the decisive control —
+does PCS predict realised error better than the EKF covariance trace it is computed from?
+**Every form loses, in every cell, with the whole 95% CI below zero.** Legacy loses by
+0.283 on `no_integrity`; repairing the saturation closes the gap to −0.0095 (weighted) and
+−0.0186 (gated). The best it achieves is coming back up to the control and stopping.
+
+> "It is a re-encoding of the filter's own covariance trace, and a good one once the
+> saturation is removed — but it never adds anything the trace did not already carry."
+
+*Worse in the regime that now matters.* `ROOTCAUSE_ENVELOPE` Q2: across densities the
+median falls 1.543 → 1.024 against thresholds of 1.55–2.30, so the fraction of cycles
+wanting to escalate rises 67% → 98%, and above spacing/r80 = 1.29 ρ(PCS, error) turns
+**positive** — higher reported confidence, higher realised error. That is the sparse
+regime, which is the search scenario.
+
+*Two of three terms are structurally dead.* The hop term has `hopWeight = 0` and an inert
+provenance input; the NLOS term is pinned by an operative tag firing on 75–78% of links
+against a propagation determination of 0.3–12.8%. In practice PCS ≈ term 1 ≈ a rescaling
+of the covariance trace, with two dead terms attached.
+
+*This is consistent with the campaign results rather than separate from them.*
+`fixed_threshold` thresholds the covariance trace directly and beat `ca_tbl_full` on
+accuracy in most cells, including 296 m against 764 m in the 4-hour probe. The simple thing
+PCS is a re-encoding of works better than the re-encoding.
+
+*Order, if it is ever picked up:* run the monotone control FIRST as an acceptance test,
+then CAL-01, then give the hop and NLOS terms real inputs. Not the other way round — there
+is no point calibrating a score that has already been measured not to carry information.
