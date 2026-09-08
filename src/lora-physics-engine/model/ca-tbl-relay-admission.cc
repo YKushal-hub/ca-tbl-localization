@@ -10,7 +10,9 @@ namespace ns3
 const double CA_TBL_RELAY_GEOMETRY_RATIO = 0.25;
 
 CaTblRelayedRange::CaTblRelayedRange()
-    : relayId(0),
+    :
+      maxRelayDepth(1),
+      relayVarBudgetM2(0.0), relayId(0),
       tier(CA_TBL_TIER_868),
       hopDepth(0),
       sigmaRangeM(0.0),
@@ -54,9 +56,25 @@ CaTblAdmitRelayedRange(const CaTblRelayedRange& m,
     // A2. At depth 2 the relay's own position is itself relayed, so P_B understates its
     // error by exactly the term this model adds -- the correction would need the joint
     // state of relay and target, which is a different estimator.
-    if (m.hopDepth != 1)
+    // A2, ADAPTIVE. The old rule rejected any depth but exactly 1, which made the
+    // mesh single-hop by construction: a relay three kilometres out was invisible
+    // even with another node standing between. What actually matters is not how
+    // many hops a measurement crossed but how much uncertainty it accumulated
+    // doing so, because that is what decides whether it is worth fusing.
+    //
+    // Depth 0 is still refused: that is a direct measurement, not a relayed one,
+    // and admitting it here would double-count it.
+    if (m.hopDepth < 1 || m.hopDepth > m.maxRelayDepth)
     {
         return CA_TBL_RELAY_REJECT_DEPTH;
+    }
+    if (m.relayVarBudgetM2 > 0.0)
+    {
+        const double carried = m.relayP[0][0] + m.relayP[1][1];
+        if (carried > m.relayVarBudgetM2)
+        {
+            return CA_TBL_RELAY_REJECT_DEPTH;
+        }
     }
 
     // A3. The linearisation fails when the relay is close relative to its own

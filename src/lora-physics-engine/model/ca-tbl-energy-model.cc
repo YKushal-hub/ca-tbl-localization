@@ -343,6 +343,26 @@ CaTblEnergyModel::AccountCad(CaTblTier tier)
 }
 
 void
+CaTblEnergyModel::AccountEdgeServerDownlink(CaTblTier tier, uint32_t payloadBytes)
+{
+    const RadioPowerProfile& p = m_profiles[tier];
+    TierEnergyAccount& a = m_accounts[tier];
+    // No TX: the node asked for nothing. The fix arrives because the gateways
+    // computed it from a broadcast already paid for above. What it costs is being
+    // awake for one guarded window.
+    const double toa = (tier == CA_TBL_TIER_UWB)
+                           ? UwbFrameTimeS(payloadBytes)
+                           : LoRaTimeOnAirS(m_sf[tier],
+                                            m_bandwidthHz[tier],
+                                            payloadBytes,
+                                            m_codingRate[tier]);
+    Charge(tier, p.wakeupS, p.idleCurrentMa, a.idleJ, a.idleTimeS);
+    Charge(tier, p.turnaroundS, p.idleCurrentMa, a.idleJ, a.idleTimeS);
+    Charge(tier, toa + p.rxWindowGuardS, p.rxCurrentMa, a.rxJ, a.rxTimeS);
+    a.rxFrames++;
+}
+
+void
 CaTblEnergyModel::AccountRangingExchange(CaTblTier tier,
                                          uint32_t nAnchorsAddressed,
                                          uint32_t nRepliesReceived,
@@ -382,7 +402,10 @@ CaTblEnergyModel::AccountRangingExchange(CaTblTier tier,
         // answer coming back, so a reply-shaped tier 1 is strictly cheaper than a
         // two-way-ToF tier 2 with the same anchor count -- which is the comparison
         // the energy axis is for.
-        if (m_tier1ChargeReplies)
+        // With the estimator on the gateways there are no replies to this node:
+        // the ranges go to the network over the backhaul, and one downlink comes
+        // back. Charged separately, per fix, by AccountEdgeServerDownlink().
+        if (m_tier1ChargeReplies && !m_edgeServer)
         {
             for (uint32_t i = 0; i < replies; ++i)
             {
