@@ -61,6 +61,7 @@ set(source_files
     model/ca-tbl-mac.cc            # CA-TBL Phase S4
         model/ca-tbl-relay-admission.cc # CA-TBL Phase S5 (C5)
     model/ca-tbl-session.cc        # CA-TBL Transport/Application layer
+    model/ca-tbl-routing.cc        # CA-TBL Network layer 2/3
 )
 
 set(header_files
@@ -126,6 +127,7 @@ set(header_files
     model/ca-tbl-mac.h             # CA-TBL Phase S4
         model/ca-tbl-relay-admission.h  # CA-TBL Phase S5 (C5)
     model/ca-tbl-session.h         # CA-TBL Transport/Application layer
+    model/ca-tbl-routing.h         # CA-TBL Network layer 2/3
 )
 
 build_lib(
