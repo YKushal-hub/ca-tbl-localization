@@ -348,6 +348,36 @@ class CaTblMac
     uint64_t GetDigestNoOps() const { return m_digestNoOps; }
 
 
+    /**
+     * \brief Silence this radio without destroying it (sect 49 fault injection).
+     *
+     * A silenced MAC accepts calls and transmits nothing. It is NOT the same as an
+     * unregistered node and must not be: the node still exists, still holds its table,
+     * and resumes with that table intact. Deleting it would test a different fault and
+     * would make reappearance indistinguishable from a new node joining, which is the
+     * distinction CaTblNodeLifecycle exists to preserve.
+     *
+     * THIS IS TRANSMIT SUPPRESSION ONLY, and the limit is worth stating because the
+     * obvious reading is wrong. It models a node that cannot TALK -- a transmit chain
+     * that has failed, a duty budget exhausted, a power amplifier browning out on a
+     * cold battery -- and the node goes on hearing everyone normally.
+     *
+     * IT DOES NOT MODEL AN OBSTRUCTION. A node behind a ridge is deaf as well as mute,
+     * and the difference is observable: this one keeps its table current throughout the
+     * outage and rejoins knowing everything that happened, where an obstructed node
+     * rejoins with a table as stale as the outage was long. Anything reading this as
+     * "the node went out of coverage" is reading in a fault that was not injected.
+     *
+     * Suppressed frames are COUNTED. A fault that leaves no trace cannot be told apart
+     * from a quiet period, and an injection whose firing is unobservable is rule 9's
+     * failure: a check for something whose signature is absence cannot be a scan of
+     * present data.
+     */
+    void SetSilent(bool s) { m_silent = s; }
+    bool IsSilent() const { return m_silent; }
+    //! Frames this MAC declined to transmit while silenced.
+    uint64_t GetSuppressedTx() const { return m_suppressedTx; }
+
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
     void SetEnergyModel(CaTblEnergyModel* e) { m_energy = e; }
     void SetRng(Ptr<UniformRandomVariable> rng) { m_rng = rng; }
@@ -548,6 +578,8 @@ class CaTblMac
     uint64_t m_tableDiscards;
     uint64_t m_digestPushes = 0;
     uint64_t m_digestNoOps = 0;
+    bool m_silent = false;
+    uint64_t m_suppressedTx = 0;
     const CaTblTableEntry* m_nextPushEntry = nullptr;
 
     // Dedup: bounded LRU with a time window (§2.6).
