@@ -80,3 +80,26 @@ it hides, because it would be invisible. This campaign says `Q` is *implicated*.
 defensible value starts from the mobility model and is separate work.
 
 **The χ²₀.₉₉ = 9.21 threshold is untouched and stays untouched.**
+
+---
+
+## CORRECTION, 2026-09-08, forced by K7
+
+The section above attributes the static arms' 32–40 m movement to a **cross-binary**
+effect and calls V3 unanswerable on that basis. **That attribution is wrong.**
+
+K7 ran on the same binary against the same control and its static arms moved by **exactly
+zero** (`0+/0−`). So the binary is not the cause.
+
+The real explanation is a flaw in this campaign's design: **the static arms are not
+policy-free.** They run the same EKF, pinned to one tier, so `processNoiseStd*` reaches
+them directly. They cannot be a displacement floor for a process-noise sweep, because the
+treatment applies to them too.
+
+Therefore **V3 is answerable, and it goes the other way**: raising `Q` made `ca_tbl_full`
+*worse* — +9.07 m at ×2 (15+/5−, p 0.041) and +24.2 m at ×4. Recorded above as "not
+resolvable"; it was a real effect, and it pointed away from `Q` as the fix.
+
+The headline survives — process noise is implicated and explains about a third of the
+excess — and `report/K6_K7_RESULTS.md` supersedes it: the missing R term explains far
+more, taking the suspect rate to 5.7%.
