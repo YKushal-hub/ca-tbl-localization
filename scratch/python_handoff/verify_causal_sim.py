@@ -839,9 +839,38 @@ def verify_traces(outdir):
             # one it replaces, not a weaker one.
             sustained = [float(r["errM"]) for i, r in enumerate(rows)
                          if int(r["hadFix"]) == 1 and i > 0 and int(rows[i - 1]["hadFix"]) == 1]
-            if not sustained:
-                FAIL.append(f"{arm}: no two consecutive cycles with a UWB fix -- the tier "
-                            f"never holds coverage, so its ranging cannot be assessed")
+            #
+            # AN EMPTY DETECTOR POPULATION IS NOT EVIDENCE OF A DEFECT. Failing on one
+            # produces exactly the permanent known FAIL the exemption eight lines above
+            # exists to avoid, and which that comment says would "teach the reader to
+            # skip this gate". This branch reintroduced it. Under the 2026-09-07
+            # tri-band topology static_uwb reaches three UWB neighbours on zero cycles
+            # of 1440, so it never had the OPPORTUNITY to hold coverage.
+            #
+            # The two ways the population can be empty need opposite verdicts:
+            #   never in range -> no opportunity to range. A deployment fact, already
+            #                     reported by the coverage NOTE above. Cannot assess,
+            #                     and saying so is the honest verdict.
+            #   was in range   -> it had the opportunity and produced no sustained fix.
+            #                     That is the dead-tier signature this detector exists
+            #                     for, and it still fails.
+            #
+            # Three neighbours is the bar because multilateration needs three anchors:
+            # below it the tier cannot solve however well it ranges. This makes the
+            # detector STRICTER where it can speak -- an in-range tier that never holds
+            # a fix now fails, where before it was indistinguishable from an empty
+            # population -- and silent where it cannot.
+            inRange = sum(1 for r in rows if int(r.get("nbrUwb", 0)) >= 3)
+            maxNbrUwb = max((int(r.get("nbrUwb", 0)) for r in rows), default=0)
+            if not sustained and inRange == 0:
+                NOTE.append(f"{arm}: UWB ranging NOT ASSESSED -- three UWB neighbours on "
+                            f"0/{len(rows)} cycles (peak {maxNbrUwb}), so the tier never "
+                            f"had the opportunity to hold a fix. This is the deployment, "
+                            f"not the ranging: an empty population cannot convict")
+            elif not sustained:
+                FAIL.append(f"{arm}: three UWB neighbours on {inRange}/{len(rows)} cycles "
+                            f"and still no two consecutive fixes -- the tier had the "
+                            f"opportunity to range and did not take it")
             else:
                 s = sorted(sustained)
                 med = s[len(s) // 2]

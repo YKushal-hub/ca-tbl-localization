@@ -49,7 +49,7 @@ enum CaTblRelayVerdict
 {
     CA_TBL_RELAY_ADMIT = 0,
     CA_TBL_RELAY_REJECT_TIER,      //!< A1: tier 1 error is a correlated shadowing field
-    CA_TBL_RELAY_REJECT_DEPTH,     //!< A2: depth > 1, so P_B itself understates its error
+    CA_TBL_RELAY_REJECT_DEPTH,     //!< A2: depth beyond the uncertainty budget
     CA_TBL_RELAY_REJECT_GEOMETRY,  //!< A3: relay too close relative to its own uncertainty
     CA_TBL_RELAY_REJECT_STALE,     //!< A4: P_B older than the relay's own fix interval
     CA_TBL_RELAY_REJECT_DUPLICATE  //!< A5: this relay already contributed this update
@@ -62,7 +62,16 @@ struct CaTblRelayedRange
 
     uint16_t relayId;         //!< the relay B
     CaTblTier tier;           //!< tier the relayed leg was measured on
-    uint8_t hopDepth;         //!< hops the measurement traversed; 1 is the only admissible
+    uint8_t hopDepth;         //!< hops the measurement traversed
+    //! Hard ceiling on relay depth. 1 reproduces the single-hop behaviour every
+    //! result before 2026-09-08 was measured under. Above 1 the BUDGET below is
+    //! normally what binds, not this.
+    uint32_t maxRelayDepth;
+    //! Accumulated positional variance a relayed measurement may carry, m^2.
+    //! Zero disables the budget. A2 used to reject any depth but 1 outright;
+    //! depth is now bounded by how much uncertainty the chain picked up, which is
+    //! the quantity that actually decides whether the measurement is worth having.
+    double relayVarBudgetM2;
     double sigmaRangeM;       //!< sigma of the direct ranging on this tier
     double relayP[2][2];      //!< P_B, the relay's 2-D position covariance
     double relayAgeS;         //!< age of P_B at the time of use

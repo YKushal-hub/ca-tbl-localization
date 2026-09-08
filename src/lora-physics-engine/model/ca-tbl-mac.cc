@@ -122,6 +122,8 @@ CaTblMac::CaTblMac()
       m_apcReportCount(0),
       m_apcMarginAccum(0.0),
       m_packetIdCounter(0),
+      m_selfSeq(0),
+      m_tableMerges(0),
       m_neighbourInsertions(0),
       m_dutyViolationAttempts(0)
 {
@@ -160,6 +162,40 @@ CaTblMac::Reset()
     m_apcMarginAccum = 0.0;
     m_txPowerDbm = m_cfg.txPowerDbm;
     m_packetIdCounter = static_cast<uint32_t>(m_cfg.nodeId) << 20;
+}
+
+void
+CaTblMac::PublishSelfEntry(double x, double y, double varX, double varY, double covXY,
+                           double vx, double vy, double nowS)
+{
+    CaTblTableEntry& e = m_table[m_cfg.nodeId];
+    e.nodeId = m_cfg.nodeId;
+    e.x = x;
+    e.y = y;
+    e.varX = varX;
+    e.varY = varY;
+    e.covXY = covXY;
+    e.vx = vx;
+    e.vy = vy;
+    e.timestampS = nowS;
+    e.hopCount = 0; // produced here, so zero hops by definition
+    e.sourceType = static_cast<uint8_t>((static_cast<uint8_t>(m_cfg.identityClass) << 4) |
+                                        (m_cfg.sf & 0x0F));
+    e.targetManifestId = m_cfg.targetManifestId;
+    e.seqNo = ++m_selfSeq;
+    e.valid = true;
+}
+
+bool
+CaTblMac::GetTableEntry(uint16_t id, CaTblTableEntry& out) const
+{
+    std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.find(id);
+    if (it == m_table.end() || !it->second.valid)
+    {
+        return false;
+    }
+    out = it->second;
+    return true;
 }
 
 uint32_t
@@ -505,11 +541,120 @@ CaTblMac::SendQuery(CaTblTier tier, uint8_t manifestId)
     m_nextQueryManifest = 0;
 }
 
+uint32_t
+CaTblMac::ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const
+{
+    // Network §1: target_manifest_id has to travel on an entry for a proxy
+    // responder to match it. Billed only when the proxy is enabled, because a
+    // byte that is not transmitted must not be charged -- and because an unbilled
+    // byte here would quietly subsidise the airtime saving measured for §1's
+    // reverse path.
+    if (!m_cfg.queryProxy)
+    {
+        return 0;
+    }
+    if (msgType == CA_TBL_MSG_ENTRY_PUSH || msgType == CA_TBL_MSG_RESPONSE ||
+        msgType == CA_TBL_MSG_TRIGGERED_UPDATE)
+    {
+        return nEntries * CA_TBL_MANIFEST_ID_BYTES;
+    }
+    return 0;
+}
+
+bool
+CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
+{
+    if (manifestId == 0)
+    {
+        return false;
+    }
+    for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+         it != m_table.end(); ++it)
+    {
+        const CaTblTableEntry& e = it->second;
+        if (!e.valid || e.nodeId == m_cfg.nodeId ||
+            e.targetManifestId != manifestId)
+        {
+            continue;
+        }
+        // FRESHNESS IS THE WHOLE GUARD. A matching entry that is too old is not
+        // an answer; reporting it would state a position nothing currently
+        // supports. Counted rather than dropped silently, so a search that found
+        // only stale knowledge is distinguishable from one that found none.
+        if (nowS - e.timestampS > m_cfg.queryStalenessBoundS)
+        {
+            ++m_proxyRefusedStale;
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+void
+CaTblMac::RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS)
+{
+    // Bounded and time-windowed, same discipline as the dedup cache. Evict the
+    // oldest rather than refusing to record: a fresh query is more useful to
+    // remember than an old one, and the flood fallback covers what is lost.
+    if (m_reversePath.size() >= m_cfg.reversePathMaxEntries)
+    {
+        std::map<uint32_t, std::pair<uint16_t, double> >::iterator oldest =
+            m_reversePath.begin();
+        for (std::map<uint32_t, std::pair<uint16_t, double> >::iterator it =
+                 m_reversePath.begin();
+             it != m_reversePath.end(); ++it)
+        {
+            if (it->second.second < oldest->second.second)
+            {
+                oldest = it;
+            }
+        }
+        m_reversePath.erase(oldest);
+    }
+    m_reversePath[queryId] = std::make_pair(fromId, nowS);
+}
+
+void
+CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId)
+{
+    // Transport §1. Unicast home along the cached reverse path; flood only when
+    // there is no path to unicast along. The fallback is what makes this safe to
+    // enable: a cache miss costs airtime, never the answer.
+    if (m_cfg.reversePath)
+    {
+        std::map<uint32_t, std::pair<uint16_t, double> >::const_iterator it =
+            m_reversePath.find(queryId);
+        if (it != m_reversePath.end())
+        {
+            ++m_reversePathHits;
+            ++m_responsesUnicast;
+            Send(CA_TBL_MSG_RESPONSE, tier, 1, it->second.first);
+            return;
+        }
+        ++m_reversePathMisses;
+    }
+    ++m_responsesFlooded;
+    Send(CA_TBL_MSG_RESPONSE, tier, 1, requesterId);
+}
+
 void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
     PendingFrame f;
     f.hdr.SetPacketId(NextPacketId());
+    // The anti-entropy exchange the design specifies: an ENTRY_PUSH carries the
+    // sender's own entry. Attached only when this node has actually published one, so
+    // a node with nothing to say sends nothing and is not billed as though it had.
+    if (type == CA_TBL_MSG_ENTRY_PUSH || type == CA_TBL_MSG_TRIGGERED_UPDATE)
+    {
+        std::map<uint16_t, CaTblTableEntry>::const_iterator se =
+            m_table.find(m_cfg.nodeId);
+        if (se != m_table.end() && se->second.valid)
+        {
+            f.hdr.SetSelfEntry(se->second);
+        }
+    }
     f.hdr.SetOriginId(m_cfg.nodeId);
     f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
@@ -549,7 +694,9 @@ CaTblMac::AttemptCad(PendingFrame f)
         return;
     }
 
-    const uint32_t payload = CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries);
+    const uint32_t payload = CA_TBL_MAC_HEADER_BYTES +
+                             CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
+                             ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -643,7 +790,8 @@ CaTblMac::DoTransmit(PendingFrame f)
     }
 
     const uint32_t payload =
-        CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries);
+        CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
+        ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -757,6 +905,31 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     // would otherwise become indistinguishable from a direct one.
     NoteNeighbour(hdr, out);
 
+    // Anti-entropy merge. Accepted from ANY hop, unlike the neighbour table above --
+    // knowing where a node is does not imply being able to reach it, and only the
+    // neighbour table feeds the poll set, so admitting a far-away entry here costs
+    // nothing in airtime. Strictly superseded: an older copy of something already held
+    // is dropped rather than overwriting a newer one, which is what the modular
+    // sequence comparison exists for.
+    if (hdr.HasSelfEntry())
+    {
+        const CaTblTableEntry& in = hdr.GetSelfEntry();
+        if (in.valid && in.nodeId != m_cfg.nodeId)
+        {
+            std::map<uint16_t, CaTblTableEntry>::iterator ex = m_table.find(in.nodeId);
+            if (ex == m_table.end() || CaTblSeqNewer(in.seqNo, ex->second.seqNo))
+            {
+                CaTblTableEntry e = in;
+                // One more hop than the sender recorded, saturating rather than
+                // wrapping: a hop count that rolled over would read as a direct entry.
+                e.hopCount =
+                    (in.hopCount < 255) ? static_cast<uint8_t>(in.hopCount + 1) : 255;
+                m_table[in.nodeId] = e;
+                ++m_tableMerges;
+            }
+        }
+    }
+
     UpdateApc(out.rxPowerDbm, static_cast<CaTblTier>(hdr.GetTier()));
 
     if (!m_rxCb.IsNull())
@@ -801,11 +974,28 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     if (hdr.GetMsgType() == CA_TBL_MSG_QUERY)
     {
         const CaTblTier qTier = static_cast<CaTblTier>(hdr.GetTier());
+        const double nowS = Simulator::Now().GetSeconds();
+        // Transport §1: remember where this query came from BEFORE answering it,
+        // because the answer is what needs the route and this node may be the
+        // one that answers.
+        if (m_cfg.reversePath)
+        {
+            RememberReversePath(hdr.GetPacketId(), hdr.GetOriginId(), nowS);
+        }
         if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
             hdr.GetQueryManifestId() == m_cfg.targetManifestId)
         {
             ++m_queriesAnswered;
-            Send(CA_TBL_MSG_RESPONSE, qTier, 1, hdr.GetOriginId());
+            SendResponse(qTier, hdr.GetPacketId(), hdr.GetOriginId());
+        }
+        else if (m_cfg.queryProxy && ProxyAnswerFor(hdr.GetQueryManifestId(), nowS))
+        {
+            // Network §4. This node is not the target, but it holds a fresh
+            // enough entry ABOUT the target, so it answers on that entry's
+            // behalf. The spec's point: the target may be unreachable from the
+            // requester while its position is not.
+            ++m_proxyResponses;
+            SendResponse(qTier, hdr.GetPacketId(), hdr.GetOriginId());
         }
         else if (m_cfg.identityClass == CA_TBL_ID_TARGET)
         {

@@ -249,6 +249,36 @@ struct CaTblPolicyConfig
     //! live table; existence (was anything ever there?) comes from the timestamp.
     bool multiStepDemote;
 
+    // ---- Switching-point integrity: cross-validating the CONFIDENCE SIGNAL --------
+    //
+    // Both default OFF, so the check can be measured on against off -- which is the
+    // comparison the brief asks for, and it is not a comparison you can make if the
+    // mechanism is always on.
+
+    //! Refuse an escalation when the filter's displacement disagrees with the body's.
+    /** Hop-provenance form. 0 = the legacy linear subtraction, kept so prior results
+     *  reproduce. 1 = bounded multiplicative on the relayed VARIANCE FRACTION, which is
+     *  what docs/RELAYED_RANGING_ERROR_MODEL.md section 5 specifies. */
+    uint32_t hopProvenanceForm;
+    //! Strength of the bounded penalty. 0 disables it whatever the form.
+    double hopPenalty;
+
+    bool imuCrossCheck;
+    //! How many combined sigmas of disagreement are tolerated before the confidence
+    //! signal is treated as untrustworthy. OURS, not cited.
+    double imuConsistencyK;
+    //! Floor on the sigma of the comparison, metres, so a stationary node with a tiny
+    //! filter sigma does not trip on millimetre disagreements.
+    double imuSigmaFloorM;
+
+    //! Refuse an escalation when too few neighbours corroborate this node's estimate.
+    bool corroborationCheck;
+    //! Fraction of checkable neighbours that must agree. OURS, not cited.
+    double corroborationFloor;
+    //! Minimum number of neighbours that must be checkable before the test may refuse
+    //! anything at all -- with one witness, "no corroboration" is not evidence.
+    uint32_t corroborationMinWitnesses;
+
     /**
      * Whether a suspect fix also forces an escalation.
      *
@@ -334,15 +364,28 @@ struct CaTblPolicyConfig
     //! on the tail and not on the median, which is 1-2.
     uint32_t suspectRecoveryN;
     bool escalationRequiresEvidence;
-    //! 868 -> 2.4 GHz gate. BROKEN, DEFAULTS OFF, KEPT ONLY AS A RECORD OF THE
-    //! MEASUREMENT. The premise was that tier-2 presence is observable from tier 1 via
-    //! the MAC neighbour cache. It is not -- the tier-2 radio sleeps while another tier
-    //! is active, so its neighbour count is 0 and the evidence bit never sets. Enabling
-    //! it latches the node at the floor for the whole run (measured: 1440/1440 cycles on
-    //! 868, 0 escalations, at boxHalf 1000 and 2000). A tier-2 PREDICTOR symmetric with
-    //! the UWB one, using the same anchor map and a radius from the measured r80 of
-    //! 909.5 m, is the fix; it is not built because it only matters where tier 2 fails.
+    //! 868 -> 2.4 GHz gate. REBUILT 2026-09-08 as a PREDICTOR; still defaults off.
+    //!
+    //! The original asked the MAC neighbour cache whether tier 2 was audible, and the
+    //! tier-2 radio sleeps while another tier is active, so the count was always 0 and
+    //! enabling it latched the node at the floor -- 1440/1440 cycles on 868, 0
+    //! escalations. That version is gone.
+    //!
+    //! The replacement is symmetric with uwbEvidenceFromNeighbours rather than with the
+    //! map form: the ranges handed to Step() were taken by an AWAKE radio, so a
+    //! neighbour ranged closer than t2PredictRadiusM is a neighbour 2.4 GHz would
+    //! reach. Geometry rather than a map, so it follows finders.
     bool escalationRequiresEvidenceT2;
+    //! Radius for the tier-2 prediction. 156.0 m, the probe's r80 AFTER the
+    //! environment correction. The pre-correction figure was 909.5 m and is 5.8x too
+    //! generous -- a predicate at that radius admits escalations into a tier that
+    //! cannot reach, which is the failure it exists to prevent.
+    double t2PredictRadiusM;
+    //! Neighbours inside that radius before escalation is allowed. 3, because three
+    //! is what a fix needs. The UWB predicate uses presence rather than count because
+    //! tier 3 is a contact indicator; tier 2 is a localisation tier and one reachable
+    //! anchor cannot solve.
+    uint32_t t2PredictMinAnchors;
     //! Radius for the UWB prediction. NOT nominalRangeM[UWB] = 30.0, which is the
     //! trigger oracle's labelling constant, and not the measured r80 of 12.8 m, which
     //! declines two thirds of the cycles UWB would have served.
@@ -355,6 +398,35 @@ struct CaTblPolicyConfig
     //! UWB predicate regardless of the flag -- a policy with no map cannot predict.
     std::vector<double> uwbAnchorX;
     std::vector<double> uwbAnchorY;
+    /**
+     * Take the UWB half of the evidence gate from the LIVE neighbour table instead
+     * of the static anchor map above. FALSE by default.
+     *
+     * That map is a snapshot taken once at scenario start. It was adequate while
+     * tier 3 sat in fixed rings around facility sites. Under the corrected tri-band
+     * topology it is not: UWB now comes from FINDERS, which move and are never in
+     * the map, so the predicate answers a question about a deployment the system no
+     * longer has.
+     *
+     * The stated reason for predicting rather than observing -- "UWB anchors are
+     * not discoverable at range" -- is also false under that topology. Finders
+     * beacon on every tier, so a UWB neighbour IS discoverable, and
+     * tierEvidenceMask already carries exactly that bit, refreshed every cycle for
+     * all tiers regardless of which one is active. The 868 -> 2.4GHz half of this
+     * same gate has always used it. This gives the UWB half the same treatment.
+     *
+     * PRESENCE, NOT COUNT, and deliberately. A fix needs three anchors; this asks
+     * only whether the tier has anything here at all. That is the question a
+     * suppress-only gate should ask -- it exists to stop the node paying UWB rates
+     * to sit in an empty tier, not to predict whether a fix will solve. Counting
+     * would need a per-tier neighbour vector threaded through Step(), and the
+     * binary form is symmetric with the sibling half that already works.
+     *
+     * When on, the static map is NOT consulted as a fallback. A second way to pass
+     * would defeat the gate, and observation subsumes the map here: a gateway close
+     * enough to be inside the predicate radius is close enough to have been heard.
+     */
+    bool uwbEvidenceFromNeighbours;
     /**
      * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
      *
@@ -464,6 +536,9 @@ struct CaTblDecision
     //! the predicate did not run (flag off, wrong tier, or blocked by the
     //! estimate-quality gate before the count was computed).
     int32_t predictedVisUwb;
+    //! Neighbours ranged inside t2PredictRadiusM this cycle, or -1 when the
+    //! tier-2 predicate did not run. The counterpart of predictedVisUwb.
+    int32_t predictedVis2p4;
 
     CaTblDecision();
 };
@@ -488,6 +563,27 @@ class CaTblEkf
 
     /** Sequential scalar update with per-measurement variance. */
     void Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+
+    /** Fuse an absolute POSITION observation with isotropic variance \p varM2.
+     *
+     *  The filter's only other measurement path is a range against an anchor,
+     *  which is why dead reckoning could not be fused before: it produces a
+     *  position and there was no door for one.
+     *
+     *  Implemented as two sequential scalar updates with H = [1 0 0 0] and
+     *  [0 1 0 0]. With a diagonal R that is algebraically the joint 2x2 update,
+     *  and it reuses the scalar path whose numerical behaviour -- symmetry
+     *  enforcement included -- is already exercised by Update().
+     *
+     *  Velocity moves too, through P[2][0] and P[3][1]. The prediction step
+     *  builds that correlation, so a position observation carries velocity
+     *  information; withholding it would discard evidence.
+     *
+     *  DOES NOT TOUCH THE STORED PRIOR. m_xPrior is what the integrity gate
+     *  tests this cycle's radio fix against. If a dead-reckoned position became
+     *  that reference, the gate would be validating the radio against the
+     *  inertial engine instead of against the filter's own prediction. */
+    void FusePosition(double zx, double zy, double varM2);
 
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
@@ -568,10 +664,49 @@ class CaTblPolicy
     /** Tier that should transmit on the next cycle. */
     CaTblTier GetActiveTier() const { return m_tier; }
 
+    /** Independent evidence for this cycle, supplied by the caller because the policy
+     *  has no radio and no inertial sensor of its own.
+     *
+     *  \param imuDisplacementM  distance the body is believed to have moved since the
+     *                           previous cycle, from dead reckoning
+     *  \param corroborating     neighbours whose reported position is consistent with
+     *                           this node's estimate given the measured range to them
+     *  \param corroborable      neighbours against which that test could be run at all
+     */
+    /** What fraction of this cycle's measurement information arrived through a
+     *  relay, by variance share. Supplied by the caller because the policy does not
+     *  see where a measurement came from. */
+    void SetRelayedVarFraction(double f) { m_relayedVarFrac = f; }
+
+    void SetCrossCheck(double imuDisagreementM, double imuToleranceM,
+                       int32_t corroborating, int32_t corroborable)
+    {
+        m_imuDispM = imuDisagreementM;
+        m_imuTolM = imuToleranceM;
+        m_corrOk = corroborating;
+        m_corrTotal = corroborable;
+        m_crossCheckFresh = true;
+    }
+
+    //! Escalations refused because the body and the filter disagreed about movement.
+    uint64_t GetImuRejections() const { return m_imuRejections; }
+    //! Escalations refused because too few neighbours agreed with the estimate.
+    uint64_t GetCorroborationRejections() const { return m_corrRejections; }
+
     //! Position estimate and its covariance -- what a RELAY must report for its
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
     double EstX() const { return m_ekf.X(); }
     double EstY() const { return m_ekf.Y(); }
+    /** Fuse an absolute position observation into the filter -- the door the
+     *  inertial engine needs, since every other measurement path takes a range.
+     *  The caller owns the error model: this takes the variance it is given and
+     *  does not invent one, because only the caller knows how long the engine has
+     *  been running unaided. See CaTblEkf::FusePosition. */
+    void FusePosition(double zx, double zy, double varM2)
+    {
+        m_ekf.FusePosition(zx, zy, varM2);
+    }
+
     double Pxx() const { return m_ekf.Pxx(); }
     double Pxy() const { return m_ekf.Pxy(); }
     double Pyy() const { return m_ekf.Pyy(); }
@@ -704,6 +839,9 @@ class CaTblPolicy
 
   private:
   private:
+    //! Bounded multiplicative provenance penalty; identity unless form 1 is set.
+    double ApplyProvenance(double pcs) const;
+
     double ComputePcs(double traceSigma,
                       double gdop,
                       uint32_t nLos,
@@ -713,6 +851,17 @@ class CaTblPolicy
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
+    double m_imuDispM = 0.0;
+    double m_imuTolM = 0.0;
+    double m_relayedVarFrac = 0.0;
+    int32_t m_corrOk = 0;
+    int32_t m_corrTotal = 0;
+    bool m_crossCheckFresh = false;
+    double m_prevEstX = 0.0;
+    double m_prevEstY = 0.0;
+    bool m_havePrevEst = false;
+    uint64_t m_imuRejections = 0;
+    uint64_t m_corrRejections = 0;
     CaTblTier m_tier;
     uint32_t m_deescalateCounter;
 

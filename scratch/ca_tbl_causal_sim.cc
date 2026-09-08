@@ -80,6 +80,8 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/lora-shs-engine.h"
+#include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
 #include "ns3/ca-tbl-energy-model.h"
 #include "ns3/ca-tbl-header.h"
@@ -102,6 +104,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -144,6 +147,12 @@ struct Deployment
     double nominalRangeM[CA_TBL_TIER_COUNT];
     std::vector<Vector> facilities;
     double boxHalfM;
+    //! Where the infrastructure stands. hasBaseCamp is false for every deployment
+    //! before 2026-09-08, in which the gateways surround the casualty rather than
+    //! sitting somewhere a search sets out FROM.
+    bool hasBaseCamp = false;
+    double baseCampX = 0.0;
+    double baseCampY = 0.0;
     /** How far the node may wander from a site centre while dwelling there.
      *  Tied to the UWB ring radius so "at a facility" and "in UWB range" cannot
      *  drift apart. */
@@ -181,7 +190,9 @@ BuildDeployment(uint32_t gwGrid,
                 uint32_t uwbAnchorsPerSite,
                 uint32_t t2AnchorsPerSite,
                 uint32_t sitingMode,
-                uint32_t topology)
+                uint32_t topology,
+                uint32_t nGateways,
+                double gwRingFrac)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -256,14 +267,36 @@ BuildDeployment(uint32_t gwGrid,
     const double g = boxHalfM * 0.9;
     const double gwH = 15.0;
     uint32_t id = 101;
-    const int gw = std::max(2, static_cast<int>(gwGrid));
-    for (int gx = 0; gx < gw; ++gx)
+    if (nGateways > 0)
     {
-        for (int gy = 0; gy < gw; ++gy)
+        // RING placement. The brief asks for three gateways, and a square grid cannot
+        // produce three; the closest it manages is four. Evenly spaced on a ring gives
+        // an equilateral triangle at N = 3 -- the minimum geometry for a 2-D fix, and
+        // the best conditioning three points can offer the interior.
+        //
+        // The ring radius is a fraction of boxHalf rather than an absolute, so the
+        // deployment scales with the area the way the grid does and the two remain
+        // comparable across box sizes.
+        const double R = gwRingFrac * boxHalfM;
+        for (uint32_t k = 0; k < nGateways; ++k)
         {
-            const double fx = -g + 2.0 * g * static_cast<double>(gx) / (gw - 1);
-            const double fy = -g + 2.0 * g * static_cast<double>(gy) / (gw - 1);
-            dep.anchors[CA_TBL_TIER_868].push_back({id++, Vector(fx, fy, gwH)});
+            const double th =
+                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(nGateways) + M_PI / 2.0;
+            dep.anchors[CA_TBL_TIER_868].push_back(
+                {id++, Vector(R * std::cos(th), R * std::sin(th), gwH)});
+        }
+    }
+    else
+    {
+        const int gw = std::max(2, static_cast<int>(gwGrid));
+        for (int gx = 0; gx < gw; ++gx)
+        {
+            for (int gy = 0; gy < gw; ++gy)
+            {
+                const double fx = -g + 2.0 * g * static_cast<double>(gx) / (gw - 1);
+                const double fy = -g + 2.0 * g * static_cast<double>(gy) / (gw - 1);
+                dep.anchors[CA_TBL_TIER_868].push_back({id++, Vector(fx, fy, gwH)});
+            }
         }
     }
 
@@ -871,6 +904,12 @@ struct ArmResult
     double cep50M;
     double cep95M;
     double maxErrM;
+    //! Rival systems, from the SAME measurements. See BaselineMultilaterate().
+    double rmseMlatM, cep95MlatM;   //!< WAN-style snapshot multilateration
+    double rmseWclM, cep95WclM;     //!< weighted centroid, range-free
+    double rmseProxM, cep95ProxM;   //!< proximity / contact
+    double rmseLkpM, cep95LkpM;     //!< last known position, the no-system floor
+    uint64_t mlatSolvedCycles;      //!< cycles the snapshot solver could solve
     //! RMSE and CEP50 over ONLY the cycles that produced a fix.
     //!
     //! The unconditional rmseM mixes localisation with dead reckoning, in a ratio that
@@ -884,6 +923,17 @@ struct ArmResult
     //! often it had nothing to work with.
     double rmseFixedM;
     double cep50FixedM;
+    //! Mean error, unconditional and fix-conditional. Reported beside the RMS
+    //! because the two separate only when the tail is heavy, and which of them
+    //! is which is the whole question in a system that spends cycles coasting.
+    double meanErrM;
+    double meanErrFixedM;
+    //! When the system first knew anything, and when it first knew the position
+    //! to within 100 m. The second is the operational one: the moment a ground
+    //! team can be sent to a circle it can actually walk. NEGATIVE MEANS IT NEVER
+    //! HAPPENED inside the run, which is a result and not a missing value.
+    double tFirstFixS;
+    double tFirst100mS;
     uint64_t fixCycles;
     double totalJ;
     double tierJ[CA_TBL_TIER_COUNT];
@@ -1004,7 +1054,14 @@ class Tourist
         {
             // Milling about inside a site rather than standing perfectly still.
             m_dwellLeft -= dt;
-            m_heading += m_rng->GetValue(-1.2, 1.2) * dt;
+            {
+                const double w = m_rng->GetValue(-1.2, 1.2);
+                const double lim = (m_maxTurnRate > 0.0)
+                                       ? std::max(-m_maxTurnRate,
+                                                  std::min(m_maxTurnRate, w))
+                                       : w;
+                m_heading += lim * dt;
+            }
             m_x += 0.3 * m_speed * std::cos(m_heading) * dt;
             m_y += 0.3 * m_speed * std::sin(m_heading) * dt;
 
@@ -1020,7 +1077,23 @@ class Tourist
                 const double s = m_dwellRadius / dr;
                 m_x = site.x + (m_x - site.x) * s;
                 m_y = site.y + (m_y - site.y) * s;
-                m_heading += M_PI; // turn back inward rather than pressing the edge
+                // Turn back inward. Unbounded this was an INSTANTANEOUS half-turn,
+                // which is exactly what a yaw integrator cannot follow -- and it
+                // fired every time the mill-about touched the dwell radius. With a
+                // rate set, steer toward the site centre at that rate instead.
+                if (m_maxTurnRate > 0.0)
+                {
+                    const double inward = std::atan2(site.y - m_y, site.x - m_x);
+                    double d = inward - m_heading;
+                    while (d > M_PI) d -= 2.0 * M_PI;
+                    while (d < -M_PI) d += 2.0 * M_PI;
+                    m_heading += std::max(-m_maxTurnRate * dt,
+                                          std::min(m_maxTurnRate * dt, d));
+                }
+                else
+                {
+                    m_heading += M_PI;
+                }
             }
 
             if (m_dwellLeft <= 0.0)
@@ -1095,13 +1168,81 @@ class Tourist
     double m_dwellS;
     double m_boxHalf;
     double m_dwellRadius;
+    //! Max heading change per second, rad/s. 0 = unbounded, the behaviour every
+    //! run before 2026-09-08 had. See SetMaxTurnRate().
+    double m_maxTurnRate = 0.0;
     Ptr<UniformRandomVariable> m_rng;
     size_t m_target;
     double m_dwellLeft;
     double m_heading;
     double m_x;
     double m_y;
+
+  public:
+    //! Place the walker. Used to start finders at a base camp rather than in the
+    //! middle of the search area; the tour target is unaffected, so the walker
+    //! simply sets off from somewhere else.
+    //! Bound how fast the walker may change heading.
+    //!
+    //! A yaw-integrating heading estimator cannot follow a discontinuity, and the
+    //! dwell had two: a mill-about wander up to 1.2 rad/s, and an INSTANTANEOUS
+    //! half-turn when the walker reached the dwell radius. With a rate set, the
+    //! wander is clamped and the reversal becomes a bounded turn back toward the
+    //! site centre, taken over several steps the way a person turns around.
+    void SetMaxTurnRate(double radPerS) { m_maxTurnRate = radPerS; }
+
+    void SetPosition(double x, double y)
+    {
+        m_x = x;
+        m_y = y;
+    }
 };
+
+/**
+ * \brief Unfiltered least-squares multilateration -- the WAN-localisation
+ *        baseline, and what a snapshot solver gives with no memory.
+ *
+ * Linearised about the first anchor: subtracting the reference circle's equation
+ * from each of the others removes the quadratic term and leaves a linear system,
+ * solved here in closed form for the 2x2 normal equations. Returns false when
+ * fewer than three anchors are available or the geometry is degenerate, and the
+ * caller then HOLDS its previous estimate rather than being charged for silence.
+ */
+bool
+BaselineMultilaterate(const std::vector<CaTblRangeMeasurement>& m,
+                      double& outX,
+                      double& outY)
+{
+    if (m.size() < 3)
+    {
+        return false;
+    }
+    const double x0 = m[0].anchorX;
+    const double y0 = m[0].anchorY;
+    const double r0 = m[0].rangeM;
+    double a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
+    for (size_t i = 1; i < m.size(); ++i)
+    {
+        const double ax = 2.0 * (m[i].anchorX - x0);
+        const double ay = 2.0 * (m[i].anchorY - y0);
+        const double bb = (r0 * r0 - m[i].rangeM * m[i].rangeM)
+                        + (m[i].anchorX * m[i].anchorX - x0 * x0)
+                        + (m[i].anchorY * m[i].anchorY - y0 * y0);
+        a11 += ax * ax;
+        a12 += ax * ay;
+        a22 += ay * ay;
+        b1 += ax * bb;
+        b2 += ay * bb;
+    }
+    const double det = a11 * a22 - a12 * a12;
+    if (std::fabs(det) < 1e-9)
+    {
+        return false;
+    }
+    outX = (b1 * a22 - a12 * b2) / det;
+    outY = (a11 * b2 - a12 * b1) / det;
+    return std::isfinite(outX) && std::isfinite(outY);
+}
 
 double
 Percentile(std::vector<double> v, double p)
@@ -2103,6 +2244,88 @@ struct CaTblTagState
     uint64_t inCov = 0;
 };
 
+/**
+ * \brief Drives the SHS engine from a trajectory, by synthesising the gait an IMU sees.
+ *
+ * The engine samples at 100 Hz and expects trunk accelerations and yaw rate; the
+ * scenario knows only where the walker is once per cycle. This fills the gap the same
+ * way the engine's own example does -- a periodic bounce and anterior-posterior swing at
+ * a walking cadence, plus the centripetal term from turning.
+ *
+ * SIMPLIFICATIONS, and they are real: trunk lean during turns is not modelled (the
+ * example ramps it, this holds it at zero), and cadence is fixed rather than scaling
+ * with speed. Both make the synthetic gait cleaner than a real one, so step detection
+ * here is easier than in the field. Recorded in docs/DESIGN_DECISIONS.md.
+ */
+struct ShsDriver
+{
+    lorawan::ShsEngine* engine = nullptr;
+    double prevHeading = 0.0;
+    bool have = false;
+    double cadenceHz = 1.8;
+    double bounceAmp = 6.0;
+    double apAmp = 3.0;
+    bool seeded = false;
+
+    void Advance(double tStart, double dt, const Vector& from, const Vector& to)
+    {
+        if (engine == nullptr || dt <= 0.0)
+        {
+            return;
+        }
+        const double dx = to.x - from.x, dy = to.y - from.y;
+        const double disp = std::sqrt(dx * dx + dy * dy);
+        const double speed = disp / dt;
+        const double heading = (disp > 1e-6) ? std::atan2(dy, dx) : prevHeading;
+        // Seed on the first cycle with real motion: before that the node has no
+        // heading to state, and stating zero is a claim that it faces +x.
+        if (!seeded && disp > 1e-6)
+        {
+            engine->SetInitialState(from.x, from.y, heading);
+            seeded = true;
+            prevHeading = heading;
+        }
+        double omegaZ = 0.0;
+        if (have)
+        {
+            double d = heading - prevHeading;
+            while (d > M_PI) d -= 2.0 * M_PI;
+            while (d < -M_PI) d += 2.0 * M_PI;
+            omegaZ = d / dt;
+        }
+        prevHeading = heading;
+        have = true;
+
+        const double sampleDt = 1.0 / 100.0; // ImuSensorParams::sampleRateHz
+        // Cadence must carry the speed, or the engine integrates a distance
+        // proportional to elapsed time instead of to how far the node actually went.
+        // Nominal step length is the Weinberg model at this bounce amplitude and the
+        // engine's fallback k_w; the clamp is the step detector's own passband, so a
+        // speed the model cannot represent is under-counted rather than rescaled.
+        const double nominalStepM = 0.7 * std::pow(bounceAmp, 0.25);
+        const double wantCadence = (nominalStepM > 1e-6) ? (speed / nominalStepM) : 0.0;
+        const double effCadence = std::min(3.0, std::max(0.5, wantCadence));
+        const double gaitPeriod = 1.0 / effCadence;
+        const bool resting = (speed < 0.05) || (wantCadence < 0.5);
+        const int n = static_cast<int>(dt / sampleDt);
+        for (int k = 0; k < n; ++k)
+        {
+            const double t = tStart + k * sampleDt;
+            const double phase = std::fmod(t, gaitPeriod) / gaitPeriod;
+            double bounce = (phase < 0.4) ? bounceAmp * std::sin(M_PI * phase / 0.4) : 0.0;
+            double ap = apAmp * std::sin(2.0 * M_PI * phase);
+            if (resting)
+            {
+                bounce = 0.0;
+                ap = 0.0;
+            }
+            const double lateral = speed * omegaZ;
+            const double vertical = 9.80665 + bounce;
+            engine->Tick(t, sampleDt, ap, vertical, lateral, omegaZ, 0.0);
+        }
+    }
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -2127,6 +2350,10 @@ RunArm(CaTblPolicyMode mode,
        double suspectInflateFactor,
        uint32_t suspectRecoveryN,
        bool escalationRequiresEvidence,
+       bool escalationRequiresEvidenceT2,
+       double t2PredictRadiusM,
+       uint32_t t2PredictMinAnchors,
+       bool uwbEvidenceFromNeighbours,
        int multiStepMode,
        double demoteStalenessS,
        CaTblNlosSource nlosSource,
@@ -2144,9 +2371,40 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nTags,
        bool relayedRanging,
        uint32_t relayTier,
+       uint32_t maxRelayDepth,
+       double relayVarBudgetM2,
        bool vizEventsOn,
        uint32_t nFinders,
        uint32_t finderMode,
+       double maxTurnRateRadS,
+       double shsTrustedFixK,
+       bool imuFusion,
+       bool imuIdeal,
+       bool queryProxy,
+       double queryStalenessBoundS,
+       bool reversePath,
+       bool shsStepBounds,
+       bool shsSnapPosition,
+       double finderSpeedMps,
+       double finderDigestPeriodS,
+       double finderPosSigmaM,
+       bool finderPseudoAnchor,
+       bool bidirectionalDigest,
+       bool tier1ChargeReplies,
+       bool gatewayEdgeServer,
+       double processNoiseStdPos,
+       double processNoiseStdVel,
+       double finderDispersal,
+       bool uwbCoverageIncludesFinders,
+       uint32_t hopProvenanceForm,
+       double hopPenalty,
+       bool imuCrossCheck,
+       double imuDriftMps,
+       double imuConsistencyK,
+       double imuSigmaFloorM,
+       bool corroborationCheck,
+       double corroborationK,
+       double corroborationRangeSigmaM,
        double identityQueryPeriodS,
        uint32_t identityQueryTarget,
        bool uwbArbitration,
@@ -2266,6 +2524,30 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    // The SUBJECT is the one the SHS rides on, so this is the walker whose
+    // continuity decides whether a yaw integrator can track it at all.
+    walker.SetMaxTurnRate(maxTurnRateRadS);
+    // LAST KNOWN POSITION. With a base camp the subject starts AT it and walks
+    // out, which is what a search actually begins from and what gives the finders
+    // something to converge on. The RNG draw in the constructor happens either
+    // way, so the stream does not move.
+    if (dep.hasBaseCamp)
+    {
+        if (walkSpeedMps > 0.0 || dep.facilities.empty())
+        {
+            walker.SetPosition(dep.baseCampX, dep.baseCampY);
+        }
+        else
+        {
+            // A STILL subject cannot walk out of the camp, so placing it there
+            // would park it among the gateways for the whole run -- which is what
+            // invalidated K9's three still cells. A real stationary casualty was
+            // SEEN at the camp, walked out, and then stopped, so it starts at the
+            // first tour site, which the keep-out already puts beyond the
+            // infrastructure.
+            walker.SetPosition(dep.facilities[0].x, dep.facilities[0].y);
+        }
+    }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
@@ -2275,6 +2557,8 @@ RunArm(CaTblPolicyMode mode,
     for (int t = 0; t < CA_TBL_TIER_COUNT; ++t)
     {
         energy.SetLoRaPhy(static_cast<CaTblTier>(t), phy[t].sf, phy[t].bandwidthHz, 1);
+        energy.SetTier1ChargeReplies(tier1ChargeReplies);
+        energy.SetEdgeServer(gatewayEdgeServer);
     }
 
     CaTblPolicyConfig pcfg;
@@ -2284,6 +2568,10 @@ RunArm(CaTblPolicyMode mode,
     pcfg.suspectInflateFactor = suspectInflateFactor;
     pcfg.suspectRecoveryN = suspectRecoveryN;
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
+    pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
+    pcfg.t2PredictRadiusM = t2PredictRadiusM;
+    pcfg.t2PredictMinAnchors = t2PredictMinAnchors;
+    pcfg.uwbEvidenceFromNeighbours = uwbEvidenceFromNeighbours;
     // The map the predicate needs. The node must already hold anchor coordinates to
     // multilaterate at all, so supplying them grants no information it lacks; an
     // empty vector disables the UWB half of the predicate by construction.
@@ -2294,6 +2582,8 @@ RunArm(CaTblPolicyMode mode,
     }
     pcfg.suspectForcesEscalation = suspectForcesEscalation;
     pcfg.pcsForm = pcsForm;
+    pcfg.processNoiseStdPos = processNoiseStdPos;
+    pcfg.processNoiseStdVel = processNoiseStdVel;
     // Non-positive means leave the built-in default, matching the sentinel
     // convention fixedVarThresholdM2 and pcsSigmaTargetM already use below.
     if (pcsW1 > 0.0) { pcfg.pcsW1 = pcsW1; }
@@ -2365,10 +2655,39 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
+    pcfg.hopProvenanceForm = hopProvenanceForm;
+    pcfg.hopPenalty = hopPenalty;
+    pcfg.imuCrossCheck = imuCrossCheck;
+    pcfg.corroborationCheck = corroborationCheck;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
-    policy.Initialize(pos.x, pos.y, 100.0, 5.0);
+    // THE FILTER STARTS WHERE THE SUBJECT WAS LAST SEEN, NOT AT THE TRUTH.
+    //
+    // With a base camp the last known position is the camp. For a MOVING subject
+    // that is also where it starts, so this is identical to seeding at truth and
+    // nothing changes. For a STILL subject, which is placed out at a tour site,
+    // seeding at truth would hand it perfect knowledge of a position it has never
+    // had coverage at -- and it would then report rmse 0.0000 for the whole run
+    // without ever receiving a measurement, which is what the still-cell check
+    // caught.
+    //
+    // The prior must be WIDE or the fix is worse than the defect: a filter seeded
+    // kilometres from truth with a 100 m std is grossly overconfident, and the
+    // Mahalanobis gate would reject every measurement that could correct it. So
+    // the prior is how far the subject could plausibly have gone since it was
+    // last seen, floored at the historical 100 m.
+    double initX = pos.x;
+    double initY = pos.y;
+    double initStdM = 100.0;
+    if (dep.hasBaseCamp)
+    {
+        initX = dep.baseCampX;
+        initY = dep.baseCampY;
+        const double away = std::hypot(pos.x - initX, pos.y - initY);
+        initStdM = std::max(100.0, away);
+    }
+    policy.Initialize(initX, initY, initStdM, 5.0);
 
     // ---- S4 MAC substrate ---------------------------------------------------
     //
@@ -2458,6 +2777,9 @@ RunArm(CaTblPolicyMode mode,
         chan[ti].SetPhyProvider(&provider);
 
         CaTblMacConfig mc;
+        mc.queryProxy = queryProxy;
+        mc.queryStalenessBoundS = queryStalenessBoundS;
+        mc.reversePath = reversePath;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
         // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
@@ -2488,6 +2810,9 @@ RunArm(CaTblPolicyMode mode,
             anchorPosById[aid] = ad.pos;
 
             CaTblMacConfig mc;
+            mc.queryProxy = queryProxy;
+            mc.queryStalenessBoundS = queryStalenessBoundS;
+            mc.reversePath = reversePath;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
@@ -2507,6 +2832,10 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* am = &macs.back();
             am->Configure(mc);
             am->SetRng(macRng);
+            // A gateway is surveyed and a finder has GPS, so each can state its own
+            // position with small uncertainty. This is what the lost node corroborates
+            // AGAINST -- without it there are no witnesses, only its own opinion.
+            am->PublishSelfEntry(ad.pos.x, ad.pos.y, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(am);
 
             BeaconDriver bd;
@@ -2562,6 +2891,9 @@ RunArm(CaTblPolicyMode mode,
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
             CaTblMacConfig pmc;
+            pmc.queryProxy = queryProxy;
+            pmc.queryStalenessBoundS = queryStalenessBoundS;
+            pmc.reversePath = reversePath;
             pmc.nodeId = static_cast<uint16_t>(pid);
             pmc.identityClass = CA_TBL_ID_TARGET;
             // THE POINT OF THE PEER. A distinct manifest id is what makes an
@@ -2714,16 +3046,59 @@ RunArm(CaTblPolicyMode mode,
     std::deque<Tourist> finderWalkers;
     std::vector<uint32_t> finderIds;
     std::vector<Vector> finderPos;
+    std::vector<CaTblMac*> finderMac; // tier-0 MAC per finder, for its table
+    std::vector<std::vector<CaTblMac*>> finderMacAll; // [finder][tier], to republish
+    // WHAT A FINDER BELIEVES ABOUT ITSELF, as distinct from where it is.
+    //
+    // A searcher is not GPS-denied -- that is the casualty's problem, and the whole
+    // premise of the deployment -- but it is not surveyed infrastructure either. It
+    // knows where it is to within its receiver's error, and every position it
+    // publishes or navigates by carries that error. Modelled as a CONSTANT per-finder
+    // offset rather than fresh noise each cycle, because GNSS error over a 600 s walk
+    // is dominated by slowly varying terms (geometry, multipath, ionosphere) and
+    // white noise would wash out under averaging and understate the effect.
+    //
+    // Drawn from its own stream, so enabling this does not displace the shared RNG
+    // stream and move every unrelated fading realisation with it (TECH_DEBT sect 1.1).
+    std::vector<Vector> finderGpsOffset;
+    const double finderPosVar =
+        (finderPosSigmaM > 0.0) ? (finderPosSigmaM * finderPosSigmaM) : 4.0;
     for (uint32_t fi = 0; fi < nFinders; ++fi)
     {
         const uint32_t fid = 501 + fi;
         Ptr<UniformRandomVariable> frng = CreateObject<UniformRandomVariable>();
         frng->SetStream(static_cast<int64_t>(seed) * 7919 + 900007 + fi);
-        finderWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
+        // The SEARCH PARTY's speed, not the subject's. They are separate because
+        // a stationary casualty does not imply stationary searchers -- and while
+        // they shared one flag, --speed=0 pinned all four finders to the spot and
+        // every still cell measured a paralysed search.
+        finderWalkers.emplace_back(dep.facilities, finderSpeedMps, dwellS,
                                    dep.boxHalfM, dep.dwellRadiusM, frng);
+        finderWalkers.back().SetMaxTurnRate(maxTurnRateRadS);
+        // A search party sets out FROM somewhere. Without this the finders spawn in
+        // the middle of the search area, which hands them the answer at t = 0 and
+        // flatters the finder-hop mechanism the base-camp scenario exists to test.
+        // The draw above is consumed either way, so the RNG stream does not move.
+        if (dep.hasBaseCamp)
+        {
+            finderWalkers.back().SetPosition(dep.baseCampX, dep.baseCampY);
+        }
         const Vector fpos = finderWalkers.back().Position();
         finderIds.push_back(fid);
         finderPos.push_back(fpos);
+        Vector goff(0.0, 0.0, 0.0);
+        if (finderPosSigmaM > 0.0)
+        {
+            Ptr<NormalRandomVariable> grng = CreateObject<NormalRandomVariable>();
+            grng->SetAttribute("Mean", DoubleValue(0.0));
+            grng->SetAttribute("Variance",
+                               DoubleValue(finderPosSigmaM * finderPosSigmaM));
+            grng->SetStream(static_cast<int64_t>(seed) * 7919 + 910007 + fi);
+            goff.x = grng->GetValue();
+            goff.y = grng->GetValue();
+        }
+        finderGpsOffset.push_back(goff);
+        finderMacAll.push_back(std::vector<CaTblMac*>(CA_TBL_TIER_COUNT, nullptr));
 
         engine868.RegisterNode(fid, fpos);
         engine2p4.RegisterNode(fid, fpos);
@@ -2736,6 +3111,9 @@ RunArm(CaTblPolicyMode mode,
             anchorPosById[static_cast<uint16_t>(fid)] = fpos;
 
             CaTblMacConfig fc;
+            fc.queryProxy = queryProxy;
+            fc.queryStalenessBoundS = queryStalenessBoundS;
+            fc.reversePath = reversePath;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
@@ -2749,7 +3127,18 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* fm = &macs.back();
             fm->Configure(fc);
             fm->SetRng(macRng);
+            // What it BELIEVES, with the variance that belief actually carries.
+            // Publishing the true position under a non-zero variance would claim an
+            // uncertainty the reported number does not have, which is the silent
+            // perfect-knowledge assumption this flag exists to remove.
+            fm->PublishSelfEntry(fpos.x + goff.x, fpos.y + goff.y, finderPosVar,
+                                 finderPosVar, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(fm);
+            finderMacAll.back()[ti] = fm;
+            if (ti == 0)
+            {
+                finderMac.push_back(fm);
+            }
 
             BeaconDriver fb;
             fb.mac = fm;
@@ -2917,6 +3306,19 @@ RunArm(CaTblPolicyMode mode,
     // reject total, because "the measurement was refused" and "it was refused for the
     // reason the model says it should be" are different claims, and only the second
     // one is evidence the admission test is doing its job.
+    double relayedVarThisCycle = 0.0;
+    // The reverse half of the anti-entropy exchange, measured rather than assumed.
+    // A mechanism that depends on a node HOLDING an entry has to be checked against
+    // whether the entry arrived -- that is the class of error that made the 51 J
+    // finder result an artefact, and nothing in the gate suite tests for it.
+    uint64_t pseudoAnchorSubs = 0;
+    uint64_t casualtyDigests = 0;
+    double finderEntryAgeSum = 0.0;
+    uint64_t finderEntryAgeN = 0;
+    uint64_t finderEntryHeldSum = 0;
+    uint64_t finderEntryCycles = 0;
+    double relayedFracSum = 0.0;
+    uint64_t relayedFracN = 0;
     uint64_t relayAdmitted = 0;
     uint64_t relayRejTier = 0;
     uint64_t relayRejDepth = 0;
@@ -2925,6 +3327,89 @@ RunArm(CaTblPolicyMode mode,
     uint64_t relayRejDup = 0;
     double relaySigmaEffSum = 0.0;
     double relaySigmaRawSum = 0.0;
+
+    // Independent-witness state for the switching-point integrity check.
+    std::vector<std::pair<uint16_t, double>> rangedThisCycle;
+    // Rival systems, scored from the same measurements. See the accumulation
+    // block beside the EKF error for what each one is. Declared HERE, in RunArm,
+    // because that is where they are used -- `errors` above is a member of the
+    // per-tag state reached through a reference, not a local.
+    std::vector<double> errorsMlat;
+    std::vector<double> errorsWcl;
+    std::vector<double> errorsProx;
+    std::vector<double> errorsLkp;
+    double blMlatX = 0.0, blMlatY = 0.0;
+    double blWclX = 0.0, blWclY = 0.0;
+    double blProxX = 0.0, blProxY = 0.0;
+    double blLkpX = 0.0, blLkpY = 0.0;
+    bool blMlatHave = false, blWclHave = false, blProxHave = false;
+    uint64_t mlatSolved = 0;
+    Vector prevTruePos = pos;
+    // WHERE THE SUBJECT WAS LAST SEEN. With a base camp that is the camp itself,
+    // because the walker starts there; without one it is wherever the run began.
+    // The LKP baseline never updates it -- no direction is known, so the point
+    // estimate cannot move, and only the uncertainty grows.
+    if (dep.hasBaseCamp)
+    {
+        // The camp, NOT the walker's start. For a still subject those differ, and
+        // seeding from the start would hand the no-system baseline the answer in
+        // the one case where it would otherwise look perfect.
+        blLkpX = dep.baseCampX;
+        blLkpY = dep.baseCampY;
+    }
+    else
+    {
+        blLkpX = pos.x;
+        blLkpY = pos.y;
+    }
+    double imuDisagreeM = 0.0;
+    double imuTolM = 0.0;
+    double lastTrustedFixS = 0.0;
+    // Where the SHS was last calibrated, and whether it ever was.
+    double lastTrustedX = 0.0;
+    double lastTrustedY = 0.0;
+    bool haveTrusted = false;
+    uint64_t shsTrustedFixes = 0;
+    uint64_t shsFixesSkipped = 0;
+    uint64_t imuFusedCycles = 0;
+    double tFirstFixS = -1.0;
+    double tFirst100mS = -1.0;
+
+    // The real step-and-heading system from IMU_SHS_V1.1, not a scale-error stub.
+    lorawan::ShsEngineParams shsParams;
+    // Anchor the dead-reckoned position at each clean fix. Without this the SHS
+    // position error accumulates from seeding and is never reset, while the
+    // fusion variance resets every trusted fix -- so the filter is handed a
+    // 459 m position labelled 5.4 m. See --shsSnapPosition.
+    shsParams.snapPositionToTrustedFix = shsSnapPosition;
+    if (shsStepBounds)
+    {
+        // A walking human's step, not a fitted range. Refusing a calibration
+        // outside it is the only thing standing between a sparse-fix arm and a
+        // dead-reckoned position 1.9e6 m from the body.
+        shsParams.stepLength.minPlausibleStepM = 0.25;
+        shsParams.stepLength.maxPlausibleStepM = 1.10;
+    }
+    Ptr<NormalRandomVariable> shsRng = CreateObject<NormalRandomVariable>();
+    // Own stream, set before first use: the inertial sensor model must not shift a
+    // single draw the radio layer makes.
+    shsRng->SetStream(static_cast<int64_t>(seed) * 7919 + 1300021);
+    lorawan::ShsEngine shsEngine(shsParams, shsRng);
+    // Seeded with the true deployment state, which is what the engine's own
+    // documentation says removes the cold start: without it heading stays on a
+    // fallback until two fixes happen to bracket a straight walk.
+    // NOT seeded here: the deployment heading is not known until the node moves, and
+    // seeding zero would assert it faces +x. ShsDriver seeds on the first moving cycle.
+    ShsDriver shsDriver;
+    // Ideal dead reckoner: anchored at the last clean fix, advanced by TRUE
+    // displacement. A ceiling on inertial contribution, not a sensor model.
+    double idealX = 0.0, idealY = 0.0;
+    bool idealAnchored = false;
+    // The position covariance the dead reckoner was anchored WITH. A dead
+    // reckoner inherits its anchor's error and holds it constant, so this is a
+    // floor on its accuracy that drift-since-anchor cannot see.
+    double imuAnchorVarM2 = 0.0;
+    shsDriver.engine = &shsEngine;
 
     auto& pcsHist = TS0.pcsHist;
     auto& pcsDegradation = TS0.pcsDegradation;
@@ -2989,6 +3474,75 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // A searcher polls for entries. Broadcast, because a finder looking for a
+        // casualty does not yet know which id it is looking for -- that is the whole
+        // problem -- and the responder replies with its own entry regardless of who
+        // asked. Charged like any other frame: this is airtime the dissemination costs,
+        // and it should show up against the energy the finders save.
+        if (finderDigestPeriodS > 0.0 && sendHandshakeFrames)
+        {
+            for (size_t fi = 0; fi < finderMac.size(); ++fi)
+            {
+                if (finderMac[fi] == nullptr)
+                {
+                    continue;
+                }
+                const double phase = static_cast<double>(fi) * 3.0; // stagger
+                const double prev = t - dt;
+                const double a = std::floor((prev - phase) / finderDigestPeriodS);
+                const double b = std::floor((t - phase) / finderDigestPeriodS);
+                if (b > a && t >= phase)
+                {
+                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                }
+            }
+        }
+
+        // PUBLISH. The lost node puts its current estimate and its own uncertainty
+        // into its table, which is what an ENTRY_PUSH then carries to anyone who asks.
+        // Published on every tier's MAC because any of them may be the one that gets
+        // the airtime, and a node that only advertised on the tier it happens to be
+        // using would go silent exactly when it escalated.
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            if (nodeMac[ti] != nullptr)
+            {
+                nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(),
+                                              policy.Pxx(), policy.Pyy(), policy.Pxy(),
+                                              0.0, 0.0, t);
+            }
+        }
+
+        // A FINDER REPUBLISHES WHERE IT BELIEVES IT IS, EVERY CYCLE.
+        //
+        // It used to publish once, inside the CONSTRUCTION loop, at its spawn
+        // position -- and then walk for the whole run. Nothing read the entry, so
+        // nothing broke, but the moment anything does (the pseudo-anchor
+        // substitution, or a rescuer's console) it would be handed a position stale
+        // by however far the searcher had walked. A stale entry that looks fresh is
+        // worse than no entry, because a consumer cannot tell the difference.
+        //
+        // Costs no airtime: PublishSelfEntry writes this node's own table slot and
+        // bumps its sequence number. What goes on the air is the ENTRY_PUSH that a
+        // digest already asks for, billed by entry count and not by content.
+        auto republishFinder = [&](size_t fi, const Vector& truePos, double nowS) {
+            if (fi >= finderMacAll.size())
+            {
+                return;
+            }
+            const Vector& off = finderGpsOffset[fi];
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (finderMacAll[fi][ti] != nullptr)
+                {
+                    finderMacAll[fi][ti]->PublishSelfEntry(truePos.x + off.x,
+                                                           truePos.y + off.y,
+                                                           finderPosVar, finderPosVar,
+                                                           0.0, 0.0, 0.0, nowS);
+                }
+            }
+        };
+
         // Finders move. Their position is pushed to the engines (which key correlation
         // and mobility state on node id), to the provider (which computes the link) and
         // to anchorPosById (which the ranging poll reads for the far-end position). All
@@ -2996,15 +3550,141 @@ RunArm(CaTblPolicyMode mode,
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
-            if (finderMode == 1)
+            // MODE 2, PHASE 1: sweep outward from the last known position.
+            //
+            // Runs only while no entry is more informative than the sweep itself.
+            // The casualty publishes its prior from the first cycle -- the camp,
+            // with a sigma of order how far it could have walked -- so an entry
+            // exists immediately and says nothing. Converging on it would re-park
+            // the party at the camp, which is the deadlock being fixed.
+            bool searching = false;
+            if (finderMode == 2 && dep.hasBaseCamp)
+            {
+                double entrySigma = std::numeric_limits<double>::infinity();
+                if (fi < finderMac.size() && finderMac[fi] != nullptr)
+                {
+                    CaTblTableEntry te;
+                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId),
+                                                     te) && te.valid)
+                    {
+                        entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
+                    }
+                }
+                // How far the subject could physically have gone since it was last
+                // seen. Sweeping beyond that is sweeping ground it cannot occupy.
+                // How far the SUBJECT could have gone bounds the area worth
+                // sweeping; how fast the SEARCHERS move bounds how much of it
+                // they have covered by now. Two different speeds, and using the
+                // subject's for both made the radius zero whenever it was still.
+                // The subject is somewhere inside the box. It may already have
+                // been kilometres out at t=0 -- a still subject is PLACED there --
+                // so elapsed time bounds how far the SEARCHERS have got, not how
+                // far the subject might be. Bounding by the subject's speed made
+                // this 1 m whenever it was stationary.
+                //
+                // 0.9 of the walking speed goes radial. At 0.5 a searcher reaches
+                // 8.6 km in four hours against a subject 11.6 km out and could
+                // never arrive; at 0.9 it reaches 15.5 km. That trades area
+                // coverage for reach, and the trade is real rather than a tuning
+                // choice: four searchers in four hours cannot both sweep an
+                // annulus densely and cross 11.6 km.
+                const double swept = 0.9 * finderSpeedMps * t;
+                const double radius =
+                    std::max(1.0, std::min(dep.boxHalfM, swept));
+                if (entrySigma > radius)
+                {
+                    searching = true;
+                    const double n = static_cast<double>(
+                        std::max<size_t>(1, finderWalkers.size()));
+                    // Archimedean sweep: radius grows with time, bearing advances
+                    // so the tangential component stays about half the walking
+                    // speed, and finder i is offset by 2*pi*i/n so the party
+                    // covers the annulus instead of one bearing.
+                    const double theta =
+                        2.0 * M_PI * static_cast<double>(fi) / n
+                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * t / radius) : 0.0);
+                    fp = Vector(dep.baseCampX + radius * std::cos(theta),
+                                dep.baseCampY + radius * std::sin(theta),
+                                0.0);
+                    finderWalkers[fi].SetPosition(fp.x, fp.y);
+                }
+            }
+            if (!searching && (finderMode == 1 || finderMode == 2))
             {
                 // Converge on the ESTIMATE, which is all a searcher is ever given.
                 // Stand off once inside standoff metres rather than walking onto the
                 // casualty, so the finder stays put and keeps the short-range link up
                 // instead of oscillating across the estimate every cycle.
-                const double gx = policy.EstX(), gy = policy.EstY();
+                // What this finder was TOLD, over the air. If the casualty's
+                // entry has not reached it, it has nowhere to go and holds position:
+                // that is the honest behaviour, and it makes dissemination failure
+                // visible as searchers standing still rather than as a silent success.
+                double gx = 0.0, gy = 0.0;
+                bool known = false;
+                if (fi < finderMac.size() && finderMac[fi] != nullptr)
+                {
+                    CaTblTableEntry te;
+                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+                    {
+                        gx = te.x;
+                        gy = te.y;
+                        known = true;
+
+                        // SPREAD OVER THE REPORTED UNCERTAINTY, DO NOT STACK ON THE
+                        // POINT.
+                        //
+                        // Every finder walking to the same coordinate is four searchers
+                        // covering one spot. That is the worst allocation exactly when
+                        // it matters: the reported position is 36 m wrong and UWB
+                        // reaches 13.5 m, so a stack of finders at the centroid is a
+                        // stack of finders all equally out of range, and tier 3 is
+                        // never reached at all. Measured before this: cycles_uwb 0.
+                        //
+                        // The entry already carries the casualty's OWN covariance --
+                        // varX, varY -- because that is what an anti-entropy entry is
+                        // for. So the search region is known to the searcher without
+                        // anyone being told anything they could not have. Finder i is
+                        // placed on the ellipse at angle 2*pi*i/n, scaled by
+                        // finderDispersal sigmas.
+                        //
+                        // AXIS-ALIGNED, and that is a simplification worth naming: the
+                        // entry carries covXY too, so the true ellipse is rotated. Using
+                        // sqrt(varX) and sqrt(varY) ignores that rotation. It is the
+                        // conservative direction -- a wrongly oriented spread still
+                        // covers the region, just less efficiently -- and it avoids an
+                        // eigen decomposition on a 2x2 for a search pattern that is
+                        // heuristic anyway.
+                        if (finderDispersal > 0.0 && nFinders > 1)
+                        {
+                            const double sx = std::sqrt(std::max(te.varX, 0.0));
+                            const double sy = std::sqrt(std::max(te.varY, 0.0));
+                            const double th = 2.0 * M_PI * static_cast<double>(fi) /
+                                              static_cast<double>(nFinders);
+                            gx += finderDispersal * sx * std::cos(th);
+                            gy += finderDispersal * sy * std::sin(th);
+                        }
+                    }
+                }
+                if (!known)
+                {
+                    finderPos[fi] = finderPos[fi];
+                    fp = finderPos[fi];
+                    engine868.UpdateNodePosition(finderIds[fi], fp);
+                    engine2p4.UpdateNodePosition(finderIds[fi], fp);
+                    engineUwb.UpdateNodePosition(finderIds[fi], fp);
+                    provider.SetAnchorPosition(static_cast<uint16_t>(finderIds[fi]), fp);
+                    anchorPosById[static_cast<uint16_t>(finderIds[fi])] = fp;
+                    republishFinder(fi, fp, t);
+                    continue;
+                }
                 Vector c = finderPos[fi];
-                const double dx = gx - c.x, dy = gy - c.y;
+                // Steers from where it BELIEVES it is, and walks in the real world.
+                // A GPS offset therefore bends the approach: the finder closes on a
+                // point displaced by its own error, which is the honest consequence
+                // and the reason the offset is not merely cosmetic.
+                const Vector bel(c.x + finderGpsOffset[fi].x,
+                                 c.y + finderGpsOffset[fi].y, c.z);
+                const double dx = gx - bel.x, dy = gy - bel.y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
                 const double standoff = 8.0;
                 const double stepM = walkSpeedMps * dt;
@@ -3029,6 +3709,7 @@ RunArm(CaTblPolicyMode mode,
             engineUwb.UpdateNodePosition(fid, fp);
             provider.SetAnchorPosition(fid, fp);
             anchorPosById[fid] = fp;
+            republishFinder(fi, fp, t);
             if (vizNodes.is_open())
             {
                 vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid << ','
@@ -3139,6 +3820,93 @@ RunArm(CaTblPolicyMode mode,
 
         const CaTblTier active = policy.GetActiveTier();
 
+        // ONE NODE, THREE RADIOS, ONE BODY OF KNOWLEDGE.
+        //
+        // Each tier owns its own CaTblMac and therefore its own table, so an entry
+        // learned on 868 was invisible to a lookup made while up on UWB. That is an
+        // artefact of the interface split, not a property of the node: the header
+        // calls the shared table "knowledge, not a work list", and knowledge does not
+        // stop being true because a different radio heard it. Reading the union is
+        // free -- it is a read, nothing goes on the air -- and it is what a single
+        // node with three interfaces actually knows.
+        //
+        // Freshest wins, by the reporter's own timestamp rather than by arrival: two
+        // radios may both hold an entry for the same node from different digests, and
+        // the useful one is the later OBSERVATION, not the later delivery.
+        //
+        // The one-hop neighbour table is deliberately NOT unioned. It drives the poll
+        // set, and merging it across tiers would have the node calling peers a
+        // different radio heard -- burning a receive timeout every cycle on a link
+        // that cannot close. That is the distinction the header draws, kept.
+        auto freshestEntry = [&](uint16_t id, CaTblTableEntry& out) -> bool {
+            bool found = false;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                CaTblTableEntry e;
+                if (nodeMac[ti] != nullptr && nodeMac[ti]->GetTableEntry(id, e) &&
+                    e.valid && (!found || e.timestampS > out.timestampS))
+                {
+                    out = e;
+                    found = true;
+                }
+            }
+            return found;
+        };
+
+        // THE EXCHANGE RUNS BOTH WAYS.
+        //
+        // Only searchers used to ask. A finder broadcasts a digest, every node that
+        // hears it answers with its own entry, and that is why 4 of 4 finders learn
+        // where the casualty is -- and why the casualty learns nothing about them.
+        // The responder half has always been identity-agnostic (ca-tbl-mac.cc:909),
+        // so nothing new goes on the wire here: the casualty simply asks the
+        // question its searchers were already asking.
+        //
+        // ON THE ACTIVE TIER, and that is not a detail. Sending on 868 while the
+        // node is up on UWB would charge a tier outside this cycle's transmission
+        // and break the one invariant the energy axis rests on (CLAUDE.md sect 6).
+        // Asking on the tier already transmitting is the same discipline C5 uses for
+        // a relayed exchange. It also happens to be the only choice that WORKS: each
+        // tier owns its own CaTblMac and therefore its own table, so an entry learned
+        // on 868 is invisible to a UWB ranging lookup. Asking on the active tier puts
+        // the answer in exactly the table the ranging path will read.
+        //
+        // Phase-offset by half a period so the casualty's question does not land in
+        // lockstep with the finders' every time and contend with the answers.
+        if (bidirectionalDigest && sendHandshakeFrames && finderDigestPeriodS > 0.0 &&
+            nodeMac[active] != nullptr)
+        {
+            const double phase = finderDigestPeriodS * 0.5;
+            const double prevT = t - dt;
+            const double ka = std::floor((prevT - phase) / finderDigestPeriodS);
+            const double kb = std::floor((t - phase) / finderDigestPeriodS);
+            if (kb > ka && t >= phase)
+            {
+                nodeMac[active]->Send(CA_TBL_MSG_DIGEST, active, 1, 0);
+                ++casualtyDigests;
+            }
+        }
+
+        // Did the answers arrive? Counted every cycle against the table the ranging
+        // path actually reads, so "the mechanism fired" and "the entry was there to
+        // fire on" are separate observations.
+        if (!finderIds.empty())
+        {
+            uint32_t held = 0;
+            for (size_t fi = 0; fi < finderIds.size(); ++fi)
+            {
+                CaTblTableEntry fe;
+                if (freshestEntry(static_cast<uint16_t>(finderIds[fi]), fe))
+                {
+                    ++held;
+                    finderEntryAgeSum += (t - fe.timestampS);
+                    ++finderEntryAgeN;
+                }
+            }
+            finderEntryHeldSum += held;
+            ++finderEntryCycles;
+        }
+
         // ---- Which radios this arm physically has ---------------------------
         //
         // Tier 1 runs CONTINUOUSLY on the hybrid arms. The design specifies a field
@@ -3227,6 +3995,7 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
             //
@@ -3365,9 +4134,77 @@ RunArm(CaTblPolicyMode mode,
 
                 if (received && std::isfinite(range) && range > 0.0)
                 {
+                    rangedThisCycle.push_back(std::make_pair(anchorId, range));
                     CaTblRangeMeasurement m;
                     m.anchorX = anchorPos.x;
                     m.anchorY = anchorPos.y;
+                    // A FINDER IS A PSEUDO-ANCHOR. It knows where it is to within its
+                    // own GPS error, so the filter gets the position it REPORTS and a
+                    // variance inflated by that position's uncertainty along the range
+                    // direction -- the same treatment, and the same formula, C5 applies
+                    // to any relayed measurement. Handing over its true position would
+                    // credit it with knowledge no node has.
+                    //
+                    // The physics above is untouched: the radio link is physical and
+                    // does not care what anyone believes about where they are.
+                    if (finderPseudoAnchor && anchorId >= 501)
+                    {
+                        CaTblTableEntry fe;
+                        if (freshestEntry(anchorId, fe))
+                        {
+                            const double ux = policy.EstX() - fe.x;
+                            const double uy = policy.EstY() - fe.y;
+                            const double un = std::sqrt(ux * ux + uy * uy);
+                            if (un > 1e-6)
+                            {
+                                // AGE IS PART OF THE UNCERTAINTY, and leaving it out
+                                // is not conservative -- it is wrong in the dangerous
+                                // direction. The entry carries the variance the
+                                // reporter had WHEN IT REPORTED, a couple of metres of
+                                // GNSS error. The position is as old as the last
+                                // digest that reached us, and a searcher walks the
+                                // whole time. Handing the filter a several-minute-old
+                                // point under a two-metre variance tells it to trust
+                                // an anchor that is hundreds of metres from where it
+                                // now stands. Measured before this was added: 238
+                                // substitutions on entries averaging 242 s old drove
+                                // rmse from 7.4 m to 86.7 m.
+                                //
+                                // Bounded by how far the reporter COULD have gone:
+                                // walkSpeedMps is the searcher speed this deployment
+                                // assumes, so speed x age is a travel bound and its
+                                // square is the variance that bound implies. Isotropic
+                                // because a bound carries no direction -- the entry's
+                                // velocity fields are not populated, and inventing a
+                                // heading from a stale fix would claim more than is
+                                // known.
+                                //
+                                // This also makes A3 do its job. The admission test
+                                // refuses a relay whose position uncertainty is large
+                                // against the range being measured, and staleness is
+                                // exactly such an uncertainty -- so an entry too old
+                                // to use is now rejected by the existing guard rather
+                                // than needing a staleness cutoff of its own.
+                                const double ageS = std::max(0.0, t - fe.timestampS);
+                                const double travel = walkSpeedMps * ageS;
+                                const double ageVar = travel * travel;
+                                const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
+                                                          {fe.covXY, fe.varY + ageVar}};
+                                const double proj =
+                                    CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                if (proj >= 0.0)
+                                {
+                                    m.anchorX = fe.x;
+                                    m.anchorY = fe.y;
+                                    const double inflated =
+                                        std::sqrt(sigmaM * sigmaM + proj);
+                                    relayedVarThisCycle += inflated * inflated;
+                                    sigmaM = inflated;
+                                    ++pseudoAnchorSubs;
+                                }
+                            }
+                        }
+                    }
                     m.rangeM = range;
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
@@ -3411,6 +4248,20 @@ RunArm(CaTblPolicyMode mode,
         // ordering falls out of the policy's own premise.
         std::vector<CaTblRangeMeasurement> activeMeas;
         std::vector<CaTblRangeMeasurement> floorMeas;
+        // RESET BEFORE THE FIRST CONTRIBUTOR, not between two of them.
+        //
+        // This accumulator has two sources: the pseudo-anchor substitution inside
+        // rangeTier(), and the C5 relayed exchange below. It used to be cleared
+        // between them -- after the ranging calls and before the relay block -- which
+        // was correct while C5 was the only contributor and silently wrong once
+        // 937a55a added the first. Every substitution's variance was zeroed before
+        // policy.SetRelayedVarFraction() could read it, so the share was always 0.00
+        // and the hop-provenance term had no input no matter how often it fired.
+        //
+        // MEASURED: 1513 substitutions in a 240-cycle run, and identical output with
+        // --hopProvenanceForm 0 and 1. A mechanism that cannot change its own output
+        // is not enabled, whatever its flag says.
+        relayedVarThisCycle = 0.0;
 
         if (pendingHandshake && arbitrateDutyBudget)
         {
@@ -3591,7 +4442,13 @@ RunArm(CaTblPolicyMode mode,
                     CaTblRelayedRange rr;
                     rr.relayId = static_cast<uint16_t>(tags[pt].nodeId);
                     rr.tier = active;
+                    // Depth is the relay's own hop count plus one. A relay whose
+                    // position came from infrastructure is at depth 1; one whose
+                    // position came from another relay is deeper, and carries the
+                    // uncertainty it inherited in its covariance.
                     rr.hopDepth = 1;
+                    rr.maxRelayDepth = maxRelayDepth;
+                    rr.relayVarBudgetM2 = relayVarBudgetM2;
                     rr.sigmaRangeM = sigRaw;
                     rr.relayP[0][0] = tags[pt].policy.Pxx();
                     rr.relayP[0][1] = tags[pt].policy.Pxy();
@@ -3644,6 +4501,7 @@ RunArm(CaTblPolicyMode mode,
                     activeMeas.push_back(m);
 
                     relaysUsedThisUpdate.insert(rr.relayId);
+                    relayedVarThisCycle += sigmaEff * sigmaEff;
                     ++relayAdmitted;
                     relaySigmaEffSum += sigmaEff;
                     relaySigmaRawSum += sigRaw;
@@ -3671,12 +4529,185 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // WITNESS 1 -- the body, through a real step-and-heading system.
+        //
+        // The engine is ticked at its own 100 Hz sample rate across this cycle from the
+        // gait the walker's motion implies, then asked where it thinks the node is. The
+        // disagreement between that and the filter is the evidence.
+        //
+        // The tolerance grows with TIME SINCE THE LAST TRUSTED FIX, which is the SHS
+        // error model: heading drift and step-length error accumulate while the engine
+        // runs unaided, and a strapdown-style tolerance on distance walked would be the
+        // wrong shape entirely. The engine's own header refuses to be wired to a
+        // strapdown-derived check for exactly this reason.
+        {
+            shsDriver.Advance(t - dt, dt, prevTruePos, pos);
+            if (imuIdeal && idealAnchored)
+            {
+                // Perfect relative motion from an imperfect anchor. The anchor's
+                // error is retained, not compounded -- that is the difference
+                // between a perfect IMU and an oracle.
+                idealX += pos.x - prevTruePos.x;
+                idealY += pos.y - prevTruePos.y;
+            }
+            prevTruePos = pos;
+            const double sdx = shsEngine.GetX() - policy.EstX();
+            const double sdy = shsEngine.GetY() - policy.EstY();
+            imuDisagreeM = std::sqrt(sdx * sdx + sdy * sdy);
+            const double unaidedS = std::max(0.0, t - lastTrustedFixS);
+            imuTolM = imuConsistencyK *
+                      std::max(imuSigmaFloorM, std::sqrt(std::max(policy.Pxx() + policy.Pyy(), 0.0))) +
+                      imuDriftMps * unaidedS;
+        }
+
+        // WITNESS 2 -- the neighbours. Does the range actually measured to a node agree
+        // with where that node says it is, given where this node thinks IT is?
+        int32_t corrOk = 0, corrTotal = 0;
+        if (corroborationCheck && nodeMac[active] != nullptr)
+        {
+            const double sigMine = std::sqrt(std::max((policy.Pxx() + policy.Pyy()), 0.0));
+            for (size_t k = 0; k < rangedThisCycle.size(); ++k)
+            {
+                CaTblTableEntry te;
+                if (!nodeMac[active]->GetTableEntry(rangedThisCycle[k].first, te))
+                {
+                    continue; // never heard where it claims to be: not a witness
+                }
+                ++corrTotal;
+                const double ex = policy.EstX() - te.x, ey = policy.EstY() - te.y;
+                const double predicted = std::sqrt(ex * ex + ey * ey);
+                const double resid = std::fabs(rangedThisCycle[k].second - predicted);
+                const double sigTheirs = std::sqrt(std::max(te.varX + te.varY, 0.0));
+                const double tol = corroborationK *
+                                   std::sqrt(sigMine * sigMine + sigTheirs * sigTheirs +
+                                             corroborationRangeSigmaM * corroborationRangeSigmaM);
+                if (resid <= tol)
+                {
+                    ++corrOk;
+                }
+            }
+        }
+        // Share of this cycle's measurement variance that arrived through a relay.
+        // Over the set actually used, so a floor fallback -- which contains no relayed
+        // measurement at all -- correctly reports zero rather than inheriting the
+        // active set's share.
+        {
+            double totVar = 0.0;
+            for (size_t mi = 0; mi < meas.size(); ++mi)
+            {
+                totVar += meas[mi].sigmaM * meas[mi].sigmaM;
+            }
+            const double rvf =
+                (totVar > 0.0) ? std::min(1.0, relayedVarThisCycle / totVar) : 0.0;
+            if (rvf > 0.0)
+            {
+                relayedFracSum += rvf;
+                ++relayedFracN;
+            }
+            policy.SetRelayedVarFraction(rvf);
+        }
+
+        policy.SetCrossCheck(imuDisagreeM, imuCrossCheck ? imuTolM : 0.0,
+                             corrOk, corrTotal);
+
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             0,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+
+        // ---- INERTIAL DEAD RECKONING FILLS THE GAP -------------------------
+        //
+        // With no radio fix this cycle the filter would coast on constant
+        // velocity, while the SHS holds a dead-reckoned position nobody reads.
+        // Hand it over as a measurement instead.
+        //
+        // Its uncertainty grows with time since the last TRUSTED fix -- the SHS
+        // error model, where drift accumulates with UNAIDED TIME rather than with
+        // distance walked -- reusing the two constants the consistency check
+        // already uses, so the fusion and the check state one error model between
+        // them rather than two.
+        //
+        // NOT the check's max(sigmaFloor, sqrt(trace P)) form. That check asks
+        // whether two estimates disagree by more than their COMBINED uncertainty,
+        // so it must carry the filter's covariance. A measurement variance must
+        // describe the SHS ALONE -- folding P into R would count the filter's own
+        // uncertainty on both sides of its own update.
+        //
+        // Never on a cycle that HAS a fix: a radio measurement beats dead
+        // reckoning whenever there is one. This fills gaps, it does not compete.
+        if (imuFusion && !d.hadFix && shsDriver.seeded)
+        {
+            const double unaidedFuseS = std::max(0.0, t - lastTrustedFixS);
+            const double sigShs = imuSigmaFloorM + imuDriftMps * unaidedFuseS;
+            // Independent by construction: the error the anchor was placed with,
+            // plus what the engine has accumulated since. They add as variances.
+            const double fuseVarM2 = imuAnchorVarM2 + sigShs * sigShs;
+            if (fuseVarM2 > 0.0)
+            {
+                const double fx = imuIdeal ? idealX : shsEngine.GetX();
+                const double fy = imuIdeal ? idealY : shsEngine.GetY();
+                policy.FusePosition(fx, fy, fuseVarM2);
+                ++imuFusedCycles;
+            }
+        }
+
+        // The engine takes the integrity verdict back: a fix the check calls SUSPECT
+        // must not be used to reset inertial drift, or a bad fix would launder itself
+        // into the one estimate that was independent of it.
+        // THE ANSWER HAS TO COME BACK. With the estimator on the gateways the node
+        // does not compute this fix -- it is sent one -- and that is a frame it
+        // must be awake to receive. Only a cycle that produced a fix generates a
+        // downlink: a network with nothing to say sends nothing.
+        if (gatewayEdgeServer && d.hadFix)
+        {
+            energy.AccountEdgeServerDownlink(active);
+        }
+        if (d.hadFix && !d.suspect)
+        {
+            // ONLY IF THE FIX SAYS SOMETHING ABOUT MOTION.
+            //
+            // OnTrustedFix calibrates step length and heading from the
+            // displacement between consecutive fixes. The node walks ~3 m per
+            // cycle and the fixes carry ~167 m of error, so at every cycle that
+            // displacement is about 1 part signal to 56 parts noise, and the
+            // heading it implies is noise. Measured: arms that fed every fix ran
+            // 5-18 km off, while the one arm that never fed any stayed at 20-42 m.
+            //
+            // So wait until the node has actually moved, relative to how well its
+            // position is known. The threshold scales with the filter's own
+            // covariance rather than with a chosen constant, and skipping simply
+            // leaves the SHS dead-reckoning, which is its job.
+            const double sigPos =
+                std::sqrt(std::max(0.0, policy.Pxx() + policy.Pyy()));
+            const double moved =
+                std::hypot(policy.EstX() - lastTrustedX,
+                           policy.EstY() - lastTrustedY);
+            const bool informative =
+                (shsTrustedFixK <= 0.0) || !haveTrusted ||
+                (moved > shsTrustedFixK * sigPos);
+            if (informative)
+            {
+                shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
+                idealX = policy.EstX();
+                idealY = policy.EstY();
+                idealAnchored = true;
+                // Recorded at the instant of anchoring, not read later: the
+                // filter's covariance moves every cycle, and what this engine
+                // inherited is the value it had HERE.
+                imuAnchorVarM2 = policy.Pxx() + policy.Pyy();
+                lastTrustedX = policy.EstX();
+                lastTrustedY = policy.EstY();
+                haveTrusted = true;
+                ++shsTrustedFixes;
+            }
+            else
+            {
+                ++shsFixesSkipped;
+            }
+            lastTrustedFixS = t;
+        }
 
         if (d.escalated || d.deescalated)
         {
@@ -3952,7 +4983,38 @@ RunArm(CaTblPolicyMode mode,
         // ---- Ground-truth coverage labels and trigger confusion matrix -----
         const uint32_t vis868 = VisibleCount(dep, CA_TBL_TIER_868, pos);
         const uint32_t vis2p4 = VisibleCount(dep, CA_TBL_TIER_2P4, pos);
-        const uint32_t visUwb = VisibleCount(dep, CA_TBL_TIER_UWB, pos);
+        uint32_t visUwb = VisibleCount(dep, CA_TBL_TIER_UWB, pos);
+        // THE GROUND-TRUTH LABEL COULD NOT SEE THE ONLY SOURCE OF UWB.
+        //
+        // VisibleCount() reads dep.anchors, the STATIC deployment. Under the tri-band
+        // correction tier 3 comes from FINDERS, which are not in that list, so visUwb
+        // was structurally 0 and shouldUwb structurally false. Every escalation to UWB
+        // was therefore scored a FALSE POSITIVE and trig_f1 was 0.000 by construction:
+        // measured 0 tp / 21 fp / 0 fn / 459 tn on a run where the node genuinely had
+        // three UWB neighbours on 12 cycles.
+        //
+        // The comment at the top of this file records this exact symptom occurring
+        // once before -- "VisibleCount() returned 0 at every step of every arm, visUwb
+        // was identically zero, and trigF1 was therefore 0.000 on all six arms" -- and
+        // it was fixed then by widening the label radius. This is the same symptom from
+        // a different cause: the radius is fine, the POPULATION is wrong.
+        //
+        // Off by default because it changes a reported column and every published
+        // trigger figure was computed without it. It changes no decision: shouldUwb
+        // feeds the confusion matrix and nothing else.
+        if (uwbCoverageIncludesFinders)
+        {
+            const double rUwb = dep.nominalRangeM[CA_TBL_TIER_UWB];
+            for (size_t fi = 0; fi < finderPos.size(); ++fi)
+            {
+                const double dx = finderPos[fi].x - pos.x;
+                const double dy = finderPos[fi].y - pos.y;
+                if (std::sqrt(dx * dx + dy * dy) <= rUwb)
+                {
+                    ++visUwb;
+                }
+            }
+        }
         const bool shouldUwb = (visUwb >= 3);
         const bool onUwb = (active == CA_TBL_TIER_UWB);
         if (shouldUwb)
@@ -4011,9 +5073,81 @@ RunArm(CaTblPolicyMode mode,
 
         const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
         errors.push_back(err);
+
+        // ---- RIVAL SYSTEMS, same measurements, same cycle --------------------
+        // Each holds its previous estimate when it cannot solve, exactly as the
+        // EKF coasts. Charging them for silence would manufacture the result.
+        {
+            double mx = 0.0, my = 0.0;
+            if (BaselineMultilaterate(meas, mx, my))
+            {
+                blMlatX = mx;
+                blMlatY = my;
+                blMlatHave = true;
+                ++mlatSolved;
+            }
+            if (blMlatHave)
+            {
+                errorsMlat.push_back(std::hypot(blMlatX - pos.x, blMlatY - pos.y));
+            }
+
+            // Weighted centroid: 1/range, so a near anchor pulls harder. One
+            // anchor is enough, which is the point of a range-free method.
+            double wsum = 0.0, wx = 0.0, wy = 0.0;
+            double bestR = -1.0, bestX = 0.0, bestY = 0.0;
+            for (size_t i = 0; i < meas.size(); ++i)
+            {
+                const double r = std::max(1.0, meas[i].rangeM);
+                const double w = 1.0 / r;
+                wsum += w;
+                wx += w * meas[i].anchorX;
+                wy += w * meas[i].anchorY;
+                if (bestR < 0.0 || meas[i].rangeM < bestR)
+                {
+                    bestR = meas[i].rangeM;
+                    bestX = meas[i].anchorX;
+                    bestY = meas[i].anchorY;
+                }
+            }
+            if (wsum > 0.0)
+            {
+                blWclX = wx / wsum;
+                blWclY = wy / wsum;
+                blWclHave = true;
+            }
+            if (blWclHave)
+            {
+                errorsWcl.push_back(std::hypot(blWclX - pos.x, blWclY - pos.y));
+            }
+            if (bestR >= 0.0)
+            {
+                blProxX = bestX;
+                blProxY = bestY;
+                blProxHave = true;
+            }
+            if (blProxHave)
+            {
+                errorsProx.push_back(std::hypot(blProxX - pos.x, blProxY - pos.y));
+            }
+
+            // Last known position: no direction is known, so the estimate never
+            // moves. This is "no system" and it is NOT blind search -- a real
+            // party extrapolates from where the subject was last seen.
+            errorsLkp.push_back(std::hypot(blLkpX - pos.x, blLkpY - pos.y));
+        }
         if (d.hadFix)
         {
             errorsFixed.push_back(err);
+            // FIRST, not best: a search party is dispatched on the first usable
+            // answer, not on the best one the run eventually produces.
+            if (tFirstFixS < 0.0)
+            {
+                tFirstFixS = t;
+            }
+            if (tFirst100mS < 0.0 && err <= 100.0)
+            {
+                tFirst100mS = t;
+            }
         }
         steps++;
 
@@ -4063,6 +5197,30 @@ RunArm(CaTblPolicyMode mode,
     res.cep95M = Percentile(errors, 0.95);
     res.maxErrM = errors.empty() ? 0.0 : *std::max_element(errors.begin(), errors.end());
 
+    // Rival systems. Same measurements, same cycles, same seed -- so a paired
+    // comparison against the EKF columns above has nothing else moving in it.
+    auto rmseOf = [](const std::vector<double>& v) {
+        if (v.empty())
+        {
+            return 0.0;
+        }
+        double q = 0.0;
+        for (size_t i = 0; i < v.size(); ++i)
+        {
+            q += v[i] * v[i];
+        }
+        return std::sqrt(q / static_cast<double>(v.size()));
+    };
+    res.rmseMlatM = rmseOf(errorsMlat);
+    res.cep95MlatM = Percentile(errorsMlat, 0.95);
+    res.rmseWclM = rmseOf(errorsWcl);
+    res.cep95WclM = Percentile(errorsWcl, 0.95);
+    res.rmseProxM = rmseOf(errorsProx);
+    res.cep95ProxM = Percentile(errorsProx, 0.95);
+    res.rmseLkpM = rmseOf(errorsLkp);
+    res.cep95LkpM = Percentile(errorsLkp, 0.95);
+    res.mlatSolvedCycles = mlatSolved;
+
     double sumSqFixed = 0.0;
     for (size_t i = 0; i < errorsFixed.size(); ++i)
     {
@@ -4072,6 +5230,17 @@ RunArm(CaTblPolicyMode mode,
         errorsFixed.empty() ? 0.0
                             : std::sqrt(sumSqFixed / static_cast<double>(errorsFixed.size()));
     res.cep50FixedM = Percentile(errorsFixed, 0.50);
+    res.meanErrM =
+        errors.empty() ? 0.0
+                       : std::accumulate(errors.begin(), errors.end(), 0.0) /
+                             static_cast<double>(errors.size());
+    res.meanErrFixedM =
+        errorsFixed.empty()
+            ? 0.0
+            : std::accumulate(errorsFixed.begin(), errorsFixed.end(), 0.0) /
+                  static_cast<double>(errorsFixed.size());
+    res.tFirstFixS = tFirstFixS;
+    res.tFirst100mS = tFirst100mS;
     res.fixCycles = static_cast<uint64_t>(errorsFixed.size());
 
     res.totalJ = energy.GetTotalJ();
@@ -4172,8 +5341,95 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    if (imuCrossCheck || corroborationCheck)
+    {
+        std::cout << "    SHS: engine at (" << std::fixed << std::setprecision(1)
+                  << shsEngine.GetX() << ", " << shsEngine.GetY() << ") vs true ("
+                  << pos.x << ", " << pos.y << "), error "
+                  << std::sqrt((shsEngine.GetX() - pos.x) * (shsEngine.GetX() - pos.x) +
+                               (shsEngine.GetY() - pos.y) * (shsEngine.GetY() - pos.y))
+                  << " m; last disagreement " << imuDisagreeM << " m against tolerance "
+                  << imuTolM << " m\n";
+        if (imuFusion)
+        {
+            std::cout << "    SHS FUSION: dead-reckoned position fused on "
+                      << imuFusedCycles << " no-fix cycles\n";
+        }
+        std::cout << "    INTEGRITY: escalations refused -- IMU inconsistency "
+                  << policy.GetImuRejections() << ", weak corroboration "
+                  << policy.GetCorroborationRejections() << "\n";
+    }
+
+    if (nFinders > 0)
+    {
+        uint32_t knowing = 0;
+        double sumAge = 0.0, sumErr = 0.0;
+        for (size_t fi = 0; fi < finderMac.size(); ++fi)
+        {
+            CaTblTableEntry te;
+            if (finderMac[fi] != nullptr &&
+                finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+            {
+                ++knowing;
+                sumAge += (durationS - te.timestampS);
+                sumErr += std::sqrt((te.x - pos.x) * (te.x - pos.x) +
+                                    (te.y - pos.y) * (te.y - pos.y));
+            }
+        }
+        std::cout << "    TABLE: " << knowing << "/" << finderMac.size()
+                  << " finders hold the casualty entry";
+        if (knowing > 0)
+        {
+            std::cout << ", mean age " << std::fixed << std::setprecision(1)
+                      << (sumAge / knowing) << " s, mean error "
+                      << (sumErr / knowing) << " m vs truth";
+        }
+        std::cout << "\n";
+        uint64_t merges = 0;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            merges += macs[m].GetTableMerges();
+        }
+        std::cout << "    TABLE: " << merges << " entry merges network-wide\n";
+        if (bidirectionalDigest || pseudoAnchorSubs > 0)
+        {
+            std::cout << "    TABLE(reverse): casualty sent " << casualtyDigests
+                      << " digests, holds "
+                      << (finderEntryCycles > 0
+                              ? static_cast<double>(finderEntryHeldSum) /
+                                    static_cast<double>(finderEntryCycles)
+                              : 0.0)
+                      << " finder entries per cycle (of " << finderIds.size() << ")";
+            if (finderEntryAgeN > 0)
+            {
+                std::cout << ", mean age " << std::fixed << std::setprecision(1)
+                          << (finderEntryAgeSum / static_cast<double>(finderEntryAgeN))
+                          << " s";
+            }
+            std::cout << "\n    TABLE(reverse): " << pseudoAnchorSubs
+                      << " pseudo-anchor substitutions";
+            // The provenance term's actual input, reported where the substitution is
+            // reported. The C5 block below prints the same quantity but only when
+            // --relayedRanging is on, and the pseudo-anchor path feeds the accumulator
+            // without it -- so the share was being computed and never shown.
+            if (relayedFracN > 0)
+            {
+                std::cout << ", relayed variance share "
+                          << (relayedFracSum / static_cast<double>(relayedFracN))
+                          << " over " << relayedFracN << " cycles";
+            }
+            std::cout << "\n";
+        }
+    }
+
     if (relayedRanging)
     {
+        if (relayedFracN > 0)
+        {
+            std::cout << "    C5 relayed variance share: mean "
+                      << (relayedFracSum / static_cast<double>(relayedFracN))
+                      << " over " << relayedFracN << " cycles that had any\n";
+        }
         std::cout << "    C5 relayed measurements: admitted " << relayAdmitted
                   << ", rejected A1(tier) " << relayRejTier << ", A2(depth) "
                   << relayRejDepth << ", A3(geometry) " << relayRejGeom
@@ -4309,8 +5565,13 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
 int
 main(int argc, char* argv[])
 {
-    uint32_t envInt = 1;         // ENV_RURAL_FORESTED -- the wide-area SAR scenario
-    uint32_t envFacilityInt = 0; // ENV_RURAL_OPEN -- facility sites are clearings
+    uint32_t envInt = 1;           // ENV_RURAL_FORESTED -- the wide-area SAR scenario
+    // 255 is a SENTINEL meaning "follow envInt", not an EnvironmentClass.
+    // Tiers 2 and 3 used to default to ENV_RURAL_OPEN because their anchors sat
+    // at facility sites -- true of the three-population model, and false since
+    // the tri-band correction, which put all three radios on the same node. A
+    // node standing in canopy is in canopy on every band it carries.
+    uint32_t envFacilityInt = 255;
     double durationS = 3600.0;
     // 2.5 s, not 1.0 s. WPC G.S.R. 853(E) Table-II caps a field node at a 2.5%
     // transmit duty cycle in the 865-867 MHz band. Tier-1 airtime is ~0.056 s per
@@ -4334,6 +5595,19 @@ main(int argc, char* argv[])
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
+    // 0.0 = off. See --baseCampFrac.
+    double baseCampFrac = 0.0;
+    double subjectKeepOutM = 0.0;
+    double maxTurnRateRadS = 0.0;
+    // 0 = feed every fix, which is what every run before 2026-09-08 did.
+    double shsTrustedFixKArg = 0.0;
+    bool imuFusionArg = false;
+    bool imuIdealArg = false;
+    bool queryProxyArg = false;
+    double queryStalenessBoundSArg = 120.0;
+    bool reversePathArg = false;
+    bool shsStepBoundsArg = false;
+    bool shsSnapPositionArg = false;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
     double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
     uint32_t uwbAnchorsPerSite = 5;
@@ -4341,7 +5615,7 @@ main(int argc, char* argv[])
     double walkSpeedMps = 1.2;
     double dwellS = 90.0;
     uint32_t vegWideInt = static_cast<uint32_t>(VEG_DENSE_FOREST);
-    uint32_t vegFacilityInt = static_cast<uint32_t>(VEG_SPARSE_SHRUBS);
+    uint32_t vegFacilityInt = 255; // sentinel: follow vegWideInt
 
     CommandLine cmd;
     cmd.AddValue("env",
@@ -4349,7 +5623,15 @@ main(int argc, char* argv[])
                  "1=RuralForested 2=Suburban 3=UrbanModerate 4=UrbanDense)",
                  envInt);
     cmd.AddValue("envFacility",
-                 "EnvironmentClass at facility sites, for the 2.4 GHz and UWB tiers",
+                 "EnvironmentClass for the 2.4 GHz and UWB tiers. Default 255 = "
+                 "FOLLOW --env, because under the tri-band topology those radios "
+                 "sit on the same nodes as the 868 tier and a node standing in "
+                 "canopy is in canopy on every band it carries. It used to default "
+                 "to ENV_RURAL_OPEN, from the three-population model in which tiers "
+                 "2 and 3 were separate anchors at facility sites. That split gave "
+                 "2.4 GHz enough relief to OUT-RANGE 868 against 27 dB of link "
+                 "budget in tier 1's favour -- see report/ENV_SPLIT_DEFECT.md. "
+                 "Pass 0 with --vegFacility=1 to reproduce a pre-2026-09-08 run.",
                  envFacilityInt);
     // ---- Anchor beacon cadence ---------------------------------------------
     //
@@ -4386,7 +5668,17 @@ main(int argc, char* argv[])
     std::string suspectRecoveryArg = "none";
     double suspectInflateFactor = 4.0;
     uint32_t suspectRecoveryN = 5;
-    bool escalationRequiresEvidence = false;
+    // TRUE by default since 2026-09-08. K3 measured it worth 323.75 J of a
+    // 339 J arm -- 95% -- at 20 of 20 seeds, p < 0.0001, with no significant
+    // accuracy change and a zero noise floor. Pass false to reproduce a run
+    // taken before that date.
+    bool escalationRequiresEvidence = true;
+    // Default OFF and default-off it stays until it has a gate with a negative
+    // fixture (CLAUDE.md 4.4). The mechanism is new even though the flag name is old.
+    bool escalationRequiresEvidenceT2Arg = false;
+    double t2PredictRadiusMArg = 156.0;
+    uint32_t t2PredictMinAnchorsArg = 3;
+    bool uwbEvidenceFromNeighboursArg = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
     double pcsW1Arg = -1.0;
@@ -4401,11 +5693,45 @@ main(int argc, char* argv[])
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
     uint32_t relayTierArg = 1;
+    uint32_t maxRelayDepthArg = 1;
+    double relayVarBudgetM2Arg = 0.0;
     bool vizEventsArg = false;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
+    // Sentinel: negative means follow --speed, which is what every run before
+    // 2026-09-08 did, so the default is byte-identical.
+    double finderSpeedMpsArg = -1.0;
+    double finderDigestPeriodSArg = 30.0;
+    double finderPosSigmaMArg = 0.0;
+    bool finderPseudoAnchorArg = false;
+    bool bidirectionalDigestArg = false;
+    // TRUE since 2026-09-08. Tier 1 was billed as one broadcast -- a TDoA shape,
+    // right when the NETWORK localises -- while CaTblPolicy runs on the FIELD
+    // NODE and consumes a range per anchor, so the replies have to come back and
+    // nothing charged for them. TECH_DEBT J.2 recommends billing what tier 1
+    // actually does, which is RSSI inversion with replies. Roughly doubles
+    // tier-1 energy. Pass false to reproduce anything measured before.
+    bool tier1ChargeRepliesArg = true;
+    bool gatewayEdgeServerArg = false;
+    // The values ca-tbl-policy.cc already sets, so passing nothing is
+    // byte-identical to every run taken before this flag existed.
+    double processNoiseStdPosArg = 1.0;
+    double processNoiseStdVelArg = 0.5;
+    double finderDispersalArg = 0.0;
+    bool uwbCoverageIncludesFindersArg = false;
+    uint32_t hopProvenanceFormArg = 0;
+    double hopPenaltyArg = 0.0;
+    bool imuCrossCheckArg = false;
+    double imuDriftMpsArg = 0.15;
+    double imuConsistencyKArg = 3.0;
+    double imuSigmaFloorMArg = 5.0;
+    bool corroborationCheckArg = false;
+    double corroborationKArg = 3.0;
+    double corroborationRangeSigmaMArg = 30.0;
     uint32_t sitingModeArg = 0;
     uint32_t topologyArg = 0;
+    uint32_t nGatewaysArg = 0;
+    double gwRingFracArg = 0.6;
     double identityQueryPeriodSArg = 0.0;
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
@@ -4456,6 +5782,135 @@ main(int argc, char* argv[])
                  "default output is byte-identical to pre-D2-fix runs.",
                  traceDiagnostic);
     cmd.AddValue("boxHalf", "Half-width of the deployment box, metres", boxHalfM);
+    cmd.AddValue("baseCampFrac",
+                 "Put the infrastructure at a BASE CAMP at (f*boxHalf, f*boxHalf) and "
+                 "start the finders there, leaving the casualty touring the centre. "
+                 "0.0 = off, which is every run before 2026-09-08. WHY IT EXISTS: at "
+                 "0.0 the casualty starts within 0.2*boxHalf of the centre and tours "
+                 "corners at 0.47*boxHalf while a 3x3 gateway grid sits at 0.9*boxHalf "
+                 "WITH ONE AT THE ORIGIN -- so it is permanently inside the footprint "
+                 "and the searchers begin beside it. That is asset tracking in a "
+                 "covered yard, and the condition the architecture exists for -- no "
+                 "single band spanning the mission -- never occurs. At 0.9 with "
+                 "boxHalf 3000 the camp is at (2700,2700) and the tour corners are "
+                 "1824-5813 m away, mostly beyond 868 r80 of 1515 m, so reaching the "
+                 "casualty needs a searcher to walk out. Finders move with the camp: "
+                 "leaving them central would put the searchers in the search area at "
+                 "t=0 and flatter the very mechanism this is meant to test.",
+                 baseCampFrac);
+    cmd.AddValue("shsSnapPosition",
+                 "Anchor the SHS position at each CLEAN trusted fix. FALSE by default. "
+                 "REQUIRED BY --imuFusion, and the two are only correct together: the "
+                 "fusion variance is imuSigmaFloor + imuDrift * (t - lastTrustedFix), "
+                 "which asserts the position error is as old as the last trusted fix. "
+                 "A trusted fix calibrates GAIT and does not touch position, so without "
+                 "snapping that error accumulates from seeding and is never reset -- "
+                 "measured 459 m of SHS error while the variance claimed 5.4 m, and the "
+                 "filter duly followed it (cep95 276.6 -> 1499.8 on ca_tbl_full). "
+                 "Snapped, the SHS contributes the dead-reckoned DISPLACEMENT since "
+                 "the last fix, which is what an inertial system is for.",
+                 shsSnapPositionArg);
+    cmd.AddValue("shsStepBounds",
+                 "Refuse a step-length calibration implying a step outside 0.25-1.10 m. "
+                 "FALSE by default so earlier results reproduce. k_w = chord / |sum q u| is "
+                 "unbounded above: the numerator is a radio chord, the denominator a gait "
+                 "quantity that does not grow when the chord is mostly fix error. Where "
+                 "fixes are SPARSE -- which is where --imuFusion is most needed -- the fit "
+                 "runs away: measured 1.9e6 m of SHS error on an arm holding 7 fixes in "
+                 "1440 cycles, against 13 m on an arm that never calibrated. The bound is "
+                 "on step length rather than k_w because step length is the quantity with "
+                 "a physiological range. Turn this on with --imuFusion.",
+                 shsStepBoundsArg);
+    cmd.AddValue("queryProxy",
+                 "Network Layer 4: answer a QUERY on behalf of a FRESH table entry, not "
+                 "only when this node IS the target. FALSE by default. The spec calls "
+                 "this the case that makes an identity-scoped query useful at all: the "
+                 "target may be out of the requester radio range while its position "
+                 "is not, because the mesh already gossiped it here. Costs one wire "
+                 "byte per entry for target_manifest_id, charged only while this is "
+                 "on. An entry older than --queryStalenessBoundS is refused and counted, "
+                 "so a search that found only stale knowledge is distinguishable from "
+                 "one that found none.",
+                 queryProxyArg);
+    cmd.AddValue("queryStalenessBoundS",
+                 "Age beyond which a table entry may not be proxied (Network 4). 120 s "
+                 "by default. Not a tuning knob for accuracy: it is the claim that a "
+                 "position this old is no longer something the mesh has reason to "
+                 "believe, and answering from it would report a fix nothing supports.",
+                 queryStalenessBoundSArg);
+    cmd.AddValue("reversePath",
+                 "Transport Layer 1: cache which neighbour a QUERY arrived from and "
+                 "unicast the RESPONSE back along that path instead of flooding it. "
+                 "FALSE by default. Borrowed from AODV/DSR reactive routing. The cache "
+                 "is bounded and time-windowed on the same discipline as the packet_id "
+                 "dedup cache, and a miss FALLS BACK TO FLOOD -- so an eviction costs "
+                 "airtime, never the answer. Unicast and flooded responses are "
+                 "counted separately because the spec asks for the airtime saving as a "
+                 "number rather than a claim.",
+                 reversePathArg);
+    cmd.AddValue("imuIdeal",
+                 "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
+                 "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
+                 "last clean trusted fix and advances by the true displacement, so any "
+                 "figure under it is an upper bound on what a flawless IMU could add to "
+                 "this architecture and must be reported as a bound. Not error-free: "
+                 "the anchor is the FILTER estimate and carries that fix error, held "
+                 "constant rather than compounded, which is what separates a perfect "
+                 "inertial system from an oracle. Exists because the real SHS gait "
+                 "calibration diverges where fixes are sparse -- the regime fusion is "
+                 "for -- and that defect is recorded as debt, not fixed.",
+                 imuIdealArg);
+    cmd.AddValue("imuFusion",
+                 "Fuse the SHS position into the filter on cycles with NO radio fix. "
+                 "FALSE by default. THE MISSING LINK: the SHS maintains an absolute "
+                 "position and nothing consumed it -- its only use was a disagreement "
+                 "magnitude vetoing escalation, so the data flow ran filter -> SHS and "
+                 "never back. Meanwhile the filter coasts through 30 percent of cycles "
+                 "in the best deployment tested and 99.6 percent with a stationary "
+                 "subject, and measured 868 error degrades with that gap -- 183 m at "
+                 "no gap, 1205 m after 32-60 blind cycles. Measurement variance is "
+                 "(imuSigmaFloor + imuDrift * unaided time)^2: the SHS error model, "
+                 "drift accumulating with UNAIDED TIME rather than distance walked. "
+                 "Needs --shsTrustedFixK, or the SHS is calibrated on noise and fusing "
+                 "it makes things worse.",
+                 imuFusionArg);
+    cmd.AddValue("shsTrustedFixK",
+                 "Offer a fix to the SHS only when the node has moved more than K "
+                 "position-sigmas since the last one. 0 (default) feeds every fix, "
+                 "which is what every run before 2026-09-08 did. WHY: OnTrustedFix "
+                 "CALIBRATES step length and heading from the displacement between "
+                 "consecutive fixes, and the node walks ~3 m per cycle while the "
+                 "fixes carry ~167 m of error -- about 1 part signal to 56 parts "
+                 "noise, so the implied heading is noise and the engine dead-reckons "
+                 "on it for kilometres. Measured: arms feeding every fix ran 5-18 km "
+                 "off while the one arm that fed none stayed at 20-42 m. K around 2-3 "
+                 "makes calibration sparse and informative.",
+                 shsTrustedFixKArg);
+    cmd.AddValue("maxTurnRate",
+                 "Bound the walkers' heading change, rad/s. 0.0 (default) is unbounded, "
+                 "which is every run before 2026-09-08. WHY IT EXISTS: the SHS reaches "
+                 "~330 m of final error and DESIGN_DECISIONS section 8 names the cause -- "
+                 "the walker changes heading discontinuously while the engine "
+                 "integrates yaw rate. The travel leg already clamps to 0.35 rad/s; the "
+                 "dwell did not, and reversed heading INSTANTANEOUSLY on reaching the "
+                 "dwell radius. A yaw integrator cannot follow that. 0.35 matches the "
+                 "travel leg. THIS CHANGES THE MOBILITY, so with it on no earlier "
+                 "number is comparable.",
+                 maxTurnRateRadS);
+    cmd.AddValue("subjectKeepOutM",
+                 "With a base camp, drop any tour site within this many metres of it, "
+                 "so the subject does not wander back into coverage. 0.0 = off. The "
+                 "subject also STARTS at the camp when a camp exists -- the last "
+                 "known position, which is what a search begins from and what the "
+                 "finders converge on. WHAT THIS MAKES TESTABLE: with the subject "
+                 "outside gateway range every single-band arm goes blind, and the only "
+                 "path to a fix is a finder walking within range. Finders are "
+                 "registered on all three tiers, so three within 868's 1515 m give a "
+                 "tier-1 fix with ZERO gateways -- mobile anchors, not merely "
+                 "refinement -- and the error should then collapse as they close to "
+                 "156 m for tier 2 and to contact for tier 3. Two sites are always "
+                 "retained; a walker with fewer has no tour.",
+                 subjectKeepOutM);
     cmd.AddValue("uwbTriad", "UWB triad radius at each facility, metres", uwbTriadRadiusM);
     cmd.AddValue("t2Triad", "2.4 GHz triad radius at each facility, metres", t2TriadRadiusM);
     cmd.AddValue("uwbAnchors", "UWB anchors per facility site (>=3)", uwbAnchorsPerSite);
@@ -4467,7 +5922,12 @@ main(int argc, char* argv[])
                  "3=dense 4=tropical 5=crop 6=orchard)",
                  vegWideInt);
     cmd.AddValue("vegFacility",
-                 "VegetationType at facility sites, for the 2.4 GHz and UWB tiers",
+                 "VegetationType for the 2.4 GHz and UWB tiers. Default 255 = "
+                 "FOLLOW --vegWide, for the same reason --envFacility does. The "
+                 "old default was VEG_SPARSE_SHRUBS against tier 1's "
+                 "VEG_DENSE_FOREST, which is 3.2 dB of ITU-R P.833 foliage "
+                 "loss against 13.8 dB at the modelled median depth -- 10.6 dB "
+                 "handed to tier 2 on links through the same trees.",
                  vegFacilityInt);
     cmd.AddValue("beacon868", "Anchor DISCOVERY beacon period on tier 1, seconds", beacon868S);
     cmd.AddValue("beacon2p4", "Anchor DISCOVERY beacon period on tier 2, seconds", beacon2p4S);
@@ -4499,8 +5959,53 @@ main(int argc, char* argv[])
                  "Escalate 2.4->UWB only when the node's own EKF estimate predicts >=3 "
                  "UWB anchors within uwbPredictRadiusM, behind an estimate-quality gate. "
                  "Suppress-only; never creates an escalation. Does NOT gate 868->2.4 -- "
-                 "see escalationRequiresEvidenceT2 for why that one does not work.",
+                 "see escalationRequiresEvidenceT2 for why that one does not work. "
+                 "TRUE by default: K3 measured it worth 323.75 J of a 339 J arm "
+                 "at 20 of 20 seeds, p < 0.0001, with no significant accuracy "
+                 "change -- without it the policy escalates to UWB 92 more times "
+                 "per run, into a tier that obtained ZERO fix cycles in all "
+                 "eleven cells of K1. THE CAVEAT: this was measured where tier 3 "
+                 "never delivers, and the gate is suppress-only, so where tier 3 "
+                 "DOES work suppression could cost. Pass false to reproduce a run "
+                 "taken before 2026-09-08.",
                  escalationRequiresEvidence);
+    cmd.AddValue("escalationRequiresEvidenceT2",
+                 "Gate the 868->2.4 escalation on whether tier 2 could actually reach. "
+                 "FALSE by default. The old version of this flag asked the MAC "
+                 "neighbour cache and was BROKEN -- the tier-2 radio sleeps while "
+                 "tier 1 is active, so the count was always 0 and enabling it latched "
+                 "the node at the floor, 1440/1440 cycles on 868 with 0 escalations. "
+                 "Rebuilt 2026-09-08 as a PREDICTOR symmetric with --uwbEvidenceFromNeighbours: "
+                 "the ranges taken this cycle came from an AWAKE radio, so a neighbour "
+                 "ranged closer than --t2PredictRadius is one 2.4 GHz would reach. "
+                 "Geometry rather than a map, so it follows finders. WHY IT MATTERS: at "
+                 "boxHalf 6000 the policy escalates 199 times into a tier with ZERO fix "
+                 "cycles and pays ~18 J for it, which is the whole energy gap to "
+                 "static_868.",
+                 escalationRequiresEvidenceT2Arg);
+    cmd.AddValue("t2PredictRadius",
+                 "Radius for that predicate, metres. 156.0 = the probe r80 AFTER the "
+                 "environment correction. The pre-correction figure was 909.5 m and is "
+                 "5.8x too generous: a predicate at that radius admits escalations "
+                 "into a tier that cannot reach, which is the failure it exists to "
+                 "prevent.",
+                 t2PredictRadiusMArg);
+    cmd.AddValue("t2PredictMinAnchors",
+                 "Neighbours inside that radius before escalation is allowed. 3, "
+                 "because three is what a fix needs. The UWB predicate uses presence "
+                 "rather than count because tier 3 is a contact indicator; tier 2 is a "
+                 "localisation tier and one reachable anchor cannot solve.",
+                 t2PredictMinAnchorsArg);
+    cmd.AddValue("uwbEvidenceFromNeighbours",
+                 "Take the UWB half of that gate from the LIVE neighbour table rather "
+                 "than the static anchor map. FALSE by default. The map is a snapshot "
+                 "taken at scenario start, and under the tri-band topology tier 3 comes "
+                 "from FINDERS, which move and are never in it -- so the predicate asks "
+                 "about a deployment this system no longer has. Presence, not count: a "
+                 "suppress-only gate should ask whether the tier has anything here, not "
+                 "whether a fix will solve. Symmetric with the 868->2.4 half, which has "
+                 "always read the same live evidence.",
+                 uwbEvidenceFromNeighboursArg);
     cmd.AddValue("mahalUseR",
                  "Use the correctly specified integrity gate: weighted "
                  "multilateration for the test point and S = P_prior + (J^T R^-1 J)^-1 "
@@ -4745,7 +6250,196 @@ main(int argc, char* argv[])
                  "and a little I/O; it is off by default because a 3600 s six-arm run "
                  "writes a lot of frames.",
                  vizEventsArg);
+    cmd.AddValue("uwbCoverageIncludesFinders",
+                 "Count finders when labelling ground-truth UWB coverage. FALSE by "
+                 "default. VisibleCount() reads the STATIC deployment, and under the "
+                 "tri-band correction tier 3 comes from finders, which are not in it -- "
+                 "so visUwb is structurally 0, shouldUwb structurally false, every UWB "
+                 "escalation is scored a false positive and trig_f1 is 0.000 by "
+                 "construction. Measured: 0 tp / 21 fp / 0 fn / 459 tn on a run with "
+                 "three UWB neighbours on 12 cycles. Changes a reported column and no "
+                 "decision -- shouldUwb feeds the confusion matrix and nothing else.",
+                 uwbCoverageIncludesFindersArg);
+    cmd.AddValue("finderDispersal",
+                 "Spread finders over the casualty's REPORTED position uncertainty "
+                 "instead of stacking them on its centroid, in sigmas. 0.0 by default, "
+                 "which is the pre-existing behaviour: every finder walks to the same "
+                 "coordinate. That is the worst allocation precisely when it matters -- "
+                 "the reported position is tens of metres wrong and UWB reaches ~13.5 m, "
+                 "so a stack of finders at the centroid is a stack all equally out of "
+                 "range and tier 3 is never reached. The search region comes from varX "
+                 "and varY in the entry the finder already holds, so nothing is assumed "
+                 "that a searcher could not have been told. Axis-aligned: covXY is "
+                 "carried but not used, so a rotated ellipse is covered less efficiently "
+                 "rather than wrongly.",
+                 finderDispersalArg);
+    cmd.AddValue("processNoiseStdPos",
+                 "EKF process-noise std on position, metres. Default 1.0, the value "
+                 "ca-tbl-policy.cc already set and the scenario never touched. "
+                 "EXPOSED FOR A REASON: K2 measured 465 suspects in 1440 cycles, "
+                 "32.3%, against the 1% chi-squared 0.99 = 9.21 gives on a "
+                 "consistent filter, and ruled out corroboration and the forced "
+                 "escalation. With 2.4 GHz corrected to r80 156 m the node coasts "
+                 "far longer between fixes, and a Q tuned when coasting was short "
+                 "leaves the covariance under-grown -- which is a Mahalanobis "
+                 "distance that over-fires. Sweep this to test that; do NOT move "
+                 "the 9.21 threshold, which is a distributional constant.",
+                 processNoiseStdPosArg);
+    cmd.AddValue("processNoiseStdVel",
+                 "EKF process-noise std on velocity, m/s. Default 0.5, as above.",
+                 processNoiseStdVelArg);
+    cmd.AddValue("gatewayEdgeServer",
+                 "Put the estimator on the GATEWAYS, as the brief specifies. FALSE by "
+                 "default. The node broadcasts once, the gateways measure and report "
+                 "over the BACKHAUL, the network computes the fix, and the node gets "
+                 "ONE downlink -- so the tier-1 reply windows vanish and tier 1 "
+                 "legitimately costs one broadcast again, against roughly double that "
+                 "for node-side estimation. NO CLOCK SYNC IS INVOLVED: this is RSSI "
+                 "multilateration performed network-side, which is what LoRaWAN "
+                 "geolocation does in practice, and the estimator itself does not "
+                 "change -- only where it runs. TIER 1 ONLY: tiers 2 and 3 range by "
+                 "two-way time-of-flight precisely because the endpoints share no "
+                 "clock, so their exchange cannot move without the synchronisation "
+                 "TECH_DEBT J.2 records as absent.",
+                 gatewayEdgeServerArg);
+    cmd.AddValue("tier1ChargeReplies",
+                 "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
+                 "default, which preserves every published number. Tier 1 is billed as "
+                 "ONE BROADCAST AND NOTHING ELSE -- a TDoA shape, and the right cost "
+                 "when the NETWORK localises. But CaTblPolicy runs on the FIELD NODE and "
+                 "consumes a range per anchor per cycle, and nothing charges for those "
+                 "ranges arriving: there is no per-beacon RX accounting and AccountListen "
+                 "fires only when the neighbour table is empty. So tier 1's structural "
+                 "energy advantage, which every accuracy-per-joule figure rests on, is "
+                 "measured against an exchange one message short of closing. This "
+                 "measures the gap; it does not decide which shape is right, because that "
+                 "is the CONTRADICTION row in MASTER_PLAN 2.1 -- the spec puts the "
+                 "estimator on the gateway and the code puts it on the tag.",
+                 tier1ChargeRepliesArg);
+    cmd.AddValue("bidirectionalDigest",
+                 "Let the lost node ASK as well as answer, so the anti-entropy exchange "
+                 "runs both ways. FALSE by default. Only searchers used to ask, which "
+                 "is why 4 of 4 finders learn where the casualty is and the casualty "
+                 "learns nothing about them -- and why --finderPseudoAnchor and the hop "
+                 "provenance term were both built and both inert: neither has an entry "
+                 "to act on. The digest goes out on the ACTIVE tier, because sending on "
+                 "868 while up on UWB would charge a tier outside the cycle's "
+                 "transmission and break the sect 6 invariant, and because each tier "
+                 "owns its own table, so the answer must land in the one the ranging "
+                 "path reads.",
+                 bidirectionalDigestArg);
+    cmd.AddValue("finderPosSigma",
+                 "Metres of GNSS position error a finder carries, as a per-finder "
+                 "constant offset. 0.0 by default, which is the PRE-EXISTING and "
+                 "flattering assumption: a finder reports its position exactly. The "
+                 "self-consistent setting is 2.0 -- the variance a finder entry has "
+                 "always claimed is 4.0 m^2, while the position it carried was true, "
+                 "so the claim and the number disagreed. A searcher is not GPS-denied "
+                 "(that is the casualty's problem) but it is not surveyed "
+                 "infrastructure either. Constant rather than per-cycle noise because "
+                 "GNSS error over a 600 s walk is dominated by slowly varying terms; "
+                 "white noise would average out and understate it. Drawn from its own "
+                 "stream, so it displaces nothing else.",
+                 finderPosSigmaMArg);
+    cmd.AddValue("finderPseudoAnchor",
+                 "Treat a finder as a PSEUDO-ANCHOR rather than a perfectly known one: "
+                 "the filter gets the position the finder REPORTS and a variance "
+                 "inflated by that position's own uncertainty along the range "
+                 "direction. FALSE by default. With it off, a finder's TRUE position is "
+                 "handed to the filter, which credits it with knowledge no node has and "
+                 "flatters every result that depends on finders -- which, since finders "
+                 "are what make tier 3 reachable at all, is most of them. The physics is "
+                 "unaffected either way: the radio link is physical and does not care "
+                 "what anyone believes.",
+                 finderPseudoAnchorArg);
+    cmd.AddValue("hopProvenanceForm",
+                 "How hop provenance enters the confidence score. 0 (default) is the "
+                 "legacy linear subtraction, kept so prior results reproduce and pinned "
+                 "inert by hopWeight=0. 1 is the bounded multiplicative form the relayed-"
+                 "ranging error model specifies: pcs /= (1 + hopPenalty * relayed "
+                 "variance share). The legacy shape is UNBOUNDED BELOW, penalises a "
+                 "COUNT rather than an uncertainty, and encodes nothing about shared "
+                 "error -- all three of which the error model records as wrong.",
+                 hopProvenanceFormArg);
+    cmd.AddValue("hopPenalty",
+                 "Strength of the bounded provenance penalty. 0 (default) disables it "
+                 "whatever the form is set to. This is the ONE quantity in the "
+                 "confidence score that the filter covariance cannot already contain: "
+                 "the trace is the RESULT of a fix, provenance is HOW it was obtained, "
+                 "and two fixes with the same trace and different provenance are equally "
+                 "certain by the filter own account and not equally trustworthy.",
+                 hopPenaltyArg);
+    cmd.AddValue("imuCrossCheck",
+                 "Refuse an escalation when the filter's displacement disagrees with "
+                 "the body's, measured by dead reckoning. FALSE by default so the check "
+                 "can be run on against off, which is the comparison the project brief "
+                 "asks for and one you cannot make if the mechanism is always on. "
+                 "SUPPRESS-ONLY: it can withhold an escalation, never cause one, so it "
+                 "cannot manufacture the behaviour it is policing.",
+                 imuCrossCheckArg);
+    cmd.AddValue("imuDriftMps",
+                 "How fast the step-and-heading estimate is allowed to drift away "
+                 "from the filter while running unaided, metres per second. Default "
+                 "0.15. This sets the SHAPE of the consistency tolerance and it is the "
+                 "SHS error model rather than a strapdown one: drift accumulates with "
+                 "TIME SINCE THE LAST TRUSTED FIX, through heading error and step-length "
+                 "miscalibration, not with distance walked. OURS, not cited.",
+                 imuDriftMpsArg);
+    cmd.AddValue("imuConsistencyK",
+                 "How many filter sigmas of disagreement are tolerated before the "
+                 "inertial witness refuses an escalation. Default 3. OURS.",
+                 imuConsistencyKArg);
+    cmd.AddValue("imuSigmaFloorM",
+                 "Floor on the sigma term of that tolerance, metres, so a confident "
+                 "filter cannot be tripped by a disagreement smaller than the inertial "
+                 "system could ever resolve. Default 5.",
+                 imuSigmaFloorMArg);
+    cmd.AddValue("corroborationCheck",
+                 "Refuse an escalation when too few neighbours corroborate this node's "
+                 "estimate. For every node ranged this cycle whose own reported position "
+                 "is held in the table, the measured range is compared against the "
+                 "distance from this node's estimate to where that node SAYS it is. "
+                 "FALSE by default. This is the independent witness: it uses residuals "
+                 "and other nodes' reports, and NOT the filter's covariance, which is "
+                 "the quantity the confidence signal is made of.",
+                 corroborationCheckArg);
+    cmd.AddValue("corroborationK",
+                 "How many combined sigmas of range residual still count as agreement. "
+                 "Default 3. OURS.",
+                 corroborationKArg);
+    cmd.AddValue("corroborationRangeSigmaM",
+                 "Assumed ranging sigma in the corroboration tolerance, metres. Default "
+                 "30, which is tier-1 scale -- the loosest tier, so the test is "
+                 "deliberately reluctant to call a disagreement.",
+                 corroborationRangeSigmaMArg);
+    cmd.AddValue("finderDigestPeriodS",
+                 "How often each finder broadcasts a digest asking for table entries, "
+                 "seconds. Default 30. This is what makes the casualty's position reach "
+                 "a searcher AT ALL: the responder side of the anti-entropy exchange has "
+                 "always replied to a digest with its own entry, but nothing ever asked, "
+                 "so nothing propagated. Set 0 to disable and watch the finders stand "
+                 "still, which is what they should do when nobody has told them anything. "
+                 "Requires --sendHandshakeFrames, since that is what gates the responder.",
+                 finderDigestPeriodSArg);
+    cmd.AddValue("finderSpeed",
+                 "Walking speed of the SEARCHERS, m/s. Negative (default) means follow "
+                 "--speed, which is what every run before 2026-09-08 did. THEY NEEDED "
+                 "SEPARATING: --speed sets one variable that built both the subject's "
+                 "walker and every finder's, so --speed=0 -- how a still casualty is "
+                 "specified -- also pinned all four searchers to the spot, and every "
+                 "still cell measured a paralysed search party rather than a search.",
+                 finderSpeedMpsArg);
     cmd.AddValue("finderMode",
+                 "2 = SEARCH THEN CONVERGE. Mode 1 converges on the casualty's "
+                 "reported position and, with no entry, deliberately HOLDS POSITION "
+                 "-- a good diagnostic and not a search. Measured consequence: a "
+                 "stationary subject 11.6 km from the camp is never found, because "
+                 "it is out of range so it can tell nobody where it is, the finders "
+                 "have no entry so they do not move, and nothing comes into range. "
+                 "Mode 2 sweeps an expanding spiral from the LAST KNOWN POSITION "
+                 "until an entry is more informative than the sweep, then converges. "
+                 "Radius is capped at how far the subject could have walked. Needs "
+                 "--baseCampFrac. "
                  "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
                  "position ESTIMATE of the lost node, standing off 8 m once there. Not "
                  "the true position -- nobody knows that -- so a bad fix sends searchers "
@@ -4766,6 +6460,21 @@ main(int argc, char* argv[])
                  "Table-II field cap, NOT the 10% access-point cap -- a searcher is a "
                  "person carrying a radio, not installed infrastructure.",
                  nFindersArg);
+    cmd.AddValue("nGateways",
+                 "Place exactly N gateways evenly on a ring instead of a gwGrid x gwGrid "
+                 "square array. 0 (default) keeps the grid. Exists because the project "
+                 "brief asks for THREE gateways and three is not a square number, so the "
+                 "grid cannot express the deployment at all -- its nearest options are "
+                 "four and nine. At N=3 the ring is an equilateral triangle, which is "
+                 "the minimum geometry for a 2-D trilateration fix and the best "
+                 "conditioning three points can give the interior.",
+                 nGatewaysArg);
+    cmd.AddValue("gwRingFrac",
+                 "Ring radius as a fraction of boxHalf when --nGateways is used. Default "
+                 "0.6. A fraction rather than an absolute so the deployment scales with "
+                 "the area the way the grid does, and the two stay comparable across "
+                 "box sizes.",
+                 gwRingFracArg);
     cmd.AddValue("topology",
                  "0 (DEFAULT) = TRI-BAND GATEWAYS, the correct model: every gateway is "
                  "one fixed node carrying all three radios -- 868 MHz, 2.4 GHz and UWB "
@@ -4807,6 +6516,24 @@ main(int argc, char* argv[])
                  "different tier between one report and the next and the error model "
                  "does not cover that.",
                  relayedRangingArg);
+    cmd.AddValue("maxRelayDepth",
+                 "Hard ceiling on how many hops a relayed measurement may have crossed. "
+                 "1 (default) is the single-hop behaviour every result before 2026-09-08 "
+                 "was measured under, and it made the mesh single-hop by construction: "
+                 "a relay three kilometres out was invisible even with another node "
+                 "standing between. Above 1 the UNCERTAINTY BUDGET is normally what "
+                 "binds, not this -- see --relayVarBudget.",
+                 maxRelayDepthArg);
+    cmd.AddValue("relayVarBudget",
+                 "Accumulated positional variance a relayed measurement may carry, "
+                 "m^2. 0 (default) disables the budget and leaves depth bounded only "
+                 "by --maxRelayDepth. This is the ADAPTIVE half: what decides whether "
+                 "a relayed range is worth fusing is not how many hops it crossed but "
+                 "how much uncertainty it picked up doing so, and a relay carries what "
+                 "it inherited in its own covariance -- so the test needs no knowledge "
+                 "of the chain length. As a scale, tier-2 r80 is 156 m, so a budget "
+                 "of 156^2 admits a chain no more uncertain than one tier-2 hop.",
+                 relayVarBudgetM2Arg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -5044,6 +6771,17 @@ main(int argc, char* argv[])
         return 1;
     }
 
+    // Resolve the sentinels BEFORE the casts, so the value that reaches the
+    // physics is also the value the sidecar prints. 255 is not an
+    // EnvironmentClass and must never reach the cast.
+    if (envFacilityInt == 255)
+    {
+        envFacilityInt = envInt;
+    }
+    if (vegFacilityInt == 255)
+    {
+        vegFacilityInt = vegWideInt;
+    }
     const EnvironmentClass env = static_cast<EnvironmentClass>(envInt);
     const EnvironmentClass envFacility = static_cast<EnvironmentClass>(envFacilityInt);
     const VegetationType vegWide = static_cast<VegetationType>(vegWideInt);
@@ -5066,14 +6804,72 @@ main(int argc, char* argv[])
         return 1;
     }
 
-    const Deployment dep = BuildDeployment(gwGrid,
+    Deployment dep = BuildDeployment(gwGrid,
                                            boxHalfM,
                                            uwbTriadRadiusM,
                                            t2TriadRadiusM,
                                            uwbAnchorsPerSite,
                                            t2AnchorsPerSite,
                                            sitingModeArg,
-                                           topologyArg);
+                                           topologyArg,
+                                           nGatewaysArg,
+                                           gwRingFracArg);
+
+    // BASE CAMP. Move the infrastructure to a corner and leave the casualty's tour
+    // where it is, so the subject is OUTSIDE the gateway footprint for much of the
+    // run and reaching it needs a searcher to walk out. Applied here rather than
+    // inside BuildDeployment so every arm sees the identical deployment and the
+    // legacy topology path is untouched.
+    if (baseCampFrac > 0.0)
+    {
+        const double bcx = baseCampFrac * boxHalfM;
+        const double bcy = baseCampFrac * boxHalfM;
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+            {
+                dep.anchors[ti][i].pos.x += bcx;
+                dep.anchors[ti][i].pos.y += bcy;
+            }
+        }
+        dep.hasBaseCamp = true;
+        dep.baseCampX = bcx;
+        dep.baseCampY = bcy;
+
+        // KEEP-OUT. Once the subject leaves the camp it should not wander back
+        // into coverage: "lost" means out of reach of the infrastructure, and a
+        // tour that keeps re-entering the footprint is the enclosure scenario
+        // again. Sites are dropped by distance from the camp, farthest kept.
+        if (subjectKeepOutM > 0.0)
+        {
+            std::vector<std::pair<double, Vector>> byDist;
+            for (size_t i = 0; i < dep.facilities.size(); ++i)
+            {
+                const double dx = dep.facilities[i].x - bcx;
+                const double dy = dep.facilities[i].y - bcy;
+                byDist.push_back({std::sqrt(dx * dx + dy * dy), dep.facilities[i]});
+            }
+            std::sort(byDist.begin(), byDist.end(),
+                      [](const std::pair<double, Vector>& a,
+                         const std::pair<double, Vector>& b) {
+                          return a.first > b.first;
+                      });
+            std::vector<Vector> kept;
+            for (size_t i = 0; i < byDist.size(); ++i)
+            {
+                // A walker with fewer than two targets has no tour, so the two
+                // farthest are kept whatever the radius asks for.
+                if (byDist[i].first >= subjectKeepOutM || kept.size() < 2)
+                {
+                    kept.push_back(byDist[i].second);
+                }
+            }
+            std::cout << "  keep-out " << subjectKeepOutM << " m: "
+                      << kept.size() << " of " << dep.facilities.size()
+                      << " tour sites retained\n";
+            dep.facilities = kept;
+        }
+    }
 
     if (vizEventsArg)
     {
@@ -5207,7 +7003,13 @@ main(int argc, char* argv[])
             << "cad_868,cad_2p4,cad_uwb,idle_868,idle_2p4,idle_uwb,"
             << "sleep_868,sleep_2p4,sleep_uwb,"
             << "meanNbr_868,meanNbr_2p4,meanNbr_uwb,blindCycles,nbrInsertions,"
-            << "mac_tx,mac_collisions,mac_captures,mac_deliveries\n";
+            << "mac_tx,mac_collisions,mac_captures,mac_deliveries,"
+            // Rival systems, scored from the same measurements as the EKF columns
+            // above. Appended rather than interleaved so every existing column
+            // keeps its index and older readers still parse.
+            << "rmse_mlat,cep95_mlat,rmse_wcl,cep95_wcl,"
+            << "rmse_prox,cep95_prox,rmse_lkp,cep95_lkp,mlat_solved,"
+            << "meanErrM,meanErrFixedM,tFirstFixS,tFirst100mS\n";
 
     std::cout << "CA-TBL causal simulation (S1 + S2 + S2.5)\n"
               << "  envWide=" << envInt << " vegWide=" << vegWideInt
@@ -5285,6 +7087,10 @@ main(int argc, char* argv[])
                                        suspectInflateFactor,
                                        suspectRecoveryN,
                                        escalationRequiresEvidence,
+                                       escalationRequiresEvidenceT2Arg,
+                                       t2PredictRadiusMArg,
+                                       t2PredictMinAnchorsArg,
+                                       uwbEvidenceFromNeighboursArg,
                                        multiStepMode,
                                        demoteStalenessS,
                                        nlosSource,
@@ -5302,9 +7108,42 @@ main(int argc, char* argv[])
                                        nTagsArg,
                                        relayedRangingArg,
                                        relayTierArg,
+                                       maxRelayDepthArg,
+                                       relayVarBudgetM2Arg,
                                        vizEventsArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       maxTurnRateRadS,
+                                       shsTrustedFixKArg,
+                                       imuFusionArg,
+                                       imuIdealArg,
+                                       queryProxyArg,
+                                       queryStalenessBoundSArg,
+                                       reversePathArg,
+                                       shsStepBoundsArg,
+                                       shsSnapPositionArg,
+                                       (finderSpeedMpsArg >= 0.0)
+                                           ? finderSpeedMpsArg
+                                           : walkSpeedMps,
+                                       finderDigestPeriodSArg,
+                                       finderPosSigmaMArg,
+                                       finderPseudoAnchorArg,
+                                       bidirectionalDigestArg,
+                                       tier1ChargeRepliesArg,
+                                       gatewayEdgeServerArg,
+                                       processNoiseStdPosArg,
+                                       processNoiseStdVelArg,
+                                       finderDispersalArg,
+                                       uwbCoverageIncludesFindersArg,
+                                       hopProvenanceFormArg,
+                                       hopPenaltyArg,
+                                       imuCrossCheckArg,
+                                       imuDriftMpsArg,
+                                       imuConsistencyKArg,
+                                       imuSigmaFloorMArg,
+                                       corroborationCheckArg,
+                                       corroborationKArg,
+                                       corroborationRangeSigmaMArg,
                                        identityQueryPeriodSArg,
                                        identityQueryTargetArg,
                                        uwbArbitrationArg,
@@ -5356,7 +7195,15 @@ main(int argc, char* argv[])
                     << std::setprecision(4) << r.meanNeighbours[0] << "," << r.meanNeighbours[1]
                     << "," << r.meanNeighbours[2] << "," << r.blindCycles << ","
                     << r.neighbourInsertions << "," << r.macTx << "," << r.macCollisions << ","
-                    << r.macCaptures << "," << r.macDeliveries << "\n";
+                    << r.macCaptures << "," << r.macDeliveries << ","
+                    << std::setprecision(4)
+                    << r.rmseMlatM << "," << r.cep95MlatM << ","
+                    << r.rmseWclM << "," << r.cep95WclM << ","
+                    << r.rmseProxM << "," << r.cep95ProxM << ","
+                    << r.rmseLkpM << "," << r.cep95LkpM << ","
+                    << r.mlatSolvedCycles << "," << std::setprecision(4) << r.meanErrM << ","
+                    << r.meanErrFixedM << "," << r.tFirstFixS << ","
+                    << r.tFirst100mS << "\n";
 
             std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
                       << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
