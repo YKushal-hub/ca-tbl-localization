@@ -5023,8 +5023,13 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
 int
 main(int argc, char* argv[])
 {
-    uint32_t envInt = 1;         // ENV_RURAL_FORESTED -- the wide-area SAR scenario
-    uint32_t envFacilityInt = 0; // ENV_RURAL_OPEN -- facility sites are clearings
+    uint32_t envInt = 1;           // ENV_RURAL_FORESTED -- the wide-area SAR scenario
+    // 255 is a SENTINEL meaning "follow envInt", not an EnvironmentClass.
+    // Tiers 2 and 3 used to default to ENV_RURAL_OPEN because their anchors sat
+    // at facility sites -- true of the three-population model, and false since
+    // the tri-band correction, which put all three radios on the same node. A
+    // node standing in canopy is in canopy on every band it carries.
+    uint32_t envFacilityInt = 255;
     double durationS = 3600.0;
     // 2.5 s, not 1.0 s. WPC G.S.R. 853(E) Table-II caps a field node at a 2.5%
     // transmit duty cycle in the 865-867 MHz band. Tier-1 airtime is ~0.056 s per
@@ -5055,7 +5060,7 @@ main(int argc, char* argv[])
     double walkSpeedMps = 1.2;
     double dwellS = 90.0;
     uint32_t vegWideInt = static_cast<uint32_t>(VEG_DENSE_FOREST);
-    uint32_t vegFacilityInt = static_cast<uint32_t>(VEG_SPARSE_SHRUBS);
+    uint32_t vegFacilityInt = 255; // sentinel: follow vegWideInt
 
     CommandLine cmd;
     cmd.AddValue("env",
@@ -5063,7 +5068,15 @@ main(int argc, char* argv[])
                  "1=RuralForested 2=Suburban 3=UrbanModerate 4=UrbanDense)",
                  envInt);
     cmd.AddValue("envFacility",
-                 "EnvironmentClass at facility sites, for the 2.4 GHz and UWB tiers",
+                 "EnvironmentClass for the 2.4 GHz and UWB tiers. Default 255 = "
+                 "FOLLOW --env, because under the tri-band topology those radios "
+                 "sit on the same nodes as the 868 tier and a node standing in "
+                 "canopy is in canopy on every band it carries. It used to default "
+                 "to ENV_RURAL_OPEN, from the three-population model in which tiers "
+                 "2 and 3 were separate anchors at facility sites. That split gave "
+                 "2.4 GHz enough relief to OUT-RANGE 868 against 27 dB of link "
+                 "budget in tier 1's favour -- see report/ENV_SPLIT_DEFECT.md. "
+                 "Pass 0 with --vegFacility=1 to reproduce a pre-2026-09-08 run.",
                  envFacilityInt);
     // ---- Anchor beacon cadence ---------------------------------------------
     //
@@ -5200,7 +5213,12 @@ main(int argc, char* argv[])
                  "3=dense 4=tropical 5=crop 6=orchard)",
                  vegWideInt);
     cmd.AddValue("vegFacility",
-                 "VegetationType at facility sites, for the 2.4 GHz and UWB tiers",
+                 "VegetationType for the 2.4 GHz and UWB tiers. Default 255 = "
+                 "FOLLOW --vegWide, for the same reason --envFacility does. The "
+                 "old default was VEG_SPARSE_SHRUBS against tier 1's "
+                 "VEG_DENSE_FOREST, which is 3.2 dB of ITU-R P.833 foliage "
+                 "loss against 13.8 dB at the modelled median depth -- 10.6 dB "
+                 "handed to tier 2 on links through the same trees.",
                  vegFacilityInt);
     cmd.AddValue("beacon868", "Anchor DISCOVERY beacon period on tier 1, seconds", beacon868S);
     cmd.AddValue("beacon2p4", "Anchor DISCOVERY beacon period on tier 2, seconds", beacon2p4S);
@@ -5944,6 +5962,17 @@ main(int argc, char* argv[])
         return 1;
     }
 
+    // Resolve the sentinels BEFORE the casts, so the value that reaches the
+    // physics is also the value the sidecar prints. 255 is not an
+    // EnvironmentClass and must never reach the cast.
+    if (envFacilityInt == 255)
+    {
+        envFacilityInt = envInt;
+    }
+    if (vegFacilityInt == 255)
+    {
+        vegFacilityInt = vegWideInt;
+    }
     const EnvironmentClass env = static_cast<EnvironmentClass>(envInt);
     const EnvironmentClass envFacility = static_cast<EnvironmentClass>(envFacilityInt);
     const VegetationType vegWide = static_cast<VegetationType>(vegWideInt);
