@@ -2383,6 +2383,9 @@ RunArm(CaTblPolicyMode mode,
        bool queryProxy,
        bool tableFuseCI,
        bool digestSummary,
+       uint32_t injectSilentId,
+       double injectSilentStartS,
+       double injectSilentEndS,
        double queryStalenessBoundS,
        bool reversePath,
        bool shsStepBounds,
@@ -3479,6 +3482,35 @@ RunArm(CaTblPolicyMode mode,
             {
                 vizNodes << t << ',' << tags[pt].nodeId << ',' << tags[pt].pos.x << ','
                          << tags[pt].pos.y << '\n';
+            }
+        }
+
+        // sect 49 FAULT INJECTION -- a node goes silent, then comes back.
+        //
+        // The node is NOT removed. It keeps its table and its position and resumes with
+        // both intact. Removing it would test a different fault and would make the
+        // return indistinguishable from a new node joining -- the distinction
+        // CaTblNodeLifecycle exists to preserve.
+        //
+        // TRANSMIT SUPPRESSION ONLY. This is a node that cannot TALK: a failed transmit
+        // chain, an exhausted duty budget, an amplifier browning out on a cold battery.
+        // It still HEARS everything. That is why the finders still hold the casualty
+        // entry across the outage -- not a bug in the injection, the fault that was
+        // actually injected. An obstruction, which is deaf as well as mute, is a
+        // different fault and is not this one.
+        //
+        // Applied every cycle rather than scheduled once, so the window is honoured
+        // even if the run is shorter than it, and so the node is observably restored
+        // rather than left silent by an event that never fired.
+        if (injectSilentId != 0)
+        {
+            const bool inWindow = (t >= injectSilentStartS && t < injectSilentEndS);
+            for (size_t mi = 0; mi < macs.size(); ++mi)
+            {
+                if (macs[mi].GetNodeId() == static_cast<uint16_t>(injectSilentId))
+                {
+                    macs[mi].SetSilent(inWindow);
+                }
             }
         }
 
@@ -5399,6 +5431,17 @@ RunArm(CaTblPolicyMode mode,
             digPush += macs[i].GetDigestPushes();
             digNoOp += macs[i].GetDigestNoOps();
         }
+        uint64_t suppressed = 0;
+        for (size_t i = 0; i < macs.size(); ++i)
+        {
+            suppressed += macs[i].GetSuppressedTx();
+        }
+        if (suppressed > 0)
+        {
+            std::cout << "    FAULT sect 49: " << suppressed
+                      << " frames suppressed while node " << injectSilentId
+                      << " was silent\n";
+        }
         if (digPush + digNoOp > 0)
         {
             std::cout << "    ANTI-ENTROPY: digest pushes " << digPush
@@ -5677,6 +5720,9 @@ main(int argc, char* argv[])
     bool queryProxyArg = false;
     bool tableFuseCIArg = false;
     bool digestSummaryArg = false;
+    uint32_t injectSilentIdArg = 0;
+    double injectSilentStartSArg = 0.0;
+    double injectSilentEndSArg = 0.0;
     double queryStalenessBoundSArg = 120.0;
     bool reversePathArg = false;
     bool shsStepBoundsArg = false;
@@ -5894,6 +5940,16 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("injectSilentId",
+                 "sect 49: node id whose TRANSMIT goes silent for a window, then returns. "
+                 "0 = off. The node is not removed and still HEARS everything -- this is a "
+                 "node that cannot talk (failed transmit chain, exhausted duty budget, "
+                 "amplifier browning out on a cold battery), NOT one behind an obstruction, "
+                 "which would be deaf as well as mute. Removing it would make the return "
+                 "indistinguishable from a new node joining.",
+                 injectSilentIdArg);
+    cmd.AddValue("injectSilentStartS", "sect 49: when the silence begins.", injectSilentStartSArg);
+    cmd.AddValue("injectSilentEndS", "sect 49: when the node comes back.", injectSilentEndSArg);
     cmd.AddValue("digestSummary",
                  "Carry the {node_id, seq_no} anti-entropy summary in a DIGEST, and "
                  "answer it. FALSE by default. The airtime has been billed since S4 while "
@@ -7212,6 +7268,9 @@ main(int argc, char* argv[])
                                        queryProxyArg,
                                        tableFuseCIArg,
                                        digestSummaryArg,
+                                       injectSilentIdArg,
+                                       injectSilentStartSArg,
+                                       injectSilentEndSArg,
                                        queryStalenessBoundSArg,
                                        reversePathArg,
                                        shsStepBoundsArg,

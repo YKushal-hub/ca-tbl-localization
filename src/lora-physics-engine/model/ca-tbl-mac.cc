@@ -651,6 +651,14 @@ CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId)
 void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
+    // sect 49: a silenced radio consumes the call and emits nothing. Counted, because a
+    // fault that leaves no trace is indistinguishable from a quiet period.
+    if (m_silent)
+    {
+        ++m_suppressedTx;
+        return;
+    }
+
     PendingFrame f;
     f.hdr.SetPacketId(NextPacketId());
     // The anti-entropy exchange the design specifies: an ENTRY_PUSH carries the
