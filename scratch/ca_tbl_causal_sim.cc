@@ -5377,6 +5377,28 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+
+    // Net sect 4 / Trans sect 1. The counters existed and NOTHING PRINTED THEM, so the
+    // positive control for --queryProxy and --reversePath had no observable to check --
+    // rule 9, in miniature: the check for a firing was written before anything wrote the
+    // firing down. Summed over every MAC in the run, tags and infrastructure alike,
+    // because a proxy answer is by definition given by a node that is NOT the target.
+    {
+        uint64_t proxyStale = 0, uni = 0, flood = 0, proxyOk = 0;
+        for (size_t i = 0; i < macs.size(); ++i)
+        {
+            proxyOk += macs[i].GetProxyResponses();
+            proxyStale += macs[i].GetProxyRefusedStale();
+            uni += macs[i].GetResponsesUnicast();
+            flood += macs[i].GetResponsesFlooded();
+        }
+        if (proxyStale + uni + flood + proxyOk > 0)
+        {
+            std::cout << "    NET4/TRANS1: proxy answered " << proxyOk << ", proxy refused stale "
+                      << proxyStale << ", responses unicast " << uni << ", flooded "
+                      << flood << "\n";
+        }
+    }
     if (imuCrossCheck || corroborationCheck)
     {
         std::cout << "    SHS: engine at (" << std::fixed << std::setprecision(1)
