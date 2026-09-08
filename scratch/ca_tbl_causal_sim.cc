@@ -2235,6 +2235,9 @@ RunArm(CaTblPolicyMode mode,
        double suspectInflateFactor,
        uint32_t suspectRecoveryN,
        bool escalationRequiresEvidence,
+       bool escalationRequiresEvidenceT2,
+       double t2PredictRadiusM,
+       uint32_t t2PredictMinAnchors,
        bool uwbEvidenceFromNeighbours,
        int multiStepMode,
        double demoteStalenessS,
@@ -2412,6 +2415,9 @@ RunArm(CaTblPolicyMode mode,
     pcfg.suspectInflateFactor = suspectInflateFactor;
     pcfg.suspectRecoveryN = suspectRecoveryN;
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
+    pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
+    pcfg.t2PredictRadiusM = t2PredictRadiusM;
+    pcfg.t2PredictMinAnchors = t2PredictMinAnchors;
     pcfg.uwbEvidenceFromNeighbours = uwbEvidenceFromNeighbours;
     // The map the predicate needs. The node must already hold anchor coordinates to
     // multilaterate at all, so supplying them grants no information it lacks; an
@@ -5122,6 +5128,11 @@ main(int argc, char* argv[])
     // accuracy change and a zero noise floor. Pass false to reproduce a run
     // taken before that date.
     bool escalationRequiresEvidence = true;
+    // Default OFF and default-off it stays until it has a gate with a negative
+    // fixture (CLAUDE.md 4.4). The mechanism is new even though the flag name is old.
+    bool escalationRequiresEvidenceT2Arg = false;
+    double t2PredictRadiusMArg = 156.0;
+    uint32_t t2PredictMinAnchorsArg = 3;
     bool uwbEvidenceFromNeighboursArg = false;
     bool suspectForcesEscalation = true;
     std::string pcsFormArg = "legacy";
@@ -5272,6 +5283,33 @@ main(int argc, char* argv[])
                  "DOES work suppression could cost. Pass false to reproduce a run "
                  "taken before 2026-09-08.",
                  escalationRequiresEvidence);
+    cmd.AddValue("escalationRequiresEvidenceT2",
+                 "Gate the 868->2.4 escalation on whether tier 2 could actually reach. "
+                 "FALSE by default. The old version of this flag asked the MAC "
+                 "neighbour cache and was BROKEN -- the tier-2 radio sleeps while "
+                 "tier 1 is active, so the count was always 0 and enabling it latched "
+                 "the node at the floor, 1440/1440 cycles on 868 with 0 escalations. "
+                 "Rebuilt 2026-09-08 as a PREDICTOR symmetric with --uwbEvidenceFromNeighbours: "
+                 "the ranges taken this cycle came from an AWAKE radio, so a neighbour "
+                 "ranged closer than --t2PredictRadius is one 2.4 GHz would reach. "
+                 "Geometry rather than a map, so it follows finders. WHY IT MATTERS: at "
+                 "boxHalf 6000 the policy escalates 199 times into a tier with ZERO fix "
+                 "cycles and pays ~18 J for it, which is the whole energy gap to "
+                 "static_868.",
+                 escalationRequiresEvidenceT2Arg);
+    cmd.AddValue("t2PredictRadius",
+                 "Radius for that predicate, metres. 156.0 = the probe r80 AFTER the "
+                 "environment correction. The pre-correction figure was 909.5 m and is "
+                 "5.8x too generous: a predicate at that radius admits escalations "
+                 "into a tier that cannot reach, which is the failure it exists to "
+                 "prevent.",
+                 t2PredictRadiusMArg);
+    cmd.AddValue("t2PredictMinAnchors",
+                 "Neighbours inside that radius before escalation is allowed. 3, "
+                 "because three is what a fix needs. The UWB predicate uses presence "
+                 "rather than count because tier 3 is a contact indicator; tier 2 is a "
+                 "localisation tier and one reachable anchor cannot solve.",
+                 t2PredictMinAnchorsArg);
     cmd.AddValue("uwbEvidenceFromNeighbours",
                  "Take the UWB half of that gate from the LIVE neighbour table rather "
                  "than the static anchor map. FALSE by default. The map is a snapshot "
@@ -6251,6 +6289,9 @@ main(int argc, char* argv[])
                                        suspectInflateFactor,
                                        suspectRecoveryN,
                                        escalationRequiresEvidence,
+                                       escalationRequiresEvidenceT2Arg,
+                                       t2PredictRadiusMArg,
+                                       t2PredictMinAnchorsArg,
                                        uwbEvidenceFromNeighboursArg,
                                        multiStepMode,
                                        demoteStalenessS,
