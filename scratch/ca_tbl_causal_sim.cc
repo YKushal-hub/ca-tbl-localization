@@ -2412,6 +2412,14 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    // LAST KNOWN POSITION. With a base camp the subject starts AT it and walks
+    // out, which is what a search actually begins from and what gives the finders
+    // something to converge on. The RNG draw in the constructor happens either
+    // way, so the stream does not move.
+    if (dep.hasBaseCamp)
+    {
+        walker.SetPosition(dep.baseCampX, dep.baseCampY);
+    }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
@@ -5089,6 +5097,7 @@ main(int argc, char* argv[])
     double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
     // 0.0 = off. See --baseCampFrac.
     double baseCampFrac = 0.0;
+    double subjectKeepOutM = 0.0;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
     double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
     uint32_t uwbAnchorsPerSite = 5;
@@ -5267,6 +5276,20 @@ main(int argc, char* argv[])
                  "leaving them central would put the searchers in the search area at "
                  "t=0 and flatter the very mechanism this is meant to test.",
                  baseCampFrac);
+    cmd.AddValue("subjectKeepOutM",
+                 "With a base camp, drop any tour site within this many metres of it, "
+                 "so the subject does not wander back into coverage. 0.0 = off. The "
+                 "subject also STARTS at the camp when a camp exists -- the last "
+                 "known position, which is what a search begins from and what the "
+                 "finders converge on. WHAT THIS MAKES TESTABLE: with the subject "
+                 "outside gateway range every single-band arm goes blind, and the only "
+                 "path to a fix is a finder walking within range. Finders are "
+                 "registered on all three tiers, so three within 868's 1515 m give a "
+                 "tier-1 fix with ZERO gateways -- mobile anchors, not merely "
+                 "refinement -- and the error should then collapse as they close to "
+                 "156 m for tier 2 and to contact for tier 3. Two sites are always "
+                 "retained; a walker with fewer has no tour.",
+                 subjectKeepOutM);
     cmd.AddValue("uwbTriad", "UWB triad radius at each facility, metres", uwbTriadRadiusM);
     cmd.AddValue("t2Triad", "2.4 GHz triad radius at each facility, metres", t2TriadRadiusM);
     cmd.AddValue("uwbAnchors", "UWB anchors per facility site (>=3)", uwbAnchorsPerSite);
@@ -6141,6 +6164,40 @@ main(int argc, char* argv[])
         dep.hasBaseCamp = true;
         dep.baseCampX = bcx;
         dep.baseCampY = bcy;
+
+        // KEEP-OUT. Once the subject leaves the camp it should not wander back
+        // into coverage: "lost" means out of reach of the infrastructure, and a
+        // tour that keeps re-entering the footprint is the enclosure scenario
+        // again. Sites are dropped by distance from the camp, farthest kept.
+        if (subjectKeepOutM > 0.0)
+        {
+            std::vector<std::pair<double, Vector>> byDist;
+            for (size_t i = 0; i < dep.facilities.size(); ++i)
+            {
+                const double dx = dep.facilities[i].x - bcx;
+                const double dy = dep.facilities[i].y - bcy;
+                byDist.push_back({std::sqrt(dx * dx + dy * dy), dep.facilities[i]});
+            }
+            std::sort(byDist.begin(), byDist.end(),
+                      [](const std::pair<double, Vector>& a,
+                         const std::pair<double, Vector>& b) {
+                          return a.first > b.first;
+                      });
+            std::vector<Vector> kept;
+            for (size_t i = 0; i < byDist.size(); ++i)
+            {
+                // A walker with fewer than two targets has no tour, so the two
+                // farthest are kept whatever the radius asks for.
+                if (byDist[i].first >= subjectKeepOutM || kept.size() < 2)
+                {
+                    kept.push_back(byDist[i].second);
+                }
+            }
+            std::cout << "  keep-out " << subjectKeepOutM << " m: "
+                      << kept.size() << " of " << dep.facilities.size()
+                      << " tour sites retained\n";
+            dep.facilities = kept;
+        }
     }
 
     if (vizEventsArg)
