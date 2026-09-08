@@ -104,6 +104,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -922,6 +923,17 @@ struct ArmResult
     //! often it had nothing to work with.
     double rmseFixedM;
     double cep50FixedM;
+    //! Mean error, unconditional and fix-conditional. Reported beside the RMS
+    //! because the two separate only when the tail is heavy, and which of them
+    //! is which is the whole question in a system that spends cycles coasting.
+    double meanErrM;
+    double meanErrFixedM;
+    //! When the system first knew anything, and when it first knew the position
+    //! to within 100 m. The second is the operational one: the moment a ground
+    //! team can be sent to a circle it can actually walk. NEGATIVE MEANS IT NEVER
+    //! HAPPENED inside the run, which is a result and not a missing value.
+    double tFirstFixS;
+    double tFirst100mS;
     uint64_t fixCycles;
     double totalJ;
     double tierJ[CA_TBL_TIER_COUNT];
@@ -2366,6 +2378,10 @@ RunArm(CaTblPolicyMode mode,
        uint32_t finderMode,
        double maxTurnRateRadS,
        double shsTrustedFixK,
+       bool imuFusion,
+       bool imuIdeal,
+       bool shsStepBounds,
+       bool shsSnapPosition,
        double finderSpeedMps,
        double finderDigestPeriodS,
        double finderPosSigmaM,
@@ -3340,9 +3356,25 @@ RunArm(CaTblPolicyMode mode,
     bool haveTrusted = false;
     uint64_t shsTrustedFixes = 0;
     uint64_t shsFixesSkipped = 0;
+    uint64_t imuFusedCycles = 0;
+    double tFirstFixS = -1.0;
+    double tFirst100mS = -1.0;
 
     // The real step-and-heading system from IMU_SHS_V1.1, not a scale-error stub.
     lorawan::ShsEngineParams shsParams;
+    // Anchor the dead-reckoned position at each clean fix. Without this the SHS
+    // position error accumulates from seeding and is never reset, while the
+    // fusion variance resets every trusted fix -- so the filter is handed a
+    // 459 m position labelled 5.4 m. See --shsSnapPosition.
+    shsParams.snapPositionToTrustedFix = shsSnapPosition;
+    if (shsStepBounds)
+    {
+        // A walking human's step, not a fitted range. Refusing a calibration
+        // outside it is the only thing standing between a sparse-fix arm and a
+        // dead-reckoned position 1.9e6 m from the body.
+        shsParams.stepLength.minPlausibleStepM = 0.25;
+        shsParams.stepLength.maxPlausibleStepM = 1.10;
+    }
     Ptr<NormalRandomVariable> shsRng = CreateObject<NormalRandomVariable>();
     // Own stream, set before first use: the inertial sensor model must not shift a
     // single draw the radio layer makes.
@@ -3354,6 +3386,10 @@ RunArm(CaTblPolicyMode mode,
     // NOT seeded here: the deployment heading is not known until the node moves, and
     // seeding zero would assert it faces +x. ShsDriver seeds on the first moving cycle.
     ShsDriver shsDriver;
+    // Ideal dead reckoner: anchored at the last clean fix, advanced by TRUE
+    // displacement. A ceiling on inertial contribution, not a sensor model.
+    double idealX = 0.0, idealY = 0.0;
+    bool idealAnchored = false;
     shsDriver.engine = &shsEngine;
 
     auto& pcsHist = TS0.pcsHist;
@@ -4487,6 +4523,14 @@ RunArm(CaTblPolicyMode mode,
         // strapdown-derived check for exactly this reason.
         {
             shsDriver.Advance(t - dt, dt, prevTruePos, pos);
+            if (imuIdeal && idealAnchored)
+            {
+                // Perfect relative motion from an imperfect anchor. The anchor's
+                // error is retained, not compounded -- that is the difference
+                // between a perfect IMU and an oracle.
+                idealX += pos.x - prevTruePos.x;
+                idealY += pos.y - prevTruePos.y;
+            }
             prevTruePos = pos;
             const double sdx = shsEngine.GetX() - policy.EstX();
             const double sdy = shsEngine.GetY() - policy.EstY();
@@ -4554,6 +4598,39 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
 
+        // ---- INERTIAL DEAD RECKONING FILLS THE GAP -------------------------
+        //
+        // With no radio fix this cycle the filter would coast on constant
+        // velocity, while the SHS holds a dead-reckoned position nobody reads.
+        // Hand it over as a measurement instead.
+        //
+        // Its uncertainty grows with time since the last TRUSTED fix -- the SHS
+        // error model, where drift accumulates with UNAIDED TIME rather than with
+        // distance walked -- reusing the two constants the consistency check
+        // already uses, so the fusion and the check state one error model between
+        // them rather than two.
+        //
+        // NOT the check's max(sigmaFloor, sqrt(trace P)) form. That check asks
+        // whether two estimates disagree by more than their COMBINED uncertainty,
+        // so it must carry the filter's covariance. A measurement variance must
+        // describe the SHS ALONE -- folding P into R would count the filter's own
+        // uncertainty on both sides of its own update.
+        //
+        // Never on a cycle that HAS a fix: a radio measurement beats dead
+        // reckoning whenever there is one. This fills gaps, it does not compete.
+        if (imuFusion && !d.hadFix && shsDriver.seeded)
+        {
+            const double unaidedFuseS = std::max(0.0, t - lastTrustedFixS);
+            const double sigShs = imuSigmaFloorM + imuDriftMps * unaidedFuseS;
+            if (sigShs > 0.0)
+            {
+                const double fx = imuIdeal ? idealX : shsEngine.GetX();
+                const double fy = imuIdeal ? idealY : shsEngine.GetY();
+                policy.FusePosition(fx, fy, sigShs * sigShs);
+                ++imuFusedCycles;
+            }
+        }
+
         // The engine takes the integrity verdict back: a fix the check calls SUSPECT
         // must not be used to reset inertial drift, or a bad fix would launder itself
         // into the one estimate that was independent of it.
@@ -4591,6 +4668,9 @@ RunArm(CaTblPolicyMode mode,
             if (informative)
             {
                 shsEngine.OnTrustedFix(t, policy.EstX(), policy.EstY(), true);
+                idealX = policy.EstX();
+                idealY = policy.EstY();
+                idealAnchored = true;
                 lastTrustedX = policy.EstX();
                 lastTrustedY = policy.EstY();
                 haveTrusted = true;
@@ -5032,6 +5112,16 @@ RunArm(CaTblPolicyMode mode,
         if (d.hadFix)
         {
             errorsFixed.push_back(err);
+            // FIRST, not best: a search party is dispatched on the first usable
+            // answer, not on the best one the run eventually produces.
+            if (tFirstFixS < 0.0)
+            {
+                tFirstFixS = t;
+            }
+            if (tFirst100mS < 0.0 && err <= 100.0)
+            {
+                tFirst100mS = t;
+            }
         }
         steps++;
 
@@ -5114,6 +5204,17 @@ RunArm(CaTblPolicyMode mode,
         errorsFixed.empty() ? 0.0
                             : std::sqrt(sumSqFixed / static_cast<double>(errorsFixed.size()));
     res.cep50FixedM = Percentile(errorsFixed, 0.50);
+    res.meanErrM =
+        errors.empty() ? 0.0
+                       : std::accumulate(errors.begin(), errors.end(), 0.0) /
+                             static_cast<double>(errors.size());
+    res.meanErrFixedM =
+        errorsFixed.empty()
+            ? 0.0
+            : std::accumulate(errorsFixed.begin(), errorsFixed.end(), 0.0) /
+                  static_cast<double>(errorsFixed.size());
+    res.tFirstFixS = tFirstFixS;
+    res.tFirst100mS = tFirst100mS;
     res.fixCycles = static_cast<uint64_t>(errorsFixed.size());
 
     res.totalJ = energy.GetTotalJ();
@@ -5223,6 +5324,11 @@ RunArm(CaTblPolicyMode mode,
                                (shsEngine.GetY() - pos.y) * (shsEngine.GetY() - pos.y))
                   << " m; last disagreement " << imuDisagreeM << " m against tolerance "
                   << imuTolM << " m\n";
+        if (imuFusion)
+        {
+            std::cout << "    SHS FUSION: dead-reckoned position fused on "
+                      << imuFusedCycles << " no-fix cycles\n";
+        }
         std::cout << "    INTEGRITY: escalations refused -- IMU inconsistency "
                   << policy.GetImuRejections() << ", weak corroboration "
                   << policy.GetCorroborationRejections() << "\n";
@@ -5469,6 +5575,10 @@ main(int argc, char* argv[])
     double maxTurnRateRadS = 0.0;
     // 0 = feed every fix, which is what every run before 2026-09-08 did.
     double shsTrustedFixKArg = 0.0;
+    bool imuFusionArg = false;
+    bool imuIdealArg = false;
+    bool shsStepBoundsArg = false;
+    bool shsSnapPositionArg = false;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
     double t2TriadRadiusM = 150.0; // 2p4 r80 >= 900 m, so siting-limited not range-limited
     uint32_t uwbAnchorsPerSite = 5;
@@ -5659,6 +5769,55 @@ main(int argc, char* argv[])
                  "leaving them central would put the searchers in the search area at "
                  "t=0 and flatter the very mechanism this is meant to test.",
                  baseCampFrac);
+    cmd.AddValue("shsSnapPosition",
+                 "Anchor the SHS position at each CLEAN trusted fix. FALSE by default. "
+                 "REQUIRED BY --imuFusion, and the two are only correct together: the "
+                 "fusion variance is imuSigmaFloor + imuDrift * (t - lastTrustedFix), "
+                 "which asserts the position error is as old as the last trusted fix. "
+                 "A trusted fix calibrates GAIT and does not touch position, so without "
+                 "snapping that error accumulates from seeding and is never reset -- "
+                 "measured 459 m of SHS error while the variance claimed 5.4 m, and the "
+                 "filter duly followed it (cep95 276.6 -> 1499.8 on ca_tbl_full). "
+                 "Snapped, the SHS contributes the dead-reckoned DISPLACEMENT since "
+                 "the last fix, which is what an inertial system is for.",
+                 shsSnapPositionArg);
+    cmd.AddValue("shsStepBounds",
+                 "Refuse a step-length calibration implying a step outside 0.25-1.10 m. "
+                 "FALSE by default so earlier results reproduce. k_w = chord / |sum q u| is "
+                 "unbounded above: the numerator is a radio chord, the denominator a gait "
+                 "quantity that does not grow when the chord is mostly fix error. Where "
+                 "fixes are SPARSE -- which is where --imuFusion is most needed -- the fit "
+                 "runs away: measured 1.9e6 m of SHS error on an arm holding 7 fixes in "
+                 "1440 cycles, against 13 m on an arm that never calibrated. The bound is "
+                 "on step length rather than k_w because step length is the quantity with "
+                 "a physiological range. Turn this on with --imuFusion.",
+                 shsStepBoundsArg);
+    cmd.AddValue("imuIdeal",
+                 "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
+                 "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
+                 "last clean trusted fix and advances by the true displacement, so any "
+                 "figure under it is an upper bound on what a flawless IMU could add to "
+                 "this architecture and must be reported as a bound. Not error-free: "
+                 "the anchor is the FILTER estimate and carries that fix error, held "
+                 "constant rather than compounded, which is what separates a perfect "
+                 "inertial system from an oracle. Exists because the real SHS gait "
+                 "calibration diverges where fixes are sparse -- the regime fusion is "
+                 "for -- and that defect is recorded as debt, not fixed.",
+                 imuIdealArg);
+    cmd.AddValue("imuFusion",
+                 "Fuse the SHS position into the filter on cycles with NO radio fix. "
+                 "FALSE by default. THE MISSING LINK: the SHS maintains an absolute "
+                 "position and nothing consumed it -- its only use was a disagreement "
+                 "magnitude vetoing escalation, so the data flow ran filter -> SHS and "
+                 "never back. Meanwhile the filter coasts through 30 percent of cycles "
+                 "in the best deployment tested and 99.6 percent with a stationary "
+                 "subject, and measured 868 error degrades with that gap -- 183 m at "
+                 "no gap, 1205 m after 32-60 blind cycles. Measurement variance is "
+                 "(imuSigmaFloor + imuDrift * unaided time)^2: the SHS error model, "
+                 "drift accumulating with UNAIDED TIME rather than distance walked. "
+                 "Needs --shsTrustedFixK, or the SHS is calibrated on noise and fusing "
+                 "it makes things worse.",
+                 imuFusionArg);
     cmd.AddValue("shsTrustedFixK",
                  "Offer a fix to the SHS only when the node has moved more than K "
                  "position-sigmas since the last one. 0 (default) feeds every fix, "
@@ -6793,7 +6952,8 @@ main(int argc, char* argv[])
             // above. Appended rather than interleaved so every existing column
             // keeps its index and older readers still parse.
             << "rmse_mlat,cep95_mlat,rmse_wcl,cep95_wcl,"
-            << "rmse_prox,cep95_prox,rmse_lkp,cep95_lkp,mlat_solved\n";
+            << "rmse_prox,cep95_prox,rmse_lkp,cep95_lkp,mlat_solved,"
+            << "meanErrM,meanErrFixedM,tFirstFixS,tFirst100mS\n";
 
     std::cout << "CA-TBL causal simulation (S1 + S2 + S2.5)\n"
               << "  envWide=" << envInt << " vegWide=" << vegWideInt
@@ -6899,6 +7059,10 @@ main(int argc, char* argv[])
                                        finderModeArg,
                                        maxTurnRateRadS,
                                        shsTrustedFixKArg,
+                                       imuFusionArg,
+                                       imuIdealArg,
+                                       shsStepBoundsArg,
+                                       shsSnapPositionArg,
                                        (finderSpeedMpsArg >= 0.0)
                                            ? finderSpeedMpsArg
                                            : walkSpeedMps,
@@ -6978,7 +7142,9 @@ main(int argc, char* argv[])
                     << r.rmseWclM << "," << r.cep95WclM << ","
                     << r.rmseProxM << "," << r.cep95ProxM << ","
                     << r.rmseLkpM << "," << r.cep95LkpM << ","
-                    << r.mlatSolvedCycles << "\n";
+                    << r.mlatSolvedCycles << "," << std::setprecision(4) << r.meanErrM << ","
+                    << r.meanErrFixedM << "," << r.tFirstFixS << ","
+                    << r.tFirst100mS << "\n";
 
             std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
                       << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
