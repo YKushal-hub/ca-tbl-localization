@@ -903,6 +903,12 @@ struct ArmResult
     double cep50M;
     double cep95M;
     double maxErrM;
+    //! Rival systems, from the SAME measurements. See BaselineMultilaterate().
+    double rmseMlatM, cep95MlatM;   //!< WAN-style snapshot multilateration
+    double rmseWclM, cep95WclM;     //!< weighted centroid, range-free
+    double rmseProxM, cep95ProxM;   //!< proximity / contact
+    double rmseLkpM, cep95LkpM;     //!< last known position, the no-system floor
+    uint64_t mlatSolvedCycles;      //!< cycles the snapshot solver could solve
     //! RMSE and CEP50 over ONLY the cycles that produced a fix.
     //!
     //! The unconditional rmseM mixes localisation with dead reckoning, in a ratio that
@@ -1144,6 +1150,52 @@ class Tourist
         m_y = y;
     }
 };
+
+/**
+ * \brief Unfiltered least-squares multilateration -- the WAN-localisation
+ *        baseline, and what a snapshot solver gives with no memory.
+ *
+ * Linearised about the first anchor: subtracting the reference circle's equation
+ * from each of the others removes the quadratic term and leaves a linear system,
+ * solved here in closed form for the 2x2 normal equations. Returns false when
+ * fewer than three anchors are available or the geometry is degenerate, and the
+ * caller then HOLDS its previous estimate rather than being charged for silence.
+ */
+bool
+BaselineMultilaterate(const std::vector<CaTblRangeMeasurement>& m,
+                      double& outX,
+                      double& outY)
+{
+    if (m.size() < 3)
+    {
+        return false;
+    }
+    const double x0 = m[0].anchorX;
+    const double y0 = m[0].anchorY;
+    const double r0 = m[0].rangeM;
+    double a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
+    for (size_t i = 1; i < m.size(); ++i)
+    {
+        const double ax = 2.0 * (m[i].anchorX - x0);
+        const double ay = 2.0 * (m[i].anchorY - y0);
+        const double bb = (r0 * r0 - m[i].rangeM * m[i].rangeM)
+                        + (m[i].anchorX * m[i].anchorX - x0 * x0)
+                        + (m[i].anchorY * m[i].anchorY - y0 * y0);
+        a11 += ax * ax;
+        a12 += ax * ay;
+        a22 += ay * ay;
+        b1 += ax * bb;
+        b2 += ay * bb;
+    }
+    const double det = a11 * a22 - a12 * a12;
+    if (std::fabs(det) < 1e-9)
+    {
+        return false;
+    }
+    outX = (b1 * a22 - a12 * b2) / det;
+    outY = (a11 * b2 - a12 * b1) / det;
+    return std::isfinite(outX) && std::isfinite(outY);
+}
 
 double
 Percentile(std::vector<double> v, double p)
@@ -2418,7 +2470,20 @@ RunArm(CaTblPolicyMode mode,
     // way, so the stream does not move.
     if (dep.hasBaseCamp)
     {
-        walker.SetPosition(dep.baseCampX, dep.baseCampY);
+        if (walkSpeedMps > 0.0 || dep.facilities.empty())
+        {
+            walker.SetPosition(dep.baseCampX, dep.baseCampY);
+        }
+        else
+        {
+            // A STILL subject cannot walk out of the camp, so placing it there
+            // would park it among the gateways for the whole run -- which is what
+            // invalidated K9's three still cells. A real stationary casualty was
+            // SEEN at the camp, walked out, and then stopped, so it starts at the
+            // first tour site, which the keep-out already puts beyond the
+            // infrastructure.
+            walker.SetPosition(dep.facilities[0].x, dep.facilities[0].y);
+        }
     }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
@@ -3159,7 +3224,38 @@ RunArm(CaTblPolicyMode mode,
 
     // Independent-witness state for the switching-point integrity check.
     std::vector<std::pair<uint16_t, double>> rangedThisCycle;
+    // Rival systems, scored from the same measurements. See the accumulation
+    // block beside the EKF error for what each one is. Declared HERE, in RunArm,
+    // because that is where they are used -- `errors` above is a member of the
+    // per-tag state reached through a reference, not a local.
+    std::vector<double> errorsMlat;
+    std::vector<double> errorsWcl;
+    std::vector<double> errorsProx;
+    std::vector<double> errorsLkp;
+    double blMlatX = 0.0, blMlatY = 0.0;
+    double blWclX = 0.0, blWclY = 0.0;
+    double blProxX = 0.0, blProxY = 0.0;
+    double blLkpX = 0.0, blLkpY = 0.0;
+    bool blMlatHave = false, blWclHave = false, blProxHave = false;
+    uint64_t mlatSolved = 0;
     Vector prevTruePos = pos;
+    // WHERE THE SUBJECT WAS LAST SEEN. With a base camp that is the camp itself,
+    // because the walker starts there; without one it is wherever the run began.
+    // The LKP baseline never updates it -- no direction is known, so the point
+    // estimate cannot move, and only the uncertainty grows.
+    if (dep.hasBaseCamp)
+    {
+        // The camp, NOT the walker's start. For a still subject those differ, and
+        // seeding from the start would hand the no-system baseline the answer in
+        // the one case where it would otherwise look perfect.
+        blLkpX = dep.baseCampX;
+        blLkpY = dep.baseCampY;
+    }
+    else
+    {
+        blLkpX = pos.x;
+        blLkpY = pos.y;
+    }
     double imuDisagreeM = 0.0;
     double imuTolM = 0.0;
     double lastTrustedFixS = 0.0;
@@ -4685,6 +4781,68 @@ RunArm(CaTblPolicyMode mode,
 
         const double err = std::hypot(d.estX - pos.x, d.estY - pos.y);
         errors.push_back(err);
+
+        // ---- RIVAL SYSTEMS, same measurements, same cycle --------------------
+        // Each holds its previous estimate when it cannot solve, exactly as the
+        // EKF coasts. Charging them for silence would manufacture the result.
+        {
+            double mx = 0.0, my = 0.0;
+            if (BaselineMultilaterate(meas, mx, my))
+            {
+                blMlatX = mx;
+                blMlatY = my;
+                blMlatHave = true;
+                ++mlatSolved;
+            }
+            if (blMlatHave)
+            {
+                errorsMlat.push_back(std::hypot(blMlatX - pos.x, blMlatY - pos.y));
+            }
+
+            // Weighted centroid: 1/range, so a near anchor pulls harder. One
+            // anchor is enough, which is the point of a range-free method.
+            double wsum = 0.0, wx = 0.0, wy = 0.0;
+            double bestR = -1.0, bestX = 0.0, bestY = 0.0;
+            for (size_t i = 0; i < meas.size(); ++i)
+            {
+                const double r = std::max(1.0, meas[i].rangeM);
+                const double w = 1.0 / r;
+                wsum += w;
+                wx += w * meas[i].anchorX;
+                wy += w * meas[i].anchorY;
+                if (bestR < 0.0 || meas[i].rangeM < bestR)
+                {
+                    bestR = meas[i].rangeM;
+                    bestX = meas[i].anchorX;
+                    bestY = meas[i].anchorY;
+                }
+            }
+            if (wsum > 0.0)
+            {
+                blWclX = wx / wsum;
+                blWclY = wy / wsum;
+                blWclHave = true;
+            }
+            if (blWclHave)
+            {
+                errorsWcl.push_back(std::hypot(blWclX - pos.x, blWclY - pos.y));
+            }
+            if (bestR >= 0.0)
+            {
+                blProxX = bestX;
+                blProxY = bestY;
+                blProxHave = true;
+            }
+            if (blProxHave)
+            {
+                errorsProx.push_back(std::hypot(blProxX - pos.x, blProxY - pos.y));
+            }
+
+            // Last known position: no direction is known, so the estimate never
+            // moves. This is "no system" and it is NOT blind search -- a real
+            // party extrapolates from where the subject was last seen.
+            errorsLkp.push_back(std::hypot(blLkpX - pos.x, blLkpY - pos.y));
+        }
         if (d.hadFix)
         {
             errorsFixed.push_back(err);
@@ -4736,6 +4894,30 @@ RunArm(CaTblPolicyMode mode,
     res.cep50M = Percentile(errors, 0.50);
     res.cep95M = Percentile(errors, 0.95);
     res.maxErrM = errors.empty() ? 0.0 : *std::max_element(errors.begin(), errors.end());
+
+    // Rival systems. Same measurements, same cycles, same seed -- so a paired
+    // comparison against the EKF columns above has nothing else moving in it.
+    auto rmseOf = [](const std::vector<double>& v) {
+        if (v.empty())
+        {
+            return 0.0;
+        }
+        double q = 0.0;
+        for (size_t i = 0; i < v.size(); ++i)
+        {
+            q += v[i] * v[i];
+        }
+        return std::sqrt(q / static_cast<double>(v.size()));
+    };
+    res.rmseMlatM = rmseOf(errorsMlat);
+    res.cep95MlatM = Percentile(errorsMlat, 0.95);
+    res.rmseWclM = rmseOf(errorsWcl);
+    res.cep95WclM = Percentile(errorsWcl, 0.95);
+    res.rmseProxM = rmseOf(errorsProx);
+    res.cep95ProxM = Percentile(errorsProx, 0.95);
+    res.rmseLkpM = rmseOf(errorsLkp);
+    res.cep95LkpM = Percentile(errorsLkp, 0.95);
+    res.mlatSolvedCycles = mlatSolved;
 
     double sumSqFixed = 0.0;
     for (size_t i = 0; i < errorsFixed.size(); ++i)
@@ -6332,7 +6514,12 @@ main(int argc, char* argv[])
             << "cad_868,cad_2p4,cad_uwb,idle_868,idle_2p4,idle_uwb,"
             << "sleep_868,sleep_2p4,sleep_uwb,"
             << "meanNbr_868,meanNbr_2p4,meanNbr_uwb,blindCycles,nbrInsertions,"
-            << "mac_tx,mac_collisions,mac_captures,mac_deliveries\n";
+            << "mac_tx,mac_collisions,mac_captures,mac_deliveries,"
+            // Rival systems, scored from the same measurements as the EKF columns
+            // above. Appended rather than interleaved so every existing column
+            // keeps its index and older readers still parse.
+            << "rmse_mlat,cep95_mlat,rmse_wcl,cep95_wcl,"
+            << "rmse_prox,cep95_prox,rmse_lkp,cep95_lkp,mlat_solved\n";
 
     std::cout << "CA-TBL causal simulation (S1 + S2 + S2.5)\n"
               << "  envWide=" << envInt << " vegWide=" << vegWideInt
@@ -6503,7 +6690,13 @@ main(int argc, char* argv[])
                     << std::setprecision(4) << r.meanNeighbours[0] << "," << r.meanNeighbours[1]
                     << "," << r.meanNeighbours[2] << "," << r.blindCycles << ","
                     << r.neighbourInsertions << "," << r.macTx << "," << r.macCollisions << ","
-                    << r.macCaptures << "," << r.macDeliveries << "\n";
+                    << r.macCaptures << "," << r.macDeliveries << ","
+                    << std::setprecision(4)
+                    << r.rmseMlatM << "," << r.cep95MlatM << ","
+                    << r.rmseWclM << "," << r.cep95WclM << ","
+                    << r.rmseProxM << "," << r.cep95ProxM << ","
+                    << r.rmseLkpM << "," << r.cep95LkpM << ","
+                    << r.mlatSolvedCycles << "\n";
 
             std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
                       << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
