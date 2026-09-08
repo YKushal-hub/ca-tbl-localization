@@ -115,3 +115,31 @@ included a suite that could not see a 7.4× error in tier 2's range.
    323.75 J at 20/20 seeds, no significant accuracy change). **Not landed in this session**
    — it is a second reference regeneration on top of an already-red suite, and stacking
    two default changes before the first is settled is how a tree becomes unverifiable.
+
+---
+
+## Confirmed final state — `2becdaa`
+
+Re-run after the evidence-gate default landed (`7ec0d91`, `489fa04`) and the G10 citation
+was fixed (`2becdaa`):
+
+```
+G1 PASS  G2 PASS  G3 PASS  G4 FAIL  G5 FAIL  G6 PASS  G7 PASS  G8 PASS
+G9 PASS  G10 PASS  G11 FAIL  G12 PASS  G13 PASS  G14 PASS  G15 PASS
+```
+
+**12 of 15, with all three failures explained above and none of them a regression in the
+engine.** G11 is deliberate (`TECH_DEBT` J.1). G4 is the verifier correctly refusing to
+certify a dead-reckoning RMSE now that 2.4 GHz has its true range. G5 inherits G4 through
+its healthy-input fixture, and its six negative fixtures all still fire.
+
+Two default changes landed in this session, each with a 3-of-3 byte-identical null control
+proving the old configuration is still exactly reachable:
+
+| commit | change | null control |
+|---|---|---|
+| `d05e6c2` | `envFacility`/`vegFacility` follow the wide-area setting | `--envFacility=0 --vegFacility=1` reproduces `causal_v8`, `det_a_v8`, `baseline_v8` |
+| `7ec0d91` | `escalationRequiresEvidence` defaults true | `--escalationRequiresEvidence=false` reproduces `causal_v9`, `det_a_v9`, `baseline_v9` |
+
+The reference generation is `v8 → v9 → v10`, each on a clean tree at `dirty 0`, and no
+tracked directory was regenerated in place at any step (rule 7).
