@@ -107,7 +107,8 @@ CaTblMacConfig::CaTblMacConfig()
       bandwidthHz(125e3),
       codingRate(1),
       sendHandshakeFrames(false),
-      tableFuseCI(false)
+      tableFuseCI(false),
+      digestSummary(false)
 {
 }
 
@@ -657,12 +658,40 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     // a node with nothing to say sends nothing and is not billed as though it had.
     if (type == CA_TBL_MSG_ENTRY_PUSH || type == CA_TBL_MSG_TRIGGERED_UPDATE)
     {
-        std::map<uint16_t, CaTblTableEntry>::const_iterator se =
-            m_table.find(m_cfg.nodeId);
-        if (se != m_table.end() && se->second.valid)
+        // An anti-entropy answer carries the entry the ASKER was missing, which is
+        // usually not this node's own. m_nextPushEntry names it for exactly one send.
+        if (m_nextPushEntry != nullptr)
         {
-            f.hdr.SetSelfEntry(se->second);
+            f.hdr.SetSelfEntry(*m_nextPushEntry);
         }
+        else
+        {
+            std::map<uint16_t, CaTblTableEntry>::const_iterator se =
+                m_table.find(m_cfg.nodeId);
+            if (se != m_table.end() && se->second.valid)
+            {
+                f.hdr.SetSelfEntry(se->second);
+            }
+        }
+    }
+    else if (type == CA_TBL_MSG_DIGEST && m_cfg.digestSummary)
+    {
+        // "I hold version N of peer X", for the most recently heard peers. Bounded,
+        // because a digest is only cheap while it stays a summary.
+        std::vector<CaTblDigestItem> d;
+        for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+             it != m_table.end() && d.size() < CA_TBL_DIGEST_MAX_ITEMS; ++it)
+        {
+            if (it->second.valid)
+            {
+                CaTblDigestItem di;
+                di.nodeId = it->second.nodeId;
+                di.seqNo = it->second.seqNo;
+                d.push_back(di);
+            }
+        }
+        f.hdr.SetDigest(d);
+        f.nEntries = static_cast<uint32_t>(d.empty() ? 1 : d.size());
     }
     f.hdr.SetOriginId(m_cfg.nodeId);
     f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
@@ -1064,6 +1093,67 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
             else if (ArbitrateRequest(hdr))
             {
                 Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+            }
+        }
+        else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST && m_cfg.digestSummary &&
+                 !hdr.GetDigest().empty())
+        {
+            // ANTI-ENTROPY PROPER: answer what was actually asked. Everything this node
+            // holds that the asker either lacks entirely, or holds a strictly older
+            // version of, is a candidate; the rest is silence.
+            const std::vector<CaTblDigestItem>& theirs = hdr.GetDigest();
+            const CaTblTableEntry* best = nullptr;
+            for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+                 it != m_table.end(); ++it)
+            {
+                if (!it->second.valid)
+                {
+                    continue;
+                }
+                bool theyHaveCurrent = false;
+                bool theyKnowIt = false;
+                for (size_t k = 0; k < theirs.size(); ++k)
+                {
+                    if (theirs[k].nodeId != it->second.nodeId)
+                    {
+                        continue;
+                    }
+                    theyKnowIt = true;
+                    // Modular comparison, the same rule supersession uses. A plain >
+                    // would freeze every entry the first time a counter wrapped.
+                    theyHaveCurrent = !CaTblSeqNewer(it->second.seqNo, theirs[k].seqNo);
+                    break;
+                }
+                if (!theyKnowIt || !theyHaveCurrent)
+                {
+                    // ONE PER EXCHANGE, not everything at once. A responder that
+                    // answered a digest with eight entries would spend more airtime
+                    // than the summary saved, and the next digest will ask again.
+                    // Prefer the entry the asker does not have at all over one it
+                    // merely has stale.
+                    if (best == nullptr || !theyKnowIt)
+                    {
+                        best = &it->second;
+                        if (!theyKnowIt)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            if (best != nullptr)
+            {
+                m_nextPushEntry = best;
+                Send(CA_TBL_MSG_ENTRY_PUSH, rxTier, 1, hdr.GetOriginId());
+                m_nextPushEntry = nullptr;
+                ++m_digestPushes;
+            }
+            else
+            {
+                // The asker is current on everything this node knows. Sending an
+                // ENTRY_PUSH here is the waste the summary exists to remove, and
+                // counting it is how that saving becomes a number rather than a claim.
+                ++m_digestNoOps;
             }
         }
         else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST)

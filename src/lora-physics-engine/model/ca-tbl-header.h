@@ -47,6 +47,7 @@
 #include "ns3/nstime.h"
 
 #include <cstdint>
+#include <vector>
 #include <string>
 
 namespace ns3
@@ -306,6 +307,24 @@ bool CaTblCovarianceIntersect(const CaTblTableEntry& a,
  *  versus 28 to send the entry itself. */
 static const uint32_t CA_TBL_DIGEST_ENTRY_BYTES = 4;
 
+/** One line of a digest: "I hold version seqNo of nodeId". Exactly the 4 bytes the
+ *  constant above has always charged for -- 2 for the id, 2 for the sequence. */
+struct CaTblDigestItem
+{
+    uint16_t nodeId = 0;
+    uint16_t seqNo = 0;
+};
+
+/** Cap on how many summary lines one digest carries.
+ *
+ *  A digest is only cheap while it is a SUMMARY. At SF12/125 kHz a 50-byte frame is
+ *  already 1.5-2 s of airtime, so an unbounded summary would spend more of the duty
+ *  budget than the entries it is trying to avoid sending. Twelve keeps a digest inside
+ *  one small frame; a node holding more than twelve peers sends the twelve it has heard
+ *  from most recently, which is the set a responder is most likely to be able to act on.
+ */
+static const uint32_t CA_TBL_DIGEST_MAX_ITEMS = 12;
+
 /** The uniform MAC header: packet_id(4) origin_id(2) hop_limit(1) msg_type(1) tier(1). */
 static const uint32_t CA_TBL_MAC_HEADER_BYTES = 9;
 
@@ -437,6 +456,24 @@ class CaTblHeader : public Header
     const CaTblTableEntry& GetSelfEntry() const { return m_selfEntry; }
     bool HasSelfEntry() const { return m_hasSelfEntry; }
 
+    /**
+     * The anti-entropy summary a DIGEST is supposed to carry: {node_id, seq_no} per
+     * known peer, 4 bytes each.
+     *
+     * THE AIRTIME WAS ALREADY BEING BILLED FOR THIS. CA_TBL_DIGEST_ENTRY_BYTES has
+     * existed since S4 and CaTblPayloadBytes() charges nEntries * 4 for a DIGEST, with
+     * the comment explaining the whole point -- "4 bytes to say I have version N of
+     * peer X versus 28 to send the entry itself". The frame paid for the summary and
+     * carried nothing, so the responder could not tell what the asker was missing and
+     * fell back to pushing its own entry regardless.
+     *
+     * Without this, a digest exchange is a request for one specific thing dressed as a
+     * request for everything. With it, the responder can answer what was actually
+     * asked, which is the mechanism anti-entropy is.
+     */
+    void SetDigest(const std::vector<CaTblDigestItem>& d) { m_digest = d; }
+    const std::vector<CaTblDigestItem>& GetDigest() const { return m_digest; }
+
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
 
     /**
@@ -479,6 +516,7 @@ class CaTblHeader : public Header
     //! CaTblPayloadBytes already charges for it, so writing the bytes again would
     //! double-count the airtime this design exists to measure.
     CaTblTableEntry m_selfEntry;
+    std::vector<CaTblDigestItem> m_digest;
     bool m_hasSelfEntry;
     uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
     uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input

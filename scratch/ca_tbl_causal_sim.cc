@@ -2382,6 +2382,7 @@ RunArm(CaTblPolicyMode mode,
        bool imuIdeal,
        bool queryProxy,
        bool tableFuseCI,
+       bool digestSummary,
        double queryStalenessBoundS,
        bool reversePath,
        bool shsStepBounds,
@@ -2780,6 +2781,7 @@ RunArm(CaTblPolicyMode mode,
         CaTblMacConfig mc;
         mc.queryProxy = queryProxy;
         mc.tableFuseCI = tableFuseCI;
+        mc.digestSummary = digestSummary;
         mc.queryStalenessBoundS = queryStalenessBoundS;
         mc.reversePath = reversePath;
         mc.nodeId = static_cast<uint16_t>(nodeId);
@@ -2814,6 +2816,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig mc;
             mc.queryProxy = queryProxy;
             mc.tableFuseCI = tableFuseCI;
+            mc.digestSummary = digestSummary;
             mc.queryStalenessBoundS = queryStalenessBoundS;
             mc.reversePath = reversePath;
             mc.nodeId = aid;
@@ -2896,6 +2899,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMacConfig pmc;
             pmc.queryProxy = queryProxy;
             pmc.tableFuseCI = tableFuseCI;
+            pmc.digestSummary = digestSummary;
             pmc.queryStalenessBoundS = queryStalenessBoundS;
             pmc.reversePath = reversePath;
             pmc.nodeId = static_cast<uint16_t>(pid);
@@ -5385,12 +5389,21 @@ RunArm(CaTblPolicyMode mode,
     // because a proxy answer is by definition given by a node that is NOT the target.
     {
         uint64_t proxyStale = 0, uni = 0, flood = 0, proxyOk = 0;
+        uint64_t digPush = 0, digNoOp = 0;
         for (size_t i = 0; i < macs.size(); ++i)
         {
             proxyOk += macs[i].GetProxyResponses();
             proxyStale += macs[i].GetProxyRefusedStale();
             uni += macs[i].GetResponsesUnicast();
             flood += macs[i].GetResponsesFlooded();
+            digPush += macs[i].GetDigestPushes();
+            digNoOp += macs[i].GetDigestNoOps();
+        }
+        if (digPush + digNoOp > 0)
+        {
+            std::cout << "    ANTI-ENTROPY: digest pushes " << digPush
+                      << ", digests answered with nothing (asker already current) "
+                      << digNoOp << "\n";
         }
         if (proxyStale + uni + flood + proxyOk > 0)
         {
@@ -5663,6 +5676,7 @@ main(int argc, char* argv[])
     bool imuIdealArg = false;
     bool queryProxyArg = false;
     bool tableFuseCIArg = false;
+    bool digestSummaryArg = false;
     double queryStalenessBoundSArg = 120.0;
     bool reversePathArg = false;
     bool shsStepBoundsArg = false;
@@ -5880,6 +5894,14 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("digestSummary",
+                 "Carry the {node_id, seq_no} anti-entropy summary in a DIGEST, and "
+                 "answer it. FALSE by default. The airtime has been billed since S4 while "
+                 "the frame carried nothing, so a responder could not tell what the asker "
+                 "was missing and pushed its own entry regardless -- a request for one "
+                 "specific thing dressed as a request for everything. With the summary "
+                 "the responder pushes what the asker actually lacks, or stays silent.",
+                 digestSummaryArg);
     cmd.AddValue("tableFuseCI",
                  "Fuse a table entry whose sequence number EQUALS the held one by "
                  "Covariance Intersection, instead of discarding it. FALSE by default. "
@@ -7189,6 +7211,7 @@ main(int argc, char* argv[])
                                        imuIdealArg,
                                        queryProxyArg,
                                        tableFuseCIArg,
+                                       digestSummaryArg,
                                        queryStalenessBoundSArg,
                                        reversePathArg,
                                        shsStepBoundsArg,
