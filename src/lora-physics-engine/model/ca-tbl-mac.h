@@ -234,6 +234,15 @@ struct CaTblMacConfig
      * is information about the same instant from a route that saw different NLOS.
      */
     bool tableFuseCI;
+    /**
+     * Carry the {node_id, seq_no} summary in a DIGEST, and answer it. FALSE by default.
+     *
+     * The airtime for this has been billed since S4 and the frame carried nothing, so a
+     * responder could not tell what the asker was missing and pushed its own entry
+     * regardless. That is a request for one specific thing dressed as a request for
+     * everything.
+     */
+    bool digestSummary;
 
     // ---- C4: multi-target UWB arbitration --------------------------------
     //! Whether an anchor arbitrates between competing UWB requests instead of
@@ -331,6 +340,12 @@ class CaTblMac
     //! Entries refused as strictly superseded. Counted so "nothing arrived" and
     //! "everything arriving was stale" are distinguishable, which they were not.
     uint64_t GetTableDiscards() const { return m_tableDiscards; }
+
+    //! Entries pushed because a digest showed the asker lacked them.
+    uint64_t GetDigestPushes() const { return m_digestPushes; }
+    //! Digests answered with NOTHING because the asker was already current. This is
+    //! the saving: without a summary every one of these was a wasted ENTRY_PUSH.
+    uint64_t GetDigestNoOps() const { return m_digestNoOps; }
 
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
@@ -531,6 +546,9 @@ class CaTblMac
     uint64_t m_tableMerges;
     uint64_t m_tableFuses;
     uint64_t m_tableDiscards;
+    uint64_t m_digestPushes = 0;
+    uint64_t m_digestNoOps = 0;
+    const CaTblTableEntry* m_nextPushEntry = nullptr;
 
     // Dedup: bounded LRU with a time window (§2.6).
     std::deque<std::pair<uint32_t, Time>> m_dedupOrder;
