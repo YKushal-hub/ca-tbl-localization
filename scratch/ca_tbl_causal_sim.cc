@@ -3439,7 +3439,49 @@ RunArm(CaTblPolicyMode mode,
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
-            if (finderMode == 1)
+            // MODE 2, PHASE 1: sweep outward from the last known position.
+            //
+            // Runs only while no entry is more informative than the sweep itself.
+            // The casualty publishes its prior from the first cycle -- the camp,
+            // with a sigma of order how far it could have walked -- so an entry
+            // exists immediately and says nothing. Converging on it would re-park
+            // the party at the camp, which is the deadlock being fixed.
+            bool searching = false;
+            if (finderMode == 2 && dep.hasBaseCamp)
+            {
+                double entrySigma = std::numeric_limits<double>::infinity();
+                if (fi < finderMac.size() && finderMac[fi] != nullptr)
+                {
+                    CaTblTableEntry te;
+                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId),
+                                                     te) && te.valid)
+                    {
+                        entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
+                    }
+                }
+                // How far the subject could physically have gone since it was last
+                // seen. Sweeping beyond that is sweeping ground it cannot occupy.
+                const double reach = std::max(1.0, walkSpeedMps * t);
+                const double radius = std::min(reach, 0.5 * walkSpeedMps * t);
+                if (entrySigma > radius)
+                {
+                    searching = true;
+                    const double n = static_cast<double>(
+                        std::max<size_t>(1, finderWalkers.size()));
+                    // Archimedean sweep: radius grows with time, bearing advances
+                    // so the tangential component stays about half the walking
+                    // speed, and finder i is offset by 2*pi*i/n so the party
+                    // covers the annulus instead of one bearing.
+                    const double theta =
+                        2.0 * M_PI * static_cast<double>(fi) / n
+                        + ((radius > 1.0) ? (0.5 * walkSpeedMps * t / radius) : 0.0);
+                    fp = Vector(dep.baseCampX + radius * std::cos(theta),
+                                dep.baseCampY + radius * std::sin(theta),
+                                0.0);
+                    finderWalkers[fi].SetPosition(fp.x, fp.y);
+                }
+            }
+            if (!searching && (finderMode == 1 || finderMode == 2))
             {
                 // Converge on the ESTIMATE, which is all a searcher is ever given.
                 // Stand off once inside standoff metres rather than walking onto the
@@ -5994,6 +6036,16 @@ main(int argc, char* argv[])
                  "Requires --sendHandshakeFrames, since that is what gates the responder.",
                  finderDigestPeriodSArg);
     cmd.AddValue("finderMode",
+                 "2 = SEARCH THEN CONVERGE. Mode 1 converges on the casualty's "
+                 "reported position and, with no entry, deliberately HOLDS POSITION "
+                 "-- a good diagnostic and not a search. Measured consequence: a "
+                 "stationary subject 11.6 km from the camp is never found, because "
+                 "it is out of range so it can tell nobody where it is, the finders "
+                 "have no entry so they do not move, and nothing comes into range. "
+                 "Mode 2 sweeps an expanding spiral from the LAST KNOWN POSITION "
+                 "until an entry is more informative than the sweep, then converges. "
+                 "Radius is capped at how far the subject could have walked. Needs "
+                 "--baseCampFrac. ",
                  "How finders move. 1 (DEFAULT) = CONVERGE on the system's current "
                  "position ESTIMATE of the lost node, standing off 8 m once there. Not "
                  "the true position -- nobody knows that -- so a bad fix sends searchers "
