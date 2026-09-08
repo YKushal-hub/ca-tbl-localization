@@ -1,0 +1,5 @@
+f958839fa9ce0e19
+build Sep  8 2026 02:15:51 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=20 --trace=false --arbitrateDutyBudget=true --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --bidirectionalDigest=true --gwGrid=3 --boxHalf=1500 --corroborationCheck=false --suspectForcesEscalation=true --outdir=results/k2_nocorr_box1500
+source 5a73344 dirty 0 profile optimized
+digest sha256
+fee7caf1de45e9749697d62bd960b444c6e3aa5366c697699157cba8e4ed43f1  arm_summary.csv
