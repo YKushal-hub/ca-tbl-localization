@@ -79,3 +79,24 @@ adds it.
 
 The first of those is the claim the project can defend. The second is the limit of it. The
 third is the next piece of work and it is scoped.
+
+---
+
+## CORRECTION, forced by K13
+
+§2 attributed the still-cell failure to a deadlock in the finder steering. **The
+measurements stand; that explanation does not.**
+
+`--speed` set one variable that built *both* the subject's walker and every finder's, so
+`--speed=0` froze the search party as well. §2 was measuring four paralysed searchers, not
+a steering deadlock (`c8df848`).
+
+**The deadlock turned out to be real as well**, which is why the wrong explanation
+survived scrutiny: with the freeze fixed, holding position still finds nothing (0 fixes),
+and only searching outward makes contact. Both defects were real and one was hiding the
+other.
+
+`report/K13_SEARCH_RESULTS.md` measures the corrected version over 20 paired seeds. The
+conclusion changes: searching makes 5× more contact and saves 6.6–8.5 J significantly, but
+does not improve the estimate, and **neither mode beats simply reporting the last known
+position**. The binding constraint is search capacity, not localisation.
