@@ -107,6 +107,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <set>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -2389,6 +2390,7 @@ RunArm(CaTblPolicyMode mode,
        uint32_t maxRelayDepth,
        double relayVarBudgetM2,
        bool vizEventsOn,
+       double vizTablePeriodS,
        uint32_t nFinders,
        uint32_t finderMode,
        double maxTurnRateRadS,
@@ -2786,6 +2788,42 @@ RunArm(CaTblPolicyMode mode,
     // rather than as a total.
     std::ofstream vizEvents;
     std::ofstream vizNodes;
+    // PER-NODE TABLE SNAPSHOTS. Two files, because they are two different things and
+    // conflating them is the mistake the header of CaTblTableEntry warns about:
+    //
+    //   nbrtable  -- what this node has PERSONALLY HEARD. Strictly one-hop, and it is
+    //                what drives the poll set, so admitting a far-away peer here costs
+    //                a receive timeout every cycle.
+    //   loctable  -- what this node KNOWS, from any source and any number of hops.
+    //                Nothing is polled from it; it is knowledge, not a work list.
+    //
+    // Sampled on a period rather than every cycle. A 600 s run with ten nodes each
+    // holding a dozen neighbours is ~80k rows at every cycle, and an inspector cannot
+    // show more than a few frames per second anyway. The period is stated in the file
+    // so a reader knows the sampling rather than assuming continuity.
+    std::ofstream vizNbrTable;
+    std::ofstream vizLocTable;
+    double nextTableDumpS = 0.0;
+    if (vizEventsOn && vizTablePeriodS > 0.0)
+    {
+        std::ostringstream bfn;
+        bfn << traceDir << "/nbrtable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        vizNbrTable.open(bfn.str().c_str());
+        if (vizNbrTable.is_open())
+        {
+            vizNbrTable << "t,nodeId,tier,peerId,lastHeardS,rxPowerDbm,snrDb,heardCount\n";
+        }
+        std::ostringstream lfn;
+        lfn << traceDir << "/loctable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        vizLocTable.open(lfn.str().c_str());
+        if (vizLocTable.is_open())
+        {
+            vizLocTable << "t,nodeId,entryId,x,y,varX,varY,covXY,entryTimeS,ageS,seqNo,"
+                           "hopCount,manifestId,freshness\n";
+        }
+    }
     if (vizEventsOn)
     {
         std::ostringstream vfn;
@@ -3572,6 +3610,96 @@ RunArm(CaTblPolicyMode mode,
                 if (macs[mi].GetNodeId() == static_cast<uint16_t>(injectSilentId))
                 {
                     macs[mi].SetSilent(inWindow);
+                }
+            }
+        }
+
+        // Snapshot every node's two tables. The lost node, the peers and the finders --
+        // not the gateways, whose tables are large, static and not what a viewer clicks.
+        if (vizNbrTable.is_open() && t >= nextTableDumpS)
+        {
+            nextTableDumpS = t + vizTablePeriodS;
+            // ONE PASS PER NODE, NOT PER MAC. Each node owns three MACs, one per radio,
+            // and iterating macs directly would emit every node three times and would
+            // read one radio's table while calling it the union of three.
+            std::set<uint16_t> seen;
+            for (size_t mi = 0; mi < macs.size(); ++mi)
+            {
+                const uint16_t nid = macs[mi].GetNodeId();
+                if (nid >= 101 && nid <= 199 || seen.count(nid))
+                {
+                    continue; // gateway, or already emitted for this node
+                }
+                seen.insert(nid);
+
+                // NEIGHBOUR TABLE -- per radio, and kept per radio on purpose. Which
+                // band heard a peer is the interesting part: a node audible on 868 and
+                // not on UWB is the ordinary case and is what the tiering is about.
+                for (size_t mj = 0; mj < macs.size(); ++mj)
+                {
+                    if (macs[mj].GetNodeId() != nid)
+                    {
+                        continue;
+                    }
+                    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                    {
+                        const std::vector<CaTblNeighbour> nb =
+                            macs[mj].GetNeighbours(static_cast<CaTblTier>(ti), t);
+                        for (size_t k = 0; k < nb.size(); ++k)
+                        {
+                            vizNbrTable << std::fixed << std::setprecision(2) << t << ','
+                                        << nid << ',' << ti << ',' << nb[k].id << ','
+                                        << nb[k].lastHeardS << ',' << nb[k].lastRxPowerDbm
+                                        << ',' << nb[k].lastSnrDb << ','
+                                        << nb[k].heardCount << '\n';
+                        }
+                    }
+                }
+
+                // LOCATION TABLE -- the UNION across this node's three radios, newest
+                // sequence winning, which is the same rule the pseudo-anchor lookup uses.
+                // Knowledge is not tier-scoped even though the radios are.
+                if (vizLocTable.is_open())
+                {
+                    std::map<uint16_t, CaTblTableEntry> merged;
+                    for (size_t mj = 0; mj < macs.size(); ++mj)
+                    {
+                        if (macs[mj].GetNodeId() != nid)
+                        {
+                            continue;
+                        }
+                        const std::map<uint16_t, CaTblTableEntry>& tb = macs[mj].GetTable();
+                        for (std::map<uint16_t, CaTblTableEntry>::const_iterator it =
+                                 tb.begin(); it != tb.end(); ++it)
+                        {
+                            std::map<uint16_t, CaTblTableEntry>::iterator ex =
+                                merged.find(it->first);
+                            if (ex == merged.end() ||
+                                CaTblSeqNewer(it->second.seqNo, ex->second.seqNo))
+                            {
+                                merged[it->first] = it->second;
+                            }
+                        }
+                    }
+                    for (std::map<uint16_t, CaTblTableEntry>::const_iterator it =
+                             merged.begin(); it != merged.end(); ++it)
+                    {
+                        const CaTblTableEntry& e = it->second;
+                        if (!e.valid)
+                        {
+                            continue;
+                        }
+                        const double age = t - e.timestampS;
+                        CaTblFreshnessBounds fb;
+                        vizLocTable << std::fixed << std::setprecision(2) << t << ','
+                                    << nid << ',' << e.nodeId << ',' << e.x << ',' << e.y
+                                    << ',' << e.varX << ',' << e.varY << ',' << e.covXY
+                                    << ',' << e.timestampS << ',' << age << ','
+                                    << e.seqNo << ',' << int(e.hopCount) << ','
+                                    << int(e.targetManifestId) << ','
+                                    << CaTblFreshnessName(CaTblClassifyFreshness(age, fb))
+                                    << '\n';
+                    }
                 }
             }
         }
@@ -6254,6 +6382,7 @@ main(int argc, char* argv[])
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
     bool vizEventsArg = false;
+    double vizTablePeriodSArg = 0.0;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     // Sentinel: negative means follow --speed, which is what every run before
@@ -6877,6 +7006,14 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("vizTablePeriodS",
+                 "Seconds between per-node table snapshots for the visualiser. 0 = off. "
+                 "Writes nbrtable_* (what a node has PERSONALLY HEARD, one-hop, drives "
+                 "the poll set) and loctable_* (what it KNOWS, any source, any hop count, "
+                 "nothing polled from it) as two files, because they are two different "
+                 "things. Requires --vizEvents. Sampled rather than per-cycle: ten nodes "
+                 "at every cycle is ~80k rows and an inspector cannot show that anyway.",
+                 vizTablePeriodSArg);
     cmd.AddValue("vizEvents",
                  "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
                  "deployment geometry (deployment.json), for the trace-driven "
@@ -7749,6 +7886,7 @@ main(int argc, char* argv[])
                                        maxRelayDepthArg,
                                        relayVarBudgetM2Arg,
                                        vizEventsArg,
+                                       vizTablePeriodSArg,
                                        nFindersArg,
                                        finderModeArg,
                                        maxTurnRateRadS,
