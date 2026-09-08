@@ -236,12 +236,40 @@ research, not a work item.
 
 ## 5. Provenance and history
 
-### 5.1 106 commits on GitHub carry the wrong author
-Fixed for the **57 unpushed** commits on 2026-09-06 (`SHA_MAP.md`, second section). The
-106 already published still say `Kushal Yalamanchi <kushalyalamanchi@gmail.com>`, which is
-not the owner. Correcting them means a **force-push to a protected branch**. *Cost:* the
-rewrite itself is minutes; the coordination is the cost. **Nothing is credited to the
-owner's contribution graph until commits reach the default branch.**
+### 5.1 137 commits on GitHub carry the wrong author
+**Recounted 2026-09-09. The heading said 106; it is now 137**, because commits kept
+being pushed from the Windows clone while the entry sat unrecounted. That is section 5.3
+happening inside the register that tracks 5.3, and the count is now given with the
+command that produces it so the next reader can recheck rather than trust:
+
+```bash
+git log --format='%ae' | sort | uniq -c | sort -rn
+git log --format='%ae' origin/main | sort | uniq -c | sort -rn
+```
+
+Current census of 318 commits: **178** `nethi.kushaal@gmail.com` (the owner), **137**
+`kushalyalamanchi@gmail.com` (not the owner), **3** GitHub merge commits. Of these, 225
+are on `origin/main` and **93 are unpushed** — all of the unpushed set carries the correct
+identity.
+
+*Cause.* The WSL clone held a repo-local `user.email` in `.git/config` overriding the
+correct global one. The Windows clone was right throughout, which is why this stayed
+invisible until the contribution graph was looked at.
+
+*Fixed already.* The 57 then-unpushed commits were rewritten on 2026-09-06 (`SHA_MAP.md`,
+second section), verified metadata-only — trees identical on every branch — and checked
+against every sidecar BEFORE rewriting, since a moved SHA breaks the link between a
+result and the code that produced it. The config is corrected in all three worktrees, so
+nothing further goes in wrong.
+
+*What remains.* The 137 already published. Correcting them is a **force-push to a
+protected branch**. The rewrite is minutes; the risk is the sidecar citations, and the
+sidecar check must be redone against the PUBLISHED set — the earlier audit covered only
+the unpushed one. `SHA_MAP.md` and gate G13 exist for exactly this and the procedure is
+proven.
+
+**Nothing reaches the owner's contribution graph until commits are on the default branch**,
+so the 93 unpushed ones are invisible too, correct identity notwithstanding.
 
 ### 5.2 Measurement invocations recorded only in prose
 The original C3 measurement's duration exists in **no sidecar and no results directory** —
