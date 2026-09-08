@@ -2253,6 +2253,8 @@ struct CaTblTagState
     uint64_t renderCounts[4] = {0, 0, 0, 0};
     uint64_t caseAAttempts = 0;
     uint64_t caseSolved[5] = {0, 0, 0, 0, 0}; // [0]=D 3+ [1]=A [2]=B [3]=C [4]=floor
+    double prevMeanRangeM = -1.0;
+    uint64_t mobCounts[3] = {0, 0, 0};
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
@@ -2398,6 +2400,7 @@ RunArm(CaTblPolicyMode mode,
        bool digestSummary,
        double batteryDepleteJ,
        bool sessionLayer,
+       bool mobilityFromRange,
        bool lifecycleTracking,
        bool batchSearch,
        bool sparseCaseA,
@@ -2529,6 +2532,8 @@ RunArm(CaTblPolicyMode mode,
     auto& renderCounts = TS0.renderCounts;
     auto& caseAAttempts = TS0.caseAAttempts;
     auto& caseSolved = TS0.caseSolved;
+    auto& prevMeanRangeM = TS0.prevMeanRangeM;
+    auto& mobCounts = TS0.mobCounts;
     auto& caseAAdmitted = TS0.caseAAdmitted;
     auto& caseARefused = TS0.caseARefused;
 
@@ -4784,6 +4789,59 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // sect 11.11 MOBILITY STATE, driven at last. CA_TBL_MOB_RECEDING existed in the
+        // taxonomy and the receding branch of StartHandshake was written, and the
+        // scenario never once called SetMobilityState -- so the eager-push path was dead
+        // code that looked implemented.
+        //
+        // THE SIGNAL IS THE ONE THE NODE ACTUALLY HAS: the trend in its own mean measured
+        // range. A node cannot know whether it is walking away from a gateway; it can
+        // know that everything it ranges against is getting further off, which is the
+        // same conclusion reached from evidence rather than from truth. Reading the
+        // walker's true velocity would be the flattering shortcut and would not survive
+        // being asked where a real node gets that number.
+        //
+        // The band is 5% of the previous mean rather than an absolute metre count,
+        // because the same 20 m of drift means something different at 100 m and at
+        // 2 km. Below it the state is STATIONARY, which is the honest reading of a
+        // change smaller than the ranging noise.
+        if (mobilityFromRange)
+        {
+            const std::vector<CaTblRangeMeasurement>& mm =
+                activeMeas.empty() ? floorMeas : activeMeas;
+            if (!mm.empty())
+            {
+                double sum = 0.0;
+                for (size_t k = 0; k < mm.size(); ++k)
+                {
+                    sum += mm[k].rangeM;
+                }
+                const double mean = sum / static_cast<double>(mm.size());
+                CaTblMobilityState ms = CA_TBL_MOB_STATIONARY;
+                if (prevMeanRangeM > 0.0)
+                {
+                    const double band = 0.05 * prevMeanRangeM;
+                    if (mean > prevMeanRangeM + band)
+                    {
+                        ms = CA_TBL_MOB_RECEDING;
+                    }
+                    else if (mean < prevMeanRangeM - band)
+                    {
+                        ms = CA_TBL_MOB_APPROACHING;
+                    }
+                }
+                ++mobCounts[static_cast<int>(ms)];
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->SetMobilityState(ms);
+                    }
+                }
+                prevMeanRangeM = mean;
+            }
+        }
+
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
@@ -5742,6 +5800,12 @@ RunArm(CaTblPolicyMode mode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
+        if (mobilityFromRange)
+        {
+            std::cout << "    sect 11.11 MOBILITY: stationary " << mobCounts[0]
+                      << ", approaching " << mobCounts[1] << ", receding " << mobCounts[2]
+                      << "\n";
+        }
         if (lifecycleTracking)
         {
             std::cout << "    sect 24-27 LIFECYCLE: tracked "
@@ -6090,6 +6154,7 @@ main(int argc, char* argv[])
     bool digestSummaryArg = false;
     double batteryDepleteJArg = 0.0;
     bool sessionLayerArg = false;
+    bool mobilityFromRangeArg = false;
     bool lifecycleTrackingArg = false;
     bool batchSearchArg = false;
     bool sparseCaseAArg = false;
@@ -6323,6 +6388,15 @@ main(int argc, char* argv[])
                  "still knows where it thinks it is, it just cannot tell anyone, and the "
                  "estimate degrades from that moment because no measurement arrives.",
                  batteryDepleteJArg);
+    cmd.AddValue("mobilityFromRange",
+                 "sect 11.11: drive the MAC mobility state from the trend in the node's "
+                 "own mean measured range, so the RECEDING eager-push branch of "
+                 "StartHandshake can execute. FALSE by default. Until now "
+                 "SetMobilityState was never called by the scenario and that branch was "
+                 "dead code that looked implemented. The signal is evidence the node "
+                 "actually has -- everything it ranges against getting further off -- not "
+                 "the walker's true velocity, which no real node knows.",
+                 mobilityFromRangeArg);
     cmd.AddValue("lifecycleTracking",
                  "sect 24-27: track every node the tag hears through UNSEEN / TRACKED / "
                  "DEGRADED / LOST / REACQUIRED. FALSE by default. Driven from the "
@@ -7686,6 +7760,7 @@ main(int argc, char* argv[])
                                        digestSummaryArg,
                                        batteryDepleteJArg,
                                        sessionLayerArg,
+                                       mobilityFromRangeArg,
                                        lifecycleTrackingArg,
                                        batchSearchArg,
                                        sparseCaseAArg,
