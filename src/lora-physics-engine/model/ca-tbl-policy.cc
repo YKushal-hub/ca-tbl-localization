@@ -89,7 +89,9 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     suspectInflateFactor = 4.0;
     suspectRecoveryN = 5;
     escalationRequiresEvidence = false;   // default preserves the pre-existing baseline
-    escalationRequiresEvidenceT2 = false; // BROKEN -- see the header. Never enable.
+    escalationRequiresEvidenceT2 = false; // rebuilt as a predictor; see the header
+    t2PredictRadiusM = 156.0;             // probe r80, post environment correction
+    t2PredictMinAnchors = 3;              // three is what a fix needs
     uwbPredictRadiusM = 20.0;
     uwbPredictMaxSigmaFrac = 0.25;
     uwbEvidenceFromNeighbours = false; // default preserves the pre-existing baseline
@@ -148,7 +150,8 @@ CaTblDecision::CaTblDecision()
       meanSigmaM(0.0),
       meanSigmaRawM(0.0),
       sigmaGeoM(-1.0),
-      predictedVisUwb(-1)
+      predictedVisUwb(-1),
+      predictedVis2p4(-1)
 {
 }
 
@@ -1110,28 +1113,40 @@ CaTblPolicy::Step(double dt,
     // TWO SEPARATE FLAGS, because the two steps have genuinely different evidence
     // situations and one of them does not work.
     //
-    // escalationRequiresEvidenceT2 (868 -> 2.4) IS BROKEN AND DEFAULTS OFF. It was
-    // written on the premise that the tier-2 neighbour table is observable from tier
-    // 1. It is not: the tier-2 radio is asleep while another tier is active, so
-    // GetNeighbourCount returns 0 and the evidence bit is never set. MEASURED, in the
-    // run that enabled it: activeTier occupancy {868MHz: 1440} at both boxHalf 1000
-    // and 2000, nbr2p4 nonzero on 0/1440 cycles, escalations 0. The node latches at
-    // the floor permanently and the arm degenerates into static_868 (availability
-    // 99.9%, actionable 4.9%, 14.96 J).
+    // escalationRequiresEvidenceT2 (868 -> 2.4), REBUILT 2026-09-08.
     //
-    // The prior comment here asserted the opposite as established fact. It was
-    // verified by checking that the refresh LOOP iterates all three tiers each cycle,
-    // which is true and irrelevant -- the loop cannot observe a sleeping radio. The
-    // check's population excluded the failure.
+    // The original asked the MAC neighbour cache whether tier 2 was audible. It is
+    // not observable that way: the tier-2 radio is asleep while another tier is
+    // active, so GetNeighbourCount returns 0, the evidence bit never sets, and the
+    // node latched at the floor for the whole run -- measured, activeTier occupancy
+    // {868MHz: 1440} at both boxHalf 1000 and 2000, escalations 0.
     //
-    // The fix is a tier-2 predictor symmetric with the UWB one below, using the same
-    // anchor map and a radius derived from the measured tier-2 r80 of 909.5 m. Not
-    // built yet: it only matters where tier 2 actually fails, which is the regime the
-    // density envelope is being mapped to find.
+    // This asks a question that CAN be answered from tier 1, and it is the same
+    // question uwbEvidenceFromNeighbours asks one tier up: the ranges in `meas` were
+    // taken by an AWAKE radio this cycle, so a neighbour ranged closer than the
+    // tier-2 radius is a neighbour 2.4 GHz would reach. Geometry, not a map, so it
+    // follows finders -- which a static anchor map cannot do and which is the whole
+    // point under the tri-band topology.
+    //
+    // Three anchors, not presence. Tier 3 is a contact indicator and one is enough to
+    // be worth confirming; tier 2 is a localisation tier and one reachable anchor
+    // cannot solve, so escalating on it spends the handshake for nothing.
+    //
+    // Suppress-only, like every other evidence predicate here: it can refuse an
+    // escalation the score already wanted and can never create one.
     if (m_config.escalationRequiresEvidenceT2 && wantEscalate && dynamic &&
         m_tier == CA_TBL_TIER_868)
     {
-        if ((tierEvidenceMask & (1u << CA_TBL_TIER_2P4)) == 0)
+        int32_t nearT2 = 0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.t2PredictRadiusM)
+            {
+                ++nearT2;
+            }
+        }
+        d.predictedVis2p4 = nearT2;
+        if (nearT2 < static_cast<int32_t>(m_config.t2PredictMinAnchors))
         {
             wantEscalate = false;
             m_evidenceBlockedT2++;

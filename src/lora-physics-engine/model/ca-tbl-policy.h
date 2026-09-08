@@ -364,15 +364,28 @@ struct CaTblPolicyConfig
     //! on the tail and not on the median, which is 1-2.
     uint32_t suspectRecoveryN;
     bool escalationRequiresEvidence;
-    //! 868 -> 2.4 GHz gate. BROKEN, DEFAULTS OFF, KEPT ONLY AS A RECORD OF THE
-    //! MEASUREMENT. The premise was that tier-2 presence is observable from tier 1 via
-    //! the MAC neighbour cache. It is not -- the tier-2 radio sleeps while another tier
-    //! is active, so its neighbour count is 0 and the evidence bit never sets. Enabling
-    //! it latches the node at the floor for the whole run (measured: 1440/1440 cycles on
-    //! 868, 0 escalations, at boxHalf 1000 and 2000). A tier-2 PREDICTOR symmetric with
-    //! the UWB one, using the same anchor map and a radius from the measured r80 of
-    //! 909.5 m, is the fix; it is not built because it only matters where tier 2 fails.
+    //! 868 -> 2.4 GHz gate. REBUILT 2026-09-08 as a PREDICTOR; still defaults off.
+    //!
+    //! The original asked the MAC neighbour cache whether tier 2 was audible, and the
+    //! tier-2 radio sleeps while another tier is active, so the count was always 0 and
+    //! enabling it latched the node at the floor -- 1440/1440 cycles on 868, 0
+    //! escalations. That version is gone.
+    //!
+    //! The replacement is symmetric with uwbEvidenceFromNeighbours rather than with the
+    //! map form: the ranges handed to Step() were taken by an AWAKE radio, so a
+    //! neighbour ranged closer than t2PredictRadiusM is a neighbour 2.4 GHz would
+    //! reach. Geometry rather than a map, so it follows finders.
     bool escalationRequiresEvidenceT2;
+    //! Radius for the tier-2 prediction. 156.0 m, the probe's r80 AFTER the
+    //! environment correction. The pre-correction figure was 909.5 m and is 5.8x too
+    //! generous -- a predicate at that radius admits escalations into a tier that
+    //! cannot reach, which is the failure it exists to prevent.
+    double t2PredictRadiusM;
+    //! Neighbours inside that radius before escalation is allowed. 3, because three
+    //! is what a fix needs. The UWB predicate uses presence rather than count because
+    //! tier 3 is a contact indicator; tier 2 is a localisation tier and one reachable
+    //! anchor cannot solve.
+    uint32_t t2PredictMinAnchors;
     //! Radius for the UWB prediction. NOT nominalRangeM[UWB] = 30.0, which is the
     //! trigger oracle's labelling constant, and not the measured r80 of 12.8 m, which
     //! declines two thirds of the cycles UWB would have served.
@@ -523,6 +536,9 @@ struct CaTblDecision
     //! the predicate did not run (flag off, wrong tier, or blocked by the
     //! estimate-quality gate before the count was computed).
     int32_t predictedVisUwb;
+    //! Neighbours ranged inside t2PredictRadiusM this cycle, or -1 when the
+    //! tier-2 predicate did not run. The counterpart of predictedVisUwb.
+    int32_t predictedVis2p4;
 
     CaTblDecision();
 };
