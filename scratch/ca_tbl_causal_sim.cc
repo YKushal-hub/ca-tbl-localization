@@ -80,6 +80,7 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/ca-tbl-node-lifecycle.h"
 #include "ns3/ca-tbl-session.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/lora-shs-engine.h"
@@ -2246,6 +2247,7 @@ struct CaTblTagState
     uint64_t inCov = 0;
     bool batteryDead = false;
     double batteryDeadAtS = -1.0;
+    CaTblNodeLifecycle lifecycle;
     CaTblSessionManager sessions;
     uint32_t sessionId = 0;
     uint64_t renderCounts[4] = {0, 0, 0, 0};
@@ -2395,6 +2397,8 @@ RunArm(CaTblPolicyMode mode,
        bool digestSummary,
        double batteryDepleteJ,
        bool sessionLayer,
+       bool lifecycleTracking,
+       bool batchSearch,
        bool sparseCaseA,
        double sparseCaseAMarginM,
        uint32_t injectSilentId,
@@ -2518,6 +2522,7 @@ RunArm(CaTblPolicyMode mode,
     auto& inCov = TS0.inCov;
     auto& batteryDead = TS0.batteryDead;
     auto& batteryDeadAtS = TS0.batteryDeadAtS;
+    auto& lifecycle = TS0.lifecycle;
     auto& sessions = TS0.sessions;
     auto& sessionId = TS0.sessionId;
     auto& renderCounts = TS0.renderCounts;
@@ -3192,7 +3197,24 @@ RunArm(CaTblPolicyMode mode,
         // Manifest id 1 is the measured tag's, set at mc.targetManifestId above. The
         // requester id is the base station, which is not a simulated node -- nothing is
         // routed to it here, so any non-colliding id serves.
-        sessionId = sessions.SearchAndLocalize(1u, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        if (batchSearch)
+        {
+            // Application sect 5. ONE session over N targets -- one flood, one
+            // reverse-path cache, one staleness clock, and every escalation request
+            // landing in the SAME arbiter queue. That last part is the point: it is the
+            // only configuration in which U(r) scoring does observable work, so a
+            // single-target run proves nothing about arbitration.
+            std::vector<uint8_t> targets;
+            for (uint32_t k = 0; k < nTags; ++k)
+            {
+                targets.push_back(static_cast<uint8_t>(1 + k));
+            }
+            sessionId = sessions.BatchSearch(targets, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        }
+        else
+        {
+            sessionId = sessions.SearchAndLocalize(1u, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        }
     }
 
     // Scheduled only after every push_back, so the addresses are final.
@@ -4876,6 +4898,30 @@ RunArm(CaTblPolicyMode mode,
         // tier and PCS: a sub-metre UWB fix that failed the Mahalanobis gate is the
         // dangerous case precisely because its tier would otherwise earn it the most
         // confident marker on the screen.
+        // sect 24-27. Contact is what the tag ACTUALLY HEARD this cycle, taken from the
+        // per-tier neighbour tables rather than from the deployment: a node that exists
+        // and cannot be heard is exactly the case this tracks, and reading the
+        // deployment would report everyone present forever.
+        if (lifecycleTracking)
+        {
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] == nullptr)
+                {
+                    continue;
+                }
+                const std::vector<CaTblNeighbour> nb =
+                    nodeMac[ti]->GetNeighbours(static_cast<CaTblTier>(ti), t);
+                for (size_t k = 0; k < nb.size(); ++k)
+                {
+                    lifecycle.NoteContact(nb[k].id, t);
+                }
+            }
+            // Tick AFTER the contacts, so a node heard this cycle is not aged out by the
+            // same call that should have refreshed it.
+            lifecycle.Tick(t);
+        }
+
         if (sessionLayer)
         {
             sessions.Tick(t);
@@ -5610,6 +5656,15 @@ RunArm(CaTblPolicyMode mode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
+        if (lifecycleTracking)
+        {
+            std::cout << "    sect 24-27 LIFECYCLE: tracked "
+                      << lifecycle.CountIn(CA_TBL_NODE_TRACKED) << ", degraded "
+                      << lifecycle.CountIn(CA_TBL_NODE_DEGRADED) << ", lost "
+                      << lifecycle.CountIn(CA_TBL_NODE_LOST) << "; loss events "
+                      << lifecycle.TotalLossEvents() << ", reacquisitions "
+                      << lifecycle.TotalReacquisitions() << "\n";
+        }
         if (sessionLayer)
         {
             const CaTblSession* sess = nullptr;
@@ -5625,6 +5680,22 @@ RunArm(CaTblPolicyMode mode,
                       << " / HIGH " << renderCounts[CA_TBL_RENDER_HIGH]
                       << " / MEDIUM " << renderCounts[CA_TBL_RENDER_MEDIUM]
                       << " / COARSE " << renderCounts[CA_TBL_RENDER_COARSE] << "\n";
+            if (batchSearch)
+            {
+                const double spread = sessions.BatchPrecisionSpread(sessionId);
+                std::cout << "    APPLICATION sect 5 batch spread: ";
+                if (spread < 0.0)
+                {
+                    // Undefined below two precise targets, and reported as undefined.
+                    // Calling it zero would claim a batch finished together when most of
+                    // it was never found -- a lie in the direction that flatters.
+                    std::cout << "UNDEFINED (fewer than two targets reached precise)\n";
+                }
+                else
+                {
+                    std::cout << std::fixed << std::setprecision(1) << spread << " s\n";
+                }
+            }
         }
         if (caseAAttempts > 0)
         {
@@ -5914,6 +5985,8 @@ main(int argc, char* argv[])
     bool digestSummaryArg = false;
     double batteryDepleteJArg = 0.0;
     bool sessionLayerArg = false;
+    bool lifecycleTrackingArg = false;
+    bool batchSearchArg = false;
     bool sparseCaseAArg = false;
     double sparseCaseAMarginMArg = 1.0;
     uint32_t injectSilentIdArg = 0;
@@ -6145,6 +6218,19 @@ main(int argc, char* argv[])
                  "still knows where it thinks it is, it just cannot tell anyone, and the "
                  "estimate degrades from that moment because no measurement arrives.",
                  batteryDepleteJArg);
+    cmd.AddValue("lifecycleTracking",
+                 "sect 24-27: track every node the tag hears through UNSEEN / TRACKED / "
+                 "DEGRADED / LOST / REACQUIRED. FALSE by default. Driven from the "
+                 "neighbour tables, not the deployment -- a node that exists and cannot be "
+                 "heard is exactly what this tracks, and reading the deployment would "
+                 "report everyone present forever. Observation only; changes no decision.",
+                 lifecycleTrackingArg);
+    cmd.AddValue("batchSearch",
+                 "Application sect 5: open ONE session over all nTags targets instead of "
+                 "one per target. FALSE by default. One flood, one staleness clock, and "
+                 "every escalation request in the SAME arbiter queue -- the only "
+                 "configuration where U(r) scoring does observable work.",
+                 batchSearchArg);
     cmd.AddValue("sessionLayer",
                  "Drive the Transport/Application layer from the run: a session opened at "
                  "t=0, every fix delivered to it as a RESULT carrying its lineage, and the "
@@ -7495,6 +7581,8 @@ main(int argc, char* argv[])
                                        digestSummaryArg,
                                        batteryDepleteJArg,
                                        sessionLayerArg,
+                                       lifecycleTrackingArg,
+                                       batchSearchArg,
                                        sparseCaseAArg,
                                        sparseCaseAMarginMArg,
                                        injectSilentIdArg,
