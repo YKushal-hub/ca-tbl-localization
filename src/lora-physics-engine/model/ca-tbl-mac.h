@@ -240,6 +240,24 @@ struct CaTblMacConfig
     //! Seconds after which a held UWB slot is considered free again.
     double arbSlotHoldS = 10.0;
 
+    //! Network §4: answer a QUERY on behalf of a fresh table entry, not only
+    //! when this node IS the target. The spec calls this the case that makes the
+    //! query useful at all -- the target may be out of the requester's range but
+    //! reachable through the mesh that already gossiped its position here.
+    bool queryProxy = false;
+    //! An entry older than this is not proxied. Answering from an arbitrarily old
+    //! entry reports a position the mesh has no current reason to believe.
+    double queryStalenessBoundS = 120.0;
+
+    //! Transport §1: cache the node a QUERY arrived from, and unicast the
+    //! RESPONSE back along that path instead of flooding it. Borrowed from
+    //! AODV/DSR reactive routing. Falls back to flood on a cache miss, so a miss
+    //! costs airtime rather than the answer.
+    bool reversePath = false;
+    //! Bounded and time-windowed on the same discipline as the dedup cache.
+    double reversePathWindowS = 300.0;
+    uint32_t reversePathMaxEntries = 64;
+
     CaTblMacConfig();
 };
 
@@ -331,6 +349,18 @@ class CaTblMac
     //! breaks every scheduled call to it. Found by the compiler, not by inspection.
     void SendQuery(CaTblTier tier, uint8_t manifestId);
 
+    /** Network §4: is there a fresh table entry about \p manifestId to answer on
+     *  behalf of? Freshness is checked here, not by the caller, because a stale
+     *  match and no match are different outcomes and are counted separately. */
+    bool ProxyAnswerFor(uint8_t manifestId, double nowS);
+    /** Network §1: extra wire bytes for target_manifest_id, zero unless the
+     *  proxy responder is enabled and the message actually carries entries. */
+    uint32_t ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const;
+    /** Transport §1: record which neighbour a QUERY arrived from. */
+    void RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS);
+    /** Transport §1: unicast a RESPONSE home, or flood if no path is cached. */
+    void SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId);
+
     //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
     //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
     //! so a stale value cannot leak onto an unrelated frame.
@@ -349,6 +379,16 @@ class CaTblMac
     //! Which identity class this MAC was configured as. Needed by the scenario to
     //! pick an anchor to originate queries from; the config is otherwise private.
     CaTblIdentityClass GetIdentityClass() const { return m_cfg.identityClass; }
+
+    //! Network §4 / Transport §1 accounting. Separated because they answer
+    //! different questions: how often the mesh answered for someone else, and
+    //! how often the answer found its way home without a flood.
+    uint64_t GetProxyResponses() const { return m_proxyResponses; }
+    uint64_t GetProxyRefusedStale() const { return m_proxyRefusedStale; }
+    uint64_t GetResponsesUnicast() const { return m_responsesUnicast; }
+    uint64_t GetResponsesFlooded() const { return m_responsesFlooded; }
+    uint64_t GetReversePathHits() const { return m_reversePathHits; }
+    uint64_t GetReversePathMisses() const { return m_reversePathMisses; }
 
     //! C3: identity-scoped queries answered, and responses sent. Counted so the
     //! mechanism is measurable rather than asserted.
@@ -478,6 +518,11 @@ class CaTblMac
     std::deque<std::pair<uint32_t, Time>> m_dedupOrder;
     std::map<uint32_t, Time> m_dedupSeen;
 
+    //! Transport §1. query_id -> the neighbour it arrived from. Bounded and
+    //! time-windowed exactly like m_dedupSeen; an eviction is a correctness
+    //! event only in that it forces the flood fallback.
+    std::map<uint32_t, std::pair<uint16_t, double> > m_reversePath;
+
     // Sliding-window airtime per tier, for duty-cycle enforcement.
     std::deque<std::pair<Time, double>> m_airtime[CA_TBL_TIER_COUNT];
 
@@ -494,6 +539,12 @@ class CaTblMac
     uint64_t m_neighbourInsertions;
 
     std::map<uint8_t, CaTblMsgCounters> m_counters;
+    uint64_t m_proxyResponses = 0;
+    uint64_t m_proxyRefusedStale = 0;
+    uint64_t m_responsesUnicast = 0;
+    uint64_t m_responsesFlooded = 0;
+    uint64_t m_reversePathHits = 0;
+    uint64_t m_reversePathMisses = 0;
     uint64_t m_dutyViolationAttempts;
 };
 

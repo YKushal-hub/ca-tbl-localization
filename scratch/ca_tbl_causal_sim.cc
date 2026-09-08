@@ -2380,6 +2380,9 @@ RunArm(CaTblPolicyMode mode,
        double shsTrustedFixK,
        bool imuFusion,
        bool imuIdeal,
+       bool queryProxy,
+       double queryStalenessBoundS,
+       bool reversePath,
        bool shsStepBounds,
        bool shsSnapPosition,
        double finderSpeedMps,
@@ -2774,6 +2777,9 @@ RunArm(CaTblPolicyMode mode,
         chan[ti].SetPhyProvider(&provider);
 
         CaTblMacConfig mc;
+        mc.queryProxy = queryProxy;
+        mc.queryStalenessBoundS = queryStalenessBoundS;
+        mc.reversePath = reversePath;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
         // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
@@ -2804,6 +2810,9 @@ RunArm(CaTblPolicyMode mode,
             anchorPosById[aid] = ad.pos;
 
             CaTblMacConfig mc;
+            mc.queryProxy = queryProxy;
+            mc.queryStalenessBoundS = queryStalenessBoundS;
+            mc.reversePath = reversePath;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
@@ -2882,6 +2891,9 @@ RunArm(CaTblPolicyMode mode,
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
             CaTblMacConfig pmc;
+            pmc.queryProxy = queryProxy;
+            pmc.queryStalenessBoundS = queryStalenessBoundS;
+            pmc.reversePath = reversePath;
             pmc.nodeId = static_cast<uint16_t>(pid);
             pmc.identityClass = CA_TBL_ID_TARGET;
             // THE POINT OF THE PEER. A distinct manifest id is what makes an
@@ -3099,6 +3111,9 @@ RunArm(CaTblPolicyMode mode,
             anchorPosById[static_cast<uint16_t>(fid)] = fpos;
 
             CaTblMacConfig fc;
+            fc.queryProxy = queryProxy;
+            fc.queryStalenessBoundS = queryStalenessBoundS;
+            fc.reversePath = reversePath;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
@@ -5588,6 +5603,9 @@ main(int argc, char* argv[])
     double shsTrustedFixKArg = 0.0;
     bool imuFusionArg = false;
     bool imuIdealArg = false;
+    bool queryProxyArg = false;
+    double queryStalenessBoundSArg = 120.0;
+    bool reversePathArg = false;
     bool shsStepBoundsArg = false;
     bool shsSnapPositionArg = false;
     double uwbTriadRadiusM = 10.0; // UWB r80 = 10 m
@@ -5803,6 +5821,33 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("queryProxy",
+                 "Network Layer 4: answer a QUERY on behalf of a FRESH table entry, not "
+                 "only when this node IS the target. FALSE by default. The spec calls "
+                 "this the case that makes an identity-scoped query useful at all: the "
+                 "target may be out of the requester radio range while its position "
+                 "is not, because the mesh already gossiped it here. Costs one wire "
+                 "byte per entry for target_manifest_id, charged only while this is "
+                 "on. An entry older than --queryStalenessBoundS is refused and counted, "
+                 "so a search that found only stale knowledge is distinguishable from "
+                 "one that found none.",
+                 queryProxyArg);
+    cmd.AddValue("queryStalenessBoundS",
+                 "Age beyond which a table entry may not be proxied (Network 4). 120 s "
+                 "by default. Not a tuning knob for accuracy: it is the claim that a "
+                 "position this old is no longer something the mesh has reason to "
+                 "believe, and answering from it would report a fix nothing supports.",
+                 queryStalenessBoundSArg);
+    cmd.AddValue("reversePath",
+                 "Transport Layer 1: cache which neighbour a QUERY arrived from and "
+                 "unicast the RESPONSE back along that path instead of flooding it. "
+                 "FALSE by default. Borrowed from AODV/DSR reactive routing. The cache "
+                 "is bounded and time-windowed on the same discipline as the packet_id "
+                 "dedup cache, and a miss FALLS BACK TO FLOOD -- so an eviction costs "
+                 "airtime, never the answer. Unicast and flooded responses are "
+                 "counted separately because the spec asks for the airtime saving as a "
+                 "number rather than a claim.",
+                 reversePathArg);
     cmd.AddValue("imuIdeal",
                  "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
                  "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
@@ -7072,6 +7117,9 @@ main(int argc, char* argv[])
                                        shsTrustedFixKArg,
                                        imuFusionArg,
                                        imuIdealArg,
+                                       queryProxyArg,
+                                       queryStalenessBoundSArg,
+                                       reversePathArg,
                                        shsStepBoundsArg,
                                        shsSnapPositionArg,
                                        (finderSpeedMpsArg >= 0.0)
