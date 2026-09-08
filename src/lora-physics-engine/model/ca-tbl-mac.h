@@ -224,6 +224,16 @@ struct CaTblMacConfig
      * escalating arm to move -- that is the treatment, not a regression.
      */
     bool sendHandshakeFrames;
+    /**
+     * Fuse an entry whose sequence number EQUALS the held one, by Covariance
+     * Intersection, instead of discarding it. FALSE by default.
+     *
+     * The spec's table rule has three branches and the code had two: newer supersedes,
+     * older is discarded, and EQUAL was falling into the discard path. Equal is the
+     * interesting case -- it is the same report arriving by a second mesh path, which
+     * is information about the same instant from a route that saw different NLOS.
+     */
+    bool tableFuseCI;
 
     // ---- C4: multi-target UWB arbitration --------------------------------
     //! Whether an anchor arbitrates between competing UWB requests instead of
@@ -315,6 +325,12 @@ class CaTblMac
     //! Entries that ARRIVED rather than being produced here, so propagation is
     //! measurable instead of assumed.
     uint64_t GetTableMerges() const { return m_tableMerges; }
+
+    //! Entries fused under the equal-sequence branch (Covariance Intersection).
+    uint64_t GetTableFuses() const { return m_tableFuses; }
+    //! Entries refused as strictly superseded. Counted so "nothing arrived" and
+    //! "everything arriving was stale" are distinguishable, which they were not.
+    uint64_t GetTableDiscards() const { return m_tableDiscards; }
 
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
@@ -513,6 +529,8 @@ class CaTblMac
     std::map<uint16_t, CaTblTableEntry> m_table;
     uint16_t m_selfSeq;
     uint64_t m_tableMerges;
+    uint64_t m_tableFuses;
+    uint64_t m_tableDiscards;
 
     // Dedup: bounded LRU with a time window (§2.6).
     std::deque<std::pair<uint32_t, Time>> m_dedupOrder;

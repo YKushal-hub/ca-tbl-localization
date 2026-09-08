@@ -1,0 +1,5 @@
+e0a5faf846fef4b7
+build Sep  8 2026 22:35:57 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=14400 --seedCount=5 --trace=false --arbitrateDutyBudget=true --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --corroborationCheck=true --bidirectionalDigest=true --mahalUseR=true --escalationRequiresEvidenceT2=true --boxHalf=6000 --baseCampFrac=0.9 --subjectKeepOutM=3000 --gwGrid=3 --nFinders=4 --finderMode=1 --finderDispersal=1.0 --finderPseudoAnchor=true --seedStart=17 --imuFusion=true --imuIdeal=true --outdir=results/L1_imuon_s17
+source 808885a dirty 0 profile optimized
+digest sha256
+8ad66c2072d06e49dc21e306782b837317de7ddc09bbce30ea186c5bfc544470  arm_summary.csv
