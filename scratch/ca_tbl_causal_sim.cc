@@ -2244,6 +2244,8 @@ struct CaTblTagState
     uint64_t fn = 0;
     uint64_t tn = 0;
     uint64_t inCov = 0;
+    bool batteryDead = false;
+    double batteryDeadAtS = -1.0;
     CaTblSessionManager sessions;
     uint32_t sessionId = 0;
     uint64_t renderCounts[4] = {0, 0, 0, 0};
@@ -2391,6 +2393,7 @@ RunArm(CaTblPolicyMode mode,
        bool queryProxy,
        bool tableFuseCI,
        bool digestSummary,
+       double batteryDepleteJ,
        bool sessionLayer,
        bool sparseCaseA,
        double sparseCaseAMarginM,
@@ -2513,6 +2516,8 @@ RunArm(CaTblPolicyMode mode,
     auto& fn = TS0.fn;
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
+    auto& batteryDead = TS0.batteryDead;
+    auto& batteryDeadAtS = TS0.batteryDeadAtS;
     auto& sessions = TS0.sessions;
     auto& sessionId = TS0.sessionId;
     auto& renderCounts = TS0.renderCounts;
@@ -4095,6 +4100,23 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            // A DEAD BATTERY STOPS THE RANGING, NOT JUST THE CHATTER.
+            //
+            // SetSilent() suppresses MAC frames -- beacons, digests, handshakes -- and
+            // ranging does not go through them: rangeTier calls the engine directly.
+            // Silencing alone therefore left a "dead" node still ranging and still
+            // fixing, which is worse than not modelling the fault at all, because the
+            // run reports a depletion that changed almost nothing. Measured before this:
+            // fixCycles 479 -> 474 across a 528 s outage, and totalJ kept climbing past
+            // the budget that was supposed to have ended it.
+            //
+            // A ranging exchange is a transmission. A radio with no power does not make
+            // one, so no exchange forms, no energy is charged, and the filter coasts --
+            // which is the whole consequence the fault exists to expose.
+            if (batteryDead)
+            {
+                return out;
+            }
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -4814,6 +4836,34 @@ RunArm(CaTblPolicyMode mode,
         if (gatewayEdgeServer && d.hadFix)
         {
             energy.AccountEdgeServerDownlink(active);
+        }
+
+        // sect 49 BATTERY DEPLETION. The measured tag has a finite budget; when it is
+        // spent the radio stops transmitting and does not come back.
+        //
+        // IT REUSES THE SILENCE MECHANISM DELIBERATELY. A flat battery and a failed
+        // transmit chain look identical from the network's side -- the node stops being
+        // heard and goes on existing -- so modelling them with two different mechanisms
+        // would be inventing a distinction the network cannot observe. What differs is
+        // only the CAUSE and whether it can end, and a depleted battery cannot: there is
+        // no return window here, unlike --injectSilentId.
+        //
+        // THE NODE KEEPS RUNNING ITS FILTER. That is not an oversight. A device with a
+        // dead radio still knows where it thinks it is; it simply cannot tell anyone,
+        // and its estimate degrades from that moment because no measurement arrives to
+        // correct it. Stopping the estimator instead would model a node that switched
+        // OFF, which is a different failure and would hide the drift this one causes.
+        if (batteryDepleteJ > 0.0 && !batteryDead && energy.GetTotalJ() >= batteryDepleteJ)
+        {
+            batteryDead = true;
+            batteryDeadAtS = t;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->SetSilent(true);
+                }
+            }
         }
 
         // TRANSPORT sect 2 / APPLICATION sect 3-5. The layer above the MAC, driven by the
@@ -5553,6 +5603,13 @@ RunArm(CaTblPolicyMode mode,
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
         }
+        if (batteryDeadAtS >= 0.0)
+        {
+            std::cout << "    FAULT sect 49: battery exhausted at t=" << std::fixed
+                      << std::setprecision(1) << batteryDeadAtS << " s ("
+                      << batteryDepleteJ << " J); radio silent for the remaining "
+                      << (durationS - batteryDeadAtS) << " s\n";
+        }
         if (sessionLayer)
         {
             const CaTblSession* sess = nullptr;
@@ -5855,6 +5912,7 @@ main(int argc, char* argv[])
     bool queryProxyArg = false;
     bool tableFuseCIArg = false;
     bool digestSummaryArg = false;
+    double batteryDepleteJArg = 0.0;
     bool sessionLayerArg = false;
     bool sparseCaseAArg = false;
     double sparseCaseAMarginMArg = 1.0;
@@ -6078,6 +6136,15 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("batteryDepleteJ",
+                 "sect 49: joules after which the measured tag's radio goes permanently "
+                 "silent. 0 = off (infinite battery, the pre-existing assumption). Reuses "
+                 "the silence mechanism because a flat battery and a failed transmit chain "
+                 "are INDISTINGUISHABLE from the network's side; what differs is that this "
+                 "one cannot end. The filter keeps running -- a device with a dead radio "
+                 "still knows where it thinks it is, it just cannot tell anyone, and the "
+                 "estimate degrades from that moment because no measurement arrives.",
+                 batteryDepleteJArg);
     cmd.AddValue("sessionLayer",
                  "Drive the Transport/Application layer from the run: a session opened at "
                  "t=0, every fix delivered to it as a RESULT carrying its lineage, and the "
@@ -7426,6 +7493,7 @@ main(int argc, char* argv[])
                                        queryProxyArg,
                                        tableFuseCIArg,
                                        digestSummaryArg,
+                                       batteryDepleteJArg,
                                        sessionLayerArg,
                                        sparseCaseAArg,
                                        sparseCaseAMarginMArg,
