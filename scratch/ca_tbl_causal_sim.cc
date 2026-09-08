@@ -2598,7 +2598,32 @@ RunArm(CaTblPolicyMode mode,
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
-    policy.Initialize(pos.x, pos.y, 100.0, 5.0);
+    // THE FILTER STARTS WHERE THE SUBJECT WAS LAST SEEN, NOT AT THE TRUTH.
+    //
+    // With a base camp the last known position is the camp. For a MOVING subject
+    // that is also where it starts, so this is identical to seeding at truth and
+    // nothing changes. For a STILL subject, which is placed out at a tour site,
+    // seeding at truth would hand it perfect knowledge of a position it has never
+    // had coverage at -- and it would then report rmse 0.0000 for the whole run
+    // without ever receiving a measurement, which is what the still-cell check
+    // caught.
+    //
+    // The prior must be WIDE or the fix is worse than the defect: a filter seeded
+    // kilometres from truth with a 100 m std is grossly overconfident, and the
+    // Mahalanobis gate would reject every measurement that could correct it. So
+    // the prior is how far the subject could plausibly have gone since it was
+    // last seen, floored at the historical 100 m.
+    double initX = pos.x;
+    double initY = pos.y;
+    double initStdM = 100.0;
+    if (dep.hasBaseCamp)
+    {
+        initX = dep.baseCampX;
+        initY = dep.baseCampY;
+        const double away = std::hypot(pos.x - initX, pos.y - initY);
+        initStdM = std::max(100.0, away);
+    }
+    policy.Initialize(initX, initY, initStdM, 5.0);
 
     // ---- S4 MAC substrate ---------------------------------------------------
     //
