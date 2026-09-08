@@ -189,6 +189,12 @@ enum CaTblIdentityClass : uint8_t
  */
 static const uint32_t CA_TBL_TABLE_ENTRY_BYTES = 28;
 
+/** One byte for target_manifest_id, charged only when proxy answering is enabled
+ *  (Network §4). A byte that is not transmitted must not be billed, and a byte
+ *  that is must be -- so this is added to the entry size by the caller rather
+ *  than folded into the constant above. */
+static const uint32_t CA_TBL_MANIFEST_ID_BYTES = 1;
+
 /**
  * \brief The record the constant above sizes, now with contents.
  *
@@ -213,6 +219,10 @@ struct CaTblTableEntry
     uint8_t sourceType; //!< tier in the low nibble, identity class in the high
     double vx;          //!< velocity estimate
     double vy;
+    //! Network Layer §1. Which missing person this entry is about, 0 for none.
+    //! Identity CLASS already rides in sourceType's high nibble; the manifest id
+    //! needs its own byte, and a proxy responder cannot match without it.
+    uint8_t targetManifestId;
     bool valid;
 
     CaTblTableEntry();
