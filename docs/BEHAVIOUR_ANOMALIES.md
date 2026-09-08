@@ -119,6 +119,46 @@ project has found.
 **Disposition:** moved to `TECH_DEBT` K.1/K.2. Default corrected; the regeneration it
 forces is open.
 
+### A.6  A session reaches TRACKING having never had a precise fix
+**Observed:** config A (`--nGateways=3 --boxHalf=2000 --nFinders=0`) ends at
+`final state TRACKING` with `renders HIGH 0` — no UWB fix ever occurred.
+
+**Expected:** the docx FSM reads
+`SEARCHING -> LOCATED_COARSE -> LOCATED_PRECISE -> TRACKING`, so TRACKING reads as
+"precision achieved and being maintained".
+
+**Reproduce:** that config at commit `ac5766f` with `--sessionLayer=true`.
+
+**Diagnosis:** **mechanism identified, and it is the spec's own FSM.** The path taken was
+`SEARCHING -> LOCATED_COARSE -> STALE -> TRACKING`: the session went stale during the 289
+unlocalisable cycles and the spec says STALE **recovers to TRACKING** rather than
+reopening, deliberately, so a recovered target does not report a second "first fix".
+Reaching TRACKING without precision is therefore correct per the FSM and misleading per
+the name.
+
+**Severity:** does not invalidate anything. **Misleads in a demonstration** — a viewer
+reads TRACKING as "we have a precise lock".
+
+**Disposition:** open. Not a code fix: the FSM is the spec's. Either the state needs a
+distinguishing sub-label, or a demo must show the *path* and not only the final state.
+
+### A.7  The case breakdown does not partition the cycles
+**Observed:** config A reports D 32 + A 83 + B 0 + C 289 = 404 against 480 cycles.
+Config D reports 409 + 0 + 0 + 12 = 421 of 480.
+
+**Expected:** four mutually exclusive cases covering every cycle.
+
+**Diagnosis:** **mechanism identified.** Cycles where the active tier returned one or two
+ranges *and the tier-1 floor solved* fall into no bucket: they are not D (the active tier
+had fewer than three), not A or B (Case A/B only runs when the floor has failed), and not
+C (they were localised). The ~60–76 unaccounted cycles per run are exactly those.
+
+**Severity:** low, but it **must not be presented as a complete breakdown**. The four
+numbers are a census of how the fix was obtained, not a partition of the run.
+
+**Disposition:** open. Either add a fifth bucket ("floor solved for an escalated tier") or
+label the census as partial wherever it is shown.
+
 ---
 
 ## Closed
@@ -133,3 +173,24 @@ artefact hid.
 **Disposition:** closed. Caught only because instrumentation was added asking whether any
 finder actually *held* the entry — the answer was 0 of 4. **Nothing in the 15-gate suite
 tests for this class of error**, and that gap is `TECH_DEBT` H.3.
+
+### A.8  "C3 identity queries: answered 0" was a property of the counter
+**Observed:** every run, in every configuration, reported `answered 0` alongside 18–21
+correctly ignored. It was read across several sessions as "the identity query reaches
+targets but the matching one never replies".
+
+**Expected:** with `--identityQueryTarget=2` and `--nTags=3`, the peer holding manifest
+id 2 should answer.
+
+**Diagnosis:** **artefact.** The counter summed `nodeMac[]` — the MEASURED TAG's three
+MACs — only. Manifest id 2 belongs to a PEER tag, so a query addressed to it could only
+ever be counted as *ignored* by the measured tag; the answer, if it came, was invisible
+by construction. Summing over every MAC gives **answered 9** and **answered 5** in the
+same two configurations.
+
+**Severity:** would have been reported as a broken identity-scoped query in a
+demonstration, and the mechanism works.
+
+**Disposition:** closed, fixed. The lesson is the recurring one: **an exact zero is a
+control-flow claim, not a measurement**, and this one survived multiple readings because
+it was accompanied by a plausible non-zero number next to it.

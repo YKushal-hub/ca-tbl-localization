@@ -5658,15 +5658,21 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
-    // C3. Queries answered and correctly ignored, summed over the tag's three
-    // MACs. To stdout rather than arm_summary.csv: a new column changes the CSV
-    // header for every run and breaks byte-identity against baseline_v7.
+    // C3. Queries answered and correctly ignored. To stdout rather than
+    // arm_summary.csv: a new column changes the CSV header for every run and breaks
+    // byte-identity against baseline_v7.
+    //
+    // SUMMED OVER EVERY MAC, NOT JUST THE MEASURED TAG'S THREE. It used to sum only
+    // nodeMac[], which is the measured tag -- so a query addressed to manifest id 2,
+    // which belongs to a PEER tag, could only ever be counted as IGNORED. The answer,
+    // if it came, was invisible. Every run reported "answered 0" and the zero was a
+    // property of the counter rather than of the system.
     {
         uint64_t qa = 0, qi = 0;
-        for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+        for (size_t i = 0; i < macs.size(); ++i)
         {
-            qa += nodeMac[i]->GetQueriesAnswered();
-            qi += nodeMac[i]->GetQueriesIgnored();
+            qa += macs[i].GetQueriesAnswered();
+            qi += macs[i].GetQueriesIgnored();
         }
         if (qa + qi > 0)
         {
@@ -5751,12 +5757,15 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
         }
-        if (caseAAttempts > 0)
+        if (sparseCaseA || caseSolved[0] > 0)
         {
             std::cout << "    sect 7 CASES: D(3+ anchors) " << caseSolved[0]
                       << ", A(2 gateways) " << caseSolved[1]
                       << ", B(anchor+peer) " << caseSolved[2]
                       << ", C(unlocalisable) " << caseSolved[3] << "\n";
+        }
+        if (caseAAttempts > 0)
+        {
             std::cout << "    sect 7 CASE A/B: attempts " << caseAAttempts << ", admitted "
                       << caseAAdmitted << ", refused ambiguous "
                       << caseARefused[CA_TBL_SPARSE_AMBIGUOUS] << ", degenerate "
