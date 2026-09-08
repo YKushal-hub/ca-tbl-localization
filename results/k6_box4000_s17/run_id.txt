@@ -1,0 +1,5 @@
+84079df3e3cc7359
+build Sep  8 2026 08:22:18 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=5 --trace=false --arbitrateDutyBudget=true --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --corroborationCheck=true --bidirectionalDigest=true --gwGrid=3 --boxHalf=4000 --seedStart=17 --outdir=results/k6_box4000_s17
+source 77a889a dirty 0 profile optimized
+digest sha256
+c556927f8f8fae4296057fb80bb3dd6bd411e99631ddeb8ab31830c6318553e5  arm_summary.csv
