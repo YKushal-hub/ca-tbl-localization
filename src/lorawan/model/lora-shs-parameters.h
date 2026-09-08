@@ -218,6 +218,27 @@ struct StepLengthParams
     double kwEmaAlpha = 0.3;
 
     /**
+     * Physiological bounds on the step length a calibration may imply, in
+     * metres. chord / (buffered steps) is an implied mean step length, and a
+     * stretch implying a step outside this range is refused rather than fitted.
+     *
+     * This exists because k_w = chord / |sum q_i u_i| has no upper bound: the
+     * numerator is a radio chord and the denominator is a gait quantity that does
+     * not grow when that chord is mostly fix error. Where fixes are sparse the
+     * chord is dominated by noise and the fitted gait runs away -- measured at
+     * 1.9e6 m of SHS position error on an arm holding 7 fixes in 1440 cycles,
+     * against 13 m on an arm that never calibrated at all.
+     *
+     * A bound on step length is a claim about legs, not a fitted constant, which
+     * is why the guard is placed here and not on k_w.
+     *
+     * BOTH ZERO DISABLES THE TEST, which is the default so that results predating
+     * it reproduce byte for byte.
+     */
+    double minPlausibleStepM = 0.0;
+    double maxPlausibleStepM = 0.0;
+
+    /**
      * Minimum straightness required of a bracketed stretch before it may be
      * used to calibrate k_w, in [0, 1].
      *

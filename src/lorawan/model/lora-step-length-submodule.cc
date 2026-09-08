@@ -95,7 +95,19 @@ StepLengthSubmodule::OnTrustedFix(const TrustedRadioFix& fix)
             sumQuarticDiffs > 1e-9 &&
             (vecMagnitude / sumQuarticDiffs) >= m_params.minCalibrationStraightness;
 
-        if (straightEnough && vecMagnitude > 1e-9)
+        // A stretch implying an impossible gait is not evidence about gait. See
+        // StepLengthParams::maxPlausibleStepM -- the bound is on step length
+        // rather than on k_w because step length is the quantity with a
+        // physiological range.
+        bool gaitPlausible = true;
+        if (m_params.maxPlausibleStepM > 0.0)
+        {
+            const double impliedStepM = chord / static_cast<double>(m_bufferedSteps.size());
+            gaitPlausible = impliedStepM >= m_params.minPlausibleStepM &&
+                            impliedStepM <= m_params.maxPlausibleStepM;
+        }
+
+        if (straightEnough && gaitPlausible && vecMagnitude > 1e-9)
         {
             double kwEstimate = chord / vecMagnitude;
             if (!m_hasCalibrated)
