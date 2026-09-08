@@ -146,4 +146,55 @@ CaTblRelayVerdictName(CaTblRelayVerdict v)
     }
 }
 
+
+bool
+CaTblComposeRelayChain(const double relayP[2][2],
+                       double inheritedVarM2,
+                       double ux,
+                       double uy,
+                       double outP[2][2])
+{
+    // Positive-definite check on the 2x2. A relay reporting a degenerate covariance is
+    // reporting that it knows its position exactly along some axis, which no relayed
+    // fix ever does.
+    const double det = relayP[0][0] * relayP[1][1] - relayP[0][1] * relayP[1][0];
+    if (!(relayP[0][0] > 0.0) || !(relayP[1][1] > 0.0) || !(det > 0.0))
+    {
+        return false;
+    }
+
+    outP[0][0] = relayP[0][0];
+    outP[0][1] = relayP[0][1];
+    outP[1][0] = relayP[1][0];
+    outP[1][1] = relayP[1][1];
+
+    if (!(inheritedVarM2 > 0.0))
+    {
+        // Depth 1: the relay measured against surveyed anchors and inherited nothing.
+        // P_B is already the whole story, and adding a term here would double-count.
+        return true;
+    }
+
+    const double n = std::sqrt(ux * ux + uy * uy);
+    if (!(n > 1e-9))
+    {
+        // No direction to inflate along. Fall back to isotropic rather than refusing:
+        // the inherited uncertainty is real and dropping it silently is the failure
+        // this function exists to prevent. Conservative in the wrong place beats
+        // absent in the right one.
+        outP[0][0] += inheritedVarM2;
+        outP[1][1] += inheritedVarM2;
+        return true;
+    }
+
+    // Rank-1 update along the inherited direction: P += var * u u^T.
+    const double x = ux / n;
+    const double y = uy / n;
+    outP[0][0] += inheritedVarM2 * x * x;
+    outP[0][1] += inheritedVarM2 * x * y;
+    outP[1][0] += inheritedVarM2 * x * y;
+    outP[1][1] += inheritedVarM2 * y * y;
+    return true;
+}
+
 } // namespace ns3
