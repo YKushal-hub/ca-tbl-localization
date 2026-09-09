@@ -227,3 +227,51 @@ demonstration, and the mechanism works.
 **Disposition:** closed, fixed. The lesson is the recurring one: **an exact zero is a
 control-flow claim, not a measurement**, and this one survived multiple readings because
 it was accompanied by a plausible non-zero number next to it.
+
+### A.10  868 MHz reaches at least 4.5 km, so "contact lost" is not an observable event
+**Observed:** `--searchLaunchOnLoss=60`, which holds the search party at base camp until
+the subject has been out of gateway contact for 60 s, never fires. On the seed-7 ridge
+run the subject's 868 neighbour table has **zero empty cycles out of 720**, and at its
+furthest point — 1681 m from the nearest gateway, walking away for the last 1400 s — it
+still hears **5 of 5** gateways.
+
+**Expected:** a walker who deviates off a ridge trail and keeps going should eventually
+drop out of coverage. That is the premise of the alert, and of the whole SAR framing.
+
+**Diagnosis:** not an artefact — a property of the link model, quantified. Probing
+deliberately at `--boxHalf=3000` (ridge span 4800 m, walker driven to 4.5 km from the
+nearest gateway over 4000 s), fraction of cycles hearing at least one gateway by
+distance band:
+
+| range | 0–2.5 km | 2.5–3.5 km | 3.5–4.0 km | 4.0–4.5 km |
+|---|---|---|---|---|
+| heard ≥1 gateway | 100% | 94–100% | 92–95% | 84–88% |
+
+There is no cliff inside any box this scenario can run in. This is the same underlying
+fact as A.1 — **tier 1 blankets the box** — seen from the range axis instead of the
+`runFloor` axis, and it is downstream of `TECH_DEBT` K.1/K.2: tiers 2 and 3 were
+corrected into a different propagation environment than tier 1, leaving tier 1's budget
+roughly 27 dB optimistic.
+
+**Severity:** moderate and bounded. It does not corrupt a measurement — nothing is
+reported in range terms — but it silently makes an entire class of scenario
+(out-of-coverage, relay-dependent, multi-hop-by-necessity) unreachable, and any future
+result of the form "the network kept contact" is unfalsifiable while it holds.
+
+**Disposition:** open, worked around, workaround documented in the code that uses it.
+The alert now triggers on **loss of position confidence** instead: posterior radial
+sigma `sqrt(traceSigma)` above a bound, sustained. That signal does separate — p50
+21.9 m / p90 58.0 m on the trail against p50 326.6 m / p90 546.1 m off it — because the
+collinear ridge is bad geometry by construction, so the walker loses the *fix* long
+before the *link*. Arguably the better alarm for a confidence-aware system, but it was
+chosen because the intended one was unreachable, and that ordering is recorded here so
+it is not later re-told as a design decision. **Closing this needs K.1/K.2**, not a
+change to the alert.
+
+**Near miss, worth its own line:** the first implementation bounded `sigmaGeoM`, the
+exact `sqrt(trace((J^T R^-1 J)^-1))` and the better-founded quantity. Its header states
+it is negative when the solve is degenerate **or when the legacy PCS form never computed
+it**. The legacy form is what runs: it is negative on **720 of 720** cycles. The bound
+would have deployed the party in the first window of every run and been indistinguishable
+from a working alarm. Fourth instance of *an exact sentinel is a control-flow claim, not
+a measurement* (A.5, A.7, A.8), and the first caught before it was believed.
