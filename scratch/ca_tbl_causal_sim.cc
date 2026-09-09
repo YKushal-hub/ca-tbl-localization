@@ -198,7 +198,9 @@ BuildDeployment(uint32_t gwGrid,
                 uint32_t nGateways,
                 double gwRingFrac,
                 bool gwRidge,
-                double gwRidgeY)
+                double gwRidgeY,
+                double gwArcDeg,
+                double gwArcCentreDeg)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -310,10 +312,34 @@ BuildDeployment(uint32_t gwGrid,
         }
         else
         {
+        // ARC placement when gwArcDeg < 360: the anchors follow a curving access
+        // route rather than closing a ring around the search area. Centred on north, so
+        // the trail runs beneath the arc and a subject can stray OUTSIDE it (through the
+        // anchors, where they collapse toward one bearing) or INSIDE it (away from them,
+        // toward the centre of curvature). Those two are geometrically different cases
+        // and the scenario should be able to produce both.
+        //
+        // At 360 this is exactly the previous even ring, so existing runs reproduce.
+        const double arc = (gwArcDeg > 0.0 && gwArcDeg < 360.0) ? gwArcDeg : 360.0;
+        const double sweep = arc * M_PI / 180.0;
         for (uint32_t k = 0; k < nGateways; ++k)
         {
-            const double th =
-                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(nGateways) + M_PI / 2.0;
+            double th;
+            if (arc >= 360.0)
+            {
+                th = 2.0 * M_PI * static_cast<double>(k) /
+                         static_cast<double>(nGateways) + M_PI / 2.0;
+            }
+            else
+            {
+                // Spread across the sweep INCLUSIVE of both ends, so the arc's extent is
+                // the stated angle rather than one gateway short of it.
+                const double f = (nGateways == 1)
+                                     ? 0.5
+                                     : static_cast<double>(k) /
+                                           static_cast<double>(nGateways - 1);
+                th = gwArcCentreDeg * M_PI / 180.0 - sweep / 2.0 + sweep * f;
+            }
             dep.anchors[CA_TBL_TIER_868].push_back(
                 {id++, Vector(R * std::cos(th), R * std::sin(th), gwH)});
         }
@@ -1102,9 +1128,13 @@ class Tourist
      *                     subject is the hard case -- K13 measured that no steering
      *                     helps once contact rate is ~0 -- and it must be reachable.
      */
-    void SetTrail(double trailY, double deviateAtS, double stopAfterS)
+    void SetTrail(double trailY, double deviateAtS, double stopAfterS,
+                  double deviateSide = -1.0)
     {
         m_trail = true;
+        // -1 walks south (away from an arc centred north), +1 north (through it).
+        // Default -1 is the previous hard-coded behaviour.
+        m_deviateSide = (deviateSide >= 0.0) ? 1.0 : -1.0;
         m_trailY = trailY;
         m_deviateAtS = deviateAtS;
         m_stopAfterS = stopAfterS;
@@ -1114,6 +1144,7 @@ class Tourist
     }
 
     //! Has the walker left the trail? The demo needs the moment, not just the track.
+    double m_deviateSide = -1.0;
     bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
     bool HasStopped() const
     {
@@ -1141,7 +1172,7 @@ class Tourist
                 // believe is right -- and a fixed bearing is what makes the search
                 // problem geometric rather than diffusive.
                 m_x += m_speed * dt * 0.35;
-                m_y -= m_speed * dt * 0.94;
+                m_y += m_deviateSide * m_speed * dt * 0.94;
             }
             if (m_x > m_boxHalf) { m_x = m_boxHalf; }
             if (m_y < -m_boxHalf) { m_y = -m_boxHalf; }
@@ -2502,6 +2533,9 @@ RunArm(CaTblPolicyMode mode,
        double vizTablePeriodS,
        bool gwRidge,
        double gwRidgeY,
+       double gwArcDeg,
+       double gwArcCentreDeg,
+       double trailDeviateSide,
        double trailDeviateAtS,
        double trailStopAfterS,
        uint32_t nFinders,
@@ -2509,6 +2543,7 @@ RunArm(CaTblPolicyMode mode,
        double finderStaleSteerBoundS,
        double searchLaunchOnLossS,
        double searchLaunchSigmaM,
+       double searchLaunchAtS,
        double maxTurnRateRadS,
        double shsTrustedFixK,
        bool imuFusion,
@@ -2696,7 +2731,7 @@ RunArm(CaTblPolicyMode mode,
         // one place the collinear geometry is least bad, and the deviation would then
         // conflate leaving the trail with leaving the only good conditioning.
         walker.SetTrail(gwRidgeY * dep.boxHalfM - dep.boxHalfM * 0.08, trailDeviateAtS,
-                        trailStopAfterS);
+                        trailStopAfterS, trailDeviateSide);
     }
     // The SUBJECT is the one the SHS rides on, so this is the walker whose
     // continuity decides whether a yaw integrator can track it at all.
@@ -4020,6 +4055,20 @@ RunArm(CaTblPolicyMode mode,
                     deployCause = "position confidence lost";
                 }
             }
+
+            // THE OVERDUE REPORT. A party is dispatched because someone did not
+            // arrive, not because a telemetry threshold tripped. Kept separate
+            // from the sigma alarm rather than folded into it, because the two
+            // are different claims: one is an operational decision with a known
+            // time, the other is an inference from the network's own confidence.
+            // A.10 records that on these deployments the second does not
+            // separate, so the first is what the demo uses.
+            if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
+            {
+                partyDeployed = true;
+                deployedAtS = t;
+                deployCause = "reported overdue";
+            }
         }
 
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
@@ -4028,7 +4077,8 @@ RunArm(CaTblPolicyMode mode,
             // No alert yet: the party is at base camp and has been told nothing. Standing
             // still is correct here, and it makes the moment of dispatch visible instead
             // of implicit.
-            if (searchLaunchOnLossS > 0.0 && !partyDeployed)
+            if ((searchLaunchOnLossS > 0.0 || searchLaunchAtS > 0.0) &&
+                !partyDeployed)
             {
                 fp = finderPos[fi];
                 const uint16_t fid0 = static_cast<uint16_t>(finderIds[fi]);
@@ -6666,6 +6716,9 @@ main(int argc, char* argv[])
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
+    double gwArcDegArg = 360.0;
+    double gwArcCentreDegArg = 90.0;
+    double trailDeviateSideArg = -1.0;
     double gwRidgeYArg = 0.55;
     double trailDeviateAtSArg = 0.0;
     double trailStopAfterSArg = 0.0;
@@ -6674,6 +6727,7 @@ main(int argc, char* argv[])
     double finderStaleSteerBoundSArg = 0.0;
     double searchLaunchOnLossSArg = 0.0;
     double searchLaunchSigmaMArg = 0.0;
+    double searchLaunchAtSArg = 0.0;
     // Sentinel: negative means follow --speed, which is what every run before
     // 2026-09-08 did, so the default is byte-identical.
     double finderSpeedMpsArg = -1.0;
@@ -7304,6 +7358,41 @@ main(int argc, char* argv[])
                  "localised than one on it, which is the weakness the scenario exists to "
                  "show. A ring would hide it.",
                  gwRidgeArg);
+    cmd.AddValue("gwArcDeg",
+                 "Angular sweep of the gateway ARC, degrees. 360 (DEFAULT) is the existing "
+                 "full ring and reproduces it exactly. Below 360 the gateways follow a "
+                 "curving access route -- a road or valley trail -- rather than closing "
+                 "a ring around the search area. THIS IS THE HONEST MIDDLE between the "
+                 "two deployments that are easy to build and misleading to measure: a "
+                 "GRID puts anchors in the interior, which no team does and which "
+                 "flatters geometry to 28 m CEP50; a RIDGE is collinear, so the solve is "
+                 "near-singular off-axis and gives 1932 m. An arc has real 2-D spread, "
+                 "so the solve is conditioned, but every anchor is on ONE SIDE, so "
+                 "conditioning degrades as the subject leaves it in either direction. "
+                 "Centred on north, so a trail beneath it can be strayed from either "
+                 "way -- see --trailDeviateSide.",
+                 gwArcDegArg);
+    cmd.AddValue("gwArcCentreDeg",
+                 "Bearing the gateway arc is centred on, degrees CCW from east. 90 "
+                 "(DEFAULT) is north. Only meaningful with --gwArcDeg < 360. MEASURED "
+                 "reason this exists: centred north, the subject starts at the box's "
+                 "west edge OUTSIDE the arc's span, so on-trail error was 993 m and "
+                 "off-trail 3.9 m -- the geometry got BETTER when the subject got lost, "
+                 "and only because the searchers had arrived as pseudo-anchors. 180 "
+                 "puts the containment at the trailhead the subject walks from, so "
+                 "conditioning degrades with distance from access, which is what a "
+                 "real deployment does and the direction the scenario needs.",
+                 gwArcCentreDegArg);
+    cmd.AddValue("trailDeviateSide",
+                 "Which way the subject leaves the trail: -1 (DEFAULT) south, away from "
+                 "an arc centred north; +1 north, through it. Default reproduces the "
+                 "previous hard-coded southward deviation. NOT COSMETIC: with the "
+                 "anchors on an arc the two sides are geometrically different. Inside "
+                 "the arc the anchors subtend a wide angle and the fix stays "
+                 "conditioned longer; outside it they collapse toward a single "
+                 "bearing and the along-range direction goes soft first. A scenario "
+                 "that can only stray one way tests one of those.",
+                 trailDeviateSideArg);
     cmd.AddValue("gwRidgeY", "Ridge northing as a fraction of boxHalf.", gwRidgeYArg);
     cmd.AddValue("trailDeviateAtS",
                  "Seconds before the subject LEAVES the marked trail. 0 = off (the "
@@ -7522,6 +7611,19 @@ main(int argc, char* argv[])
                  "to the network -- but because contact was lost and stayed lost. Latched: "
                  "a momentary re-contact does not recall searchers already walking.",
                  searchLaunchOnLossSArg);
+    cmd.AddValue("searchLaunchAtS",
+                 "Deploy the party at this time, as an OVERDUE REPORT. 0 = off. This "
+                 "is how a real search starts: someone did not arrive. It exists because "
+                 "neither telemetry trigger separates on the deployments tested -- "
+                 "A.10 shows 868 reaches past 4.5 km so contact loss never occurs, and "
+                 "on the arc the posterior sigma sits in an 80-190 m band all run with "
+                 "no sustained degradation (on-trail p90 133, p99 148; sustained 60 s "
+                 "crossings: 150 m at t=720, 175 m and above never). A bound inside "
+                 "that band is an arbitrary number, not a threshold, and what sigma "
+                 "measures there is tier-1 RSSI accuracy rather than geometry. The "
+                 "party still holds at camp until dispatched, which is the behaviour "
+                 "--searchLaunchSigmaM was a proxy for.",
+                 searchLaunchAtSArg);
     cmd.AddValue("searchLaunchSigmaM",
                  "Radial position sigma (m) above which the network is treated as having "
                  "LOST THE SUBJECT even though it can still hear them; sustained for "
@@ -7930,7 +8032,9 @@ main(int argc, char* argv[])
                                            nGatewaysArg,
                                            gwRingFracArg,
                                      gwRidgeArg,
-                                     gwRidgeYArg);
+                                     gwRidgeYArg,
+                                     gwArcDegArg,
+                                     gwArcCentreDegArg);
 
     // BASE CAMP. Move the infrastructure to a corner and leave the casualty's tour
     // where it is, so the subject is OUTSIDE the gateway footprint for much of the
@@ -8249,6 +8353,9 @@ main(int argc, char* argv[])
                                        vizTablePeriodSArg,
                                        gwRidgeArg,
                                        gwRidgeYArg,
+                                       gwArcDegArg,
+                                       gwArcCentreDegArg,
+                                       trailDeviateSideArg,
                                        trailDeviateAtSArg,
                                        trailStopAfterSArg,
                                        nFindersArg,
@@ -8256,6 +8363,7 @@ main(int argc, char* argv[])
                                        finderStaleSteerBoundSArg,
                                        searchLaunchOnLossSArg,
                                        searchLaunchSigmaMArg,
+                                       searchLaunchAtSArg,
                                        maxTurnRateRadS,
                                        shsTrustedFixKArg,
                                        imuFusionArg,
