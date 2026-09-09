@@ -1,4 +1,6 @@
 #include "ca-tbl-mac.h"
+#include <iomanip>
+#include <sstream>
 
 #include "ns3/log.h"
 #include "ns3/simulator.h"
@@ -8,6 +10,58 @@
 
 namespace ns3
 {
+
+namespace
+{
+/**
+ * What a frame is CARRYING, as one compact field for the event log.
+ *
+ * The log recorded a message TYPE and nothing about its contents, so a viewer could see
+ * that an ENTRY_PUSH happened and not what position it moved -- which is the only part a
+ * person watching a dissemination demo actually wants.
+ *
+ * Semicolons, never commas: this lands in a CSV cell and a comma here would silently
+ * shift every column to its right. That failure is invisible in the file and obvious
+ * only downstream, which is the worst place to find it.
+ */
+std::string
+CaTblEventPayload(const CaTblHeader& h)
+{
+    std::ostringstream o;
+    const CaTblMsgType t = h.GetMsgType();
+    o << "pkt=" << h.GetPacketId() << ";hops=" << static_cast<int>(h.GetHopLimit());
+    // VALID, not merely PRESENT. The header carries a self-entry slot on every frame and
+    // HasSelfEntry() reports the slot, so a DIGEST or a QUERY -- which attach nothing --
+    // were emitting "entry=0;x=0.0;y=0.0". A viewer reads that as a packet carrying a
+    // position at the origin, which is a fact the frame does not contain.
+    if (h.HasSelfEntry() && h.GetSelfEntry().valid)
+    {
+        const CaTblTableEntry& e = h.GetSelfEntry();
+        o << ";entry=" << e.nodeId << ";x=" << std::fixed << std::setprecision(1) << e.x
+          << ";y=" << e.y << ";sig=" << std::setprecision(1) << std::sqrt(std::max(e.varX, 0.0))
+          << ";seq=" << e.seqNo << ";hop=" << static_cast<int>(e.hopCount);
+        if (e.targetManifestId != 0)
+        {
+            o << ";mid=" << static_cast<int>(e.targetManifestId);
+        }
+    }
+    if (t == CA_TBL_MSG_QUERY || t == CA_TBL_MSG_RESPONSE)
+    {
+        o << ";wants=" << static_cast<int>(h.GetQueryManifestId());
+    }
+    if (t == CA_TBL_MSG_DIGEST)
+    {
+        o << ";summary=" << h.GetDigest().size();
+    }
+    if (t == CA_TBL_MSG_ESC_REQUEST)
+    {
+        o << ";degr=" << static_cast<int>(h.GetReqDegradation())
+          << ";batt=" << static_cast<int>(h.GetReqBattery());
+    }
+    return o.str();
+}
+} // namespace
+
 
 NS_LOG_COMPONENT_DEFINE("CaTblMac");
 
@@ -1454,7 +1508,8 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
                 *m_eventLog << Simulator::Now().GetSeconds() << ',' << static_cast<int>(me.tier)
                             << ',' << me.txId << ',' << rxId << ','
                             << CaTblMsgTypeName(me.hdr.GetMsgType()) << ",collision,"
-                            << mine.rxPowerDbm << '\n';
+                            << mine.rxPowerDbm << ','
+                            << CaTblEventPayload(me.hdr) << '\n';
             }
             rx->NoteCollisionLoss(me.hdr.GetMsgType());
             continue;
@@ -1472,7 +1527,7 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
                         << ',' << me.txId << ',' << rxId << ','
                         << CaTblMsgTypeName(me.hdr.GetMsgType()) << ','
                         << (captured ? "capture" : "delivered") << ',' << mine.rxPowerDbm
-                        << '\n';
+                        << ',' << CaTblEventPayload(me.hdr) << '\n';
         }
         rx->DeliverRx(me.hdr, mine);
     }
