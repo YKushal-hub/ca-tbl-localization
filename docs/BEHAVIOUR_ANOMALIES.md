@@ -159,6 +159,39 @@ numbers are a census of how the fix was obtained, not a partition of the run.
 **Disposition:** open. Either add a fifth bucket ("floor solved for an escalated tier") or
 label the census as partial wherever it is shown.
 
+### A.9  A search party walked confidently to where the subject used to be
+**Observed:** with `--finderMode=2` on the ridge scenario, finders converge on a held
+entry **377 s old and 1029 m wrong** and keep converging on it. The party is decisive,
+coordinated, and going to the wrong place.
+
+**Expected:** a searcher acts on where the subject *is*. Section 23 defines
+FRESH / AGING / STALE / EXPIRED precisely so a consumer can tell the difference.
+
+**Reproduce:** `--boxHalf=3000 --nGateways=5 --gwRidge=true --trailDeviateAtS=300
+--nFinders=4 --finderMode=2 --baseCampFrac=0.75` at commit `9a9ec3c`.
+
+**Diagnosis:** **mechanism identified, and nothing in the code was wrong.** The table held
+a TRUE report of a PAST position with an accurate timestamp. The consumer read the
+timestamped entry and ignored the timestamp — an entry meaning "the subject was here, six
+minutes ago" was used to answer "where is the subject now". An entry also persists after
+arrival, so hearing the subject ONCE steers the party for the remainder of the run.
+
+The freshness classification existed, was driven into the proxy responder, and was never
+consulted by the one consumer whose behaviour it should change most.
+
+**Severity:** high in a demonstration and worse in the thing being demonstrated. It does
+not look like a failure — it looks like the system working — which is what makes it the
+dangerous kind.
+
+**Disposition:** closed by `--finderStaleSteerBound`, which separates two questions that
+had been one: may this entry be **reported** (yes, flagged — a stale position is still
+worth an operator's attention) and may it **steer** (no). 478 refusals at a 180 s bound.
+
+**The shape is familiar and that is the lesson.** This is the 51 J artefact again: a
+mechanism acting on information it should not act on. There the information had never
+travelled; here it had travelled and then expired. Both were invisible because the output
+looked like success.
+
 ---
 
 ## Closed

@@ -2344,6 +2344,7 @@ struct CaTblTagState
     uint64_t fn = 0;
     uint64_t tn = 0;
     uint64_t inCov = 0;
+    uint64_t staleSteerRefusals = 0;
     bool batteryDead = false;
     double batteryDeadAtS = -1.0;
     CaTblNodeLifecycle lifecycle;
@@ -2495,6 +2496,7 @@ RunArm(CaTblPolicyMode mode,
        double trailStopAfterS,
        uint32_t nFinders,
        uint32_t finderMode,
+       double finderStaleSteerBoundS,
        double maxTurnRateRadS,
        double shsTrustedFixK,
        bool imuFusion,
@@ -2628,6 +2630,7 @@ RunArm(CaTblPolicyMode mode,
     auto& fn = TS0.fn;
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
+    auto& staleSteerRefusals = TS0.staleSteerRefusals;
     auto& batteryDead = TS0.batteryDead;
     auto& batteryDeadAtS = TS0.batteryDeadAtS;
     auto& lifecycle = TS0.lifecycle;
@@ -4002,6 +4005,27 @@ RunArm(CaTblPolicyMode mode,
                         gx = te.x;
                         gy = te.y;
                         known = true;
+                        // A STALE ENTRY IS NOT KNOWLEDGE. An entry, once received,
+                        // persists forever, so a finder that heard the subject ONCE
+                        // converges on that position for the rest of the run. Measured
+                        // at boxHalf 3000: entries 377 s old and 1029 m wrong, with the
+                        // party walking confidently towards where the subject used to be.
+                        //
+                        // sect 23 exists for exactly this decision and nothing was asking
+                        // it. Past the bound the entry may still be REPORTED -- that is
+                        // the proxy responder's call, and a stale position is still worth
+                        // showing an operator -- but it must not STEER. A searcher walking
+                        // to a six-minute-old fix does worse than sweeping, because
+                        // sweeping at least covers ground nobody has looked at.
+                        //
+                        // Off by default: it changes where searchers go, so it is a
+                        // mechanism and not an observation.
+                        if (finderStaleSteerBoundS > 0.0 &&
+                            (t - te.timestampS) > finderStaleSteerBoundS)
+                        {
+                            known = false;
+                            ++staleSteerRefusals;
+                        }
 
                         // SPREAD OVER THE REPORTED UNCERTAINTY, DO NOT STACK ON THE
                         // POINT.
@@ -6039,6 +6063,11 @@ RunArm(CaTblPolicyMode mode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
+        if (staleSteerRefusals > 0)
+        {
+            std::cout << "    SEARCH: " << staleSteerRefusals
+                      << " refusals to steer on an entry past the staleness bound\n";
+        }
         if (mobilityFromRange)
         {
             std::cout << "    sect 11.11 MOBILITY: stationary " << mobCounts[0]
@@ -6500,6 +6529,7 @@ main(int argc, char* argv[])
     double trailStopAfterSArg = 0.0;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
+    double finderStaleSteerBoundSArg = 0.0;
     // Sentinel: negative means follow --speed, which is what every run before
     // 2026-09-08 did, so the default is byte-identical.
     double finderSpeedMpsArg = -1.0;
@@ -7342,6 +7372,16 @@ main(int argc, char* argv[])
                  "specified -- also pinned all four searchers to the spot, and every "
                  "still cell measured a paralysed search party rather than a search.",
                  finderSpeedMpsArg);
+    cmd.AddValue("finderStaleSteerBound",
+                 "Seconds past which a held entry is too old to STEER a searcher on. "
+                 "0 = off, the pre-existing behaviour where an entry received once steers "
+                 "forever. An entry persists after arrival, so a finder that heard the "
+                 "subject once converges on that position for the rest of the run -- "
+                 "measured at 377 s old and 1029 m wrong. Past the bound the entry may "
+                 "still be REPORTED, which is the proxy responder's call; it just must not "
+                 "steer, because walking to a six-minute-old fix does worse than sweeping "
+                 "ground nobody has looked at.",
+                 finderStaleSteerBoundSArg);
     cmd.AddValue("finderMode",
                  "2 = SEARCH THEN CONVERGE. Mode 1 converges on the casualty's "
                  "reported position and, with no entry, deliberately HOLDS POSITION "
@@ -8033,6 +8073,7 @@ main(int argc, char* argv[])
                                        trailStopAfterSArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       finderStaleSteerBoundSArg,
                                        maxTurnRateRadS,
                                        shsTrustedFixKArg,
                                        imuFusionArg,
