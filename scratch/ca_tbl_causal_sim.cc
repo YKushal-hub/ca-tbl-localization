@@ -2345,6 +2345,16 @@ struct CaTblTagState
     uint64_t tn = 0;
     uint64_t inCov = 0;
     uint64_t staleSteerRefusals = 0;
+    double lostContactSinceS = -1.0;
+    double lowConfSinceS = -1.0;
+    bool partyDeployed = false;
+    double deployedAtS = -1.0;
+    // 0 = no fix last cycle, or the weighted solve went degenerate. Carried across
+    // cycles because the alert is evaluated before this cycle's decision exists,
+    // which is also how a real base camp works: it acts on the last report it has.
+    double lastReportedSigmaM = -1.0;
+    bool lastReportHadFix = false;
+    const char* deployCause = "";
     bool batteryDead = false;
     double batteryDeadAtS = -1.0;
     CaTblNodeLifecycle lifecycle;
@@ -2497,6 +2507,8 @@ RunArm(CaTblPolicyMode mode,
        uint32_t nFinders,
        uint32_t finderMode,
        double finderStaleSteerBoundS,
+       double searchLaunchOnLossS,
+       double searchLaunchSigmaM,
        double maxTurnRateRadS,
        double shsTrustedFixK,
        bool imuFusion,
@@ -2631,6 +2643,13 @@ RunArm(CaTblPolicyMode mode,
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
     auto& staleSteerRefusals = TS0.staleSteerRefusals;
+    auto& lostContactSinceS = TS0.lostContactSinceS;
+    auto& lowConfSinceS = TS0.lowConfSinceS;
+    auto& partyDeployed = TS0.partyDeployed;
+    auto& deployedAtS = TS0.deployedAtS;
+    auto& lastReportedSigmaM = TS0.lastReportedSigmaM;
+    auto& lastReportHadFix = TS0.lastReportHadFix;
+    auto& deployCause = TS0.deployCause;
     auto& batteryDead = TS0.batteryDead;
     auto& batteryDeadAtS = TS0.batteryDeadAtS;
     auto& lifecycle = TS0.lifecycle;
@@ -3923,9 +3942,109 @@ RunArm(CaTblPolicyMode mode,
         // and mobility state on node id), to the provider (which computes the link) and
         // to anchorPosById (which the ranging poll reads for the far-end position). All
         // three, or a finder ranges from a position it has left.
+        // THE ALERT. A party is not dispatched because someone stepped off a path -- that
+        // is invisible to the network -- but because CONTACT WAS LOST and stayed lost.
+        // Deviating is not detectable; going quiet is. That ordering matters for the
+        // model as much as the story: the subject is already some way off by the time
+        // anyone knows to look.
+        //
+        // Latched. A momentary re-contact does not recall searchers already walking,
+        // which is how a real search behaves and what stops the party oscillating on a
+        // marginal link.
+        if (searchLaunchOnLossS > 0.0 && !partyDeployed)
+        {
+            bool heard = false;
+            if (nodeMac[0] != nullptr)
+            {
+                const std::vector<CaTblNeighbour> nb =
+                    nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t);
+                for (size_t k = 0; k < nb.size(); ++k)
+                {
+                    if (nb[k].id >= 101 && nb[k].id <= 199) { heard = true; break; }
+                }
+            }
+            if (heard) { lostContactSinceS = -1.0; }
+            else if (lostContactSinceS < 0.0) { lostContactSinceS = t; }
+            else if (t - lostContactSinceS >= searchLaunchOnLossS)
+            {
+                partyDeployed = true;
+                deployedAtS = t;
+                deployCause = "no gateway contact";
+            }
+
+            // SECOND TRIGGER: CONFIDENCE LOST, CONTACT INTACT.
+            //
+            // Measured, not assumed: at boxHalf 3000 with the ridge deployment the
+            // walker still heard a gateway on 88% of cycles at 4.5 km, so the
+            // contact-loss branch above cannot fire at any scale this scenario runs
+            // at (BEHAVIOUR_ANOMALIES A.10). Waiting for silence would mean never
+            // dispatching, which is the wrong demo and, given the link model, the
+            // wrong search doctrine too.
+            //
+            // What actually degrades is not the link but the FIX. The ridge is
+            // collinear, so a walker who leaves the line loses the geometry that
+            // placed them. Measured on the seed-7 ridge run, posterior radial sigma
+            // sqrt(traceSigma) is p50 21.9 m / p90 58.0 m while the walker is on the
+            // trail and p50 326.6 m / p90 546.1 m once off it, and the real error
+            // follows it (p50 7.7 m -> 124.9 m). The party is dispatched when the
+            // network can still hear the subject but can no longer say where they
+            // are, sustained over the same window. For a confidence-aware system
+            // that is the more honest alarm: the trigger is the system's own stated
+            // uncertainty, not an oracle reading the truth track.
+            //
+            // NOT sigmaGeoM, which is the better-founded quantity and was the first
+            // choice. Its header says it is negative when the solve is degenerate OR
+            // when the legacy PCS form never computed it -- and it is negative on
+            // 720 of 720 cycles here, because the legacy form is what runs. A bound
+            // on it would have deployed the party in the first window of every run
+            // and looked exactly like a working alarm. Same shape as the three
+            // earlier exact-zero-as-evidence defects in this project; caught this
+            // time before it was believed.
+            //
+            // SIMPLIFICATION, recorded rather than hidden: this reads the subject's
+            // last reported sigma directly instead of the copy that reaches base
+            // camp through the digest path, so the alert is not delayed by
+            // propagation. It is one cycle late (the decision for this cycle does
+            // not exist yet) but not table-age late.
+            if (!partyDeployed && searchLaunchSigmaM > 0.0)
+            {
+                const bool confident = lastReportHadFix && lastReportedSigmaM >= 0.0 &&
+                                       lastReportedSigmaM <= searchLaunchSigmaM;
+                // No fix at all is not "confidence unknown", it is confidence gone.
+                if (confident) { lowConfSinceS = -1.0; }
+                else if (lowConfSinceS < 0.0) { lowConfSinceS = t; }
+                else if (t - lowConfSinceS >= searchLaunchOnLossS)
+                {
+                    partyDeployed = true;
+                    deployedAtS = t;
+                    deployCause = "position confidence lost";
+                }
+            }
+        }
+
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
+            // No alert yet: the party is at base camp and has been told nothing. Standing
+            // still is correct here, and it makes the moment of dispatch visible instead
+            // of implicit.
+            if (searchLaunchOnLossS > 0.0 && !partyDeployed)
+            {
+                fp = finderPos[fi];
+                const uint16_t fid0 = static_cast<uint16_t>(finderIds[fi]);
+                engine868.UpdateNodePosition(fid0, fp);
+                engine2p4.UpdateNodePosition(fid0, fp);
+                engineUwb.UpdateNodePosition(fid0, fp);
+                provider.SetAnchorPosition(fid0, fp);
+                anchorPosById[fid0] = fp;
+                republishFinder(fi, fp, t);
+                if (vizNodes.is_open())
+                {
+                    vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid0
+                             << ',' << fp.x << ',' << fp.y << '\n';
+                }
+                continue;
+            }
             // MODE 2, PHASE 1: sweep outward from the last known position.
             //
             // Runs only while no entry is more informative than the sweep itself.
@@ -5213,6 +5332,14 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
 
+        // What the subject would have reported this cycle, read by the alert test at
+        // the top of the NEXT cycle: posterior radial sigma, sqrt of the covariance
+        // trace. Guarded against a negative trace so a filter fault reads as lost
+        // confidence rather than as a NaN that compares false against every bound.
+        lastReportHadFix = d.hadFix;
+        lastReportedSigmaM =
+            (d.traceSigma >= 0.0) ? std::sqrt(d.traceSigma) : -1.0;
+
         // ---- INERTIAL DEAD RECKONING FILLS THE GAP -------------------------
         //
         // With no radio fix this cycle the filter would coast on constant
@@ -6063,6 +6190,21 @@ RunArm(CaTblPolicyMode mode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
+        if (deployedAtS >= 0.0)
+        {
+            std::cout << "    ALERT: " << deployCause << " for " << std::fixed
+                      << std::setprecision(0) << searchLaunchOnLossS
+                      << " s -- party deployed at t=" << std::setprecision(1)
+                      << deployedAtS << " s\n";
+        }
+        else if (searchLaunchOnLossS > 0.0)
+        {
+            std::cout << "    ALERT: never triggered -- party never deployed"
+                      << (searchLaunchSigmaM > 0.0
+                              ? " (contact held and the fix stayed inside the sigma bound)"
+                              : " (contact never lost; --searchLaunchSigmaM is off)")
+                      << "\n";
+        }
         if (staleSteerRefusals > 0)
         {
             std::cout << "    SEARCH: " << staleSteerRefusals
@@ -6530,6 +6672,8 @@ main(int argc, char* argv[])
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     double finderStaleSteerBoundSArg = 0.0;
+    double searchLaunchOnLossSArg = 0.0;
+    double searchLaunchSigmaMArg = 0.0;
     // Sentinel: negative means follow --speed, which is what every run before
     // 2026-09-08 did, so the default is byte-identical.
     double finderSpeedMpsArg = -1.0;
@@ -7372,6 +7516,24 @@ main(int argc, char* argv[])
                  "specified -- also pinned all four searchers to the spot, and every "
                  "still cell measured a paralysed search party rather than a search.",
                  finderSpeedMpsArg);
+    cmd.AddValue("searchLaunchOnLoss",
+                 "Seconds of NO GATEWAY CONTACT before the party deploys. 0 = off. A party "
+                 "is not dispatched because someone stepped off a path -- that is invisible "
+                 "to the network -- but because contact was lost and stayed lost. Latched: "
+                 "a momentary re-contact does not recall searchers already walking.",
+                 searchLaunchOnLossSArg);
+    cmd.AddValue("searchLaunchSigmaM",
+                 "Radial position sigma (m) above which the network is treated as having "
+                 "LOST THE SUBJECT even though it can still hear them; sustained for "
+                 "--searchLaunchOnLoss seconds, it deploys the party. 0 = off. Needed "
+                 "because contact loss is unreachable here: measured, the walker still "
+                 "heard a ridge gateway on 88% of cycles at 4.5 km, so a silence-only "
+                 "alarm never fires (BEHAVIOUR_ANOMALIES A.10). The bound is on the "
+                 "system's own posterior radial sigma sqrt(traceSigma); a cycle with no "
+                 "fix counts as lost outright. Measured on the ridge run: p90 58 m on "
+                 "the trail against p50 327 m off it, so 100 is a bound the trail "
+                 "clears and the deviation does not.",
+                 searchLaunchSigmaMArg);
     cmd.AddValue("finderStaleSteerBound",
                  "Seconds past which a held entry is too old to STEER a searcher on. "
                  "0 = off, the pre-existing behaviour where an entry received once steers "
@@ -7779,17 +7941,35 @@ main(int argc, char* argv[])
     {
         const double bcx = baseCampFrac * boxHalfM;
         const double bcy = baseCampFrac * boxHalfM;
-        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        // A RIDGE IS ALREADY A DEPLOYMENT, so do not translate it. The corner-shift above
+        // exists to put the subject outside a CENTRED footprint; a ridge is deliberately
+        // placed and shifting it by three quarters of the box lands it off the map and
+        // destroys the geometry the ridge scenario is about. In ridge mode the base camp
+        // is what it actually is -- the trailhead the searchers set out FROM -- and the
+        // gateways stay where they were put.
+        if (!gwRidgeArg)
         {
-            for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
-                dep.anchors[ti][i].pos.x += bcx;
-                dep.anchors[ti][i].pos.y += bcy;
+                for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+                {
+                    dep.anchors[ti][i].pos.x += bcx;
+                    dep.anchors[ti][i].pos.y += bcy;
+                }
             }
         }
         dep.hasBaseCamp = true;
-        dep.baseCampX = bcx;
-        dep.baseCampY = bcy;
+        if (gwRidgeArg)
+        {
+            // The trailhead: west end of the ridge, on the trail the subject was walking.
+            dep.baseCampX = -boxHalfM * 0.8;
+            dep.baseCampY = gwRidgeYArg * boxHalfM - boxHalfM * 0.08;
+        }
+        else
+        {
+            dep.baseCampX = bcx;
+            dep.baseCampY = bcy;
+        }
 
         // KEEP-OUT. Once the subject leaves the camp it should not wander back
         // into coverage: "lost" means out of reach of the infrastructure, and a
@@ -8074,6 +8254,8 @@ main(int argc, char* argv[])
                                        nFindersArg,
                                        finderModeArg,
                                        finderStaleSteerBoundSArg,
+                                       searchLaunchOnLossSArg,
+                                       searchLaunchSigmaMArg,
                                        maxTurnRateRadS,
                                        shsTrustedFixKArg,
                                        imuFusionArg,
