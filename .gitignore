@@ -108,3 +108,7 @@ CA_TBL_SIMULATION_REPORT.md
 # and G11 assertion 1 verifies the file against it. `git add <dir>` swept it into the
 # index once; this stops that recurring.
 src/catbl-propagation-study/results/corpus.json
+
+# Demo and scratch run outputs. Holds trace_*.csv, which must never be tracked (~13 GB
+# across the tree, regenerable from each directory's run_id.txt invocation).
+scratchpad/

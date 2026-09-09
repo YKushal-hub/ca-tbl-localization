@@ -80,6 +80,9 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/ca-tbl-node-lifecycle.h"
+#include "ns3/ca-tbl-session.h"
+#include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
@@ -104,6 +107,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <set>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -192,7 +196,11 @@ BuildDeployment(uint32_t gwGrid,
                 uint32_t sitingMode,
                 uint32_t topology,
                 uint32_t nGateways,
-                double gwRingFrac)
+                double gwRingFrac,
+                bool gwRidge,
+                double gwRidgeY,
+                double gwArcDeg,
+                double gwArcCentreDeg)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -278,12 +286,63 @@ BuildDeployment(uint32_t gwGrid,
         // deployment scales with the area the way the grid does and the two remain
         // comparable across box sizes.
         const double R = gwRingFrac * boxHalfM;
+        if (gwRidge)
+        {
+            // RIDGE placement: gateways strung along a line, which is how coverage is
+            // actually deployed on a hiking route -- repeaters follow the ridge because
+            // that is where the line of sight and the access road are, not because it is
+            // good geometry.
+            //
+            // AND IT IS BAD GEOMETRY, DELIBERATELY. Collinear anchors give poor GDOP
+            // across the line and near-singular conditioning along it, so a walker
+            // north or south of the ridge is far worse localised than one on it. That is
+            // the real deployment's real weakness and the reason a deviation off the
+            // trail is dangerous rather than merely inconvenient. Placing them on a ring
+            // would hide the effect the scenario exists to show.
+            const double span = 1.6 * boxHalfM;
+            for (uint32_t k = 0; k < nGateways; ++k)
+            {
+                const double fx = (nGateways == 1)
+                                      ? 0.0
+                                      : -span / 2.0 + span * static_cast<double>(k) /
+                                                          static_cast<double>(nGateways - 1);
+                dep.anchors[CA_TBL_TIER_868].push_back(
+                    {id++, Vector(fx, gwRidgeY * boxHalfM, gwH)});
+            }
+        }
+        else
+        {
+        // ARC placement when gwArcDeg < 360: the anchors follow a curving access
+        // route rather than closing a ring around the search area. Centred on north, so
+        // the trail runs beneath the arc and a subject can stray OUTSIDE it (through the
+        // anchors, where they collapse toward one bearing) or INSIDE it (away from them,
+        // toward the centre of curvature). Those two are geometrically different cases
+        // and the scenario should be able to produce both.
+        //
+        // At 360 this is exactly the previous even ring, so existing runs reproduce.
+        const double arc = (gwArcDeg > 0.0 && gwArcDeg < 360.0) ? gwArcDeg : 360.0;
+        const double sweep = arc * M_PI / 180.0;
         for (uint32_t k = 0; k < nGateways; ++k)
         {
-            const double th =
-                2.0 * M_PI * static_cast<double>(k) / static_cast<double>(nGateways) + M_PI / 2.0;
+            double th;
+            if (arc >= 360.0)
+            {
+                th = 2.0 * M_PI * static_cast<double>(k) /
+                         static_cast<double>(nGateways) + M_PI / 2.0;
+            }
+            else
+            {
+                // Spread across the sweep INCLUSIVE of both ends, so the arc's extent is
+                // the stated angle rather than one gateway short of it.
+                const double f = (nGateways == 1)
+                                     ? 0.5
+                                     : static_cast<double>(k) /
+                                           static_cast<double>(nGateways - 1);
+                th = gwArcCentreDeg * M_PI / 180.0 - sweep / 2.0 + sweep * f;
+            }
             dep.anchors[CA_TBL_TIER_868].push_back(
                 {id++, Vector(R * std::cos(th), R * std::sin(th), gwH)});
+        }
         }
     }
     else
@@ -1040,7 +1099,12 @@ class Tourist
           m_rng(rng),
           m_target(0),
           m_dwellLeft(0.0),
-          m_heading(0.0)
+          m_heading(0.0),
+          m_trail(false),
+          m_trailY(0.0),
+          m_deviateAtS(0.0),
+          m_stopAfterS(0.0),
+          m_elapsed(0.0)
     {
         // Start off-site so the run begins in the tier-1-only regime.
         m_x = m_rng->GetValue(-boxHalfM * 0.2, boxHalfM * 0.2);
@@ -1048,8 +1112,72 @@ class Tourist
         PickTarget();
     }
 
+    /**
+     * \brief Walk a marked trail, then leave it.
+     *
+     * The SAR story the deployment is for: a walker follows a ridge path, deviates from
+     * it, and stops being where anyone would look. Tourist's waypoint wander is the
+     * right model for a monitored enclosure and the wrong one for this -- a wanderer is
+     * never LOST, it is just somewhere else, and the difference is the whole scenario.
+     *
+     * \param trailY       the trail runs east-west at this northing
+     * \param deviateAtS   when the walker leaves it. Before this the track is on the
+     *                     trail and predictable, which is what makes the deviation
+     *                     legible: a viewer sees the moment it stops being routine.
+     * \param stopAfterS   seconds after deviating before the walker halts. A stationary
+     *                     subject is the hard case -- K13 measured that no steering
+     *                     helps once contact rate is ~0 -- and it must be reachable.
+     */
+    void SetTrail(double trailY, double deviateAtS, double stopAfterS,
+                  double deviateSide = -1.0)
+    {
+        m_trail = true;
+        // -1 walks south (away from an arc centred north), +1 north (through it).
+        // Default -1 is the previous hard-coded behaviour.
+        m_deviateSide = (deviateSide >= 0.0) ? 1.0 : -1.0;
+        m_trailY = trailY;
+        m_deviateAtS = deviateAtS;
+        m_stopAfterS = stopAfterS;
+        m_x = -m_boxHalf * 0.8;
+        m_y = trailY;
+        m_elapsed = 0.0;
+    }
+
+    //! Has the walker left the trail? The demo needs the moment, not just the track.
+    double m_deviateSide = -1.0;
+    bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
+    bool HasStopped() const
+    {
+        return m_trail && m_stopAfterS > 0.0 && m_elapsed >= m_deviateAtS + m_stopAfterS;
+    }
+
     void Step(double dt)
     {
+        if (m_trail)
+        {
+            m_elapsed += dt;
+            if (HasStopped())
+            {
+                return; // sat down, and this is the case that defeats searching
+            }
+            if (m_elapsed < m_deviateAtS)
+            {
+                // On the trail: due east at walking pace, entirely predictable.
+                m_x += m_speed * dt;
+            }
+            else
+            {
+                // Off it. Heading is fixed at the moment of deviation rather than
+                // wandering, because a person who has lost the path walks a line they
+                // believe is right -- and a fixed bearing is what makes the search
+                // problem geometric rather than diffusive.
+                m_x += m_speed * dt * 0.35;
+                m_y += m_deviateSide * m_speed * dt * 0.94;
+            }
+            if (m_x > m_boxHalf) { m_x = m_boxHalf; }
+            if (m_y < -m_boxHalf) { m_y = -m_boxHalf; }
+            return;
+        }
         if (m_dwellLeft > 0.0)
         {
             // Milling about inside a site rather than standing perfectly still.
@@ -1175,6 +1303,11 @@ class Tourist
     size_t m_target;
     double m_dwellLeft;
     double m_heading;
+    bool m_trail;
+    double m_trailY;
+    double m_deviateAtS;
+    double m_stopAfterS;
+    double m_elapsed;
     double m_x;
     double m_y;
 
@@ -2242,6 +2375,29 @@ struct CaTblTagState
     uint64_t fn = 0;
     uint64_t tn = 0;
     uint64_t inCov = 0;
+    uint64_t staleSteerRefusals = 0;
+    double lostContactSinceS = -1.0;
+    double lowConfSinceS = -1.0;
+    bool partyDeployed = false;
+    double deployedAtS = -1.0;
+    // 0 = no fix last cycle, or the weighted solve went degenerate. Carried across
+    // cycles because the alert is evaluated before this cycle's decision exists,
+    // which is also how a real base camp works: it acts on the last report it has.
+    double lastReportedSigmaM = -1.0;
+    bool lastReportHadFix = false;
+    const char* deployCause = "";
+    bool batteryDead = false;
+    double batteryDeadAtS = -1.0;
+    CaTblNodeLifecycle lifecycle;
+    CaTblSessionManager sessions;
+    uint32_t sessionId = 0;
+    uint64_t renderCounts[4] = {0, 0, 0, 0};
+    uint64_t caseAAttempts = 0;
+    uint64_t caseSolved[5] = {0, 0, 0, 0, 0}; // [0]=D 3+ [1]=A [2]=B [3]=C [4]=floor
+    double prevMeanRangeM = -1.0;
+    uint64_t mobCounts[3] = {0, 0, 0};
+    uint64_t caseAAdmitted = 0;
+    uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
 
 /**
@@ -2374,13 +2530,37 @@ RunArm(CaTblPolicyMode mode,
        uint32_t maxRelayDepth,
        double relayVarBudgetM2,
        bool vizEventsOn,
+       double vizTablePeriodS,
+       bool gwRidge,
+       double gwRidgeY,
+       double gwArcDeg,
+       double gwArcCentreDeg,
+       double trailDeviateSide,
+       double trailDeviateAtS,
+       double trailStopAfterS,
        uint32_t nFinders,
        uint32_t finderMode,
+       double finderStaleSteerBoundS,
+       double searchLaunchOnLossS,
+       double searchLaunchSigmaM,
+       double searchLaunchAtS,
        double maxTurnRateRadS,
        double shsTrustedFixK,
        bool imuFusion,
        bool imuIdeal,
        bool queryProxy,
+       bool tableFuseCI,
+       bool digestSummary,
+       double batteryDepleteJ,
+       bool sessionLayer,
+       bool mobilityFromRange,
+       bool lifecycleTracking,
+       bool batchSearch,
+       bool sparseCaseA,
+       double sparseCaseAMarginM,
+       uint32_t injectSilentId,
+       double injectSilentStartS,
+       double injectSilentEndS,
        double queryStalenessBoundS,
        bool reversePath,
        bool shsStepBounds,
@@ -2497,6 +2677,26 @@ RunArm(CaTblPolicyMode mode,
     auto& fn = TS0.fn;
     auto& tn = TS0.tn;
     auto& inCov = TS0.inCov;
+    auto& staleSteerRefusals = TS0.staleSteerRefusals;
+    auto& lostContactSinceS = TS0.lostContactSinceS;
+    auto& lowConfSinceS = TS0.lowConfSinceS;
+    auto& partyDeployed = TS0.partyDeployed;
+    auto& deployedAtS = TS0.deployedAtS;
+    auto& lastReportedSigmaM = TS0.lastReportedSigmaM;
+    auto& lastReportHadFix = TS0.lastReportHadFix;
+    auto& deployCause = TS0.deployCause;
+    auto& batteryDead = TS0.batteryDead;
+    auto& batteryDeadAtS = TS0.batteryDeadAtS;
+    auto& lifecycle = TS0.lifecycle;
+    auto& sessions = TS0.sessions;
+    auto& sessionId = TS0.sessionId;
+    auto& renderCounts = TS0.renderCounts;
+    auto& caseAAttempts = TS0.caseAAttempts;
+    auto& caseSolved = TS0.caseSolved;
+    auto& prevMeanRangeM = TS0.prevMeanRangeM;
+    auto& mobCounts = TS0.mobCounts;
+    auto& caseAAdmitted = TS0.caseAAdmitted;
+    auto& caseARefused = TS0.caseARefused;
 
     // Each tier's anchors are registered only on that tier's engine. Registering
     // all anchors on all engines would put UWB anchors kilometres out of range
@@ -2524,6 +2724,15 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    if (trailDeviateAtS > 0.0)
+    {
+        // The trail sits just off the ridge, so the walker starts inside good coverage
+        // and walks out of it. Starting on the ridge itself would put the subject at the
+        // one place the collinear geometry is least bad, and the deviation would then
+        // conflate leaving the trail with leaving the only good conditioning.
+        walker.SetTrail(gwRidgeY * dep.boxHalfM - dep.boxHalfM * 0.08, trailDeviateAtS,
+                        trailStopAfterS, trailDeviateSide);
+    }
     // The SUBJECT is the one the SHS rides on, so this is the walker whose
     // continuity decides whether a yaw integrator can track it at all.
     walker.SetMaxTurnRate(maxTurnRateRadS);
@@ -2747,6 +2956,42 @@ RunArm(CaTblPolicyMode mode,
     // rather than as a total.
     std::ofstream vizEvents;
     std::ofstream vizNodes;
+    // PER-NODE TABLE SNAPSHOTS. Two files, because they are two different things and
+    // conflating them is the mistake the header of CaTblTableEntry warns about:
+    //
+    //   nbrtable  -- what this node has PERSONALLY HEARD. Strictly one-hop, and it is
+    //                what drives the poll set, so admitting a far-away peer here costs
+    //                a receive timeout every cycle.
+    //   loctable  -- what this node KNOWS, from any source and any number of hops.
+    //                Nothing is polled from it; it is knowledge, not a work list.
+    //
+    // Sampled on a period rather than every cycle. A 600 s run with ten nodes each
+    // holding a dozen neighbours is ~80k rows at every cycle, and an inspector cannot
+    // show more than a few frames per second anyway. The period is stated in the file
+    // so a reader knows the sampling rather than assuming continuity.
+    std::ofstream vizNbrTable;
+    std::ofstream vizLocTable;
+    double nextTableDumpS = 0.0;
+    if (vizEventsOn && vizTablePeriodS > 0.0)
+    {
+        std::ostringstream bfn;
+        bfn << traceDir << "/nbrtable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        vizNbrTable.open(bfn.str().c_str());
+        if (vizNbrTable.is_open())
+        {
+            vizNbrTable << "t,nodeId,tier,peerId,lastHeardS,rxPowerDbm,snrDb,heardCount\n";
+        }
+        std::ostringstream lfn;
+        lfn << traceDir << "/loctable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        vizLocTable.open(lfn.str().c_str());
+        if (vizLocTable.is_open())
+        {
+            vizLocTable << "t,nodeId,entryId,x,y,varX,varY,covXY,entryTimeS,ageS,seqNo,"
+                           "hopCount,manifestId,freshness\n";
+        }
+    }
     if (vizEventsOn)
     {
         std::ostringstream vfn;
@@ -2754,7 +2999,7 @@ RunArm(CaTblPolicyMode mode,
         vizEvents.open(vfn.str().c_str());
         if (vizEvents.is_open())
         {
-            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm\n";
+            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm,payload\n";
         }
         std::ostringstream nfn;
         nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
@@ -2778,6 +3023,8 @@ RunArm(CaTblPolicyMode mode,
 
         CaTblMacConfig mc;
         mc.queryProxy = queryProxy;
+        mc.tableFuseCI = tableFuseCI;
+        mc.digestSummary = digestSummary;
         mc.queryStalenessBoundS = queryStalenessBoundS;
         mc.reversePath = reversePath;
         mc.nodeId = static_cast<uint16_t>(nodeId);
@@ -2811,6 +3058,8 @@ RunArm(CaTblPolicyMode mode,
 
             CaTblMacConfig mc;
             mc.queryProxy = queryProxy;
+            mc.tableFuseCI = tableFuseCI;
+            mc.digestSummary = digestSummary;
             mc.queryStalenessBoundS = queryStalenessBoundS;
             mc.reversePath = reversePath;
             mc.nodeId = aid;
@@ -2892,6 +3141,8 @@ RunArm(CaTblPolicyMode mode,
         {
             CaTblMacConfig pmc;
             pmc.queryProxy = queryProxy;
+            pmc.tableFuseCI = tableFuseCI;
+            pmc.digestSummary = digestSummary;
             pmc.queryStalenessBoundS = queryStalenessBoundS;
             pmc.reversePath = reversePath;
             pmc.nodeId = static_cast<uint16_t>(pid);
@@ -3148,6 +3399,34 @@ RunArm(CaTblPolicyMode mode,
             fb.untilS = durationS;
             fb.rng = macRng;
             beacons.push_back(fb);
+        }
+    }
+
+    // Application sect 4. A rescuer opens the search before anything runs, which is what
+    // makes time-to-first-fix meaningful: the clock starts when the request was made,
+    // not when the system happened to succeed.
+    if (sessionLayer)
+    {
+        // Manifest id 1 is the measured tag's, set at mc.targetManifestId above. The
+        // requester id is the base station, which is not a simulated node -- nothing is
+        // routed to it here, so any non-colliding id serves.
+        if (batchSearch)
+        {
+            // Application sect 5. ONE session over N targets -- one flood, one
+            // reverse-path cache, one staleness clock, and every escalation request
+            // landing in the SAME arbiter queue. That last part is the point: it is the
+            // only configuration in which U(r) scoring does observable work, so a
+            // single-target run proves nothing about arbitration.
+            std::vector<uint8_t> targets;
+            for (uint32_t k = 0; k < nTags; ++k)
+            {
+                targets.push_back(static_cast<uint8_t>(1 + k));
+            }
+            sessionId = sessions.BatchSearch(targets, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        }
+        else
+        {
+            sessionId = sessions.SearchAndLocalize(1u, 1u, CA_TBL_PRIORITY_ROUTINE, 0.0);
         }
     }
 
@@ -3474,6 +3753,125 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // sect 49 FAULT INJECTION -- a node goes silent, then comes back.
+        //
+        // The node is NOT removed. It keeps its table and its position and resumes with
+        // both intact. Removing it would test a different fault and would make the
+        // return indistinguishable from a new node joining -- the distinction
+        // CaTblNodeLifecycle exists to preserve.
+        //
+        // TRANSMIT SUPPRESSION ONLY. This is a node that cannot TALK: a failed transmit
+        // chain, an exhausted duty budget, an amplifier browning out on a cold battery.
+        // It still HEARS everything. That is why the finders still hold the casualty
+        // entry across the outage -- not a bug in the injection, the fault that was
+        // actually injected. An obstruction, which is deaf as well as mute, is a
+        // different fault and is not this one.
+        //
+        // Applied every cycle rather than scheduled once, so the window is honoured
+        // even if the run is shorter than it, and so the node is observably restored
+        // rather than left silent by an event that never fired.
+        if (injectSilentId != 0)
+        {
+            const bool inWindow = (t >= injectSilentStartS && t < injectSilentEndS);
+            for (size_t mi = 0; mi < macs.size(); ++mi)
+            {
+                if (macs[mi].GetNodeId() == static_cast<uint16_t>(injectSilentId))
+                {
+                    macs[mi].SetSilent(inWindow);
+                }
+            }
+        }
+
+        // Snapshot every node's two tables. The lost node, the peers and the finders --
+        // not the gateways, whose tables are large, static and not what a viewer clicks.
+        if (vizNbrTable.is_open() && t >= nextTableDumpS)
+        {
+            nextTableDumpS = t + vizTablePeriodS;
+            // ONE PASS PER NODE, NOT PER MAC. Each node owns three MACs, one per radio,
+            // and iterating macs directly would emit every node three times and would
+            // read one radio's table while calling it the union of three.
+            std::set<uint16_t> seen;
+            for (size_t mi = 0; mi < macs.size(); ++mi)
+            {
+                const uint16_t nid = macs[mi].GetNodeId();
+                if (nid >= 101 && nid <= 199 || seen.count(nid))
+                {
+                    continue; // gateway, or already emitted for this node
+                }
+                seen.insert(nid);
+
+                // NEIGHBOUR TABLE -- per radio, and kept per radio on purpose. Which
+                // band heard a peer is the interesting part: a node audible on 868 and
+                // not on UWB is the ordinary case and is what the tiering is about.
+                for (size_t mj = 0; mj < macs.size(); ++mj)
+                {
+                    if (macs[mj].GetNodeId() != nid)
+                    {
+                        continue;
+                    }
+                    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                    {
+                        const std::vector<CaTblNeighbour> nb =
+                            macs[mj].GetNeighbours(static_cast<CaTblTier>(ti), t);
+                        for (size_t k = 0; k < nb.size(); ++k)
+                        {
+                            vizNbrTable << std::fixed << std::setprecision(2) << t << ','
+                                        << nid << ',' << ti << ',' << nb[k].id << ','
+                                        << nb[k].lastHeardS << ',' << nb[k].lastRxPowerDbm
+                                        << ',' << nb[k].lastSnrDb << ','
+                                        << nb[k].heardCount << '\n';
+                        }
+                    }
+                }
+
+                // LOCATION TABLE -- the UNION across this node's three radios, newest
+                // sequence winning, which is the same rule the pseudo-anchor lookup uses.
+                // Knowledge is not tier-scoped even though the radios are.
+                if (vizLocTable.is_open())
+                {
+                    std::map<uint16_t, CaTblTableEntry> merged;
+                    for (size_t mj = 0; mj < macs.size(); ++mj)
+                    {
+                        if (macs[mj].GetNodeId() != nid)
+                        {
+                            continue;
+                        }
+                        const std::map<uint16_t, CaTblTableEntry>& tb = macs[mj].GetTable();
+                        for (std::map<uint16_t, CaTblTableEntry>::const_iterator it =
+                                 tb.begin(); it != tb.end(); ++it)
+                        {
+                            std::map<uint16_t, CaTblTableEntry>::iterator ex =
+                                merged.find(it->first);
+                            if (ex == merged.end() ||
+                                CaTblSeqNewer(it->second.seqNo, ex->second.seqNo))
+                            {
+                                merged[it->first] = it->second;
+                            }
+                        }
+                    }
+                    for (std::map<uint16_t, CaTblTableEntry>::const_iterator it =
+                             merged.begin(); it != merged.end(); ++it)
+                    {
+                        const CaTblTableEntry& e = it->second;
+                        if (!e.valid)
+                        {
+                            continue;
+                        }
+                        const double age = t - e.timestampS;
+                        CaTblFreshnessBounds fb;
+                        vizLocTable << std::fixed << std::setprecision(2) << t << ','
+                                    << nid << ',' << e.nodeId << ',' << e.x << ',' << e.y
+                                    << ',' << e.varX << ',' << e.varY << ',' << e.covXY
+                                    << ',' << e.timestampS << ',' << age << ','
+                                    << e.seqNo << ',' << int(e.hopCount) << ','
+                                    << int(e.targetManifestId) << ','
+                                    << CaTblFreshnessName(CaTblClassifyFreshness(age, fb))
+                                    << '\n';
+                    }
+                }
+            }
+        }
+
         // A searcher polls for entries. Broadcast, because a finder looking for a
         // casualty does not yet know which id it is looking for -- that is the whole
         // problem -- and the responder replies with its own entry regardless of who
@@ -3513,6 +3911,38 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // AND SO DOES EVERY PEER TARGET, for the same reason and none of its own.
+        //
+        // Peers published nowhere at all until a positive control refused to fire:
+        // an identity-scoped query for a peer's manifest id could never be
+        // answered, because the peer's position had never entered any table and no
+        // proxy could stand in for an entry that did not exist. Every mechanism
+        // reading the position table -- gossip, proxy answering, relay admission,
+        // corroboration -- was structurally blind to the peer targets.
+        //
+        // What it believes and the uncertainty that belief carries, exactly as the
+        // measured tag reports its own. Publishing a truer position than the peer
+        // actually holds would hand every consumer a confidence nothing earned.
+        for (uint32_t pt = 1; pt < nTags; ++pt)
+        {
+            const size_t pi = static_cast<size_t>(pt - 1);
+            if (pi >= peerMacs.size())
+            {
+                continue;
+            }
+            for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+            {
+                if (peerMacs[pi][ti] == nullptr)
+                {
+                    continue;
+                }
+                peerMacs[pi][ti]->PublishSelfEntry(
+                    tags[pt].policy.EstX(), tags[pt].policy.EstY(),
+                    tags[pt].policy.Pxx(), tags[pt].policy.Pyy(),
+                    tags[pt].policy.Pxy(), 0.0, 0.0, t);
+            }
+        }
+
         // A FINDER REPUBLISHES WHERE IT BELIEVES IT IS, EVERY CYCLE.
         //
         // It used to publish once, inside the CONSTRUCTION loop, at its spawn
@@ -3547,9 +3977,124 @@ RunArm(CaTblPolicyMode mode,
         // and mobility state on node id), to the provider (which computes the link) and
         // to anchorPosById (which the ranging poll reads for the far-end position). All
         // three, or a finder ranges from a position it has left.
+        // THE ALERT. A party is not dispatched because someone stepped off a path -- that
+        // is invisible to the network -- but because CONTACT WAS LOST and stayed lost.
+        // Deviating is not detectable; going quiet is. That ordering matters for the
+        // model as much as the story: the subject is already some way off by the time
+        // anyone knows to look.
+        //
+        // Latched. A momentary re-contact does not recall searchers already walking,
+        // which is how a real search behaves and what stops the party oscillating on a
+        // marginal link.
+        if (searchLaunchOnLossS > 0.0 && !partyDeployed)
+        {
+            bool heard = false;
+            if (nodeMac[0] != nullptr)
+            {
+                const std::vector<CaTblNeighbour> nb =
+                    nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t);
+                for (size_t k = 0; k < nb.size(); ++k)
+                {
+                    if (nb[k].id >= 101 && nb[k].id <= 199) { heard = true; break; }
+                }
+            }
+            if (heard) { lostContactSinceS = -1.0; }
+            else if (lostContactSinceS < 0.0) { lostContactSinceS = t; }
+            else if (t - lostContactSinceS >= searchLaunchOnLossS)
+            {
+                partyDeployed = true;
+                deployedAtS = t;
+                deployCause = "no gateway contact";
+            }
+
+            // SECOND TRIGGER: CONFIDENCE LOST, CONTACT INTACT.
+            //
+            // Measured, not assumed: at boxHalf 3000 with the ridge deployment the
+            // walker still heard a gateway on 88% of cycles at 4.5 km, so the
+            // contact-loss branch above cannot fire at any scale this scenario runs
+            // at (BEHAVIOUR_ANOMALIES A.10). Waiting for silence would mean never
+            // dispatching, which is the wrong demo and, given the link model, the
+            // wrong search doctrine too.
+            //
+            // What actually degrades is not the link but the FIX. The ridge is
+            // collinear, so a walker who leaves the line loses the geometry that
+            // placed them. Measured on the seed-7 ridge run, posterior radial sigma
+            // sqrt(traceSigma) is p50 21.9 m / p90 58.0 m while the walker is on the
+            // trail and p50 326.6 m / p90 546.1 m once off it, and the real error
+            // follows it (p50 7.7 m -> 124.9 m). The party is dispatched when the
+            // network can still hear the subject but can no longer say where they
+            // are, sustained over the same window. For a confidence-aware system
+            // that is the more honest alarm: the trigger is the system's own stated
+            // uncertainty, not an oracle reading the truth track.
+            //
+            // NOT sigmaGeoM, which is the better-founded quantity and was the first
+            // choice. Its header says it is negative when the solve is degenerate OR
+            // when the legacy PCS form never computed it -- and it is negative on
+            // 720 of 720 cycles here, because the legacy form is what runs. A bound
+            // on it would have deployed the party in the first window of every run
+            // and looked exactly like a working alarm. Same shape as the three
+            // earlier exact-zero-as-evidence defects in this project; caught this
+            // time before it was believed.
+            //
+            // SIMPLIFICATION, recorded rather than hidden: this reads the subject's
+            // last reported sigma directly instead of the copy that reaches base
+            // camp through the digest path, so the alert is not delayed by
+            // propagation. It is one cycle late (the decision for this cycle does
+            // not exist yet) but not table-age late.
+            if (!partyDeployed && searchLaunchSigmaM > 0.0)
+            {
+                const bool confident = lastReportHadFix && lastReportedSigmaM >= 0.0 &&
+                                       lastReportedSigmaM <= searchLaunchSigmaM;
+                // No fix at all is not "confidence unknown", it is confidence gone.
+                if (confident) { lowConfSinceS = -1.0; }
+                else if (lowConfSinceS < 0.0) { lowConfSinceS = t; }
+                else if (t - lowConfSinceS >= searchLaunchOnLossS)
+                {
+                    partyDeployed = true;
+                    deployedAtS = t;
+                    deployCause = "position confidence lost";
+                }
+            }
+
+            // THE OVERDUE REPORT. A party is dispatched because someone did not
+            // arrive, not because a telemetry threshold tripped. Kept separate
+            // from the sigma alarm rather than folded into it, because the two
+            // are different claims: one is an operational decision with a known
+            // time, the other is an inference from the network's own confidence.
+            // A.10 records that on these deployments the second does not
+            // separate, so the first is what the demo uses.
+            if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
+            {
+                partyDeployed = true;
+                deployedAtS = t;
+                deployCause = "reported overdue";
+            }
+        }
+
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
+            // No alert yet: the party is at base camp and has been told nothing. Standing
+            // still is correct here, and it makes the moment of dispatch visible instead
+            // of implicit.
+            if ((searchLaunchOnLossS > 0.0 || searchLaunchAtS > 0.0) &&
+                !partyDeployed)
+            {
+                fp = finderPos[fi];
+                const uint16_t fid0 = static_cast<uint16_t>(finderIds[fi]);
+                engine868.UpdateNodePosition(fid0, fp);
+                engine2p4.UpdateNodePosition(fid0, fp);
+                engineUwb.UpdateNodePosition(fid0, fp);
+                provider.SetAnchorPosition(fid0, fp);
+                anchorPosById[fid0] = fp;
+                republishFinder(fi, fp, t);
+                if (vizNodes.is_open())
+                {
+                    vizNodes << std::fixed << std::setprecision(2) << t << ',' << fid0
+                             << ',' << fp.x << ',' << fp.y << '\n';
+                }
+                continue;
+            }
             // MODE 2, PHASE 1: sweep outward from the last known position.
             //
             // Runs only while no entry is more informative than the sweep itself.
@@ -3629,6 +4174,27 @@ RunArm(CaTblPolicyMode mode,
                         gx = te.x;
                         gy = te.y;
                         known = true;
+                        // A STALE ENTRY IS NOT KNOWLEDGE. An entry, once received,
+                        // persists forever, so a finder that heard the subject ONCE
+                        // converges on that position for the rest of the run. Measured
+                        // at boxHalf 3000: entries 377 s old and 1029 m wrong, with the
+                        // party walking confidently towards where the subject used to be.
+                        //
+                        // sect 23 exists for exactly this decision and nothing was asking
+                        // it. Past the bound the entry may still be REPORTED -- that is
+                        // the proxy responder's call, and a stale position is still worth
+                        // showing an operator -- but it must not STEER. A searcher walking
+                        // to a six-minute-old fix does worse than sweeping, because
+                        // sweeping at least covers ground nobody has looked at.
+                        //
+                        // Off by default: it changes where searchers go, so it is a
+                        // mechanism and not an observation.
+                        if (finderStaleSteerBoundS > 0.0 &&
+                            (t - te.timestampS) > finderStaleSteerBoundS)
+                        {
+                            known = false;
+                            ++staleSteerRefusals;
+                        }
 
                         // SPREAD OVER THE REPORTED UNCERTAINTY, DO NOT STACK ON THE
                         // POINT.
@@ -3995,6 +4561,23 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            // A DEAD BATTERY STOPS THE RANGING, NOT JUST THE CHATTER.
+            //
+            // SetSilent() suppresses MAC frames -- beacons, digests, handshakes -- and
+            // ranging does not go through them: rangeTier calls the engine directly.
+            // Silencing alone therefore left a "dead" node still ranging and still
+            // fixing, which is worse than not modelling the fault at all, because the
+            // run reports a depletion that changed almost nothing. Measured before this:
+            // fixCycles 479 -> 474 across a 528 s outage, and totalJ kept climbing past
+            // the budget that was supposed to have ended it.
+            //
+            // A ranging exchange is a transmission. A radio with no power does not make
+            // one, so no exchange forms, no energy is charged, and the filter coasts --
+            // which is the whole consequence the fault exists to expose.
+            if (batteryDead)
+            {
+                return out;
+            }
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -4346,7 +4929,136 @@ RunArm(CaTblPolicyMode mode,
         // keeps each cycle's fix attributable to exactly one tier, which the ablation
         // between arms depends on. Cross-tier fusion would produce a better number and
         // a worse experiment.
-        const bool activeSolved = (activeMeas.size() >= 3);
+        // sect 7 CASE A. Two ranges are not nothing. Multilateration needs three
+        // anchors and below that the estimator coasted; two circles cut the plane to two
+        // points and the prior chooses between them.
+        //
+        // TRIED ON THE ACTIVE TIER, NOT THE FLOOR. The floor is 868 MHz and almost
+        // always has three anchors already -- runFloor is true on 99.9% of cycles and
+        // static_868 records zero no-fix cycles. The tier short of anchors is the one
+        // the node escalated TO, tier 3 especially: UWB reaches ~13.5 m, so three
+        // neighbours at once is rare and two is markedly less rare. That is where a
+        // two-anchor solve is worth having, and it is the open question in TECH_DEBT H.1.
+        //
+        // FUSED AS A POSITION, NOT AS RANGES. Case A has already consumed both ranges to
+        // produce the point; handing the same two ranges to the filter afterwards would
+        // count one measurement twice.
+        //
+        // LAST RESORT, AND THIS WAS MEASURED THE WRONG WAY FIRST. Gating only on
+        // "the active tier has two" let a two-anchor solve win the cycle from the
+        // TIER-1 FLOOR, which usually has three anchors and solves better. Measured:
+        // noFix 1 -> 13, rmse 16.88 -> 23.57 m, tier-3 cycles 5 -> 0. Case A must
+        // replace COASTING, which is what the estimator does when nothing solves --
+        // not replace a fallback that was already working.
+        bool caseAUsed = false;
+        if (activeMeas.size() >= 3)
+        {
+            // CASE D -- the ordinary overdetermined solve. Counted so the sparse cases
+            // have a denominator: "Case A fired 8 times" means nothing without knowing
+            // how often the normal path ran.
+            ++caseSolved[0];
+        }
+        else if (floorMeas.size() >= 3)
+        {
+            // THE FIFTH BUCKET, AND IT IS THE ONE THAT WAS MISSING. The active tier came
+            // up short but the TIER-1 FLOOR solved, so the cycle is localised and is
+            // none of D, A, B or C: not D because the active tier had fewer than three,
+            // not A or B because those only run once the floor has failed, not C because
+            // the node was not unlocalisable.
+            //
+            // Without it the census summed to ~404-421 of 480 and looked like a
+            // partition with cycles missing. It was never a partition; it was four
+            // categories with a hole where the commonest outcome lived.
+            ++caseSolved[4];
+        }
+        else if (activeMeas.size() == 2 && !sparseCaseA)
+        {
+            // Two ranges, no floor, and sparse solving disabled: the estimator coasts.
+            // Unlocalisable in the same sense as C, and counted there so the census does
+            // not silently depend on whether --sparseCaseA happens to be on.
+            ++caseSolved[3];
+        }
+        else if (activeMeas.size() == 0 || activeMeas.size() == 1)
+        {
+            // CASE C -- no usable absolute geometry. CaTblSolveCaseC() always refuses by
+            // construction: with no surveyed anchor there is no absolute frame, and the
+            // peer set fixes a SHAPE that can be translated and rotated freely without
+            // contradicting any measurement. Counted rather than called, because calling
+            // a function whose answer is known is theatre; what matters is that the
+            // cycle is CLASSIFIED as unlocalisable rather than silently coasting.
+            ++caseSolved[3];
+        }
+        if (sparseCaseA && activeMeas.size() == 2 && floorMeas.size() < 3)
+        {
+            ++caseAAttempts;
+            // A OR B IS DECIDED BY PROVENANCE, NOT BY GEOMETRY. The arithmetic is the
+            // same two-circle intersection either way; what differs is what the second
+            // reference IS. A surveyed gateway is known infrastructure. A finder or peer
+            // is a node reporting its own estimate, and a fix that leaned on one is not
+            // the evidence two gateways give -- so it must not be reported as though it
+            // were. Ids below 500 are gateways; 500 and above are finders and peers.
+            // Provenance is read from the POSITION, because CaTblRangeMeasurement does
+            // not carry the id and rangedThisCycle holds the floor's ids by this point
+            // (the floor is ranged after the active tier). A reference standing exactly
+            // where a surveyed gateway stands IS that gateway.
+            auto isSurveyed = [&](double ax, double ay) {
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    for (size_t k = 0; k < dep.anchors[ti].size(); ++k)
+                    {
+                        const Vector& gp = dep.anchors[ti][k].pos;
+                        if (std::fabs(gp.x - ax) < 0.01 && std::fabs(gp.y - ay) < 0.01)
+                        {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+            const bool bothSurveyed = isSurveyed(activeMeas[0].anchorX, activeMeas[0].anchorY) &&
+                                      isSurveyed(activeMeas[1].anchorX, activeMeas[1].anchorY);
+            const CaTblSparseResult sr =
+                bothSurveyed
+                    ? CaTblSolveCaseA(activeMeas[0].anchorX, activeMeas[0].anchorY,
+                                      activeMeas[0].rangeM,
+                                      activeMeas[1].anchorX, activeMeas[1].anchorY,
+                                      activeMeas[1].rangeM,
+                                      policy.EstX(), policy.EstY(),
+                                      policy.Pxx(), policy.Pxy(), policy.Pyy(),
+                                      sparseCaseAMarginM)
+                    : CaTblSolveCaseB(activeMeas[0].anchorX, activeMeas[0].anchorY,
+                                      activeMeas[0].rangeM,
+                                      activeMeas[1].anchorX, activeMeas[1].anchorY,
+                                      activeMeas[1].rangeM,
+                                      policy.EstX(), policy.EstY(),
+                                      policy.Pxx(), policy.Pxy(), policy.Pyy(),
+                                      sparseCaseAMarginM);
+            if (sr.verdict == CA_TBL_SPARSE_OK)
+            {
+                // Conservative on purpose. A proper propagation would carry the geometry
+                // through; a point standing on two circles is worse conditioned than a
+                // three-anchor solve of the same sigmas, so the honest direction to err
+                // is wide.
+                const double s0 = activeMeas[0].sigmaM;
+                const double s1 = activeMeas[1].sigmaM;
+                policy.FusePosition(sr.x, sr.y, 2.0 * (s0 * s0 + s1 * s1));
+                caseAUsed = true;
+                ++caseAAdmitted;
+                ++caseSolved[(sr.solvedBy == CA_TBL_CASE_B) ? 2 : 1];
+            }
+            else if (sr.verdict < 4)
+            {
+                ++caseARefused[sr.verdict];
+                // A REFUSED SPARSE SOLVE IS AN UNLOCALISABLE CYCLE, and it belongs in C.
+                // Leaving it uncounted is what made the census incomplete at 412 of 480:
+                // the two-range cycles that Case A/B declined fell through every branch.
+                // Counting the refusal as C is not bookkeeping convenience -- the node
+                // genuinely ended the cycle without a position, which is what C means.
+                ++caseSolved[3];
+            }
+        }
+
+        const bool activeSolved = (activeMeas.size() >= 3) || caseAUsed;
         const bool usedFloor = (!activeSolved && floorMeas.size() >= 3);
 
         // Streak bookkeeping for --floorSkipK. Reset on any shortfall so a single
@@ -4509,6 +5221,59 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // sect 11.11 MOBILITY STATE, driven at last. CA_TBL_MOB_RECEDING existed in the
+        // taxonomy and the receding branch of StartHandshake was written, and the
+        // scenario never once called SetMobilityState -- so the eager-push path was dead
+        // code that looked implemented.
+        //
+        // THE SIGNAL IS THE ONE THE NODE ACTUALLY HAS: the trend in its own mean measured
+        // range. A node cannot know whether it is walking away from a gateway; it can
+        // know that everything it ranges against is getting further off, which is the
+        // same conclusion reached from evidence rather than from truth. Reading the
+        // walker's true velocity would be the flattering shortcut and would not survive
+        // being asked where a real node gets that number.
+        //
+        // The band is 5% of the previous mean rather than an absolute metre count,
+        // because the same 20 m of drift means something different at 100 m and at
+        // 2 km. Below it the state is STATIONARY, which is the honest reading of a
+        // change smaller than the ranging noise.
+        if (mobilityFromRange)
+        {
+            const std::vector<CaTblRangeMeasurement>& mm =
+                activeMeas.empty() ? floorMeas : activeMeas;
+            if (!mm.empty())
+            {
+                double sum = 0.0;
+                for (size_t k = 0; k < mm.size(); ++k)
+                {
+                    sum += mm[k].rangeM;
+                }
+                const double mean = sum / static_cast<double>(mm.size());
+                CaTblMobilityState ms = CA_TBL_MOB_STATIONARY;
+                if (prevMeanRangeM > 0.0)
+                {
+                    const double band = 0.05 * prevMeanRangeM;
+                    if (mean > prevMeanRangeM + band)
+                    {
+                        ms = CA_TBL_MOB_RECEDING;
+                    }
+                    else if (mean < prevMeanRangeM - band)
+                    {
+                        ms = CA_TBL_MOB_APPROACHING;
+                    }
+                }
+                ++mobCounts[static_cast<int>(ms)];
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->SetMobilityState(ms);
+                    }
+                }
+                prevMeanRangeM = mean;
+            }
+        }
+
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
@@ -4617,6 +5382,14 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
 
+        // What the subject would have reported this cycle, read by the alert test at
+        // the top of the NEXT cycle: posterior radial sigma, sqrt of the covariance
+        // trace. Guarded against a negative trace so a filter fault reads as lost
+        // confidence rather than as a NaN that compares false against every bound.
+        lastReportHadFix = d.hadFix;
+        lastReportedSigmaM =
+            (d.traceSigma >= 0.0) ? std::sqrt(d.traceSigma) : -1.0;
+
         // ---- INERTIAL DEAD RECKONING FILLS THE GAP -------------------------
         //
         // With no radio fix this cycle the filter would coast on constant
@@ -4663,6 +5436,90 @@ RunArm(CaTblPolicyMode mode,
         if (gatewayEdgeServer && d.hadFix)
         {
             energy.AccountEdgeServerDownlink(active);
+        }
+
+        // sect 49 BATTERY DEPLETION. The measured tag has a finite budget; when it is
+        // spent the radio stops transmitting and does not come back.
+        //
+        // IT REUSES THE SILENCE MECHANISM DELIBERATELY. A flat battery and a failed
+        // transmit chain look identical from the network's side -- the node stops being
+        // heard and goes on existing -- so modelling them with two different mechanisms
+        // would be inventing a distinction the network cannot observe. What differs is
+        // only the CAUSE and whether it can end, and a depleted battery cannot: there is
+        // no return window here, unlike --injectSilentId.
+        //
+        // THE NODE KEEPS RUNNING ITS FILTER. That is not an oversight. A device with a
+        // dead radio still knows where it thinks it is; it simply cannot tell anyone,
+        // and its estimate degrades from that moment because no measurement arrives to
+        // correct it. Stopping the estimator instead would model a node that switched
+        // OFF, which is a different failure and would hide the drift this one causes.
+        if (batteryDepleteJ > 0.0 && !batteryDead && energy.GetTotalJ() >= batteryDepleteJ)
+        {
+            batteryDead = true;
+            batteryDeadAtS = t;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->SetSilent(true);
+                }
+            }
+        }
+
+        // TRANSPORT sect 2 / APPLICATION sect 3-5. The layer above the MAC, driven by the
+        // running simulator rather than only by its unit suite.
+        //
+        // A RESULT CARRIES ITS LINEAGE, not just coordinates -- tier, PCS, hop count,
+        // the integrity verdict, and the covariance itself so an ellipse comes from the
+        // filter rather than a stylised radius. Surfacing the SUSPECT verdict is the
+        // entire reason the integrity check exists, and CaTblRenderFor lets it override
+        // tier and PCS: a sub-metre UWB fix that failed the Mahalanobis gate is the
+        // dangerous case precisely because its tier would otherwise earn it the most
+        // confident marker on the screen.
+        // sect 24-27. Contact is what the tag ACTUALLY HEARD this cycle, taken from the
+        // per-tier neighbour tables rather than from the deployment: a node that exists
+        // and cannot be heard is exactly the case this tracks, and reading the
+        // deployment would report everyone present forever.
+        if (lifecycleTracking)
+        {
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] == nullptr)
+                {
+                    continue;
+                }
+                const std::vector<CaTblNeighbour> nb =
+                    nodeMac[ti]->GetNeighbours(static_cast<CaTblTier>(ti), t);
+                for (size_t k = 0; k < nb.size(); ++k)
+                {
+                    lifecycle.NoteContact(nb[k].id, t);
+                }
+            }
+            // Tick AFTER the contacts, so a node heard this cycle is not aged out by the
+            // same call that should have refreshed it.
+            lifecycle.Tick(t);
+        }
+
+        if (sessionLayer)
+        {
+            sessions.Tick(t);
+            if (d.hadFix)
+            {
+                CaTblResult res;
+                res.targetManifestId = 1u;
+                res.x = policy.EstX();
+                res.y = policy.EstY();
+                res.varX = policy.Pxx();
+                res.varY = policy.Pyy();
+                res.covXY = policy.Pxy();
+                res.tierSource = fixTier;
+                res.pcs = d.pcs;
+                res.hopCountAtFix = 0;
+                res.suspect = d.suspect;
+                res.timestampS = t;
+                sessions.OnResult(res, t);
+                ++renderCounts[CaTblRenderFor(res)];
+            }
         }
         if (d.hadFix && !d.suspect)
         {
@@ -5325,20 +6182,169 @@ RunArm(CaTblPolicyMode mode,
         }
     }
 
-    // C3. Queries answered and correctly ignored, summed over the tag's three
-    // MACs. To stdout rather than arm_summary.csv: a new column changes the CSV
-    // header for every run and breaks byte-identity against baseline_v7.
+    // C3. Queries answered and correctly ignored. To stdout rather than
+    // arm_summary.csv: a new column changes the CSV header for every run and breaks
+    // byte-identity against baseline_v7.
+    //
+    // SUMMED OVER EVERY MAC, NOT JUST THE MEASURED TAG'S THREE. It used to sum only
+    // nodeMac[], which is the measured tag -- so a query addressed to manifest id 2,
+    // which belongs to a PEER tag, could only ever be counted as IGNORED. The answer,
+    // if it came, was invisible. Every run reported "answered 0" and the zero was a
+    // property of the counter rather than of the system.
     {
         uint64_t qa = 0, qi = 0;
-        for (int i = 0; i < CA_TBL_TIER_COUNT; ++i)
+        for (size_t i = 0; i < macs.size(); ++i)
         {
-            qa += nodeMac[i]->GetQueriesAnswered();
-            qi += nodeMac[i]->GetQueriesIgnored();
+            qa += macs[i].GetQueriesAnswered();
+            qi += macs[i].GetQueriesIgnored();
         }
         if (qa + qi > 0)
         {
             std::cout << "    C3 identity queries: answered " << qa
                       << ", correctly ignored " << qi << "\n";
+        }
+    }
+
+    // Net sect 4 / Trans sect 1. The counters existed and NOTHING PRINTED THEM, so the
+    // positive control for --queryProxy and --reversePath had no observable to check --
+    // rule 9, in miniature: the check for a firing was written before anything wrote the
+    // firing down. Summed over every MAC in the run, tags and infrastructure alike,
+    // because a proxy answer is by definition given by a node that is NOT the target.
+    {
+        uint64_t proxyStale = 0, uni = 0, flood = 0, proxyOk = 0;
+        uint64_t digPush = 0, digNoOp = 0;
+        for (size_t i = 0; i < macs.size(); ++i)
+        {
+            proxyOk += macs[i].GetProxyResponses();
+            proxyStale += macs[i].GetProxyRefusedStale();
+            uni += macs[i].GetResponsesUnicast();
+            flood += macs[i].GetResponsesFlooded();
+            digPush += macs[i].GetDigestPushes();
+            digNoOp += macs[i].GetDigestNoOps();
+        }
+        uint64_t suppressed = 0;
+        for (size_t i = 0; i < macs.size(); ++i)
+        {
+            suppressed += macs[i].GetSuppressedTx();
+        }
+        if (suppressed > 0)
+        {
+            std::cout << "    FAULT sect 49: " << suppressed
+                      << " frames suppressed while node " << injectSilentId
+                      << " was silent\n";
+        }
+        if (batteryDeadAtS >= 0.0)
+        {
+            std::cout << "    FAULT sect 49: battery exhausted at t=" << std::fixed
+                      << std::setprecision(1) << batteryDeadAtS << " s ("
+                      << batteryDepleteJ << " J); radio silent for the remaining "
+                      << (durationS - batteryDeadAtS) << " s\n";
+        }
+        if (deployedAtS >= 0.0)
+        {
+            std::cout << "    ALERT: " << deployCause << " for " << std::fixed
+                      << std::setprecision(0) << searchLaunchOnLossS
+                      << " s -- party deployed at t=" << std::setprecision(1)
+                      << deployedAtS << " s\n";
+        }
+        else if (searchLaunchOnLossS > 0.0)
+        {
+            std::cout << "    ALERT: never triggered -- party never deployed"
+                      << (searchLaunchSigmaM > 0.0
+                              ? " (contact held and the fix stayed inside the sigma bound)"
+                              : " (contact never lost; --searchLaunchSigmaM is off)")
+                      << "\n";
+        }
+        if (staleSteerRefusals > 0)
+        {
+            std::cout << "    SEARCH: " << staleSteerRefusals
+                      << " refusals to steer on an entry past the staleness bound\n";
+        }
+        if (mobilityFromRange)
+        {
+            std::cout << "    sect 11.11 MOBILITY: stationary " << mobCounts[0]
+                      << ", approaching " << mobCounts[1] << ", receding " << mobCounts[2]
+                      << "\n";
+        }
+        if (lifecycleTracking)
+        {
+            std::cout << "    sect 24-27 LIFECYCLE: tracked "
+                      << lifecycle.CountIn(CA_TBL_NODE_TRACKED) << ", degraded "
+                      << lifecycle.CountIn(CA_TBL_NODE_DEGRADED) << ", lost "
+                      << lifecycle.CountIn(CA_TBL_NODE_LOST) << "; loss events "
+                      << lifecycle.TotalLossEvents() << ", reacquisitions "
+                      << lifecycle.TotalReacquisitions() << "\n";
+        }
+        if (sessionLayer)
+        {
+            const CaTblSession* sess = nullptr;
+            std::map<uint32_t, CaTblSession>::const_iterator si =
+                sessions.Sessions().find(sessionId);
+            if (si != sessions.Sessions().end())
+            {
+                sess = &si->second;
+            }
+            std::cout << "    SESSION: path "
+                      << (sess ? sess->Path().c_str() : "none") << ", ever precise "
+                      << (sess ? (sess->EverPrecise() ? "YES" : "NO") : "-")
+                      << ", final state "
+                      << (sess ? CaTblSessionStateName(sess->State()) : "none")
+                      << ", renders VERIFY " << renderCounts[CA_TBL_RENDER_VERIFY]
+                      << " / HIGH " << renderCounts[CA_TBL_RENDER_HIGH]
+                      << " / MEDIUM " << renderCounts[CA_TBL_RENDER_MEDIUM]
+                      << " / COARSE " << renderCounts[CA_TBL_RENDER_COARSE] << "\n";
+            if (batchSearch)
+            {
+                const double spread = sessions.BatchPrecisionSpread(sessionId);
+                std::cout << "    APPLICATION sect 5 batch spread: ";
+                if (spread < 0.0)
+                {
+                    // Undefined below two precise targets, and reported as undefined.
+                    // Calling it zero would claim a batch finished together when most of
+                    // it was never found -- a lie in the direction that flatters.
+                    std::cout << "UNDEFINED (fewer than two targets reached precise)\n";
+                }
+                else
+                {
+                    std::cout << std::fixed << std::setprecision(1) << spread << " s\n";
+                }
+            }
+        }
+        if (sparseCaseA || caseSolved[0] > 0)
+        {
+            std::cout << "    sect 7 CASES: D(3+ anchors) " << caseSolved[0]
+                      << ", A(2 gateways) " << caseSolved[1]
+                      << ", B(anchor+peer) " << caseSolved[2]
+                      << ", C(unlocalisable) " << caseSolved[3] << ", floor-solved "
+                      << caseSolved[4] << "\n";
+            const uint64_t caseTotal = caseSolved[0] + caseSolved[1] + caseSolved[2] +
+                                       caseSolved[3] + caseSolved[4];
+            // Printed so the census can be CHECKED rather than trusted. If these two
+            // disagree the breakdown has a hole, which is exactly the defect this line
+            // exists to make visible.
+            std::cout << "    sect 7 CASES: classified " << caseTotal << " of " << steps
+                      << " cycles" << ((caseTotal == steps) ? " (complete)" : " (INCOMPLETE)")
+                      << "\n";
+        }
+        if (caseAAttempts > 0)
+        {
+            std::cout << "    sect 7 CASE A/B: attempts " << caseAAttempts << ", admitted "
+                      << caseAAdmitted << ", refused ambiguous "
+                      << caseARefused[CA_TBL_SPARSE_AMBIGUOUS] << ", degenerate "
+                      << caseARefused[CA_TBL_SPARSE_DEGENERATE] << ", no-prior "
+                      << caseARefused[CA_TBL_SPARSE_NO_PRIOR] << "\n";
+        }
+        if (digPush + digNoOp > 0)
+        {
+            std::cout << "    ANTI-ENTROPY: digest pushes " << digPush
+                      << ", digests answered with nothing (asker already current) "
+                      << digNoOp << "\n";
+        }
+        if (proxyStale + uni + flood + proxyOk > 0)
+        {
+            std::cout << "    NET4/TRANS1: proxy answered " << proxyOk << ", proxy refused stale "
+                      << proxyStale << ", responses unicast " << uni << ", flooded "
+                      << flood << "\n";
         }
     }
     if (imuCrossCheck || corroborationCheck)
@@ -5604,6 +6610,18 @@ main(int argc, char* argv[])
     bool imuFusionArg = false;
     bool imuIdealArg = false;
     bool queryProxyArg = false;
+    bool tableFuseCIArg = false;
+    bool digestSummaryArg = false;
+    double batteryDepleteJArg = 0.0;
+    bool sessionLayerArg = false;
+    bool mobilityFromRangeArg = false;
+    bool lifecycleTrackingArg = false;
+    bool batchSearchArg = false;
+    bool sparseCaseAArg = false;
+    double sparseCaseAMarginMArg = 1.0;
+    uint32_t injectSilentIdArg = 0;
+    double injectSilentStartSArg = 0.0;
+    double injectSilentEndSArg = 0.0;
     double queryStalenessBoundSArg = 120.0;
     bool reversePathArg = false;
     bool shsStepBoundsArg = false;
@@ -5696,8 +6714,20 @@ main(int argc, char* argv[])
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
     bool vizEventsArg = false;
+    double vizTablePeriodSArg = 0.0;
+    bool gwRidgeArg = false;
+    double gwArcDegArg = 360.0;
+    double gwArcCentreDegArg = 90.0;
+    double trailDeviateSideArg = -1.0;
+    double gwRidgeYArg = 0.55;
+    double trailDeviateAtSArg = 0.0;
+    double trailStopAfterSArg = 0.0;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
+    double finderStaleSteerBoundSArg = 0.0;
+    double searchLaunchOnLossSArg = 0.0;
+    double searchLaunchSigmaMArg = 0.0;
+    double searchLaunchAtSArg = 0.0;
     // Sentinel: negative means follow --speed, which is what every run before
     // 2026-09-08 did, so the default is byte-identical.
     double finderSpeedMpsArg = -1.0;
@@ -5821,6 +6851,86 @@ main(int argc, char* argv[])
                  "on step length rather than k_w because step length is the quantity with "
                  "a physiological range. Turn this on with --imuFusion.",
                  shsStepBoundsArg);
+    cmd.AddValue("batteryDepleteJ",
+                 "sect 49: joules after which the measured tag's radio goes permanently "
+                 "silent. 0 = off (infinite battery, the pre-existing assumption). Reuses "
+                 "the silence mechanism because a flat battery and a failed transmit chain "
+                 "are INDISTINGUISHABLE from the network's side; what differs is that this "
+                 "one cannot end. The filter keeps running -- a device with a dead radio "
+                 "still knows where it thinks it is, it just cannot tell anyone, and the "
+                 "estimate degrades from that moment because no measurement arrives.",
+                 batteryDepleteJArg);
+    cmd.AddValue("mobilityFromRange",
+                 "sect 11.11: drive the MAC mobility state from the trend in the node's "
+                 "own mean measured range, so the RECEDING eager-push branch of "
+                 "StartHandshake can execute. FALSE by default. Until now "
+                 "SetMobilityState was never called by the scenario and that branch was "
+                 "dead code that looked implemented. The signal is evidence the node "
+                 "actually has -- everything it ranges against getting further off -- not "
+                 "the walker's true velocity, which no real node knows.",
+                 mobilityFromRangeArg);
+    cmd.AddValue("lifecycleTracking",
+                 "sect 24-27: track every node the tag hears through UNSEEN / TRACKED / "
+                 "DEGRADED / LOST / REACQUIRED. FALSE by default. Driven from the "
+                 "neighbour tables, not the deployment -- a node that exists and cannot be "
+                 "heard is exactly what this tracks, and reading the deployment would "
+                 "report everyone present forever. Observation only; changes no decision.",
+                 lifecycleTrackingArg);
+    cmd.AddValue("batchSearch",
+                 "Application sect 5: open ONE session over all nTags targets instead of "
+                 "one per target. FALSE by default. One flood, one staleness clock, and "
+                 "every escalation request in the SAME arbiter queue -- the only "
+                 "configuration where U(r) scoring does observable work.",
+                 batchSearchArg);
+    cmd.AddValue("sessionLayer",
+                 "Drive the Transport/Application layer from the run: a session opened at "
+                 "t=0, every fix delivered to it as a RESULT carrying its lineage, and the "
+                 "render rule applied. FALSE by default. Adds no frames and changes no "
+                 "decision -- it consumes what the policy already produced -- so it is "
+                 "observation, not mechanism.",
+                 sessionLayerArg);
+    cmd.AddValue("sparseCaseA",
+                 "sect 7: solve a fix from TWO anchors when the active tier has only two, "
+                 "by two-circle intersection with the prior choosing the branch. FALSE by "
+                 "default. Below three anchors the estimator coasts; this is the cheapest "
+                 "lever on tier-3 reachability, since UWB reaches ~13.5 m so three "
+                 "neighbours at once is rare and two is markedly less rare. REFUSED rather "
+                 "than guessed when the prior cannot separate the candidates -- a coin "
+                 "flip between points tens of metres apart is worse than coasting.",
+                 sparseCaseAArg);
+    cmd.AddValue("sparseCaseAMargin",
+                 "sect 7: Mahalanobis separation the two candidates must have before one "
+                 "is accepted. Larger refuses more.",
+                 sparseCaseAMarginMArg);
+    cmd.AddValue("injectSilentId",
+                 "sect 49: node id whose TRANSMIT goes silent for a window, then returns. "
+                 "0 = off. The node is not removed and still HEARS everything -- this is a "
+                 "node that cannot talk (failed transmit chain, exhausted duty budget, "
+                 "amplifier browning out on a cold battery), NOT one behind an obstruction, "
+                 "which would be deaf as well as mute. Removing it would make the return "
+                 "indistinguishable from a new node joining.",
+                 injectSilentIdArg);
+    cmd.AddValue("injectSilentStartS", "sect 49: when the silence begins.", injectSilentStartSArg);
+    cmd.AddValue("injectSilentEndS", "sect 49: when the node comes back.", injectSilentEndSArg);
+    cmd.AddValue("digestSummary",
+                 "Carry the {node_id, seq_no} anti-entropy summary in a DIGEST, and "
+                 "answer it. FALSE by default. The airtime has been billed since S4 while "
+                 "the frame carried nothing, so a responder could not tell what the asker "
+                 "was missing and pushed its own entry regardless -- a request for one "
+                 "specific thing dressed as a request for everything. With the summary "
+                 "the responder pushes what the asker actually lacks, or stays silent.",
+                 digestSummaryArg);
+    cmd.AddValue("tableFuseCI",
+                 "Fuse a table entry whose sequence number EQUALS the held one by "
+                 "Covariance Intersection, instead of discarding it. FALSE by default. "
+                 "The spec's table rule has three branches and the code had two -- equal "
+                 "was falling into the discard path, and equal is the interesting case: "
+                 "the same report arriving by a second mesh route, seen through different "
+                 "NLOS. CI rather than a Kalman fuse because the two copies share an "
+                 "unidentifiable upstream relay, and fusing them as independent returns a "
+                 "covariance smaller than either input -- which is how a mesh talks itself "
+                 "into a wrong position with high confidence.",
+                 tableFuseCIArg);
     cmd.AddValue("queryProxy",
                  "Network Layer 4: answer a QUERY on behalf of a FRESH table entry, not "
                  "only when this node IS the target. FALSE by default. The spec calls "
@@ -6239,6 +7349,72 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("gwRidge",
+                 "Place gateways along a LINE (a ridge) instead of a ring or grid. FALSE "
+                 "by default. This is how coverage is really deployed on a hiking route -- "
+                 "repeaters follow the ridge because that is where the line of sight and "
+                 "the access road are. It is BAD GEOMETRY on purpose: collinear anchors "
+                 "give poor GDOP across the line, so a walker off the trail is far worse "
+                 "localised than one on it, which is the weakness the scenario exists to "
+                 "show. A ring would hide it.",
+                 gwRidgeArg);
+    cmd.AddValue("gwArcDeg",
+                 "Angular sweep of the gateway ARC, degrees. 360 (DEFAULT) is the existing "
+                 "full ring and reproduces it exactly. Below 360 the gateways follow a "
+                 "curving access route -- a road or valley trail -- rather than closing "
+                 "a ring around the search area. THIS IS THE HONEST MIDDLE between the "
+                 "two deployments that are easy to build and misleading to measure: a "
+                 "GRID puts anchors in the interior, which no team does and which "
+                 "flatters geometry to 28 m CEP50; a RIDGE is collinear, so the solve is "
+                 "near-singular off-axis and gives 1932 m. An arc has real 2-D spread, "
+                 "so the solve is conditioned, but every anchor is on ONE SIDE, so "
+                 "conditioning degrades as the subject leaves it in either direction. "
+                 "Centred on north, so a trail beneath it can be strayed from either "
+                 "way -- see --trailDeviateSide.",
+                 gwArcDegArg);
+    cmd.AddValue("gwArcCentreDeg",
+                 "Bearing the gateway arc is centred on, degrees CCW from east. 90 "
+                 "(DEFAULT) is north. Only meaningful with --gwArcDeg < 360. MEASURED "
+                 "reason this exists: centred north, the subject starts at the box's "
+                 "west edge OUTSIDE the arc's span, so on-trail error was 993 m and "
+                 "off-trail 3.9 m -- the geometry got BETTER when the subject got lost, "
+                 "and only because the searchers had arrived as pseudo-anchors. 180 "
+                 "puts the containment at the trailhead the subject walks from, so "
+                 "conditioning degrades with distance from access, which is what a "
+                 "real deployment does and the direction the scenario needs.",
+                 gwArcCentreDegArg);
+    cmd.AddValue("trailDeviateSide",
+                 "Which way the subject leaves the trail: -1 (DEFAULT) south, away from "
+                 "an arc centred north; +1 north, through it. Default reproduces the "
+                 "previous hard-coded southward deviation. NOT COSMETIC: with the "
+                 "anchors on an arc the two sides are geometrically different. Inside "
+                 "the arc the anchors subtend a wide angle and the fix stays "
+                 "conditioned longer; outside it they collapse toward a single "
+                 "bearing and the along-range direction goes soft first. A scenario "
+                 "that can only stray one way tests one of those.",
+                 trailDeviateSideArg);
+    cmd.AddValue("gwRidgeY", "Ridge northing as a fraction of boxHalf.", gwRidgeYArg);
+    cmd.AddValue("trailDeviateAtS",
+                 "Seconds before the subject LEAVES the marked trail. 0 = off (the "
+                 "ordinary wander). Before this the track is on the trail and entirely "
+                 "predictable, which is what makes the deviation legible -- a viewer sees "
+                 "the moment it stops being routine. After it the bearing is FIXED rather "
+                 "than wandering: a person who has lost the path walks a line they believe "
+                 "is right, and that makes the search geometric rather than diffusive.",
+                 trailDeviateAtSArg);
+    cmd.AddValue("trailStopAfterS",
+                 "Seconds after deviating before the subject stops moving. 0 = keeps "
+                 "walking. A stationary subject is the hard case -- K13 measured that no "
+                 "steering helps once the contact rate is ~0 -- and it must be reachable.",
+                 trailStopAfterSArg);
+    cmd.AddValue("vizTablePeriodS",
+                 "Seconds between per-node table snapshots for the visualiser. 0 = off. "
+                 "Writes nbrtable_* (what a node has PERSONALLY HEARD, one-hop, drives "
+                 "the poll set) and loctable_* (what it KNOWS, any source, any hop count, "
+                 "nothing polled from it) as two files, because they are two different "
+                 "things. Requires --vizEvents. Sampled rather than per-cycle: ten nodes "
+                 "at every cycle is ~80k rows and an inspector cannot show that anyway.",
+                 vizTablePeriodSArg);
     cmd.AddValue("vizEvents",
                  "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
                  "deployment geometry (deployment.json), for the trace-driven "
@@ -6429,6 +7605,47 @@ main(int argc, char* argv[])
                  "specified -- also pinned all four searchers to the spot, and every "
                  "still cell measured a paralysed search party rather than a search.",
                  finderSpeedMpsArg);
+    cmd.AddValue("searchLaunchOnLoss",
+                 "Seconds of NO GATEWAY CONTACT before the party deploys. 0 = off. A party "
+                 "is not dispatched because someone stepped off a path -- that is invisible "
+                 "to the network -- but because contact was lost and stayed lost. Latched: "
+                 "a momentary re-contact does not recall searchers already walking.",
+                 searchLaunchOnLossSArg);
+    cmd.AddValue("searchLaunchAtS",
+                 "Deploy the party at this time, as an OVERDUE REPORT. 0 = off. This "
+                 "is how a real search starts: someone did not arrive. It exists because "
+                 "neither telemetry trigger separates on the deployments tested -- "
+                 "A.10 shows 868 reaches past 4.5 km so contact loss never occurs, and "
+                 "on the arc the posterior sigma sits in an 80-190 m band all run with "
+                 "no sustained degradation (on-trail p90 133, p99 148; sustained 60 s "
+                 "crossings: 150 m at t=720, 175 m and above never). A bound inside "
+                 "that band is an arbitrary number, not a threshold, and what sigma "
+                 "measures there is tier-1 RSSI accuracy rather than geometry. The "
+                 "party still holds at camp until dispatched, which is the behaviour "
+                 "--searchLaunchSigmaM was a proxy for.",
+                 searchLaunchAtSArg);
+    cmd.AddValue("searchLaunchSigmaM",
+                 "Radial position sigma (m) above which the network is treated as having "
+                 "LOST THE SUBJECT even though it can still hear them; sustained for "
+                 "--searchLaunchOnLoss seconds, it deploys the party. 0 = off. Needed "
+                 "because contact loss is unreachable here: measured, the walker still "
+                 "heard a ridge gateway on 88% of cycles at 4.5 km, so a silence-only "
+                 "alarm never fires (BEHAVIOUR_ANOMALIES A.10). The bound is on the "
+                 "system's own posterior radial sigma sqrt(traceSigma); a cycle with no "
+                 "fix counts as lost outright. Measured on the ridge run: p90 58 m on "
+                 "the trail against p50 327 m off it, so 100 is a bound the trail "
+                 "clears and the deviation does not.",
+                 searchLaunchSigmaMArg);
+    cmd.AddValue("finderStaleSteerBound",
+                 "Seconds past which a held entry is too old to STEER a searcher on. "
+                 "0 = off, the pre-existing behaviour where an entry received once steers "
+                 "forever. An entry persists after arrival, so a finder that heard the "
+                 "subject once converges on that position for the rest of the run -- "
+                 "measured at 377 s old and 1029 m wrong. Past the bound the entry may "
+                 "still be REPORTED, which is the proxy responder's call; it just must not "
+                 "steer, because walking to a six-minute-old fix does worse than sweeping "
+                 "ground nobody has looked at.",
+                 finderStaleSteerBoundSArg);
     cmd.AddValue("finderMode",
                  "2 = SEARCH THEN CONVERGE. Mode 1 converges on the casualty's "
                  "reported position and, with no entry, deliberately HOLDS POSITION "
@@ -6813,7 +8030,11 @@ main(int argc, char* argv[])
                                            sitingModeArg,
                                            topologyArg,
                                            nGatewaysArg,
-                                           gwRingFracArg);
+                                           gwRingFracArg,
+                                     gwRidgeArg,
+                                     gwRidgeYArg,
+                                     gwArcDegArg,
+                                     gwArcCentreDegArg);
 
     // BASE CAMP. Move the infrastructure to a corner and leave the casualty's tour
     // where it is, so the subject is OUTSIDE the gateway footprint for much of the
@@ -6824,17 +8045,35 @@ main(int argc, char* argv[])
     {
         const double bcx = baseCampFrac * boxHalfM;
         const double bcy = baseCampFrac * boxHalfM;
-        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        // A RIDGE IS ALREADY A DEPLOYMENT, so do not translate it. The corner-shift above
+        // exists to put the subject outside a CENTRED footprint; a ridge is deliberately
+        // placed and shifting it by three quarters of the box lands it off the map and
+        // destroys the geometry the ridge scenario is about. In ridge mode the base camp
+        // is what it actually is -- the trailhead the searchers set out FROM -- and the
+        // gateways stay where they were put.
+        if (!gwRidgeArg)
         {
-            for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
-                dep.anchors[ti][i].pos.x += bcx;
-                dep.anchors[ti][i].pos.y += bcy;
+                for (size_t i = 0; i < dep.anchors[ti].size(); ++i)
+                {
+                    dep.anchors[ti][i].pos.x += bcx;
+                    dep.anchors[ti][i].pos.y += bcy;
+                }
             }
         }
         dep.hasBaseCamp = true;
-        dep.baseCampX = bcx;
-        dep.baseCampY = bcy;
+        if (gwRidgeArg)
+        {
+            // The trailhead: west end of the ridge, on the trail the subject was walking.
+            dep.baseCampX = -boxHalfM * 0.8;
+            dep.baseCampY = gwRidgeYArg * boxHalfM - boxHalfM * 0.08;
+        }
+        else
+        {
+            dep.baseCampX = bcx;
+            dep.baseCampY = bcy;
+        }
 
         // KEEP-OUT. Once the subject leaves the camp it should not wander back
         // into coverage: "lost" means out of reach of the infrastructure, and a
@@ -7111,13 +8350,37 @@ main(int argc, char* argv[])
                                        maxRelayDepthArg,
                                        relayVarBudgetM2Arg,
                                        vizEventsArg,
+                                       vizTablePeriodSArg,
+                                       gwRidgeArg,
+                                       gwRidgeYArg,
+                                       gwArcDegArg,
+                                       gwArcCentreDegArg,
+                                       trailDeviateSideArg,
+                                       trailDeviateAtSArg,
+                                       trailStopAfterSArg,
                                        nFindersArg,
                                        finderModeArg,
+                                       finderStaleSteerBoundSArg,
+                                       searchLaunchOnLossSArg,
+                                       searchLaunchSigmaMArg,
+                                       searchLaunchAtSArg,
                                        maxTurnRateRadS,
                                        shsTrustedFixKArg,
                                        imuFusionArg,
                                        imuIdealArg,
                                        queryProxyArg,
+                                       tableFuseCIArg,
+                                       digestSummaryArg,
+                                       batteryDepleteJArg,
+                                       sessionLayerArg,
+                                       mobilityFromRangeArg,
+                                       lifecycleTrackingArg,
+                                       batchSearchArg,
+                                       sparseCaseAArg,
+                                       sparseCaseAMarginMArg,
+                                       injectSilentIdArg,
+                                       injectSilentStartSArg,
+                                       injectSilentEndSArg,
                                        queryStalenessBoundSArg,
                                        reversePathArg,
                                        shsStepBoundsArg,

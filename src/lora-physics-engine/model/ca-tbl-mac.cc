@@ -1,4 +1,6 @@
 #include "ca-tbl-mac.h"
+#include <iomanip>
+#include <sstream>
 
 #include "ns3/log.h"
 #include "ns3/simulator.h"
@@ -8,6 +10,58 @@
 
 namespace ns3
 {
+
+namespace
+{
+/**
+ * What a frame is CARRYING, as one compact field for the event log.
+ *
+ * The log recorded a message TYPE and nothing about its contents, so a viewer could see
+ * that an ENTRY_PUSH happened and not what position it moved -- which is the only part a
+ * person watching a dissemination demo actually wants.
+ *
+ * Semicolons, never commas: this lands in a CSV cell and a comma here would silently
+ * shift every column to its right. That failure is invisible in the file and obvious
+ * only downstream, which is the worst place to find it.
+ */
+std::string
+CaTblEventPayload(const CaTblHeader& h)
+{
+    std::ostringstream o;
+    const CaTblMsgType t = h.GetMsgType();
+    o << "pkt=" << h.GetPacketId() << ";hops=" << static_cast<int>(h.GetHopLimit());
+    // VALID, not merely PRESENT. The header carries a self-entry slot on every frame and
+    // HasSelfEntry() reports the slot, so a DIGEST or a QUERY -- which attach nothing --
+    // were emitting "entry=0;x=0.0;y=0.0". A viewer reads that as a packet carrying a
+    // position at the origin, which is a fact the frame does not contain.
+    if (h.HasSelfEntry() && h.GetSelfEntry().valid)
+    {
+        const CaTblTableEntry& e = h.GetSelfEntry();
+        o << ";entry=" << e.nodeId << ";x=" << std::fixed << std::setprecision(1) << e.x
+          << ";y=" << e.y << ";sig=" << std::setprecision(1) << std::sqrt(std::max(e.varX, 0.0))
+          << ";seq=" << e.seqNo << ";hop=" << static_cast<int>(e.hopCount);
+        if (e.targetManifestId != 0)
+        {
+            o << ";mid=" << static_cast<int>(e.targetManifestId);
+        }
+    }
+    if (t == CA_TBL_MSG_QUERY || t == CA_TBL_MSG_RESPONSE)
+    {
+        o << ";wants=" << static_cast<int>(h.GetQueryManifestId());
+    }
+    if (t == CA_TBL_MSG_DIGEST)
+    {
+        o << ";summary=" << h.GetDigest().size();
+    }
+    if (t == CA_TBL_MSG_ESC_REQUEST)
+    {
+        o << ";degr=" << static_cast<int>(h.GetReqDegradation())
+          << ";batt=" << static_cast<int>(h.GetReqBattery());
+    }
+    return o.str();
+}
+} // namespace
+
 
 NS_LOG_COMPONENT_DEFINE("CaTblMac");
 
@@ -106,7 +160,9 @@ CaTblMacConfig::CaTblMacConfig()
       sf(7),
       bandwidthHz(125e3),
       codingRate(1),
-      sendHandshakeFrames(false)
+      sendHandshakeFrames(false),
+      tableFuseCI(false),
+      digestSummary(false)
 {
 }
 
@@ -124,6 +180,8 @@ CaTblMac::CaTblMac()
       m_packetIdCounter(0),
       m_selfSeq(0),
       m_tableMerges(0),
+      m_tableFuses(0),
+      m_tableDiscards(0),
       m_neighbourInsertions(0),
       m_dutyViolationAttempts(0)
 {
@@ -581,7 +639,13 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
         // an answer; reporting it would state a position nothing currently
         // supports. Counted rather than dropped silently, so a search that found
         // only stale knowledge is distinguishable from one that found none.
-        if (nowS - e.timestampS > m_cfg.queryStalenessBoundS)
+        // Classified rather than compared, so the refusal reason is nameable. The
+        // bound stays exactly where the spec puts it -- agingS defaults to the same
+        // 120 s -- so this changes what can be REPORTED, not what is refused.
+        CaTblFreshnessBounds fb;
+        fb.agingS = m_cfg.queryStalenessBoundS;
+        const CaTblFreshness fresh = CaTblClassifyFreshness(nowS - e.timestampS, fb);
+        if (fresh == CA_TBL_STALE || fresh == CA_TBL_EXPIRED)
         {
             ++m_proxyRefusedStale;
             continue;
@@ -641,6 +705,14 @@ CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId)
 void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
+    // sect 49: a silenced radio consumes the call and emits nothing. Counted, because a
+    // fault that leaves no trace is indistinguishable from a quiet period.
+    if (m_silent)
+    {
+        ++m_suppressedTx;
+        return;
+    }
+
     PendingFrame f;
     f.hdr.SetPacketId(NextPacketId());
     // The anti-entropy exchange the design specifies: an ENTRY_PUSH carries the
@@ -648,12 +720,40 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     // a node with nothing to say sends nothing and is not billed as though it had.
     if (type == CA_TBL_MSG_ENTRY_PUSH || type == CA_TBL_MSG_TRIGGERED_UPDATE)
     {
-        std::map<uint16_t, CaTblTableEntry>::const_iterator se =
-            m_table.find(m_cfg.nodeId);
-        if (se != m_table.end() && se->second.valid)
+        // An anti-entropy answer carries the entry the ASKER was missing, which is
+        // usually not this node's own. m_nextPushEntry names it for exactly one send.
+        if (m_nextPushEntry != nullptr)
         {
-            f.hdr.SetSelfEntry(se->second);
+            f.hdr.SetSelfEntry(*m_nextPushEntry);
         }
+        else
+        {
+            std::map<uint16_t, CaTblTableEntry>::const_iterator se =
+                m_table.find(m_cfg.nodeId);
+            if (se != m_table.end() && se->second.valid)
+            {
+                f.hdr.SetSelfEntry(se->second);
+            }
+        }
+    }
+    else if (type == CA_TBL_MSG_DIGEST && m_cfg.digestSummary)
+    {
+        // "I hold version N of peer X", for the most recently heard peers. Bounded,
+        // because a digest is only cheap while it stays a summary.
+        std::vector<CaTblDigestItem> d;
+        for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+             it != m_table.end() && d.size() < CA_TBL_DIGEST_MAX_ITEMS; ++it)
+        {
+            if (it->second.valid)
+            {
+                CaTblDigestItem di;
+                di.nodeId = it->second.nodeId;
+                di.seqNo = it->second.seqNo;
+                d.push_back(di);
+            }
+        }
+        f.hdr.SetDigest(d);
+        f.nEntries = static_cast<uint32_t>(d.empty() ? 1 : d.size());
     }
     f.hdr.SetOriginId(m_cfg.nodeId);
     f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
@@ -917,6 +1017,11 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         if (in.valid && in.nodeId != m_cfg.nodeId)
         {
             std::map<uint16_t, CaTblTableEntry>::iterator ex = m_table.find(in.nodeId);
+            // THE SPEC'S RULE HAS THREE BRANCHES AND THIS HAD TWO. Newer supersedes,
+            // older is discarded, and EQUAL was silently falling into the discard
+            // path. Equal is the interesting case: the same report arriving by a
+            // second mesh route, which is independent evidence about the same instant
+            // from a path that saw different NLOS.
             if (ex == m_table.end() || CaTblSeqNewer(in.seqNo, ex->second.seqNo))
             {
                 CaTblTableEntry e = in;
@@ -926,6 +1031,34 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
                     (in.hopCount < 255) ? static_cast<uint8_t>(in.hopCount + 1) : 255;
                 m_table[in.nodeId] = e;
                 ++m_tableMerges;
+            }
+            else if (m_cfg.tableFuseCI && in.seqNo == ex->second.seqNo)
+            {
+                // Covariance Intersection, because the two copies share an upstream
+                // relay that cannot be identified from the entry. A Kalman fuse here
+                // would assume independence and return a covariance tighter than
+                // either input -- the double-counting failure that makes a mesh
+                // confidently wrong.
+                CaTblTableEntry fused;
+                if (CaTblCovarianceIntersect(ex->second, in, fused))
+                {
+                    fused.hopCount = (ex->second.hopCount <= in.hopCount)
+                                         ? ex->second.hopCount
+                                         : static_cast<uint8_t>(
+                                               (in.hopCount < 255) ? in.hopCount + 1 : 255);
+                    m_table[in.nodeId] = fused;
+                    ++m_tableFuses;
+                }
+                else
+                {
+                    // A fuse that cannot be computed must not silently keep one side
+                    // and call it a fuse.
+                    ++m_tableDiscards;
+                }
+            }
+            else
+            {
+                ++m_tableDiscards;
             }
         }
     }
@@ -1022,6 +1155,67 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
             else if (ArbitrateRequest(hdr))
             {
                 Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+            }
+        }
+        else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST && m_cfg.digestSummary &&
+                 !hdr.GetDigest().empty())
+        {
+            // ANTI-ENTROPY PROPER: answer what was actually asked. Everything this node
+            // holds that the asker either lacks entirely, or holds a strictly older
+            // version of, is a candidate; the rest is silence.
+            const std::vector<CaTblDigestItem>& theirs = hdr.GetDigest();
+            const CaTblTableEntry* best = nullptr;
+            for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+                 it != m_table.end(); ++it)
+            {
+                if (!it->second.valid)
+                {
+                    continue;
+                }
+                bool theyHaveCurrent = false;
+                bool theyKnowIt = false;
+                for (size_t k = 0; k < theirs.size(); ++k)
+                {
+                    if (theirs[k].nodeId != it->second.nodeId)
+                    {
+                        continue;
+                    }
+                    theyKnowIt = true;
+                    // Modular comparison, the same rule supersession uses. A plain >
+                    // would freeze every entry the first time a counter wrapped.
+                    theyHaveCurrent = !CaTblSeqNewer(it->second.seqNo, theirs[k].seqNo);
+                    break;
+                }
+                if (!theyKnowIt || !theyHaveCurrent)
+                {
+                    // ONE PER EXCHANGE, not everything at once. A responder that
+                    // answered a digest with eight entries would spend more airtime
+                    // than the summary saved, and the next digest will ask again.
+                    // Prefer the entry the asker does not have at all over one it
+                    // merely has stale.
+                    if (best == nullptr || !theyKnowIt)
+                    {
+                        best = &it->second;
+                        if (!theyKnowIt)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            if (best != nullptr)
+            {
+                m_nextPushEntry = best;
+                Send(CA_TBL_MSG_ENTRY_PUSH, rxTier, 1, hdr.GetOriginId());
+                m_nextPushEntry = nullptr;
+                ++m_digestPushes;
+            }
+            else
+            {
+                // The asker is current on everything this node knows. Sending an
+                // ENTRY_PUSH here is the waste the summary exists to remove, and
+                // counting it is how that saving becomes a number rather than a claim.
+                ++m_digestNoOps;
             }
         }
         else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST)
@@ -1314,7 +1508,8 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
                 *m_eventLog << Simulator::Now().GetSeconds() << ',' << static_cast<int>(me.tier)
                             << ',' << me.txId << ',' << rxId << ','
                             << CaTblMsgTypeName(me.hdr.GetMsgType()) << ",collision,"
-                            << mine.rxPowerDbm << '\n';
+                            << mine.rxPowerDbm << ','
+                            << CaTblEventPayload(me.hdr) << '\n';
             }
             rx->NoteCollisionLoss(me.hdr.GetMsgType());
             continue;
@@ -1332,7 +1527,7 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
                         << ',' << me.txId << ',' << rxId << ','
                         << CaTblMsgTypeName(me.hdr.GetMsgType()) << ','
                         << (captured ? "capture" : "delivered") << ',' << mine.rxPowerDbm
-                        << '\n';
+                        << ',' << CaTblEventPayload(me.hdr) << '\n';
         }
         rx->DeliverRx(me.hdr, mine);
     }
