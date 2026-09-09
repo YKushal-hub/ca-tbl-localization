@@ -196,7 +196,9 @@ BuildDeployment(uint32_t gwGrid,
                 uint32_t sitingMode,
                 uint32_t topology,
                 uint32_t nGateways,
-                double gwRingFrac)
+                double gwRingFrac,
+                bool gwRidge,
+                double gwRidgeY)
 {
     Deployment dep;
     dep.boxHalfM = boxHalfM;
@@ -282,12 +284,39 @@ BuildDeployment(uint32_t gwGrid,
         // deployment scales with the area the way the grid does and the two remain
         // comparable across box sizes.
         const double R = gwRingFrac * boxHalfM;
+        if (gwRidge)
+        {
+            // RIDGE placement: gateways strung along a line, which is how coverage is
+            // actually deployed on a hiking route -- repeaters follow the ridge because
+            // that is where the line of sight and the access road are, not because it is
+            // good geometry.
+            //
+            // AND IT IS BAD GEOMETRY, DELIBERATELY. Collinear anchors give poor GDOP
+            // across the line and near-singular conditioning along it, so a walker
+            // north or south of the ridge is far worse localised than one on it. That is
+            // the real deployment's real weakness and the reason a deviation off the
+            // trail is dangerous rather than merely inconvenient. Placing them on a ring
+            // would hide the effect the scenario exists to show.
+            const double span = 1.6 * boxHalfM;
+            for (uint32_t k = 0; k < nGateways; ++k)
+            {
+                const double fx = (nGateways == 1)
+                                      ? 0.0
+                                      : -span / 2.0 + span * static_cast<double>(k) /
+                                                          static_cast<double>(nGateways - 1);
+                dep.anchors[CA_TBL_TIER_868].push_back(
+                    {id++, Vector(fx, gwRidgeY * boxHalfM, gwH)});
+            }
+        }
+        else
+        {
         for (uint32_t k = 0; k < nGateways; ++k)
         {
             const double th =
                 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(nGateways) + M_PI / 2.0;
             dep.anchors[CA_TBL_TIER_868].push_back(
                 {id++, Vector(R * std::cos(th), R * std::sin(th), gwH)});
+        }
         }
     }
     else
@@ -1044,7 +1073,12 @@ class Tourist
           m_rng(rng),
           m_target(0),
           m_dwellLeft(0.0),
-          m_heading(0.0)
+          m_heading(0.0),
+          m_trail(false),
+          m_trailY(0.0),
+          m_deviateAtS(0.0),
+          m_stopAfterS(0.0),
+          m_elapsed(0.0)
     {
         // Start off-site so the run begins in the tier-1-only regime.
         m_x = m_rng->GetValue(-boxHalfM * 0.2, boxHalfM * 0.2);
@@ -1052,8 +1086,67 @@ class Tourist
         PickTarget();
     }
 
+    /**
+     * \brief Walk a marked trail, then leave it.
+     *
+     * The SAR story the deployment is for: a walker follows a ridge path, deviates from
+     * it, and stops being where anyone would look. Tourist's waypoint wander is the
+     * right model for a monitored enclosure and the wrong one for this -- a wanderer is
+     * never LOST, it is just somewhere else, and the difference is the whole scenario.
+     *
+     * \param trailY       the trail runs east-west at this northing
+     * \param deviateAtS   when the walker leaves it. Before this the track is on the
+     *                     trail and predictable, which is what makes the deviation
+     *                     legible: a viewer sees the moment it stops being routine.
+     * \param stopAfterS   seconds after deviating before the walker halts. A stationary
+     *                     subject is the hard case -- K13 measured that no steering
+     *                     helps once contact rate is ~0 -- and it must be reachable.
+     */
+    void SetTrail(double trailY, double deviateAtS, double stopAfterS)
+    {
+        m_trail = true;
+        m_trailY = trailY;
+        m_deviateAtS = deviateAtS;
+        m_stopAfterS = stopAfterS;
+        m_x = -m_boxHalf * 0.8;
+        m_y = trailY;
+        m_elapsed = 0.0;
+    }
+
+    //! Has the walker left the trail? The demo needs the moment, not just the track.
+    bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
+    bool HasStopped() const
+    {
+        return m_trail && m_stopAfterS > 0.0 && m_elapsed >= m_deviateAtS + m_stopAfterS;
+    }
+
     void Step(double dt)
     {
+        if (m_trail)
+        {
+            m_elapsed += dt;
+            if (HasStopped())
+            {
+                return; // sat down, and this is the case that defeats searching
+            }
+            if (m_elapsed < m_deviateAtS)
+            {
+                // On the trail: due east at walking pace, entirely predictable.
+                m_x += m_speed * dt;
+            }
+            else
+            {
+                // Off it. Heading is fixed at the moment of deviation rather than
+                // wandering, because a person who has lost the path walks a line they
+                // believe is right -- and a fixed bearing is what makes the search
+                // problem geometric rather than diffusive.
+                m_x += m_speed * dt * 0.35;
+                m_y -= m_speed * dt * 0.94;
+            }
+            if (m_x > m_boxHalf) { m_x = m_boxHalf; }
+            if (m_y < -m_boxHalf) { m_y = -m_boxHalf; }
+            return;
+        }
         if (m_dwellLeft > 0.0)
         {
             // Milling about inside a site rather than standing perfectly still.
@@ -1179,6 +1272,11 @@ class Tourist
     size_t m_target;
     double m_dwellLeft;
     double m_heading;
+    bool m_trail;
+    double m_trailY;
+    double m_deviateAtS;
+    double m_stopAfterS;
+    double m_elapsed;
     double m_x;
     double m_y;
 
@@ -2391,6 +2489,10 @@ RunArm(CaTblPolicyMode mode,
        double relayVarBudgetM2,
        bool vizEventsOn,
        double vizTablePeriodS,
+       bool gwRidge,
+       double gwRidgeY,
+       double trailDeviateAtS,
+       double trailStopAfterS,
        uint32_t nFinders,
        uint32_t finderMode,
        double maxTurnRateRadS,
@@ -2565,6 +2667,15 @@ RunArm(CaTblPolicyMode mode,
     rng->SetStream(static_cast<int64_t>(seed) * 7919 + 13);
 
     Tourist walker(dep.facilities, walkSpeedMps, dwellS, dep.boxHalfM, dep.dwellRadiusM, rng);
+    if (trailDeviateAtS > 0.0)
+    {
+        // The trail sits just off the ridge, so the walker starts inside good coverage
+        // and walks out of it. Starting on the ridge itself would put the subject at the
+        // one place the collinear geometry is least bad, and the deviation would then
+        // conflate leaving the trail with leaving the only good conditioning.
+        walker.SetTrail(gwRidgeY * dep.boxHalfM - dep.boxHalfM * 0.08, trailDeviateAtS,
+                        trailStopAfterS);
+    }
     // The SUBJECT is the one the SHS rides on, so this is the walker whose
     // continuity decides whether a yaw integrator can track it at all.
     walker.SetMaxTurnRate(maxTurnRateRadS);
@@ -6383,6 +6494,10 @@ main(int argc, char* argv[])
     double relayVarBudgetM2Arg = 0.0;
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
+    bool gwRidgeArg = false;
+    double gwRidgeYArg = 0.55;
+    double trailDeviateAtSArg = 0.0;
+    double trailStopAfterSArg = 0.0;
     uint32_t nFindersArg = 0;
     uint32_t finderModeArg = 1;
     // Sentinel: negative means follow --speed, which is what every run before
@@ -7006,6 +7121,29 @@ main(int argc, char* argv[])
                  "later, and that latency is accumulated and reported rather than "
                  "assumed away. What is not paid is the next cycle ranging.",
                  intraCycleHandshakeDeferArg);
+    cmd.AddValue("gwRidge",
+                 "Place gateways along a LINE (a ridge) instead of a ring or grid. FALSE "
+                 "by default. This is how coverage is really deployed on a hiking route -- "
+                 "repeaters follow the ridge because that is where the line of sight and "
+                 "the access road are. It is BAD GEOMETRY on purpose: collinear anchors "
+                 "give poor GDOP across the line, so a walker off the trail is far worse "
+                 "localised than one on it, which is the weakness the scenario exists to "
+                 "show. A ring would hide it.",
+                 gwRidgeArg);
+    cmd.AddValue("gwRidgeY", "Ridge northing as a fraction of boxHalf.", gwRidgeYArg);
+    cmd.AddValue("trailDeviateAtS",
+                 "Seconds before the subject LEAVES the marked trail. 0 = off (the "
+                 "ordinary wander). Before this the track is on the trail and entirely "
+                 "predictable, which is what makes the deviation legible -- a viewer sees "
+                 "the moment it stops being routine. After it the bearing is FIXED rather "
+                 "than wandering: a person who has lost the path walks a line they believe "
+                 "is right, and that makes the search geometric rather than diffusive.",
+                 trailDeviateAtSArg);
+    cmd.AddValue("trailStopAfterS",
+                 "Seconds after deviating before the subject stops moving. 0 = keeps "
+                 "walking. A stationary subject is the hard case -- K13 measured that no "
+                 "steering helps once the contact rate is ~0 -- and it must be reachable.",
+                 trailStopAfterSArg);
     cmd.AddValue("vizTablePeriodS",
                  "Seconds between per-node table snapshots for the visualiser. 0 = off. "
                  "Writes nbrtable_* (what a node has PERSONALLY HEARD, one-hop, drives "
@@ -7588,7 +7726,9 @@ main(int argc, char* argv[])
                                            sitingModeArg,
                                            topologyArg,
                                            nGatewaysArg,
-                                           gwRingFracArg);
+                                           gwRingFracArg,
+                                     gwRidgeArg,
+                                     gwRidgeYArg);
 
     // BASE CAMP. Move the infrastructure to a corner and leave the casualty's tour
     // where it is, so the subject is OUTSIDE the gateway footprint for much of the
@@ -7887,6 +8027,10 @@ main(int argc, char* argv[])
                                        relayVarBudgetM2Arg,
                                        vizEventsArg,
                                        vizTablePeriodSArg,
+                                       gwRidgeArg,
+                                       gwRidgeYArg,
+                                       trailDeviateAtSArg,
+                                       trailStopAfterSArg,
                                        nFindersArg,
                                        finderModeArg,
                                        maxTurnRateRadS,
