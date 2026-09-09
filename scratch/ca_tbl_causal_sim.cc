@@ -2831,7 +2831,7 @@ RunArm(CaTblPolicyMode mode,
         vizEvents.open(vfn.str().c_str());
         if (vizEvents.is_open())
         {
-            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm\n";
+            vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm,payload\n";
         }
         std::ostringstream nfn;
         nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
