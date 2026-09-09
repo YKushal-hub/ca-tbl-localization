@@ -2,177 +2,180 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
-  --bg:#F3F5F4; --panel:#FFFFFF; --panel-2:#EAEEEE; --line:#D2DAD9;
+  --bg:#F3F5F4; --panel:#FFFFFF; --panel-2:#EAEEEE; --line:#D2DAD9; --line-2:#E5EAE9;
   --ink:#14202A; --ink-2:#4A5C66; --ink-3:#7B8D96;
   --t1:#B06E12; --t2:#0E7C8C; --t3:#8E3FB0;
   --ok:#2F7D51; --cap:#B06E12; --bad:#C0393E;
-  --accent:#0E7C8C;
-  --grid:#DDE4E3;
+  --gw:#4A5C66; --finder:#1F7A5A; --lost:#B3322F;
+  --accent:#0E7C8C; --grid:#DFE6E5;
 }
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A;
-    --ink:#DCE6E9; --ink-2:#93A7B0; --ink-3:#6B808A;
-    --t1:#E8A33D; --t2:#3DC8D8; --t3:#C87BE8;
-    --ok:#4FB477; --cap:#E8A33D; --bad:#E2555A;
-    --accent:#3DC8D8;
-    --grid:#1B292F;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A;
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A; --line-2:#1B282E;
   --ink:#DCE6E9; --ink-2:#93A7B0; --ink-3:#6B808A;
   --t1:#E8A33D; --t2:#3DC8D8; --t3:#C87BE8;
   --ok:#4FB477; --cap:#E8A33D; --bad:#E2555A;
-  --accent:#3DC8D8;
-  --grid:#1B292F;
+  --gw:#9FB3BE; --finder:#3FD0A0; --lost:#FF6B62;
+  --accent:#3DC8D8; --grid:#1B292F;
+}}
+:root[data-theme="dark"]{
+  --bg:#0D1417; --panel:#131C21; --panel-2:#18242A; --line:#22333A; --line-2:#1B282E;
+  --ink:#DCE6E9; --ink-2:#93A7B0; --ink-3:#6B808A;
+  --t1:#E8A33D; --t2:#3DC8D8; --t3:#C87BE8;
+  --ok:#4FB477; --cap:#E8A33D; --bad:#E2555A;
+  --gw:#9FB3BE; --finder:#3FD0A0; --lost:#FF6B62;
+  --accent:#3DC8D8; --grid:#1B292F;
 }
 *{box-sizing:border-box}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-size:14px; line-height:1.45;
-}
-.wrap{max-width:1560px;margin:0 auto;padding:18px 20px 26px}
-header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
-h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
-.sub{color:var(--ink-2);font-size:13px}
-.runid{
-  margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;
-  color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);
-  padding:4px 9px;border-radius:4px;
-}
-.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
-@media (max-width:1080px){.main{grid-template-columns:minmax(0,1fr)}}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px}
+.wrap{max-width:1500px;margin:0 auto;padding:14px 16px 22px}
+header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+.sub{color:var(--ink-2);font-size:12.5px}
+.runid{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);
+  background:var(--panel-2);border:1px solid var(--line);padding:4px 9px;border-radius:4px}
+
+#err-banner{display:none;margin:0 0 12px;padding:10px 13px;border-radius:6px;
+  background:#C0393E14;border:1px solid var(--bad);color:var(--bad);font-size:12.5px;
+  font-family:"IBM Plex Mono",monospace;white-space:pre-wrap}
+
+.story{margin:0 0 12px;padding:10px 13px;background:var(--panel-2);border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:6px;font-size:12.5px;color:var(--ink-2)}
+.story b{color:var(--ink);font-weight:600}
+
+/* THE LAYOUT FIX. The rail used to be a tall column beside an 880px canvas, so on any
+   viewport narrower than the breakpoint the grid collapsed to one column and the rail
+   landed below the fold -- present in the DOM, invisible in practice. Two changes:
+   the map is capped by viewport height rather than a fixed pixel height, and the rail
+   is a WRAPPING GRID of cards, so when it moves under the map it spreads sideways
+   instead of forming a second screen-length column. */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+@media (max-width:1040px){.main{grid-template-columns:minmax(0,1fr)}}
 .stage{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-canvas{display:block;width:100%;height:auto;background:transparent}
-.legend{
-  display:flex;flex-wrap:wrap;gap:14px 20px;padding:11px 14px;
-  border-top:1px solid var(--line);font-size:12px;color:var(--ink-2);
-}
-.lg{display:flex;align-items:center;gap:6px}
-.sw{width:11px;height:11px;border-radius:2px;flex:none}
-.sw.round{border-radius:50%}
-.rail{display:flex;flex-direction:column;gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
-.card h2{
-  margin:0 0 10px;font-size:10.5px;font-weight:600;letter-spacing:.09em;
-  text-transform:uppercase;color:var(--ink-3);
-}
-.kv{display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:baseline}
+/* The container owns the aspect ratio and the viewport cap; the canvas simply fills
+   it. Putting both on the canvas made them fight -- max-height won and the element
+   went wide and short while the projection still scaled by the short side, so the
+   world was drawn into a narrow band with dead space either side. */
+.mapbox{position:relative;width:100%;aspect-ratio:3/2;max-height:60vh;margin:0 auto}
+#map{position:absolute;inset:0;width:100%;height:100%;background:transparent;
+  cursor:crosshair}
+@media (max-width:1040px){.mapbox{max-height:52vh}}
+.legend{display:flex;flex-wrap:wrap;gap:9px 16px;padding:9px 12px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--ink-2)}
+.lg{display:flex;align-items:center;gap:5px}
+.sw{width:11px;height:11px;flex:none;border-radius:2px}
+.sw.r{border-radius:50%}
+.sw.tri{width:0;height:0;background:none!important;border-left:7px solid transparent;
+  border-right:7px solid transparent;border-bottom:12px solid var(--finder);border-radius:0}
+
+.rail{display:grid;grid-template-columns:1fr;gap:11px}
+@media (max-width:1040px){.rail{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 13px}
+.card h2{margin:0 0 9px;font-size:10.5px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3)}
+.kv{display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:baseline;margin:0}
 .kv dt{color:var(--ink-2);font-size:12.5px}
-.kv dd{
-  margin:0;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;
-  font-variant-numeric:tabular-nums;text-align:right;
-}
-.big{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:26px;font-weight:500;
+.kv dd{margin:0;font-family:"IBM Plex Mono",monospace;font-size:13px;
+  font-variant-numeric:tabular-nums;text-align:right}
+.big{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;
   font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1}
 .unit{font-size:12px;color:var(--ink-3);font-weight:400}
-.pill{
-  display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;
-  font-size:11.5px;font-weight:500;border:1px solid transparent;
-}
-.tierbar{display:flex;gap:5px;margin-top:2px}
-.tierbar div{
-  flex:1;text-align:center;padding:6px 2px;border-radius:5px;font-size:11px;font-weight:500;
-  border:1px solid var(--line);color:var(--ink-3);background:var(--panel-2);
-}
+.tierbar{display:flex;gap:5px}
+.tierbar div{flex:1;text-align:center;padding:6px 2px;border-radius:5px;font-size:11px;
+  font-weight:500;border:1px solid var(--line);color:var(--ink-3);background:var(--panel-2)}
 .tierbar div.on{color:#fff;border-color:transparent}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th{
-  text-align:left;font-weight:600;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--ink-3);padding:0 0 6px;border-bottom:1px solid var(--line);
-}
-td{padding:5px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;
-  font-family:"IBM Plex Mono",ui-monospace,monospace}
-tr:last-child td{border-bottom:none}
-td.name{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-2)}
-.transport{
-  margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
-  padding:11px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-}
-button{
-  font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);
-  background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
-  padding:7px 14px;cursor:pointer;
-}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);min-width:82px}
-button.primary:hover{opacity:.9;color:var(--bg)}
-input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
-.clock{
-  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:14px;font-variant-numeric:tabular-nums;
-  color:var(--ink);min-width:118px
-}
-.speed{display:flex;gap:4px}
-.speed button{padding:5px 9px;font-size:12px;min-width:auto}
-.speed button.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
-.note{
-  margin-top:14px;padding:12px 14px;background:var(--panel-2);border:1px solid var(--line);
-  border-left:3px solid var(--accent);border-radius:6px;font-size:12.5px;color:var(--ink-2);
-}
-.note b{color:var(--ink);font-weight:600}
-.evrow{display:flex;gap:6px;margin-top:8px}
+.evrow{display:flex;gap:6px}
 .evrow div{flex:1;text-align:center;padding:7px 4px;border-radius:5px;background:var(--panel-2);
   border:1px solid var(--line)}
 .evrow .n{font-family:"IBM Plex Mono",monospace;font-size:16px;font-variant-numeric:tabular-nums;display:block}
 .evrow .l{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.state{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;
+  font-size:12px;font-weight:500}
+.state.hold{background:#B06E1220;color:var(--t1);border:1px solid var(--t1)}
+.state.go{background:#2F7D5120;color:var(--ok);border:1px solid var(--ok)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-weight:600;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-3);padding:0 0 6px;border-bottom:1px solid var(--line)}
+td{padding:5px 0;border-bottom:1px solid var(--line-2);font-variant-numeric:tabular-nums;
+  font-family:"IBM Plex Mono",monospace}
+tr:last-child td{border-bottom:none}
+td.name{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-2)}
+.transport{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:10px 13px;display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+button{font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:6px;padding:7px 13px;cursor:pointer}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg);min-width:86px}
+button.primary:hover{opacity:.9;color:var(--bg)}
+input[type=range]{flex:1;min-width:150px;accent-color:var(--accent)}
+.clock{font-family:"IBM Plex Mono",monospace;font-size:13.5px;font-variant-numeric:tabular-nums;min-width:104px}
+.speed{display:flex;gap:4px}
+.speed button{padding:5px 9px;font-size:12px;min-width:auto}
+.speed button.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
 <div class="wrap">
   <header>
     <h1>CA-TBL Field Console</h1>
-    <span class="sub">Confidence-Aware Tier-Based Localization &middot; recorded run, replayed</span>
+    <span class="sub">Confidence-Aware Tier-Based Localization &middot; a recorded run, replayed</span>
     <span class="runid" id="runid">&mdash;</span>
   </header>
+
+  <div id="err-banner"></div>
+
+  <p class="story" id="story">&mdash;</p>
 
   <div class="main">
     <div>
       <div class="stage">
-        <canvas id="map" width="1000" height="1000"></canvas>
+        <div class="mapbox"><canvas id="map"></canvas></div>
         <div class="legend">
-          <span class="lg"><i class="sw round" style="background:var(--t1)"></i>Tier 1 &middot; 868 MHz LoRa</span>
-          <span class="lg"><i class="sw round" style="background:var(--t2)"></i>Tier 2 &middot; 2.4 GHz</span>
-          <span class="lg"><i class="sw round" style="background:var(--t3)"></i>Tier 3 &middot; UWB</span>
-          <span class="lg"><i class="sw" style="background:var(--ok)"></i>delivered</span>
-          <span class="lg"><i class="sw" style="background:var(--cap)"></i>capture</span>
+          <span class="lg"><i class="sw" style="background:var(--gw)"></i>gateway &middot; fixed</span>
+          <span class="lg"><i class="sw tri"></i>searcher &middot; moving</span>
+          <span class="lg"><i class="sw r" style="background:var(--lost)"></i>casualty &middot; true position</span>
+          <span class="lg"><i class="sw r" style="border:2px dashed var(--ink-2);background:none"></i>estimate + &sigma;</span>
+          <span class="lg"><i class="sw" style="background:var(--t1)"></i>868&nbsp;MHz</span>
+          <span class="lg"><i class="sw" style="background:var(--t2)"></i>2.4&nbsp;GHz</span>
+          <span class="lg"><i class="sw" style="background:var(--t3)"></i>UWB</span>
           <span class="lg"><i class="sw" style="background:var(--bad)"></i>collision</span>
-          <span class="lg"><i class="sw" style="background:var(--ink);border-radius:50%"></i>tag (true)</span>
-          <span class="lg"><i class="sw" style="border:1.5px dashed var(--ink-2);background:none"></i>estimate + &sigma;</span>
         </div>
       </div>
 
       <div class="transport">
-        <button class="primary" id="play">Pause</button>
+        <button class="primary" id="play">Play</button>
+        <button id="stepb">&#9664;</button>
+        <button id="stepf">&#9654;</button>
         <span class="clock" id="clock">t = 0.0 s</span>
         <input type="range" id="scrub" min="0" max="100" value="0" step="1" aria-label="Timeline">
         <span class="speed">
           <button data-sp="1">1&times;</button>
           <button data-sp="4" class="on">4&times;</button>
           <button data-sp="12">12&times;</button>
+          <button data-sp="40">40&times;</button>
         </span>
-      </div>
-
-      <div class="note">
-        <b>What you are looking at.</b> A recorded 600 s run replayed frame by frame &mdash; every
-        position, packet outcome and tier change is what the simulator produced, not a re-enactment.
-        Region shading shows the <b>configured environment class</b> per region, not measured ground:
-        this project models terrain as a propagation penalty and carries no height field, so none is drawn.
-        Packet lines are a capped sample per cycle (<span id="capnote">28</span> drawn); the counters
-        below total <b>every</b> event.
       </div>
     </div>
 
     <div class="rail">
       <div class="card">
-        <h2>Active tier</h2>
+        <h2>Search party</h2>
+        <div id="party"><span class="state hold">Holding at base camp</span></div>
+        <dl class="kv" style="margin-top:10px">
+          <dt>Deployed at</dt><dd id="depat">&mdash;</dd>
+          <dt>Casualty left trail</dt><dd id="devat">&mdash;</dd>
+          <dt>Alarm lag</dt><dd id="lag">&mdash;</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h2>Radio in use</h2>
         <div class="tierbar">
           <div id="tb0">868 MHz</div><div id="tb1">2.4 GHz</div><div id="tb2">UWB</div>
         </div>
-        <dl class="kv" style="margin-top:11px">
-          <dt>Fix this cycle</dt><dd id="fix">&mdash;</dd>
+        <dl class="kv" style="margin-top:10px">
+          <dt>Fix came from</dt><dd id="fix">&mdash;</dd>
           <dt>Escalations</dt><dd id="esc">0</dd>
           <dt>De-escalations</dt><dd id="des">0</dd>
           <dt>Integrity firings</dt><dd id="sus">0</dd>
@@ -181,12 +184,11 @@ input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
 
       <div class="card">
         <h2>Position error</h2>
-        <div class="big"><span id="err">&mdash;</span> <span class="unit">m</span></div>
+        <div class="big"><span id="errv">&mdash;</span> <span class="unit">m</span></div>
         <dl class="kv" style="margin-top:9px">
           <dt>Filter &sigma; (radial)</dt><dd id="sig">&mdash;</dd>
           <dt>Confidence score</dt><dd id="pcs">&mdash;</dd>
-          <dt>Anchors ranged</dt><dd id="na">&mdash;</dd>
-          <dt>of which NLOS</dt><dd id="nlos">&mdash;</dd>
+          <dt>Fix this cycle</dt><dd id="hadfix">&mdash;</dd>
         </dl>
       </div>
 
@@ -197,28 +199,23 @@ input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
           <div><span class="n" id="ec" style="color:var(--cap)">0</span><span class="l">capture</span></div>
           <div><span class="n" id="ex" style="color:var(--bad)">0</span><span class="l">collision</span></div>
         </div>
-        <dl class="kv" style="margin-top:11px">
+        <dl class="kv" style="margin-top:10px">
           <dt>Run total delivered</dt><dd id="td">&mdash;</dd>
           <dt>Run total collisions</dt><dd id="tx">&mdash;</dd>
+          <dt>Drawn per cycle</dt><dd id="capn">&mdash;</dd>
         </dl>
       </div>
 
       <div class="card">
-        <h2>Neighbour table</h2>
+        <h2>Neighbours heard</h2>
         <table>
-          <thead><tr><th>Tier</th><th style="text-align:right">Heard</th><th style="text-align:right">In range</th></tr></thead>
+          <thead><tr><th>Tier</th><th style="text-align:right">Count</th></tr></thead>
           <tbody>
-            <tr><td class="name"><span style="color:var(--t1)">&#9679;</span> 868 MHz</td><td id="nb0" style="text-align:right">0</td><td id="vs0" style="text-align:right">0</td></tr>
-            <tr><td class="name"><span style="color:var(--t2)">&#9679;</span> 2.4 GHz</td><td id="nb1" style="text-align:right">0</td><td id="vs1" style="text-align:right">0</td></tr>
-            <tr><td class="name"><span style="color:var(--t3)">&#9679;</span> UWB</td><td id="nb2" style="text-align:right">0</td><td id="vs2" style="text-align:right">0</td></tr>
+            <tr><td class="name"><span style="color:var(--t1)">&#9679;</span> 868 MHz</td><td id="nb0" style="text-align:right">0</td></tr>
+            <tr><td class="name"><span style="color:var(--t2)">&#9679;</span> 2.4 GHz</td><td id="nb1" style="text-align:right">0</td></tr>
+            <tr><td class="name"><span style="color:var(--t3)">&#9679;</span> UWB</td><td id="nb2" style="text-align:right">0</td></tr>
           </tbody>
         </table>
-      </div>
-
-      <div class="card">
-        <h2>Energy</h2>
-        <div class="big"><span id="j">&mdash;</span> <span class="unit">J cumulative</span></div>
-        <canvas id="spark" width="580" height="90" style="margin-top:9px"></canvas>
       </div>
     </div>
   </div>
@@ -227,208 +224,336 @@ input[type=range]{flex:1;min-width:180px;accent-color:var(--accent)}
 <script>
 const DATA = /*__DATA__*/ null;
 
-const ENV = ["Rural open","Rural forested","Suburban","Urban moderate","Urban dense",
-             "Industrial","Indoor office","Concrete bunker","Tunnel confined"];
+/* EVERY INIT PATH IS GUARDED AND REPORTS.
+   The previous console died silently: a throw during init happened OUTSIDE any guard and
+   before requestAnimationFrame was ever reached, so the loop never started, Play did
+   nothing, and no error was visible in the artifact frame. Two rules follow from that and
+   both are load-bearing:
+     1. rAF is scheduled FIRST inside the loop, so one bad frame cannot stop the chain.
+     2. init runs inside try/catch and prints to a banner, because an invisible failure is
+        worse than a visible one. */
+function fail(e){
+  const b = document.getElementById('err-banner');
+  b.style.display = 'block';
+  b.textContent = 'Console error: ' + (e && e.stack ? e.stack : e);
+}
 
-const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let D, CY, NC, DT, BOX, GW, ROLES, TRACKS, PK, TOT, CAP;
+// Cycles are keyed from 1 (t = dt), not 0. Opening on 0 showed an empty rail and no
+// active tier -- the first thing anyone sees, blank.
+let ci = 1, playing = false, speed = 4, lastTs = 0, acc = 0;
+let deployCi = -1, deviateCi = -1;
 
 const map = document.getElementById('map');
 const ctx = map.getContext('2d');
-const spark = document.getElementById('spark');
-const sctx = spark.getContext('2d');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-const D = DATA;
-const cyc = D.cycles, dep = D.deployment, B = dep.boxHalfM;
-const anchorPos = {};
-[0,1,2].forEach(t => (dep.anchors[t]||[]).forEach(a => anchorPos[a.id] = {x:a.x, y:a.y, tier:t}));
+function boot(){
+  D = DATA;
+  if (!D) throw new Error('no DATA embedded');
+  CY = D.cyc; NC = D.ncyc; DT = D.dt; BOX = D.box; GW = D.gw || [];
+  ROLES = D.roles || {}; TRACKS = D.tracks || {}; PK = D.pk || {}; TOT = D.tot || {};
+  CAP = D.cap;
 
-document.getElementById('runid').textContent =
-  `arm ${D.arm} · seed ${D.seed} · Δt ${D.dt}s · ${cyc.length} cycles · box ±${B} m`;
-document.getElementById('capnote').textContent = D.drawCap;
-document.getElementById('td').textContent = (D.totals.delivered||0).toLocaleString();
-document.getElementById('tx').textContent = (D.totals.collision||0).toLocaleString();
+  document.getElementById('runid').textContent =
+    `arm ${D.arm} \u00b7 seed ${D.seed} \u00b7 \u0394t ${DT}s \u00b7 ${NC} cycles \u00b7 box \u00b1${BOX} m`;
+  document.getElementById('capn').textContent = CAP;
 
-// Scale: world (-B..B) -> canvas, with a margin for anchors just outside the box.
-const PAD = 34, SPAN = B * 2.05;
-function sx(x){ return PAD + (x + SPAN/2) / SPAN * (map.width  - PAD*2); }
-function sy(y){ return PAD + (SPAN/2 - y) / SPAN * (map.height - PAD*2); }
-const sr = m => m / SPAN * (map.width - PAD*2);
+  let td = 0, tx = 0;
+  for (const k in TOT){ td += TOT[k][0]; tx += TOT[k][2]; }
+  document.getElementById('td').textContent = td.toLocaleString();
+  document.getElementById('tx').textContent = tx.toLocaleString();
 
-const TIER_VARS = ['--t1','--t2','--t3'];
-const OUT_VARS  = ['--ok','--cap','--bad'];
-// Nominal tier ranges, metres. Tier 1 from the project's measured r80; tiers 2 and 3
-// from the ring radii the deployment is built around.
-const TIER_RANGE = [1149.5, 300, 60];
+  /* WHEN THE PARTY DEPLOYED, DERIVED RATHER THAN ASSERTED. The alert time is not in the
+     pack, so it is read off the thing it caused: the first cycle a searcher is more than
+     5 m from where it started. If the searchers never move this stays -1 and the card
+     says "held for the whole run", which is a result, not a blank. */
+  const fids = Object.keys(ROLES).filter(k => ROLES[k] === 'finder');
+  for (const f of fids){
+    const tr = TRACKS[f]; if (!tr) continue;
+    const keys = Object.keys(tr).map(Number).sort((a,b)=>a-b);
+    if (!keys.length) continue;
+    const p0 = tr[keys[0]];
+    for (const k of keys){
+      const p = tr[k];
+      if (Math.hypot(p[0]-p0[0], p[1]-p0[1]) > 5){
+        if (deployCi < 0 || k < deployCi) deployCi = k;
+        break;
+      }
+    }
+  }
+  /* And when the casualty left the trail: the first cycle its heading turns hard. The
+     walker follows a trail then deviates, so the deviation is a real change in direction
+     rather than a threshold on speed. */
+  const st = TRACKS['1'];
+  if (st){
+    const ks = Object.keys(st).map(Number).sort((a,b)=>a-b);
+    for (let i = 6; i < ks.length - 6; i++){
+      const a = st[ks[i-6]], b = st[ks[i]], c = st[ks[i+6]];
+      if (!a || !b || !c) continue;
+      const h1 = Math.atan2(b[1]-a[1], b[0]-a[0]);
+      const h2 = Math.atan2(c[1]-b[1], c[0]-b[0]);
+      let d = Math.abs(h2 - h1); if (d > Math.PI) d = 2*Math.PI - d;
+      if (d > 0.7){ deviateCi = ks[i]; break; }
+    }
+  }
 
-let idx = 0, playing = true, speed = 4, acc = 0, last = performance.now();
+  const fmt = k => k < 0 ? 'never' : (k * DT).toFixed(0) + ' s';
+  document.getElementById('depat').textContent = fmt(deployCi);
+  document.getElementById('devat').textContent = fmt(deviateCi);
+  document.getElementById('lag').textContent =
+    (deployCi >= 0 && deviateCi >= 0) ? ((deployCi - deviateCi) * DT).toFixed(0) + ' s' : '—';
+
+  const story = document.getElementById('story');
+  if (deployCi >= 0 && deviateCi >= 0){
+    story.innerHTML = '<b>The searchers hold at base camp until the network loses the '
+      + 'casualty.</b> Not until it loses <i>contact</i> &mdash; 868&nbsp;MHz still '
+      + 'reaches, so silence never comes. The trigger is the system&rsquo;s own '
+      + 'posterior &sigma;: when it can still <i>hear</i> the casualty but no longer '
+      + '<i>place</i> them. The casualty leaves the trail at <b>' + fmt(deviateCi)
+      + '</b>; the party deploys at <b>' + fmt(deployCi) + '</b>. That '
+      + ((deployCi-deviateCi)*DT).toFixed(0)
+      + '&nbsp;s lag is the point &mdash; nobody knows to look until the fix has been '
+      + 'bad for a while.';
+  } else {
+    story.innerHTML = '<b>A recorded run, replayed frame by frame.</b> Every position, '
+      + 'packet outcome and tier change is what the simulator produced.';
+  }
+
+  const sc = document.getElementById('scrub'); sc.min = 1; sc.max = NC - 1; sc.value = 1;
+  computeView();
+  sizeCanvas();
+  window.addEventListener('resize', () => { sizeCanvas(); draw(); });
+  wire();
+}
+
+/* The canvas backing store is sized from its CSS box every time, so the map is sharp and
+   correctly proportioned at any width instead of being a fixed 1000x1000 that the layout
+   then has to work around. */
+function sizeCanvas(){
+  const r = map.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  map.width = Math.max(320, Math.round(r.width * dpr));
+  map.height = Math.max(320, Math.round((r.height || r.width) * dpr));
+}
+
+/* View bounds, computed once from the content rather than from the configured box.
+   Square by construction so the aspect is never distorted, and padded so nothing sits on
+   the frame edge. */
+let VX = 0, VY = 0, VR = 1;
+function computeView(){
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  const see = (x, y) => { if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; };
+  for (const g of GW) see(g.x, g.y);
+  for (const id in TRACKS) for (const k in TRACKS[id]){ const p = TRACKS[id][k]; see(p[0], p[1]); }
+  for (const k in CY){ const c = CY[k]; see(c.tx, c.ty); see(c.ex, c.ey); }
+  if (x0 > x1){ VX = 0; VY = 0; VR = BOX; return; }
+  VX = (x0 + x1) / 2; VY = (y0 + y1) / 2;
+  VR = Math.max(x1 - x0, y1 - y0) / 2 * 1.12;
+  // An estimate can fly a long way off during a bad cycle; do not let one outlier zoom
+  // the whole run out to nothing.
+  VR = Math.min(VR, BOX * 1.05);
+  VR = Math.max(VR, 200);
+}
+function P(x, y){
+  const s = Math.min(map.width, map.height) / (2 * VR);
+  return [map.width/2 + (x - VX)*s, map.height/2 - (y - VY)*s];
+}
+function trackAt(id, k){
+  const tr = TRACKS[String(id)]; if (!tr) return null;
+  for (let j = k; j >= 0 && j > k - 40; j--) if (tr[j]) return tr[j];
+  return null;
+}
+const TC = () => [css('--t1'), css('--t2'), css('--t3')];
 
 function draw(){
-  const c = cyc[idx];
   const W = map.width, H = map.height;
-  ctx.clearRect(0,0,W,H);
+  // 620, not 900: the short side of this canvas is ~540 CSS px, so the old divisor
+  // drew every marker at about 60% of the intended size. This is the "make the nodes
+  // bigger" item, fixed at the scale rather than per-glyph.
+  const S = Math.min(W, H) / 620;
+  ctx.clearRect(0, 0, W, H);
 
-  // --- configured environment: the box, then the facility discs ---------------
-  ctx.fillStyle = css('--panel-2');
-  ctx.fillRect(sx(-B), sy(B), sr(2*B), sr(2*B));
-  ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
-  ctx.strokeRect(sx(-B), sy(B), sr(2*B), sr(2*B));
-
+  // grid
   ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
-  for(let g=-B; g<=B; g+=B/2){
-    ctx.beginPath(); ctx.moveTo(sx(g), sy(B)); ctx.lineTo(sx(g), sy(-B)); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(sx(-B), sy(g)); ctx.lineTo(sx(B), sy(g)); ctx.stroke();
+  const step = Math.pow(10, Math.round(Math.log10(VR / 2.2)));
+  const lo = Math.ceil((VX - VR) / step) * step, hi = VX + VR;
+  const lo2 = Math.ceil((VY - VR) / step) * step, hi2 = VY + VR;
+  for (let g = lo; g <= hi; g += step){
+    const a = P(g, VY - VR), b = P(g, VY + VR);
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+  }
+  for (let g = lo2; g <= hi2; g += step){
+    const a = P(VX - VR, g), b = P(VX + VR, g);
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+  }
+  // Scale bar: with the frame cropped to content, a reader needs the distance back.
+  {
+    const p0 = P(VX - VR*0.92, VY - VR*0.92), p1 = P(VX - VR*0.92 + step, VY - VR*0.92);
+    ctx.strokeStyle = css('--ink-3'); ctx.lineWidth = 2 * (Math.min(W,H)/620);
+    ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+    ctx.fillStyle = css('--ink-3');
+    ctx.font = (13 * Math.min(W,H)/620) + 'px "IBM Plex Mono",monospace';
+    ctx.fillText(step >= 1000 ? (step/1000)+' km' : step+' m', p0[0], p0[1] - 7*(Math.min(W,H)/620));
   }
 
-  (dep.facilities||[]).forEach(f => {
-    const R = sr(Math.max(dep.dwellRadiusM*6, B*0.13));
-    const g = ctx.createRadialGradient(sx(f[0]), sy(f[1]), 0, sx(f[0]), sy(f[1]), R);
-    g.addColorStop(0, css('--accent') + '2E');
-    g.addColorStop(1, css('--accent') + '00');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(sx(f[0]), sy(f[1]), R, 0, 6.284); ctx.fill();
-    ctx.strokeStyle = css('--line');
-    ctx.setLineDash([3,4]); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(sx(f[0]), sy(f[1]), R, 0, 6.284); ctx.stroke();
-    ctx.setLineDash([]);
-  });
+  const c = CY[String(ci)];
+  const tc = TC();
 
-  // --- active-tier range ring around the tag --------------------------------
-  const rr = sr(TIER_RANGE[c.tier]);
-  ctx.strokeStyle = css(TIER_VARS[c.tier]) + '66';
-  ctx.setLineDash([5,5]); ctx.lineWidth = 1.4;
-  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), rr, 0, 6.284); ctx.stroke();
-  ctx.setLineDash([]);
+  // packet lines for this cycle, coloured by tier, red if they collided
+  const pk = PK[String(ci)] || [];
+  for (const p of pk){
+    const a = trackAt(p[0], ci) || gwPos(p[0]);
+    const b = trackAt(p[1], ci) || gwPos(p[1]);
+    if (!a || !b) continue;
+    const A = P(a[0], a[1]), B = P(b[0], b[1]);
+    ctx.strokeStyle = p[4] === 2 ? css('--bad') : tc[p[2]] || tc[0];
+    ctx.globalAlpha = p[4] === 2 ? 0.85 : 0.42;
+    ctx.lineWidth = (p[4] === 2 ? 2.2 : 1.4) * S;
+    ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
-  // --- packet lines ----------------------------------------------------------
-  ctx.lineWidth = 1.3;
-  (c.ev||[]).forEach(e => {
-    const a = anchorPos[e[0]], b = anchorPos[e[1]];
-    const p1 = a ? {x:a.x, y:a.y} : {x:c.tx, y:c.ty};
-    const p2 = b ? {x:b.x, y:b.y} : {x:c.tx, y:c.ty};
-    ctx.strokeStyle = css(OUT_VARS[e[3]]) + (e[3]===2 ? 'CC' : '77');
-    ctx.beginPath(); ctx.moveTo(sx(p1.x), sy(p1.y)); ctx.lineTo(sx(p2.x), sy(p2.y)); ctx.stroke();
-  });
-
-  // --- anchors ---------------------------------------------------------------
-  [0,1,2].forEach(t => {
-    ctx.fillStyle = css(TIER_VARS[t]);
-    (dep.anchors[t]||[]).forEach(a => {
-      const on = (t === c.tier);
-      ctx.globalAlpha = on ? 1 : 0.34;
-      const R = t===0 ? 5.5 : (t===1 ? 4.2 : 3.4);
-      ctx.beginPath(); ctx.arc(sx(a.x), sy(a.y), R, 0, 6.284); ctx.fill();
-      if(on){
-        ctx.globalAlpha = 0.28;
-        ctx.beginPath(); ctx.arc(sx(a.x), sy(a.y), R+4, 0, 6.284); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    });
-  });
-
-  // --- estimate + uncertainty, then true position ----------------------------
-  const sigR = sr(Math.sqrt(Math.max(c.sig,0)));
-  ctx.strokeStyle = css('--ink-2') + '99';
-  ctx.setLineDash([4,4]); ctx.lineWidth = 1.3;
-  ctx.beginPath(); ctx.arc(sx(c.ex), sy(c.ey), Math.max(sigR,3), 0, 6.284); ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.strokeStyle = css('--ink-2');
-  ctx.beginPath(); ctx.moveTo(sx(c.ex), sy(c.ey)); ctx.lineTo(sx(c.tx), sy(c.ty)); ctx.stroke();
-
-  ctx.fillStyle = css('--ink');
-  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), 6, 0, 6.284); ctx.fill();
-  ctx.fillStyle = css('--bg');
-  ctx.beginPath(); ctx.arc(sx(c.tx), sy(c.ty), 2.4, 0, 6.284); ctx.fill();
-
-  // --- labels ---------------------------------------------------------------
-  ctx.font = '500 12px "IBM Plex Mono", monospace';
-  ctx.fillStyle = css('--ink-3');
-  ctx.fillText(`${ENV[dep.envWide]||'env '+dep.envWide} · wide area`, PAD, 20);
-  ctx.textAlign = 'right';
-  ctx.fillText(`facility sites: ${ENV[dep.envFacility]||'env '+dep.envFacility}`, W - PAD, 20);
-  ctx.textAlign = 'left';
-
-  paintRail(c);
-  paintSpark();
-}
-
-let cumEsc = 0, cumDes = 0, cumSus = 0;
-function recount(upto){
-  cumEsc = cumDes = cumSus = 0;
-  for(let i=0;i<=upto;i++){ cumEsc += cyc[i].esc; cumDes += cyc[i].des; cumSus += cyc[i].sus; }
-}
-
-function paintRail(c){
-  [0,1,2].forEach(t => {
-    const el = document.getElementById('tb'+t);
-    el.classList.toggle('on', t === c.tier);
-    el.style.background = (t === c.tier) ? css(TIER_VARS[t]) : '';
-  });
-  const S = (id,v) => document.getElementById(id).textContent = v;
-  S('fix', c.fix ? (['868 MHz','2.4 GHz','UWB'][c.fixTier] || 'yes') : 'no fix');
-  S('esc', cumEsc); S('des', cumDes); S('sus', cumSus);
-  S('err', c.fix ? c.err.toFixed(1) : '—');
-  S('sig', Math.sqrt(Math.max(c.sig,0)).toFixed(1) + ' m');
-  S('pcs', c.pcs.toFixed(3));
-  S('na', c.na); S('nlos', c.nlos);
-  S('ed', c.ec[0]); S('ec', c.ec[1]); S('ex', c.ec[2]);
-  [0,1,2].forEach(t => { S('nb'+t, c.nb[t]); S('vs'+t, c.vis[t]); });
-  S('j', c.j.toFixed(2));
-  document.getElementById('clock').textContent = `t = ${c.t.toFixed(1)} s`;
-  document.getElementById('scrub').value = idx;
-}
-
-function paintSpark(){
-  const W = spark.width, H = spark.height;
-  sctx.clearRect(0,0,W,H);
-  const maxJ = cyc[cyc.length-1].j || 1;
-  sctx.strokeStyle = css('--line'); sctx.lineWidth = 1;
-  sctx.beginPath(); sctx.moveTo(0,H-1); sctx.lineTo(W,H-1); sctx.stroke();
-  sctx.beginPath();
-  cyc.forEach((c,i) => {
-    const x = i/(cyc.length-1)*W, y = H - (c.j/maxJ)*(H-8) - 2;
-    i ? sctx.lineTo(x,y) : sctx.moveTo(x,y);
-  });
-  sctx.strokeStyle = css('--accent'); sctx.lineWidth = 1.8; sctx.stroke();
-  sctx.lineTo(W,H); sctx.lineTo(0,H); sctx.closePath();
-  sctx.fillStyle = css('--accent') + '22'; sctx.fill();
-  const x = idx/(cyc.length-1)*W, y = H - (cyc[idx].j/maxJ)*(H-8) - 2;
-  sctx.fillStyle = css('--accent');
-  sctx.beginPath(); sctx.arc(x,y,3.2,0,6.284); sctx.fill();
-}
-
-function tick(now){
-  const dtms = now - last; last = now;
-  if(playing){
-    acc += dtms * speed / 1000;
-    while(acc >= D.dt){
-      acc -= D.dt;
-      idx = (idx + 1) % cyc.length;
-      if(idx === 0) recount(0); else { cumEsc+=cyc[idx].esc; cumDes+=cyc[idx].des; cumSus+=cyc[idx].sus; }
+  // casualty trail so far
+  const st = TRACKS['1'];
+  if (st){
+    ctx.strokeStyle = css('--lost'); ctx.globalAlpha = .3;
+    ctx.lineWidth = 2 * S; ctx.beginPath();
+    let started = false;
+    for (let k = 0; k <= ci; k++){
+      const p = st[k]; if (!p) continue;
+      const q = P(p[0], p[1]);
+      if (!started){ ctx.moveTo(q[0],q[1]); started = true; } else ctx.lineTo(q[0],q[1]);
     }
-    draw();
+    ctx.stroke(); ctx.globalAlpha = 1;
   }
-  requestAnimationFrame(tick);
+
+  // GATEWAYS -- squares, and big enough to find. The old console drew 3 px dots that
+  // vanished against the grid at any realistic viewport size.
+  for (const g of GW){
+    const q = P(g.x, g.y), s = 19 * S;
+    ctx.fillStyle = css('--gw');
+    ctx.fillRect(q[0]-s/2, q[1]-s/2, s, s);
+    ctx.strokeStyle = css('--panel'); ctx.lineWidth = 2*S;
+    ctx.strokeRect(q[0]-s/2, q[1]-s/2, s, s);
+  }
+
+  // the estimate and its sigma, then the truth on top of it
+  if (c){
+    const e = P(c.ex, c.ey);
+    const s = Math.min(map.width, map.height) / (2 * VR);
+    const rad = Math.max(6*S, (c.sig || 0) * s);
+    ctx.strokeStyle = css('--ink-2'); ctx.lineWidth = 2*S;
+    ctx.setLineDash([6*S, 5*S]);
+    ctx.beginPath(); ctx.arc(e[0], e[1], rad, 0, 6.284); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = css('--ink-2'); ctx.globalAlpha = .55;
+    ctx.beginPath(); ctx.arc(e[0], e[1], 6*S, 0, 6.284); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    const t = P(c.tx, c.ty);
+    ctx.fillStyle = css('--lost');
+    ctx.beginPath(); ctx.arc(t[0], t[1], 11*S, 0, 6.284); ctx.fill();
+    ctx.strokeStyle = css('--panel'); ctx.lineWidth = 2.5*S; ctx.stroke();
+    // the error itself, drawn as the line a rescuer would walk
+    ctx.strokeStyle = css('--lost'); ctx.globalAlpha = .5;
+    ctx.lineWidth = 1.5*S; ctx.setLineDash([4*S,4*S]);
+    ctx.beginPath(); ctx.moveTo(t[0],t[1]); ctx.lineTo(e[0],e[1]); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+
+  // SEARCHERS LAST. Before deployment the party sits at base camp a few metres from the
+  // casualty's start, so drawing them earlier put all four triangles under the casualty
+  // disc and the map read as having no searchers -- which is precisely the state the
+  // demo exists to show.
+  for (const id in ROLES){
+    if (ROLES[id] !== 'finder') continue;
+    const p = trackAt(id, ci); if (!p) continue;
+    const q = P(p[0], p[1]), sz = 21 * S;
+    ctx.fillStyle = css('--finder');
+    ctx.beginPath();
+    ctx.moveTo(q[0], q[1]-sz*0.62);
+    ctx.lineTo(q[0]+sz*0.55, q[1]+sz*0.44);
+    ctx.lineTo(q[0]-sz*0.55, q[1]+sz*0.44);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = css('--panel'); ctx.lineWidth = 2.2*S; ctx.stroke();
+  }
+}
+function gwPos(id){
+  for (const g of GW) if (g.id === id) return [g.x, g.y];
+  return null;
 }
 
-const scrub = document.getElementById('scrub');
-scrub.max = cyc.length - 1;
-scrub.addEventListener('input', () => { idx = +scrub.value; recount(idx); draw(); });
+function paint(){
+  const c = CY[String(ci)];
+  document.getElementById('clock').textContent =
+    't = ' + (ci * DT).toFixed(1) + ' s';
+  document.getElementById('scrub').value = ci;
 
-const playBtn = document.getElementById('play');
-playBtn.addEventListener('click', () => {
-  playing = !playing;
-  playBtn.textContent = playing ? 'Pause' : 'Play';
-});
+  const deployed = deployCi >= 0 && ci >= deployCi;
+  document.getElementById('party').innerHTML = deployed
+    ? '<span class="state go">Deployed &middot; searching</span>'
+    : '<span class="state hold">Holding at base camp</span>';
 
-document.querySelectorAll('.speed button').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.speed button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); speed = +b.dataset.sp;
+  const t = TOT[String(ci)] || [0,0,0];
+  document.getElementById('ed').textContent = t[0];
+  document.getElementById('ec').textContent = t[1];
+  document.getElementById('ex').textContent = t[2];
+
+  for (let i = 0; i < 3; i++){
+    const el = document.getElementById('tb'+i);
+    const on = c && c.at === i;
+    el.className = on ? 'on' : '';
+    if (on) el.style.background = TC()[i]; else el.style.background = '';
+  }
+  if (!c){ return; }
+  document.getElementById('fix').textContent = c.fix ? (c.ft || '—') : 'no fix';
+  document.getElementById('esc').textContent = c.esc;
+  document.getElementById('des').textContent = c.de;
+  document.getElementById('sus').textContent = c.susp;
+  document.getElementById('errv').textContent = c.err.toFixed(1);
+  document.getElementById('sig').textContent = (c.sig||0).toFixed(1) + ' m';
+  document.getElementById('pcs').textContent = (c.pcs||0).toFixed(3);
+  document.getElementById('hadfix').textContent = c.fix ? 'yes' : 'no';
+  const nb = c.nb || [0,0,0];
+  document.getElementById('nb0').textContent = nb[0];
+  document.getElementById('nb1').textContent = nb[1];
+  document.getElementById('nb2').textContent = nb[2];
+}
+
+function loop(ts){
+  // FIRST, ALWAYS. If anything below throws, the chain survives and the banner shows it.
+  requestAnimationFrame(loop);
+  try{
+    if (!lastTs) lastTs = ts;
+    const dtms = ts - lastTs; lastTs = ts;
+    if (playing){
+      acc += dtms * speed / 1000;
+      while (acc >= DT){
+        acc -= DT;
+        ci = ci + 1 >= NC ? 1 : ci + 1;
+      }
+    }
+    draw(); paint();
+  }catch(e){ fail(e); playing = false; }
+}
+
+function wire(){
+  const pb = document.getElementById('play');
+  pb.onclick = () => { playing = !playing; pb.textContent = playing ? 'Pause' : 'Play'; };
+  document.getElementById('stepf').onclick = () => { playing=false; pb.textContent='Play'; ci = ci + 1 >= NC ? 1 : ci + 1; };
+  document.getElementById('stepb').onclick = () => { playing=false; pb.textContent='Play'; ci = ci <= 1 ? NC - 1 : ci - 1; };
+  document.getElementById('scrub').oninput = e => {
+    playing = false; pb.textContent = 'Play'; ci = +e.target.value;
+  };
+  document.querySelectorAll('.speed button').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('.speed button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); speed = +b.dataset.sp;
+    };
   });
-});
+}
 
-recount(0);
-draw();
-requestAnimationFrame(tick);
+try{ boot(); }catch(e){ fail(e); }
+requestAnimationFrame(loop);
 </script>
