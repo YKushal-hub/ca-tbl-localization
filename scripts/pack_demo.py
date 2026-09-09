@@ -39,6 +39,16 @@ for r in csv.DictReader(open(path("nodes_%s_seed%d.csv" % (ARM, SEED)))):
     ci = int(round(float(r["t"]) / DT))
     tracks[int(r["nodeId"])][ci] = [round(float(r["x"]), 1), round(float(r["y"]), 1)]
 
+# The trace writes tier NAMES, not indices. Testing .isdigit() fell through to -1 on
+# every row, so "radio in use" was unknowable for the whole run -- an exact sentinel that
+# looked like a field the console merely did not use.
+TIERS = {"868MHz": 0, "2p4GHz": 1, "2.4GHz": 1, "UWB": 2, "0": 0, "1": 1, "2": 2}
+
+
+def tier_index(v):
+    return TIERS.get((v or "").strip(), -1)
+
+
 # ---- per-cycle truth, estimate and tier, from the trace --------------------
 cyc = {}
 tp = path("trace_%s_seed%d.csv" % (ARM, SEED))
@@ -47,8 +57,9 @@ if os.path.exists(tp):
         ci = int(round(float(r["t"]) / DT))
         cyc[ci] = {
             "t": round(float(r["t"]), 1),
-            "at": int(r["activeTier"]) if r["activeTier"].isdigit() else -1,
+            "at": tier_index(r["activeTier"]),
             "ft": r["fixTier"],
+            "fti": tier_index(r["fixTier"]),
             "tx": round(float(r["trueX"]), 1), "ty": round(float(r["trueY"]), 1),
             "ex": round(float(r["estX"]), 1),  "ey": round(float(r["estY"]), 1),
             "err": round(float(r["errM"]), 1),
