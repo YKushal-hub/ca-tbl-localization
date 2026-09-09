@@ -60,6 +60,12 @@ set(source_files
     model/ca-tbl-header.cc         # CA-TBL Phase S4
     model/ca-tbl-mac.cc            # CA-TBL Phase S4
         model/ca-tbl-relay-admission.cc # CA-TBL Phase S5 (C5)
+    model/ca-tbl-session.cc        # CA-TBL Transport/Application layer
+    model/ca-tbl-routing.cc        # CA-TBL Network layer 2/3
+    model/ca-tbl-sparse-anchor.cc  # CA-TBL sect 7 sparse-anchor geometry
+    model/ca-tbl-grant-coord.cc    # CA-TBL Network sect 6 grant coordination
+    model/ca-tbl-node-lifecycle.cc # CA-TBL sect 24-27 node lifecycle
+    model/ca-tbl-loocv.cc          # CA-TBL CAL-01 LOOCV weight fitting
 )
 
 set(header_files
@@ -124,6 +130,12 @@ set(header_files
     model/ca-tbl-header.h          # CA-TBL Phase S4
     model/ca-tbl-mac.h             # CA-TBL Phase S4
         model/ca-tbl-relay-admission.h  # CA-TBL Phase S5 (C5)
+    model/ca-tbl-session.h         # CA-TBL Transport/Application layer
+    model/ca-tbl-routing.h         # CA-TBL Network layer 2/3
+    model/ca-tbl-sparse-anchor.h   # CA-TBL sect 7 sparse-anchor geometry
+    model/ca-tbl-grant-coord.h     # CA-TBL Network sect 6 grant coordination
+    model/ca-tbl-node-lifecycle.h  # CA-TBL sect 24-27 node lifecycle
+    model/ca-tbl-loocv.h           # CA-TBL CAL-01 LOOCV weight fitting
 )
 
 build_lib(

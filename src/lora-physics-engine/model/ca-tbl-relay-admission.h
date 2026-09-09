@@ -101,6 +101,42 @@ CaTblRelayVerdict CaTblAdmitRelayedRange(const CaTblRelayedRange& m,
 //! u^T P_B u — the relay's uncertainty projected onto the range direction.
 double CaTblProjectRelayCovariance(const double P[2][2], double ux, double uy);
 
+/**
+ * \brief Compose a relay chain: correct P_B for uncertainty the relay itself inherited.
+ *
+ * THE DEFECT THIS FIXES IS NAMED IN THIS FILE'S OWN A2 NOTE. At depth 1 the relay B
+ * measured its own position against surveyed anchors, so P_B is the whole story. At
+ * depth 2 B's position was ITSELF obtained through a relay C, and B's covariance
+ * understates its true error by exactly the inflation term this module adds -- unless
+ * B's own filter already applied it, which it cannot have if B admitted the range as a
+ * plain measurement.
+ *
+ * Using an uncorrected P_B at depth 2 is therefore not merely optimistic, it is
+ * optimistic BY A KNOWN AMOUNT, and that is the amount added back here.
+ *
+ * \param relayP        P_B as the relay reports it
+ * \param inheritedVarM2 variance the relay inherited along ITS incoming leg -- the
+ *        projected term its own admission added, or 0 at depth 1
+ * \param ux,uy        unit vector along which the inherited error acts, normally the
+ *        direction of the relay's own upstream leg
+ * \param outP         corrected covariance
+ *
+ * THE INFLATION IS DIRECTIONAL, and that is the reason this takes a vector rather than
+ * a scalar. A relay whose own error runs along the line to ITS relay is well determined
+ * across that line and poorly along it. Adding the variance isotropically would inflate
+ * the well-known axis too, which is conservative in the wrong place: it would refuse
+ * geometry that is actually usable while under-inflating the axis that is not.
+ *
+ * \return false if relayP is not positive-definite, in which case outP is untouched.
+ *         A chain that cannot be composed must not silently pass the uncorrected
+ *         covariance to the next hop -- that is the exact understatement above.
+ */
+bool CaTblComposeRelayChain(const double relayP[2][2],
+                            double inheritedVarM2,
+                            double ux,
+                            double uy,
+                            double outP[2][2]);
+
 //! Human-readable verdict, for gates and traces.
 const char* CaTblRelayVerdictName(CaTblRelayVerdict v);
 

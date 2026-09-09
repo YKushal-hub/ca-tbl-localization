@@ -437,4 +437,126 @@ CaTblHeader::GetHopsTraversed() const
     return static_cast<uint8_t>(m_initialHopLimit - m_hopLimit);
 }
 
+
+namespace
+{
+//! Inverse of a symmetric 2x2 [[a,b],[b,d]]. False if singular or not positive.
+bool
+Inv2x2(double a, double b, double d, double& ia, double& ib, double& id)
+{
+    const double det = a * d - b * b;
+    if (!(det > 1e-12) || !(a > 0.0) || !(d > 0.0))
+    {
+        return false;
+    }
+    ia = d / det;
+    ib = -b / det;
+    id = a / det;
+    return true;
+}
+} // namespace
+
+bool
+CaTblCovarianceIntersect(const CaTblTableEntry& a, const CaTblTableEntry& b, CaTblTableEntry& out)
+{
+    double ia, ib, id, ja, jb, jd;
+    if (!Inv2x2(a.varX, a.covXY, a.varY, ia, ib, id) ||
+        !Inv2x2(b.varX, b.covXY, b.varY, ja, jb, jd))
+    {
+        return false;
+    }
+
+    // Bounded scan on omega. 101 points is far finer than the covariances are known
+    // to, and a closed form would buy precision the inputs do not have.
+    double bestW = 0.5;
+    double bestTrace = -1.0;
+    double bX = 0.0, bXY = 0.0, bY = 0.0;
+    for (int k = 0; k <= 100; ++k)
+    {
+        const double w = static_cast<double>(k) / 100.0;
+        const double pa = w * ia + (1.0 - w) * ja;
+        const double pb = w * ib + (1.0 - w) * jb;
+        const double pd = w * id + (1.0 - w) * jd;
+        double fa, fb, fd;
+        if (!Inv2x2(pa, pb, pd, fa, fb, fd))
+        {
+            continue;
+        }
+        const double tr = fa + fd;
+        if (bestTrace < 0.0 || tr < bestTrace)
+        {
+            bestTrace = tr;
+            bestW = w;
+            bX = fa;
+            bXY = fb;
+            bY = fd;
+        }
+    }
+    if (bestTrace < 0.0)
+    {
+        return false;
+    }
+
+    // x_fused = P_fused * (w * Pa^-1 xa + (1-w) * Pb^-1 xb)
+    const double w = bestW;
+    const double rx = w * (ia * a.x + ib * a.y) + (1.0 - w) * (ja * b.x + jb * b.y);
+    const double ry = w * (ib * a.x + id * a.y) + (1.0 - w) * (jb * b.x + jd * b.y);
+
+    // The NEWER of the two contributors supplies the non-statistical fields. Fusing a
+    // timestamp would invent a moment neither report was made at, and fusing a hop
+    // count would claim a path neither entry travelled.
+    out = a;
+    out.x = bX * rx + bXY * ry;
+    out.y = bXY * rx + bY * ry;
+    out.varX = bX;
+    out.varY = bY;
+    out.covXY = bXY;
+    out.timestampS = (a.timestampS >= b.timestampS) ? a.timestampS : b.timestampS;
+    out.hopCount = (a.hopCount <= b.hopCount) ? a.hopCount : b.hopCount;
+    out.valid = true;
+    return true;
+}
+
+
+CaTblFreshness
+CaTblClassifyFreshness(double ageS, const CaTblFreshnessBounds& b)
+{
+    // An entry timestamped in the future is not evidence about the present. It means a
+    // clock disagreement, and treating it as the freshest thing held is how a bad clock
+    // wins every supersession contest it enters.
+    if (ageS < 0.0)
+    {
+        return CA_TBL_EXPIRED;
+    }
+    if (ageS <= b.freshS)
+    {
+        return CA_TBL_FRESH;
+    }
+    if (ageS <= b.agingS)
+    {
+        return CA_TBL_AGING;
+    }
+    if (ageS <= b.staleS)
+    {
+        return CA_TBL_STALE;
+    }
+    return CA_TBL_EXPIRED;
+}
+
+const char*
+CaTblFreshnessName(CaTblFreshness f)
+{
+    switch (f)
+    {
+    case CA_TBL_FRESH:
+        return "FRESH";
+    case CA_TBL_AGING:
+        return "AGING";
+    case CA_TBL_STALE:
+        return "STALE";
+    default:
+        return "EXPIRED";
+    }
+}
+
 } // namespace ns3

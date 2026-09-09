@@ -224,6 +224,25 @@ struct CaTblMacConfig
      * escalating arm to move -- that is the treatment, not a regression.
      */
     bool sendHandshakeFrames;
+    /**
+     * Fuse an entry whose sequence number EQUALS the held one, by Covariance
+     * Intersection, instead of discarding it. FALSE by default.
+     *
+     * The spec's table rule has three branches and the code had two: newer supersedes,
+     * older is discarded, and EQUAL was falling into the discard path. Equal is the
+     * interesting case -- it is the same report arriving by a second mesh path, which
+     * is information about the same instant from a route that saw different NLOS.
+     */
+    bool tableFuseCI;
+    /**
+     * Carry the {node_id, seq_no} summary in a DIGEST, and answer it. FALSE by default.
+     *
+     * The airtime for this has been billed since S4 and the frame carried nothing, so a
+     * responder could not tell what the asker was missing and pushed its own entry
+     * regardless. That is a request for one specific thing dressed as a request for
+     * everything.
+     */
+    bool digestSummary;
 
     // ---- C4: multi-target UWB arbitration --------------------------------
     //! Whether an anchor arbitrates between competing UWB requests instead of
@@ -316,6 +335,48 @@ class CaTblMac
     //! measurable instead of assumed.
     uint64_t GetTableMerges() const { return m_tableMerges; }
 
+    //! Entries fused under the equal-sequence branch (Covariance Intersection).
+    uint64_t GetTableFuses() const { return m_tableFuses; }
+    //! Entries refused as strictly superseded. Counted so "nothing arrived" and
+    //! "everything arriving was stale" are distinguishable, which they were not.
+    uint64_t GetTableDiscards() const { return m_tableDiscards; }
+
+    //! Entries pushed because a digest showed the asker lacked them.
+    uint64_t GetDigestPushes() const { return m_digestPushes; }
+    //! Digests answered with NOTHING because the asker was already current. This is
+    //! the saving: without a summary every one of these was a wasted ENTRY_PUSH.
+    uint64_t GetDigestNoOps() const { return m_digestNoOps; }
+
+
+    /**
+     * \brief Silence this radio without destroying it (sect 49 fault injection).
+     *
+     * A silenced MAC accepts calls and transmits nothing. It is NOT the same as an
+     * unregistered node and must not be: the node still exists, still holds its table,
+     * and resumes with that table intact. Deleting it would test a different fault and
+     * would make reappearance indistinguishable from a new node joining, which is the
+     * distinction CaTblNodeLifecycle exists to preserve.
+     *
+     * THIS IS TRANSMIT SUPPRESSION ONLY, and the limit is worth stating because the
+     * obvious reading is wrong. It models a node that cannot TALK -- a transmit chain
+     * that has failed, a duty budget exhausted, a power amplifier browning out on a
+     * cold battery -- and the node goes on hearing everyone normally.
+     *
+     * IT DOES NOT MODEL AN OBSTRUCTION. A node behind a ridge is deaf as well as mute,
+     * and the difference is observable: this one keeps its table current throughout the
+     * outage and rejoins knowing everything that happened, where an obstructed node
+     * rejoins with a table as stale as the outage was long. Anything reading this as
+     * "the node went out of coverage" is reading in a fault that was not injected.
+     *
+     * Suppressed frames are COUNTED. A fault that leaves no trace cannot be told apart
+     * from a quiet period, and an injection whose firing is unobservable is rule 9's
+     * failure: a check for something whose signature is absence cannot be a scan of
+     * present data.
+     */
+    void SetSilent(bool s) { m_silent = s; }
+    bool IsSilent() const { return m_silent; }
+    //! Frames this MAC declined to transmit while silenced.
+    uint64_t GetSuppressedTx() const { return m_suppressedTx; }
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
     void SetEnergyModel(CaTblEnergyModel* e) { m_energy = e; }
@@ -513,6 +574,13 @@ class CaTblMac
     std::map<uint16_t, CaTblTableEntry> m_table;
     uint16_t m_selfSeq;
     uint64_t m_tableMerges;
+    uint64_t m_tableFuses;
+    uint64_t m_tableDiscards;
+    uint64_t m_digestPushes = 0;
+    uint64_t m_digestNoOps = 0;
+    bool m_silent = false;
+    uint64_t m_suppressedTx = 0;
+    const CaTblTableEntry* m_nextPushEntry = nullptr;
 
     // Dedup: bounded LRU with a time window (§2.6).
     std::deque<std::pair<uint32_t, Time>> m_dedupOrder;
