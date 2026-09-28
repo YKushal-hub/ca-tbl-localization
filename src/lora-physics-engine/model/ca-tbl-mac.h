@@ -41,6 +41,7 @@
  */
 
 #include "ca-tbl-energy-model.h"
+#include "ca-tbl-grant-coord.h"
 #include "ca-tbl-header.h"
 
 #include "ns3/callback.h"
@@ -126,6 +127,24 @@ class CaTblPhyProvider
                                       CaTblTier tier,
                                       double txPowerDbm,
                                       uint8_t hopsTraversed) = 0;
+
+    /**
+     * \brief Evaluate the link for one specific frame. What CaTblChannel calls.
+     *
+     * The default is Evaluate() with the frame's hop count and nothing else, so a
+     * provider that does not override it behaves exactly as before this existed. It
+     * exists because one frame type -- the anchor GRANT_GOSSIP (Network sect 6) -- is
+     * carried on a pair class the scenario's provider otherwise has no link for
+     * (anchor to anchor), and that decision needs the frame, not just the endpoints.
+     */
+    virtual CaTblLinkOutcome EvaluateFrame(uint16_t txId,
+                                           uint16_t rxId,
+                                           CaTblTier tier,
+                                           double txPowerDbm,
+                                           const CaTblHeader& hdr)
+    {
+        return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+    }
 
     /** Sensitivity floor for the APC loop (§2.1.1). */
     virtual double SensitivityDbm(CaTblTier tier, uint8_t sf) = 0;
@@ -467,6 +486,48 @@ class CaTblMac
         return m_grantsByTarget;
     }
 
+    // ---- L.1.4 / Network sect 6: the anchor grant tie-break -----------------
+    /**
+     * \brief Attach the anchor's grant coordinator. Null (the default) leaves every
+     *        path exactly as it was: no ESC_REQUEST is ever withheld and a
+     *        GRANT_GOSSIP frame, should one arrive, changes nothing.
+     *
+     * One coordinator per ANCHOR, shared by its three MACs. A gateway is one node with
+     * three radios, and the slot it holds for a field node is the same slot whichever
+     * radio the request happened to arrive on.
+     */
+    void SetGrantCoordinator(CaTblGrantCoordinator* gc) { m_grantCoord = gc; }
+    CaTblGrantCoordinator* GetGrantCoordinator() const { return m_grantCoord; }
+
+    /** Per-verdict event sink for the tie-break. Written, never read; null writes
+     *  nothing. Columns: t,anchorId,targetId,otherAnchorId,source,verdict,action,
+     *  windowStartS,windowEndS. */
+    void SetGrantLog(std::ostream* os) { m_grantLog = os; }
+
+    /**
+     * \brief Broadcast this anchor's currently held grants on \p tier (Network sect 6).
+     *
+     * One frame, one hop, LOW access category, through the ordinary CAD and duty
+     * governor. Sends NOTHING when the anchor holds no active grant: an empty gossip
+     * carries nothing a receiver could act on, and the channel it would occupy is the
+     * one the field node ranges on. That silence is a design choice made here, not one
+     * the spec states. A separate entry point, not a Send() argument, for the arity
+     * reason SendQuery() records.
+     */
+    void SendGrantGossip(CaTblTier tier);
+
+    //! Grant items heard in GRANT_GOSSIP frames (new ones only, echoes excluded).
+    uint64_t GetGossipItemsHeard() const { return m_gossipItemsHeard; }
+    //! Gossip rounds skipped because this anchor held nothing to report.
+    uint64_t GetGossipSkippedEmpty() const { return m_gossipSkippedEmpty; }
+    //! ESC_REQUESTs NOT answered with a grant because a higher-id anchor holds the slot.
+    uint64_t GetGrantsWithheld() const { return m_grantsWithheld; }
+    //! Own grants given up on hearing a higher-id anchor's overlapping grant.
+    uint64_t GetGrantsYielded() const { return m_grantsYielded; }
+    //! Airtime of GRANT_GOSSIP frames delivered to this MAC -- the receive half of what
+    //! the gossip costs, which CaTblMsgCounters (transmit airtime only) cannot give.
+    double GetGossipRxAirtimeS() const { return m_gossipRxAirtimeS; }
+
     /**
      * \brief The §2.9 handshake: mobility state selects which messages get sent.
      *
@@ -563,6 +624,18 @@ class CaTblMac
     uint64_t m_arbDenials = 0;
     uint64_t m_arbPreemptions = 0;
     std::map<uint16_t, uint64_t> m_grantsByTarget;
+    // L.1.4 tie-break state. All inert while m_grantCoord is null.
+    CaTblGrantCoordinator* m_grantCoord = nullptr;
+    std::ostream* m_grantLog = nullptr;
+    std::vector<CaTblGrantItem> m_nextGossip; //!< consumed by the next Send()
+    uint64_t m_gossipItemsHeard = 0;
+    uint64_t m_gossipSkippedEmpty = 0;
+    uint64_t m_grantsWithheld = 0;
+    uint64_t m_grantsYielded = 0;
+    double m_gossipRxAirtimeS = 0.0;
+    void LogGrantVerdict(uint16_t targetId, uint16_t otherId, const char* source,
+                         CaTblGrantVerdict v, const char* action, double startS,
+                         double endS) const;
     uint64_t m_queriesIgnored = 0;
     DropCallback m_dropCb;
 

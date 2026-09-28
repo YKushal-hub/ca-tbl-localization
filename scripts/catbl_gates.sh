@@ -454,6 +454,29 @@ printf '\n--- G15 relayed-range admission (C5) ---\n'
 ./build/scratch/ns3.47-ca_tbl_relay_admission_test-optimized || fail G15
 finish G15
 
+# ---------------- G16: the anchor grant tie-break is REACHED (L.1.4, Network sect 6)
+# CaTblGrantCoordinator had a passing unit suite and zero scenario call sites: the rule
+# was right and nothing ran it. A unit suite cannot see that; only a run can. This runs
+# the arc deployment (NC2's flags, the regime in which one tier-1 ESC_REQUEST reaches
+# several gateways at once) with --anchorGrantGossipS=5 and requires, in the verdict file
+# the run writes, two gateways reaching OPPOSITE verdicts on one field node -- the higher
+# id WIN, the lower id DEFER -- with every row obeying the lower-id-defers rule.
+#
+# Negative fixtures in scripts/grant_tiebreak_gate_selftest.sh, including the same run
+# with the flag off, which must FAIL (rule 6). Both run; neither alone is the gate.
+printf '\n--- G16 anchor grant tie-break reached (L.1.4) ---\n'
+mkdir -p "$WORK/g16"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=1800 --trace=false --nFinders=4 --finderPseudoAnchor=true --finderMode=2 \
+    --finderDispersal=1.0 --sendHandshakeFrames=true --finderDigestPeriodS=20 \
+    --boxHalf=2000 --nGateways=5 --gwArcDeg=140 --gwArcCentreDeg=180 \
+    --anchorGrantGossipS=5 --outdir="$WORK/g16" > "$WORK/g16.log" 2>&1 \
+    || gerror G16 "flag-on run exited non-zero"
+python3 scripts/grant_tiebreak_gate.py "$WORK/g16/grant_verdicts_ca_tbl_full_seed7.csv" \
+    || fail G16
+bash scripts/grant_tiebreak_gate_selftest.sh || fail G16
+finish G16
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

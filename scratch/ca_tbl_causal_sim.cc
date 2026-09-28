@@ -107,6 +107,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <set>
 #include <numeric>
 #include <sstream>
@@ -812,6 +813,46 @@ class EnginePhyProvider : public CaTblPhyProvider
         return o;
     }
 
+    /**
+     * \brief L.1.4. The one frame for which an ANCHOR-TO-ANCHOR link exists.
+     *
+     * Limitation 2 above says anchor-to-anchor pairs have no evaluable link, and for
+     * every other frame that stays true -- including the gateways' own beacons, so the
+     * hidden-terminal upper bound on beacon loss (TECH_DEBT sect 3.5) is untouched.
+     * Opening the pair class for beacons would be a different change: DISCOVERY is
+     * flooded, so every gateway would start rebroadcasting every other gateway's beacon.
+     *
+     * The GRANT_GOSSIP frame is the exception because Network sect 6 is anchor-to-anchor
+     * traffic by definition, and a gossip nobody can hear is a mechanism that cannot
+     * fire. Only gateways registered through AddGossipAnchor() qualify -- finders are
+     * anchors to the provider but carry no coordinator, and a finder-to-gateway link
+     * would be a new pair class this change has no business opening.
+     *
+     * The link is the tier's own engine, the transmitting gateway placed in the engine's
+     * node slot. Both ends carry their surveyed 15 m mast height through position z,
+     * which is what the engines read for height, so no field-node height leaks in; and
+     * the node slot's velocity is zero, which is right for the one immobile class.
+     *
+     * Empty set (the default) or any other frame: exactly Evaluate().
+     */
+    CaTblLinkOutcome EvaluateFrame(uint16_t txId,
+                                   uint16_t rxId,
+                                   CaTblTier tier,
+                                   double txPowerDbm,
+                                   const CaTblHeader& hdr) override
+    {
+        if (hdr.GetMsgType() == CA_TBL_MSG_GRANT_GOSSIP && !m_gossipAnchors.empty() &&
+            m_gossipAnchors.count(txId) != 0 && m_gossipAnchors.count(rxId) != 0)
+        {
+            return EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+        }
+        return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+    }
+
+    //! L.1.4. Admit a gateway to the anchor-to-anchor gossip link class. Called only
+    //! under --anchorGrantGossipS > 0.
+    void AddGossipAnchor(uint16_t id) { m_gossipAnchors.insert(id); }
+
     double SensitivityDbm(CaTblTier tier, uint8_t sf) override
     {
         // codingRateDenom 5 == CR 4/5, matching m_codingRate = 1 elsewhere.
@@ -830,6 +871,67 @@ class EnginePhyProvider : public CaTblPhyProvider
     uint64_t GetSkipped() const { return m_skipped; }
 
   private:
+    //! L.1.4. Gateway-to-gateway link on \p tier, for the gossip frame only. Same
+    //! engine calls as Evaluate(), with the transmitting gateway in the node slot.
+    CaTblLinkOutcome EvaluateAnchorPair(uint16_t txId,
+                                        uint16_t rxId,
+                                        CaTblTier tier,
+                                        double txPowerDbm,
+                                        uint8_t hopsTraversed)
+    {
+        CaTblLinkOutcome o;
+        const uint8_t bit = static_cast<uint8_t>(1u << static_cast<int>(tier));
+        std::map<uint16_t, uint8_t>::const_iterator tt = m_anchorTiers.find(txId);
+        std::map<uint16_t, uint8_t>::const_iterator rt = m_anchorTiers.find(rxId);
+        if (txId == rxId || tt == m_anchorTiers.end() || rt == m_anchorTiers.end() ||
+            (tt->second & bit) == 0 || (rt->second & bit) == 0)
+        {
+            ++m_skipped;
+            return o;
+        }
+        const Vector txPos = m_anchorPos[txId];
+        const Vector rxPos = m_anchorPos[rxId];
+        const Time now = Simulator::Now();
+        const int t = static_cast<int>(tier);
+        ++m_evaluations;
+        if (tier == CA_TBL_TIER_868)
+        {
+            PhysicsResult r = m_e868.ProcessTransmission(txId, rxId, txPos, rxPos, txPowerDbm,
+                                                         m_phy[t].sf, m_phy[t].bandwidthHz,
+                                                         hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else if (tier == CA_TBL_TIER_2P4)
+        {
+            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                            txPowerDbm, m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else
+        {
+            PhysicsResultUWB r = m_eUwb.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                            txPowerDbm, m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        return o;
+    }
+
     LoRaPhysicsEngine& m_e868;
     LoRa2p4PhysicsEngine& m_e2p4;
     LoRaUWBPhysicsEngine& m_eUwb;
@@ -846,6 +948,9 @@ class EnginePhyProvider : public CaTblPhyProvider
     uint64_t m_evaluations;
     uint64_t m_skipped;
     CaTblNlosSource m_nlosSource;
+    //! L.1.4. Gateways admitted to the gossip link class. EMPTY unless
+    //! --anchorGrantGossipS > 0, and with it empty EvaluateFrame() is Evaluate().
+    std::set<uint16_t> m_gossipAnchors;
 };
 
 /**
@@ -952,6 +1057,197 @@ CaTblQuantise(double x)
         return 255;
     }
     return static_cast<uint8_t>(x * 255.0 + 0.5);
+}
+
+/**
+ * \brief L.1.4 / Network sect 6 -- anchors gossip the UWB slots they hold, and on an
+ *        overlap for the same field node the LOWER node id defers.
+ *
+ * WHAT WAS MISSING. CaTblGrantCoordinator and its suite existed; nothing constructed one.
+ * With --sendHandshakeFrames every gateway that hears an ESC_REQUEST grants it (C1), and
+ * on tier 1 that is several at once: in the arc deployment (NC2's flags, seed 7) most
+ * ESC_REQUESTs at HEAD reached three or four gateways in the same instant, and their
+ * answering grants are visible colliding at the field node.
+ *
+ * WHICH RADIO. Tier 1, 868 MHz. Every gateway carries all three radios, but only 868 MHz
+ * closes a gateway-to-gateway link: gateways stand hundreds of metres to kilometres
+ * apart, UWB reaches tens of metres, 2.4 GHz a few hundred. The frame is GRANT_GOSSIP,
+ * LOW access category (the spec's "low priority CW"), one hop, unacknowledged. It goes
+ * through the gateway's own CAD and its 10% WPC Table-II access-point duty governor, in
+ * the same sliding window as its beacons and grants -- nothing is exempted.
+ *
+ * HOW IT IS CHARGED. Gateways had NO energy account before this: CaTblMac charges no TX
+ * or RX joules and SetEnergyModel() is unset on every MAC, so gateway beacons have always
+ * been free. That is left alone. The gossip gets its own per-gateway tier-1 account,
+ * charged each cycle from what the MAC measured -- TX airtime of frames that actually
+ * went on air, one CAD probe per CAD the MAC actually ran (sent + busy), and RX airtime of
+ * gossip delivered to the gateway. It is reported on stdout, never added to the field
+ * node's joules. The field node pays for gossip only as it already pays for any frame it
+ * hears on a radio that is awake (AccountListen per delivered frame), so a node whose
+ * tier-1 radio sleeps accrues nothing for it.
+ *
+ * WHEN. Triggered from the per-cycle loop: every periodS each gateway schedules one
+ * gossip at an independent uniform offset inside the coming cycle. The offset is not
+ * optional -- all gateways would otherwise CAD at the same instant, find the channel
+ * idle, and collide at every receiver. The payload is composed at SEND time from the
+ * grants still held then, so a grant yielded earlier in the same round is not repeated.
+ *
+ * WHAT IT DOES NOT DO. The two anchors that hear an ESC_REQUEST in the same instant both
+ * grant it; nothing can prevent that without a consensus round the spec rules out. The
+ * double grant is settled when their gossip crosses, which bounds it to the gossip
+ * period -- and only if the period is shorter than the slot window (CaTblMacConfig::
+ * arbSlotHoldS), since a grant that has ended is never gossiped. The yield is local: no
+ * revoke frame exists in the taxonomy and the field node does not yet act on a grant
+ * (the tier change commits in Step()), so what yielding changes is which anchor holds
+ * the slot, which anchor answers the node's next request, and the C4 arbiter's state.
+ */
+struct GrantGossip
+{
+    GrantGossip(double periodS, double dtS, const std::string& logPath, const TierPhy* phy);
+    void AttachAnchor(uint16_t id, CaTblTier tier, CaTblMac* mac, EnginePhyProvider& provider);
+    void Cycle(double t, Ptr<UniformRandomVariable> rng);
+    void Report(std::ostream& os, double durationS) const;
+
+    double periodS;
+    double dtS;
+    double nextS;
+    uint64_t rounds = 0;
+    const TierPhy* phy;
+    std::ofstream log;
+    std::deque<CaTblGrantCoordinator> coords; //!< deque: attached pointers must not move
+    std::map<uint16_t, CaTblGrantCoordinator*> byId;
+    std::vector<CaTblMac*> all;   //!< every MAC of every gateway
+    std::vector<CaTblMac*> tier1; //!< one per gateway: the radio the gossip rides
+    std::deque<CaTblEnergyModel> energy; //!< parallel to tier1
+    std::vector<double> txChargedS;
+    std::vector<double> rxChargedS;
+    std::vector<uint64_t> framesCharged;
+    std::vector<uint64_t> cadCharged;
+};
+
+__attribute__((noinline))
+GrantGossip::GrantGossip(double p, double dt, const std::string& logPath, const TierPhy* ph)
+    : periodS(p),
+      dtS(dt),
+      nextS(p),
+      phy(ph)
+{
+    log.open(logPath.c_str());
+    if (!log.is_open())
+    {
+        std::cerr << "FATAL: cannot open " << logPath
+                  << " for writing -- does --outdir exist?\n";
+        std::exit(1);
+    }
+    log << "t,anchorId,targetId,otherAnchorId,source,verdict,action,windowStartS,windowEndS\n";
+}
+
+__attribute__((noinline)) void
+GrantGossip::AttachAnchor(uint16_t id, CaTblTier tier, CaTblMac* mac, EnginePhyProvider& provider)
+{
+    std::map<uint16_t, CaTblGrantCoordinator*>::iterator it = byId.find(id);
+    if (it == byId.end())
+    {
+        coords.emplace_back(id);
+        it = byId.insert(std::make_pair(id, &coords.back())).first;
+    }
+    mac->SetGrantCoordinator(it->second);
+    mac->SetGrantLog(&log);
+    all.push_back(mac);
+    if (tier == CA_TBL_TIER_868)
+    {
+        tier1.push_back(mac);
+        energy.emplace_back();
+        energy.back().SetLoRaPhy(CA_TBL_TIER_868, phy[0].sf, phy[0].bandwidthHz, 1);
+        txChargedS.push_back(0.0);
+        rxChargedS.push_back(0.0);
+        framesCharged.push_back(0);
+        cadCharged.push_back(0);
+        provider.AddGossipAnchor(id);
+    }
+}
+
+__attribute__((noinline)) void
+GrantGossip::Cycle(double t, Ptr<UniformRandomVariable> rng)
+{
+    // Charge what went on air, and what arrived, during the slice that just ran.
+    for (size_t i = 0; i < tier1.size(); ++i)
+    {
+        const CaTblMsgCounters& c = tier1[i]->GetCounters(CA_TBL_MSG_GRANT_GOSSIP);
+        const uint64_t cadNow = c.sent + c.cadBusyEvents;
+        const double rxNow = tier1[i]->GetGossipRxAirtimeS();
+        if (c.sent > framesCharged[i])
+        {
+            energy[i].AccountTx(CA_TBL_TIER_868, c.airtimeS - txChargedS[i],
+                                c.sent - framesCharged[i]);
+        }
+        for (uint64_t k = cadCharged[i]; k < cadNow; ++k)
+        {
+            energy[i].AccountCad(CA_TBL_TIER_868);
+        }
+        if (rxNow > rxChargedS[i])
+        {
+            energy[i].AccountListen(CA_TBL_TIER_868, rxNow - rxChargedS[i]);
+        }
+        txChargedS[i] = c.airtimeS;
+        framesCharged[i] = c.sent;
+        cadCharged[i] = cadNow;
+        rxChargedS[i] = rxNow;
+    }
+
+    if (t + 1e-9 < nextS)
+    {
+        return;
+    }
+    nextS = t + periodS;
+    ++rounds;
+    const double spread = std::min(dtS, periodS);
+    for (size_t i = 0; i < tier1.size(); ++i)
+    {
+        Simulator::Schedule(Seconds(rng->GetValue(0.0, spread)),
+                            &CaTblMac::SendGrantGossip,
+                            tier1[i],
+                            CA_TBL_TIER_868);
+    }
+}
+
+__attribute__((noinline)) void
+GrantGossip::Report(std::ostream& os, double durationS) const
+{
+    const double windowS = CaTblMacConfig().arbSlotHoldS;
+    os << "    L.1.4 grant tie-break: gossip every " << std::fixed << std::setprecision(1)
+       << periodS << " s on tier 1, grant window " << windowS << " s, " << rounds
+       << " rounds, " << tier1.size() << " gateways\n";
+    for (size_t i = 0; i < tier1.size(); ++i)
+    {
+        const uint16_t id = tier1[i]->GetNodeId();
+        const CaTblMsgCounters& c = tier1[i]->GetCounters(CA_TBL_MSG_GRANT_GOSSIP);
+        uint64_t heard = 0, withheld = 0, yielded = 0, skipped = 0;
+        for (size_t m = 0; m < all.size(); ++m)
+        {
+            if (all[m]->GetNodeId() != id)
+            {
+                continue;
+            }
+            heard += all[m]->GetGossipItemsHeard();
+            withheld += all[m]->GetGrantsWithheld();
+            yielded += all[m]->GetGrantsYielded();
+            skipped += all[m]->GetGossipSkippedEmpty();
+        }
+        const CaTblGrantCoordinator* gc = byId.at(id);
+        const TierEnergyAccount& a = energy[i].GetAccount(CA_TBL_TIER_868);
+        os << "      anchor " << id << ": gossip sent " << c.sent << " (duty-dropped "
+           << c.droppedDutyCycle << ", cad-dropped " << c.droppedCadExhausted
+           << ", nothing-to-say " << skipped << "), received " << c.received
+           << " (collided " << c.lostCollision << "), new items " << heard
+           << "; tie-break WIN " << gc->Wins() << " DEFER " << gc->Defers()
+           << "; requests withheld " << withheld << ", grants yielded " << yielded << "\n"
+           << "        gossip energy (tier 1, gateway account): tx " << std::setprecision(6)
+           << a.txJ << " J, rx " << a.rxJ << " J, cad+wake " << (a.cadJ + a.idleJ)
+           << " J; gossip airtime " << c.airtimeS << " s = " << std::setprecision(5)
+           << (durationS > 0.0 ? 100.0 * c.airtimeS / durationS : 0.0)
+           << " % of the run\n";
+    }
 }
 
 /** Everything one arm produced, for the summary table. */
@@ -2597,7 +2893,8 @@ RunArm(CaTblPolicyMode mode,
        uint32_t floorHeartbeatN,
        double injectRangeBiasM,
        double injectBiasFraction,
-       uint32_t injectFaultAnchors)
+       uint32_t injectFaultAnchors,
+       double anchorGrantGossipS)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -3013,6 +3310,17 @@ RunArm(CaTblPolicyMode mode,
             }
         }
     }
+    // L.1.4. Declared BEFORE macs so it is destroyed AFTER them: every gateway MAC holds
+    // a pointer to a coordinator and to the log stream this owns. Null unless the flag
+    // is on, and while null nothing below constructs, draws or transmits anything.
+    std::unique_ptr<GrantGossip> gossip;
+    if (anchorGrantGossipS > 0.0)
+    {
+        std::ostringstream gfn;
+        gfn << traceDir << "/grant_verdicts_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        gossip.reset(new GrantGossip(anchorGrantGossipS, dt, gfn.str(), phy));
+    }
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
     std::map<uint16_t, Vector> anchorPosById;
@@ -3086,6 +3394,10 @@ RunArm(CaTblPolicyMode mode,
             // AGAINST -- without it there are no witnesses, only its own opinion.
             am->PublishSelfEntry(ad.pos.x, ad.pos.y, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(am);
+            if (gossip)
+            {
+                gossip->AttachAnchor(aid, tier, am, provider);
+            }
 
             BeaconDriver bd;
             bd.mac = am;
@@ -3741,6 +4053,14 @@ RunArm(CaTblPolicyMode mode,
 
         const Time now = Simulator::Now();
         const double t = now.GetSeconds();
+
+        // L.1.4. Charge the gateways for the gossip the slice just carried, and on the
+        // gossip period schedule the next round into the coming slice. Inside the loop,
+        // like every other transmission this scenario decides to make.
+        if (gossip)
+        {
+            gossip->Cycle(t, macRng);
+        }
 
         if (vizNodes.is_open())
         {
@@ -6181,6 +6501,13 @@ RunArm(CaTblPolicyMode mode,
             }
         }
     }
+    // L.1.4. Per-gateway gossip traffic, tie-break verdicts and the gossip's own energy.
+    // Stdout for the same byte-identity reason as C4 above; the per-verdict record is
+    // grant_verdicts_<arm>_seed<N>.csv, which exists only when the flag is on.
+    if (gossip)
+    {
+        gossip->Report(std::cout, durationS);
+    }
 
     // C3. Queries answered and correctly ignored. To stdout rather than
     // arm_summary.csv: a new column changes the CSV header for every run and breaks
@@ -6766,6 +7093,7 @@ main(int argc, char* argv[])
     uint32_t identityQueryTargetArg = 2;
     bool uwbArbitrationArg = false;
     double arbBatteryCapJArg = 1000.0;
+    double anchorGrantGossipSArg = 0.0; // L.1.4, 0 = off: no coordinator, no gossip
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -7813,6 +8141,27 @@ main(int argc, char* argv[])
                  "and so how much it can influence arbitration; sweep it before "
                  "trusting any conclusion that leans on T_batt.",
                  arbBatteryCapJArg);
+    cmd.AddValue("anchorGrantGossipS",
+                 "Seconds between rounds in which each gateway broadcasts the UWB "
+                 "slots it holds to neighbouring gateways (Network sect 6), so that "
+                 "two gateways holding overlapping grants for one field node resolve "
+                 "it by the spec's rule: the LOWER node id defers. 0 (default) is "
+                 "the scenario as it has always been -- no coordinator, no gossip, "
+                 "every ESC_REQUEST granted by every gateway that hears it -- and it "
+                 "has to stay the default because turning it on adds tier-1 frames "
+                 "from every gateway, and every added frame displaces the shared "
+                 "engine RNG for every link in the run (rule 8), so no magnitude is "
+                 "comparable across the two settings; only which code paths ran is. "
+                 "The gossip rides tier 1, 868 MHz, because it is the only radio "
+                 "that closes a gateway-to-gateway link; it is charged to a "
+                 "per-gateway tier-1 account reported on stdout, never to the field "
+                 "node. REQUIRES --sendHandshakeFrames=true (without frames no "
+                 "gateway ever grants, and every counter would be a structural "
+                 "zero), so that combination is refused rather than run. Keep the "
+                 "period BELOW the 10 s slot window: a grant that has ended is never "
+                 "gossiped, so a longer period lets every double grant expire "
+                 "unresolved and the mechanism cannot fire.",
+                 anchorGrantGossipSArg);
     cmd.AddValue("suspectForcesEscalation",
                  "Whether a suspect fix also forces an escalation. true (default) "
                  "preserves the pre-existing baseline, in which `suspect` sets "
@@ -7871,6 +8220,24 @@ main(int argc, char* argv[])
         std::cout << "ERROR: --nlosSource must be 'legacy' or 'propagation', got '"
                   << nlosSourceArg << "'\n";
         return 1;
+    }
+
+    // L.1.4. Refused rather than run: without handshake frames no gateway ever grants,
+    // so the tie-break would report zeros that are a property of the configuration and
+    // not of the mechanism (TECH_DEBT I.4 -- four flags already fail silently this way).
+    if (anchorGrantGossipSArg < 0.0 ||
+        (anchorGrantGossipSArg > 0.0 && !sendHandshakeFramesArg))
+    {
+        std::cerr << "FATAL: --anchorGrantGossipS=" << anchorGrantGossipSArg
+                  << " needs a value >= 0 and, when > 0, --sendHandshakeFrames=true\n";
+        return 1;
+    }
+    if (anchorGrantGossipSArg >= CaTblMacConfig().arbSlotHoldS)
+    {
+        std::cerr << "WARNING: --anchorGrantGossipS=" << anchorGrantGossipSArg
+                  << " is not below the " << CaTblMacConfig().arbSlotHoldS
+                  << " s slot window; a double grant can expire before either anchor"
+                  << " hears of it, and then the tie-break never fires\n";
     }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would
@@ -8419,7 +8786,8 @@ main(int argc, char* argv[])
                                        floorHeartbeatN,
                                        injectRangeBiasM,
                                        injectBiasFraction,
-                                       injectFaultAnchors);
+                                       injectFaultAnchors,
+                                       anchorGrantGossipSArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
