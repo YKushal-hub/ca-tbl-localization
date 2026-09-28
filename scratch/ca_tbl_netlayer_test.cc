@@ -12,6 +12,7 @@
  */
 
 #include "ns3/ca-tbl-grant-coord.h"
+#include "ns3/ca-tbl-header.h"
 #include "ns3/ca-tbl-relay-admission.h"
 #include "ns3/core-module.h"
 
@@ -88,6 +89,53 @@ main(int argc, char* argv[])
         a.NoteOwnGrant(500, 0.0, 10.0);
         Check(a.Evaluate(500, 5.0, 15.0) == CA_TBL_GRANT_SELF_REPEAT,
               "re-granting a window it already holds is SELF_REPEAT, not a fresh grant");
+    }
+
+    // ---- sect 6: the double grant that ACTUALLY happens first ---------------
+    // Two anchors hear one ESC_REQUEST in the same instant and both grant it, because
+    // neither yet knows of the other. Only gossip can settle it afterwards, and it must
+    // settle it the same way from both sides with nothing further exchanged.
+    {
+        CaTblGrantCoordinator low(101);
+        CaTblGrantCoordinator high(107);
+        low.NoteOwnGrant(500, 10.0, 20.0);
+        high.NoteOwnGrant(500, 10.0, 20.0);
+
+        CaTblGrantRecord fromHigh; fromHigh.anchorId = 107; fromHigh.targetId = 500;
+        fromHigh.startS = 10.0; fromHigh.endS = 20.0;
+        CaTblGrantRecord fromLow = fromHigh; fromLow.anchorId = 101;
+
+        const CaTblGrantVerdict vLow = low.Reconcile(fromHigh);
+        const CaTblGrantVerdict vHigh = high.Reconcile(fromLow);
+        Check(vLow == CA_TBL_GRANT_DEFER_LOWER_ID && vHigh == CA_TBL_GRANT_WIN_HIGHER_ID,
+              "crossing gossip settles a same-instant double grant: lower DEFERS, higher WINS");
+        Check(low.OwnActiveGrants(10.0).empty() && high.OwnActiveGrants(10.0).size() == 1,
+              "the deferring anchor YIELDS its grant and the winner keeps its own");
+        Check(low.LastConflictAnchor() == 107 && high.LastConflictAnchor() == 101,
+              "each side records which anchor it contested with");
+        Check(low.Evaluate(500, 12.0, 22.0) == CA_TBL_GRANT_DEFER_LOWER_ID,
+              "after yielding, a new request from that node in the window is refused");
+        Check(high.Reconcile(fromLow) == CA_TBL_GRANT_OK && high.Wins() == 1,
+              "a repeated gossip is not re-counted -- counters track contests, not chatter");
+    }
+
+    // ---- sect 6: gossip with no overlapping grant of ours is knowledge only ------
+    {
+        CaTblGrantCoordinator a(101);
+        CaTblGrantRecord g; g.anchorId = 107; g.targetId = 500; g.startS = 0.0; g.endS = 10.0;
+        Check(a.Reconcile(g) == CA_TBL_GRANT_OK && a.Size() == 1 && a.Defers() == 0,
+              "an uncontested gossiped grant is stored, and contests nothing");
+    }
+
+    // ---- sect 6: the frame that carries it, on the spec's terms --------------
+    {
+        Check(CaTblAccessCategoryFor(CA_TBL_MSG_GRANT_GOSSIP) == CA_TBL_AC_LOW &&
+                  !CaTblIsFlooded(CA_TBL_MSG_GRANT_GOSSIP) &&
+                  CaTblAckPolicyFor(CA_TBL_MSG_GRANT_GOSSIP) == CA_TBL_ACK_NONE,
+              "GRANT_GOSSIP is low-priority CW, one hop (never flooded), unacknowledged");
+        Check(CaTblPayloadBytes(CA_TBL_MSG_GRANT_GOSSIP, 0) == 1 &&
+                  CaTblPayloadBytes(CA_TBL_MSG_GRANT_GOSSIP, 3) == 1 + 3 * 6,
+              "GRANT_GOSSIP is billed 1 byte of count plus 6 per held slot");
     }
 
     // ---- sect 6: expiry, so the tie-break cannot depend on uptime -----------

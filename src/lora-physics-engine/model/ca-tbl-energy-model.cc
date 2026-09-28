@@ -539,6 +539,15 @@ CaTblEnergyModel::AccountListen(CaTblTier tier, double seconds)
     Charge(tier, seconds, p.rxCurrentMa, a.rxJ, a.rxTimeS);
 }
 
+void
+CaTblEnergyModel::AccountTx(CaTblTier tier, double airtimeS, uint64_t frames)
+{
+    const RadioPowerProfile& p = m_profiles[tier];
+    TierEnergyAccount& a = m_accounts[tier];
+    Charge(tier, airtimeS, p.txCurrentMa, a.txJ, a.txTimeS);
+    a.txFrames += frames;
+}
+
 const TierEnergyAccount&
 CaTblEnergyModel::GetAccount(CaTblTier tier) const
 {

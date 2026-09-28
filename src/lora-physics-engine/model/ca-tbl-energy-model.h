@@ -329,6 +329,17 @@ class CaTblEnergyModel
      */
     void AccountListen(CaTblTier tier, double seconds);
 
+    /**
+     * \brief Charge \p airtimeS of transmission at the TX current, as \p frames frames.
+     *
+     * For traffic whose airtime the MAC has ALREADY measured -- CaTblMsgCounters::airtimeS
+     * counts only frames that actually went on air, after the duty governor and CAD had
+     * their say. Re-deriving it here from a payload size would be a second source of
+     * truth for the same number, and would charge frames the governor refused. Used for
+     * the anchor grant gossip (Network sect 6); nothing on the field node's path calls it.
+     */
+    void AccountTx(CaTblTier tier, double airtimeS, uint64_t frames);
+
     // ------------------------------------------------------------- readout ---
 
     const TierEnergyAccount& GetAccount(CaTblTier tier) const;

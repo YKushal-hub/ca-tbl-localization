@@ -58,6 +58,10 @@ CaTblEventPayload(const CaTblHeader& h)
         o << ";degr=" << static_cast<int>(h.GetReqDegradation())
           << ";batt=" << static_cast<int>(h.GetReqBattery());
     }
+    if (t == CA_TBL_MSG_GRANT_GOSSIP)
+    {
+        o << ";grants=" << h.GetGrants().size();
+    }
     return o.str();
 }
 } // namespace
@@ -220,6 +224,12 @@ CaTblMac::Reset()
     m_apcMarginAccum = 0.0;
     m_txPowerDbm = m_cfg.txPowerDbm;
     m_packetIdCounter = static_cast<uint32_t>(m_cfg.nodeId) << 20;
+    m_nextGossip.clear();
+    m_gossipItemsHeard = 0;
+    m_gossipSkippedEmpty = 0;
+    m_grantsWithheld = 0;
+    m_grantsYielded = 0;
+    m_gossipRxAirtimeS = 0.0;
 }
 
 void
@@ -703,6 +713,55 @@ CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId)
 }
 
 void
+CaTblMac::SendGrantGossip(CaTblTier tier)
+{
+    if (m_grantCoord == nullptr)
+    {
+        return;
+    }
+    const double nowS = Simulator::Now().GetSeconds();
+    m_grantCoord->Expire(nowS);
+    const std::vector<CaTblGrantRecord> own = m_grantCoord->OwnActiveGrants(nowS);
+    if (own.empty())
+    {
+        ++m_gossipSkippedEmpty;
+        return;
+    }
+    m_nextGossip.clear();
+    for (size_t i = 0; i < own.size(); ++i)
+    {
+        CaTblGrantItem gi;
+        gi.targetId = own[i].targetId;
+        gi.startS = own[i].startS;
+        gi.endS = own[i].endS;
+        m_nextGossip.push_back(gi);
+    }
+    // Send() copies the list into the frame synchronously; clearing afterwards keeps a
+    // stale list from riding any later frame, the same discipline as SetRequestTerms().
+    Send(CA_TBL_MSG_GRANT_GOSSIP, tier, static_cast<uint32_t>(m_nextGossip.size()), 0);
+    m_nextGossip.clear();
+}
+
+void
+CaTblMac::LogGrantVerdict(uint16_t targetId,
+                          uint16_t otherId,
+                          const char* source,
+                          CaTblGrantVerdict v,
+                          const char* action,
+                          double startS,
+                          double endS) const
+{
+    if (m_grantLog == nullptr)
+    {
+        return;
+    }
+    *m_grantLog << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds() << ','
+                << m_cfg.nodeId << ',' << targetId << ',' << otherId << ',' << source << ','
+                << CaTblGrantCoordinator::VerdictName(v) << ',' << action << ',' << startS
+                << ',' << endS << '\n';
+}
+
+void
 CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t destId)
 {
     // sect 49: a silenced radio consumes the call and emits nothing. Counted, because a
@@ -754,6 +813,10 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         }
         f.hdr.SetDigest(d);
         f.nEntries = static_cast<uint32_t>(d.empty() ? 1 : d.size());
+    }
+    else if (type == CA_TBL_MSG_GRANT_GOSSIP)
+    {
+        f.hdr.SetGrants(m_nextGossip);
     }
     f.hdr.SetOriginId(m_cfg.nodeId);
     f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
@@ -1063,7 +1126,14 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         }
     }
 
-    UpdateApc(out.rxPowerDbm, static_cast<CaTblTier>(hdr.GetTier()));
+    // APC is fed on the link-check path (see UpdateApc). Anchor gossip is not that path:
+    // at a gateway its margin is an INTER-GATEWAY link's, and letting it steer the one
+    // per-radio power state would let the gossip set the beacon power the field node
+    // sees. At a field node it is an overheard broadcast, not a link check either.
+    if (hdr.GetMsgType() != CA_TBL_MSG_GRANT_GOSSIP)
+    {
+        UpdateApc(out.rxPowerDbm, static_cast<CaTblTier>(hdr.GetTier()));
+    }
 
     if (!m_rxCb.IsNull())
     {
@@ -1140,21 +1210,127 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         }
     }
 
+    // ---- L.1.4 / Network sect 6: grant gossip, received --------------------
+    //
+    // Only an anchor with a coordinator acts on it; anywhere else the frame is an
+    // overheard broadcast and is merely counted as received above. Each heard grant goes
+    // through Reconcile(), which is where a double grant made in the same instant by two
+    // anchors that could not yet know of each other is finally settled: the lower id
+    // yields, the higher id keeps it.
+    if (hdr.GetMsgType() == CA_TBL_MSG_GRANT_GOSSIP && m_grantCoord != nullptr)
+    {
+        const CaTblTier gTier = static_cast<CaTblTier>(hdr.GetTier());
+        const uint32_t gPayload =
+            CA_TBL_MAC_HEADER_BYTES +
+            CaTblPayloadBytes(CA_TBL_MSG_GRANT_GOSSIP,
+                              static_cast<uint32_t>(hdr.GetGrants().size()));
+        m_gossipRxAirtimeS += (gTier == CA_TBL_TIER_UWB)
+                                  ? CaTblEnergyModel::UwbFrameTimeS(gPayload)
+                                  : CaTblEnergyModel::LoRaTimeOnAirS(m_cfg.sf,
+                                                                     m_cfg.bandwidthHz,
+                                                                     gPayload,
+                                                                     m_cfg.codingRate);
+        const double nowS = Simulator::Now().GetSeconds();
+        m_grantCoord->Expire(nowS);
+        const std::vector<CaTblGrantItem>& items = hdr.GetGrants();
+        for (size_t k = 0; k < items.size(); ++k)
+        {
+            CaTblGrantRecord g;
+            g.anchorId = hdr.GetOriginId();
+            g.targetId = items[k].targetId;
+            g.startS = items[k].startS;
+            g.endS = items[k].endS;
+            if (g.anchorId == m_cfg.nodeId || g.endS <= nowS)
+            {
+                continue; // our own echo, or a slot already over
+            }
+            const size_t before = m_grantCoord->Size();
+            const CaTblGrantVerdict v = m_grantCoord->Reconcile(g);
+            if (v == CA_TBL_GRANT_DEFER_LOWER_ID)
+            {
+                ++m_gossipItemsHeard;
+                ++m_grantsYielded;
+                // The local U(r) arbiter (C4) must stop treating the slot as held, or a
+                // yielded anchor would go on refusing other targets for a slot it no
+                // longer holds. Limit: the arbiter is per radio and only THIS radio's is
+                // freed, so a slot it awarded on another radio of the same gateway stays
+                // held until arbSlotHoldS lapses. Matters only under --uwbArbitration,
+                // which no L.1.4 measurement used.
+                if (m_slotHolder == g.targetId)
+                {
+                    m_slotGrantedAtS = -1.0;
+                }
+                LogGrantVerdict(g.targetId, g.anchorId, "gossip", v, "yield", g.startS,
+                                g.endS);
+            }
+            else if (v == CA_TBL_GRANT_WIN_HIGHER_ID)
+            {
+                ++m_gossipItemsHeard;
+                LogGrantVerdict(g.targetId, g.anchorId, "gossip", v, "keep", g.startS, g.endS);
+            }
+            else if (m_grantCoord->Size() > before)
+            {
+                ++m_gossipItemsHeard; // new, uncontested: stored for later requests
+            }
+        }
+    }
+
     if (m_cfg.sendHandshakeFrames)
     {
         const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());
         if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
             m_cfg.identityClass == CA_TBL_ID_ANCHOR)
         {
-            if (!m_cfg.uwbArbitration)
+            // L.1.4 / Network sect 6. With a coordinator attached, the cross-anchor
+            // tie-break runs FIRST: if a higher-id anchor is known to hold an overlapping
+            // grant for this node, this anchor defers and sends nothing, and its local
+            // U(r) arbiter is never consulted -- the slot is not its to award. Without a
+            // coordinator this block is the C1/C4 behaviour, unchanged.
+            const double reqS = Simulator::Now().GetSeconds();
+            const double reqEndS = reqS + m_cfg.arbSlotHoldS;
+            CaTblGrantVerdict tb = CA_TBL_GRANT_OK;
+            if (m_grantCoord != nullptr)
             {
-                // C1 behaviour: grant whoever asked, and let CAD and the duty
-                // governor decide whether it lands.
-                Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+                m_grantCoord->Expire(reqS);
+                tb = m_grantCoord->Evaluate(hdr.GetOriginId(), reqS, reqEndS);
             }
-            else if (ArbitrateRequest(hdr))
+            if (m_grantCoord != nullptr && tb == CA_TBL_GRANT_DEFER_LOWER_ID)
             {
-                Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+                ++m_grantsWithheld;
+                LogGrantVerdict(hdr.GetOriginId(), m_grantCoord->LastConflictAnchor(),
+                                "request", tb, "withhold", reqS, reqEndS);
+            }
+            else
+            {
+                bool granted = false;
+                if (!m_cfg.uwbArbitration)
+                {
+                    // C1 behaviour: grant whoever asked, and let CAD and the duty
+                    // governor decide whether it lands.
+                    Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+                    granted = true;
+                }
+                else if (ArbitrateRequest(hdr))
+                {
+                    Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+                    granted = true;
+                }
+                if (m_grantCoord != nullptr)
+                {
+                    // SELF_REPEAT re-sends the grant -- the requester asked again, so it
+                    // did not hear the first -- but records no second window: the slot
+                    // is the one already held.
+                    if (granted && tb != CA_TBL_GRANT_SELF_REPEAT)
+                    {
+                        m_grantCoord->NoteOwnGrant(hdr.GetOriginId(), reqS, reqEndS);
+                    }
+                    LogGrantVerdict(hdr.GetOriginId(),
+                                    (tb == CA_TBL_GRANT_WIN_HIGHER_ID)
+                                        ? m_grantCoord->LastConflictAnchor()
+                                        : static_cast<uint16_t>(0),
+                                    "request", tb, granted ? "grant" : "denied", reqS,
+                                    reqEndS);
+                }
             }
         }
         else if (hdr.GetMsgType() == CA_TBL_MSG_DIGEST && m_cfg.digestSummary &&
@@ -1397,7 +1573,7 @@ CaTblChannel::IsBusy(uint16_t observerId, CaTblTier tier)
         // observer will transmit into a collision -- hidden terminals emerge from
         // the model rather than being assumed away.
         const CaTblLinkOutcome o =
-            m_phy->Evaluate(f.txId, observerId, tier, f.txPowerDbm, f.hdr.GetHopsTraversed());
+            m_phy->EvaluateFrame(f.txId, observerId, tier, f.txPowerDbm, f.hdr);
         if (o.received)
         {
             return true;
@@ -1464,7 +1640,7 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         }
 
         const CaTblLinkOutcome mine =
-            m_phy->Evaluate(me.txId, rxId, me.tier, me.txPowerDbm, me.hdr.GetHopsTraversed());
+            m_phy->EvaluateFrame(me.txId, rxId, me.tier, me.txPowerDbm, me.hdr);
         if (!mine.received)
         {
             continue; // lost to path loss / fading / external interference
@@ -1480,11 +1656,8 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
             {
                 continue; // a node does not collide with itself
             }
-            const CaTblLinkOutcome other = m_phy->Evaluate(o.txId,
-                                                           rxId,
-                                                           o.tier,
-                                                           o.txPowerDbm,
-                                                           o.hdr.GetHopsTraversed());
+            const CaTblLinkOutcome other =
+                m_phy->EvaluateFrame(o.txId, rxId, o.tier, o.txPowerDbm, o.hdr);
             if (!other.received && other.rxPowerDbm < -190.0)
             {
                 continue; // not audible here at all

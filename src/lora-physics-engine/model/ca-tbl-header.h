@@ -75,7 +75,11 @@ enum CaTblMsgType : uint8_t
     CA_TBL_MSG_ESC_GRANT = 6,        //!< grant/deny a UWB slot
     CA_TBL_MSG_QUERY = 7,            //!< identity-scoped search flood (§3.4)
     CA_TBL_MSG_RESPONSE = 8,         //!< answer to a QUERY, own entry or proxied
-    CA_TBL_MSG_ACK = 9               //!< explicit ACK; only ever for ESC_REQUEST/GRANT (§2.8)
+    CA_TBL_MSG_ACK = 9,              //!< explicit ACK; only ever for ESC_REQUEST/GRANT (§2.8)
+    //! Network sect 6: an anchor telling neighbouring anchors which UWB slots it holds.
+    //! Anchor-to-anchor, one hop, LOW access category, unacknowledged -- the next gossip
+    //! supersedes a lost one. Constructed only under --anchorGrantGossipS > 0.
+    CA_TBL_MSG_GRANT_GOSSIP = 10
 };
 
 /** Wire name, for traces. */
@@ -325,6 +329,20 @@ struct CaTblDigestItem
  */
 static const uint32_t CA_TBL_DIGEST_MAX_ITEMS = 12;
 
+/** Network sect 6. One held UWB slot, as a GRANT_GOSSIP frame carries it: the same three
+ *  fields an ESC_GRANT already carries for its slot -- target_id(2), slot_start_ms(2),
+ *  slot_len_ms(2) -- so 6 bytes on the wire. The issuing anchor is the frame's origin_id
+ *  and is not repeated per item. Times are held as absolute seconds here because this is
+ *  one simulation clock; on hardware they would be offsets from the frame's own time. */
+struct CaTblGrantItem
+{
+    uint16_t targetId = 0;
+    double startS = 0.0;
+    double endS = 0.0;
+};
+
+static const uint32_t CA_TBL_GRANT_ITEM_BYTES = 6;
+
 /** The uniform MAC header: packet_id(4) origin_id(2) hop_limit(1) msg_type(1) tier(1). */
 static const uint32_t CA_TBL_MAC_HEADER_BYTES = 9;
 
@@ -474,6 +492,12 @@ class CaTblHeader : public Header
     void SetDigest(const std::vector<CaTblDigestItem>& d) { m_digest = d; }
     const std::vector<CaTblDigestItem>& GetDigest() const { return m_digest; }
 
+    /** Network sect 6. The slots a GRANT_GOSSIP frame reports its origin as holding.
+     *  Carried, not serialised, like the digest: CaTblPayloadBytes(GRANT_GOSSIP, n)
+     *  bills the 6 bytes per item, so writing them again would double-count airtime. */
+    void SetGrants(const std::vector<CaTblGrantItem>& g) { m_grants = g; }
+    const std::vector<CaTblGrantItem>& GetGrants() const { return m_grants; }
+
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
 
     /**
@@ -517,6 +541,7 @@ class CaTblHeader : public Header
     //! double-count the airtime this design exists to measure.
     CaTblTableEntry m_selfEntry;
     std::vector<CaTblDigestItem> m_digest;
+    std::vector<CaTblGrantItem> m_grants; //!< sect 6, carried not serialised -- see above
     bool m_hasSelfEntry;
     uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
     uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input
