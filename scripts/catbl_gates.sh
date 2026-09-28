@@ -519,6 +519,43 @@ else
 fi
 finish G17b
 
+# ---------------- G18 / G18b: position fixes routed (L.1.1, Network sect 2-3)
+# CaTblRoutingTable, the ETX baseline, the confidence metric and Divergences() had a
+# passing unit suite and zero scenario call sites. --fixRouting builds a table on every
+# relay from the links it has heard and routes each relay's ENTRY_PUSH to the gateway
+# backbone hop by hop, choosing on ETX while scoring the confidence metric in the same
+# call; --fixRoutingConfidence makes the confidence metric the selector. This runs both
+# (static_2p4, 600 s, five relays, default box: the relays dwell out of 2.4 GHz reach of
+# every gateway, so most fixes must cross a relay) and reads the hop log each writes.
+#
+# G18 is the L.1.1 done-when under ETX: a fix handed to a next hop that is not a gateway,
+# a relayed fix delivered, Divergences() non-zero -- with every row consistent with the
+# metric that routed it, every relayed hop continuous with the forward behind it, and the
+# CSV recounted against the run's own counters (router = tables = CSV).
+# G18b is the same file contract under the confidence selector, and requires a diverged
+# hop that the fix actually crossed: traffic sent where ETX would not have sent it.
+#
+# Negative fixtures in scripts/fix_routing_gate_selftest.sh, including the same run with
+# the flag off and a real ETX-routed log offered to G18b (rule 6).
+printf '\n--- G18 position fixes routed, ETX and confidence diverge (L.1.1) ---\n'
+mkdir -p "$WORK/g18" "$WORK/g18b"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
+    --outdir="$WORK/g18" > "$WORK/g18.log" 2>&1 || gerror G18 "flag-on run exited non-zero"
+python3 scripts/fix_routing_gate.py --stdout "$WORK/g18.log" \
+    "$WORK/g18/fix_routing_static_2p4_seed7.csv" || fail G18
+bash scripts/fix_routing_gate_selftest.sh || fail G18
+finish G18
+
+printf '\n--- G18b position fixes routed BY the confidence metric (L.1.1 done-when) ---\n'
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
+    --fixRoutingConfidence=true --outdir="$WORK/g18b" > "$WORK/g18b.log" 2>&1 \
+    || gerror G18b "flag-on run exited non-zero"
+python3 scripts/fix_routing_gate.py --require-confidence --stdout "$WORK/g18b.log" \
+    "$WORK/g18b/fix_routing_static_2p4_seed7.csv" || fail G18b
+finish G18b
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

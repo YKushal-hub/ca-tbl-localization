@@ -80,6 +80,7 @@
  */
 
 #include "ns3/ca-tbl-relay-admission.h"
+#include "ns3/ca-tbl-routing.h"
 #include "ns3/ca-tbl-node-lifecycle.h"
 #include "ns3/ca-tbl-session.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
@@ -3200,6 +3201,672 @@ RelayChain::Report(std::ostream& os, const std::vector<CaTblTagState>& tags, dou
 }
 
 /**
+ * L.1.1 -- ROUTED POSITION FIXES (Network sect 2-3), behind --fixRouting.
+ *
+ * WHAT WAS MISSING. CaTblRoutingTable, its ETX baseline, the confidence metric and
+ * Divergences() existed with a passing suite and ZERO scenario call sites: nothing ever
+ * built a table, and no frame was ever routed on one.
+ *
+ * WHO ROUTES. The relays -- the filtered peer field nodes, ids 2+, that --relayedRanging
+ * gives a filter and an energy account. They are FIXED-TIER nodes on --relayTier (C5),
+ * which is what lets a relay forward a frame without waking a second radio. The measured
+ * tag (id 1) does not take part: its tier changes cycle to cycle, and a frame on a tier it
+ * did not transmit on would charge a tier outside that cycle's transmission (sect 6).
+ * Finders carry GNSS and are anchors, not routers; they are neither sinks nor next hops.
+ *
+ * WHERE TO. Every gateway is on the backhaul the edge-server path already assumes, so a
+ * fix delivered to ANY gateway has reached the network. The destination is therefore the
+ * gateway BACKBONE, one table id (kBackbone) no node carries, and a route's next hop is
+ * either a gateway (direct: the frame arrives) or a relay (the frame is carried on). "A
+ * next hop that is not the destination" is a next hop that is not a gateway.
+ *
+ * WHAT A ROUTE IS BUILT FROM -- links the relay has actually heard, never the map.
+ *  - Relay -> gateway: the gateway's DISCOVERY beacons as this relay's MAC delivered them
+ *    on --relayTier (a callback on the MAC, bound only under this flag), and only while
+ *    the gateway is in the relay's one-hop neighbour table.
+ *  - Relay -> relay: the MAC has no tag-to-tag link class (EnginePhyProvider, limitation
+ *    2), so a relay holding a route ADVERTISES it: one broadcast per cycle on --relayTier,
+ *    evaluated at every other relay by the tier's engine. Only reception and received
+ *    power are read, never estimatedRangeM, so this is a link and not a relayed range.
+ *    The advertisement is discovery gossip: one hop, never routed.
+ * Each directed link keeps its last kLinkWindow frames. From them: the delivery ratio d
+ * (frames heard against the sender's mean period), so ETX per hop = 1/d^2 -- the reverse
+ * direction is not observed and reciprocity is ASSUMED, ours; the NLOS score, the fraction
+ * of those frames flagged NLOS under --nlosSource (the flag the filter uses); RSSI
+ * variance, dB^2; and relay jitter, the standard deviation of the frames' inter-arrival
+ * times, seconds -- a node cannot see another node's forwarding queue, so it scores the
+ * irregularity of the frames it hears from it, which also rises with every missed frame.
+ * A link is usable after two frames. A route via relay C carries the link to C plus what
+ * C advertised: the hop count, ETX and the three sums of the route C ITSELF WOULD TAKE,
+ * so the cost of handing a frame to C is the cost of where C will send it. The row's pcs
+ * field is left 0: neither metric reads it, and the confidence of a fix belongs to the
+ * node that made it, not to the path that carried it.
+ *
+ * WHO CHOOSES. Each relay originates one ENTRY_PUSH carrying its own estimate per cycle
+ * -- position-fix traffic by CaTblCarriesPositionFix(), so the table routes it as
+ * CA_TBL_TRAFFIC_POSITION_FIX -- and every hop asks its own table ONCE:
+ * SelectRoute(kBackbone, CONFIDENCE, POSITION_FIX, conf, &etx). Under --fixRouting the
+ * frame goes to ETX's pick and the confidence pick is only counted; under
+ * --fixRoutingConfidence it goes to the confidence pick. Divergences() therefore counts
+ * the hops at which the two metrics disagreed about a frame that was actually routed.
+ * path_cost = alpha*NLOS + beta*RSSI_var + gamma*jitter over the hops, among routes no
+ * more than slack = 1 hop longer than the shortest (CaTblRoutingWeights defaults, OURS,
+ * not cited; in these units the dB^2 variance term dominates at equal weights).
+ *
+ * WHEN. After the cycle's last ranging exchange, each frame in its OWN slot, kSlotS
+ * apart, in the remainder of the cycle. Stamping them at the cycle instant would put
+ * them inside the engines' interference registry with every ranging exchange of the
+ * cycle -- the collision that keeps L.1.2's relay-to-relay exchanges from delivering. The
+ * slot order is a collision-free schedule, OURS; the spec defines none.
+ *
+ * WHAT IS CHARGED, and the sect 6 invariant. Every frame goes on --relayTier, the one
+ * radio a relay uses, inside the per-cycle loop: its sender pays the airtime at the TX
+ * current and arms the duty governor from the slot it took (AccountFrameTx, after
+ * CanTransmit()); a relay that receives a fix to carry on pays the airtime at the RX
+ * current. Nothing else is touched -- not another tier, not the measured tag, not a
+ * gateway. Advertisements are not charged at their receivers, as a relay is not charged
+ * for the beacons it hears. ENTRY_PUSH carries no ACK (ca-tbl-header.cc), so a lost hop
+ * is a lost report: no retransmission.
+ *
+ * Off, this is never constructed, no callback is bound, no frame is sent and no engine is
+ * evaluated. On, every hop decision is written to fix_routing_<arm>_seed<N>.csv (G18).
+ */
+struct FixRouter
+{
+    static const uint16_t kBackbone = 0xFFFF; //!< the gateway backbone; no node carries it
+    static const size_t kLinkWindow = 8;      //!< frames kept per directed link. OURS.
+    static const uint8_t kMaxHops = 3;        //!< a frame is dropped past this. OURS.
+    static const uint32_t kRouteBytes = 4;    //!< hop count, ETX and cost on an advert. OURS.
+    static constexpr double kSlotS = 0.05;    //!< one frame per slot, > every tier's nominal
+                                              //!< collision airtime (868 SF7: 20.5 ms). OURS.
+    static constexpr double kRouteTtlCycles = 3.0; //!< a route not refreshed for 3 cycles
+                                                   //!< is expired. OURS.
+
+    struct Link
+    {
+        std::deque<double> at;
+        std::deque<double> rssi;
+        std::deque<char> nlos;
+    };
+    struct Advert
+    {
+        bool have = false;
+        uint16_t nextHop = 0;
+        uint8_t hops = 0;
+        double etx = 0.0;
+        double sumNlos = 0.0;
+        double sumVar = 0.0;
+        double sumJit = 0.0;
+    };
+    struct Heard
+    {
+        bool received = false;
+        double rxPowerDbm = 0.0;
+        bool nlos = false;
+    };
+
+    FixRouter(const std::vector<CaTblTagState>& tags,
+              uint32_t nTags,
+              CaTblTier tier,
+              bool confActive,
+              const std::vector<AnchorDef>& gateways,
+              double beaconPeriodS,
+              double cycleS,
+              CaTblNlosSource src,
+              const TierPhy* ph,
+              const std::string& logPath);
+    //! MAC delivery callback on each relay's --relayTier radio.
+    void OnRx(uint16_t rxId, const CaTblHeader& hdr, const CaTblLinkOutcome& out);
+    void Cycle(std::vector<CaTblTagState>& tags,
+               const std::vector<std::vector<CaTblMac*>>& peerMacs,
+               LoRaPhysicsEngine& e868,
+               LoRa2p4PhysicsEngine& e2p4,
+               LoRaUWBPhysicsEngine& eUwb,
+               double t,
+               Time now);
+    void Report(std::ostream& os, const std::vector<CaTblTagState>& tags) const;
+
+    Heard Eval(uint16_t txId, uint16_t rxId, const Vector& txPos, const Vector& rxPos,
+               LoRaPhysicsEngine& e868, LoRa2p4PhysicsEngine& e2p4,
+               LoRaUWBPhysicsEngine& eUwb, Time at, uint8_t hops);
+    void Note(size_t rx, uint16_t tx, double atS, double rxPowerDbm, bool nlos);
+    //! Fills hop count 1, ETX and the three terms for the link rx <- tx. False: unusable.
+    bool LinkRoute(size_t rx, uint16_t tx, double nominalS, CaTblRoute& r) const;
+    //! Next free slot instant in this cycle, or < 0 when the cycle is full.
+    double NextSlot(double t);
+    void Row(double t, uint16_t origin, uint32_t hop, uint16_t sender, bool have,
+             const CaTblRoute& etx, const CaTblRoute& conf, const CaTblRoutingTable& tbl,
+             uint16_t chosen, bool chosenIsGw, const char* outcome);
+
+    CaTblTier rt;
+    bool confidenceActive;
+    CaTblNlosSource nlosSrc;
+    const TierPhy* phy;
+    double beaconMeanS; //!< a gateway's mean beacon interval on rt
+    double dt;
+    double fixAirS;     //!< one ENTRY_PUSH of one entry on rt
+    double advertAirS;  //!< one DISCOVERY plus the route summary on rt
+    size_t n;           //!< tags.size(); index 0, the measured tag, never routes
+    std::map<uint16_t, Vector> gwPos;
+    std::map<uint16_t, size_t> relayIdx; //!< node id -> tags index
+    std::vector<CaTblRoutingTable> tables;
+    std::map<std::pair<size_t, uint16_t>, Link> links;
+    uint32_t round = 0;
+    uint32_t slot = 0;
+    double cycleEndS = 0.0;
+    std::ofstream log;
+
+    uint64_t beaconsNoted = 0;
+    uint64_t directInstalled = 0;
+    uint64_t viaInstalled = 0;
+    uint64_t directUnusable = 0;
+    uint64_t adverts = 0;
+    uint64_t advertsHeard = 0;
+    uint64_t splitHorizon = 0;
+    uint64_t originated = 0;
+    uint64_t delivered[4] = {0, 0, 0, 0}; //!< [hops, 3 = 3+]
+    uint64_t forwarded = 0;
+    uint64_t lostOnAir = 0;
+    uint64_t noRouteOrigin = 0;
+    uint64_t noRouteMid = 0;
+    uint64_t loops = 0;
+    uint64_t ttl = 0;
+    uint64_t duty = 0;
+    uint64_t noSlot = 0;
+    uint64_t selections = 0;
+    uint64_t diverged = 0;
+    uint64_t chosenGw = 0;
+    uint64_t chosenRelay = 0;
+    uint64_t etxRelay = 0;
+    uint64_t confRelay = 0;
+    uint64_t divergedCarried = 0;   //!< diverged hops the frame actually crossed
+    std::vector<double> txAirS;     //!< per tag: router airtime charged at TX
+    std::vector<double> rxAirS;     //!< per tag: router airtime charged at RX
+};
+
+__attribute__((noinline))
+FixRouter::FixRouter(const std::vector<CaTblTagState>& tags,
+                     uint32_t nTags,
+                     CaTblTier tier,
+                     bool confActive,
+                     const std::vector<AnchorDef>& gateways,
+                     double beaconPeriodS,
+                     double cycleS,
+                     CaTblNlosSource src,
+                     const TierPhy* ph,
+                     const std::string& logPath)
+    : rt(tier),
+      confidenceActive(confActive),
+      nlosSrc(src),
+      phy(ph),
+      // A gateway beacons every period plus U(0, period/4) -- the jitter every
+      // BeaconDriver in this file is built with -- so its mean interval is 1.125 periods.
+      beaconMeanS(beaconPeriodS * 1.125),
+      dt(cycleS),
+      n(std::min<size_t>(nTags, tags.size())),
+      tables(std::min<size_t>(nTags, tags.size())),
+      txAirS(tags.size(), 0.0),
+      rxAirS(tags.size(), 0.0)
+{
+    const int rti = static_cast<int>(rt);
+    const uint32_t fixBytes = CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(CA_TBL_MSG_ENTRY_PUSH, 1);
+    const uint32_t advBytes =
+        CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(CA_TBL_MSG_DISCOVERY, 1) + kRouteBytes;
+    if (rt == CA_TBL_TIER_UWB)
+    {
+        fixAirS = CaTblEnergyModel::UwbFrameTimeS(fixBytes);
+        advertAirS = CaTblEnergyModel::UwbFrameTimeS(advBytes);
+    }
+    else
+    {
+        fixAirS = CaTblEnergyModel::LoRaTimeOnAirS(phy[rti].sf, phy[rti].bandwidthHz, fixBytes, 1);
+        advertAirS =
+            CaTblEnergyModel::LoRaTimeOnAirS(phy[rti].sf, phy[rti].bandwidthHz, advBytes, 1);
+    }
+    for (size_t g = 0; g < gateways.size(); ++g)
+    {
+        gwPos[static_cast<uint16_t>(gateways[g].id)] = gateways[g].pos;
+    }
+    for (size_t k = 1; k < n; ++k)
+    {
+        relayIdx[static_cast<uint16_t>(tags[k].nodeId)] = k;
+    }
+    log.open(logPath.c_str());
+    if (!log.is_open())
+    {
+        std::cerr << "FATAL: cannot open " << logPath
+                  << " for writing -- does --outdir exist?\n";
+        std::exit(1);
+    }
+    log << "t,originId,hop,senderId,etxNext,etxHops,etxCost,confNext,confHops,confCost,"
+           "metric,chosenNext,chosenClass,diverged,outcome\n";
+}
+
+__attribute__((noinline)) void
+FixRouter::Note(size_t rx, uint16_t tx, double atS, double rxPowerDbm, bool nlos)
+{
+    Link& l = links[std::make_pair(rx, tx)];
+    l.at.push_back(atS);
+    l.rssi.push_back(rxPowerDbm);
+    l.nlos.push_back(nlos ? 1 : 0);
+    while (l.at.size() > kLinkWindow)
+    {
+        l.at.pop_front();
+        l.rssi.pop_front();
+        l.nlos.pop_front();
+    }
+}
+
+__attribute__((noinline)) void
+FixRouter::OnRx(uint16_t rxId, const CaTblHeader& hdr, const CaTblLinkOutcome& out)
+{
+    // A gateway's own beacon, heard first-hand on the routing tier. A relayed copy names
+    // the gateway as its origin but says nothing about THIS relay's link to it.
+    if (hdr.GetHopsTraversed() != 0 || hdr.GetMsgType() != CA_TBL_MSG_DISCOVERY ||
+        static_cast<CaTblTier>(hdr.GetTier()) != rt || gwPos.count(hdr.GetOriginId()) == 0)
+    {
+        return;
+    }
+    std::map<uint16_t, size_t>::const_iterator it = relayIdx.find(rxId);
+    if (it == relayIdx.end())
+    {
+        return;
+    }
+    Note(it->second, hdr.GetOriginId(), Simulator::Now().GetSeconds(), out.rxPowerDbm,
+         out.nlos);
+    ++beaconsNoted;
+}
+
+__attribute__((noinline)) bool
+FixRouter::LinkRoute(size_t rx, uint16_t tx, double nominalS, CaTblRoute& r) const
+{
+    std::map<std::pair<size_t, uint16_t>, Link>::const_iterator it =
+        links.find(std::make_pair(rx, tx));
+    if (it == links.end() || it->second.at.size() < 2)
+    {
+        return false;
+    }
+    const Link& l = it->second;
+    const size_t k = l.at.size();
+    const double span = l.at.back() - l.at.front();
+    const double d =
+        (span > 0.0) ? std::min(1.0, static_cast<double>(k - 1) * nominalS / span) : 1.0;
+    double mean = 0.0;
+    double nl = 0.0;
+    for (size_t i = 0; i < k; ++i)
+    {
+        mean += l.rssi[i];
+        nl += l.nlos[i];
+    }
+    mean /= static_cast<double>(k);
+    double var = 0.0;
+    for (size_t i = 0; i < k; ++i)
+    {
+        var += (l.rssi[i] - mean) * (l.rssi[i] - mean);
+    }
+    var /= static_cast<double>(k - 1);
+    double gapMean = span / static_cast<double>(k - 1);
+    double jit = 0.0;
+    for (size_t i = 1; i < k; ++i)
+    {
+        const double g = (l.at[i] - l.at[i - 1]) - gapMean;
+        jit += g * g;
+    }
+    jit = std::sqrt(jit / static_cast<double>(k - 1));
+    r.hopCount = 1;
+    r.etx = 1.0 / (d * d);
+    r.sumNlos = nl / static_cast<double>(k);
+    r.sumRssiVar = var;
+    r.sumJitter = jit;
+    return true;
+}
+
+__attribute__((noinline)) FixRouter::Heard
+FixRouter::Eval(uint16_t txId, uint16_t rxId, const Vector& txPos, const Vector& rxPos,
+                LoRaPhysicsEngine& e868, LoRa2p4PhysicsEngine& e2p4,
+                LoRaUWBPhysicsEngine& eUwb, Time at, uint8_t hops)
+{
+    const int rti = static_cast<int>(rt);
+    Heard h;
+    if (rt == CA_TBL_TIER_2P4)
+    {
+        PhysicsResult2p4 r = e2p4.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                      phy[rti].txPowerDbm, phy[rti].sf,
+                                                      phy[rti].bandwidthHz, hops, at);
+        h.received = r.packetReceived;
+        h.rxPowerDbm = r.rxPowerDbm;
+        h.nlos = CaTblNlosFlag(nlosSrc, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+    }
+    else if (rt == CA_TBL_TIER_UWB)
+    {
+        PhysicsResultUWB r = eUwb.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                      phy[rti].txPowerDbm, phy[rti].sf,
+                                                      phy[rti].bandwidthHz, hops, at);
+        h.received = r.packetReceived;
+        h.rxPowerDbm = r.rxPowerDbm;
+        h.nlos = CaTblNlosFlag(nlosSrc, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+    }
+    else
+    {
+        PhysicsResult r = e868.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                   phy[rti].txPowerDbm, phy[rti].sf,
+                                                   phy[rti].bandwidthHz, hops, at);
+        h.received = r.packetReceived;
+        h.rxPowerDbm = r.rxPowerDbm;
+        h.nlos = CaTblNlosFlag(nlosSrc, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+    }
+    return h;
+}
+
+__attribute__((noinline)) double
+FixRouter::NextSlot(double t)
+{
+    ++slot;
+    const double s = t + static_cast<double>(slot) * kSlotS;
+    return (s < cycleEndS) ? s : -1.0;
+}
+
+__attribute__((noinline)) void
+FixRouter::Row(double t, uint16_t origin, uint32_t hop, uint16_t sender, bool have,
+               const CaTblRoute& etx, const CaTblRoute& conf, const CaTblRoutingTable& tbl,
+               uint16_t chosen, bool chosenIsGw, const char* outcome)
+{
+    log << std::fixed << std::setprecision(4) << t << ',' << origin << ',' << hop << ','
+        << sender << ',';
+    if (!have)
+    {
+        log << "0,0,0,0,0,0," << (confidenceActive ? "confidence" : "etx") << ",0,none,0,"
+            << outcome << '\n';
+        return;
+    }
+    log << etx.nextHopId << ',' << static_cast<unsigned>(etx.hopCount) << ','
+        << std::setprecision(6) << tbl.Cost(etx, CA_TBL_ROUTE_ETX) << ',' << conf.nextHopId
+        << ',' << static_cast<unsigned>(conf.hopCount) << ','
+        << tbl.Cost(conf, CA_TBL_ROUTE_CONFIDENCE) << ','
+        << (confidenceActive ? "confidence" : "etx") << ',' << chosen << ','
+        << (chosenIsGw ? "gateway" : "relay") << ','
+        << (etx.nextHopId != conf.nextHopId ? 1 : 0) << ',' << outcome << '\n';
+}
+
+__attribute__((noinline)) void
+FixRouter::Cycle(std::vector<CaTblTagState>& tags,
+                 const std::vector<std::vector<CaTblMac*>>& peerMacs,
+                 LoRaPhysicsEngine& e868,
+                 LoRa2p4PhysicsEngine& e2p4,
+                 LoRaUWBPhysicsEngine& eUwb,
+                 double t,
+                 Time now)
+{
+    ++round;
+    slot = 0;
+    cycleEndS = t + dt;
+    const uint16_t seq = static_cast<uint16_t>(round);
+    const int rti = static_cast<int>(rt);
+    const CaTblRouteMetric active =
+        confidenceActive ? CA_TBL_ROUTE_CONFIDENCE : CA_TBL_ROUTE_ETX;
+    // The header's definition, not a local one: widening what counts as position-fix
+    // traffic widens the routing claim (ca-tbl-header.cc, CaTblCarriesPositionFix).
+    const CaTblTrafficClass traffic = CaTblCarriesPositionFix(CA_TBL_MSG_ENTRY_PUSH)
+                                          ? CA_TBL_TRAFFIC_POSITION_FIX
+                                          : CA_TBL_TRAFFIC_GOSSIP;
+
+    // 1. Routes not refreshed recently name next hops that may be gone.
+    for (size_t b = 1; b < n; ++b)
+    {
+        tables[b].Expire(t, kRouteTtlCycles * dt);
+    }
+
+    // 2. Direct routes: gateways in the relay's own one-hop table on rt, priced from the
+    //    beacons its MAC delivered.
+    for (size_t b = 1; b < n; ++b)
+    {
+        const size_t pi = b - 1;
+        if (pi >= peerMacs.size() || static_cast<size_t>(rti) >= peerMacs[pi].size() ||
+            peerMacs[pi][static_cast<size_t>(rti)] == nullptr)
+        {
+            continue;
+        }
+        const std::vector<CaTblNeighbour> nb =
+            peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
+        for (size_t k = 0; k < nb.size(); ++k)
+        {
+            if (gwPos.count(nb[k].id) == 0)
+            {
+                continue;
+            }
+            CaTblRoute r;
+            if (!LinkRoute(b, nb[k].id, beaconMeanS, r))
+            {
+                ++directUnusable;
+                continue;
+            }
+            r.nodeId = kBackbone;
+            r.nextHopId = nb[k].id;
+            r.lastUpdatedS = t;
+            r.seqNo = seq;
+            r.valid = true;
+            r.pathConfidencePenalty = tables[b].Cost(r, CA_TBL_ROUTE_CONFIDENCE);
+            tables[b].Update(r);
+            ++directInstalled;
+        }
+    }
+
+    // 3. Advertisements. Snapshot first, so the order relays advertise in cannot let a
+    //    route learned this round be re-advertised in the same round.
+    std::vector<Advert> adv(n);
+    for (size_t c = 1; c < n; ++c)
+    {
+        CaTblRoute sel;
+        if (tables[c].PeekRoute(kBackbone, active, traffic, sel))
+        {
+            adv[c].have = true;
+            adv[c].nextHop = sel.nextHopId;
+            adv[c].hops = sel.hopCount;
+            adv[c].etx = sel.etx;
+            adv[c].sumNlos = sel.sumNlos;
+            adv[c].sumVar = sel.sumRssiVar;
+            adv[c].sumJit = sel.sumJitter;
+        }
+    }
+    for (size_t c = 1; c < n; ++c)
+    {
+        if (!adv[c].have || adv[c].hops >= kMaxHops)
+        {
+            continue;
+        }
+        const double ts = NextSlot(t);
+        if (ts < 0.0)
+        {
+            ++noSlot;
+            continue;
+        }
+        CaTblEnergyModel& E = tags[c].energy;
+        if (!E.CanTransmit(rt, ts))
+        {
+            ++duty;
+            continue;
+        }
+        E.AccountFrameTx(rt, ts, advertAirS);
+        txAirS[c] += advertAirS;
+        ++adverts;
+        const Time at = now + Seconds(ts - t);
+        const uint16_t cId = static_cast<uint16_t>(tags[c].nodeId);
+        for (size_t b = 1; b < n; ++b)
+        {
+            if (b == c)
+            {
+                continue;
+            }
+            const Heard h = Eval(cId, static_cast<uint16_t>(tags[b].nodeId), tags[c].pos,
+                                 tags[b].pos, e868, e2p4, eUwb, at, 0);
+            if (!h.received)
+            {
+                continue;
+            }
+            ++advertsHeard;
+            Note(b, cId, ts, h.rxPowerDbm, h.nlos);
+            // Split horizon: C's route runs through B, so B handing a frame to C would
+            // hand it straight back.
+            if (adv[c].nextHop == tags[b].nodeId)
+            {
+                ++splitHorizon;
+                continue;
+            }
+            CaTblRoute r;
+            // A relay advertises once a cycle while it holds a route: nominal period dt.
+            if (!LinkRoute(b, cId, dt, r))
+            {
+                continue;
+            }
+            r.nodeId = kBackbone;
+            r.nextHopId = cId;
+            r.hopCount = static_cast<uint8_t>(adv[c].hops + 1);
+            r.etx += adv[c].etx;
+            r.sumNlos += adv[c].sumNlos;
+            r.sumRssiVar += adv[c].sumVar;
+            r.sumJitter += adv[c].sumJit;
+            r.lastUpdatedS = t;
+            r.seqNo = seq;
+            r.valid = true;
+            r.pathConfidencePenalty = tables[b].Cost(r, CA_TBL_ROUTE_CONFIDENCE);
+            tables[b].Update(r);
+            ++viaInstalled;
+        }
+    }
+
+    // 4. Each relay reports its own estimate, hop by hop, each hop choosing once.
+    for (size_t o = 1; o < n; ++o)
+    {
+        ++originated;
+        const uint16_t originId = static_cast<uint16_t>(tags[o].nodeId);
+        size_t cur = o;
+        std::set<uint16_t> visited;
+        visited.insert(originId);
+        for (uint32_t hop = 0;; ++hop)
+        {
+            const uint16_t sender = static_cast<uint16_t>(tags[cur].nodeId);
+            CaTblRoute conf;
+            CaTblRoute etx;
+            if (!tables[cur].SelectRoute(kBackbone, CA_TBL_ROUTE_CONFIDENCE, traffic, conf,
+                                         &etx))
+            {
+                (hop == 0 ? noRouteOrigin : noRouteMid)++;
+                Row(t, originId, hop, sender, false, etx, conf, tables[cur], 0, false,
+                    "noroute");
+                break;
+            }
+            ++selections;
+            const bool div = (conf.nextHopId != etx.nextHopId);
+            diverged += div ? 1 : 0;
+            etxRelay += gwPos.count(etx.nextHopId) ? 0 : 1;
+            confRelay += gwPos.count(conf.nextHopId) ? 0 : 1;
+            const CaTblRoute& ch = confidenceActive ? conf : etx;
+            const bool isGw = gwPos.count(ch.nextHopId) != 0;
+            (isGw ? chosenGw : chosenRelay)++;
+            std::map<uint16_t, size_t>::const_iterator nx = relayIdx.find(ch.nextHopId);
+            if (!isGw && (nx == relayIdx.end() || visited.count(ch.nextHopId) != 0))
+            {
+                ++loops;
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "loop");
+                break;
+            }
+            const double ts = NextSlot(t);
+            if (ts < 0.0)
+            {
+                ++noSlot;
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "noslot");
+                break;
+            }
+            CaTblEnergyModel& E = tags[cur].energy;
+            if (!E.CanTransmit(rt, ts))
+            {
+                ++duty;
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "duty");
+                break;
+            }
+            E.AccountFrameTx(rt, ts, fixAirS);
+            txAirS[cur] += fixAirS;
+            const Vector& rxPos = isGw ? gwPos[ch.nextHopId] : tags[nx->second].pos;
+            const Heard h = Eval(sender, ch.nextHopId, tags[cur].pos, rxPos, e868, e2p4,
+                                 eUwb, now + Seconds(ts - t),
+                                 static_cast<uint8_t>(std::min<uint32_t>(255u, hop)));
+            if (!h.received)
+            {
+                ++lostOnAir;
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "lost");
+                break;
+            }
+            divergedCarried += div ? 1 : 0;
+            if (isGw)
+            {
+                ++delivered[std::min<uint32_t>(3u, hop + 1)];
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "delivered");
+                break;
+            }
+            tags[nx->second].energy.AccountListen(rt, fixAirS);
+            rxAirS[nx->second] += fixAirS;
+            ++forwarded;
+            Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId, isGw,
+                "forwarded");
+            if (hop + 1 >= kMaxHops)
+            {
+                ++ttl;
+                break;
+            }
+            visited.insert(ch.nextHopId);
+            cur = nx->second;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+FixRouter::Report(std::ostream& os, const std::vector<CaTblTagState>& tags) const
+{
+    std::ostringstream o;
+    uint64_t tblSel = 0;
+    uint64_t tblDiv = 0;
+    for (size_t k = 1; k < n; ++k)
+    {
+        tblSel += tables[k].Selections();
+        tblDiv += tables[k].Divergences();
+    }
+    o << "    L.1.1 fix routing on " << CaTblTierName(rt) << ", selector "
+      << (confidenceActive ? "CONFIDENCE" : "ETX (confidence scored)") << ": beacons noted "
+      << beaconsNoted << ", routes installed direct " << directInstalled << " / via a relay "
+      << viaInstalled << " (gateway links not yet usable " << directUnusable
+      << "), adverts sent " << adverts << " heard " << advertsHeard << " split-horizon "
+      << splitHorizon << "\n"
+      << "      fixes originated " << originated << ": delivered by hops 1/2/3+ "
+      << delivered[1] << "/" << delivered[2] << "/" << delivered[3] << ", forwarded "
+      << forwarded << ", lost on air " << lostOnAir << ", no route at origin "
+      << noRouteOrigin << " / mid-path " << noRouteMid << ", loop " << loops << ", ttl "
+      << ttl << ", duty " << duty << ", no slot " << noSlot << "\n"
+      << "      selections " << selections << " (tables " << tblSel << "), divergences "
+      << diverged << " (tables " << tblDiv << "); next hop chosen gateway " << chosenGw
+      << " / relay " << chosenRelay << "; ETX would pick a relay " << etxRelay
+      << ", confidence " << confRelay << "; diverged hops crossed " << divergedCarried
+      << "\n";
+    // Per relay, per tier: the sect 6 check. Every router frame is on rt, so the two
+    // other tiers must read what the relay's ranging alone put there -- exactly 0.
+    for (size_t k = 1; k < n; ++k)
+    {
+        o << "      router node " << tags[k].nodeId << ": routes " << tables[k].Size()
+          << ", selections " << tables[k].Selections() << ", divergences "
+          << tables[k].Divergences() << ", router airtime tx " << std::fixed
+          << std::setprecision(6) << txAirS[k] << " s rx " << rxAirS[k]
+          << " s; energy 868 " << tags[k].energy.GetTierJ(CA_TBL_TIER_868) << " J, 2.4 "
+          << tags[k].energy.GetTierJ(CA_TBL_TIER_2P4) << " J, UWB "
+          << tags[k].energy.GetTierJ(CA_TBL_TIER_UWB) << " J\n";
+    }
+    os << o.str();
+}
+
+/**
  * \brief Drives the SHS engine from a trajectory, by synthesising the gait an IMU sees.
  *
  * The engine samples at 100 Hz and expects trunk accelerations and yaw rate; the
@@ -3398,7 +4065,9 @@ RunArm(CaTblPolicyMode mode,
        double injectBiasFraction,
        uint32_t injectFaultAnchors,
        double anchorGrantGossipS,
-       bool relayChain)
+       bool relayChain,
+       bool fixRouting,
+       bool fixRoutingConfidence)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -3825,6 +4494,10 @@ RunArm(CaTblPolicyMode mode,
             << ".csv";
         gossip.reset(new GrantGossip(anchorGrantGossipS, dt, gfn.str(), phy));
     }
+    // L.1.1. Declared before macs for the same reason: each relay's routing-tier MAC holds
+    // a callback into it. Built below, once the relays have their ids; null unless
+    // --fixRouting, and while null no callback is bound and nothing is sent or evaluated.
+    std::unique_ptr<FixRouter> router;
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
     std::map<uint16_t, Vector> anchorPosById;
@@ -4106,6 +4779,26 @@ RunArm(CaTblPolicyMode mode,
         cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
         chain.reset(new RelayChain(tags.size(), cfn.str()));
+    }
+    if (fixRouting)
+    {
+        const CaTblTier rrt = static_cast<CaTblTier>(
+            std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+        std::ostringstream rfn;
+        rfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        router.reset(new FixRouter(tags, nTags, rrt, fixRoutingConfidence,
+                                   dep.anchors[rrt], beaconPeriodS[rrt], dt, nlosSource, phy,
+                                   rfn.str()));
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        {
+            if (static_cast<size_t>(rrt) < peerMacs[pi].size() &&
+                peerMacs[pi][static_cast<size_t>(rrt)] != nullptr)
+            {
+                peerMacs[pi][static_cast<size_t>(rrt)]->SetRxCallback(
+                    MakeCallback(&FixRouter::OnRx, router.get()));
+            }
+        }
     }
 
     // ---- FINDERS: moving nodes carrying all three radios ---------------------
@@ -6890,6 +7583,14 @@ RunArm(CaTblPolicyMode mode,
                   << d.sigmaGeoM << "," << (floorRanged ? 1 : 0) << ","
                   << meas.size() << "\n";
         }
+
+        // L.1.1. The relays' position fixes, routed. LAST in the cycle on purpose: every
+        // frame takes its own slot after the cycle instant, so no ranging exchange of this
+        // cycle can be evaluated after one of them.
+        if (router)
+        {
+            router->Cycle(tags, peerMacs, engine868, engine2p4, engineUwb, t, now);
+        }
     }
 
     if (writeTrace)
@@ -7348,6 +8049,10 @@ RunArm(CaTblPolicyMode mode,
     {
         chain->Report(std::cout, tags, relayVarBudgetM2, maxRelayDepth);
     }
+    if (router)
+    {
+        router->Report(std::cout, tags);
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -7584,6 +8289,8 @@ main(int argc, char* argv[])
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
     bool relayChainArg = false; // L.1.2, off: every relay stays at depth 0
+    bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
+    bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -8654,6 +9361,46 @@ main(int argc, char* argv[])
                  "would be a structural zero, and that combination is refused rather "
                  "than run. Set --maxRelayDepth=2 for depth 2 to be admissible at all.",
                  relayChainArg);
+    cmd.AddValue("fixRouting",
+                 "Route each relay's position fix to the gateway backbone hop by hop, so a "
+                 "relay that cannot reach a gateway on --relayTier hands its ENTRY_PUSH to "
+                 "one that can (Network sect 2-3, TECH_DEBT L.1.1). Every relay keeps a "
+                 "routing table built from links it has HEARD -- gateway beacons its own MAC "
+                 "delivered, and a once-a-cycle route advertisement from every relay holding "
+                 "a route -- and each hop chooses once, on ETX, while the confidence metric "
+                 "(alpha*NLOS + beta*RSSI variance + gamma*jitter, slack 1; the weights are "
+                 "OURS, not cited) is scored in the same call: Divergences() counts the hops "
+                 "where the two disagreed about a frame that was actually routed. FALSE "
+                 "(default) is every result so far, and it stays the default because every "
+                 "advertisement and every hop is one more engine evaluation, which displaces "
+                 "the shared random stream for every link in the run (rule 8), so no "
+                 "magnitude is comparable across the two settings; off, nothing is "
+                 "constructed, no MAC callback is bound and not one evaluation is added. The "
+                 "routers are the filtered relays, ids 2+; the measured tag does not route, "
+                 "because its tier moves between cycles and a frame on a tier it did not use "
+                 "would break sect 6. Frames ride --relayTier inside the per-cycle loop, each "
+                 "in its own slot after the cycle's ranging, charged to the relay that sends "
+                 "(TX) or receives to forward (RX) and to no other tier or account. Every hop "
+                 "is written to fix_routing_<arm>_seed<N>.csv. REQUIRES "
+                 "--relayedRanging=true and --nTags >= 3 (two relays): with fewer no relay "
+                 "has an account to charge or a neighbour to route through, and every count "
+                 "would be a structural zero, so that combination is refused rather than run. "
+                 "At --relayTier=0 the relay's own ranging broadcast spends its 2.5% tier-1 "
+                 "budget every cycle, so nearly every routed frame is refused by the governor "
+                 "and counted as such.",
+                 fixRoutingArg);
+    cmd.AddValue("fixRoutingConfidence",
+                 "Make the confidence metric the ACTIVE selector for position-fix traffic "
+                 "under --fixRouting, instead of only scoring it beside ETX. FALSE (default) "
+                 "routes on ETX, the borrowed baseline the spec says to build and validate "
+                 "first, so that the contributed metric is measured against something rather "
+                 "than asserted over. Only ENTRY_PUSH is routed this way -- it carries a fix "
+                 "(CaTblCarriesPositionFix) -- and route advertisements stay one-hop "
+                 "discovery gossip, which is the traffic split the claim rests on. A relay "
+                 "advertises the route its own selector would take, so under this flag the "
+                 "cost of handing a frame to a neighbour is the confidence cost of where that "
+                 "neighbour will send it. REQUIRES --fixRouting=true.",
+                 fixRoutingConfidenceArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -8827,6 +9574,26 @@ main(int argc, char* argv[])
         std::cerr << "WARNING: --relayChain with --maxRelayDepth=" << maxRelayDepthArg
                   << ": every depth-2 range will be refused by the ceiling, never by the"
                   << " budget\n";
+    }
+    // L.1.1. Refused rather than run, on the same reasoning as --relayChain: without relay
+    // filters there is no account to charge, and with one relay no route through another.
+    if (fixRoutingConfidenceArg && !fixRoutingArg)
+    {
+        std::cerr << "FATAL: --fixRoutingConfidence selects the metric --fixRouting routes on;"
+                  << " it needs --fixRouting=true\n";
+        return 1;
+    }
+    if (fixRoutingArg && (!relayedRangingArg || nTagsArg < 3))
+    {
+        std::cerr << "FATAL: --fixRouting needs --relayedRanging=true and --nTags >= 3 (got "
+                  << (relayedRangingArg ? "true" : "false") << ", " << nTagsArg << ")\n";
+        return 1;
+    }
+    if (fixRoutingArg && relayTierArg == 0)
+    {
+        std::cerr << "WARNING: --fixRouting on --relayTier=0: each relay's ranging broadcast"
+                  << " spends its 2.5% tier-1 budget every cycle, so routed frames will be"
+                  << " refused by the duty governor\n";
     }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would
@@ -9377,7 +10144,9 @@ main(int argc, char* argv[])
                                        injectBiasFraction,
                                        injectFaultAnchors,
                                        anchorGrantGossipSArg,
-                                       relayChainArg);
+                                       relayChainArg,
+                                       fixRoutingArg,
+                                       fixRoutingConfidenceArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -9456,10 +10225,16 @@ main(int argc, char* argv[])
     }
     // Every stream that this run writes is now closed, which is the precondition
     // for the digest to describe the finished artefact rather than a partial one.
-    // relay_chain_*.csv only under --relayChain, which is the only run that writes it.
-    if (!AppendOutputDigest(outdir, relayChainArg
-                                        ? "arm_summary.csv trace_*.csv relay_chain_*.csv"
-                                        : "arm_summary.csv trace_*.csv"))
+    // relay_chain_*.csv only under --relayChain and fix_routing_*.csv only under
+    // --fixRouting, the only runs that write them.
+    std::string digestPatterns = relayChainArg
+                                     ? "arm_summary.csv trace_*.csv relay_chain_*.csv"
+                                     : "arm_summary.csv trace_*.csv";
+    if (fixRoutingArg)
+    {
+        digestPatterns += " fix_routing_*.csv";
+    }
+    if (!AppendOutputDigest(outdir, digestPatterns))
     {
         return 1;
     }
