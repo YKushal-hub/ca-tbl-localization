@@ -2697,6 +2697,509 @@ struct CaTblTagState
 };
 
 /**
+ * L.1.2 -- RELAY DEPTH 2 (Network sect 5), behind --relayChain.
+ *
+ * WHAT WAS MISSING. CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed,
+ * and the scenario hard-set hopDepth = 1: every relay ranged surveyed anchors and nothing
+ * else, so no relay's own position was ever relayed, depth 2 could not arise, and the
+ * ceiling and the budget never bound on the thing they exist for.
+ *
+ * WHO THE RELAYS ARE. The peer field nodes (ids 2+) that --relayedRanging gives a filter.
+ * TECH_DEBT L.1.2 says "finder"; a finder carries GNSS and runs no filter, so it is an
+ * anchor here, never a relay. The relay role is the filtered peer's.
+ *
+ * WHAT THIS ADDS. Each cycle a relay that ranged three or more anchors HOLDS A FIX and is
+ * re-grounded at depth 0. A relay short of three is not stepped at once: after every
+ * relay has ranged its anchors, it ranges each relay holding a fix THIS cycle, on
+ * --relayTier, and each such range is a RELAYED measurement -- A1-A5 applied, hopDepth =
+ * the holder's depth + 1, P = the holder's covariance composed with what the holder
+ * itself inherited. Admitted ranges join its anchor ranges and it steps. If that step
+ * FUSED them -- three or more measurements, so it holds a fix too -- its depth becomes
+ * the deepest holder it used + 1, and a short relay processed after it may chain through
+ * it. The measured tag, ranging a relay, reads that relay's depth -- so a range through a
+ * relay that leaned on another is hopDepth 2, and the ceiling and the budget decide it.
+ *
+ * ONLY A FUSED RANGE MOVES DEPTH. Below three measurements CaTblPolicy::Step() coasts on
+ * the prediction and uses none of them, so a short relay that admitted a relayed range
+ * and still had two measurements has NOT leaned on anyone: its estimate is exactly what
+ * it would have been without the exchange. Marking it deeper would manufacture depth-2
+ * candidates out of relays whose position no relay ever touched -- counts that look
+ * like the mechanism working and are not. (The first draft of this did exactly that: in
+ * every regime probed, not one short relay reached three measurements, and depth 2 was
+ * still reported hundreds of times.)
+ *
+ * AN EXCHANGE THAT CANNOT COMPLETE A FIX IS NOT MADE. If its anchor ranges plus every
+ * holder it could range still come to fewer than three, even a clean sweep leaves the
+ * filter coasting, so the exchanges would buy nothing and are neither made nor charged.
+ * OURS, not cited -- a node that knows the fix floor does not spend airtime below it.
+ *
+ * HOW A SHORT RELAY KNOWS WHO HOLDS A FIX is not modelled: it ranges every holder, as
+ * the measured tag's relayed exchange ranges every relay with no discovery step. The
+ * holder's estimate and covariance are read, not transmitted -- P_B is not yet
+ * serialised (TECH_DEBT sect 3.1 item 1), on either leg.
+ *
+ * DEPTH IS CARRIED ACROSS CYCLES, and that is a choice. A relay that coasts keeps the
+ * depth of what it last rested on, because its estimate still rests on it; only three
+ * direct anchor ranges in one cycle re-ground it.
+ *
+ * WHY THE HOLDER'S COVARIANCE IS COMPOSED, although the short relay's filter already fused
+ * the range at sigma_eff. sigma_eff sizes ONE measurement. A5 stops a relay contributing
+ * twice within an update; nothing stops it contributing once per cycle, cycle after
+ * cycle, and the holder's position error is shared by all of those. The short relay's
+ * filter treats it as fresh noise each time and shrinks P_B on it -- the correlation of
+ * RELAYED_RANGING_ERROR_MODEL.md sect 3, across time rather than within an update. The
+ * composition adds the projected term back along the upstream leg. Where the filter has
+ * not yet averaged it down this double-counts part of it: conservative, in the direction
+ * the error model prefers (it discards information rather than inventing it).
+ *
+ * WHICH INHERITANCE IS CARRIED -- OURS, not cited. A relay that admitted ranges through
+ * several holders in one update carries the LARGEST projected term and that leg's
+ * direction. A sum would count as independent the errors sect 3 says are not.
+ *
+ * ENERGY, and the sect 6 invariant. The exchange is one more ranging exchange on
+ * --relayTier -- the one radio a relay ranges on; it carries all three like every node,
+ * but it is a fixed-tier measured node (C5) and never escalates -- inside the per-cycle
+ * loop, charged to the SHORT relay's own account whether or not the range is admitted.
+ * That is the rule the measured tag's relayed exchange already follows: the initiator
+ * pays, and the answering relay is not charged, as an answering gateway is not. No other
+ * tier and no other account is touched; the measured tag's energy is not.
+ *
+ * THE EXCHANGE IS STAMPED AT THE CYCLE'S ONE INSTANT, like every C5 exchange, and that
+ * is a KNOWN LIMIT rather than a choice made here. Every ProcessTransmission in a cycle
+ * carries the same `now`, and the engines' interference registry keys on time overlap
+ * and transmitter id alone, so every relay's exchanges collide with every exchange
+ * registered before them in that instant. Measured with this flag on, twelve regimes,
+ * 5 760 cycles: two relays held a fix in the same cycle ONCE, 17 relay-to-relay exchanges
+ * were possible and made and none delivered a range, so no chain ever fused and depth 2
+ * never arose. With each relay's exchanges moved to its own instant in a diagnostic build
+ * (not this code), the same flags fuse chains and reach depth 2 at once. That scheduling
+ * belongs to C5, for every relay exchange and not only this one, and is recorded as open
+ * rather than patched here.
+ *
+ * Off, this is never constructed, the relays step exactly as before, and not one engine
+ * evaluation is added. Every relayed-range decision it sees -- both legs -- is written to
+ * relay_chain_<arm>_seed<N>.csv, which exists only when the flag is on, and so is every
+ * FUSE: a row with leg `fuse` for each short relay whose step fused a relayed range,
+ * carrying the depth it took. A depth-d candidate with no earlier fuse at depth d-1 for
+ * its relay is depth that came from nowhere, and G17 refuses it.
+ */
+struct RelayChain
+{
+    RelayChain(size_t nTags, const std::string& logPath);
+    void BeginCycle();
+    //! A relay's anchor ranging is done. True: defer its step (short of three).
+    bool Defer(size_t pt, const std::vector<CaTblRangeMeasurement>& pmeas, size_t addressed);
+    //! Short relays range this cycle's fix-holders, then step.
+    void RangeShortRelays(std::vector<CaTblTagState>& tags,
+                          uint32_t nTags,
+                          CaTblTier rt,
+                          const TierPhy* phy,
+                          LoRaPhysicsEngine& e868,
+                          LoRa2p4PhysicsEngine& e2p4,
+                          LoRaUWBPhysicsEngine& eUwb,
+                          double t,
+                          double dt,
+                          Time now,
+                          uint32_t maxRelayDepth,
+                          double budgetM2);
+    //! The measured tag's leg: stamp depth and composed P onto a candidate through relay
+    //! pt. False: the chain could not be composed, and the candidate must be dropped.
+    bool ForTag(size_t pt, const CaTblPolicy& relay, CaTblRelayedRange& rr, double t,
+                uint32_t consumer);
+    //! One decision, either leg. verdict < 0 means the composition was refused.
+    void Record(double t, uint32_t consumer, int leg, const CaTblRelayedRange& rr,
+                double inheritedVarM2, int verdict, double sigmaEffM);
+    //! A short relay's step FUSED a relayed range: the depth it now carries, and why.
+    void LogFuse(double t, uint32_t relayId, uint32_t viaId, CaTblTier rt, uint32_t newDepth,
+                 uint32_t maxRelayDepth, double trP, double inherited, double budgetM2);
+    void Report(std::ostream& os, const std::vector<CaTblTagState>& tags,
+                double budgetM2, uint32_t maxRelayDepth) const;
+
+    std::vector<uint32_t> depth;          //!< hops between the estimate and infrastructure
+    std::vector<double> inheritedVarM2;   //!< projected variance that estimate leans on
+    std::vector<double> upUx;             //!< direction of the upstream leg it came along
+    std::vector<double> upUy;
+    std::vector<char> fixThisCycle;       //!< stepped this cycle on >= 3 measurements
+    std::vector<char> deferred;
+    std::vector<size_t> addressed;
+    std::vector<std::vector<CaTblRangeMeasurement>> held;
+    std::ofstream log;
+
+    uint64_t exchanges = 0;        //!< relay-to-relay exchanges made (and charged)
+    uint64_t linked = 0;           //!< of which the engine delivered a range
+    uint64_t shortSteps = 0;       //!< short relays stepped after the fix-holders
+    uint64_t shortNoExchange = 0;  //!< of which could not reach three, so ranged no one
+    uint64_t shortAdmitted = 0;    //!< of which admitted at least one relayed range
+    uint64_t shortFused = 0;       //!< of which then had >= 3, so the filter FUSED them
+    uint64_t shortByAnchors[3] = {0, 0, 0}; //!< short relays by direct anchor ranges 0/1/2
+    uint64_t holderCycles[3] = {0, 0, 0};   //!< cycles by fix-holders present 0/1/2+
+    uint64_t composeRefused[2] = {0, 0};
+    uint64_t verdicts[2][6] = {{0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0}};
+    uint64_t offered[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};  //!< [leg][min(depth,3)]
+    uint64_t admitted[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+    uint64_t a2[2][3] = {{0, 0, 0}, {0, 0, 0}};             //!< [leg][CaTblRelayA2Reason]
+    //! [leg][min(depth,3)][CaTblRelayA2Reason] -- the done-when is about depth 2, and a
+    //! total over depths would let depth-1 budget refusals stand in for it.
+    uint64_t a2ByDepth[2][4][3] = {};
+};
+
+__attribute__((noinline))
+RelayChain::RelayChain(size_t n, const std::string& logPath)
+    : depth(n, 0),
+      inheritedVarM2(n, 0.0),
+      upUx(n, 0.0),
+      upUy(n, 0.0),
+      fixThisCycle(n, 0),
+      deferred(n, 0),
+      addressed(n, 0),
+      held(n)
+{
+    log.open(logPath.c_str());
+    if (!log.is_open())
+    {
+        std::cerr << "FATAL: cannot open " << logPath
+                  << " for writing -- does --outdir exist?\n";
+        std::exit(1);
+    }
+    log << "t,consumerId,relayId,leg,tier,hopDepth,maxRelayDepth,distM,carriedVarM2,"
+           "inheritedVarM2,budgetM2,a2,verdict,sigmaRawM,sigmaEffM\n";
+}
+
+__attribute__((noinline)) void
+RelayChain::BeginCycle()
+{
+    std::fill(fixThisCycle.begin(), fixThisCycle.end(), 0);
+    std::fill(deferred.begin(), deferred.end(), 0);
+}
+
+__attribute__((noinline)) bool
+RelayChain::Defer(size_t pt, const std::vector<CaTblRangeMeasurement>& pmeas, size_t nAddr)
+{
+    if (pmeas.size() >= 3)
+    {
+        // Three direct anchor ranges: a fix on infrastructure alone. Re-grounded.
+        fixThisCycle[pt] = 1;
+        depth[pt] = 0;
+        inheritedVarM2[pt] = 0.0;
+        upUx[pt] = 0.0;
+        upUy[pt] = 0.0;
+        return false;
+    }
+    deferred[pt] = 1;
+    held[pt] = pmeas;
+    addressed[pt] = nAddr;
+    ++shortByAnchors[pmeas.size()];
+    return true;
+}
+
+__attribute__((noinline)) void
+RelayChain::Record(double t, uint32_t consumer, int leg, const CaTblRelayedRange& rr,
+                   double inherited, int verdict, double sigmaEffM)
+{
+    const unsigned d = std::min<unsigned>(3u, rr.hopDepth);
+    ++offered[leg][d];
+    const char* a2name = "not_reached";
+    if (verdict < 0)
+    {
+        ++composeRefused[leg];
+    }
+    else
+    {
+        ++verdicts[leg][verdict];
+        if (verdict == CA_TBL_RELAY_ADMIT)
+        {
+            ++admitted[leg][d];
+        }
+        // A1 is checked first; a candidate refused there never reached A2.
+        if (verdict != CA_TBL_RELAY_REJECT_TIER)
+        {
+            const CaTblRelayA2Reason why = CaTblRelayA2(rr);
+            ++a2[leg][why];
+            ++a2ByDepth[leg][d][why];
+            a2name = CaTblRelayA2ReasonName(why);
+        }
+    }
+    log << std::fixed << std::setprecision(4) << t << ',' << consumer << ',' << rr.relayId
+        << ',' << (leg == 0 ? "relay" : "tag") << ',' << static_cast<int>(rr.tier) << ','
+        << static_cast<unsigned>(rr.hopDepth) << ',' << rr.maxRelayDepth << ','
+        << std::setprecision(6) << rr.distToRelayM << ','
+        << (rr.relayP[0][0] + rr.relayP[1][1]) << ',' << inherited
+        << ',' << rr.relayVarBudgetM2 << ',' << a2name << ','
+        << (verdict < 0 ? "COMPOSE_REFUSED"
+                        : CaTblRelayVerdictName(static_cast<CaTblRelayVerdict>(verdict)))
+        << ',' << rr.sigmaRangeM << ',' << sigmaEffM << '\n';
+}
+
+__attribute__((noinline)) void
+RelayChain::LogFuse(double t, uint32_t relayId, uint32_t viaId, CaTblTier rt,
+                    uint32_t newDepth, uint32_t maxRelayDepth, double trP, double inherited,
+                    double budgetM2)
+{
+    // Same columns as a decision row, so one reader takes both. consumerId is the relay
+    // that fused, relayId the deepest holder it fused through, hopDepth the depth it now
+    // carries, carriedVarM2 its own trace(P) after the step. No A2 and no sigma: this
+    // row records a consequence, not an admission.
+    log << std::fixed << std::setprecision(4) << t << ',' << relayId << ',' << viaId
+        << ",fuse," << static_cast<int>(rt) << ',' << newDepth << ',' << maxRelayDepth
+        << ",0.000000," << std::setprecision(6) << trP << ',' << inherited << ','
+        << budgetM2 << ",-,FUSED,0.000000,0.000000\n";
+}
+
+__attribute__((noinline)) bool
+RelayChain::ForTag(size_t pt, const CaTblPolicy& relay, CaTblRelayedRange& rr, double t,
+                   uint32_t consumer)
+{
+    rr.hopDepth = static_cast<uint8_t>(std::min<uint32_t>(255u, depth[pt] + 1));
+    if (inheritedVarM2[pt] > 0.0)
+    {
+        const double p[2][2] = {{relay.Pxx(), relay.Pxy()}, {relay.Pxy(), relay.Pyy()}};
+        if (!CaTblComposeRelayChain(p, inheritedVarM2[pt], upUx[pt], upUy[pt], rr.relayP))
+        {
+            // Not passed on uncorrected: that is the exact understatement the
+            // composition exists to prevent.
+            Record(t, consumer, 1, rr, inheritedVarM2[pt], -1, 0.0);
+            return false;
+        }
+    }
+    return true;
+}
+
+__attribute__((noinline)) void
+RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
+                             uint32_t nTags,
+                             CaTblTier rt,
+                             const TierPhy* phy,
+                             LoRaPhysicsEngine& e868,
+                             LoRa2p4PhysicsEngine& e2p4,
+                             LoRaUWBPhysicsEngine& eUwb,
+                             double t,
+                             double dt,
+                             Time now,
+                             uint32_t maxRelayDepth,
+                             double budgetM2)
+{
+    const int rti = static_cast<int>(rt);
+    const size_t n = std::min<size_t>(nTags, tags.size());
+    size_t holders = 0;
+    for (size_t k = 1; k < n; ++k)
+    {
+        holders += fixThisCycle[k] ? 1 : 0;
+    }
+    ++holderCycles[std::min<size_t>(holders, 2)];
+    for (size_t b = 1; b < n; ++b)
+    {
+        if (!deferred[b])
+        {
+            continue;
+        }
+        CaTblTagState& B = tags[b];
+        std::vector<CaTblRangeMeasurement>& meas = held[b];
+        std::set<uint16_t> used;
+        uint32_t newDepth = 0;
+        uint32_t viaId = 0; // the holder that set newDepth
+        double bestProj = -1.0;
+        double bestUx = 0.0;
+        double bestUy = 0.0;
+        size_t tried = 0;
+        // Holders NOW, not at the top: a short relay stepped earlier in this loop may have
+        // just become one.
+        size_t reachable = 0;
+        for (size_t c = 1; c < n; ++c)
+        {
+            reachable += (c != b && fixThisCycle[c]) ? 1 : 0;
+        }
+        // Even a clean sweep would leave the filter below three and coasting: no exchange.
+        const bool canFix = (meas.size() + reachable >= 3);
+        if (!canFix)
+        {
+            ++shortNoExchange;
+        }
+        for (size_t c = 1; c < n && canFix; ++c)
+        {
+            if (c == b || !fixThisCycle[c])
+            {
+                continue;
+            }
+            const CaTblTagState& C = tags[c];
+            // B's own PRIOR estimate: it has not stepped this cycle and does not know where
+            // it is. Its true position enters only the physics, which does not care.
+            const double ddx = B.policy.EstX() - C.policy.EstX();
+            const double ddy = B.policy.EstY() - C.policy.EstY();
+            const double dist = std::sqrt(ddx * ddx + ddy * ddy);
+
+            bool got = false;
+            double r = 0.0;
+            double sigRaw = 0.0;
+            if (rt == CA_TBL_TIER_2P4)
+            {
+                PhysicsResult2p4 res = e2p4.ProcessTransmission(
+                    B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
+                    phy[rti].bandwidthHz, 1, now);
+                got = res.packetReceived;
+                r = res.estimatedRangeM;
+                sigRaw = res.rangingSigmaM;
+            }
+            else if (rt == CA_TBL_TIER_UWB)
+            {
+                PhysicsResultUWB res = eUwb.ProcessTransmission(
+                    B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
+                    phy[rti].bandwidthHz, 1, now);
+                got = res.packetReceived;
+                r = res.estimatedRangeM;
+                sigRaw = res.rangingSigmaM;
+            }
+            else
+            {
+                PhysicsResult res = e868.ProcessTransmission(
+                    B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
+                    phy[rti].bandwidthHz, 1, now);
+                got = res.packetReceived;
+                r = res.estimatedRangeM;
+                sigRaw = res.rangingSigmaM;
+            }
+            ++tried;
+            ++exchanges;
+            // Charged on the short relay's own account, on --relayTier, admitted or not.
+            B.energy.AccountRangingExchange(rt, 1, got ? 1 : 0, t);
+            if (!got || !std::isfinite(r) || r <= 0.0 || dist <= 0.0)
+            {
+                continue;
+            }
+            ++linked;
+
+            CaTblRelayedRange rr;
+            rr.relayId = static_cast<uint16_t>(C.nodeId);
+            rr.tier = rt;
+            rr.hopDepth = static_cast<uint8_t>(std::min<uint32_t>(255u, depth[c] + 1));
+            rr.maxRelayDepth = maxRelayDepth;
+            rr.relayVarBudgetM2 = budgetM2;
+            rr.sigmaRangeM = sigRaw;
+            rr.relayP[0][0] = C.policy.Pxx();
+            rr.relayP[0][1] = C.policy.Pxy();
+            rr.relayP[1][0] = C.policy.Pxy();
+            rr.relayP[1][1] = C.policy.Pyy();
+            // C stepped earlier in this same cycle, so its covariance is current.
+            rr.relayAgeS = 0.0;
+            rr.relayFixIntervalS = dt;
+            rr.ux = ddx / dist;
+            rr.uy = ddy / dist;
+            rr.distToRelayM = dist;
+            if (inheritedVarM2[c] > 0.0)
+            {
+                const double p[2][2] = {{C.policy.Pxx(), C.policy.Pxy()},
+                                        {C.policy.Pxy(), C.policy.Pyy()}};
+                if (!CaTblComposeRelayChain(p, inheritedVarM2[c], upUx[c], upUy[c],
+                                            rr.relayP))
+                {
+                    Record(t, B.nodeId, 0, rr, inheritedVarM2[c], -1, 0.0);
+                    continue;
+                }
+            }
+            double sigEff = 0.0;
+            const CaTblRelayVerdict v = CaTblAdmitRelayedRange(rr, used, &sigEff);
+            Record(t, B.nodeId, 0, rr, inheritedVarM2[c], static_cast<int>(v),
+                   (v == CA_TBL_RELAY_ADMIT) ? sigEff : 0.0);
+            if (v != CA_TBL_RELAY_ADMIT)
+            {
+                continue;
+            }
+            // The PSEUDO-ANCHOR: the holder's ESTIMATE, priced by the inflated sigma.
+            CaTblRangeMeasurement m;
+            m.anchorX = C.policy.EstX();
+            m.anchorY = C.policy.EstY();
+            m.rangeM = r;
+            m.nlos = false;
+            m.nlosPropagation = false;
+            m.hiddenChannelActive = false;
+            m.sigmaM = sigEff;
+            meas.push_back(m);
+            used.insert(rr.relayId);
+            if (depth[c] + 1 > newDepth)
+            {
+                newDepth = depth[c] + 1;
+                viaId = C.nodeId;
+            }
+            const double proj = sigEff * sigEff - sigRaw * sigRaw;
+            if (proj > bestProj)
+            {
+                bestProj = proj;
+                bestUx = rr.ux;
+                bestUy = rr.uy;
+            }
+        }
+        B.policy.Step(dt, meas, 0, static_cast<int32_t>(meas.size()),
+                      static_cast<int32_t>(addressed[b] + tried), 0);
+        ++B.steps;
+        ++shortSteps;
+        if (!used.empty())
+        {
+            ++shortAdmitted;
+        }
+        // Step() fuses only at three or more; below that it coasted and the admitted
+        // ranges were discarded, so B's estimate leans on no one and its depth stays.
+        // held[b] started below three, so reaching three here means a relayed range is
+        // among them.
+        if (meas.size() >= 3 && !used.empty())
+        {
+            fixThisCycle[b] = 1;
+            ++shortFused;
+            depth[b] = newDepth;
+            inheritedVarM2[b] = std::max(0.0, bestProj);
+            upUx[b] = bestUx;
+            upUy[b] = bestUy;
+            LogFuse(t, B.nodeId, viaId, rt, newDepth, maxRelayDepth,
+                    B.policy.Pxx() + B.policy.Pyy(), inheritedVarM2[b], budgetM2);
+        }
+    }
+}
+
+__attribute__((noinline)) void
+RelayChain::Report(std::ostream& os, const std::vector<CaTblTagState>& tags, double budgetM2,
+                   uint32_t maxRelayDepth) const
+{
+    // Formatted into its own stream: std::fixed set on std::cout would outlive this call
+    // and reformat every arm printed after it.
+    std::ostringstream o;
+    o << "    L.1.2 relay chain: relay-to-relay exchanges " << exchanges << " (ranged "
+      << linked << "), short relays stepped " << shortSteps << " (no exchange possible "
+      << shortNoExchange << ", admitted a relayed range " << shortAdmitted
+      << ", fused it and held a fix " << shortFused << "), ceiling " << maxRelayDepth
+      << ", budget " << std::fixed << std::setprecision(1) << budgetM2 << " m^2\n"
+      << "      short relays by direct anchor ranges 0/1/2: " << shortByAnchors[0] << "/"
+      << shortByAnchors[1] << "/" << shortByAnchors[2]
+      << "; cycles by fix-holders present 0/1/2+: " << holderCycles[0] << "/"
+      << holderCycles[1] << "/" << holderCycles[2] << "\n";
+    for (int leg = 0; leg < 2; ++leg)
+    {
+        o << "      leg " << (leg == 0 ? "relay->relay" : "tag->relay  ")
+          << ": offered by depth 1/2/3+ " << offered[leg][1] << "/" << offered[leg][2] << "/"
+          << offered[leg][3] << ", admitted " << admitted[leg][1] << "/" << admitted[leg][2]
+          << "/" << admitted[leg][3] << "; ADMIT " << verdicts[leg][0] << " A1 "
+          << verdicts[leg][1] << " A2 " << verdicts[leg][2] << " A3 " << verdicts[leg][3]
+          << " A4 " << verdicts[leg][4] << " A5 " << verdicts[leg][5] << " compose-refused "
+          << composeRefused[leg] << "\n";
+        for (int d = 1; d < 4; ++d)
+        {
+            o << "        A2 at depth " << d << (d == 3 ? "+" : "") << ": pass "
+              << a2ByDepth[leg][d][CA_TBL_RELAY_A2_PASS] << " ceiling "
+              << a2ByDepth[leg][d][CA_TBL_RELAY_A2_CEILING] << " budget "
+              << a2ByDepth[leg][d][CA_TBL_RELAY_A2_BUDGET] << "\n";
+        }
+    }
+    // Per tier, per relay: the sect 6 check. A relay ranges only on --relayTier (a
+    // fixed-tier measured node, C5), so every other tier must read exactly zero.
+    for (size_t k = 1; k < tags.size(); ++k)
+    {
+        o << "      relay node " << tags[k].nodeId << ": depth " << depth[k] << ", inherited "
+          << std::setprecision(3) << inheritedVarM2[k] << " m^2, energy 868 "
+          << std::setprecision(6) << tags[k].energy.GetTierJ(CA_TBL_TIER_868) << " J, 2.4 "
+          << tags[k].energy.GetTierJ(CA_TBL_TIER_2P4) << " J, UWB "
+          << tags[k].energy.GetTierJ(CA_TBL_TIER_UWB) << " J\n";
+    }
+    os << o.str();
+}
+
+/**
  * \brief Drives the SHS engine from a trajectory, by synthesising the gait an IMU sees.
  *
  * The engine samples at 100 Hz and expects trunk accelerations and yaw rate; the
@@ -2894,7 +3397,8 @@ RunArm(CaTblPolicyMode mode,
        double injectRangeBiasM,
        double injectBiasFraction,
        uint32_t injectFaultAnchors,
-       double anchorGrantGossipS)
+       double anchorGrantGossipS,
+       bool relayChain)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -3593,6 +4097,15 @@ RunArm(CaTblPolicyMode mode,
             tags[pt].policy.Configure(pcfg);
             tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
         }
+    }
+    // L.1.2. Null unless --relayChain, and while null the relay loop below is unchanged.
+    std::unique_ptr<RelayChain> chain;
+    if (relayChain)
+    {
+        std::ostringstream cfn;
+        cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        chain.reset(new RelayChain(tags.size(), cfn.str()));
     }
 
     // ---- FINDERS: moving nodes carrying all three radios ---------------------
@@ -4617,6 +5130,10 @@ RunArm(CaTblPolicyMode mode,
             const CaTblTier rt = static_cast<CaTblTier>(
                 std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
             const int rti = static_cast<int>(rt);
+            if (chain)
+            {
+                chain->BeginCycle();
+            }
             for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
             {
                 const size_t pi = pt - 1;
@@ -4697,10 +5214,20 @@ RunArm(CaTblPolicyMode mode,
                 tags[pt].energy.AccountRangingExchange(
                     rt, static_cast<uint32_t>(nb.size()),
                     static_cast<uint32_t>(pmeas.size()), t);
+                // L.1.2: a relay short of three waits until every fix-holder has stepped.
+                if (chain && chain->Defer(pt, pmeas, nb.size()))
+                {
+                    continue;
+                }
                 tags[pt].policy.Step(dt, pmeas, 0,
                                      static_cast<int32_t>(pmeas.size()),
                                      static_cast<int32_t>(nb.size()), 0);
                 ++tags[pt].steps;
+            }
+            if (chain)
+            {
+                chain->RangeShortRelays(tags, nTags, rt, phy, engine868, engine2p4, engineUwb,
+                                        t, dt, now, maxRelayDepth, relayVarBudgetM2);
             }
         }
 
@@ -5492,10 +6019,22 @@ RunArm(CaTblPolicyMode mode,
                     rr.ux = ddx / dist;
                     rr.uy = ddy / dist;
                     rr.distToRelayM = dist;
+                    // L.1.2: the relay's own depth + 1, and its covariance composed with
+                    // what it inherited. Without --relayChain every relay is depth 0.
+                    if (chain && !chain->ForTag(pt, tags[pt].policy, rr, t, nodeId))
+                    {
+                        continue;
+                    }
 
                     double sigmaEff = 0.0;
                     const CaTblRelayVerdict v =
                         CaTblAdmitRelayedRange(rr, relaysUsedThisUpdate, &sigmaEff);
+                    if (chain)
+                    {
+                        chain->Record(t, nodeId, 1, rr, chain->inheritedVarM2[pt],
+                                      static_cast<int>(v),
+                                      (v == CA_TBL_RELAY_ADMIT) ? sigmaEff : 0.0);
+                    }
                     switch (v)
                     {
                     case CA_TBL_RELAY_ADMIT:
@@ -6805,6 +7344,10 @@ RunArm(CaTblPolicyMode mode,
                       << tags[rt2].energy.GetTotalJ() << " J\n";
         }
     }
+    if (chain)
+    {
+        chain->Report(std::cout, tags, relayVarBudgetM2, maxRelayDepth);
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -7040,6 +7583,7 @@ main(int argc, char* argv[])
     uint32_t relayTierArg = 1;
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
+    bool relayChainArg = false; // L.1.2, off: every relay stays at depth 0
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -8079,6 +8623,37 @@ main(int argc, char* argv[])
                  "of the chain length. As a scale, tier-2 r80 is 156 m, so a budget "
                  "of 156^2 admits a chain no more uncertain than one tier-2 hop.",
                  relayVarBudgetM2Arg);
+    cmd.AddValue("relayChain",
+                 "Let a relay that ranged fewer than three anchors this cycle range "
+                 "against a relay that already holds a fix this cycle, so that a "
+                 "relay's own position can itself be relayed and depth 2 exists "
+                 "(Network sect 5, TECH_DEBT L.1.2). FALSE (default) is every result so "
+                 "far: a relay ranges surveyed anchors and nothing else, so every relay "
+                 "sits at depth 0, every relayed range is depth 1, and --maxRelayDepth "
+                 "and --relayVarBudget can never bind at depth 2. It stays off by "
+                 "default because each relay-to-relay exchange is one more engine "
+                 "evaluation, and every added evaluation displaces the shared random "
+                 "stream for every link in the run (rule 8), so no magnitude is "
+                 "comparable across the two settings; off, nothing is constructed and "
+                 "not one evaluation is added. On, the short relay steps after the "
+                 "fix-holders, each range to one is admitted under A1-A5 at the "
+                 "holder's depth + 1 with the holder's covariance composed with what it "
+                 "inherited, and ONLY IF THE STEP FUSES THEM (three or more "
+                 "measurements) does the relay take that depth -- below three the "
+                 "filter coasts and uses none of them -- so a range from the measured "
+                 "tag through it carries depth 2. The relays are the filtered peer "
+                 "field nodes (ids 2+); a finder carries GNSS and is an anchor, never a "
+                 "relay. The exchange rides --relayTier and is charged to the short "
+                 "relay's own account, inside the per-cycle loop, and is not made at "
+                 "all when anchors plus holders cannot reach three. KNOWN LIMIT: every "
+                 "relay exchange shares the cycle's one instant and the engines treat "
+                 "them as simultaneous, which in every regime probed has kept any chain "
+                 "from fusing -- see the RelayChain comment and gate G17b. REQUIRES "
+                 "--relayedRanging=true and --nTags >= 3 (two relays): with fewer, no "
+                 "relay has a filter or no relay has another to lean on, every count "
+                 "would be a structural zero, and that combination is refused rather "
+                 "than run. Set --maxRelayDepth=2 for depth 2 to be admissible at all.",
+                 relayChainArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -8238,6 +8813,20 @@ main(int argc, char* argv[])
                   << " is not below the " << CaTblMacConfig().arbSlotHoldS
                   << " s slot window; a double grant can expire before either anchor"
                   << " hears of it, and then the tie-break never fires\n";
+    }
+    // L.1.2. Refused rather than run: without relay filters, or with a single relay, no
+    // relay can lean on another and every chain counter would be a structural zero.
+    if (relayChainArg && (!relayedRangingArg || nTagsArg < 3))
+    {
+        std::cerr << "FATAL: --relayChain needs --relayedRanging=true and --nTags >= 3 (got "
+                  << (relayedRangingArg ? "true" : "false") << ", " << nTagsArg << ")\n";
+        return 1;
+    }
+    if (relayChainArg && maxRelayDepthArg < 2)
+    {
+        std::cerr << "WARNING: --relayChain with --maxRelayDepth=" << maxRelayDepthArg
+                  << ": every depth-2 range will be refused by the ceiling, never by the"
+                  << " budget\n";
     }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would
@@ -8787,7 +9376,8 @@ main(int argc, char* argv[])
                                        injectRangeBiasM,
                                        injectBiasFraction,
                                        injectFaultAnchors,
-                                       anchorGrantGossipSArg);
+                                       anchorGrantGossipSArg,
+                                       relayChainArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -8866,7 +9456,10 @@ main(int argc, char* argv[])
     }
     // Every stream that this run writes is now closed, which is the precondition
     // for the digest to describe the finished artefact rather than a partial one.
-    if (!AppendOutputDigest(outdir, "arm_summary.csv trace_*.csv"))
+    // relay_chain_*.csv only under --relayChain, which is the only run that writes it.
+    if (!AppendOutputDigest(outdir, relayChainArg
+                                        ? "arm_summary.csv trace_*.csv relay_chain_*.csv"
+                                        : "arm_summary.csv trace_*.csv"))
     {
         return 1;
     }

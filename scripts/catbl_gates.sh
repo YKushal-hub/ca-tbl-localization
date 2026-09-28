@@ -477,6 +477,48 @@ python3 scripts/grant_tiebreak_gate.py "$WORK/g16/grant_verdicts_ca_tbl_full_see
 bash scripts/grant_tiebreak_gate_selftest.sh || fail G16
 finish G16
 
+# ---------------- G17 / G17b: relay depth 2 (L.1.2, Network sect 5)
+# CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed and the scenario
+# hard-set hopDepth = 1. --relayChain lets a relay short of three anchors range a relay
+# that holds a fix this cycle, and take that relay's depth + 1 when its step FUSES the
+# range. This runs it (static_2p4, 600 s, four tags, budget 156^2 -- one tier-2 r80) and
+# reads the decision log the run writes.
+#
+# G17 requires the chain wired and honest: every A2 label agreeing with its row's numbers,
+# every admitted sigma_eff within [sigma_raw, sqrt(sigma_raw^2 + tr P)], every depth >= 2
+# preceded by the fuse that earned it, and the budget half of A2 seen both admitting and
+# refusing. GREEN.
+#
+# G17b is the L.1.2 done-when: depth 2 reached, and A2 admitting and refusing on the
+# budget AT depth 2. RED BY DESIGN, with its cause measured rather than supposed: every
+# relay exchange in a cycle is stamped with the cycle's one instant, and the engines'
+# interference registry treats them as simultaneous, so no two relays ever hold a fix in
+# one cycle and no relay-to-relay exchange delivers. With the relays' instants staggered in
+# a diagnostic build the same flags give 13 fuses and 155 depth-2 decisions (A2 at depth 2:
+# pass 79, budget 76). The remedy is C5's scheduling of relay exchanges; G17b goes green
+# when that lands, without an edit here.
+#
+# Negative fixtures in scripts/relay_chain_gate_selftest.sh, including the same run with
+# the flag off and the first draft's own depth-from-nowhere rows (rule 6).
+printf '\n--- G17 relay chain wired, A2 and provenance honest (L.1.2) ---\n'
+mkdir -p "$WORK/g17"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --boxHalf=200 --nTags=4 --relayedRanging=true \
+    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --outdir="$WORK/g17" \
+    > "$WORK/g17.log" 2>&1 || gerror G17 "flag-on run exited non-zero"
+python3 scripts/relay_chain_gate.py "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17
+bash scripts/relay_chain_gate_selftest.sh || fail G17
+finish G17
+
+printf '\n--- G17b relay depth 2 reached, A2 on the budget at depth 2 (L.1.2 done-when) ---\n'
+if [ ! -s "$WORK/g17/relay_chain_static_2p4_seed7.csv" ]; then
+    gerror G17b "G17's run wrote no chain log -- nothing to read"
+else
+    python3 scripts/relay_chain_gate.py --require-depth2 \
+        "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17b
+fi
+finish G17b
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
@@ -490,6 +532,10 @@ if [ "${GATE_ST[G6]:-}" = FAIL ]; then
     printf '  The remedy is baseline_v7: regenerate to NEW paths and move the citations.\n'
     printf '  Overwriting results/{causal,det_a,det_b} to make it green reintroduces the\n'
     printf '  defect e21666d removed -- a suite that rewrites the evidence it verifies.\n'
+fi
+if [ "${GATE_ST[G17b]:-}" = FAIL ]; then
+    printf '\n  G17b is FAIL BY DESIGN while every relay exchange shares the cycle instant.\n'
+    printf '  The remedy is C5 scheduling relay exchanges apart; see the G17 block above.\n'
 fi
 if [ "$SUITE_BAD" -eq 0 ]; then
     printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"
