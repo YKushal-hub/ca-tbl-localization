@@ -1,0 +1,5 @@
+d618d7cedb4478d0
+build Sep 28 2026 00:00:29 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=2 --duration=600 --boxHalf=1000 --nFinders=4 --finderMode=1 --sendHandshakeFrames=true --trace=false --arms=ca_tbl_full --escalationRequiresEvidence=false --outdir=results/regen27_integrity_nogate/off_s2
+source ddae10f dirty 0 profile optimized
+digest sha256
+557d9503bafb1415137f2b2210541189805ea11c7c1ddd639cc57ff78ea450d4  arm_summary.csv
