@@ -291,9 +291,10 @@ node's true position (`ca_tbl_causal_sim.cc:5840-5879`). It sees finders only un
 and no cell of B3's C1, sets. Under the tri-band topology tier 3 comes from finders, so the
 flag's own help text (`:7429-7438`) says `visUwb` is then structurally 0 and every UWB cycle is
 scored a false positive. The rows carry that signature: `trig_tp` = 0 and `trig_fp` =
-`cycles_uwb` on all 40 rows. The counter itself is reachable on this binary: B3 cells that set
-the flag read 10–19 on `ca_tbl_full` rows (e.g. `results/regen27_imu/on_s12`). But under this
-invocation it cannot be non-zero. So "no coverage" is **not** established by this column. What
+`cycles_uwb` on all 40 rows. The counter itself is reachable on this binary: the B3 cells that
+set the flag (`regen27_imu`, `regen27_k1`, `regen27_k10`) read 0–73 over their 300 `ca_tbl_full`
+rows, and `results/regen27_imu/on_s12` reads 10–19 (§9). But under this invocation it cannot
+be non-zero. So "no coverage" is **not** established by this column. What
 the rows do measure is the neighbour picture (last two table rows). `meanNbr_uwb` is the
 UWB MAC's neighbour count averaged over all 240 cycles. `blindCycles` counts cycles in which the
 active tier addressed no neighbour (`:5832-5836`); it is ≤ `cycles_uwb` on every row. The
@@ -401,3 +402,16 @@ there rests on `cycles_uwb` = 0, and nothing in it depends on the coverage colum
   the node at 868 MHz" as fact, and now gives the measured cycle counts. `durationS` is
   600.0000, not 600.0. The invocation check covers all 40 cells. The analyser run count is
   three, not two. No number that enters a verdict changed.
+
+## 9. Corrections after commit
+
+Found by an independent re-verification after `693088a`, which recounted every headline number
+from the raw rows with code written from scratch. No number that enters a verdict changed.
+
+- **§4, reachability of `cyclesInUwbCoverage`.** Old: *"B3 cells that set the flag read 10–19
+  on `ca_tbl_full` rows (e.g. `results/regen27_imu/on_s12`)"*. New: those cells read **0–73**
+  over **300** `ca_tbl_full` rows; 10–19 is `regen27_imu/on_s12` alone. Per directory:
+  `regen27_imu` 4 cells, 20 rows, 10–24; `regen27_k1` 11 cells, 220 rows, 0–73; `regen27_k10`
+  12 cells, 60 rows, 0–12. Cells selected by `grep -l 'uwbCoverageIncludesFinders=true'
+  results/regen27_*/*/run_id.txt`, all `source 7b17bd6`. The point the sentence makes, that the
+  counter can be non-zero on this binary, is unchanged.
