@@ -367,7 +367,7 @@ sweep is not widened. **P4.2 reproduces in 11/11.**
 binary, `b3_energy_invariant.py`). On the single-tier arms a tier-1 cycle costs
 18.5–24.0 mJ and a tier-2 cycle 5.5–8.6 mJ across the `k1a` cells, because tier-1 replies
 are billed (`--tier1ChargeReplies`, default true since `4779bf7`; at seed 7 of
-`k1a_box750`, `rx_868` is 22.4 J of `static_868`'s 34.6 J). `ca_tbl_full` spends 78–88 % of its cycles on
+`k1a_box750`, `rx_868` is 22.4 J of `static_868`'s 34.7 J). `ca_tbl_full` spends 78–88 % of its cycles on
 2.4 GHz. With floor-on-demand on (`k1a`) that time replaces tier-1 time and the arm is
 cheaper than `static_868` on 20/20 seeds; with the floor running every cycle (`k1b`,
 `docs/TECH_DEBT.md` K.3) it adds to it and the arm is dearer on 20/20. So the three cells
