@@ -403,7 +403,9 @@ p = 1.9×10⁻⁶. **P5.1 REPRODUCES.**
 Every arm, checked (rule 5): the availability belongs to the mesh, not to tiering.
 `static_868` reaches 0.628 in `wanmesh_move` and **0.451 in `sparse_move`, above
 `ca_tbl_full`'s 0.319**; `static_2p4` reaches 0.000 / 0.023 / 0.051 and `static_uwb`
-0.000 / 0.0001 / 0.0002 across the three cells.
+0.000 / 0.0001 / 0.0002 across the three cells; `ca_tbl_no_integrity` 0.041 / 0.336 / 0.621 and
+`fixed_threshold` 0.041 / 0.290 / 0.619. In `wanonly_move` all four tier-1-using arms share the
+mean 0.0407, and in `sparse_move` `ca_tbl_no_integrity` is also above `ca_tbl_full`.
 
 ## C6 — estimation at the gateway
 
