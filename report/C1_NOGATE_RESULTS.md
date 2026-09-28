@@ -164,10 +164,11 @@ difference. The awk bootstrap, on a different generator, lands within 0.2 of the
 bounds and changes no rule outcome: the energy CI is below zero on both generators, and the
 rmse CI spans zero on both. The binding intervals are the analyser's.
 
-**The analyser was run three times.** It ran first at 00:41:18, after the cells and before the
-results commit, with HEAD at `ddae10f`. It ran again at 00:48:14 for the draft, and a third time
-at 04:43 for this review, both with HEAD at `b199ba5`. The three outputs are byte-identical
-except line 2, which prints HEAD. The bootstrap generator is seeded (`random.Random(20260929)`),
+**The analyser was run four times.** It ran first at 00:41:18, after the cells and before the
+results commit, with HEAD at `ddae10f`. It ran again at 00:48:14 for the draft, and twice for
+this review, at about 04:43 and at 04:50:16, all three with HEAD at `b199ba5`. Both review runs
+wrote `c1_nogate_analyse.review.out`, so the file kept is the 04:50:16 run's (§9). The three
+outputs kept are byte-identical except line 2, which prints HEAD. The bootstrap generator is seeded (`random.Random(20260929)`),
 so the intervals are the same on every run.
 
 ## 2. Population (step 1, rule 4)
@@ -381,7 +382,8 @@ there rests on `cycles_uwb` = 0, and nothing in it depends on the coverage colum
 
 - No tracked results directory was opened for writing. `src/` and `scratch/` were not touched.
   Every cell directory is newer than the registration commit.
-- The analyser was run three times (§1). The outputs match apart from the HEAD line.
+- The analyser was run four times (§1; three before §9's correction). The outputs kept match
+  apart from the HEAD line.
 - Unregistered computations in this report, all labelled where they appear: the `j_<tier>`
   decomposition, the `blindCycles` and `meanNbr_uwb` columns, the `cycles_868` pattern on the
   four positive-ΔrmseM seeds, the SHS end-of-run snapshot, the awk bootstrap cross-check, and
@@ -415,3 +417,10 @@ from the raw rows with code written from scratch. No number that enters a verdic
   12 cells, 60 rows, 0–12. Cells selected by `grep -l 'uwbCoverageIncludesFinders=true'
   results/regen27_*/*/run_id.txt`, all `source 7b17bd6`. The point the sentence makes, that the
   counter can be non-zero on this binary, is unchanged.
+- **§1 and §8, analyser run count.** Old: *"run three times … a third time at 04:43 for this
+  review"*. New: **four** runs, the review ones at about 04:43 and at 04:50:16. The review used
+  two scripts, both with the same command writing
+  `~/catbl_b3_logs/c1_nogate/analysis/c1_nogate_analyse.review.out`: one saved at 04:43:30 and
+  one at 04:49:58. The output file's mtime is 04:50:16, which the 04:43 run cannot have
+  written. The line in §8 that the pre-commit review changed the count from two to three is left
+  as it was, because it records that review. The outputs are deterministic, so no number moves.
