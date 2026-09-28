@@ -423,7 +423,8 @@ claim: the seven accuracy columns are byte-identical on 20/20 seeds on every arm
 only columns that differ anywhere are `totalJ`, `accuracyPerJoule` and the per-tier `j_`,
 `rx_`, `idle_` energies. Per the registered reachability rule it is claimed on the five
 arms whose energy moved and **not on `static_uwb`**, where it did not (the edge path runs
-only on a fix, `ca_tbl_causal_sim.cc:5436`, and `static_uwb` has almost none).
+only on a fix, `ca_tbl_causal_sim.cc:5436`, and `static_uwb` has none: `fixCycles` = 0 on 20/20 seeds under both settings, so
+the path is unreachable on that arm and its 20 exact energy ties are that control-flow fact).
 
 **The saving is a tier-1 mechanism, and it costs on tier 2.** Under edge the node skips the
 per-anchor tier-1 replies (`m_tier1ChargeReplies && !m_edgeServer`,
