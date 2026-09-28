@@ -105,6 +105,59 @@ main(int argc, char** argv)
         Check(t.Divergences() >= 1, "the divergence is counted, not merely possible");
     }
 
+    // ---- shadow scoring: route on ETX, count what the confidence metric would do ------
+    //
+    // L.1.1 routes position fixes on ETX by default and scores the confidence metric in the
+    // SAME call, through etxOut. Two calls would count each selection twice, so these pin
+    // the one-call contract: ETX's pick comes back beside the confidence pick, the counters
+    // move once per call, and the out-parameter is optional.
+    {
+        CaTblRoutingTable t;
+        t.Update(MakeRoute(5, 10, 2, 2.0, 5.0, 5.0, 5.0, 1, 0.0));
+        t.Update(MakeRoute(5, 11, 2, 8.0, 0.1, 0.1, 0.1, 1, 0.0));
+        CaTblRoute conf;
+        CaTblRoute etx;
+        const bool ok =
+            t.SelectRoute(5, CA_TBL_ROUTE_CONFIDENCE, CA_TBL_TRAFFIC_POSITION_FIX, conf, &etx);
+        Check(ok && conf.nextHopId == 11 && etx.nextHopId == 10,
+              "one call returns BOTH picks: confidence 11, and ETX's own 10 beside it");
+        Check(t.Selections() == 1 && t.Divergences() == 1,
+              "that call is ONE selection and ONE divergence, not two of each");
+
+        CaTblRoute plain;
+        CaTblRoute etx2;
+        t.SelectRoute(5, CA_TBL_ROUTE_ETX, CA_TBL_TRAFFIC_POSITION_FIX, plain, &etx2);
+        Check(plain.nextHopId == 10 && etx2.nextHopId == 10 && t.Divergences() == 1,
+              "under ETX the two picks coincide and no divergence is counted");
+    }
+
+    // ---- an advertisement is not a selection ------------------------------------------
+    //
+    // A relay advertising its route says which path a frame handed to it would take.
+    // PeekRoute() must name the SAME next hop SelectRoute() would, under either metric, and
+    // move neither counter -- otherwise every advertisement would be counted as a routing
+    // decision and Divergences() would stop meaning "a frame went a different way".
+    {
+        CaTblRoutingTable t;
+        t.Update(MakeRoute(5, 10, 2, 2.0, 5.0, 5.0, 5.0, 1, 0.0));
+        t.Update(MakeRoute(5, 11, 2, 8.0, 0.1, 0.1, 0.1, 1, 0.0));
+        CaTblRoute pc;
+        CaTblRoute pe;
+        const bool okC = t.PeekRoute(5, CA_TBL_ROUTE_CONFIDENCE, CA_TBL_TRAFFIC_POSITION_FIX, pc);
+        const bool okE = t.PeekRoute(5, CA_TBL_ROUTE_ETX, CA_TBL_TRAFFIC_POSITION_FIX, pe);
+        Check(okC && okE && pc.nextHopId == 11 && pe.nextHopId == 10 &&
+                  t.Selections() == 0 && t.Divergences() == 0,
+              "PeekRoute names each metric's pick and counts nothing (negative fixture)");
+        CaTblRoute sc;
+        t.SelectRoute(5, CA_TBL_ROUTE_CONFIDENCE, CA_TBL_TRAFFIC_POSITION_FIX, sc);
+        Check(sc.nextHopId == pc.nextHopId && t.Selections() == 1,
+              "and SelectRoute then routes exactly where the advertisement said");
+        CaTblRoute untouched = MakeRoute(1, 2, 3, 4.0, 0.0, 0.0, 0.0, 1, 0.0);
+        Check(!t.PeekRoute(99, CA_TBL_ROUTE_ETX, CA_TBL_TRAFFIC_POSITION_FIX, untouched) &&
+                  untouched.nextHopId == 2,
+              "no route: PeekRoute returns false and leaves out untouched");
+    }
+
     // ---- the traffic split IS the claim ----------------------------------------------
     {
         CaTblRoutingTable t;

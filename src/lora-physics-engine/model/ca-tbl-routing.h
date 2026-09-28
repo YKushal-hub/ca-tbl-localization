@@ -139,12 +139,35 @@ class CaTblRoutingTable
      * \param traffic  GOSSIP is always routed on ETX regardless of \p metric -- the split
      *                 is part of the claim, not a tunable.
      * \param out      the chosen route, untouched if none is viable
+     * \param etxOut   if not null, ETX's own choice among the same routes, which this
+     *                 call computes anyway as the divergence reference. It exists so a
+     *                 caller can route on ETX while the confidence metric is scored in
+     *                 the same call: two calls would count every selection twice, and a
+     *                 divergence counted in a call whose result was thrown away is not
+     *                 the same observable as one counted in the call that routed.
      * \return false when no valid route exists
      */
     bool SelectRoute(uint16_t dest,
                      CaTblRouteMetric metric,
                      CaTblTrafficClass traffic,
-                     CaTblRoute& out) const;
+                     CaTblRoute& out,
+                     CaTblRoute* etxOut = nullptr) const;
+
+    /**
+     * \brief The route SelectRoute() would return, WITHOUT counting it as a selection.
+     *
+     * A node advertising its route to its neighbours has to say which path a frame handed
+     * to it would take, and that is the path its own selector would pick. Asking through
+     * SelectRoute() would count every advertisement as a selection and every disagreement
+     * as a divergence although no frame moved -- and Divergences() exists to count the
+     * decisions that routed something. Same choice, same tie-breaks, no counters.
+     *
+     * \return false when no valid route exists; \p out is then untouched
+     */
+    bool PeekRoute(uint16_t dest,
+                   CaTblRouteMetric metric,
+                   CaTblTrafficClass traffic,
+                   CaTblRoute& out) const;
 
     /** Every known route to \p dest, for tests and for the A/B comparison. */
     std::vector<CaTblRoute> RoutesTo(uint16_t dest) const;
@@ -159,6 +182,15 @@ class CaTblRoutingTable
     uint64_t Selections() const { return m_selections; }
 
   private:
+    //! The one selection rule, shared by SelectRoute() and PeekRoute() so the route a node
+    //! advertises and the route it then uses cannot drift apart. Indexes into \p cand.
+    bool Choose(uint16_t dest,
+                CaTblRouteMetric metric,
+                CaTblTrafficClass traffic,
+                std::vector<CaTblRoute>& cand,
+                size_t& chosen,
+                size_t& bestEtx) const;
+
     //! Keyed by (dest, nextHop): several routes to one destination is the normal case and
     //! is the whole point.
     std::map<std::pair<uint16_t, uint16_t>, CaTblRoute> m_routes;

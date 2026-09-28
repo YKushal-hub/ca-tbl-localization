@@ -548,6 +548,13 @@ CaTblEnergyModel::AccountTx(CaTblTier tier, double airtimeS, uint64_t frames)
     a.txFrames += frames;
 }
 
+void
+CaTblEnergyModel::AccountFrameTx(CaTblTier tier, double txStartS, double airtimeS)
+{
+    AccountTx(tier, airtimeS, 1);
+    ArmDutyCycle(tier, txStartS, airtimeS);
+}
+
 const TierEnergyAccount&
 CaTblEnergyModel::GetAccount(CaTblTier tier) const
 {

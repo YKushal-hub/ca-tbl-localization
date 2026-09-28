@@ -340,6 +340,19 @@ class CaTblEnergyModel
      */
     void AccountTx(CaTblTier tier, double airtimeS, uint64_t frames);
 
+    /**
+     * \brief Charge ONE frame of \p airtimeS starting at \p txStartS, and arm the
+     *        duty-cycle governor from that start.
+     *
+     * AccountTx() charges airtime and leaves the governor alone, which is right for
+     * traffic the MAC already governed and wrong for a frame decided outside the MAC:
+     * charged but not armed, it would spend the WPC Table-II budget without the next
+     * CanTransmit() knowing. Used for routed position fixes (Network sect 3, L.1.1),
+     * whose caller checks CanTransmit()/GetNextAllowedTxS() first and passes the instant
+     * the frame actually starts, so the off-time runs from when the channel was taken.
+     */
+    void AccountFrameTx(CaTblTier tier, double txStartS, double airtimeS);
+
     // ------------------------------------------------------------- readout ---
 
     const TierEnergyAccount& GetAccount(CaTblTier tier) const;
