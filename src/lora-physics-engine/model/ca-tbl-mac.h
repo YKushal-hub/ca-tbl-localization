@@ -340,7 +340,11 @@ struct CaTblProxyCheck
 {
     double tS = 0.0;         //!< when the query arrived at this radio
     uint32_t queryId = 0;    //!< the query's packet_id, so arrivals group into queries
-    uint8_t tier = 0;      //!< the radio it arrived on; each radio has its own table
+    //! The tier the QUERY frame is LABELLED with -- not necessarily the radio that heard
+    //! it. The C3 QueryDriver binds every tier's driver to the first anchor MAC, which is
+    //! gateway 101's 868 MAC, so every query travels on the 868 channel and only 868
+    //! radios are asked; a "tier 1" label means 2.4 GHz link physics on an 868 radio.
+    uint8_t tier = 0;
     uint8_t manifestId = 0;  //!< the target the query named
     bool held = false;       //!< a matching entry was in this radio's table
     bool answered = false;   //!< ...and it was inside the staleness bound

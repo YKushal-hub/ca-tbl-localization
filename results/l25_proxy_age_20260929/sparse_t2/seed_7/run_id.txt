@@ -1,0 +1,7 @@
+d62d996c992d2dd6
+build Sep 29 2026 15:46:41 | /home/nethi/projects/ca-tbl-localization/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --duration=1800 --trace=true --queryProxy=true --identityQueryPeriodS=30 --gwGrid=2 --boxHalf=5000 --nFinders=4 --finderPseudoAnchor=true --finderMode=2 --finderDispersal=1.0 --sendHandshakeFrames=true --finderDigestPeriodS=20 --nTags=2 --identityQueryTarget=2 --seed=7 --outdir=/home/nethi/projects/ca-tbl-localization/results/l25_proxy_age_20260929/sparse_t2/seed_7
+source b16531f dirty 0 profile optimized
+digest sha256
+e0c51002f6737408b79a217159c3b71942c6bbc51e65771c9ceeca74a679eed7  arm_summary.csv
+4892d6f9267b77157ee96c5e745efc5c8c1d796806f92ee3d7712857dc0bfce2  proxy_checks_ca_tbl_full_seed7.csv
+371db12f896305bc3c162511c2c3646159ff1c1f0a0e7ad31629b877951d4cd1  trace_ca_tbl_full_seed7.csv

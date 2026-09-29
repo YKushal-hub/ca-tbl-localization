@@ -998,7 +998,24 @@ configuration, **or** the register states that it cannot and why.
 | L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create |
 | L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` now exists (32–42% energy saving, accuracy byte-identical) but is **off by default** | Default it true after its own reference regeneration | The CONTRADICTION row in §2.1 is resolved rather than described |
 | L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values |
-| L.2.5 | Proxy staleness | The proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound) | Faster dissemination, or an explicit statement that the spec bound is too tight for this topology | The bound is justified by measurement rather than inherited |
+| L.2.5 | Proxy staleness | *As recorded 2026-09-09:* "the proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — from an unrecorded invocation that queried a **peer**. **Measured 2026-09-29, and true of a peer, false of the casualty** (registered `report/PREREG_L25_PROXY_AGE.md`, runs at `b16531f` dirty 0, `results/l25_proxy_age_20260929`, seeds 7/11/13, the age of every entry a proxy held when a query arrived). Casualty, arc searcher regime: 458 checks of 82 queries, 265 held, age p50 11.5 s, p90 28.6 s, max 68.1 s, **265/265 inside 120 s**. Casualty, grid-2 5 km sparse regime: 42 checks of 15 queries, 39 held, p50 17.2 s, p90 49.6 s, **37/39 inside**. A peer: p50 493 s (21/130 inside) and 385 s (5/20) — an entry reaches a holder only as its subject's answer to that holder's own digest, and in the seed-7 searcher run the peer heard 13 finder digests to the casualty's 305 | Nothing, for the casualty. For a node nobody polls the lever is dissemination, not the bound; `--digestSummary`'s third-party pushes are the existing candidate and were **not** measured here | **CLOSED 2026-09-29 — justified by measurement.** The spec's 120 s stays the default of `--queryStalenessBoundS`, whose help text now carries these numbers: it refuses none of the casualty's held entries in the searcher regime and 2 of 39 in the sparse one, and what it refuses is worth refusing — an estimate held 120 s is 143 m from a casualty walking 1.2 m/s, against 4.5 m fresh |
+
+**Found while closing L.2.5, recorded and not fixed.** Fixing either changes what runs
+produce, so each is a change of its own, with its own null control:
+
+- **The C3 QueryDriver asks only 868 radios.** Its loop (`scratch/ca_tbl_causal_sim.cc`,
+  the `identityQueryPeriodS > 0` block) binds every tier's driver to the *first* ANCHOR MAC
+  in `macs`, with no tier test. Under the tri-band topology that is gateway 101's 868 MAC,
+  so all three drivers transmit on the 868 channel and only 868 radios hear a query; a
+  "tier 1" or "tier 2" query is an 868 frame evaluated with the 2.4 GHz or UWB link model,
+  and a UWB-labelled one is timed as a UWB frame. Every identity-query and proxy count to
+  date carries this. It does not move L.2.5: the only
+  tables holding a casualty entry are the finders' 868 tables, which are the ones asked.
+- **The casualty's entry is one cycle older than its stamp.** `PublishSelfEntry(policy.EstX
+  ...)` runs before `policy.Step` in the per-cycle loop, so the entry stamped `t` carries
+  the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in
+  `sparse_t1` equal the trace estimate of the cycle before their timestamp. Every entry age
+  in the project is understated by 2.5 s.
 
 ---
 
