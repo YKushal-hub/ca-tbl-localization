@@ -1072,3 +1072,153 @@ decide deliberately rather than discover at a viva.
 **The system is done when the register is empty or every remaining entry is a stated
 decision.** Not when the gates are green — G11 is red on purpose and closing it by tuning
 would destroy the only instrument that has ever caught a defect of its class.
+
+---
+
+# M. Found 2026-09-27 – 2026-09-29, recorded
+
+Found while building Bar 1 and Bar 2 and regenerating Bar 3 on
+`work/2026-09-27-spec-b1`. Each item says whether it is fixed, and where. Items that need
+an owner decision are marked **DECISION**.
+
+### M.1 Relays ranged at the cycle's one instant, and collided — fixed behind a flag; DECISION on its default
+
+Every exchange a cycle made by calling an engine directly carried the cycle's one `now`:
+each relay's anchor polls, every relay-to-relay exchange, and the measured tag's own
+exchange. The engines' interference registry decides overlap on time and transmitter id
+alone, at the interferer's own link power, so those exchanges collided with each other.
+Measured at `86e43f2`, with only `--relayedRanging` on (`static_2p4`, 300 s,
+`--boxHalf=200`, four tags, seeds 7/11/13): the measured tag's 3+-anchor cycles fell from
+107/112/106 of 120 to 2/0/11, and under `--relayChain` no relay-to-relay exchange ever
+delivered. That is why `b390ed6` could not meet L.1.2.
+
+**Fixed behind `--relaySlots` (`d24690c`), default off.** With it, the same runs give
+103/104/107 and G17b is green. **Every `--relayedRanging` figure recorded before it was
+measured under the collision:** `MASTER_PLAN.md`'s C5 row, `b390ed6`'s sweep and
+`5f3ad42`'s routing counts. They do not compare with a `--relaySlots` run (§3.1). No
+`results/` sidecar uses `--relayedRanging=true`, so no tracked result moves.
+
+**DECISION:** whether `--relaySlots` becomes the default for `--relayedRanging` runs. It
+moves every relayed result.
+
+Still open:
+
+- The registry never attenuates an interferer by distance
+  (`lora-interference-submodule.cc:126-129` computes `dist` and does not use it). That is
+  an engine change with broad impact.
+- The round sits in the event slice the MAC layer has already run, so its exchanges meet no
+  MAC frame. That gives up at most about 16 % of exchanges' interference on 2.4 GHz in
+  G17b's regime.
+- Relay 4 held no fix in any 300 s run. Not investigated.
+
+### M.2 The UWB CIR confusion matrix cannot fill under the channel model — DECISION
+
+`86e43f2` synthesises a CIR for every decoded UWB link and scores the spec's leading-edge
+ratio. Its TP and FN cells are empty in every regime tried:
+
+- Legacy topology, `static_uwb`, 3600 s: tp 0, fp 0, fn 0, tn 104.
+- Default topology: no UWB link is polled at all.
+- Outdoors, the engine's NLOS probability at UWB range is about 0.1 % (1 − exp(−d / 8000 m)).
+- Where NLOS is not rare (`--envFacility` 5/6/7), every NLOS UWB link polled was lost,
+  6 of 6. Both NLOS terms add +9.64 dB at 7.99 GHz, which is beyond UWB's margin.
+
+The classifier is not what is missing: the unit suite exercises both classes on
+engine-like states (outdoor tp 157, fp 0, fn 277, tn 495). **DECISION:** filling the matrix
+needs a channel-model or regime change, for example a smaller UWB NLOS penalty or an NLOS
+scale at UWB distances. That changes the UWB physics every UWB result rests on.
+
+### M.3 `run_id.txt` records the working directory's commit, not the binary's
+
+The simulator writes `source` from `git rev-parse --short HEAD` run in the **working
+directory** (`scratch/ca_tbl_causal_sim.cc:10973` at `ff4f8bb`). If a run is launched from
+one clone with another clone's binary, its sidecar gets a clean, wrong SHA.
+
+- It has happened. The C1 original's sidecars read `source deb52da dirty 0`, and `deb52da`
+  does not define the flags that run used (`report/B3_REGEN_RESULTS.md` §C1).
+- The coverage probe's sidecars read `source unknown`, because the frozen reference runs
+  outside any git tree.
+
+B3 is not exposed: every cell ran from the worktree that built the binary, and the driver
+hashed the binary before every launch. *Mitigation until fixed:* launch only from the tree
+that built the binary. *Fix:* stamp the build's commit into the binary at build time. That
+is its own change, with its own null control, because it changes `run_id.txt`.
+
+### M.4 Output files the sidecar does not digest
+
+`RULES.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)
+was the gap on this branch, and it has been digested since `ff4f8bb`. **Still written and
+not digested:** the viz outputs `events_*`, `nodes_*`, `nbrtable_*`, `loctable_*` and
+`deployment.json`. L.1.5's only on-disk evidence lives in `events_*` (M.9). The fix is to
+add the patterns at the digest call site, as every mechanism on this branch did for its own
+file.
+
+### M.5 `--tier1ChargeReplies` help text said "FALSE by default" — CLOSED at `db2ac2e`
+
+It was stale from `4779bf7` (2026-09-08), when the default became true, until `db2ac2e`.
+The B3 registration recorded it and could not correct it without touching `scratch/`. It
+now says the flag is read only with `--gatewayEdgeServer=false`.
+
+### M.6 The evidence-gate default was missing from the B3 registration's list of moved defaults
+
+`report/PREREG_B3_REGEN.md` §2 lists the defaults that moved between the originals and the
+B3 binary: the environment and the tier-1 reply billing. It omits
+`--escalationRequiresEvidence`, which went from false to true at `7ec0d91` (2026-09-08). So
+C1, C2 and the five `k1b` cells ran with the evidence gate on, where their originals ran
+with it off. No verdict changes, because the verbatim invocation binds. What changes is what
+C1's verdict is about, and that is why C1_NOGATE was registered (`ddae10f`). The
+registration is not amended after the fact; `report/B3_REGEN_RESULTS.md` is its erratum.
+
+### M.7 The CAL-01 machinery's acceptance test is not a fair control
+
+`CaTblCalibrateLoocv` (`ca-tbl-loocv.cc`) returned OK in all six CAL-01 cells, and the OK
+is an artefact. It fits the term-1-only control without an intercept, while
+t3 ≈ 0.92 gives the three-term model one for free. With an intercept on both sides the gain
+vanishes: 77.47 against 77.50 m on `default`, and 80.17 against 80.18 m on `searcher`
+(`report/CAL01_LOOCV_RESULTS.md` §4). *Fix:* fit the control with the same intercept, or
+accept on rank. That is a `src/` change with its own test. Until then, `CA_TBL_CAL_OK` is
+not evidence.
+
+### M.8 `analyse_pcs_forms.py` reads an undefined statistic as "indistinguishable"
+
+Under `gated`, PCS is constant on 99.98 % of fix cycles, so the Spearman correlation is NaN.
+The NaN interval satisfies neither sign test, and the script prints `indistinguishable` and
+reads that as "carries nothing the covariance trace does not"
+(`report/B3_REGEN_RESULTS.md` §C2). It should print *undefined*. Its docstring also promises
+a per-cell hadFix count that it does not print.
+
+### M.9 `TRIGGERED_UPDATE` has no counter, and a scenario comment says its branch never runs
+
+L.1.5's eager push is visible on disk only as rows of `events_*` (M.4). No stdout or CSV
+counter reports that message type. The comment at `scratch/ca_tbl_causal_sim.cc:8361-8362`
+(at `ff4f8bb`) still says "Nothing here sets mobility state … the receding branch never
+runs". It has been false since `50a229a`.
+
+### M.10 Which radio the gateway-estimator downlink is billed on — an open question, not an established defect
+
+The branch review reported a defect in the flipped `--gatewayEdgeServer` default that it did
+not fix. That report is not in the tree. The review's working files (`~/catbl_review/`)
+examine this question.
+The downlink is charged to the **active** tier (`AccountEdgeServerDownlink(active)`,
+`scratch/ca_tbl_causal_sim.cc:8076`), including on floor-solved cycles where the fix came
+from tier-1 measurements. At NC1 (defaults, seed 7, 900 s), 230 of `ca_tbl_full`'s 305 fix
+cycles are active 2.4 GHz, fix tier 868, `usedFloor` 1 (`~/catbl_review/nc_on`).
+
+The §6 invariant holds either way, because the 2.4 GHz radio is awake on those cycles and
+is the tier in use. What is not established is whether a 2.4 GHz downlink is the right
+charge on a cycle where 2.4 GHz could not reach three anchors. Recorded so that the review's
+finding is not lost. Its exact wording should be filed here from the review's report.
+
+### M.11 Stale numbers in the rules and setup documents
+
+- `RULES.md` §4 and §8 place the `cmd.AddValue` block at
+  `scratch/ca_tbl_causal_sim.cc:3178-3450`. At `ff4f8bb` it is `:9316-10762` (142 flags),
+  with `RunArm` at `:4905` and its call at `:11365`.
+- `RULES.md` §3 says G1-G11, and the header of `scripts/catbl_gates.sh` says G1-G13. The
+  suite runs 23 gates (G1–G21 with G17b and G18b). At `ff4f8bb` it gives 19 PASS and
+  4 FAIL, the four documented reds G4, G5, G6 and G11.
+- `SETUP_NEW_MACHINE.md` expects 11/15 gates and eight suites of 152 checks. There are now
+  ten suites and 235 checks: packet_validator 38, session 29, routing 27, lifecycle 16,
+  netlayer 23, relay_admission 22, sparse_anchor 11, loocv 8, tdoa 33 and nlos 28.
+
+Documentation only. It is recorded here rather than edited in the rules file, because
+`RULES.md` changes are the owner's.
