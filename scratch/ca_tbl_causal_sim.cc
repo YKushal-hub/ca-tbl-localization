@@ -11588,6 +11588,14 @@ main(int argc, char* argv[])
     {
         digestPatterns += " proxy_checks_*.csv";
     }
+    // grant_verdicts_*.csv only under --anchorGrantGossipS > 0, the only runs that build a
+    // GrantGossip and so the only ones that write it. It is L.1.4's done-when evidence,
+    // and until this line the sidecar did not vouch for it: provenance requires a
+    // SHA-256 per output file (house rules sect 4.5).
+    if (anchorGrantGossipSArg > 0.0)
+    {
+        digestPatterns += " grant_verdicts_*.csv";
+    }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {
         return 1;
