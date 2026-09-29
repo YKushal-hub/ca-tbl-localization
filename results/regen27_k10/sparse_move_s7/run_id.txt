@@ -1,0 +1,5 @@
+f564041ca7681084
+build Sep 28 2026 00:00:29 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=14400 --seedCount=5 --trace=false --arbitrateDutyBudget=true --sendHandshakeFrames=true --terrainPerTierFreq=true --uwbCoverageIncludesFinders=true --nlosSource=propagation --envFacility=1 --vegFacility=3 --pcsForm=gated --floorOnDemand=true --escalationRequiresEvidence=true --corroborationCheck=true --bidirectionalDigest=true --mahalUseR=true --escalationRequiresEvidenceT2=true --boxHalf=6000 --baseCampFrac=0.9 --subjectKeepOutM=3000 --gwGrid=1 --nFinders=4 --finderMode=1 --finderDispersal=1.0 --finderPseudoAnchor=true --seedStart=7 --outdir=results/regen27_k10/sparse_move_s7
+source 7b17bd6 dirty 0 profile optimized
+digest sha256
+292cb09219c216cdebdffc8a29f0ffcbda88960ad3a93cbe6b95e5855413a46e  arm_summary.csv

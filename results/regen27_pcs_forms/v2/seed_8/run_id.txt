@@ -1,0 +1,11 @@
+5d9658970f48e775
+build Sep 28 2026 00:00:29 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=8 --duration=3600 --boxHalf=2000 --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=v2 --arms=static_2p4,ca_tbl_full,ca_tbl_no_integrity,fixed_threshold,static_868,static_uwb --trace=true --outdir=results/regen27_pcs_forms/v2/seed_8
+source 7b17bd6 dirty 0 profile optimized
+digest sha256
+eec9ec95446c7d74123370f6d80891d4c789deb2db26ed0d35ed507c4c0ff306  arm_summary.csv
+64cb90a7808ab023a580fb36f902414bf52d8fb26a3fde5ea8fb1eea0bdaf70c  trace_ca_tbl_full_seed8.csv
+c418afdaa9674b88fc7fb0475d1bfaf9c9b33b2c3126dc96ea68423588253795  trace_ca_tbl_no_integrity_seed8.csv
+bf331354369414320969938663cfdd463401adb87ae28ee61b200d1fab24356b  trace_fixed_threshold_seed8.csv
+73f1fd8922d793686c8509fd4f7f185289ee3c16001aeade5ae959de976ed29b  trace_static_2p4_seed8.csv
+83fe3291e2151e302c66e3d78f6ce6e9a2505300a695fc9d7c2356acf4ad1bc2  trace_static_868_seed8.csv
+785082048d2acf99faa7e353da80a1d76967faa226ef2092d50c34884a6bd03f  trace_static_uwb_seed8.csv

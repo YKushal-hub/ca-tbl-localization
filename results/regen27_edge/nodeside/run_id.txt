@@ -1,0 +1,5 @@
+a8992c53dcec1155
+build Sep 28 2026 00:00:29 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --duration=3600 --seedCount=20 --trace=false --tier1ChargeReplies=true --outdir=results/regen27_edge/nodeside
+source 7b17bd6 dirty 0 profile optimized
+digest sha256
+4eeb41785f5f9fb92d89549851cf78c3872876f5e943de4bea0387256b8adf6f  arm_summary.csv
