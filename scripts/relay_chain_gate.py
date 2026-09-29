@@ -40,11 +40,77 @@ WITH --require-depth2 (G17b, the L.1.2 done-when)
   6. At least one fuse row, and at hopDepth == 2 at least one row passing A2 under a set
      budget and at least one refused on the budget.
 
-usage: relay_chain_gate.py [--require-depth2] <relay_chain csv>
+WITH --stdout <log> (C5_INSTANT, --relaySlots: the run's own counters, recounted)
+  Depth 2 became reachable only when --relaySlots gave the relays' round instants of its
+  own; before it every relay exchange shared the cycle instant and none delivered. So a
+  green G17b must be traced to the round, not merely co-occur with it (rule 4). The log
+  must carry exactly one `C5_INSTANT relay round:` line and one `L.1.2 relay chain:` line,
+  and:
+  7. slot x slots = the round, and the round is SHORTER than the cycle -- a longer one would
+     reach into the cycle before;
+  8. anchor polls were moved (> 0, in 1..polls bursts): a round that moved nothing is the
+     flag inert;
+  9. relay-to-relay exchanges moved = the chain's relay-to-relay exchanges, every one, and
+     the most used in a cycle does not exceed the slots reserved for them;
+  10. the CSV's fuse rows = the chain's "fused it and held a fix" count.
+
+usage: relay_chain_gate.py [--require-depth2] [--stdout <log>] <relay_chain csv>
 exit 0 PASS, 1 FAIL, 2 usage.
 """
 import csv
+import re
 import sys
+
+ROUND_RE = re.compile(
+    r"C5_INSTANT relay round: slot ([0-9.]+) ms x (\d+) = ([0-9.]+) ms before the instant, "
+    r"of a ([0-9.]+) ms cycle; anchor polls moved (\d+) in (\d+) bursts; relay-to-relay "
+    r"moved (\d+), at most (\d+) of (\d+) slots in a cycle")
+CHAIN_RE = re.compile(
+    r"L\.1\.2 relay chain: relay-to-relay exchanges (\d+) \(ranged (\d+)\), short relays "
+    r"stepped (\d+) \(no exchange possible (\d+), admitted a relayed range (\d+), fused it "
+    r"and held a fix (\d+)\)")
+
+
+def check_stdout(g, log_path, n_fuse):
+    """Checks 7-10. Returns True when the log's counters agree with the round and the CSV."""
+    try:
+        with open(log_path, errors="replace") as fh:
+            text = fh.read()
+    except OSError as e:
+        print(f"{g} FAIL: cannot read stdout log {log_path}: {e}")
+        return False
+    rounds = ROUND_RE.findall(text)
+    chains = CHAIN_RE.findall(text)
+    if len(rounds) != 1 or len(chains) != 1:
+        print(f"{g} FAIL: stdout has {len(rounds)} C5_INSTANT round line(s) and {len(chains)} "
+              f"L.1.2 chain line(s), expected one of each -- was --relaySlots on, one arm?")
+        return False
+    slot, k, rnd, cyc, polls, bursts, moved, peak, reserved = rounds[0]
+    slot, rnd, cyc = float(slot), float(rnd), float(cyc)
+    k, polls, bursts, moved, peak, reserved = (int(k), int(polls), int(bursts), int(moved),
+                                               int(peak), int(reserved))
+    exchanges, fused = int(chains[0][0]), int(chains[0][5])
+    ok = True
+    if k < 1 or abs(slot * k - rnd) > 0.1 or not rnd < cyc:
+        print(f"{g} FAIL: round {slot} ms x {k} = {rnd} ms against a {cyc} ms cycle -- it must "
+              f"add up and end inside the cycle")
+        ok = False
+    if polls == 0 or bursts == 0 or bursts > polls:
+        print(f"{g} FAIL: the round moved {polls} anchor polls in {bursts} bursts -- nothing "
+              f"moved means the flag was inert")
+        ok = False
+    if moved != exchanges or peak > reserved:
+        print(f"{g} FAIL: the round moved {moved} relay-to-relay exchanges of the chain's "
+              f"{exchanges}, at most {peak} a cycle against {reserved} reserved")
+        ok = False
+    if n_fuse != fused:
+        print(f"{g} FAIL: the CSV holds {n_fuse} fuse rows, the run reports {fused} fused")
+        ok = False
+    if ok:
+        print(f"{g} stdout: round {k} x {slot} ms = {rnd} ms of a {cyc} ms cycle; anchor polls "
+              f"moved {polls} in {bursts} bursts; relay-to-relay moved {moved} of {exchanges}; "
+              f"fuse rows {n_fuse} = fused {fused}")
+    return ok
 
 COLS = ["t", "consumerId", "relayId", "leg", "tier", "hopDepth", "maxRelayDepth", "distM",
         "carriedVarM2", "inheritedVarM2", "budgetM2", "a2", "verdict", "sigmaRawM",
@@ -69,11 +135,19 @@ def expected_a2(depth, ceiling, carried, budget):
 def main(argv):
     args = argv[1:]
     need2 = False
-    if args and args[0] == "--require-depth2":
-        need2 = True
-        args = args[1:]
+    log_path = None
+    while args and args[0].startswith("--"):
+        if args[0] == "--require-depth2":
+            need2 = True
+            args = args[1:]
+        elif args[0] == "--stdout" and len(args) >= 2:
+            log_path = args[1]
+            args = args[2:]
+        else:
+            break
     if len(args) != 1:
-        print("usage: relay_chain_gate.py [--require-depth2] <relay_chain csv>")
+        print("usage: relay_chain_gate.py [--require-depth2] [--stdout <log>] "
+              "<relay_chain csv>")
         return 2
     g = "G17b" if need2 else "G17"
     path = args[0]
@@ -177,6 +251,8 @@ def main(argv):
           f"{budget_ref}; at depth 2: pass {d2_pass}, budget {d2_ref}")
     if budget_pass == 0 or budget_ref == 0:
         print(f"{g} FAIL: the budget half of A2 was not observed both admitting and refusing")
+        return 1
+    if log_path is not None and not check_stdout(g, log_path, n_fuse):
         return 1
     if need2:
         if n_fuse == 0:

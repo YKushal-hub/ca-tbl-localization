@@ -2700,6 +2700,149 @@ struct CaTblTagState
 };
 
 /**
+ * C5_INSTANT -- THE RELAYS' ROUND, GIVEN INSTANTS OF ITS OWN, behind --relaySlots.
+ *
+ * THE DEFECT. Every exchange a cycle makes by calling an engine directly carried the same
+ * `now`, and the engines' interference registry (lora-interference-submodule.cc:49-162)
+ * decides overlap on time and transmitter id alone. It never attenuates an interferer by
+ * its distance from the receiver (the `dist` it computes at :129 is unused): a concurrent
+ * exchange interferes at the power of its OWN link. So each relay's polls collided with
+ * every exchange registered before them in that instant -- the other relays' and the
+ * measured tag's. Measured at 86e43f2 with only --relayedRanging switched on (static_2p4,
+ * 300 s, --boxHalf=200, four tags): the measured tag's 3+-anchor cycles fall from
+ * 107/112/106 of 120 (seeds 7/11/13) to 2/0/11, and relays 3 and 4 never hold one fix
+ * (their trace(P) is the pure-prediction value). Under --relayChain no relay-to-relay
+ * exchange can deliver, so no chain fuses and depth 2 never arises (G17b, since b390ed6).
+ *
+ * THE SCHEDULE. On, the relays' round takes slots of its own at the END of the cycle,
+ * finishing before the instant the measured tag ranges at. That is the order the code
+ * already assumes: the tag's relayed leg reads every relay's estimate of THIS cycle
+ * (relayAgeS 0), and a short relay reads the holders' -- so their exchanges come first.
+ * In evaluation order, each instant later than the last:
+ *   relay pt's anchor polls           at now - (K - pt + 1) * S,   pt = 1 .. n-1
+ *   the j-th relay-to-relay exchange  at now - (C - j) * S,        j = 0 .. C-1
+ *   the measured tag, relayed leg included, at now, exactly as before
+ * with n = --nTags, C = (n-1)(n-2) under --relayChain (each short relay may range every
+ * other relay) else 0, K = (n-1) + C, and S = FixRouter::kSlotS, 50 ms: L.1.1's frame slot,
+ * longer than the engines' nominal airtime (2^sf/bw * 20, lora-*-physics-engine.cc:~560)
+ * on every tier at SF7 -- 868 MHz 20.48 ms, 2.4 GHz 3.2 ms -- so no two transmitters'
+ * registry intervals overlap. The slot, the order and the fixed layout are OURS; the spec
+ * defines no schedule. The run is refused when the round does not fit inside --dt or the
+ * relay tier's airtime is not below S.
+ *
+ * WHY THE END OF THE CYCLE AND NOT AFTER THE INSTANT, where L.1.1's frames go. After it,
+ * the relays' exchanges would follow the tag that already read their results; and the
+ * first one evaluated would purge from the registry the MAC frames straddling the instant
+ * (the purge drops entries ended before the CURRENT call), before the measured tag -- at
+ * the instant -- was evaluated against them. Instants that rise in evaluation order keep
+ * that purge what it is in every other run: bookkeeping that cannot change a result.
+ *
+ * A RELAY'S POLLS SHARE ONE INSTANT, as the measured tag's always have: the registry never
+ * collides a transmitter with itself, so spreading a burst would change nothing it sees.
+ *
+ * WHAT DOES NOT MOVE. Every call, its order and its arguments but the instant. Nothing is
+ * added, removed or re-ordered, so the number of engine evaluations is the flag-off
+ * number for the same outcomes. Each exchange is charged exactly as before -- to the relay
+ * that sent it, on --relayTier, inside the per-cycle loop (RULES.md sect 6) -- with its
+ * duty governor armed from the instant it took. The measured tag and L.1.1's frames stay.
+ *
+ * KNOWN LIMIT. The round sits in the slice the event layer has ALREADY run. A MAC frame
+ * completing in its last K*S was evaluated before the round was registered, and every
+ * later MAC evaluation purged it, so the round meets no MAC frame and no MAC frame meets
+ * the round. Flag off, a direct exchange at the instant meets only the frames straddling
+ * it -- at most one airtime of look-back. In G17b's regime the MAC layer sends 30 051
+ * frames in 600 s over three tiers (~50/s), which bounds that look-back at 50/s x 3.2 ms,
+ * about 16% of exchanges on 2.4 GHz and less on the one tier: that is the sliver of MAC
+ * interference the relays give up in the round. The measured tag keeps its sliver.
+ *
+ * Off, this is never constructed: every instant is `now` and every charge time `t`.
+ */
+struct RelayRound
+{
+    RelayRound(uint32_t nTags, bool chain, double slotS);
+    void BeginCycle();
+    //! Relay pt's anchor polls, one instant for the burst.
+    Time Burst(Time now, size_t pt) const;
+    //! The same instant in seconds, for the charge that arms the relay's governor.
+    double BurstS(double t, size_t pt) const;
+    //! The next relay-to-relay exchange of this cycle; its charge time goes to *atS. Past
+    //! the C reserved slots the run stops: a slot the round does not have would be the
+    //! collision it exists to remove.
+    Time NextChain(Time now, double t, double* atS);
+    void Report(std::ostream& os, double dt) const;
+
+    double slotS;
+    uint64_t slotNs;
+    uint32_t relays;          //!< n - 1
+    uint32_t chainSlots;      //!< C
+    uint32_t chainUsed = 0;   //!< this cycle
+    uint32_t chainPeak = 0;
+    uint64_t polls = 0;       //!< anchor polls evaluated in a relay's slot
+    uint64_t bursts = 0;      //!< relay-cycles that polled at least one anchor
+    uint64_t chainMoved = 0;  //!< relay-to-relay exchanges evaluated in a round slot
+};
+
+__attribute__((noinline))
+RelayRound::RelayRound(uint32_t nTags, bool chain, double s)
+    : slotS(s),
+      slotNs(static_cast<uint64_t>(std::llround(s * 1e9))),
+      relays(nTags > 1 ? nTags - 1 : 0),
+      chainSlots((chain && nTags > 2) ? (nTags - 1) * (nTags - 2) : 0)
+{
+}
+
+__attribute__((noinline)) void
+RelayRound::BeginCycle()
+{
+    chainUsed = 0;
+}
+
+__attribute__((noinline)) Time
+RelayRound::Burst(Time now, size_t pt) const
+{
+    const uint64_t k = static_cast<uint64_t>(relays + chainSlots) + 1u - pt;
+    return now - NanoSeconds(slotNs * k);
+}
+
+__attribute__((noinline)) double
+RelayRound::BurstS(double t, size_t pt) const
+{
+    return t - slotS * static_cast<double>(static_cast<uint64_t>(relays + chainSlots) + 1u - pt);
+}
+
+__attribute__((noinline)) Time
+RelayRound::NextChain(Time now, double t, double* atS)
+{
+    if (chainUsed >= chainSlots)
+    {
+        std::cerr << "FATAL: relay-to-relay exchange " << (chainUsed + 1)
+                  << " in one cycle, but the --relaySlots round reserves " << chainSlots
+                  << "\n";
+        std::exit(1);
+    }
+    const uint64_t k = chainSlots - chainUsed;
+    ++chainUsed;
+    chainPeak = std::max(chainPeak, chainUsed);
+    ++chainMoved;
+    *atS = t - slotS * static_cast<double>(k);
+    return now - NanoSeconds(slotNs * k);
+}
+
+__attribute__((noinline)) void
+RelayRound::Report(std::ostream& os, double dt) const
+{
+    // Its own stream, so std::fixed does not outlive the call on std::cout.
+    std::ostringstream o;
+    const uint32_t k = relays + chainSlots;
+    o << "    C5_INSTANT relay round: slot " << std::fixed << std::setprecision(1)
+      << slotS * 1e3 << " ms x " << k << " = " << slotS * 1e3 * k
+      << " ms before the instant, of a " << dt * 1e3 << " ms cycle; anchor polls moved "
+      << polls << " in " << bursts << " bursts; relay-to-relay moved " << chainMoved
+      << ", at most " << chainPeak << " of " << chainSlots << " slots in a cycle\n";
+    os << o.str();
+}
+
+/**
  * L.1.2 -- RELAY DEPTH 2 (Network sect 5), behind --relayChain.
  *
  * WHAT WAS MISSING. CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed,
@@ -2767,17 +2910,15 @@ struct CaTblTagState
  * pays, and the answering relay is not charged, as an answering gateway is not. No other
  * tier and no other account is touched; the measured tag's energy is not.
  *
- * THE EXCHANGE IS STAMPED AT THE CYCLE'S ONE INSTANT, like every C5 exchange, and that
- * is a KNOWN LIMIT rather than a choice made here. Every ProcessTransmission in a cycle
- * carries the same `now`, and the engines' interference registry keys on time overlap
- * and transmitter id alone, so every relay's exchanges collide with every exchange
- * registered before them in that instant. Measured with this flag on, twelve regimes,
- * 5 760 cycles: two relays held a fix in the same cycle ONCE, 17 relay-to-relay exchanges
- * were possible and made and none delivered a range, so no chain ever fused and depth 2
- * never arose. With each relay's exchanges moved to its own instant in a diagnostic build
- * (not this code), the same flags fuse chains and reach depth 2 at once. That scheduling
- * belongs to C5, for every relay exchange and not only this one, and is recorded as open
- * rather than patched here.
+ * WITHOUT --relaySlots THE EXCHANGE IS STAMPED AT THE CYCLE'S ONE INSTANT, like every C5
+ * exchange. Every ProcessTransmission in a cycle then carries the same `now`, and the
+ * engines' interference registry keys on time overlap and transmitter id alone, so every
+ * relay's exchanges collide with every exchange registered before them in that instant.
+ * Measured with this flag on at b390ed6, twelve regimes, 5 760 cycles: two relays held a
+ * fix in the same cycle ONCE, 17 relay-to-relay exchanges were possible and made and none
+ * delivered a range, so no chain ever fused and depth 2 never arose. That scheduling
+ * belongs to C5, for every relay exchange and not only this one; --relaySlots (RelayRound,
+ * C5_INSTANT) gives each exchange here the next slot of the relays' round.
  *
  * Off, this is never constructed, the relays step exactly as before, and not one engine
  * evaluation is added. Every relayed-range decision it sees -- both legs -- is written to
@@ -2792,7 +2933,8 @@ struct RelayChain
     void BeginCycle();
     //! A relay's anchor ranging is done. True: defer its step (short of three).
     bool Defer(size_t pt, const std::vector<CaTblRangeMeasurement>& pmeas, size_t addressed);
-    //! Short relays range this cycle's fix-holders, then step.
+    //! Short relays range this cycle's fix-holders, then step. \p round null (no
+    //! --relaySlots): every exchange at \p now, charged at \p t.
     void RangeShortRelays(std::vector<CaTblTagState>& tags,
                           uint32_t nTags,
                           CaTblTier rt,
@@ -2804,7 +2946,8 @@ struct RelayChain
                           double dt,
                           Time now,
                           uint32_t maxRelayDepth,
-                          double budgetM2);
+                          double budgetM2,
+                          RelayRound* round);
     //! The measured tag's leg: stamp depth and composed P onto a candidate through relay
     //! pt. False: the chain could not be composed, and the candidate must be dropped.
     bool ForTag(size_t pt, const CaTblPolicy& relay, CaTblRelayedRange& rr, double t,
@@ -2979,7 +3122,8 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                              double dt,
                              Time now,
                              uint32_t maxRelayDepth,
-                             double budgetM2)
+                             double budgetM2,
+                             RelayRound* round)
 {
     const int rti = static_cast<int>(rt);
     const size_t n = std::min<size_t>(nTags, tags.size());
@@ -3033,11 +3177,14 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             bool got = false;
             double r = 0.0;
             double sigRaw = 0.0;
+            // C5_INSTANT: the round's next relay-to-relay slot, after every relay's polls.
+            double atS = t;
+            const Time at = round ? round->NextChain(now, t, &atS) : now;
             if (rt == CA_TBL_TIER_2P4)
             {
                 PhysicsResult2p4 res = e2p4.ProcessTransmission(
                     B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
-                    phy[rti].bandwidthHz, 1, now);
+                    phy[rti].bandwidthHz, 1, at);
                 got = res.packetReceived;
                 r = res.estimatedRangeM;
                 sigRaw = res.rangingSigmaM;
@@ -3046,7 +3193,7 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             {
                 PhysicsResultUWB res = eUwb.ProcessTransmission(
                     B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
-                    phy[rti].bandwidthHz, 1, now);
+                    phy[rti].bandwidthHz, 1, at);
                 got = res.packetReceived;
                 r = res.estimatedRangeM;
                 sigRaw = res.rangingSigmaM;
@@ -3055,15 +3202,16 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             {
                 PhysicsResult res = e868.ProcessTransmission(
                     B.nodeId, C.nodeId, B.pos, C.pos, phy[rti].txPowerDbm, phy[rti].sf,
-                    phy[rti].bandwidthHz, 1, now);
+                    phy[rti].bandwidthHz, 1, at);
                 got = res.packetReceived;
                 r = res.estimatedRangeM;
                 sigRaw = res.rangingSigmaM;
             }
             ++tried;
             ++exchanges;
-            // Charged on the short relay's own account, on --relayTier, admitted or not.
-            B.energy.AccountRangingExchange(rt, 1, got ? 1 : 0, t);
+            // Charged on the short relay's own account, on --relayTier, admitted or not,
+            // its governor armed from the instant the exchange took.
+            B.energy.AccountRangingExchange(rt, 1, got ? 1 : 0, atS);
             if (!got || !std::isfinite(r) || r <= 0.0 || dist <= 0.0)
             {
                 continue;
@@ -4742,7 +4890,8 @@ RunArm(CaTblPolicyMode mode,
        double tdoaPpsSigmaNs,
        bool nlosClassifier,
        bool pcsNlosClassifier,
-       double nlosScoreThreshold)
+       double nlosScoreThreshold,
+       bool relaySlots)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -5457,6 +5606,14 @@ RunArm(CaTblPolicyMode mode,
         cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
         chain.reset(new RelayChain(tags.size(), cfn.str()));
+    }
+    // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
+    // cycle's instant and charged at its time, exactly as before.
+    std::unique_ptr<RelayRound> relayRound;
+    if (relaySlots)
+    {
+        relayRound.reset(new RelayRound(static_cast<uint32_t>(tags.size()), relayChain,
+                                        FixRouter::kSlotS));
     }
     if (fixRouting)
     {
@@ -6527,6 +6684,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 chain->BeginCycle();
             }
+            if (relayRound)
+            {
+                relayRound->BeginCycle();
+            }
             for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
             {
                 const size_t pi = pt - 1;
@@ -6537,6 +6698,10 @@ RunArm(CaTblPolicyMode mode,
                 }
                 const std::vector<CaTblNeighbour> nb =
                     peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
+                // C5_INSTANT: under --relaySlots this relay polls in its own slot of the
+                // round, before every relay-to-relay exchange and the measured tag.
+                const Time at = relayRound ? relayRound->Burst(now, pt) : now;
+                uint64_t polled = 0;
                 std::vector<CaTblRangeMeasurement> pmeas;
                 for (size_t a = 0; a < nb.size(); ++a)
                 {
@@ -6553,12 +6718,13 @@ RunArm(CaTblPolicyMode mode,
                     double sigmaM = 0.0;
                     bool nlosProp = false;
                     bool hiddenActive = false;
+                    ++polled;
                     if (rt == CA_TBL_TIER_868)
                     {
                         PhysicsResult r = engine868.ProcessTransmission(
                             tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
                             phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
-                            now);
+                            at);
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
@@ -6570,7 +6736,7 @@ RunArm(CaTblPolicyMode mode,
                         PhysicsResult2p4 r = engine2p4.ProcessTransmission(
                             tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
                             phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
-                            now);
+                            at);
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
@@ -6582,7 +6748,7 @@ RunArm(CaTblPolicyMode mode,
                         PhysicsResultUWB r = engineUwb.ProcessTransmission(
                             tags[pt].nodeId, anchorId, tags[pt].pos, anchorPos,
                             phy[rti].txPowerDbm, phy[rti].sf, phy[rti].bandwidthHz, 0,
-                            now);
+                            at);
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
@@ -6603,10 +6769,17 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 // Charged on the relay's own account, RX timeouts of anchors that did
-                // not answer included -- the same rule the measured tag pays.
+                // not answer included -- the same rule the measured tag pays -- with its
+                // governor armed from the instant the burst took.
+                if (relayRound && polled > 0)
+                {
+                    relayRound->polls += polled;
+                    ++relayRound->bursts;
+                }
                 tags[pt].energy.AccountRangingExchange(
                     rt, static_cast<uint32_t>(nb.size()),
-                    static_cast<uint32_t>(pmeas.size()), t);
+                    static_cast<uint32_t>(pmeas.size()),
+                    relayRound ? relayRound->BurstS(t, pt) : t);
                 // L.1.2: a relay short of three waits until every fix-holder has stepped.
                 if (chain && chain->Defer(pt, pmeas, nb.size()))
                 {
@@ -6620,7 +6793,8 @@ RunArm(CaTblPolicyMode mode,
             if (chain)
             {
                 chain->RangeShortRelays(tags, nTags, rt, phy, engine868, engine2p4, engineUwb,
-                                        t, dt, now, maxRelayDepth, relayVarBudgetM2);
+                                        t, dt, now, maxRelayDepth, relayVarBudgetM2,
+                                        relayRound.get());
             }
         }
 
@@ -8826,6 +9000,10 @@ RunArm(CaTblPolicyMode mode,
     {
         chain->Report(std::cout, tags, relayVarBudgetM2, maxRelayDepth);
     }
+    if (relayRound)
+    {
+        relayRound->Report(std::cout, dt);
+    }
     if (router)
     {
         router->Report(std::cout, tags);
@@ -9074,6 +9252,7 @@ main(int argc, char* argv[])
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
     bool relayChainArg = false; // L.1.2, off: every relay stays at depth 0
+    bool relaySlotsArg = false; // C5_INSTANT, off: every relay exchange at the cycle instant
     bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
@@ -10142,15 +10321,45 @@ main(int argc, char* argv[])
                  "field nodes (ids 2+); a finder carries GNSS and is an anchor, never a "
                  "relay. The exchange rides --relayTier and is charged to the short "
                  "relay's own account, inside the per-cycle loop, and is not made at "
-                 "all when anchors plus holders cannot reach three. KNOWN LIMIT: every "
-                 "relay exchange shares the cycle's one instant and the engines treat "
-                 "them as simultaneous, which in every regime probed has kept any chain "
-                 "from fusing -- see the RelayChain comment and gate G17b. REQUIRES "
+                 "all when anchors plus holders cannot reach three. KNOWN LIMIT: without "
+                 "--relaySlots every relay exchange shares the cycle's one instant and "
+                 "the engines treat them as simultaneous, which in every regime probed "
+                 "has kept any chain from fusing -- see the RelayChain comment; gate G17b "
+                 "runs with --relaySlots. REQUIRES "
                  "--relayedRanging=true and --nTags >= 3 (two relays): with fewer, no "
                  "relay has a filter or no relay has another to lean on, every count "
                  "would be a structural zero, and that combination is refused rather "
                  "than run. Set --maxRelayDepth=2 for depth 2 to be admissible at all.",
                  relayChainArg);
+    cmd.AddValue("relaySlots",
+                 "Give the relays' ranging round instants of its own inside each cycle "
+                 "(C5_INSTANT). FALSE (default) is every result so far, and EVERY "
+                 "--relayedRanging NUMBER TO DATE WAS MEASURED WITHOUT IT: every exchange "
+                 "a cycle makes directly is then stamped at the cycle's one instant, and "
+                 "the engines' interference registry decides overlap on time and "
+                 "transmitter alone, at the interferer's own link power, so each relay's "
+                 "polls collide with the other relays' and the measured tag's. With only "
+                 "--relayedRanging on, the measured tag's 3+-anchor cycles fall from "
+                 "107/120 to 2/120 (static_2p4, seed 7, 300 s, --boxHalf=200, four tags), "
+                 "relays after the first never hold a fix, and no --relayChain exchange "
+                 "ever delivers. On, relay pt polls at now-(K-pt+1)*50 ms and the j-th "
+                 "relay-to-relay exchange runs at now-(C-j)*50 ms, with C = (nTags-1)"
+                 "(nTags-2) under --relayChain, else 0, and K = nTags-1+C -- all BEFORE "
+                 "the measured tag, which still ranges at the instant and reads every "
+                 "relay's estimate of this cycle, so the order is the order the code "
+                 "already assumes and the instants rise as the calls are made. 50 ms is "
+                 "L.1.1's frame slot, longer than every tier's nominal airtime at SF7; "
+                 "slot, order and layout are OURS, the spec defines no schedule. Nothing "
+                 "is added, removed or re-ordered and every charge is unchanged -- to the "
+                 "relay that sent it, on --relayTier, inside the per-cycle loop -- with "
+                 "its duty governor armed from its slot. It stays off because on, every "
+                 "--relayedRanging result moves and none is comparable across the two "
+                 "settings, and because the round sits in the slice the event layer has "
+                 "already run, so a MAC frame completing in its last K*50 ms never meets "
+                 "it (RelayRound comment). REQUIRES --relayedRanging=true and --nTags >= 2 "
+                 "(with no relay there is nothing to schedule), and a round shorter than "
+                 "--dt; refused otherwise.",
+                 relaySlotsArg);
     cmd.AddValue("fixRouting",
                  "Route each relay's position fix to the gateway backbone hop by hop, so a "
                  "relay that cannot reach a gateway on --relayTier hands its ENTRY_PUSH to "
@@ -10450,6 +10659,29 @@ main(int argc, char* argv[])
                   << ": every depth-2 range will be refused by the ceiling, never by the"
                   << " budget\n";
     }
+    // C5_INSTANT. Refused rather than run: with no relay there is nothing to schedule and
+    // every count would be a structural zero; and a round longer than the cycle would put
+    // its first slots in the previous cycle, where they are not this cycle's exchanges.
+    if (relaySlotsArg && (!relayedRangingArg || nTagsArg < 2))
+    {
+        std::cerr << "FATAL: --relaySlots schedules the relays' exchanges; it needs"
+                  << " --relayedRanging=true and --nTags >= 2 (got "
+                  << (relayedRangingArg ? "true" : "false") << ", " << nTagsArg << ")\n";
+        return 1;
+    }
+    if (relaySlotsArg)
+    {
+        const double nr = static_cast<double>(nTagsArg - 1);
+        const double k = nr + (relayChainArg ? nr * (nr - 1.0) : 0.0);
+        if (!(k * FixRouter::kSlotS < dt))
+        {
+            std::cerr << "FATAL: --relaySlots needs " << k << " slots of "
+                      << FixRouter::kSlotS * 1e3 << " ms at --nTags=" << nTagsArg
+                      << (relayChainArg ? " with --relayChain" : "") << ", which does not"
+                      << " fit inside a --dt=" << dt << " s cycle\n";
+            return 1;
+        }
+    }
     // L.1.1. Refused rather than run, on the same reasoning as --relayChain: without relay
     // filters there is no account to charge, and with one relay no route through another.
     if (fixRoutingConfidenceArg && !fixRoutingArg)
@@ -10640,6 +10872,21 @@ main(int argc, char* argv[])
     phy[CA_TBL_TIER_868] = {7, 125e3, 14.0};
     phy[CA_TBL_TIER_2P4] = {7, 800e3, 12.5};
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+    // C5_INSTANT. The round's slots are disjoint in the registry only while the relay
+    // tier's airtime is shorter than a slot; the engines register 2^sf / bw * 20 s
+    // (lora-*-physics-engine.cc:~560), recomputed here from the same table.
+    if (relaySlotsArg)
+    {
+        const TierPhy& rp = phy[std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTierArg)];
+        const double airS = std::pow(2.0, rp.sf) / rp.bandwidthHz * 20.0;
+        if (!(airS < FixRouter::kSlotS))
+        {
+            std::cerr << "FATAL: --relaySlots slot of " << FixRouter::kSlotS * 1e3
+                      << " ms is not longer than the relay tier's airtime " << airS * 1e3
+                      << " ms; its exchanges would overlap\n";
+            return 1;
+        }
+    }
 
     if (probe)
     {
@@ -11060,7 +11307,8 @@ main(int argc, char* argv[])
                                        tdoaPpsSigmaNsArg,
                                        nlosClassifierArg,
                                        pcsNlosClassifierArg,
-                                       nlosScoreThresholdArg);
+                                       nlosScoreThresholdArg,
+                                       relaySlotsArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
