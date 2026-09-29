@@ -630,12 +630,22 @@ CaTblMac::ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const
 }
 
 bool
-CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
+CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId)
 {
     if (manifestId == 0)
     {
         return false;
     }
+    // L.2.5: filled in as the scan goes and pushed on every exit below -- once per
+    // matching entry examined, or once with held=false when nothing matched -- so no
+    // outcome can go unrecorded, least of all the refusals, which were the only
+    // outcome anyone had seen. A manifest id names one target and the table is keyed
+    // by node, so in practice a check yields exactly one record.
+    CaTblProxyCheck rec;
+    rec.tS = nowS;
+    rec.queryId = queryId;
+    rec.tier = static_cast<uint8_t>(tier);
+    rec.manifestId = manifestId;
     for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
          it != m_table.end(); ++it)
     {
@@ -645,6 +655,8 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
         {
             continue;
         }
+        rec.held = true;
+        rec.entry = e;
         // FRESHNESS IS THE WHOLE GUARD. A matching entry that is too old is not
         // an answer; reporting it would state a position nothing currently
         // supports. Counted rather than dropped silently, so a search that found
@@ -658,9 +670,16 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS)
         if (fresh == CA_TBL_STALE || fresh == CA_TBL_EXPIRED)
         {
             ++m_proxyRefusedStale;
+            m_proxyChecks.push_back(rec);
             continue;
         }
+        rec.answered = true;
+        m_proxyChecks.push_back(rec);
         return true;
+    }
+    if (!rec.held)
+    {
+        m_proxyChecks.push_back(rec);
     }
     return false;
 }
@@ -1191,7 +1210,8 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
             ++m_queriesAnswered;
             SendResponse(qTier, hdr.GetPacketId(), hdr.GetOriginId());
         }
-        else if (m_cfg.queryProxy && ProxyAnswerFor(hdr.GetQueryManifestId(), nowS))
+        else if (m_cfg.queryProxy &&
+                 ProxyAnswerFor(hdr.GetQueryManifestId(), nowS, qTier, hdr.GetPacketId()))
         {
             // Network §4. This node is not the target, but it holds a fresh
             // enough entry ABOUT the target, so it answers on that entry's

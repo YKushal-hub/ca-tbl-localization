@@ -324,6 +324,29 @@ struct CaTblMsgCounters
     CaTblMsgCounters();
 };
 
+/**
+ * \brief L.2.5: one proxy check -- a QUERY reached a radio that is not the target it
+ * names, and this is what that radio's table held about the target at that instant.
+ *
+ * The refusal counter could say THAT the staleness bound refused, never by how much:
+ * "7 refusals / 0 answers" is equally consistent with entries 121 s old and 1 200 s
+ * old, and those call for opposite changes. So the age is recorded BEFORE the freshness
+ * decision and whatever it decides, which keeps the distribution independent of the
+ * bound it is used to judge. A check that found no matching entry is recorded too,
+ * because "held nothing" and "held something old" are different failures and share a
+ * denominator. Observation only: nothing reads a record back into the MAC.
+ */
+struct CaTblProxyCheck
+{
+    double tS = 0.0;         //!< when the query arrived at this radio
+    uint32_t queryId = 0;    //!< the query's packet_id, so arrivals group into queries
+    uint8_t tier = 0;      //!< the radio it arrived on; each radio has its own table
+    uint8_t manifestId = 0;  //!< the target the query named
+    bool held = false;       //!< a matching entry was in this radio's table
+    bool answered = false;   //!< ...and it was inside the staleness bound
+    CaTblTableEntry entry;   //!< the matching entry; meaningful only when held
+};
+
 class CaTblChannel;
 
 /**
@@ -432,7 +455,7 @@ class CaTblMac
     /** Network §4: is there a fresh table entry about \p manifestId to answer on
      *  behalf of? Freshness is checked here, not by the caller, because a stale
      *  match and no match are different outcomes and are counted separately. */
-    bool ProxyAnswerFor(uint8_t manifestId, double nowS);
+    bool ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId);
     /** Network §1: extra wire bytes for target_manifest_id, zero unless the
      *  proxy responder is enabled and the message actually carries entries. */
     uint32_t ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const;
@@ -469,6 +492,9 @@ class CaTblMac
     uint64_t GetResponsesFlooded() const { return m_responsesFlooded; }
     uint64_t GetReversePathHits() const { return m_reversePathHits; }
     uint64_t GetReversePathMisses() const { return m_reversePathMisses; }
+    //! L.2.5: every proxy check this radio made, in arrival order. Empty unless
+    //! --queryProxy is on, because nothing else reaches ProxyAnswerFor.
+    const std::vector<CaTblProxyCheck>& GetProxyChecks() const { return m_proxyChecks; }
 
     //! C3: identity-scoped queries answered, and responses sent. Counted so the
     //! mechanism is measurable rather than asserted.
@@ -686,6 +712,7 @@ class CaTblMac
     uint64_t m_responsesFlooded = 0;
     uint64_t m_reversePathHits = 0;
     uint64_t m_reversePathMisses = 0;
+    std::vector<CaTblProxyCheck> m_proxyChecks;
     uint64_t m_dutyViolationAttempts;
 };
 
