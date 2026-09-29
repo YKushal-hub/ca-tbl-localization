@@ -35,7 +35,8 @@ CaTblRangeMeasurement::CaTblRangeMeasurement()
       nlos(false),
       nlosPropagation(false),
       hiddenChannelActive(false),
-      sigmaM(0.0)
+      sigmaM(0.0),
+      nlosScore(-1.0)
 {
 }
 
@@ -76,6 +77,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     // 3.1623 m target. Below that the filter is not tracking to spec and the
     // score should say so rather than being carried by the other two terms.
     pcsGateFloor = 0.10;
+    pcsNlosFromScore = false; // default preserves the pre-existing baseline
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
     multiStepDemote = false;            // default preserves the pre-existing baseline
 
@@ -151,7 +153,10 @@ CaTblDecision::CaTblDecision()
       meanSigmaRawM(0.0),
       sigmaGeoM(-1.0),
       predictedVisUwb(-1),
-      predictedVis2p4(-1)
+      predictedVis2p4(-1),
+      nNlosScored(0),
+      nlosScoreTerm(-1.0),
+      nlosScoreFed(false)
 {
 }
 
@@ -807,7 +812,8 @@ CaTblPolicy::ComputePcs(double traceSigma,
                         uint32_t nLos,
                         uint32_t nTotal,
                         uint32_t hopCount,
-                        double sigmaGeoM) const
+                        double sigmaGeoM,
+                        double losTermOverride) const
 {
     if (m_config.pcsForm == CA_TBL_PCS_V2)
     {
@@ -851,8 +857,13 @@ CaTblPolicy::ComputePcs(double traceSigma,
     const double term1 = m_config.traceRef / (m_config.traceRef + std::max(traceSigma, 0.0));
     // Term 2: geometric quality.
     const double term2 = 1.0 / std::max(gdop, 1.0);
-    // Term 3: fraction of contributing links believed line-of-sight.
-    const double term3 = (nTotal == 0) ? 0.0 : static_cast<double>(nLos) / static_cast<double>(nTotal);
+    // Term 3: fraction of contributing links believed line-of-sight -- or, under
+    // pcsNlosFromScore, the spec's mean (1 - NLOS_score), which Step() passes in. The
+    // override replaces this one term; the sums below are the same code either way.
+    const double term3 = (losTermOverride >= 0.0)
+                             ? losTermOverride
+                             : ((nTotal == 0) ? 0.0
+                                              : static_cast<double>(nLos) / static_cast<double>(nTotal));
 
     // LEGACY sums these unweighted, which is the saturation defect: term2 + term3
     // alone reach 2.0 against a 1.55 threshold, so term1 cannot veto. The two
@@ -1046,6 +1057,28 @@ CaTblPolicy::Step(double dt,
     d.nNlosPropagation = nNlosProp;
     d.nHiddenChannel = nHidden;
 
+    // The classifier's PCS term 3 (TECH_DEBT L.2.2): mean (1 - NLOS_score) over the links
+    // that carry a score. Pure arithmetic over this cycle's set -- no RNG draw, no state --
+    // and computed whether or not it is fed, so the term is observable before it decides
+    // anything. Without --nlosClassifier every nlosScore is -1, nScored is 0 and nothing
+    // below differs from before.
+    {
+        double sum = 0.0;
+        uint32_t nScored = 0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].nlosScore >= 0.0)
+            {
+                sum += 1.0 - std::min(1.0, meas[i].nlosScore);
+                ++nScored;
+            }
+        }
+        d.nNlosScored = nScored;
+        d.nlosScoreTerm = (nScored > 0) ? sum / static_cast<double>(nScored) : -1.0;
+        d.nlosScoreFed = m_config.pcsNlosFromScore && nScored > 0 &&
+                         m_config.pcsForm != CA_TBL_PCS_V2;
+    }
+
     // sigma_geo: this cycle's measurement-only radial position sigma, the exact
     // sqrt(trace((J^T R^-1 J)^-1)). Needed only by CA_TBL_PCS_V2, so it is computed
     // only for that form -- the legacy path must not gain a solve it never had, or
@@ -1233,8 +1266,13 @@ CaTblPolicy::Step(double dt,
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
     const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
-    const double pcs =
-        ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount, sigmaGeoM);
+    const double pcs = ComputePcs(traceSigma,
+                                  gdop,
+                                  nLos,
+                                  static_cast<uint32_t>(meas.size()),
+                                  hopCount,
+                                  sigmaGeoM,
+                                  d.nlosScoreFed ? d.nlosScoreTerm : -1.0);
 
     d.traceSigma = traceSigma;
     d.gdop = gdop;

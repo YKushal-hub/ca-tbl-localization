@@ -589,6 +589,51 @@ python3 scripts/tdoa_gate.py --stdout "$WORK/g19e.log" \
 bash scripts/tdoa_gate_selftest.sh || fail G19
 finish G19
 
+# ---------------- G20: NLOS scores produced, checked and fed to PCS (L.2.2, Physical 1.3/2.5)
+# PCS term 3 has read a boolean tag since it was written (K.8: the tag fires on 75-78% of
+# links). --nlosClassifier gives every ranged link the spec's tier-specific NLOS_score --
+# a synthesised UWB CIR's leading edge against its peak, the 2.4 GHz ToF distance against
+# the RSSI, the 868 MHz link's RSSI/SNR variability -- and scores each against the channel
+# model's own LOS/NLOS draw. --pcsNlosClassifier makes term 3 mean(1 - NLOS_score).
+#
+# G20 runs the unit suite, then the same short run three ways. OFF and CLASSIFIER-ONLY
+# must write byte-identical arm_summary.csv: the scores decide nothing until fed, and the
+# CIR draws from its own stream. Both flag-on runs are read by the gate: the matrix is its
+# rows, the rows honour their detector, one tier has every cell >= 5, the term varies, and
+# it is fed on every scored cycle exactly when the feed is on.
+#
+# THE CIR CANNOT FILL ITS OWN MATRIX IN ANY SCENARIO RUN, and G20 does not pretend it can:
+# no decoded UWB link is NLOS in the model (the UWB NLOS penalty exceeds UWB's margin, and
+# at UWB distances the outdoor NLOS probability is ~0.1%). The matrix G20 requires full is
+# the 868 one. Negative fixtures, including the flag off, the classifier-only run offered
+# as a feed run, and a UWB-only run, are in scripts/nlos_classifier_gate_selftest.sh (rule 6).
+printf '\n--- G20 NLOS scores produced, checked and fed to PCS (L.2.2) ---\n'
+mkdir -p "$WORK/g20off" "$WORK/g20d" "$WORK/g20f"
+./build/scratch/ns3.47-ca_tbl_nlos_test-optimized || fail G20
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --outdir="$WORK/g20off" \
+    > "$WORK/g20off.log" 2>&1 || gerror G20 "flag-off run exited non-zero"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --nlosClassifier=true --outdir="$WORK/g20d" \
+    > "$WORK/g20d.log" 2>&1 || gerror G20 "classifier-only run exited non-zero"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --nlosClassifier=true --pcsNlosClassifier=true \
+    --outdir="$WORK/g20f" > "$WORK/g20f.log" 2>&1 || gerror G20 "feed run exited non-zero"
+if cmp -s "$WORK/g20off/arm_summary.csv" "$WORK/g20d/arm_summary.csv"; then
+    printf '  G20 classifier alone: arm_summary.csv byte-identical to the flag off\n'
+else
+    printf '  G20 classifier alone CHANGED arm_summary.csv -- it must decide nothing unfed\n'
+    fail G20
+fi
+python3 scripts/nlos_classifier_gate.py --forbid-fed --stdout "$WORK/g20d.log" \
+    "$WORK/g20d/nlos_links_ca_tbl_full_seed7.csv" \
+    "$WORK/g20d/nlos_summary_ca_tbl_full_seed7.csv" || fail G20
+python3 scripts/nlos_classifier_gate.py --require-fed --stdout "$WORK/g20f.log" \
+    "$WORK/g20f/nlos_links_ca_tbl_full_seed7.csv" \
+    "$WORK/g20f/nlos_summary_ca_tbl_full_seed7.csv" || fail G20
+bash scripts/nlos_classifier_gate_selftest.sh || fail G20
+finish G20
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
