@@ -189,8 +189,20 @@ G6_MISMATCH=0
 # carries --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy and is
 # the null-control reference, while these two are pure defaults and are the evidence
 # this gate compares against. Do not substitute one for the other.
-for spec in "causal_v11/arm_summary.csv:causal/arm_summary.csv" \
-            "det_a_v11/arm_summary.csv:det_a/arm_summary.csv"; do
+#
+# ITS OWN RUN SINCE 2026-09-29, and the reason is the flag, not the gate. The v11 pair
+# was produced when --gatewayEdgeServer defaulted false; it now defaults true, so G2's
+# and G3's default runs no longer share the tracked evidence's configuration and a
+# comparison with them would disagree on energy for a reason this gate is not about.
+# One run at the evidence's recorded arguments with the flag at its ORIGINAL default,
+# --trace=false because arm_summary.csv does not depend on tracing (causal_v11 and
+# det_a_v11 carry the same digest, 26e85540...). G2-G5 keep testing the shipped default.
+mkdir -p "$WORK/g6_nodeside"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
+    --trace=false --gatewayEdgeServer=false --outdir="$WORK/g6_nodeside" \
+    > "$WORK/g6_nodeside.log" 2>&1 || gerror G6 "node-side run exited non-zero"
+for spec in "causal_v11/arm_summary.csv:g6_nodeside/arm_summary.csv" \
+            "det_a_v11/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
@@ -568,8 +580,11 @@ finish G18b
 # cycle's RSSI ranges. It adds no frame and no charge.
 #
 # G19 runs the solver's unit suite (33 checks, its refusals among them), then the
-# mechanism in a run, in both billing modes -- replies billed (default) and the edge
-# server's single downlink -- and reads the per-cycle log: OK solves on at least half the
+# mechanism in a run, in both billing modes -- replies billed (--gatewayEdgeServer=false,
+# pinned since that flag's default became true on 2026-09-29, or this run would silently
+# become a second edge-server run and the reply half of the billing check would go
+# unexercised) and the edge server's single downlink -- and reads the per-cycle log: OK
+# solves on at least half the
 # tier-1 fix cycles, every OK fix on an accepted cycle fused, every stamp on a billed
 # frame, and the CSV recounted against the scenario's and the policy's own counters.
 #
@@ -580,8 +595,8 @@ printf '\n--- G19 tier-1 TDoA produced, fused and billed (L.2.1) ---\n'
 mkdir -p "$WORK/g19" "$WORK/g19e"
 ./build/scratch/ns3.47-ca_tbl_tdoa_test-optimized || fail G19
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
-    --duration=900 --trace=false --tier1Tdoa=true --outdir="$WORK/g19" \
-    > "$WORK/g19.log" 2>&1 || gerror G19 "flag-on run exited non-zero"
+    --duration=900 --trace=false --tier1Tdoa=true --gatewayEdgeServer=false \
+    --outdir="$WORK/g19" > "$WORK/g19.log" 2>&1 || gerror G19 "flag-on run exited non-zero"
 python3 scripts/tdoa_gate.py --stdout "$WORK/g19.log" \
     "$WORK/g19/tdoa_static_868_seed7.csv" || fail G19
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
@@ -636,6 +651,27 @@ python3 scripts/nlos_classifier_gate.py --require-fed --stdout "$WORK/g20f.log" 
     "$WORK/g20f/nlos_summary_ca_tbl_full_seed7.csv" || fail G20
 bash scripts/nlos_classifier_gate_selftest.sh || fail G20
 finish G20
+
+# ---------------- G21: the estimator-location default moves energy and nothing else (L.2.3)
+# --gatewayEdgeServer became TRUE by default on 2026-09-29 on the evidence that it changes
+# what the node is billed and not what the system does (B3 C6: seven accuracy columns
+# byte-identical on 20/20 seeds). This keeps that true. It reads two runs the suite has
+# already made, at the same seed and duration from the same binary: G3's, at defaults, and
+# G6's, with --gatewayEdgeServer=false (arm_summary.csv does not depend on --trace). Every
+# non-energy column must match, tx_/cad_/sleep_ included; every row with a fix must differ
+# in totalJ, and every row without one must not; an unused tier must not be charged.
+#
+# Negative fixtures in scripts/edge_default_gate_selftest.sh, built from a fresh real pair,
+# including the node-side run offered as both sides -- the edge path dead (rule 6).
+printf '\n--- G21 the edge-server default moves energy and nothing else (L.2.3) ---\n'
+if [ ! -s "$WORK/causal/arm_summary.csv" ] || [ ! -s "$WORK/g6_nodeside/arm_summary.csv" ]; then
+    gerror G21 "G3's or G6's run produced no arm_summary -- nothing to compare"
+else
+    python3 scripts/edge_default_gate.py "$WORK/causal/arm_summary.csv" \
+        "$WORK/g6_nodeside/arm_summary.csv" || fail G21
+fi
+bash scripts/edge_default_gate_selftest.sh || fail G21
+finish G21
 
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
