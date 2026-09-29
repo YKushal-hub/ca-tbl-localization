@@ -35,6 +35,165 @@ on disk. **One exception exists and is named in §9.**
 >
 > This report has **not** been rewritten to match the new model. Editing a dated evidence
 > chain to agree with a later understanding would falsify it. It is scoped instead.
+>
+> **2026-09-29.** Seven claim-bearing campaigns have now been re-run under the corrected
+> topology and environment, and two follow-up campaigns have been run after them. §0
+> states every claim against that evidence and **supersedes the statements it names**.
+> The text from §1 on is kept as written. Each statement §0 supersedes carries a dated
+> pointer to the corrections register, §10.
+
+---
+
+## 0. Claim record, restated 2026-09-29
+
+**Why this section exists.** The scope banner says every number in this report is
+provisional pending re-run. Between 2026-09-27 and 2026-09-29 the re-run happened for the
+claim-bearing campaigns. This section is the claim record against that evidence. It adds no
+analysis: every number here is quoted from the committed read-out named beside it.
+
+**What was run.** Each campaign was registered before its first cell, and every sidecar
+reads `dirty 0` with its digests verified.
+
+| campaign | registration | cells | results | read-out |
+|---|---|---|---|---|
+| B3, seven claim-bearing campaigns regenerated | `report/PREREG_B3_REGEN.md` at `7b17bd6` | 125 | `results/regen27_integrity`, `results/regen27_pcs_forms`, `results/regen27_k10`, `results/regen27_k1`, `results/regen27_edge`, `results/regen27_imu` | `report/B3_REGEN_RESULTS.md` |
+| C1 with the evidence gate off | `report/PREREG_C1_NOGATE.md` at `ddae10f` | 40 | `results/regen27_integrity_nogate` | `report/C1_NOGATE_RESULTS.md` |
+| CAL-01, PCS weights by leave-one-seed-out | `report/PREREG_CAL01_LOOCV.md` at `c019c0a` | 60 | `results/cal01_loocv_20260928` | `report/CAL01_LOOCV_RESULTS.md` |
+
+**What the evidence describes, and what it does not.**
+
+- **Which engine.** B3 and C1_NOGATE ran a binary built from `084a7ff`; `src/` and
+  `scratch/` are byte-identical at `7b17bd6` and `ddae10f`. CAL-01 ran at `c019c0a`, with
+  the NLOS classifier and its PCS feed switched on. Everything else added since `084a7ff`
+  (tier-1 TDoA, relay chaining and relay slots, fix routing, grant gossip) is default off
+  and null-controlled, and no run cited here switches it on.
+- **Where the estimator ran.** In every run cited here it ran **on the node**, except the
+  edge-server half of C6, which is the treatment that campaign tested. It moved to
+  the gateways by default at `db2ac2e`, after these runs, and at defaults that move changes
+  energy columns only (`docs/TECH_DEBT.md` L.2.3). So the **accuracy** verdicts carry over
+  to the current default, and every **energy** figure below describes
+  `--gatewayEdgeServer=false`, except C6's comparison of the two settings.
+- **No cross-binary magnitudes.** `LoRaDistributionSampler` stays unseeded
+  (`report/PREREG_B3_REGEN.md` §1), so every number below is a paired comparison inside one
+  binary. No regenerated number is differenced against a pre-correction original.
+- **One scenario family, in simulation.** The limitations of §9 stand.
+
+### 0.1 The record
+
+| claim | status, 2026-09-29 | evidence | source |
+|---|---|---|---|
+| The architecture beats published snapshot estimators | **SUPPORTED** | cep95 below MLAT in every moving cell. Medians 6 665 vs 13 762 m (19+/1−, p = 4.0×10⁻⁵), 6 759 vs 38 599 m (18+/2−, p = 0.0004), and **2 016 vs 20 831 m (20+/0−, p = 1.9×10⁻⁶)** | B3 C3; `results/regen27_k10`; CR-11 |
+| The mesh carries availability | **SUPPORTED** | `fixCycles / steps`: WAN only 0.041 < sparse 0.319 < WAN + mesh 0.647. WAN + mesh is above WAN only on 20/20 seeds, p = 1.9×10⁻⁶ | B3 C5; `results/regen27_k10`; CR-12 |
+| Estimation at the gateway saves node energy at no accuracy cost | **SUPPORTED**, and the default since `db2ac2e`. The two hybrid figures carry an open billing decision | totalJ lower by **42.5 %** (`static_868`), **32.9 %** (`fixed_threshold`) and **32.9 %** (`ca_tbl_full`), 20/20 seeds each, p = 1.9×10⁻⁶. The seven accuracy columns are byte-identical on 20/20 seeds | B3 C6; `results/regen27_edge`; `docs/TECH_DEBT.md` M.10; CR-13 |
+| An ideal dead reckoner collapses the error tail | **SUPPORTED AS A CEILING, never as a system result** | cep95 median: `static_uwb` 8 413 → 17 m and `static_2p4` 27 151 → 537 m, both 20+/0−, p = 1.9×10⁻⁶. `ca_tbl_full` 11+/9−, p = 0.82 | B3 C7; `results/regen27_imu`; CR-14 |
+| Confidence-awareness (PCS) earns its place | **NOT SUPPORTED**; CAL-01: **CALIBRATION DOES NOT RESCUE PCS** | Lost the monotone control in 6 of 8 form × arm cells; undefined in the other 2. The `gated` repair is *worse* than `legacy` on cep50 (+12.96 m, 15+/5−, p = 0.041). CAL-01: no calibration of the three terms ranks error better than the covariance trace, and the calibrated weights are the trace term alone | B3 C2; CAL-01; `results/regen27_pcs_forms`, `results/cal01_loocv_20260928`; CR-1 to CR-7 |
+| The confidence model beats a flat threshold (Claim 8) | **RESTATED**: under the repaired forms it *is* the flat threshold | `ca_tbl_no_integrity` is byte-identical to `fixed_threshold` on 19 of 20 seeds under each of v2, weighted and gated. Not re-registered, so reported, not a verdict | B3 C2, C4; `results/regen27_pcs_forms`; CR-8 |
+| Tiering beats single-band | **NOT SUPPORTED** | `static_2p4` dominates `ca_tbl_full` in 11 of 11 K1 cells. `ca_tbl_full` is indistinguishable from `static_868` in every K10 cell. The three K1 cells where it dominates `static_868` are a billing effect | B3 C4, C3; `results/regen27_k1`; CR-10 |
+| The witness cross-check (IMU and corroboration witnesses) earns its place | **WITHDRAWN in the shipped default: no population** | Off and on rows are byte-identical on 8/8 seeds, although the IMU witness refused 203–232 escalations per seed | B3 C1; `results/regen27_integrity`; CR-9 |
+| — the same, with the evidence gate off | energy **REPRODUCES**; accuracy **NOT SHOWN WORSE**; **no detection claim** | ΔtotalJ −104.86 J per 600 s, CI [−107.97, −101.12], 20/20 seeds. ΔrmseM −0.66 m, CI [−9.62, +11.24]. The IMU witness refused on 85–98 % of cycles | C1_NOGATE; `results/regen27_integrity_nogate`; CR-9 |
+| The Mahalanobis Switching-Point Integrity Check: rejection alone does not pay (Claim 9) | **NOT RE-TESTED**; stays provisional under the scope banner | — | §5.1 |
+| Hop-aware provenance | **NO POPULATION**, unchanged | The measured tag's `Step()` receives the hop count as a literal 0, and `hopWeight` stays 0 | `report/CAL01_LOOCV_RESULTS.md` §5; `docs/TECH_DEBT.md` L.2.4 |
+
+### 0.2 What each verdict does and does not say
+
+**Published estimators.** What beats a memoryless solver is the filter, not the tiering.
+`ca_tbl_full` is indistinguishable from `static_868` in all three cells, and in
+`wanonly_move` it escalates 0 times on 20/20 seeds. A rival is scored only from its first
+estimate onward, an asymmetry that can only favour the rivals. K10's own qualifier stays.
+
+**The mesh.** The availability belongs to the mesh, not to tiering. `static_868` reaches
+0.628 in WAN + mesh and 0.451 in the sparse cell, which is above `ca_tbl_full`'s 0.319.
+
+**The gateway estimator.** This is a tier-1 mechanism: the node skips the per-gateway
+tier-1 replies and pays one downlink per fix, so the saving is the size of the reply bill.
+- On tier 2 it is a pure addition: `static_2p4` costs 0.2 % more on 20/20 seeds.
+- On `static_uwb` it never runs, because that arm has 0 fix cycles.
+- Getting a tier-2 or tier-3 range to the gateway is not billed (`docs/TECH_DEBT.md`
+  L.2.3). That flatters the setting on those two tiers only.
+- The downlink is billed on the active tier, including on cycles whose fix came from the
+  868 MHz floor. There it is charged as a 0.2005 mJ 2.4 GHz frame, where a bill on the
+  fix's tier would charge a 0.9042 mJ 868 MHz one (`docs/TECH_DEBT.md` M.10). C6 ran under
+  the active-tier bill, so the two hybrid figures (−32.9 %) would be smaller savings under
+  the other. `static_868`'s −42.5 % is unaffected. Which bill is right is an open owner
+  decision, and the size of the change has not been measured.
+
+**The IMU ceiling.** It is an upper bound on what a flawless inertial unit could contribute
+here, and it is not dead reckoning alone: the treatment changes `mac_tx` on 20/20 seeds on
+every arm. The step-and-heading engine actually built diverges where fixes are sparse
+(`docs/TECH_DEBT.md` K.9).
+
+**PCS.**
+- Under every repaired form, PCS sits below every escalation threshold on ≥ 99.98 % of fix
+  cycles. It decides nothing, and the downstream gates decide. Under each repaired form,
+  `ca_tbl_no_integrity` is byte-identical to the flat variance threshold `fixed_threshold`
+  on 19 of 20 seeds.
+- CAL-01 then asked whether any weighting of the three terms, fitted leave-one-seed-out,
+  ranks position error better than the covariance trace they are computed from, with the
+  NLOS term live. The answer, with A = ρ_control − ρ_fit and 98.33 % intervals:
+
+  | regime | A | verdict |
+  |---|---|---|
+  | default | −0.0016 [−0.0066, +0.0030] | indistinguishable |
+  | arc (44 % of cycles without a fix) | +0.0045 [−0.0129, +0.0217] | indistinguishable |
+  | searcher | −0.0011 [−0.0044, +0.0001] | indistinguishable |
+
+- The fitted weights on the sum-3 scale are (3.001, −0.0013, −0.000004),
+  (3.000, +0.0002, −0.00004) and (3.003, −0.0007, −0.0023). The hand-set (2, 0.5, 0.5)
+  loses by −0.47, −0.30 and −0.21.
+- **So the contribution — that PCS carries information about error beyond the filter
+  statistic it is computed from — is not supported by any linear calibration of its
+  terms.**
+- Escalating on a monotone function of the covariance trace is still a working mechanism.
+  `fixed_threshold` is that mechanism, and it needs no PCS.
+- Withdrawing the novelty claim is the owner's decision (`report/CAL01_LOOCV_RESULTS.md`
+  §5). This record states the evidence for it.
+
+**Tiering.** K1's "never dominates `static_868`" is falsified in `k1a_box750`,
+`k1a_box1000` and `k1a_box1500` (energy 20+/0− in each), and is reported as an envelope.
+**Those three cells are a billing effect, not evidence that escalating to a precision tier
+pays.**
+- With tier-1 replies billed, a tier-1 cycle costs 18.5–24.0 mJ and a tier-2 cycle
+  5.5–8.6 mJ.
+- With floor-on-demand, the 78–88 % of cycles the arm spends on 2.4 GHz replace tier-1
+  time. Escalating therefore *leaves* the dearer tier: the opposite of the premise the energy
+  axis was built to test.
+- `static_2p4` dominates `ca_tbl_full` in the same cells.
+- The reply bill that produces them is the one the gateway-estimator default removes. The
+  cells have not been re-run under it.
+
+**The integrity check: three mechanisms, kept apart.**
+
+- *The witness cross-check* (`--imuCrossCheck`, `--corroborationCheck`). This record allows
+  only the two-part statement registered by C1_NOGATE (`report/C1_NOGATE_RESULTS.md` §7):
+
+  > *With the evidence gate on (the shipped default), the witness cross-check has no
+  > effect: 8/8 seeds byte-identical (B3). With the evidence gate off, it lowers energy on
+  > 20/20 seeds (mean −104.9 J over 600 s, CI [−108.0, −101.1] J) by suppressing
+  > escalation into UWB. In that configuration the UWB neighbour table held under 0.1
+  > entries per cycle on average, and the 145–189 extra UWB cycles per run went with no
+  > extra fix cycle on 19/20 seeds and one on the twentieth. Accuracy is not shown worse
+  > (CI [−9.6, +11.2] m). On 4/20 seeds it is worse by 10–89 m, and on exactly those seeds
+  > the node spent 21–220 cycles at 868 MHz under the witness against 2–5 without it.*
+
+  A witness that refuses on 85–98 % of cycles is close to a blanket veto. **No sentence
+  about integrity, trust, detection or "the estimate being checked" may be written from
+  either campaign.** The corroboration witness has never refused in 28 runs, so its
+  contribution is unmeasured, not zero.
+- *The Mahalanobis Switching-Point Integrity Check* (§2, §5.1). Not re-tested. Claim 9
+  stays as recorded, pre-correction and provisional. An exploratory probe recorded in
+  `docs/TECH_DEBT.md` L.2 finds its eligible population near-empty under the default NLOS
+  source. That is not a result.
+- *The evidence gate* (`--escalationRequiresEvidence`, default true since `7ec0d91`). In the
+  shipped default it is what absorbs the witness's refusals. Its own result (K3) was not in
+  B3's scope.
+
+**Not re-tested, and still provisional under the scope banner:** §4.3 (the dimensionless
+axis), §5.1 (Claim 9), §5.3, §5.4, §5.4b, §7 (the structural finding) and §2's tier-2
+`r80` (CR-15). Silence here is not confirmation.
+
+**The corrections register is §10.** It lists every statement this record withdraws,
+restates or scopes, in this report and in the documents it draws on. Each entry names where
+the statement was made and the read-out and results directory that correct it.
 
 ---
 
@@ -46,6 +205,11 @@ time-of-flight), and UWB (two-way ranging), with an EKF, a confidence score (PCS
 driving tier escalation, and a Mahalanobis integrity gate rejecting suspect fixes.
 Six arms, twenty seeds, a pre-registered requirement of **availability ≥ 0.95 at
 accuracy ≤ 25 m**, and a decision rule fixed before any run.
+
+> *2026-09-29, restated in §0.* "A confidence score (PCS) driving tier escalation": under
+> every repaired PCS form, PCS decides nothing, and under `legacy` it asks to escalate on
+> 14–19 % of fix cycles (§10, CR-1). The "Mahalanobis integrity gate" named here was not
+> re-tested (§0.2).
 
 **Results that stand.**
 
@@ -68,11 +232,19 @@ accuracy ≤ 25 m**, and a decision rule fixed before any run.
   checks verify ranging precision and energy accounting, and a six-decibel sensitivity
   defect passed all of them. §5.4b.
 
+> *2026-09-29, restated in §0.* Claim 8 is restated: under the repaired PCS forms the
+> confidence arm is byte-identical to the flat threshold on 19 of 20 seeds (CR-8). Claim 9
+> was not re-tested. The witness cross-check that B3 withdrew is a different mechanism
+> (§0.2, CR-9).
+
 **Defects the method found.** A six-decibel sensitivity-table indexing error on the
 tier carrying 95% of active cycles; PCS confidence saturating so it cannot express a
 diverged filter; a gate suite that overwrote the evidence it verified; a degeneracy
 screen that conflated four mechanisms into one verdict. Two were found by checks
 failing, two by results being arithmetically impossible. §6.
+
+> *2026-09-29.* The PCS saturation also runs the other way. The repaired forms sit below
+> every threshold (CR-3).
 
 **The structural finding.** The project registered a **cost** criterion for an
 architecture whose value proposition is **reliability**, and the two select for
@@ -96,6 +268,10 @@ time-of-flight; measured `r80` **1149.5 m**. Tier 3, UWB (DW3000-class), 499.2 M
 facilities", from a dedicated tier-3 anchor ring. Under the corrected topology tier 3
 lives on every node and is reached from a gateway or a finder — see the scope banner.)*
 
+> *2026-09-29, scoped.* The tier-2 `r80` of 1149.5 m describes the split environment.
+> Under the corrected environment the probe in `report/K1_DOMINATION_RESULTS.md` gives
+> 156.0 m (CR-15).
+
 **The estimator.** A four-state EKF (position, velocity) with sequential scalar
 updates, process noise 1.0 m/cycle in position, fed by multilateration over the
 active tier's anchors.
@@ -104,6 +280,10 @@ active tier's anchors.
 `[0,1]`: filter uncertainty `traceRef/(traceRef + traceSigma)`, geometry
 `1/max(gdop,1)`, and line-of-sight fraction `nLos/nTotal`. Escalation was intended to
 fire when PCS fell below a per-tier threshold — 1.55 on tier 1.
+
+> *2026-09-29, restated in §0.* Under every repaired form PCS sits below every threshold on
+> ≥ 99.98 % of fix cycles, so the downstream gates decide. CAL-01 finds no weighting of the
+> three terms that ranks error better than the covariance trace (CR-1, CR-7).
 
 **The integrity gate.** Each candidate fix was tested against the EKF prior by
 Mahalanobis distance, `D² = dᵀ(P_prior + R_fix)⁻¹d`, against χ²₀.₉₉ = 9.21 at 2 DOF. A
@@ -220,11 +400,16 @@ The axis was chosen to be scale-free and it survived a 26% change in its own
 denominator. This is a result about **method**, and it does not depend on any claim
 passing.
 
+> *2026-09-29.* Not re-tested. Both `r80` values here are the split environment's (CR-15).
+
 ---
 
 ## 5. Results that do not stand
 
 ### 5.1 Claim 9 — the integrity gate does not pay, and the statement is narrower than it sounds
+
+> *2026-09-29.* Not re-tested by B3. B3's C1 tested the witness cross-check, which is a
+> different mechanism (§0.2, CR-9).
 
 Sources: `results/c9_clean` (`source cd594c9 dirty 0`, 40 cells, 120 digest entries
 verified) and `results/abl_clean` (`source ccaedb0 dirty 0`, 120 cells, 360 entries
@@ -266,6 +451,9 @@ an accurate result and an overclaimed negative.
 `ca_tbl_full` 19/20 deployments at 24.26 J against `fixed_threshold` 18/20 at 22.77 J.
 The flat variance threshold escalates on nearly the same occasions. Falsified thinly,
 and reported as thin.
+
+> *2026-09-29, restated.* Under the repaired forms it is not a thin loss but the same
+> controller (CR-8).
 
 ### 5.3 Claim 3's original window — withdrawn
 
@@ -337,6 +525,9 @@ fires.
   contribution is unobservable there. Only one population isolates PCS as the sole
   trigger, and it is the only one with zero escalations.
 
+> *2026-09-29, scoped.* The zero-escalation observation belongs to its own population. It
+> does not carry to the corrected environment (CR-2).
+
 ---
 
 ## 6. Defects the method found
@@ -368,6 +559,9 @@ the filter is. It can fail to contribute; it can never veto.
 **Found because a result was impossible**: 361 suspects and 0 escalations in the same
 run, with a filter calibrated at NEES 1.95. Recorded, **not fixed** — a fix changes the
 engine and invalidates the results tree.
+
+> *2026-09-29, extended.* This still describes `legacy`. The repaired forms saturate the
+> other way (CR-3).
 
 ### 6.3 The gate suite overwrote the evidence it verified
 
@@ -443,6 +637,8 @@ Specified, untested, with the measured motivation attached to each.
 2. **A weighted or gated PCS.** A weighted sum, a `term1` gate that vetoes when the
    covariance term saturates, or `min` instead of sum. Motivation: §6.2 — all three are
    plausible and **none has been run**.
+   > *2026-09-29, withdrawn.* All three have now been run (CR-4), and CAL-01 calibrated
+   > the weighted form's three weights (CR-7).
 3. **Mechanism-aware degeneracy screening as a mandatory one-seed pre-flight.**
    Motivation: §6.4, and the 27.3% / 40.0% of arm-cells that cannot speak to integrity
    or trigger claims respectively.
@@ -473,6 +669,9 @@ SX1262/SX1280/DW3000 hardware.
 in the shipped configuration. Fixing it changes the engine and invalidates every
 result in this report, so it is recorded rather than corrected.
 
+> *2026-09-29, restated.* `legacy`, the default, is still unfixed. Opt-in repaired forms
+> exist behind `--pcsForm`, and they saturate low (CR-5).
+
 **The reliability result in §4.1 has no verdict** because no reliability criterion was
 registered. It is reported as a measurement, and a reader who wants a verdict must
 supply the criterion — which is exactly the gap §8.1 exists to close.
@@ -481,3 +680,34 @@ supply the criterion — which is exactly the gap §8.1 exists to close.
 40.0% have no trigger population. Those runs are not defective; they were not designed
 to exercise those mechanisms. Reading a number off them would be reading a number with
 no population.
+
+---
+
+## 10. Corrections register
+
+**Added 2026-09-29.** This register lists every statement that §0 withdraws, restates or
+scopes, whether it was made in this report or in a document this record draws on. Entries
+are appended and never edited. A statement that moves again gets a new entry. "B3" means
+`report/B3_REGEN_RESULTS.md`. Every number is quoted from the read-out in the evidence
+column; none is computed here.
+
+| # | statement, and where it was made | correction | evidence |
+|---|---|---|---|
+| CR-1 | "A confidence score (PCS) driving tier escalation" — §1, §2 | **RESTATED.** Under every repaired form (v2, weighted, gated), PCS sits below every escalation threshold on ≥ 99.98 % of fix cycles. It decides nothing, and the downstream gates decide. Under `legacy` it sits above threshold on 81–86 % and asks to escalate on the remaining 14–19 % | B3 §C2 and "What this changes" item 2; `results/regen27_pcs_forms` |
+| CR-2 | "Escalation cannot fire however large the error becomes" — §5.5 | **SCOPED** to the population it was measured in. In C2's population (legacy, propagation NLOS, `ca_tbl_no_integrity`, where PCS is the only trigger), the trigger is true on 3 321 of 23 213 fix cycles, and the arm escalates 93.2 times per 3 600 s on average | B3 item 4; `results/regen27_pcs_forms` |
+| CR-3 | "It can fail to contribute; it can never veto" — §6.2, and §1's list of defects | **EXTENDED.** It is still true of `legacy`. The repaired forms saturate the other way. With `traceSigma` at 7.8×10⁴–1.2×10⁵ m², term 1 is about 10⁻⁴, so v2, weighted and gated sit below every threshold and every fix cycle wants to escalate. The defect is the scale of term 1 against the filter it reads, not only the unweighted sum | B3 item 5 and §C2; `results/regen27_pcs_forms` |
+| CR-4 | "A weighted or gated PCS … **none has been run**" — §8.2 | **WITHDRAWN.** All three have been run twice: first in `report/PCS_FORMS_RESULTS.md`, then in B3 C2. In the regenerated campaign `gated` is worse than `legacy` on cep50 (+12.96 m, 15+/5−, p = 0.041: P2.1 SIGN FLIPS). The monotone-control negative holds for legacy, v2 and weighted, and is undefined for gated | B3 §C2 and item 6; `results/regen27_pcs_forms` |
+| CR-5 | "PCS is recorded as defective and left unfixed" — §9 | **RESTATED.** The default, `legacy`, is still unfixed, on purpose (`MASTER_PLAN.md` A8). Opt-in repaired forms exist behind `--pcsForm`, and B3 measured them saturating low (CR-3). CAL-01's fitted weights are not adopted, and the default weights in code are unchanged | B3 item 7; `report/CAL01_LOOCV_RESULTS.md` §2; `results/cal01_loocv_20260928` |
+| CR-6 | "`gated` beats `legacy`" and "`gated` buys the same accuracy for a fifth of the energy" — `report/PCS_FORMS_RESULTS.md`. "Every form loses, in every cell", with its quoted gaps — `docs/TECH_DEBT.md` K.8 | **SIGN FLIPS, WITHDRAWN and RESTATED.** `gated` is worse than `legacy` on cep50 (P2.1). "`gated` is cheaper" is withdrawn: its rows are byte-identical to `weighted`'s on 18 of 20 seeds (P2.3). K.8's statement belongs to the pre-correction binary. The regenerated record: the monotone-control negative reproduces in 6 of 8 form × arm cells (weighted `no_integrity` −0.0984), and the statistic is undefined for the two `gated` cells | B3 §C2 and "Elsewhere"; `results/regen27_pcs_forms` |
+| CR-7 | "Confidence-awareness (PCS) earns its place — measured negative … give the hop and NLOS terms real inputs, then re-run the control" — `docs/TECH_DEBT.md` L.3; `HANDOFF_2026_09_09.md` §2 | **NOT SUPPORTED. CAL-01: CALIBRATION DOES NOT RESCUE PCS.** With the NLOS term live, leave-one-seed-out calibration ranks error no better than the covariance trace in any of three regimes. A = −0.0016 [−0.0066, +0.0030], +0.0045 [−0.0129, +0.0217] and −0.0011 [−0.0044, +0.0001] (98.33 %). The fitted weights are (3, 0, 0) to rounding. The NLOS term ranks error at \|ρ\| ≤ 0.06. The hop term cannot be given an input, because the measured tag's `Step()` receives the hop count as a literal 0. So the contribution, that PCS carries information about error beyond the trace it is computed from, is not supported by any linear calibration of its terms. Withdrawing the novelty claim is the owner's decision. The committed machinery's own acceptance flag, `CA_TBL_CAL_OK`, is not evidence (`report/CAL01_LOOCV_RESULTS.md` §4; `docs/TECH_DEBT.md` M.7) | `report/CAL01_LOOCV_RESULTS.md` §1–§5; `results/cal01_loocv_20260928`; B3 §C2 |
+| CR-8 | Claim 8, "falsified thinly": `ca_tbl_full` 19/20 at 24.26 J against `fixed_threshold` 18/20 at 22.77 J — §1, §5.2 | **RESTATED.** Under each of v2, weighted and gated, `ca_tbl_no_integrity` is byte-identical to `fixed_threshold` on 19 of 20 seeds. That is not a thin loss but the same controller. In K1, `ca_tbl_full` dominates `fixed_threshold` at `k1a_box750` and `k1a_box1000`, is incomparable at `k1a_box1500`, and is dominated in the other eight cells. Claim 8 was not re-registered, so these are reported, not verdicts | B3 §C2, §C4 and item 3; `results/regen27_pcs_forms`, `results/regen27_k1` |
+| CR-9 | "The integrity check earns its place — supported, narrowly": 8/8 energy, 7/8 accuracy, for the witness cross-check — `report/INTEGRITY_CHECK_RESULTS.md`; `docs/TECH_DEBT.md` L.3; `HANDOFF_2026_09_09.md` §2 | **WITHDRAWN in the shipped default.** B3 C1 found NO POPULATION: off and on rows are byte-identical on 8/8 seeds, although the IMU witness refused 203–232 escalations per seed. The evidence gate, default true since `7ec0d91`, absorbs the refusals. B3's registration omitted that default (`report/PREREG_B3_REGEN.md` §2; B3 is its erratum). C1_NOGATE removed the gate, and the refusals then reached every row. With the gate off, energy REPRODUCES (ΔtotalJ −104.86 J per 600 s, CI [−107.97, −101.12], 20/20 seeds) and accuracy is NOT SHOWN WORSE (ΔrmseM −0.66 m, CI [−9.62, +11.24]). But the IMU witness refuses on 85–98 % of cycles, a near-blanket veto on escalating into UWB. No sentence about integrity, trust or detection follows from either campaign. The original's sidecars read `deb52da`, which does not define the flags it ran | B3 §C1; `report/C1_NOGATE_RESULTS.md` §3, §7; `results/regen27_integrity`, `results/regen27_integrity_nogate` |
+| CR-10 | "Tiering beats single-band — not supported; statistically indistinguishable from `static_868`", and K1's "`ca_tbl_full` dominates `static_868` in no cell" — `report/K1_DOMINATION_RESULTS.md`; `docs/TECH_DEBT.md` L.3 | **Still NOT SUPPORTED; restated as an envelope.** P4.1 is FALSIFIED in 3 of 11 cells: `k1a_box750`, `k1a_box1000` and `k1a_box1500` give DOMINATES, energy 20+/0− in each. Those three verdicts are a billing effect. With tier-1 replies billed, a tier-1 cycle costs 18.5–24.0 mJ and a tier-2 cycle 5.5–8.6 mJ. With floor-on-demand, the 78–88 % of cycles spent on 2.4 GHz replace tier-1 time, so escalating *leaves* the dearer tier. `static_2p4` dominates `ca_tbl_full` in 11 of 11 cells. The cells have not been re-run under the gateway-estimator default, which removes that reply bill | B3 §C4; `results/regen27_k1` |
+| CR-11 | "The architecture beats published estimators", K10: 2 016 m against MLAT 20 831 m, 20+/0− — `report/K10_BASELINE_RESULTS.md`; `docs/TECH_DEBT.md` L.3 | **REPRODUCES on the corrected environment**, and is to be cited from the regenerated directory. The columns C3's verdicts read are byte-identical to the originals on all 120 rows per cell. K10's qualifier stays: a filter beats a memoryless solver, and the tiering is not exercised (`ca_tbl_full` escalates 0 times on 20/20 seeds in `wanonly_move`) | B3 §C3; `results/regen27_k10` |
+| CR-12 | Availability WAN only < sparse < WAN + mesh — `report/K9_SAR_FACTORIAL_RESULTS.md` | **REPRODUCES** (0.041 / 0.319 / 0.647), and is restated as the mesh's, not tiering's: `static_868` reaches 0.451 in `sparse_move`, above `ca_tbl_full`'s 0.319 | B3 §C5; `results/regen27_k10` |
+| CR-13 | "Gateways as edge servers — built, and it can only cost energy" — `docs/TECH_DEBT.md` K.4 | **RESTATED.** It is true on tier 2, and under the earlier no-reply billing. Under the default reply billing, estimation at the gateway lowers totalJ by 42.5 % (`static_868`) and 32.9 % (`fixed_threshold`, `ca_tbl_full`) on 20/20 seeds, with accuracy byte-identical. `static_2p4` costs 0.2 % more. It has been the default since `db2ac2e`. The two hybrid figures were measured with the downlink billed on the active tier, which is an open owner decision (`docs/TECH_DEBT.md` M.10) | B3 §C6; `results/regen27_edge`; `docs/TECH_DEBT.md` L.2.3, M.10 |
+| CR-14 | The IMU ceiling, `static_uwb` cep95 8 413 → ~17 m and `static_2p4` 27 151 → ~537 m (`4302918`, `results/L2_imuon_*`), and the registration's disclosure that "some code path on the IMU-fusion invocation moved" — `report/PREREG_B3_REGEN.md` C7 | **REPRODUCES, as a ceiling and never as a system result**: 8 413 → 17 m and 27 151 → 537 m, 20+/0− each. It is not dead reckoning alone: `mac_tx` differs on 20/20 seeds on every arm. The disclosed seed-7 non-identity is the snapshot solver's `rmse_mlat` tail, not the IMU path | B3 §C7; `results/regen27_imu` |
+| CR-15 | Tier-2 `r80` of 1149.5 m — §2, and the `spacing/r80` axis of §4.3 and §7 | **SCOPED.** The figure describes the split environment. Under the corrected environment, the probe in `report/K1_DOMINATION_RESULTS.md` gives 156.0 m for 2.4 GHz; 868 MHz is 1515.3 m under both. §4.3 and §7 rest on the old value and were not re-registered | `report/K1_DOMINATION_RESULTS.md`; B3 item 8 |
+| CR-16 | "The proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — `docs/TECH_DEBT.md` L.2.5, as recorded 2026-09-09 | **RESTATED by measurement: true of a peer, false of the casualty.** Casualty, arc searcher regime: 265 of 265 held entries inside 120 s, with median age 11.5 s and 90th percentile 28.6 s. Grid-2 5 km sparse regime: 37 of 39. A peer: median 493.4 s (21 of 130 inside) and 384.9 s (5 of 20). The 120 s default stays | `report/PREREG_L25_PROXY_AGE.md`; `results/l25_proxy_age_20260929/ANALYSIS.md` |
+| CR-17 | Every `--relayedRanging` figure recorded before `d24690c`: `MASTER_PLAN.md`'s C5 row, `b390ed6`'s depth sweep and `5f3ad42`'s routing counts | **SCOPED.** They were measured while every relay exchange shared the cycle's one instant and collided in the interference registry. With `--relayedRanging` on, the measured tag's 3+-anchor cycles fall from 107/112/106 of 120 to 2/0/11; with `--relaySlots` they are 103/104/107. They do not compare with a `--relaySlots` run. No `results/` sidecar uses `--relayedRanging=true`, so no tracked result moves. Whether `--relaySlots` becomes the default is an owner decision | `docs/TECH_DEBT.md` M.1; no results directory |
+| CR-18 | "All four [starved mechanisms] are the same fact: tier 1 blankets the box", and "`runFloor` is true on 99.9 % of cycles" — `docs/TECH_DEBT.md` L.2; `HANDOFF_2026_09_09.md` §6.2 | **RESTATED from an EXPLORATORY probe; not a result.** Coverage explains Case A and Case B only. The Mahalanobis check's eligible population is structurally near-empty under the default NLOS source, and `--nlosSource=propagation` changes that. Covariance Intersection stays near zero because a second copy of the same sequence number almost never arrives, whatever tier 1 does. Routing has a population under `--fixRouting`. `runFloor` holds on 600 of 720 cycles at defaults; the 99.9 % is the finder regime | `docs/TECH_DEBT.md` L.2, 2026-09-29 note; the probe's outputs are outside the tree |
