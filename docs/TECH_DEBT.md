@@ -938,6 +938,17 @@ IS.
 | **B2 Spec-conformant** | does the running simulator do what `finalyearprojectcontext.docx` describes? | **partial** |
 | **B3 Claim-supported** | is there evidence for the claims the thesis makes? | **no, and partly by measurement** |
 
+**2026-09-29.**
+
+- **B1 met.** The one qualification: L.1.2 is met only with `--relaySlots`, which is
+  default off.
+- **B2 partial.** L.2.3 and L.2.5 are closed; L.2.1, L.2.2 and L.2.4 are partial. An
+  exploratory probe corrected the coverage diagnosis for the four starved mechanisms
+  (L.2).
+- **B3.** The seven claim-bearing campaigns were regenerated (B3), and C1 with the evidence
+  gate off and CAL-01 were run after them. Four claims are supported, PCS and tiering are
+  not, and the witness cross-check is withdrawn in the shipped default (L.3).
+
 ---
 
 ## L.1 Bar 1 — engine complete
@@ -1175,11 +1186,14 @@ control, or is withdrawn.
 
 | claim | status | what would change it |
 |---|---|---|
-| Confidence-awareness (PCS) earns its place | **measured negative.** Every form loses the monotone control, whole 95% CI below zero. In the sparse regime ρ turns **positive** | Give the hop and NLOS terms real inputs (both currently dead), then re-run the control. K.8 gives the order and warns a refit alone cannot fix it |
-| Tiering beats single-band | **not supported.** Statistically indistinguishable from `static_868`; `fixed_threshold` ties or wins | A regime where tier 1 does not cover — the same fix as L.2 |
-| The architecture beats published estimators | **supported.** K10: 2 016 m vs MLAT 20 831 m, 20+/0−, p ≤ 0.0004 | Re-run on the corrected environment (K.2) before quoting |
-| The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
-| Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1 | L.1.2 then a registered PCS campaign |
+| Confidence-awareness (PCS) earns its place | **measured negative.** Every form loses the monotone control, whole 95% CI below zero. In the sparse regime ρ turns **positive**. **→ 2026-09-29: NOT SUPPORTED on the regenerated tree (B3 C2), and CAL-01 finds that no calibration rescues it** — see *L.3 status* | Give the hop and NLOS terms real inputs (both currently dead), then re-run the control. K.8 gives the order and warns a refit alone cannot fix it |
+| Tiering beats single-band | **not supported.** Statistically indistinguishable from `static_868`; `fixed_threshold` ties or wins. **→ 2026-09-29: still NOT SUPPORTED (B3 C4). The three small-box DOMINATES verdicts are a billing effect** — see below | A regime where tier 1 does not cover — the same fix as L.2 |
+| The architecture beats published estimators | **supported.** K10: 2 016 m vs MLAT 20 831 m, 20+/0−, p ≤ 0.0004. **→ 2026-09-29: REPRODUCES on the corrected environment (B3 C3)** | Re-run on the corrected environment (K.2) before quoting. *Done, B3 C3* |
+| The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing. **→ 2026-09-29: WITHDRAWN in the shipped default (B3 C1, no population). With the evidence gate off, the witness lowers energy on 20/20 seeds, but it acts as a near-blanket veto and no detection claim follows (C1_NOGATE)** — see below | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
+| Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1. **→ 2026-09-29: still no population for the claim. Depth 2 is now reachable in the relay chain, but PCS's hop input is a literal 0** — see below | L.1.2 then a registered PCS campaign |
+| *(row added 2026-09-29)* The mesh carries availability | **supported (B3 C5).** `fixCycles / steps` 0.041 < 0.319 < 0.647 (WAN only < sparse < WAN + mesh); WAN + mesh minus WAN only is positive on 20/20 seeds, p = 1.9×10⁻⁶. The availability belongs to the mesh, not to tiering | — |
+| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3) |
+| *(row added 2026-09-29)* An ideal IMU collapses the error tail | **supported as a CEILING, never as a system result (B3 C7).** cep95 median: `static_uwb` 8 413 → 17 m, `static_2p4` 27 151 → 537 m, both 20+/0−. `ca_tbl_full` 11+/9−, not significant | A measured SHS error model (K.9) |
 
 **Before any of these can be re-stated, two things must happen and they are not optional:**
 
@@ -1191,6 +1205,111 @@ control, or is withdrawn.
 2. **1.1 — the unseeded sampler.** Any change in transmission count displaces every
    link's draws, so cross-binary magnitude comparisons are inadmissible. Either assign
    streams and regenerate everything, or state the limit on every cross-binary number.
+
+### L.3 status, 2026-09-29
+
+**The two prerequisites.**
+
+1. *Regenerated for the seven claim-bearing campaigns.* B3 (`report/PREREG_B3_REGEN.md`,
+   registered at `7b17bd6` before any cell ran) produced 125 cells, all
+   `source 7b17bd6 dirty 0`. The engine is `084a7ff`'s, byte-identical, and the cells are in
+   `results/regen27_*`. Read-out: `report/B3_REGEN_RESULTS.md`. The rest of the results tree
+   still predates the correction.
+2. *The sampler decision is taken, for B3 and after it.* `LoRaDistributionSampler` stays
+   unseeded (`report/PREREG_B3_REGEN.md` §1). Every regenerated number stands on its own
+   paired control inside one binary. Cross-binary magnitudes are inadmissible; byte
+   identity is admissible, because it is a control-flow fact.
+
+**Scope of every verdict below.** B3's engine is `084a7ff`'s, and C1_NOGATE ran on the same
+binary. This branch has since added the NLOS term, tier-1 TDoA and the relay changes, all
+default off and null-controlled. It has also moved the estimator to the gateways by default
+(`db2ac2e`), and at defaults that move changes energy columns only. So the accuracy verdicts
+carry over to the current default, and every **energy** figure describes
+`--gatewayEdgeServer=false`.
+
+- **PCS — NOT SUPPORTED.**
+  - *B3 C2* (`results/regen27_pcs_forms`, 20 seeds × 3600 s):
+    - The monotone-control negative reproduces in 6 of 8 form × arm cells, each CI wholly
+      below zero (legacy/`ca_tbl_full` −0.2349 [−0.2819, −0.1846]; weighted/`no_integrity`
+      −0.0984).
+    - It is undefined for `gated`, whose PCS is 0.0 on 20 752 of 20 755 and 20 765 of 20 768
+      fix cycles. The analyser prints "indistinguishable" for that NaN (M.8).
+    - The D-1 repair reverses (SIGN FLIPS): `gated` is worse than `legacy` on cep50 by
+      +12.96 m, 15+/5−, p = 0.041.
+    - "`gated` is cheaper" is withdrawn: 18 of 20 seeds are byte-identical.
+    - The repaired forms saturate *low*. With `traceSigma` at 7.8×10⁴–1.2×10⁵ m², term 1 is
+      about 10⁻⁴, so under each of them `ca_tbl_no_integrity` is byte-identical to
+      `fixed_threshold` on 19 of 20 seeds.
+    - The sparse-regime positive ρ did not appear at `boxHalf=2000`.
+  - *CAL-01* (`report/CAL01_LOOCV_RESULTS.md`, `results/cal01_loocv_20260928`, registered at
+    `c019c0a` before any cell ran, 60 runs `dirty 0`): **CALIBRATION DOES NOT RESCUE PCS**,
+    the outcome prediction P1 named.
+    - Leave-one-seed-out against ρ(−traceSigma, error), 98.33 % intervals: A =
+      −0.0016 [−0.0066, +0.0030] (default), +0.0045 [−0.0129, +0.0217] (arc, 44 % of cycles
+      without a fix) and −0.0011 [−0.0044, +0.0001] (searcher). All three are
+      indistinguishable.
+    - The calibrated weights are (3, 0, 0) to rounding, and rank agreement with the trace is
+      0.984, 0.963 and 0.9997.
+    - The live NLOS term ranks error at |ρ| ≤ 0.06.
+    - The hand-set (2, 0.5, 0.5) loses by −0.47, −0.30 and −0.21.
+    - All five predictions held, and the default weights in code are unchanged.
+
+  The contribution claim, that PCS carries information about error beyond the trace it is
+  computed from, is not supported by any linear calibration of its terms. Withdrawing the
+  novelty claim is the owner's decision (`report/CAL01_LOOCV_RESULTS.md` §5). What could
+  still change the conclusion: a nonlinear form; a hop count that actually reaches the
+  measured tag's PCS; or an NLOS detector whose score carries information the channel
+  model's own state does not hand it.
+- **Tiering beats single-band — NOT SUPPORTED.** *B3 C4* (`results/regen27_k1`, 11 cells ×
+  20 seeds).
+  - P4.1 ("`ca_tbl_full` dominates `static_868` in no cell") is **FALSIFIED in 3 of 11**:
+    `k1a_box750`, `_box1000` and `_box1500` give DOMINATES (energy 20+/0− in each; rmse
+    18+/2−, 11+/9−, 13+/7−). P4.2 (`static_2p4` dominates `ca_tbl_full`) reproduces in
+    11/11.
+  - **The three DOMINATES verdicts are a billing effect, not evidence that escalating to a
+    precision tier pays.** Tier-1 replies are billed, so a tier-1 cycle costs 18.5–24.0 mJ
+    against 5.5–8.6 mJ for a tier-2 cycle. With floor-on-demand, the 78–88 % of cycles
+    spent on 2.4 GHz replace tier-1 time: escalating *leaves* the dearer tier.
+  - Against `fixed_threshold`, `ca_tbl_full` dominates at `k1a_box750` and `k1a_box1000`,
+    is incomparable at `k1a_box1500`, and is dominated in the other eight cells.
+  - C3's P3.2 agrees: `ca_tbl_full` is indistinguishable from `static_868` in every moving
+    cell.
+  - The billing that produces the three cells is the node-side reply bill, which the
+    gateway-estimator default removes. Those cells have not been re-run under it.
+- **Beats published estimators — SUPPORTED.** *B3 C3* (`results/regen27_k10`): P3.1
+  reproduces in all three moving cells. cep95 medians: 6 665 vs MLAT 13 762 m (19+/1−),
+  6 759 vs 38 599 m (18+/2−), and **2 016 vs 20 831 m (20+/0−, p = 1.9×10⁻⁶)**. It is a
+  filter beating a memoryless solver, and not tiering: `ca_tbl_full` escalates 0 times on
+  20/20 seeds in `wanonly_move`, and P3.2 holds.
+- **The integrity check — WITHDRAWN in the shipped default.** Three mechanisms are kept
+  distinct (`CLAUDE.md` §2):
+  - *The witness cross-check* (`--imuCrossCheck`, `--corroborationCheck`; the policy block
+    commented SWITCHING-POINT INTEGRITY), which is what this row's original 8/8 measured.
+    - B3 C1 (`results/regen27_integrity`): **NO POPULATION → withdrawn.** Off and on rows
+      are byte-identical on 8/8 seeds, although the IMU witness refused 203–232 escalations
+      per seed. The inferred cause is that the evidence gate, default true since `7ec0d91`,
+      absorbs every refusal.
+    - C1 with the evidence gate off (`report/C1_NOGATE_RESULTS.md`,
+      `results/regen27_integrity_nogate`, registered at `ddae10f`, 20 seeds × 600 s):
+      energy **REPRODUCES**, ΔtotalJ −104.86 J, CI [−107.97, −101.12], 20−/0+,
+      p = 1.9×10⁻⁶. Accuracy is **NOT SHOWN WORSE**, ΔrmseM −0.66 m, CI [−9.62, +11.24];
+      four seeds are worse by 10–89 m.
+    - The IMU witness refused on 204–235 of 240 cycles (85–98 %), against a step-and-heading
+      engine 287–4 070 m from truth. It is a near-blanket veto on escalating into UWB, where
+      the neighbour table held under 0.1 entries per cycle. **No integrity, trust or
+      detection claim follows.**
+    - The corroboration witness has never refused, in 28 runs: its effect is unmeasured, not
+      zero.
+  - *The Mahalanobis Switching-Point Integrity Check*: not re-tested by B3. Claim 9 remains as
+    recorded, pre-correction and provisional. Its eligible population under the default
+    NLOS source is structurally near-empty (L.2, exploratory probe).
+  - *The evidence gate*: its K3 result was not in B3's scope.
+- **Hop-aware provenance — still no population for the claim.** Depth 2 is reachable in the
+  relay chain only under `--relayChain --relaySlots --maxRelayDepth=2` (L.1.2). The measured
+  tag's `Step()` receives `hopCount` as a literal 0, and `hopWeight` stays 0 (`CLAUDE.md` §2).
+- **Mesh availability, gateway estimation, IMU ceiling — SUPPORTED**, as in the three added
+  rows (B3 C5 over C3's cells; C6 in `results/regen27_edge`; C7 in `results/regen27_imu` and
+  C3's `wanmesh_move`). The IMU figure is a ceiling and is never quoted as a system result.
 
 ---
 
@@ -1210,6 +1329,21 @@ withdrawn** and the architecture's value resting on the mesh, the filter, the in
 check and the measurement apparatus. That is a complete and defensible project. It is not
 the project the novelty claims describe, and the gap between those two is the thing to
 decide deliberately rather than discover at a viva.
+
+> **2026-09-29.** B3 and CAL-01 ended where this paragraph predicted for PCS and tiering:
+> neither is supported on the regenerated tree (L.3 status). Four things survive
+> regeneration:
+>
+> - the mesh (C5);
+> - the filter against snapshot estimators (C3);
+> - the gateway estimator's tier-1 energy saving (C6);
+> - the IMU ceiling, as a bound (C7).
+>
+> The integrity check **did not** survive in the shipped configuration. The witness
+> cross-check adds nothing with the evidence gate on, and the Mahalanobis check has almost
+> no eligible population under the default NLOS source. Whether to withdraw the PCS and
+> tiering novelty claims is the owner's decision. The claim-by-claim evidence for it is in
+> `CA-TBL_Technical_Report_SelfContained.md` §0.
 
 **The system is done when the register is empty or every remaining entry is a stated
 decision.** Not when the gates are green — G11 is red on purpose and closing it by tuning
