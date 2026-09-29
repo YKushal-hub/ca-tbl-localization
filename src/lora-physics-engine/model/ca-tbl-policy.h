@@ -585,6 +585,21 @@ class CaTblEkf
      *  inertial engine instead of against the filter's own prediction. */
     void FusePosition(double zx, double zy, double varM2);
 
+    /** Fuse an absolute POSITION observation with a FULL 2x2 covariance R.
+     *
+     *  FusePosition() takes an isotropic variance, which is right for a source whose
+     *  error has no direction (dead reckoning). A multilateration fix is not such a
+     *  source: its covariance is (J' Q^-1 J)^-1 and is elongated along whatever
+     *  direction the anchor geometry resolves worst. Rounding it to its trace would
+     *  over-trust that direction and under-trust the other, so this is the joint 2x2
+     *  update with R as given: S = P_pos + R, K = P H' S^-1, P <- P - K H P.
+     *
+     *  Refuses -- returns false and changes nothing -- when R is not positive definite
+     *  or S is singular: a covariance that claims certainty in some direction is a
+     *  defect upstream, not information. Like FusePosition(), it leaves the stored
+     *  prior alone, so the integrity gate's reference is still the prediction. */
+    bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
+
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
 
@@ -710,6 +725,39 @@ class CaTblPolicy
     double Pxx() const { return m_ekf.Pxx(); }
     double Pxy() const { return m_ekf.Pxy(); }
     double Pyy() const { return m_ekf.Pyy(); }
+
+    /** Queue one absolute position observation with its full covariance for the NEXT
+     *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast
+     *  whose RSSI ranges Step() receives.
+     *
+     *  WHY INSIDE Step() AND NOT BEFORE OR AFTER IT. Before, it would be fused into the
+     *  previous cycle's posterior ahead of Predict(). After, this cycle's trace(P) and
+     *  PCS -- what the escalation decision reads -- would not contain it. Step() fuses it
+     *  straight after the range update, so the filter, the confidence score and the
+     *  decision all see the COMBINED tier-1 fix.
+     *
+     *  IT FOLLOWS THE CYCLE'S VERDICT. The two observables come from one broadcast, so
+     *  a cycle the Switching-Point Integrity Check rejects (reverted to the prior, or
+     *  reinitialised from the raw RSSI fix) fuses neither, and a cycle it force-accepts
+     *  (the BOUNDED recovery) fuses both. A no-fix cycle fuses nothing. Our choice, not
+     *  cited: the check is not run on the TDoA fix itself.
+     *
+     *  Consumed by exactly one Step() whatever it decides, so a queued fix never outlives
+     *  the cycle it was measured in. Never called, it changes nothing. */
+    void SetAuxPositionFix(double zx, double zy, double rxx, double rxy, double ryy)
+    {
+        m_auxPending = true;
+        m_aux[0] = zx;
+        m_aux[1] = zy;
+        m_aux[2] = rxx;
+        m_aux[3] = rxy;
+        m_aux[4] = ryy;
+    }
+
+    //! Whether the last Step() fused a queued position observation.
+    bool AuxFusedLast() const { return m_auxFusedLast; }
+    //! Queued position observations fused, over the policy's life.
+    uint64_t GetAuxFusedCount() const { return m_auxFused; }
 
     /**
      * \brief Advance one cycle.
@@ -842,6 +890,9 @@ class CaTblPolicy
     //! Bounded multiplicative provenance penalty; identity unless form 1 is set.
     double ApplyProvenance(double pcs) const;
 
+    //! Fuse the queued TDoA position (SetAuxPositionFix) and count it if it went in.
+    void FuseAux();
+
     double ComputePcs(double traceSigma,
                       double gdop,
                       uint32_t nLos,
@@ -876,6 +927,13 @@ class CaTblPolicy
     uint64_t m_suspects;
     uint64_t m_noFixCycles;
     uint64_t m_tierCycles[CA_TBL_TIER_COUNT];
+
+    // Tier-1 TDoA hand-off (SetAuxPositionFix). Appended last so every existing member
+    // keeps its offset.
+    bool m_auxPending = false;
+    bool m_auxFusedLast = false;
+    double m_aux[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    uint64_t m_auxFused = 0;
 };
 
 } // namespace ns3
