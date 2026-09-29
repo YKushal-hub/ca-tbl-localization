@@ -84,6 +84,7 @@
 #include "ns3/ca-tbl-node-lifecycle.h"
 #include "ns3/ca-tbl-session.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
+#include "ns3/ca-tbl-tdoa.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
@@ -3948,6 +3949,324 @@ struct ShsDriver
     }
 };
 
+/**
+ * \brief --tier1Tdoa: the gateways timestamp the node's tier-1 broadcast, the time
+ *        differences are solved as hyperbolae, and the fix is fused beside the RSSI
+ *        ranges of the same broadcast (Physical sect 1.1; TECH_DEBT J.2, L.2.1).
+ *
+ * WHAT MOVES AND WHAT DOES NOT. The energy model has always billed tier 1 as one
+ * broadcast that the anchors timestamp -- and, since --tier1ChargeReplies became the
+ * default, a reply from every anchor that answered -- while the code localised by RSSI
+ * inversion alone. This builds the observable that bill describes. It adds NO frame and
+ * NO charge. Every stamp is taken off the broadcast rangeTier() already made and billed.
+ * It reaches the estimator either on the reply the energy model already charges for that
+ * gateway (estimator on the node), or over the backhaul with the one downlink
+ * AccountEdgeServerDownlink() charges (--gatewayEdgeServer). A configuration that bills
+ * neither is refused in main(). So the sect 6 invariant holds by construction: nothing
+ * here transmits, and nothing here is charged.
+ *
+ * WHO STAMPS. Only the surveyed tier-1 gateways: the one immobile class, with a
+ * GNSS-surveyed position and a PPS-disciplined clock. A finder carries GNSS too, but its
+ * position reaches the node as a digest entry that can be minutes old (see the
+ * pseudo-anchor treatment in rangeTier()). Its stamps would need that age folded into a
+ * timing variance, which is not modelled, so finders stay RSSI-only. Our choice, not
+ * cited. Field nodes are GPS-denied and cannot stamp at all.
+ *
+ * THE STAMP, for each gateway that decoded the broadcast:
+ *   t_k = t_tx + |p - a_k| / c + e_pps + e_toa + tau_nlos
+ *   e_pps    ~ N(0, --tdoaPpsSigmaNs). The default, 20 ns, is the u-blox NEO/LEA-M8T
+ *              timing-module data sheet's time-pulse accuracy (UBX-15025193 R10,
+ *              Table 1: <= 20 ns clear sky, <= 500 ns indoor, both 1-sigma). The spec
+ *              LIMIT is taken as the sigma, which is the pessimistic reading of a
+ *              "<=". It is drawn independently per broadcast. A real PPS residual
+ *              wanders slowly, and that per-gateway persistence is NOT modelled (a
+ *              stated limit); nor is the gateway's own timestamp-counter quantisation.
+ *   e_toa    ~ N(0, sigma_t). sigma_t is the one-way ToA Cramer-Rao bound for a LoRa
+ *              chirp at this link's in-band SNR, SF and bandwidth
+ *              (CaTblTdoaArrivalSigmaS): the bound and the one-symbol dechirp gain that
+ *              tier 2's time-of-flight model already uses. A ToA bound is the right one
+ *              HERE, because this IS a time-of-arrival estimator and RSSI inversion is
+ *              not (TECH_DEBT 2.5). It is a bound: the low-SNR threshold effect is not
+ *              modelled, and one symbol rather than the whole preamble makes it
+ *              conservative.
+ *   tau_nlos ~ Exp(mean = the link's rms delay spread) when the propagation state says
+ *              the link is NLOS, else 0: a blocked direct path makes the first
+ *              detectable arrival late by the order of the channel's spread. The
+ *              exponential form is OURS, not cited. Its scale is the engine's own
+ *              delay-spread output for that link.
+ * t_tx is common to every stamp and cancels in the differences, so nothing reads the
+ * node's clock. The solver is given the surveyed positions; survey error is not modelled
+ * (metre-level after a survey-in, far below the timing noise). The solver is 2-D while
+ * the stamps come from the 3-D geometry (15 m masts), a model error under a metre beyond
+ * 100 m that stays inside the residual.
+ *
+ * THE SIGMA THE NETWORK ASSIGNS a stamp is what a gateway can know: the PPS
+ * specification, the bound at the SNR it measured, and one more term when the configured
+ * NLOS flag tags the link. That flag is --nlosSource, the same flag the RSSI path
+ * inflates on, and the term is the second moment of the excess delay, 2 * spread^2. It
+ * treats an unknown positive bias as variance, the way the RSSI path does. The gateway
+ * never sees the realised excess delay. Our choice, not cited.
+ *
+ * RANDOMNESS. Two dedicated streams: seed*7919 + 1400017 (normal) and + 1400029
+ * (exponential). Both are passed as the Stream attribute AT CONSTRUCTION, so not one
+ * automatic stream index is consumed. The engines' samplers, and every draw on every
+ * link, are exactly where they are without the flag. Off, this object does not exist.
+ *
+ * WHEN IT SOLVES: on a cycle whose fix set is tier 1 with >= 3 ranges (the active tier
+ * is 868, or the tier-1 floor supplied the fix). Those are exactly the cycles on which
+ * Step() fuses tier-1 ranges, and they are the denominator of every count below. With
+ * four or more gateways Chan's closed form seeds Foy's iteration, and the RSSI
+ * multilateration of those same ranges seeds it when Chan refuses or fails. With exactly
+ * three, both exact roots are found in closed form and the ranges themselves choose
+ * between them, or the solve is refused as AMBIGUOUS (ca-tbl-tdoa.h, step 2): the first
+ * draft let the seed choose silently and took the mirror root 450-743 m from the truth
+ * under a sigma near 85 m. An OK solve is queued on the policy
+ * (SetAuxPositionFix). Step() fuses it straight after the range update, under the
+ * cycle's integrity verdict: the COMBINED tier-1 fix the spec describes. Every such cycle
+ * is one row of tdoa_<arm>_seed<N>.csv, refused solves included. Only the measured tag
+ * does this; relays and peers stay RSSI-only.
+ */
+struct Tier1Tdoa
+{
+    Tier1Tdoa(uint32_t seed,
+              double ppsSigmaNs,
+              const TierPhy& t1,
+              const std::vector<AnchorDef>& gateways,
+              bool chargeReplies,
+              bool edgeServer,
+              const std::string& logPath)
+        : ppsSigmaS(ppsSigmaNs * 1e-9),
+          sf(t1.sf),
+          bwHz(t1.bandwidthHz),
+          billReplies(chargeReplies && !edgeServer),
+          billDownlink(edgeServer)
+    {
+        gauss = CreateObjectWithAttributes<NormalRandomVariable>(
+            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400017),
+            "Mean", DoubleValue(0.0),
+            "Variance", DoubleValue(1.0));
+        expo = CreateObjectWithAttributes<ExponentialRandomVariable>(
+            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400029),
+            "Mean", DoubleValue(1.0));
+        for (size_t k = 0; k < gateways.size(); ++k)
+        {
+            surveyed.insert(static_cast<uint16_t>(gateways[k].id));
+        }
+        log.open(logPath.c_str());
+        log << "t,cycle,nRanges,nStamps,repliesBilled,downlinkBilled,verdict,seededBy,"
+               "iterations,refAnchor,tdoaX,tdoaY,rxx,rxy,ryy,chi2,chanOk,trueX,trueY,"
+               "tdoaErrM,rssiOk,rssiErrM,fused,rejected,estErrM,nRoots,tieChosen,tieOther\n";
+        log << std::setprecision(10);
+    }
+
+    void BeginCycle()
+    {
+        stamps.clear();
+        repliesThisCycle = 0;
+        pending = false;
+    }
+
+    //! A gateway decoded this cycle's tier-1 broadcast: take its arrival stamp.
+    void Stamp(uint16_t anchorId,
+               const Vector& anchorPos,
+               const Vector& nodePos,
+               double t,
+               double snrDbInBand,
+               bool nlosTruth,
+               double delaySpreadNs,
+               bool nlosFlag)
+    {
+        if (surveyed.count(anchorId) == 0)
+        {
+            return; // a finder or a peer: no surveyed position to stamp against
+        }
+        const double sigToaS = CaTblTdoaArrivalSigmaS(bwHz, sf, snrDbInBand);
+        if (!std::isfinite(sigToaS))
+        {
+            ++unstampable;
+            return;
+        }
+        // The engine's own distance, floor included (lora-physics-engine.cc: 1 m).
+        const double d = std::max(1.0, CalculateDistance(nodePos, anchorPos));
+        const double spreadS =
+            (std::isfinite(delaySpreadNs) && delaySpreadNs > 0.0) ? delaySpreadNs * 1e-9 : 0.0;
+        const double ePps = ppsSigmaS * gauss->GetValue();
+        const double eToa = sigToaS * gauss->GetValue();
+        double excess = 0.0;
+        if (nlosTruth && spreadS > 0.0)
+        {
+            excess = spreadS * expo->GetValue();
+            ++nlosDelayed;
+        }
+        CaTblTdoaObs o;
+        o.anchorId = anchorId;
+        o.x = anchorPos.x;
+        o.y = anchorPos.y;
+        o.tArrS = t + d / kLightMps + ePps + eToa + excess;
+        const double nlosVar = nlosFlag ? 2.0 * spreadS * spreadS : 0.0;
+        o.sigmaS = std::sqrt(ppsSigmaS * ppsSigmaS + sigToaS * sigToaS + nlosVar);
+        stamps.push_back(o);
+        ++stampsTaken;
+        ++stampsThisExchange;
+    }
+
+    /** The tier-1 exchange closed with this many replies -- the count
+     *  AccountRangingExchange() was just handed, so the count it billed.
+     *
+     *  THE BILLING CHECK, per exchange rather than per run, because a run total can
+     *  balance while individual exchanges do not. A stamp reaches the node's estimator
+     *  on its gateway's reply, so an exchange may never yield more stamps than billed
+     *  replies. The stamp test in rangeTier() is the reply test, so the excess counted
+     *  here is zero by construction; it is counted anyway, because a later edit to
+     *  either test would break it silently. Under --gatewayEdgeServer the stamps go over
+     *  the backhaul and no reply is billed, so nothing is compared. */
+    void NoteExchange(size_t replies)
+    {
+        repliesThisCycle = replies;
+        ++exchanges;
+        repliesOffered += replies;
+        stampsOnExchanges += stampsThisExchange;
+        if (billReplies && stampsThisExchange > replies)
+        {
+            stampsBeyondReplies += stampsThisExchange - replies;
+        }
+        stampsThisExchange = 0;
+    }
+
+    //! This cycle's fix set is tier 1 with >= 3 ranges: solve, and queue an OK fix.
+    void Solve(CaTblPolicy& policy, const std::vector<CaTblRangeMeasurement>& meas)
+    {
+        pending = true;
+        ++fixCycles;
+        nRanges = meas.size();
+        stampsOnFixCycles += stamps.size();
+        rssiOk = CaTblPolicy::RawMultilateration(meas, policy.EstX(), policy.EstY(), rssiX,
+                                                 rssiY);
+        const double sx = rssiOk ? rssiX : policy.EstX();
+        const double sy = rssiOk ? rssiY : policy.EstY();
+        // The same ranges, weighted as Step() weights them (NLOS-tagged links inflated),
+        // settle a three-gateway solve's choice between its two exact roots.
+        hints.clear();
+        const double infl = policy.GetConfig().nlosSigmaInflation;
+        for (size_t k = 0; k < meas.size(); ++k)
+        {
+            CaTblTdoaRangeHint h;
+            h.x = meas[k].anchorX;
+            h.y = meas[k].anchorY;
+            h.rangeM = meas[k].rangeM;
+            h.sigmaM = meas[k].sigmaM * (meas[k].nlos ? infl : 1.0);
+            hints.push_back(h);
+        }
+        res = CaTblSolveTdoa(stamps, sx, sy, CaTblTdoaConfig(), hints);
+        ++verdicts[static_cast<int>(res.verdict)];
+        if (res.verdict != CA_TBL_TDOA_OK)
+        {
+            return;
+        }
+        ++seeded[static_cast<int>(res.seededBy)];
+        stampsUsed += stamps.size();
+        repliesOnOk += billReplies ? repliesThisCycle : 0;
+        downlinksOnOk += billDownlink ? 1 : 0;
+        policy.SetAuxPositionFix(res.x, res.y, res.rxx, res.rxy, res.ryy);
+    }
+
+    //! After Step(): write the cycle's row. Only cycles that solved have one.
+    void EndCycle(double t, uint64_t cycle, const Vector& truth, bool fused, bool rejected,
+                  double estX, double estY)
+    {
+        if (!pending)
+        {
+            return;
+        }
+        const bool ok = (res.verdict == CA_TBL_TDOA_OK);
+        fusedCount += fused ? 1 : 0;
+        const double te = ok ? std::hypot(res.x - truth.x, res.y - truth.y) : -1.0;
+        const double re = rssiOk ? std::hypot(rssiX - truth.x, rssiY - truth.y) : -1.0;
+        log << t << "," << cycle << "," << nRanges << "," << stamps.size() << ","
+            << (billReplies ? repliesThisCycle : 0) << "," << (billDownlink ? 1 : 0) << ","
+            << CaTblTdoaVerdictName(res.verdict) << "," << CaTblTdoaSeedName(res.seededBy)
+            << "," << res.iterations << "," << res.refAnchorId << "," << res.x << ","
+            << res.y << "," << res.rxx << "," << res.rxy << "," << res.ryy << ","
+            << res.chi2 << "," << (res.chanOk ? 1 : 0) << "," << truth.x << "," << truth.y
+            << "," << te << "," << (rssiOk ? 1 : 0) << "," << re << "," << (fused ? 1 : 0)
+            << "," << (rejected ? 1 : 0) << "," << std::hypot(estX - truth.x, estY - truth.y)
+            << "," << res.nRoots << "," << res.tieChi2Chosen << "," << res.tieChi2Other
+            << "\n";
+        pending = false;
+    }
+
+    //! Per arm, to stdout: counts, their denominator, and the billing each stamp rode on.
+    void Report(std::ostream& os, const CaTblPolicy& policy, const TierEnergyAccount& t1)
+    {
+        log.close();
+        std::ostringstream o;
+        o << "    TDoA tier 1: fix cycles " << fixCycles << " (tier-1 set >= 3 ranges), stamps "
+          << stampsOnFixCycles << " on them (" << stampsTaken << " taken, " << nlosDelayed
+          << " NLOS-delayed, " << unstampable << " unstampable); solves OK "
+          << verdicts[CA_TBL_TDOA_OK] << " (chan " << seeded[CA_TBL_TDOA_SEED_CHAN] << ", rssi "
+          << seeded[CA_TBL_TDOA_SEED_CALLER] << ", root " << seeded[CA_TBL_TDOA_SEED_ROOT]
+          << "), refused TOO_FEW " << verdicts[CA_TBL_TDOA_TOO_FEW] << " COLLINEAR "
+          << verdicts[CA_TBL_TDOA_COLLINEAR] << " SINGULAR " << verdicts[CA_TBL_TDOA_SINGULAR]
+          << " NO_CONVERGE " << verdicts[CA_TBL_TDOA_NO_CONVERGE] << " BAD_INPUT "
+          << verdicts[CA_TBL_TDOA_BAD_INPUT] << " NO_ROOT " << verdicts[CA_TBL_TDOA_NO_ROOT]
+          << " AMBIGUOUS " << verdicts[CA_TBL_TDOA_AMBIGUOUS] << " DIVERGED "
+          << verdicts[CA_TBL_TDOA_DIVERGED] << "; fused " << fusedCount << " (policy "
+          << policy.GetAuxFusedCount() << ")\n";
+        o << "    TDoA billing: " << stampsUsed << " stamps in OK solves, replies billed on "
+          << "those cycles " << repliesOnOk << ", downlinks " << downlinksOnOk
+          << "; node tier-1 exchanges " << exchanges << " (one billed broadcast each), "
+          << "stamps " << stampsOnExchanges << " against replies " << repliesOffered
+          << (billReplies ? " billed" : " not billed (edge server)")
+          << ", stamps beyond a billed reply " << stampsBeyondReplies
+          << "; tier-1 over the run: tx " << t1.txFrames << ", rx " << t1.rxFrames
+          << ", exchanges " << t1.rangingExchanges << "\n";
+        if (!log)
+        {
+            o << "    WARNING: tdoa log failed to flush\n";
+        }
+        os << o.str();
+    }
+
+    static constexpr double kLightMps = 299792458.0; // exact, SI definition
+
+    Ptr<NormalRandomVariable> gauss;
+    Ptr<ExponentialRandomVariable> expo;
+    std::set<uint16_t> surveyed;
+    double ppsSigmaS;
+    uint8_t sf;
+    double bwHz;
+    bool billReplies;
+    bool billDownlink;
+    std::ofstream log;
+
+    std::vector<CaTblTdoaObs> stamps;
+    size_t repliesThisCycle = 0;
+    bool pending = false;
+    size_t nRanges = 0;
+    CaTblTdoaResult res;
+    bool rssiOk = false;
+    double rssiX = 0.0;
+    double rssiY = 0.0;
+
+    uint64_t fixCycles = 0;         //!< denominator: cycles whose fix set is tier 1, >= 3
+    uint64_t stampsTaken = 0;       //!< over every tier-1 exchange of the run
+    uint64_t stampsOnFixCycles = 0; //!< of which on a fix cycle, offered to the solver
+    uint64_t nlosDelayed = 0;       //!< stamps that drew an excess delay
+    uint64_t unstampable = 0;       //!< gateway replies with no finite ToA bound
+    uint64_t verdicts[CA_TBL_TDOA_VERDICT_COUNT] = {};
+    uint64_t seeded[CA_TBL_TDOA_SEED_COUNT] = {};
+    std::vector<CaTblTdoaRangeHint> hints;
+    uint64_t stampsUsed = 0;        //!< stamps in OK solves
+    uint64_t repliesOnOk = 0;       //!< tier-1 replies billed on OK-solve cycles
+    uint64_t downlinksOnOk = 0;     //!< edge-server downlinks on OK-solve cycles
+    uint64_t fusedCount = 0;        //!< OK fixes Step() fused
+    size_t stampsThisExchange = 0;  //!< stamps since the last NoteExchange()
+    uint64_t exchanges = 0;         //!< the node's tier-1 exchanges (rangeTier)
+    uint64_t repliesOffered = 0;    //!< replies AccountRangingExchange() was handed
+    uint64_t stampsOnExchanges = 0; //!< stamps, summed per exchange
+    uint64_t stampsBeyondReplies = 0; //!< stamps an exchange had no billed reply for
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -4067,7 +4386,9 @@ RunArm(CaTblPolicyMode mode,
        double anchorGrantGossipS,
        bool relayChain,
        bool fixRouting,
-       bool fixRoutingConfidence)
+       bool fixRoutingConfidence,
+       bool tier1Tdoa,
+       double tdoaPpsSigmaNs)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -5127,6 +5448,16 @@ RunArm(CaTblPolicyMode mode,
 
     // Independent-witness state for the switching-point integrity check.
     std::vector<std::pair<uint16_t, double>> rangedThisCycle;
+    // --tier1Tdoa. Null unless the flag is on, and while null no line below changes.
+    std::unique_ptr<Tier1Tdoa> tdoa;
+    if (tier1Tdoa)
+    {
+        std::ostringstream tfn;
+        tfn << traceDir << "/tdoa_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        tdoa.reset(new Tier1Tdoa(seed, tdoaPpsSigmaNs, phy[CA_TBL_TIER_868],
+                                 dep.anchors[CA_TBL_TIER_868], energy.GetTier1ChargeReplies(),
+                                 energy.GetEdgeServer(), tfn.str()));
+    }
     // Rival systems, scored from the same measurements. See the accumulation
     // block beside the EKF error for what each one is. Declared HERE, in RunArm,
     // because that is where they are used -- `errors` above is a member of the
@@ -6183,6 +6514,13 @@ RunArm(CaTblPolicyMode mode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    // --tier1Tdoa: a gateway that decoded this broadcast stamps it, on
+                    // exactly the links whose reply is billed below (the same test).
+                    if (tdoa && received && std::isfinite(range) && range > 0.0)
+                    {
+                        tdoa->Stamp(anchorId, anchorPos, pos, t, r.finalSNRDb, r.isNLOS,
+                                    r.delaySpreadNs, nlos);
+                    }
                 }
                 else if (tier == CA_TBL_TIER_2P4)
                 {
@@ -6345,6 +6683,10 @@ RunArm(CaTblPolicyMode mode,
                                           static_cast<uint32_t>(nb.size()),
                                           static_cast<uint32_t>(out.size()),
                                           t);
+            if (tdoa && tier == CA_TBL_TIER_868)
+            {
+                tdoa->NoteExchange(out.size());
+            }
             return out;
         };
 
@@ -6385,6 +6727,11 @@ RunArm(CaTblPolicyMode mode,
         // --hopProvenanceForm 0 and 1. A mechanism that cannot change its own output
         // is not enabled, whatever its flag says.
         relayedVarThisCycle = 0.0;
+        // --tier1Tdoa: stamps belong to this cycle's tier-1 exchange and to no other.
+        if (tdoa)
+        {
+            tdoa->BeginCycle();
+        }
 
         if (pendingHandshake && arbitrateDutyBudget)
         {
@@ -6829,6 +7176,13 @@ RunArm(CaTblPolicyMode mode,
         const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
         const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
 
+        // --tier1Tdoa: the gateways in this tier-1 fix set stamped the same broadcast.
+        // Solved here and queued, so Step() fuses it beside the ranges it came with.
+        if (tdoa && fixTier == CA_TBL_TIER_868 && meas.size() >= 3)
+        {
+            tdoa->Solve(policy, meas);
+        }
+
         // activeMeas.size() is passed separately from meas so the policy can tell
         // "the active tier delivered" from "we got a fix from somewhere". Without it
         // the tier-1 fallback hides every coverage failure from the de-escalation
@@ -6933,6 +7287,11 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (tdoa)
+        {
+            tdoa->EndCycle(t, cycleIndex, pos, policy.AuxFusedLast(), d.measurementRejected,
+                           d.estX, d.estY);
+        }
 
         // What the subject would have reported this cycle, read by the alert test at
         // the top of the NEXT cycle: posterior radial sigma, sqrt of the covariance
@@ -8053,6 +8412,10 @@ RunArm(CaTblPolicyMode mode,
     {
         router->Report(std::cout, tags);
     }
+    if (tdoa)
+    {
+        tdoa->Report(std::cout, policy, energy.GetAccount(CA_TBL_TIER_868));
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -8291,6 +8654,8 @@ main(int argc, char* argv[])
     bool relayChainArg = false; // L.1.2, off: every relay stays at depth 0
     bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
+    bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
+    double tdoaPpsSigmaNsArg = 20.0;      // u-blox NEO/LEA-M8T time pulse, <= 20 ns 1-sigma
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -9401,6 +9766,46 @@ main(int argc, char* argv[])
                  "cost of handing a frame to a neighbour is the confidence cost of where that "
                  "neighbour will send it. REQUIRES --fixRouting=true.",
                  fixRoutingConfidenceArg);
+    cmd.AddValue("tier1Tdoa",
+                 "Localise tier 1 the way the spec says (Physical sect 1.1): RSSI path loss "
+                 "COMBINED with TDoA wherever three or more gateways hear the same "
+                 "broadcast (TECH_DEBT J.2, L.2.1). Each surveyed gateway that decodes the "
+                 "node's tier-1 broadcast stamps its arrival on a GPS-PPS-disciplined clock. "
+                 "The stamp error is the PPS residual (--tdoaPpsSigmaNs), plus the one-way "
+                 "ToA Cramer-Rao bound at that link's SNR, SF and bandwidth, plus an NLOS "
+                 "excess delay scaled by the link's own delay spread. The differences are "
+                 "solved by Chan's closed form (>= 4 gateways) refined by Foy's Taylor "
+                 "iteration, which the cycle's RSSI fix seeds whenever Chan fails; three "
+                 "gateways are solved exactly, and the cycle's RSSI ranges choose between "
+                 "the two roots or the solve is refused. Collinear, singular and runaway "
+                 "solutions are refused too. The fix goes to the EKF with "
+                 "its full covariance as R, fused straight after that cycle's RSSI ranges. "
+                 "FALSE (default) is every result so far, and it stays the default for "
+                 "three reasons. On, the tier-1 observable changes, and with it every "
+                 "tier-1 accuracy figure, the A4 sigma calibration and the escalation "
+                 "decisions that read them (J.2: it invalidates every tier-1 result). The "
+                 "PPS and NLOS terms are models, not measurements. And no result has yet "
+                 "been registered on it. It adds no frame and no charge: the stamps ride "
+                 "the broadcast and the replies the energy model already bills, so billing "
+                 "and observable finally agree. For that reason it is REFUSED with "
+                 "--tier1ChargeReplies=false unless --gatewayEdgeServer=true, since that "
+                 "configuration would put stamps in the node's filter that no billed frame "
+                 "carried. Its draws come from two dedicated streams set at construction, "
+                 "so no link's draw moves; off, nothing is constructed. Every tier-1 fix "
+                 "cycle is written to tdoa_<arm>_seed<N>.csv.",
+                 tier1TdoaArg);
+    cmd.AddValue("tdoaPpsSigmaNs",
+                 "1-sigma GPS-PPS timing residual of a gateway's arrival stamp under "
+                 "--tier1Tdoa, in ns. Default 20: the u-blox NEO/LEA-M8T timing-module data "
+                 "sheet (UBX-15025193 R10, Table 1) gives time-pulse accuracy <= 20 ns "
+                 "1-sigma in clear sky, and the limit is taken as the sigma. It is a cited "
+                 "PRODUCT figure, not a measurement of this deployment. Every nanosecond "
+                 "is 0.3 m of range difference, and J.2's 'the whole difficulty' is this "
+                 "term, so sweep it rather than trust one value: the same table gives "
+                 "<= 500 ns indoors, and a gateway under canopy sits between the two. "
+                 "Drawn independently per broadcast; slow per-gateway wander is not "
+                 "modelled. Read only under --tier1Tdoa.",
+                 tdoaPpsSigmaNsArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -9594,6 +9999,20 @@ main(int argc, char* argv[])
         std::cerr << "WARNING: --fixRouting on --relayTier=0: each relay's ranging broadcast"
                   << " spends its 2.5% tier-1 budget every cycle, so routed frames will be"
                   << " refused by the duty governor\n";
+    }
+    // L.2.1. Refused rather than run: with the estimator on the node and no reply billed,
+    // the gateways' stamps would reach its filter on frames nobody paid for -- the very
+    // billing/observable disagreement the flag exists to close.
+    if (tier1TdoaArg && !tier1ChargeRepliesArg && !gatewayEdgeServerArg)
+    {
+        std::cerr << "FATAL: --tier1Tdoa needs the stamps to reach the estimator on a billed"
+                  << " frame: keep --tier1ChargeReplies=true, or set --gatewayEdgeServer=true\n";
+        return 1;
+    }
+    if (!(tdoaPpsSigmaNsArg >= 0.0) || !std::isfinite(tdoaPpsSigmaNsArg))
+    {
+        std::cerr << "FATAL: --tdoaPpsSigmaNs=" << tdoaPpsSigmaNsArg << " must be >= 0\n";
+        return 1;
     }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would
@@ -10146,7 +10565,9 @@ main(int argc, char* argv[])
                                        anchorGrantGossipSArg,
                                        relayChainArg,
                                        fixRoutingArg,
-                                       fixRoutingConfidenceArg);
+                                       fixRoutingConfidenceArg,
+                                       tier1TdoaArg,
+                                       tdoaPpsSigmaNsArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -10233,6 +10654,10 @@ main(int argc, char* argv[])
     if (fixRoutingArg)
     {
         digestPatterns += " fix_routing_*.csv";
+    }
+    if (tier1TdoaArg)
+    {
+        digestPatterns += " tdoa_*.csv";
     }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {

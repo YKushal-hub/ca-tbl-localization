@@ -556,6 +556,39 @@ python3 scripts/fix_routing_gate.py --require-confidence --stdout "$WORK/g18b.lo
     "$WORK/g18b/fix_routing_static_2p4_seed7.csv" || fail G18b
 finish G18b
 
+# ---------------- G19: tier-1 TDoA produced, fused and billed (L.2.1, Physical sect 1.1)
+# The energy model has billed tier 1 as a TDoA exchange -- one broadcast the gateways
+# timestamp, a reply per gateway -- while the estimator used RSSI inversion alone.
+# --tier1Tdoa builds the observable that bill describes: surveyed gateways stamp the
+# broadcast on GPS-PPS time, the differences are solved as hyperbolae (Chan, Foy, the
+# three-anchor closed form), and the fix is fused with its covariance beside the same
+# cycle's RSSI ranges. It adds no frame and no charge.
+#
+# G19 runs the solver's unit suite (33 checks, its refusals among them), then the
+# mechanism in a run, in both billing modes -- replies billed (default) and the edge
+# server's single downlink -- and reads the per-cycle log: OK solves on at least half the
+# tier-1 fix cycles, every OK fix on an accepted cycle fused, every stamp on a billed
+# frame, and the CSV recounted against the scenario's and the policy's own counters.
+#
+# Negative fixtures in scripts/tdoa_gate_selftest.sh, including the same run with the flag
+# off, the flag on in an arm that never uses tier 1, and the first draft's own runaway
+# fix (rule 6). All run; none alone is the gate.
+printf '\n--- G19 tier-1 TDoA produced, fused and billed (L.2.1) ---\n'
+mkdir -p "$WORK/g19" "$WORK/g19e"
+./build/scratch/ns3.47-ca_tbl_tdoa_test-optimized || fail G19
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
+    --duration=900 --trace=false --tier1Tdoa=true --outdir="$WORK/g19" \
+    > "$WORK/g19.log" 2>&1 || gerror G19 "flag-on run exited non-zero"
+python3 scripts/tdoa_gate.py --stdout "$WORK/g19.log" \
+    "$WORK/g19/tdoa_static_868_seed7.csv" || fail G19
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
+    --duration=900 --trace=false --tier1Tdoa=true --gatewayEdgeServer=true \
+    --outdir="$WORK/g19e" > "$WORK/g19e.log" 2>&1 || gerror G19 "edge-server run exited non-zero"
+python3 scripts/tdoa_gate.py --stdout "$WORK/g19e.log" \
+    "$WORK/g19e/tdoa_static_868_seed7.csv" || fail G19
+bash scripts/tdoa_gate_selftest.sh || fail G19
+finish G19
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

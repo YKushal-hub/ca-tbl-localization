@@ -402,6 +402,85 @@ CaTblEkf::FusePosition(double zx, double zy, double varM2)
     }
 }
 
+// Out of line on purpose: Step() gains a call and a branch, not an inlined 2x2 update
+// sitting among the expressions the byte-identical null control holds fixed.
+__attribute__((noinline)) void
+CaTblPolicy::FuseAux()
+{
+    if (m_ekf.FusePositionCov(m_aux[0], m_aux[1], m_aux[2], m_aux[3], m_aux[4]))
+    {
+        m_auxFusedLast = true;
+        ++m_auxFused;
+    }
+}
+
+bool
+CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
+        !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
+        !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return false;
+    }
+
+    // S = H P H' + R, H selecting the two position states.
+    const double pxy = 0.5 * (m_P[0][1] + m_P[1][0]);
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = pxy + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return false;
+    }
+    const double i00 = s11 / det;
+    const double i01 = -s01 / det;
+    const double i11 = s00 / det;
+
+    // K = P H' S^-1: P H' is the first two columns of P.
+    double K[4][2];
+    for (int i = 0; i < 4; ++i)
+    {
+        K[i][0] = m_P[i][0] * i00 + m_P[i][1] * i01;
+        K[i][1] = m_P[i][0] * i01 + m_P[i][1] * i11;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    for (int i = 0; i < 4; ++i)
+    {
+        m_x[i] += K[i][0] * v0 + K[i][1] * v1;
+    }
+
+    // P <- P - K (H P): H P is the first two rows of P.
+    double newP[4][4];
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i][0] * m_P[0][j] - K[i][1] * m_P[1][j];
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    // Same reason as Update(): an asymmetric P silently corrupts the Mahalanobis gate.
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = i + 1; j < 4; ++j)
+        {
+            const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+            m_P[i][j] = avg;
+            m_P[j][i] = avg;
+        }
+    }
+    return true;
+}
+
 void
 CaTblEkf::RevertToPrior()
 {
@@ -849,6 +928,12 @@ CaTblPolicy::Step(double dt,
     d.activeTier = m_tier;
     d.nextTier = m_tier;
 
+    // A queued tier-1 TDoA fix belongs to THIS cycle and to no other, whatever the cycle
+    // decides below (SetAuxPositionFix). Never queued, these three lines are inert.
+    const bool auxQueued = m_auxPending;
+    m_auxPending = false;
+    m_auxFusedLast = false;
+
     m_tierCycles[m_tier]++;
 
     m_ekf.Predict(dt);
@@ -1084,6 +1169,10 @@ CaTblPolicy::Step(double dt,
             // gate identified as faulty.
             m_ekf.Update(meas, varM2);
             recovered = true;
+            if (auxQueued)
+            {
+                FuseAux(); // force-accepted cycle: the TDoA half of the fix goes in too
+            }
         }
         else if (m_config.suspectRecovery == CA_TBL_RECOVERY_REINIT &&
                  m_consecutiveRejections >= m_config.suspectRecoveryN && haveRawFix)
@@ -1127,6 +1216,10 @@ CaTblPolicy::Step(double dt,
     {
         m_consecutiveRejections = 0;
         m_ekf.Update(meas, varM2);
+        if (auxQueued)
+        {
+            FuseAux(); // the COMBINED tier-1 fix: RSSI ranges above, TDoA position here
+        }
     }
 
     const double traceSigma = m_ekf.TracePos();
