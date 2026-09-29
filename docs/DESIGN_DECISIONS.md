@@ -124,11 +124,14 @@ packet log.
 
 ## Still unmodelled, and named so the gap is visible
 
-- **Gateways as edge servers.** The brief has gateways performing EKF fusion and NLOS/hop
-  computation rather than the battery-constrained field node. Here the field node runs its
-  own filter. This changes *where* computation happens, not what is computed, so no result
-  moves — but the energy story for the field node is optimistic if the brief's split is
-  the intended one.
+- **Gateways as edge servers — modelled, and the default since 2026-09-29.** The brief has
+  gateways performing EKF fusion and NLOS/hop computation rather than the
+  battery-constrained field node. `--gatewayEdgeServer` (default true) bills the field node
+  one tier-1 broadcast and one downlink per fix instead of a reply per gateway; the filter
+  is the same, so at defaults only energy moves (`docs/TECH_DEBT.md` L.2.3). **The gap
+  still named here:** getting a tier-2 or tier-3 range from the exchange that measured it
+  to the gateway's estimator is not billed, so the energy story on those tiers is still
+  slightly optimistic.
 - **Finder-to-gateway relaying.** Finders do not carry the casualty's fixes back to
   infrastructure; they are ranging targets only.
 - **A still lost node.** Supported via `--speed=0`, not yet exercised as a scenario.

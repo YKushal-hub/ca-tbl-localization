@@ -9428,7 +9428,13 @@ main(int argc, char* argv[])
     // actually does, which is RSSI inversion with replies. Roughly doubles
     // tier-1 energy. Pass false to reproduce anything measured before.
     bool tier1ChargeRepliesArg = true;
-    bool gatewayEdgeServerArg = false;
+    // TRUE since 2026-09-29 (TECH_DEBT L.2.3). The spec puts the estimator on the
+    // gateways; this was the one CONTRADICTION row in MASTER_PLAN 2.1. With it on,
+    // tier 1 is billed as the broadcast plus one downlink per fix, so the reply
+    // billing above applies only when this is false. B3 C6 measured the change as
+    // energy-only at defaults. Pass false to reproduce anything measured before,
+    // results/regen27_* included.
+    bool gatewayEdgeServerArg = true;
     // The values ca-tbl-policy.cc already sets, so passing nothing is
     // byte-identical to every run taken before this flag existed.
     double processNoiseStdPosArg = 1.0;
@@ -10163,22 +10169,45 @@ main(int argc, char* argv[])
                  "EKF process-noise std on velocity, m/s. Default 0.5, as above.",
                  processNoiseStdVelArg);
     cmd.AddValue("gatewayEdgeServer",
-                 "Put the estimator on the GATEWAYS, as the brief specifies. FALSE by "
-                 "default. The node broadcasts once, the gateways measure and report "
-                 "over the BACKHAUL, the network computes the fix, and the node gets "
-                 "ONE downlink -- so the tier-1 reply windows vanish and tier 1 "
-                 "legitimately costs one broadcast again, against roughly double that "
-                 "for node-side estimation. NO CLOCK SYNC IS INVOLVED: this is RSSI "
-                 "multilateration performed network-side, which is what LoRaWAN "
-                 "geolocation does in practice, and the estimator itself does not "
-                 "change -- only where it runs. TIER 1 ONLY: tiers 2 and 3 range by "
-                 "two-way time-of-flight precisely because the endpoints share no "
-                 "clock, so their exchange cannot move without the synchronisation "
-                 "TECH_DEBT J.2 records as absent.",
+                 "Put the estimator on the GATEWAYS, where the brief puts it (ch10 "
+                 "sect 10.1: estimation runs on the Anchor/Gateway Node, not the Field "
+                 "Node). TRUE by default since 2026-09-29, for three reasons. It is the "
+                 "specified design, and node-side estimation was the one CONTRADICTION "
+                 "row in MASTER_PLAN 2.1. It is the exchange tier 1's bill always "
+                 "described: the node broadcasts once, the gateways measure and report "
+                 "over the BACKHAUL, the network computes the fix, and the node wakes "
+                 "for ONE downlink per fix instead of a reply window per gateway. And at "
+                 "defaults it moves energy and nothing else: in B3 (report/"
+                 "B3_REGEN_RESULTS.md C6, 20 seeds x 3600 s) all seven accuracy columns "
+                 "were byte-identical to node-side estimation on 20/20 seeds, and totalJ "
+                 "fell 42.5% on static_868 and 32.9% on fixed_threshold and ca_tbl_full, "
+                 "20/20 each. It is NOT a saving everywhere. Tiers 2 and 3 range by "
+                 "two-way time-of-flight because the endpoints share no clock, so that "
+                 "exchange cannot move without the synchronisation TECH_DEBT J.2 records "
+                 "as absent; there this only ADDS the downlink, and static_2p4 costs 0.2% "
+                 "MORE on 20/20 seeds. static_uwb never produces a fix, so never takes "
+                 "the path. Nor is it complete: getting a tier-2 or tier-3 range from the "
+                 "exchange that measured it to the gateway's estimator is not billed "
+                 "(TECH_DEBT L.2.3), which flatters this setting on those tiers and not "
+                 "on tier 1. NO CLOCK SYNC IS INVOLVED: this is RSSI multilateration "
+                 "performed network-side, which is what LoRaWAN geolocation does, and "
+                 "the estimator itself does not change -- only where it runs, and so what "
+                 "the node is billed. Energy is an INPUT in two places -- T_batt, which "
+                 "--uwbArbitration scores between competing requests, and "
+                 "--batteryDepleteJ, which stops the radio -- and there this setting can "
+                 "move more than energy (with --uwbArbitration on and one requester it "
+                 "did not). FALSE is node-side estimation, with the tier-1 replies billed "
+                 "per --tier1ChargeReplies; it reproduces every result produced before "
+                 "this default changed, results/regen27_* included, so pass it to replay "
+                 "any earlier sidecar.",
                  gatewayEdgeServerArg);
     cmd.AddValue("tier1ChargeReplies",
-                 "Charge tier 1 for the downlink that carries its ranges back. FALSE by "
-                 "default, which preserves every published number. Tier 1 is billed as "
+                 "Charge tier 1 for the downlink that carries its ranges back. READ ONLY "
+                 "WITH --gatewayEdgeServer=false: since 2026-09-29 the estimator is on "
+                 "the gateways by default, the ranges go over the backhaul, and there "
+                 "are no replies to charge. TRUE by default since 2026-09-08; pass false "
+                 "(with --gatewayEdgeServer=false) to reproduce anything measured "
+                 "before that. What follows is the node-side case. Tier 1 is billed as "
                  "ONE BROADCAST AND NOTHING ELSE -- a TDoA shape, and the right cost "
                  "when the NETWORK localises. But CaTblPolicy runs on the FIELD NODE and "
                  "consumes a range per anchor per cycle, and nothing charges for those "
@@ -10186,9 +10215,10 @@ main(int argc, char* argv[])
                  "fires only when the neighbour table is empty. So tier 1's structural "
                  "energy advantage, which every accuracy-per-joule figure rests on, is "
                  "measured against an exchange one message short of closing. This "
-                 "measures the gap; it does not decide which shape is right, because that "
-                 "is the CONTRADICTION row in MASTER_PLAN 2.1 -- the spec puts the "
-                 "estimator on the gateway and the code puts it on the tag.",
+                 "measures the gap; it did not decide which shape is right, because that "
+                 "was the CONTRADICTION row in MASTER_PLAN 2.1 -- the spec puts the "
+                 "estimator on the gateway and the code put it on the tag. "
+                 "--gatewayEdgeServer's default now follows the spec.",
                  tier1ChargeRepliesArg);
     cmd.AddValue("bidirectionalDigest",
                  "Let the lost node ASK as well as answer, so the anti-entropy exchange "
