@@ -1164,7 +1164,7 @@ produce, so each is a change of its own, with its own null control:
   defaults against the new frozen reference `~/catbl_ref_edge`. Every results directory in
   the tree, `results/regen27_*` included, was produced with the estimator on the node; to
   replay one, add `--gatewayEdgeServer=false`. An open question the review raised about
-  which radio the downlink is billed on is M.10.
+  which radio the downlink is billed on is M.10 (a DECISION since 2026-09-30).
 - **L.2.4 — PARTIAL.** `hopDepth` takes 1 and 2 on relayed legs, beside the direct anchors'
   0, in `relay_chain_*.csv` under `--relayChain --relaySlots --maxRelayDepth=2` (`d24690c`).
   So the done-when holds in the relay-chain log. It does not hold where PCS reads a hop
@@ -1192,7 +1192,7 @@ control, or is withdrawn.
 | The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing. **→ 2026-09-29: WITHDRAWN in the shipped default (B3 C1, no population). With the evidence gate off, the witness lowers energy on 20/20 seeds, but it acts as a near-blanket veto and no detection claim follows (C1_NOGATE)** — see below | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
 | Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1. **→ 2026-09-29: still no population for the claim. Depth 2 is now reachable in the relay chain, but PCS's hop input is a literal 0** — see below | L.1.2 then a registered PCS campaign |
 | *(row added 2026-09-29)* The mesh carries availability | **supported (B3 C5).** `fixCycles / steps` 0.041 < 0.319 < 0.647 (WAN only < sparse < WAN + mesh); WAN + mesh minus WAN only is positive on 20/20 seeds, p = 1.9×10⁻⁶. The availability belongs to the mesh, not to tiering | — |
-| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3) |
+| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3). *2026-09-30:* the downlink-tier DECISION (M.10) would move the two hybrid figures, not `static_868`'s |
 | *(row added 2026-09-29)* An ideal IMU collapses the error tail | **supported as a CEILING, never as a system result (B3 C7).** cep95 median: `static_uwb` 8 413 → 17 m, `static_2p4` 27 151 → 537 m, both 20+/0−. `ca_tbl_full` 11+/9−, not significant | A measured SHS error model (K.9) |
 
 **Before any of these can be re-stated, two things must happen and they are not optional:**
@@ -1469,7 +1469,10 @@ counter reports that message type. The comment at `scratch/ca_tbl_causal_sim.cc:
 (at `ff4f8bb`) still says "Nothing here sets mobility state … the receding branch never
 runs". It has been false since `50a229a`.
 
-### M.10 Which radio the gateway-estimator downlink is billed on — an open question, not an established defect
+### M.10 Which radio the gateway-estimator downlink is billed on — DECISION
+
+*Filed on 2026-09-29 as "an open question, not an established defect"; the review's
+finding is filed below, 2026-09-30.*
 
 The branch review reported a defect in the flipped `--gatewayEdgeServer` default that it did
 not fix. That report is not in the tree. The review's working files (`~/catbl_review/`)
@@ -1483,6 +1486,36 @@ The §6 invariant holds either way, because the 2.4 GHz radio is awake on those 
 is the tier in use. What is not established is whether a 2.4 GHz downlink is the right
 charge on a cycle where 2.4 GHz could not reach three anchors. Recorded so that the review's
 finding is not lost. Its exact wording should be filed here from the review's report.
+
+**The review's finding, filed 2026-09-30.** The review called it a DEFECT: with the
+estimator on the gateways (the default since `db2ac2e`), a fix that came from the 868 floor
+is billed as a 2.4 GHz downlink.
+
+- *Per downlink:* 0.2005 mJ on 2.4 GHz against 0.9042 mJ on 868 MHz, so each floor-solved
+  cycle is billed 0.7037 mJ less than a fix-tier bill would charge.
+  - Both figures are recomputed here from the energy model's constants
+    (`ca-tbl-energy-model.cc:36-63`, `:150-156` and `:346-363`): a 12-byte payload at SF7,
+    3.3 V, and wake-up and turnaround at the idle current. On 868 MHz that is 125 kHz,
+    41.2 ms on air plus a 10 ms guard at 5.3 mA. On 2.4 GHz it is 800 kHz, 6.4 ms plus 2 ms
+    at 7.0 mA.
+  - The 2.4 GHz figure is also recounted on disk, from NC1 with the edge setting on minus
+    NC1 with it off (`~/catbl_review/nc_on`, `nc_off`, `arm_summary.csv` column `j_2p4`).
+    `ca_tbl_full` gains 0.049726 J over its 248 fix cycles with 2.4 GHz active (230
+    floor-solved and 18 with a 2.4 GHz fix), and `static_2p4` gains 0.002206 J over its 11
+    fixes. Both work out to 0.2005 mJ per fix.
+- *What it biases:* B3 C6's hybrid figures. C6 ran with the downlink on the active tier
+  (`report/B3_REGEN_RESULTS.md` §C6: "one downlink per fix on the active tier"; Δ `j_2p4`
+  −0.20 J on each policy arm). Billed on the fix's tier, the −32.9 % on `fixed_threshold`
+  and `ca_tbl_full` would be a smaller saving. By how much is not computed here: that needs
+  a run with the billing changed, not arithmetic on this one. `static_868`'s −42.5 % is
+  unaffected, because its active tier is always 868 MHz.
+- *Why it is a decision and not a fix:* either bill charges a radio that is awake on the
+  cycle. 2.4 GHz is the active tier, and 868 MHz ranged for the floor. Moving the bill
+  changes energy on every hybrid arm under the default.
+
+**DECISION:** bill the downlink on the tier the fix came from, or on the active tier as
+now. Until it is taken, every hybrid-arm energy figure under the edge setting carries this
+caveat. The accuracy figures do not.
 
 ### M.11 Stale numbers in the rules and setup documents
 
