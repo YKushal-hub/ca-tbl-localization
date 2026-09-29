@@ -954,13 +954,83 @@ an engine feature.
 
 | # | item | what is wrong | what closes it | done when |
 |---|---|---|---|---|
-| L.1.1 | Routing unwired | `CaTblRoutingTable` + ETX + 21 checks exist; **0 scenario call sites**. The poll set is one-hop, so there is no route to choose | Multi-hop forwarding of position-fix traffic: a node that cannot reach a gateway directly relays through one that can | A run reports a next-hop that is not the destination, and `Divergences()` is non-zero between ETX and the confidence metric |
-| L.1.2 | Net §5 depth 2 unreachable | `CaTblComposeRelayChain` and `--maxRelayDepth` exist; **finders never relay through each other**, so `hopDepth` is always 1 | Let a finder with <3 anchor ranges range against a finder that already holds a fix this cycle, inheriting depth+1 and the relay's covariance | `hopDepth == 2` appears in a run and A2 is observed both admitting and rejecting on the budget |
-| L.1.3 | Case B / Case C unwired | library only | Call Case B where one anchor + one peer is the geometry | Case B appears in a run's verdict counts |
-| L.1.4 | Anchor tie-break unwired | `CaTblGrantCoordinator` + suite; anchors do not gossip grants | Anchor-to-anchor grant gossip on the existing low-priority class | Two anchors are observed reaching opposite verdicts on one target in a run |
-| L.1.5 | `CA_TBL_MOB_RECEDING` never set | the receding → eager-push branch is dead code in the scenario | Drive mobility state from the walker's range trend | The branch executes and `TRIGGERED_UPDATE` count is non-zero |
+| L.1.1 | Routing unwired | `CaTblRoutingTable` + ETX + 21 checks exist; **0 scenario call sites**. The poll set is one-hop, so there is no route to choose | Multi-hop forwarding of position-fix traffic: a node that cannot reach a gateway directly relays through one that can | A run reports a next-hop that is not the destination, and `Divergences()` is non-zero between ETX and the confidence metric. **2026-09-29: MET at `5f3ad42`**, behind `--fixRouting` (default off) — see *L.1 status* below |
+| L.1.2 | Net §5 depth 2 unreachable | `CaTblComposeRelayChain` and `--maxRelayDepth` exist; **finders never relay through each other**, so `hopDepth` is always 1 | Let a finder with <3 anchor ranges range against a finder that already holds a fix this cycle, inheriting depth+1 and the relay's covariance | `hopDepth == 2` appears in a run and A2 is observed both admitting and rejecting on the budget. **2026-09-29: MET only with `--relaySlots` (`d24690c`, default off); NOT met by `b390ed6` alone** — see below |
+| L.1.3 | Case B / Case C unwired | library only | Call Case B where one anchor + one peer is the geometry | Case B appears in a run's verdict counts. **2026-09-29: already met at `084a7ff` (wired at `ac5766f`); this row was stale** — see below |
+| L.1.4 | Anchor tie-break unwired | `CaTblGrantCoordinator` + suite; anchors do not gossip grants | Anchor-to-anchor grant gossip on the existing low-priority class | Two anchors are observed reaching opposite verdicts on one target in a run. **2026-09-29: MET at `17ab7dd`; its evidence file is digested since `ff4f8bb`** — see below |
+| L.1.5 | `CA_TBL_MOB_RECEDING` never set | the receding → eager-push branch is dead code in the scenario | Drive mobility state from the walker's range trend | The branch executes and `TRIGGERED_UPDATE` count is non-zero. **2026-09-29: already met at `084a7ff` (wired at `50a229a`); this row was stale** — see below |
 
 **B1 is worth finishing and is cheap.** None of it requires a campaign or a decision.
+
+### L.1 status, 2026-09-29
+
+Work on branch `work/2026-09-27-spec-b1`, local only. Every mechanism below sits behind a
+default-off flag whose off state was null-controlled against the frozen `084a7ff` reference
+(`~/catbl_ref/nc.sh`: NC1 7/7 and NC2 2/2 output files byte-identical). The branch review
+(2026-09-29, working files `~/catbl_review/`) re-ran every done-when invocation at the branch
+head with `--gatewayEdgeServer=false` and got the implementers' outputs back byte-for-byte, 8
+of 8.
+
+- **L.1.1 — CLOSED, `5f3ad42`.** `--fixRouting` and `--fixRoutingConfidence`. The routers
+  are the filtered relays (ids 2+, `--relayedRanging`); the measured tag does not route,
+  because its tier changes between cycles. Done-when run: `static_2p4`, seed 7, 600 s,
+  `--relayedRanging --nTags=6`, default box (`~/catbl_probe/v3/L.1.1/donewhen_etx`).
+  `fix_routing_static_2p4_seed7.csv`, 1981 rows: the next hop was a relay on 1116 hops, and
+  781 of those were forwarded. Divergences were 576 of 1958 selections, equal to
+  `CaTblRoutingTable::Divergences()` summed over the tables, and an awk recount gives the
+  same numbers. Gates G18/G18b, 12 negatives observed to fail. **Caveat, from `d24690c`:**
+  these counts were measured while the relays' ranging still shared the cycle instant (M.1
+  below), so they do not compare with a `--relaySlots` run. The weights α, β, γ and the slack
+  are ours and uncalibrated.
+- **L.1.2 — MET only under `--relaySlots` (`d24690c`), which is default off. The owner has
+  not yet decided its default.** `b390ed6` wired `--relayChain` and measured the done-when
+  as NOT met. In G17's regime it got 112 rows, all at depth 1, A2 pass 49 / budget 63, and
+  0 fuses. The cause is the simultaneous-instant defect (M.1). With `--relaySlots`, same
+  flags (static_2p4, seed 7, 600 s, `--boxHalf=200 --nTags=4 --relayedRanging --relayChain
+  --maxRelayDepth=2 --relayVarBudget=24336`), `relay_chain_static_2p4_seed7.csv` has 541
+  rows: 4 fuse rows, 40 tag-leg rows at `hopDepth` 2, and A2 at depth 2 passing 19 and
+  refusing 21 on the budget. Seeds 11 and 13 pass G17b too, with 57 and 2 fuses. G17b has
+  been green since `d24690c`. `hopWeight` stays 0. The earlier probe outputs
+  `~/catbl_probe/v3/L.1.2/{on_*,sw_*,sx_*,sy_*,sz_*}` came from a defective draft that set
+  depth on admission rather than on a fused step, and **must not be cited**.
+- **L.1.3 — CLOSED before this week; the row was stale.** Case A reached the fix path at
+  `c94507b`, Case B at `ac5766f`, and the census became a partition at `0031a5b` (A.7).
+  Probe of 2026-09-28, EXPLORATORY (unregistered, frozen `084a7ff` binary). Invocation
+  `--arms=ca_tbl_full --seed=7 --duration=1200 --sparseCaseA=true`; field: stdout
+  `sect 7 CASES`; census complete, 480 of 480 cycles:
+  - `--nGateways=3 --boxHalf=3000 --nFinders=4`: D 65, A 7, **B 16**, C 199.
+  - `--gwGrid=2 --boxHalf=5000 --nFinders=4`: D 54, A 1, **B 11**, C 268.
+  - `--nGateways=3 --boxHalf=2000 --nFinders=0`: D 39, **A 64**, B 0, C 318.
+
+  `ac5766f`'s message gave B = 8 and 13; those were counted before the census fix. B is also
+  18, 29 and 26 at seeds 7, 11 and 13 in the grid-2 5 km regime with four finders (1800 s).
+  Output directories `~/catbl_probe/v3/a_case*`.
+- **L.1.4 — CLOSED, `17ab7dd`; evidence digested since `ff4f8bb`.** `--anchorGrantGossipS`
+  (default 0). Done-when run: NC2's flags plus `--anchorGrantGossipS=5 --vizEvents=true`,
+  `ca_tbl_full`, seed 7, 1800 s. `grant_verdicts_ca_tbl_full_seed7.csv` has 22 rows: request
+  OK 13, SELF_REPEAT 2, gossip WIN 4, DEFER 3. There are two mutual opposite-verdict pairs on
+  target 1: 104 WIN / 103 DEFER, and 105 WIN / 104 DEFER. An awk recount equals the stdout
+  counters. It reproduces byte-identically from a clean clone (`source 17ab7dd dirty 0`,
+  `~/catbl_probe/v3/L.1.4/verify_clean`). Gate G16 has 7 negatives. `ff4f8bb` adds
+  `grant_verdicts_*.csv` to the `run_id.txt` digest; before it, a tampered verdict passed
+  `sha256sum -c`. Limits:
+  - gateway 101 received no gossip;
+  - one double grant stood (105 from 485 s, 102 from 490 s);
+  - there is no revoke frame;
+  - one seed, one deployment.
+- **L.1.5 — CLOSED before this week; the row was stale.** `--mobilityFromRange`
+  (`50a229a`). Probe on `084a7ff`, EXPLORATORY. Invocation `--arms=ca_tbl_full --seed=7
+  --duration=1200 --mobilityFromRange=true --nTags=3 --vizEvents=true`. Stdout reads
+  `sect 11.11 MOBILITY: stationary 100, approaching 177, receding 168`: 445 of 480 cycles,
+  and the 35 cycles with no range are unclassified. `events_ca_tbl_full_seed7.csv` has 44
+  `TRIGGERED_UPDATE` frames originated by node 1 (748 rows, including 174 relayed copies).
+  The only sender of that message is the RECEDING branch of `ca-tbl-mac.cc`. The same run
+  with `--mobilityFromRange=false` gives 0. With `--nTags=1` it gives 49, so `50a229a`'s
+  statement that peer tags are needed no longer holds at `084a7ff`. No counter reports this
+  message, and the scenario comment saying the receding branch never runs is now false (M.9).
+
+**B1, 2026-09-29: met.** One qualification: L.1.2's done-when needs `--relaySlots`, which is
+off by default until the owner decides.
 
 ---
 
@@ -995,15 +1065,41 @@ an 868 transmission regardless of active tier. A sweep over that is one afternoo
 *Done when:* each of the four reports a non-trivial population in at least one registered
 configuration, **or** the register states that it cannot and why.
 
+**2026-09-29: the coverage probe (EXPLORATORY) corrects this diagnosis.** It was about 40
+runs, unregistered, all on the frozen `084a7ff` binary (`~/catbl_ref`). Invocation
+`--arms=ca_tbl_full,static_868 --sparseCaseA=true --tableFuseCI=true`, 1800 s (720 cycles),
+mostly seed 7, a few at seeds 11 and 13. Outputs are in `~/catbl_probe/v3/{s_*,f_*}` and the
+per-run populations in `~/catbl_probe/v3/*_pops.jsonl`. The sidecars read `source unknown`,
+because the frozen binary runs outside a git tree and `run_id.txt` records the working
+directory's HEAD (M.3); the runs are identified by the binary. This re-diagnoses the four
+mechanisms. It does not measure an effect, and no result may be quoted from it.
+
+**"All four are the same fact" is wrong for two of the four.** Counts are for `ca_tbl_full`,
+per 720-cycle run:
+
+| mechanism | what the probe shows | diagnosis |
+|---|---|---|
+| Case A / B | Default box: A 7 (9 attempts), B 0. Where tier 1 does not cover, A rises to 103 (`--nGateways=3 --boxHalf=2000`), 60 (`=3000`) and 48 (`--boxHalf=3000`). B is 10–29 with four finders in the `--nGateways=3 --boxHalf=3000` and grid-2 5 km boxes, and 0–1 elsewhere | **Coverage.** Tier-1 blanketing explains Case A and Case B, and a sparse regime produces both |
+| Mahalanobis integrity check | Eligible cycles (`mahalanobis != 0 && nNlos == 0`): 0–9 in every regime under the default `--nlosSource=legacy`, sparse or dense, with or without finders. In the six runs with `--nlosSource=propagation`: 182–420 eligible, 102–288 suspects | **Structural, not coverage.** The legacy tag marks ~75 % of links NLOS, so an all-LOS fix cycle almost never occurs. The propagation source changes that |
+| Covariance Intersection | With four finders, every regime from the default box to grid-2 at 5 km has 107–318 table-entry arrivals per run, each merged. Equal-sequence (CI-eligible) arrivals: 0 in 11 of 13 finder runs, 8 and 1 in the other two. With no finders: 0 arrivals | **Not coverage.** Entries arrive whatever tier 1 does. A second copy of the same sequence number almost never does. *Inferred, not counted:* an entry reaches a holder only as its subject's unicast answer to that holder's own digest (`f017da4`), so a second route rarely carries it |
+| Routing | Wired since `5f3ad42` (L.1.1): 1116 relay next hops in its done-when run | A population exists under `--fixRouting` |
+
+`runFloor` (a hybrid arm whose active tier is not 868) is true on 600 of 720 cycles at
+defaults, 718 of 720 with four finders, and 25 of 720 in grid-2 at 5 km. The 99.9 % quoted
+above is the finder regime, not the default. What remains for the done-when is a
+*registered* configuration for each mechanism. CAL-01's `arc` regime (44 % of cycles
+without a fix, `results/cal01_loocv_20260928`) is the first registered campaign in which
+tier 1 does not blanket.
+
 **Remaining B2 divergences**
 
 | # | item | what is wrong | what closes it | done when |
 |---|---|---|---|---|
-| L.2.1 | Tier-1 observable | Spec says TDoA (Chan/Foy). Code does RSSI inversion. The energy model bills the **TDoA shape** — one broadcast, anchors timestamp — so the system pays for TDoA and localises with RSSI | Either build the timing layer + hyperbolic solver (needs GPS-PPS sync, absent, and circularly justified as "not needed, because there is no TDoA"), **or** re-bill as RSSI and amend ch09 §9.3 | Billing and observable agree, and the DIVERGENT row names which one moved. `--tier1ChargeReplies` already measures the gap: tier-1 energy 13.59 → 25.86 J |
-| L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create |
-| L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` exists (32–42% energy saving, accuracy byte-identical) and was **off by default** until 2026-09-29 | Default it true after its own reference regeneration | **CLOSED 2026-09-29 — the default is now true**, and MASTER_PLAN §2.1's CONTRADICTION row is PARTIAL, with the reason stated in the row. Evidence at the flipping commit, all on one binary: defaults against `--gatewayEdgeServer=false` differ ONLY in totalJ, accuracyPerJoule, the 868 and 2.4 GHz `j_`, `rx_`, `idle_` columns and the trace's `cumJ`, in four configurations (seed 7 × 3600 s all arms traced; the NC2 searcher regime; seeds 11–13 × 900 s; NC2 with `--uwbArbitration`); `static_uwb` is byte-identical, since it never fixes. `=false` reproduces the 084a7ff frozen reference byte-for-byte (NC1 7/7, NC2 2/2). A new frozen reference at the flipping commit, ~/catbl_ref_edge, serves later null controls. Gates that replay the pre-change configuration now pin `=false` (G6's comparison run, G19's replies-billed run), and G21 (`scripts/edge_default_gate.py`) re-asks the energy-only question on every suite run, with negative fixtures in `scripts/edge_default_gate_selftest.sh`. **Recorded, not fixed:** getting a tier-2 or tier-3 range from the exchange that measured it to the gateway's estimator is not billed. On 2.4 GHz the node closes the two-way arithmetic, so the range would have to be sent up; on UWB the final message leaves it with the responder, which may be a finder. This flatters the edge setting on tiers 2 and 3 only, where it already costs 0.2% more |
-| L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values |
-| L.2.5 | Proxy staleness | *As recorded 2026-09-09:* "the proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — from an unrecorded invocation that queried a **peer**. **Measured 2026-09-29, and true of a peer, false of the casualty** (registered `report/PREREG_L25_PROXY_AGE.md`, runs at `b16531f` dirty 0, `results/l25_proxy_age_20260929`, seeds 7/11/13, the age of every entry a proxy held when a query arrived). Casualty, arc searcher regime: 458 checks of 82 queries, 265 held, age p50 11.5 s, p90 28.6 s, max 68.1 s, **265/265 inside 120 s**. Casualty, grid-2 5 km sparse regime: 42 checks of 15 queries, 39 held, p50 17.2 s, p90 49.6 s, **37/39 inside**. A peer: p50 493 s (21/130 inside) and 385 s (5/20) — an entry reaches a holder only as its subject's answer to that holder's own digest, and in the seed-7 searcher run the peer heard 13 finder digests to the casualty's 305 | Nothing, for the casualty. For a node nobody polls the lever is dissemination, not the bound; `--digestSummary`'s third-party pushes are the existing candidate and were **not** measured here | **CLOSED 2026-09-29 — justified by measurement.** The spec's 120 s stays the default of `--queryStalenessBoundS`, whose help text now carries these numbers: it refuses none of the casualty's held entries in the searcher regime and 2 of 39 in the sparse one, and what it refuses is worth refusing — an estimate held 120 s is 143 m from a casualty walking 1.2 m/s, against 4.5 m fresh |
+| L.2.1 | Tier-1 observable | Spec says TDoA (Chan/Foy). Code does RSSI inversion. The energy model bills the **TDoA shape** — one broadcast, anchors timestamp — so the system pays for TDoA and localises with RSSI | Either build the timing layer + hyperbolic solver (needs GPS-PPS sync, absent, and circularly justified as "not needed, because there is no TDoA"), **or** re-bill as RSSI and amend ch09 §9.3 | Billing and observable agree, and the DIVERGENT row names which one moved. `--tier1ChargeReplies` already measures the gap: tier-1 energy 13.59 → 25.86 J. **2026-09-29: the observable moved, behind `--tier1Tdoa` (default off), `7377ed0`; the default is still RSSI** — see *L.2 status* below |
+| L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create. **2026-09-29: PARTIAL at `86e43f2`. The 868 MHz and 2.4 GHz matrices fill; the UWB CIR matrix cannot, under the channel model** — see below |
+| L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` exists (32–42% energy saving, accuracy byte-identical) and was **off by default** until 2026-09-29 | Default it true after its own reference regeneration | **CLOSED 2026-09-29 (`db2ac2e`) — the default is now true**, and MASTER_PLAN §2.1's CONTRADICTION row is PARTIAL, with the reason stated in the row. Evidence at the flipping commit, all on one binary: defaults against `--gatewayEdgeServer=false` differ ONLY in totalJ, accuracyPerJoule, the 868 and 2.4 GHz `j_`, `rx_`, `idle_` columns and the trace's `cumJ`, in four configurations (seed 7 × 3600 s all arms traced; the NC2 searcher regime; seeds 11–13 × 900 s; NC2 with `--uwbArbitration`); `static_uwb` is byte-identical, since it never fixes. `=false` reproduces the 084a7ff frozen reference byte-for-byte (NC1 7/7, NC2 2/2). A new frozen reference at the flipping commit, ~/catbl_ref_edge, serves later null controls. Gates that replay the pre-change configuration now pin `=false` (G6's comparison run, G19's replies-billed run), and G21 (`scripts/edge_default_gate.py`) re-asks the energy-only question on every suite run, with negative fixtures in `scripts/edge_default_gate_selftest.sh`. **Recorded, not fixed:** getting a tier-2 or tier-3 range from the exchange that measured it to the gateway's estimator is not billed. On 2.4 GHz the node closes the two-way arithmetic, so the range would have to be sent up; on UWB the final message leaves it with the responder, which may be a finder. This flatters the edge setting on tiers 2 and 3 only, where it already costs 0.2% more |
+| L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values. **2026-09-29: PARTIAL. Met in the relay-chain log under `--relaySlots` (`d24690c`); not met where PCS reads it; the cap still defaults to 1** — see below |
+| L.2.5 | Proxy staleness | *As recorded 2026-09-09:* "the proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — from an unrecorded invocation that queried a **peer**. **Measured 2026-09-29, and true of a peer, false of the casualty** (registered `report/PREREG_L25_PROXY_AGE.md`, runs at `b16531f` dirty 0, `results/l25_proxy_age_20260929`, seeds 7/11/13, the age of every entry a proxy held when a query arrived). Casualty, arc searcher regime: 458 checks of 82 queries, 265 held, age p50 11.5 s, p90 28.6 s, max 68.1 s, **265/265 inside 120 s**. Casualty, grid-2 5 km sparse regime: 42 checks of 15 queries, 39 held, p50 17.2 s, p90 49.6 s, **37/39 inside**. A peer: p50 493 s (21/130 inside) and 385 s (5/20) — an entry reaches a holder only as its subject's answer to that holder's own digest, and in the seed-7 searcher run the peer heard 13 finder digests to the casualty's 305 | Nothing, for the casualty. For a node nobody polls the lever is dissemination, not the bound; `--digestSummary`'s third-party pushes are the existing candidate and were **not** measured here | **CLOSED 2026-09-29 (`b16531f` registered, `f017da4` measured) — justified by measurement.** The spec's 120 s stays the default of `--queryStalenessBoundS`, whose help text now carries these numbers: it refuses none of the casualty's held entries in the searcher regime and 2 of 39 in the sparse one, and what it refuses is worth refusing — an estimate held 120 s is 143 m from a casualty walking 1.2 m/s, against 4.5 m fresh |
 
 **Found while closing L.2.5, recorded and not fixed.** Fixing either changes what runs
 produce, so each is a change of its own, with its own null control:
@@ -1021,6 +1117,52 @@ produce, so each is a change of its own, with its own null control:
   the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in
   `sparse_t1` equal the trace estimate of the cycle before their timestamp. Every entry age
   in the project is understated by 2.5 s.
+
+### L.2 status, 2026-09-29
+
+- **L.2.1 — PARTIAL, `7377ed0`.** Flags: `--tier1Tdoa` (default false) and
+  `--tdoaPpsSigmaNs` (default 20 ns, from the u-blox M8T timing data sheet). Surveyed
+  gateways stamp the node's tier-1 broadcast. Four or more gateways are solved by Chan–Ho
+  seeding Foy; exactly three by a closed form that keeps every root.
+  - *Done-when run:* defaults plus `--tier1Tdoa`, all arms, seed 7, 3600 s
+    (`~/catbl_probe/v3/TDOA/dw2_on`). `static_868` gives 1433 rows, OK on 1428 (99.7 %),
+    all fused, equal to the policy's own count; `ca_tbl_full` gives 1172 rows, 1166 fused.
+    An awk recount is equal on every arm.
+  - *Billing and observable agree with the flag on:* 8880 stamps on 8880 billed replies, and
+    0 stamps beyond a billed reply. Under the gateway-estimator default (`db2ac2e`) the
+    stamps ride the backhaul: 355 downlinks on 355 OK solves.
+  - *Why not closed.* The default observable is still RSSI inversion. Making TDoA the default
+    changes the tier-1 observable and, per J.2, invalidates every tier-1 result. That is a
+    planned campaign (owner decision pending), not a flag flip. The accuracy the model gives
+    (`static_868` rmse 167 → 11 m, seed 7) rests on a Cramér–Rao bound with no threshold
+    effect and is not a result. J.2 item 4, re-deriving tier-1 σ, is not done.
+- **L.2.2 — PARTIAL, `86e43f2`.** Flags: `--nlosClassifier`, `--pcsNlosClassifier` and
+  `--nlosScoreThreshold` (0.5, ours).
+  - *Every cell non-trivial on 868 MHz.* Searcher regime (NC2's flags, 1800 s),
+    `ca_tbl_full`: tp 19, fp 358, fn 177, tn 4474. Defaults at 900 s: 9 / 91 / 147 / 1848.
+    On 2.4 GHz (`static_2p4`, searcher regime): 3 / 67 / 6 / 2470. An awk recount from the
+    raw rows is equal.
+  - **The UWB CIR half cannot fill its TP and FN cells in any regime tried (M.2).** The
+    circularity is stated in the source: the classifier can only rediscover the NLOS the
+    channel model created.
+  - The 868 detector barely separates LOS from NLOS (mean score 0.089 against 0.109). CAL-01
+    then measured the live PCS term at |ρ| ≤ 0.06.
+- **L.2.3 — CLOSED, `db2ac2e`** (row above). The branch review re-ran the null control at
+  `db2ac2e` with `--gatewayEdgeServer=false`, plus 11 further configurations against the
+  frozen `084a7ff` binary, and every one was byte-identical. `ff4f8bb` is null-controlled at
+  defaults against the new frozen reference `~/catbl_ref_edge`. Every results directory in
+  the tree, `results/regen27_*` included, was produced with the estimator on the node; to
+  replay one, add `--gatewayEdgeServer=false`. An open question the review raised about
+  which radio the downlink is billed on is M.10.
+- **L.2.4 — PARTIAL.** `hopDepth` takes 1 and 2 on relayed legs, beside the direct anchors'
+  0, in `relay_chain_*.csv` under `--relayChain --relaySlots --maxRelayDepth=2` (`d24690c`).
+  So the done-when holds in the relay-chain log. It does not hold where PCS reads a hop
+  count: the measured tag's `Step()` receives `hopCount` as the literal 0
+  (`scratch/ca_tbl_causal_sim.cc:8009` at `ff4f8bb`; CAL-01 cites `:7874` at `c019c0a`).
+  `hopWeight` stays 0, and `--maxRelayDepth` still defaults to 1, so "raise the cap" is not
+  done at defaults.
+- **L.2.5 — CLOSED, `b16531f` (registration and the age record) and `f017da4` (result)**
+  (row above).
 
 ---
 
