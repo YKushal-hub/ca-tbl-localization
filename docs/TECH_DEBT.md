@@ -138,6 +138,29 @@ side is already ready — `CaTblEkf::Update(meas, varM2)` takes a per-measuremen
 `CaTblRangeMeasurement` is already an (anchor position, range) pair, which is exactly the
 pseudo-anchor shape.
 
+**C5_INSTANT, 2026-09-29 — every `--relayedRanging` number to date predates `--relaySlots`.**
+Until `--relaySlots`, every exchange a cycle made by calling an engine directly — each relay's
+anchor polls, each relay-to-relay exchange, the measured tag's own — carried the cycle's one
+instant. The engines' interference registry decides overlap on time and transmitter id alone,
+so they collided. With only `--relayedRanging` on (static_2p4, 300 s, `--boxHalf=200`, four
+tags, seeds 7/11/13), the measured tag's 3+-anchor cycles fell from 107/112/106 of 120 to
+2/0/11, and relays after the first never held a fix. With `--relaySlots` the same runs give
+103/104/107. `--relaySlots` (default off) moves the relays' round into its own 50 ms slots
+ending before the instant (`RelayRound`, `scratch/ca_tbl_causal_sim.cc`). Under it, G17b
+(L.1.2's done-when) is green: 4 fuses, depth 2 on 40 decisions, A2 at depth 2 passing 19 and
+refusing 21 on the budget. **Every relayed-ranging figure recorded before it was measured
+under the collision and does not compare with a `--relaySlots` run.** That covers
+`MASTER_PLAN.md`'s C5 row (78/31/11/11 admitted, σ 3.0 → 39–52 m, the 0.20 relayed-variance
+share, 37 vs 40 escalations), `b390ed6`'s L.1.2 sweep and `5f3ad42`'s routing counts. Those
+records stay as written. **Still open:** the registry never attenuates an interferer by
+distance (`lora-interference-submodule.cc:126-129` computes `dist` and does not use it). So
+overlapping exchanges interfere at their own link's power wherever they are, and separating
+them in time is the only protection the model has. The round is also stamped inside the slice
+the event layer has already run, so the relays in it meet no MAC frame and no MAC frame meets
+them. With the flag off a direct exchange meets only frames straddling the instant, at most
+one airtime of look-back. In G17b's regime (~50 MAC frames/s over three tiers) that bounds
+the interference the relays give up at about 16% of exchanges on 2.4 GHz.
+
 ### 3.2 `hopWeight` stays 0, and the PCS hop term is the wrong shape
 `ca-tbl-policy.cc:672`, `:708`. The current term is **unbounded below**, penalises a
 *count* rather than an *uncertainty the covariance already carries*, and does not encode

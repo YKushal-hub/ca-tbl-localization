@@ -9,9 +9,15 @@
 # only counted depth-2 rows would have passed that draft.
 #
 # The DIAG rows are as observed in ~/catbl_probe/v3/L.1.2/diag2/d_bh200_n4 -- a diagnostic
-# build with each relay's exchanges moved off the cycle's shared instant (not the committed
-# code; see the RelayChain comment). They are the only real rows at depth 2 there are, and
-# they are the positive control for G17b.
+# build with each relay's exchanges moved off the cycle's shared instant (not committed
+# code; see the RelayChain comment). The C5I rows are the committed code's own, from G17b's
+# regime with --relaySlots (C5_INSTANT; ~/catbl_probe/v3/C5_INSTANT/on/g17b_s7, lines 309,
+# 310, 311 and 326). Both are positive controls for G17b.
+#
+# C5_INSTANT fixtures (N14-N19) hold G17b's --stdout recount to the round's own counters.
+# N14 is the absence form, run for real: G17b's own flags with --relaySlots OFF, which is
+# the state every --relayedRanging run was in before it -- no relay-to-relay exchange
+# delivers, nothing fuses, and the log carries no round.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
@@ -22,14 +28,16 @@ trap 'rm -rf "$D"' EXIT
 
 pass=0
 fail=0
-check() {  # check <name> <expected exit> <csv path> [--require-depth2]
-    python3 "$GATE" ${4:-} "$3" > "$D/out.txt" 2>&1
+check() {  # check <name> <expected exit> <csv path> [gate options...]
+    local name=$1 want=$2 csv=$3
+    shift 3
+    python3 "$GATE" "$@" "$csv" > "$D/out.txt" 2>&1
     local rc=$?
-    if [ "$rc" -eq "$2" ]; then
-        printf '  G17 ok    %-56s exit=%d\n' "$1" "$rc"
+    if [ "$rc" -eq "$want" ]; then
+        printf '  G17 ok    %-56s exit=%d\n' "$name" "$rc"
         pass=$((pass + 1))
     else
-        printf '  G17 FAIL  %-56s exit=%d expected %d\n' "$1" "$rc" "$2"
+        printf '  G17 FAIL  %-56s exit=%d expected %d\n' "$name" "$rc" "$want"
         sed 's/^/            /' "$D/out.txt" | head -6
         fail=$((fail + 1))
     fi
@@ -129,6 +137,34 @@ printf '%s\n' 't,consumerId,relayId,leg,tier,hopDepth,maxRelayDepth,carriedVarM2
     > "$D/n12.csv"
 check "N12 wrong header" 1 "$D/n12.csv"
 
+# ---- C5_INSTANT: the committed code's own depth-2 rows, and the --stdout recount.
+# P4 -- relay 3 ranges holder 2 and fuses; the tag then admits relay 3 at depth 2 and later
+# refuses it on the budget. Real rows, file order kept.
+printf '%s\n' "$H" \
+    '332.5000,3,2,relay,1,1,2,186.568813,39.623114,0.000000,24336.000000,pass,ADMIT,3.000000,5.233194' \
+    '332.5000,3,2,fuse,1,1,2,0.000000,88.580006,18.386317,24336.000000,-,FUSED,0.000000,0.000000' \
+    '335.0000,1,3,tag,1,2,2,179.393419,259.289289,18.386317,24336.000000,pass,ADMIT,3.000000,12.175285' \
+    '365.0000,1,3,tag,1,2,2,213.644698,29567.972266,18.386317,24336.000000,budget,REJECT_DEPTH(A2),5.784476,0.000000' \
+    > "$D/p4.csv"
+check "P4 committed code's depth-2 rows (C5I), G17b" 0 "$D/p4.csv" --require-depth2
+
+# A log consistent with P1 (one relay-to-relay exchange, one fuse), and one line changed at a
+# time. Every broken form must fail on its own.
+L12='    L.1.2 relay chain: relay-to-relay exchanges 1 (ranged 1), short relays stepped 1 (no exchange possible 0, admitted a relayed range 1, fused it and held a fix 1), ceiling 2, budget 24336.0 m^2'
+RND='    C5_INSTANT relay round: slot 50.0 ms x 9 = 450.0 ms before the instant, of a 2500.0 ms cycle; anchor polls moved 876 in 452 bursts; relay-to-relay moved 1, at most 1 of 6 slots in a cycle'
+printf '%s\n' "$L12" "$RND" > "$D/p5.log"
+check "P5 P1 rows, log consistent, G17b --stdout" 0 "$D/p1.csv" --require-depth2 --stdout "$D/p5.log"
+printf '%s\n' "$L12" > "$D/n15.log"
+check "N15 no round line (--relaySlots off)" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n15.log"
+printf '%s\n' "$L12" "${RND/relay-to-relay moved 1,/relay-to-relay moved 0,}" > "$D/n16.log"
+check "N16 a relay-to-relay exchange left at the instant" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n16.log"
+printf '%s\n' "$L12" "${RND/slot 50.0 ms x 9 = 450.0 ms/slot 60.0 ms x 50 = 3000.0 ms}" > "$D/n17.log"
+check "N17 a round longer than the cycle" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n17.log"
+printf '%s\n' "${L12/fused it and held a fix 1/fused it and held a fix 2}" "$RND" > "$D/n18.log"
+check "N18 fuse rows disagree with the run's count" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n18.log"
+printf '%s\n' "$L12" "${RND/anchor polls moved 876 in 452 bursts/anchor polls moved 0 in 0 bursts}" > "$D/n19.log"
+check "N19 the round moved no anchor poll (inert)" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n19.log"
+
 # N0 -- the real thing with the mechanism off. Same scenario and seed as the gate's own
 # run, --relayChain at its default: no chain is constructed, so no log is written.
 if [ -x "$BIN" ]; then
@@ -146,6 +182,29 @@ if [ -x "$BIN" ]; then
     fi
 else
     printf '  G17 ERROR %-56s no binary at %s\n' "N0 flag-off run" "$BIN"
+    fail=$((fail + 1))
+fi
+
+# N14 -- G17b's own run with --relaySlots OFF: the chain is on, the round is not. Before
+# C5_INSTANT this was the only state there was. It must fail G17b on its rows (nothing
+# fuses) and on its log (no round).
+if [ -x "$BIN" ]; then
+    mkdir -p "$D/n14"
+    "$BIN" --arms=static_2p4 --seed=7 --duration=600 --trace=false --boxHalf=200 --nTags=4 \
+        --relayedRanging=true --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 \
+        --outdir="$D/n14" > "$D/n14.log" 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '  G17 FAIL  %-56s sim exit=%d\n' "N14 G17b run, --relaySlots off" "$rc"
+        fail=$((fail + 1))
+    else
+        check "N14 G17b run, --relaySlots off: rows" 1 \
+            "$D/n14/relay_chain_static_2p4_seed7.csv" --require-depth2
+        check "N14 G17b run, --relaySlots off: rows + log" 1 \
+            "$D/n14/relay_chain_static_2p4_seed7.csv" --require-depth2 --stdout "$D/n14.log"
+    fi
+else
+    printf '  G17 ERROR %-56s no binary at %s\n' "N14 G17b run, --relaySlots off" "$BIN"
     fail=$((fail + 1))
 fi
 
