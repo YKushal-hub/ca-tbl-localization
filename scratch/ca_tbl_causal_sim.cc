@@ -4886,7 +4886,7 @@ WriteProxyChecks(const std::deque<CaTblMac>& macs,
       << ", lost to collision " << qc.lostCollision << "\n";
     s << "    NET4 proxy checks: " << checks << " arrivals of " << queriesSeen.size()
       << " distinct queries at a radio not the target named, " << held
-      << " held a matching entry (868 " << heldByTier[0] << "/"
+      << " held a matching entry (by the query's tier label: 868 " << heldByTier[0] << "/"
       << checksByTier[0] << ", 2.4 " << heldByTier[1] << "/" << checksByTier[1] << ", UWB "
       << heldByTier[2] << "/" << checksByTier[2] << "), " << answered
       << " inside the bound of " << boundS << " s\n";
@@ -9631,9 +9631,20 @@ main(int argc, char* argv[])
                  queryProxyArg);
     cmd.AddValue("queryStalenessBoundS",
                  "Age beyond which a table entry may not be proxied (Network 4). 120 s "
-                 "by default. Not a tuning knob for accuracy: it is the claim that a "
-                 "position this old is no longer something the mesh has reason to "
-                 "believe, and answering from it would report a fix nothing supports.",
+                 "by default: the spec's bound, kept because it is now MEASURED rather "
+                 "than inherited (L.2.5, results/l25_proxy_age_20260929, seeds 7/11/13). "
+                 "It does not bind for the casualty: four finders digesting every 20 s "
+                 "keep the entry a proxy holds when a query arrives p50 11.5 s, max "
+                 "68.1 s old in the arc searcher regime (265/265 inside 120 s) and p50 "
+                 "17.2 s in the grid-2 5 km sparse regime (37/39 inside). What it does "
+                 "refuse is an entry about a node nobody polls -- a peer's is p50 493 s "
+                 "and 385 s old, because an entry reaches a holder only as its subject's "
+                 "answer to that holder's own digest. Raising the bound would answer from "
+                 "those, and age has a measured price: an estimate held 120 s is 143 m "
+                 "from a casualty walking 1.2 m/s, against 4.5 m fresh in the searcher "
+                 "regime. So it is not a "
+                 "tuning knob for accuracy: it is the claim that a position this old is "
+                 "no longer something the mesh has reason to believe.",
                  queryStalenessBoundSArg);
     cmd.AddValue("reversePath",
                  "Transport Layer 1: cache which neighbour a QUERY arrived from and "
