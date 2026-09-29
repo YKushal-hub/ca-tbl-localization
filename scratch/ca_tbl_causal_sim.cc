@@ -4766,6 +4766,141 @@ struct NlosScoring
     }
 };
 
+/**
+ * \brief L.2.5: write every proxy check of the run to proxy_checks_<arm>_seed<N>.csv and
+ * summarise the held entries' ages on stdout.
+ *
+ * WHAT IT IS FOR. "The proxy refuses at the spec bound" was recorded as 7 refusals and 0
+ * answers, and a count cannot say whether the bound missed by five seconds or by five
+ * hundred -- which is the whole question when deciding whether 120 s is too tight. The
+ * age is the observable; the refusal is only its comparison against one number.
+ *
+ * Called only under --queryProxy, and reads the MACs after the simulator has stopped, so
+ * it cannot move behaviour. A function of its own rather than a block in RunArm, and kept
+ * out of line, because a local added to RunArm has already once shifted floating-point
+ * codegen there by one ulp with the feature off.
+ */
+static void __attribute__((noinline))
+WriteProxyChecks(const std::deque<CaTblMac>& macs,
+                 const std::string& traceDir,
+                 CaTblPolicyMode mode,
+                 uint32_t seed,
+                 double boundS)
+{
+    static const char* const kClass[] = {"UNASSIGNED", "RESCUER", "TARGET", "ANCHOR"};
+    std::ostringstream fn;
+    fn << traceDir << "/proxy_checks_" << CaTblPolicyModeName(mode) << "_seed" << seed
+       << ".csv";
+    std::ofstream out(fn.str().c_str());
+    if (out.is_open())
+    {
+        out << "t,queryId,nodeId,identityClass,tier,manifestId,held,answered,entryNodeId,"
+               "entryTimeS,ageS,entryX,entryY,entryVarX,entryVarY,hopCount,seqNo\n";
+    }
+    uint64_t checks = 0, held = 0, answered = 0;
+    uint64_t checksByTier[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    uint64_t heldByTier[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    std::vector<double> ages;
+    std::set<uint32_t> queriesSeen;
+    // The query side of the denominator. A proxy can only be asked by a query that
+    // arrives, and a flood that never left its originator looks, from here, exactly
+    // like a network that holds nothing -- so what the radios did with QUERY frames is
+    // printed beside the checks. Summed over every radio, relays included.
+    CaTblMsgCounters qc;
+    for (size_t i = 0; i < macs.size(); ++i)
+    {
+        const CaTblMsgCounters& c = macs[i].GetCounters(CA_TBL_MSG_QUERY);
+        qc.sent += c.sent;
+        qc.rebroadcast += c.rebroadcast;
+        qc.received += c.received;
+        qc.droppedDutyCycle += c.droppedDutyCycle;
+        qc.droppedCadExhausted += c.droppedCadExhausted;
+        qc.lostCollision += c.lostCollision;
+    }
+    for (size_t i = 0; i < macs.size(); ++i)
+    {
+        const std::vector<CaTblProxyCheck>& pc = macs[i].GetProxyChecks();
+        const uint8_t cls = static_cast<uint8_t>(macs[i].GetIdentityClass());
+        for (size_t k = 0; k < pc.size(); ++k)
+        {
+            const CaTblProxyCheck& r = pc[k];
+            ++checks;
+            queriesSeen.insert(r.queryId);
+            if (r.tier < CA_TBL_TIER_COUNT)
+            {
+                ++checksByTier[r.tier];
+                heldByTier[r.tier] += r.held ? 1 : 0;
+            }
+            if (r.held)
+            {
+                ++held;
+                ages.push_back(r.tS - r.entry.timestampS);
+            }
+            answered += r.answered ? 1 : 0;
+            if (!out.is_open())
+            {
+                continue;
+            }
+            out << std::fixed << std::setprecision(6) << r.tS << ',' << r.queryId << ','
+                << macs[i].GetNodeId() << ',' << (cls < 4 ? kClass[cls] : "?") << ','
+                << int(r.tier) << ','
+                << int(r.manifestId) << ',' << (r.held ? 1 : 0) << ','
+                << (r.answered ? 1 : 0) << ',';
+            if (r.held)
+            {
+                const CaTblTableEntry& e = r.entry;
+                out << e.nodeId << ',' << e.timestampS << ',' << (r.tS - e.timestampS) << ','
+                    << std::setprecision(3) << e.x << ',' << e.y << ',' << e.varX << ','
+                    << e.varY << ',' << int(e.hopCount) << ',' << e.seqNo << '\n';
+            }
+            else
+            {
+                out << ",,,,,,,,\n";
+            }
+        }
+    }
+    out.close();
+
+    // Nearest-rank quantiles over the HELD entries only: an age exists only where an
+    // entry does, and the checks that held nothing are reported beside them rather than
+    // folded in as zeros or infinities.
+    std::sort(ages.begin(), ages.end());
+    auto q = [&ages](double p) {
+        if (ages.empty())
+        {
+            return -1.0;
+        }
+        size_t r = static_cast<size_t>(std::ceil(p * static_cast<double>(ages.size())));
+        r = (r == 0) ? 1 : r;
+        return ages[r - 1];
+    };
+    auto within = [&ages](double s) {
+        return static_cast<uint64_t>(std::upper_bound(ages.begin(), ages.end(), s) -
+                                     ages.begin());
+    };
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(1);
+    s << "    NET4 queries (all radios): transmitted " << qc.sent << " (relayed "
+      << qc.rebroadcast << "), received " << qc.received << ", refused by duty "
+      << qc.droppedDutyCycle << ", CAD-exhausted " << qc.droppedCadExhausted
+      << ", lost to collision " << qc.lostCollision << "\n";
+    s << "    NET4 proxy checks: " << checks << " arrivals of " << queriesSeen.size()
+      << " distinct queries at a radio not the target named, " << held
+      << " held a matching entry (868 " << heldByTier[0] << "/"
+      << checksByTier[0] << ", 2.4 " << heldByTier[1] << "/" << checksByTier[1] << ", UWB "
+      << heldByTier[2] << "/" << checksByTier[2] << "), " << answered
+      << " inside the bound of " << boundS << " s\n";
+    if (!ages.empty())
+    {
+        s << "    NET4 held-entry age at query (s): p10 " << q(0.10) << ", p25 " << q(0.25)
+          << ", p50 " << q(0.50) << ", p75 " << q(0.75) << ", p90 " << q(0.90) << ", max "
+          << ages.back() << "; within 30/60/120/300/600 s: " << within(30.0) << "/"
+          << within(60.0) << "/" << within(120.0) << "/" << within(300.0) << "/"
+          << within(600.0) << " of " << ages.size() << "\n";
+    }
+    std::cout << s.str();
+}
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -8864,6 +8999,10 @@ RunArm(CaTblPolicyMode mode,
                       << proxyStale << ", responses unicast " << uni << ", flooded "
                       << flood << "\n";
         }
+        if (queryProxy)
+        {
+            WriteProxyChecks(macs, traceDir, mode, seed, queryStalenessBoundS);
+        }
     }
     if (imuCrossCheck || corroborationCheck)
     {
@@ -11403,6 +11542,10 @@ main(int argc, char* argv[])
     if (nlosClassifierArg)
     {
         digestPatterns += " nlos_*.csv";
+    }
+    if (queryProxyArg)
+    {
+        digestPatterns += " proxy_checks_*.csv";
     }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {
