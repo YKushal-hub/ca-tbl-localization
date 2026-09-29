@@ -85,6 +85,7 @@
 #include "ns3/ca-tbl-session.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/ca-tbl-tdoa.h"
+#include "ns3/ca-tbl-nlos-classifier.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
@@ -4267,6 +4268,356 @@ struct Tier1Tdoa
     uint64_t stampsBeyondReplies = 0; //!< stamps an exchange had no billed reply for
 };
 
+/**
+ * \brief --nlosClassifier: every link the measured node ranges gets the tier-specific
+ *        NLOS_score of Physical sect 1.3 / 2.5, and every score is checked against the
+ *        channel model's own LOS/NLOS draw (TECH_DEBT L.2.2; K.8 "the NLOS term is dead").
+ *
+ * THE CIRCULARITY, first, because it bounds everything below: the classifier can only
+ * rediscover NLOS the channel model created. The UWB CIR is synthesised FROM the engine's
+ * link state (its LOS/NLOS draw, K-factor, obstruction loss, SNR), and the 2.4 GHz and
+ * 868 MHz scores read RSSI and range values the same engine derived from the same draw.
+ * The confusion matrix therefore measures how much of the model's NLOS decision survives
+ * into what a receiver may read -- not how the detectors would do on a real channel.
+ *
+ * WHAT IS SCORED: exactly the links rangeTier() pushes into a measurement set -- decoded,
+ * finite, positive range -- on every tier, active or floor. A frame that was not decoded
+ * has no CIR and no RSSI reading, so it is not scored; it is COUNTED, by its modelled
+ * truth, as a lost link. That count is the denominator the confusion matrix leaves out,
+ * and on UWB it is most of the story. Outdoors the engine's NLOS probability at UWB
+ * distances is ~0.1% (1 - exp(-d / 8000 m) in RURAL_FORESTED); where it is not negligible
+ * (--envFacility 5/6/7, scales 30-100 m) the UWB NLOS penalty -- both NLOS terms carry
+ * +9.64 dB at 7.99 GHz -- exceeds UWB's margin. MEASURED at seed 7 over the default and
+ * legacy topologies, --envFacility 1/5/6/7 and UWB triads of 2-10 m: 6 NLOS UWB links
+ * polled, 6 lost, 0 decoded. So the CIR classifier's TP and FN cells are empty in every
+ * scenario run tried, by the channel model rather than by the classifier.
+ *
+ * THE TRUTH is PhysicsResult*::isNLOS -- the propagation layer's own determination, not
+ * the --nlosSource tag. The verdict is score >= --nlosScoreThreshold.
+ *
+ * SECT 6. Nothing here transmits and nothing here is charged. Every score reads a frame
+ * rangeTier() already made and AccountRangingExchange() already billed.
+ *
+ * RANDOMNESS: only the UWB synthesis draws, from one stream set at construction,
+ * seed*7919 + 1400053, so no automatic stream index is consumed and no engine draw moves.
+ * With --pcsNlosClassifier off the scores are attached to the measurements and read by
+ * nothing that decides, so every other output of the run is byte-identical to the flag off.
+ *
+ * OUTPUT: nlos_links_<arm>_seed<N>.csv, one row per scored-or-unscored decoded link, and
+ * nlos_summary_<arm>_seed<N>.csv: the confusion matrix per tier, the lost links by truth,
+ * and the PCS term's behaviour over the run's fix cycles.
+ */
+struct NlosScoring
+{
+    // The detector constants. OURS, not cited: a window of 8 readings per 868 link, a
+    // value from the third reading; a robust reference over the tier's last 200 values,
+    // scoring from the 20th; and the z-to-score ramp 1 -> 3 (within one robust sigma of
+    // the typical link is noise; three is certainly not).
+    static constexpr uint32_t kVarWindow = 8;
+    static constexpr uint32_t kVarMinReadings = 3;
+    static constexpr uint32_t kRefPool = 200;
+    static constexpr uint32_t kRefMinPool = 20;
+    static constexpr double kZLo = 1.0;
+    static constexpr double kZHi = 3.0;
+    static constexpr int kCols = 30;
+
+    NlosScoring(uint32_t seed,
+                double threshold,
+                const LoRa2p4PhysicsConfig& c2p4,
+                const LoRaUWBPhysicsConfig& cUwb,
+                const std::string& linkPath,
+                const std::string& summaryPath)
+        : thr(threshold),
+          cir(static_cast<int64_t>(seed) * 7919 + 1400053, CaTblCirConfig()),
+          var868(kVarWindow, kVarMinReadings),
+          ref868(kRefPool, kRefMinPool),
+          ref2p4(kRefPool, kRefMinPool),
+          prop2p4(c2p4.propagation),
+          envUwb(cUwb.environment),
+          accumGainUwbDb(10.0 * std::log10(std::max(cUwb.ranging.uwbPreambleSymbols, 1.0))),
+          summaryFile(summaryPath)
+    {
+        log.open(linkPath.c_str());
+        log << "t,cycle,tier,anchor,distM,truthNlos,nlosDb,kFactor,snrDb,score,verdict,"
+               "cirSnrAccDb,cirDirectPow,cirLeNs,cirPeakNs,cirALe,cirAPeak,cirNoise,"
+               "cirClusters,cirRays,tofRangeM,predRssiDbm,measRssiDbm,excessDb,winN,sRssiDb,"
+               "sSnrDb,refMedian,refSigma,z\n";
+    }
+
+    //! Tier 1: variability of the link's RSSI/SNR over its consecutive readings, against
+    //! the typical variability of the node's recent 868 links.
+    double Score868(uint16_t anchorId, double t, uint64_t cycle, double distM,
+                    const PhysicsResult& r)
+    {
+        const CaTblLinkVariability::Result v = var868.Push(anchorId, r.measuredRssiDbm, r.snr_db);
+        double score = -1.0;
+        std::vector<std::string> f = Head(t, cycle, "868", anchorId, distM, r.isNLOS, r.nlosDb,
+                                          r.sampledKFactor, r.snr_db);
+        f[22] = Num(r.measuredRssiDbm);
+        f[24] = Num(v.n);
+        if (v.valid)
+        {
+            const double s = std::max(v.sRssiDb, v.sSnrDb);
+            double z = 0.0;
+            double med = 0.0;
+            double sig = 0.0;
+            if (ref868.Score(s, z, med, sig))
+            {
+                score = CaTblNlosRamp(z, kZLo, kZHi);
+                f[27] = Num(med);
+                f[28] = Num(sig);
+                f[29] = Num(z);
+            }
+            ref868.Add(s);
+            f[25] = Num(v.sRssiDb);
+            f[26] = Num(v.sSnrDb);
+        }
+        Finish(f, 0, r.isNLOS, score);
+        return score;
+    }
+
+    //! Tier 2: the loss the RSSI shows beyond what the nominal path-loss model predicts at
+    //! the ToF distance, against the typical residual of the node's recent 2.4 GHz links.
+    double Score2p4(uint16_t anchorId, double t, uint64_t cycle, double distM, double rangeM,
+                    double txPowerDbm, const PhysicsResult2p4& r)
+    {
+        const CaTblTofRssiResidual e =
+            CaTblTofRssiExcess(rangeM, r.measuredRssiDbm, txPowerDbm, prop2p4);
+        double score = -1.0;
+        std::vector<std::string> f = Head(t, cycle, "2.4", anchorId, distM, r.isNLOS, r.nlosDb,
+                                          r.sampledKFactor, r.snr_db);
+        f[20] = Num(rangeM);
+        f[22] = Num(r.measuredRssiDbm);
+        if (e.valid)
+        {
+            f[21] = Num(e.predRssiDbm);
+            f[23] = Num(e.excessDb);
+            double z = 0.0;
+            double med = 0.0;
+            double sig = 0.0;
+            if (ref2p4.Score(e.excessDb, z, med, sig))
+            {
+                score = CaTblNlosRamp(z, kZLo, kZHi); // one-sided: z < 0 scores 0
+                f[27] = Num(med);
+                f[28] = Num(sig);
+                f[29] = Num(z);
+            }
+            ref2p4.Add(e.excessDb);
+        }
+        Finish(f, 1, r.isNLOS, score);
+        return score;
+    }
+
+    //! Tier 3: synthesise the CIR from the link state and run the leading-edge test on it.
+    double ScoreUwb(uint16_t anchorId, double t, uint64_t cycle, double distM,
+                    const PhysicsResultUWB& r)
+    {
+        const double snrAcc = r.snr_db + accumGainUwbDb;
+        const CaTblCirResult c = cir.Classify(envUwb, r.isNLOS, r.sampledKFactor, r.nlosDb, snrAcc);
+        std::vector<std::string> f = Head(t, cycle, "UWB", anchorId, distM, r.isNLOS, r.nlosDb,
+                                          r.sampledKFactor, r.snr_db);
+        f[11] = Num(snrAcc);
+        f[12] = Num(c.directPower);
+        f[13] = c.detected ? Num(c.leDelayNs) : "";
+        f[14] = Num(c.peakDelayNs);
+        f[15] = Num(c.aLeadingEdge);
+        f[16] = Num(c.aPeak);
+        f[17] = Num(c.noiseSigma);
+        f[18] = Num(c.nClusters);
+        f[19] = Num(c.nRays);
+        Finish(f, 2, r.isNLOS, c.score);
+        return c.score;
+    }
+
+    //! A polled link that was not decoded: no CIR, no reading, nothing to score.
+    void NoteLost(int tier, bool truthNlos) { ++lost[tier][truthNlos ? 1 : 0]; }
+
+    //! After Step(): the PCS term the classifier produced this cycle, fed or not.
+    void NoteStep(const CaTblDecision& d)
+    {
+        if (!d.hadFix)
+        {
+            return;
+        }
+        ++pcsFixCycles;
+        if (d.nNlosScored == 0 || d.nlosScoreTerm < 0.0)
+        {
+            return;
+        }
+        const double v = d.nlosScoreTerm;
+        ++pcsTermCycles;
+        pcsFedCycles += d.nlosScoreFed ? 1 : 0;
+        pcsSum += v;
+        pcsMin = std::min(pcsMin, v);
+        pcsMax = std::max(pcsMax, v);
+        pcsDistinct.insert(v);
+        if (havePrev && v != prevTerm)
+        {
+            ++pcsChanges;
+        }
+        prevTerm = v;
+        havePrev = true;
+        if (v > 0.0 && v < 1.0)
+        {
+            ++pcsInterior;
+        }
+        // The term the boolean tag would have supplied on the same set, for comparison.
+        const double tag = (d.nAnchorsUsed > 0)
+                               ? static_cast<double>(d.nAnchorsUsed - d.nNlos) / d.nAnchorsUsed
+                               : 0.0;
+        if (std::fabs(v - tag) > 1e-12)
+        {
+            ++pcsDiffersFromTag;
+        }
+    }
+
+    void Report(std::ostream& os)
+    {
+        log.close();
+        static const char* names[3] = {"868", "2.4", "UWB"};
+        static const char* detectors[3] = {"rssi_snr_variability", "tof_vs_rssi", "cir_leading_edge"};
+        std::ofstream s(summaryFile.c_str());
+        s << std::setprecision(10);
+        s << "kind,tier,detector,threshold,tp,fp,fn,tn,unscoredLos,unscoredNlos,lostLos,"
+             "lostNlos,meanScoreLos,meanScoreNlos,fixCycles,termCycles,fedCycles,distinct,"
+             "changes,interior,min,max,mean,differsFromTag\n";
+        std::ostringstream o;
+        o << "    NLOS classifier (threshold " << thr << "; truth = the engine's isNLOS):\n";
+        for (int k = 0; k < 3; ++k)
+        {
+            const double mLos = nScored[k][0] ? scoreSum[k][0] / nScored[k][0] : -1.0;
+            const double mNlos = nScored[k][1] ? scoreSum[k][1] / nScored[k][1] : -1.0;
+            s << "confusion," << names[k] << "," << detectors[k] << "," << thr << "," << tp[k]
+              << "," << fp[k] << "," << fn[k] << "," << tn[k] << "," << unscored[k][0] << ","
+              << unscored[k][1] << "," << lost[k][0] << "," << lost[k][1] << "," << mLos << ","
+              << mNlos << ",,,,,,,,,,\n";
+            o << "      " << names[k] << " " << detectors[k] << ": tp " << tp[k] << " fp " << fp[k]
+              << " fn " << fn[k] << " tn " << tn[k] << "; unscored LOS " << unscored[k][0]
+              << " NLOS " << unscored[k][1] << "; lost before any reading LOS " << lost[k][0]
+              << " NLOS " << lost[k][1] << "; mean score LOS " << mLos << " NLOS " << mNlos
+              << "\n";
+        }
+        const double mean = pcsTermCycles ? pcsSum / pcsTermCycles : -1.0;
+        const double lo = pcsTermCycles ? pcsMin : -1.0;
+        const double hi = pcsTermCycles ? pcsMax : -1.0;
+        s << "pcs,,,,,,,,,,,,,," << pcsFixCycles << "," << pcsTermCycles << "," << pcsFedCycles
+          << "," << pcsDistinct.size() << "," << pcsChanges << "," << pcsInterior << "," << lo
+          << "," << hi << "," << mean << "," << pcsDiffersFromTag << "\n";
+        o << "    NLOS PCS term 3 = mean(1 - NLOS_score): fix cycles " << pcsFixCycles
+          << ", with a scored link " << pcsTermCycles << ", fed to PCS " << pcsFedCycles
+          << "; distinct values " << pcsDistinct.size() << ", changes " << pcsChanges
+          << ", strictly inside (0,1) " << pcsInterior << ", range [" << lo << ", " << hi
+          << "], mean " << mean << "; differs from the tag's LOS fraction on "
+          << pcsDiffersFromTag << "\n";
+        if (!log || !s)
+        {
+            o << "    WARNING: an NLOS classifier file failed to flush\n";
+        }
+        os << o.str();
+    }
+
+    double thr;
+    CaTblCirSynth cir;
+    CaTblLinkVariability var868;
+    CaTblRobustRef ref868;
+    CaTblRobustRef ref2p4;
+    PropagationParams prop2p4;
+    EnvironmentClass envUwb;
+    double accumGainUwbDb;
+    std::string summaryFile;
+    std::ofstream log;
+
+    uint64_t tp[3] = {};
+    uint64_t fp[3] = {};
+    uint64_t fn[3] = {};
+    uint64_t tn[3] = {};
+    uint64_t unscored[3][2] = {};
+    uint64_t lost[3][2] = {};
+    uint64_t nScored[3][2] = {};
+    double scoreSum[3][2] = {};
+
+    uint64_t pcsFixCycles = 0;      //!< denominator: Step() cycles with a fix
+    uint64_t pcsTermCycles = 0;     //!< of which at least one link carried a score
+    uint64_t pcsFedCycles = 0;      //!< of which the term replaced the tag inside PCS
+    uint64_t pcsChanges = 0;        //!< consecutive term cycles whose values differ
+    uint64_t pcsInterior = 0;       //!< term strictly between 0 and 1
+    uint64_t pcsDiffersFromTag = 0; //!< term != the tag's LOS fraction on the same set
+    double pcsSum = 0.0;
+    double pcsMin = std::numeric_limits<double>::infinity();
+    double pcsMax = -std::numeric_limits<double>::infinity();
+    std::set<double> pcsDistinct;
+    double prevTerm = 0.0;
+    bool havePrev = false;
+
+  private:
+    void Tally(int tier, bool truthNlos, double score)
+    {
+        const int tr = truthNlos ? 1 : 0;
+        if (score < 0.0)
+        {
+            ++unscored[tier][tr];
+            return;
+        }
+        ++nScored[tier][tr];
+        scoreSum[tier][tr] += score;
+        const bool verdict = (score >= thr);
+        if (verdict && truthNlos)
+        {
+            ++tp[tier];
+        }
+        else if (verdict)
+        {
+            ++fp[tier];
+        }
+        else if (truthNlos)
+        {
+            ++fn[tier];
+        }
+        else
+        {
+            ++tn[tier];
+        }
+    }
+
+    template <typename T>
+    static std::string Num(T v)
+    {
+        std::ostringstream o;
+        o << std::setprecision(10) << v;
+        return o.str();
+    }
+
+    //! The ten columns every row has; the verdict and score go in at Finish().
+    std::vector<std::string> Head(double t, uint64_t cycle, const char* tier, uint16_t anchorId,
+                                  double distM, bool truthNlos, double nlosDb, double k,
+                                  double snrDb)
+    {
+        std::vector<std::string> f(kCols);
+        f[0] = Num(t);
+        f[1] = Num(cycle);
+        f[2] = tier;
+        f[3] = Num(anchorId);
+        f[4] = Num(distM);
+        f[5] = truthNlos ? "1" : "0";
+        f[6] = Num(nlosDb);
+        f[7] = Num(k);
+        f[8] = Num(snrDb);
+        return f;
+    }
+
+    void Finish(std::vector<std::string>& f, int tier, bool truthNlos, double score)
+    {
+        Tally(tier, truthNlos, score);
+        f[9] = Num(score);
+        f[10] = (score >= 0.0) ? ((score >= thr) ? "1" : "0") : "-1";
+        for (int i = 0; i < kCols; ++i)
+        {
+            log << (i ? "," : "") << f[i];
+        }
+        log << "\n";
+    }
+};
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -4388,7 +4739,10 @@ RunArm(CaTblPolicyMode mode,
        bool fixRouting,
        bool fixRoutingConfidence,
        bool tier1Tdoa,
-       double tdoaPpsSigmaNs)
+       double tdoaPpsSigmaNs,
+       bool nlosClassifier,
+       bool pcsNlosClassifier,
+       double nlosScoreThreshold)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -4590,6 +4944,9 @@ RunArm(CaTblPolicyMode mode,
     if (pcsW2 > 0.0) { pcfg.pcsW2 = pcsW2; }
     if (pcsW3 > 0.0) { pcfg.pcsW3 = pcsW3; }
     if (pcsGateFloor > 0.0) { pcfg.pcsGateFloor = pcsGateFloor; }
+    // --pcsNlosClassifier. Only the measured node's policy: its measurements are the only
+    // ones scored, so a relay's policy would find no score and fall back to the tag anyway.
+    pcfg.pcsNlosFromScore = pcsNlosClassifier;
     // Operating-point knobs for the Pareto sweep. Both express the SAME physical
     // quantity -- how much position uncertainty is tolerated before energy is
     // spent -- so the two decision rules can be swept over a common grid and
@@ -5457,6 +5814,18 @@ RunArm(CaTblPolicyMode mode,
         tdoa.reset(new Tier1Tdoa(seed, tdoaPpsSigmaNs, phy[CA_TBL_TIER_868],
                                  dep.anchors[CA_TBL_TIER_868], energy.GetTier1ChargeReplies(),
                                  energy.GetEdgeServer(), tfn.str()));
+    }
+    // --nlosClassifier. Null unless the flag is on, and while null no line below changes.
+    std::unique_ptr<NlosScoring> nlosScorer;
+    if (nlosClassifier)
+    {
+        std::ostringstream lfn;
+        std::ostringstream sfn;
+        lfn << traceDir << "/nlos_links_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sfn << traceDir << "/nlos_summary_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        nlosScorer.reset(new NlosScoring(seed, nlosScoreThreshold, engine2p4.GetConfig(),
+                                         engineUwb.GetConfig(), lfn.str(), sfn.str()));
     }
     // Rival systems, scored from the same measurements. See the accumulation
     // block beside the EKF error for what each one is. Declared HERE, in RunArm,
@@ -6496,6 +6865,11 @@ RunArm(CaTblPolicyMode mode,
                 bool nlosProp = false;
                 bool hiddenActive = false;
                 double sigmaM = 0.0;
+                // --nlosClassifier: this link's tier-specific NLOS_score, or -1 (unscored,
+                // and always -1 with the flag off). Scored only on the links pushed below,
+                // i.e. under the same received/finite/positive test; a polled link that
+                // fails it is counted as lost by its modelled truth.
+                double nlosScore = -1.0;
 
                 if (tier == CA_TBL_TIER_868)
                 {
@@ -6520,6 +6894,18 @@ RunArm(CaTblPolicyMode mode,
                     {
                         tdoa->Stamp(anchorId, anchorPos, pos, t, r.finalSNRDb, r.isNLOS,
                                     r.delaySpreadNs, nlos);
+                    }
+                    if (nlosScorer)
+                    {
+                        if (received && std::isfinite(range) && range > 0.0)
+                        {
+                            nlosScore = nlosScorer->Score868(anchorId, t, cycleIndex,
+                                                             CalculateDistance(pos, anchorPos), r);
+                        }
+                        else
+                        {
+                            nlosScorer->NoteLost(0, r.isNLOS);
+                        }
                     }
                 }
                 else if (tier == CA_TBL_TIER_2P4)
@@ -6573,6 +6959,21 @@ RunArm(CaTblPolicyMode mode,
                             range += injectRangeBiasM;
                         }
                     }
+                    // Scored on the range as the node has it, injected bias included:
+                    // the cross-check reads the observable, not the engine's truth.
+                    if (nlosScorer)
+                    {
+                        if (received && std::isfinite(range) && range > 0.0)
+                        {
+                            nlosScore = nlosScorer->Score2p4(anchorId, t, cycleIndex,
+                                                             CalculateDistance(pos, anchorPos),
+                                                             range, phy[1].txPowerDbm, r);
+                        }
+                        else
+                        {
+                            nlosScorer->NoteLost(1, r.isNLOS);
+                        }
+                    }
                 }
                 else
                 {
@@ -6591,6 +6992,18 @@ RunArm(CaTblPolicyMode mode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    if (nlosScorer)
+                    {
+                        if (received && std::isfinite(range) && range > 0.0)
+                        {
+                            nlosScore = nlosScorer->ScoreUwb(anchorId, t, cycleIndex,
+                                                             CalculateDistance(pos, anchorPos), r);
+                        }
+                        else
+                        {
+                            nlosScorer->NoteLost(2, r.isNLOS);
+                        }
+                    }
                 }
 
                 if (received && std::isfinite(range) && range > 0.0)
@@ -6671,6 +7084,7 @@ RunArm(CaTblPolicyMode mode,
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
                     m.sigmaM = sigmaM;
+                    m.nlosScore = nlosScore;
                     out.push_back(m);
                 }
             }
@@ -7291,6 +7705,10 @@ RunArm(CaTblPolicyMode mode,
         {
             tdoa->EndCycle(t, cycleIndex, pos, policy.AuxFusedLast(), d.measurementRejected,
                            d.estX, d.estY);
+        }
+        if (nlosScorer)
+        {
+            nlosScorer->NoteStep(d);
         }
 
         // What the subject would have reported this cycle, read by the alert test at
@@ -8416,6 +8834,10 @@ RunArm(CaTblPolicyMode mode,
     {
         tdoa->Report(std::cout, policy, energy.GetAccount(CA_TBL_TIER_868));
     }
+    if (nlosScorer)
+    {
+        nlosScorer->Report(std::cout);
+    }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
     res.escalationsDeferredAway = escalationsDeferredAway;
@@ -8656,6 +9078,9 @@ main(int argc, char* argv[])
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
     double tdoaPpsSigmaNsArg = 20.0;      // u-blox NEO/LEA-M8T time pulse, <= 20 ns 1-sigma
+    bool nlosClassifierArg = false;       // L.2.2, off: no CIR, no score, nothing written
+    bool pcsNlosClassifierArg = false;    // L.2.2, off: PCS term 3 reads the tag, as always
+    double nlosScoreThresholdArg = 0.5;   // ours: the midpoint of every score's range
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -9806,6 +10231,51 @@ main(int argc, char* argv[])
                  "Drawn independently per broadcast; slow per-gateway wander is not "
                  "modelled. Read only under --tier1Tdoa.",
                  tdoaPpsSigmaNsArg);
+    cmd.AddValue("nlosClassifier",
+                 "Give every link the node ranges the tier-specific NLOS_score of the spec "
+                 "(Physical sect 1.3, 2.5; TECH_DEBT L.2.2) and score it against the channel "
+                 "model's own LOS/NLOS draw. UWB: a CIR is SYNTHESISED from the link's "
+                 "modelled state -- IEEE 802.15.4a multipath (Molisch et al.; CM5/CM6 "
+                 "outdoor, CM3/CM4 under --envFacility=6), a direct ray set by the engine's "
+                 "Rician K and obstruction loss, accumulator noise at the link's SNR -- and "
+                 "the leading-edge test gives 1 - A_leading_edge/A_peak. 2.4 GHz: the loss "
+                 "the RSSI shows beyond what the nominal path-loss model predicts at the ToF "
+                 "distance. 868 MHz: the RSSI/SNR variability over the link's last 8 "
+                 "readings. Both are scored in robust sigmas (median, 1.4826*MAD) of the "
+                 "node's own last 200 values on that tier, because the configured noise "
+                 "was measured wrong by 4x on 868 and biased by 11 dB on 2.4. Writes "
+                 "nlos_links_<arm>_seed<N>.csv and nlos_summary_<arm>_seed<N>.csv (a "
+                 "confusion matrix per tier, lost links by truth, and the PCS term's "
+                 "behaviour). CIRCULAR BY CONSTRUCTION, and that is why it is off: each "
+                 "classifier can only rediscover the NLOS the channel model created, so a "
+                 "confusion matrix here measures the synthesis, not the detector on a real "
+                 "channel. On its own it decides nothing -- the scores reach the policy but "
+                 "only --pcsNlosClassifier lets PCS read them -- and it adds no frame and no "
+                 "charge. Its draws come from one dedicated stream set at construction, so "
+                 "every other output is byte-identical to the flag off.",
+                 nlosClassifierArg);
+    cmd.AddValue("pcsNlosClassifier",
+                 "Feed the classifier into PCS: term 3 becomes the spec's mean(1 - NLOS_score) "
+                 "over the scored links of the fix set, instead of the fraction of links the "
+                 "--nlosSource tag calls LOS (TECH_DEBT K.8: that tag fires on 75-78% of "
+                 "links and pins the term). The LEGACY/WEIGHTED/GATED sums, weights and "
+                 "thresholds are untouched, so the saturation defect is exactly as it was: "
+                 "this changes the INPUT to w3, not the score's form. FALSE (default) is every "
+                 "result so far, and it stays the default because on, PCS moves and every "
+                 "escalation that reads it moves with it; the weights were never calibrated "
+                 "for any term 3 (CAL-01), and K.8 orders the monotone control and CAL-01 "
+                 "BEFORE live NLOS inputs. REQUIRES --nlosClassifier=true. REFUSED under "
+                 "--pcsForm=v2, which has no NLOS term to feed.",
+                 pcsNlosClassifierArg);
+    cmd.AddValue("nlosScoreThreshold",
+                 "NLOS verdict threshold for the confusion matrix: a link is called NLOS when "
+                 "its score is >= this. Default 0.5, OURS and uncited: the midpoint of every "
+                 "score's [0,1] range -- on UWB a leading edge at most half the peak amplitude "
+                 "(6 dB down), on 2.4 GHz and 868 MHz a disagreement of two expected sigmas. "
+                 "It moves the confusion matrix only; PCS reads the continuous score, never the "
+                 "verdict. Sweep it for an operating curve rather than trusting one point. "
+                 "Must lie in (0, 1).",
+                 nlosScoreThresholdArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -10012,6 +10482,26 @@ main(int argc, char* argv[])
     if (!(tdoaPpsSigmaNsArg >= 0.0) || !std::isfinite(tdoaPpsSigmaNsArg))
     {
         std::cerr << "FATAL: --tdoaPpsSigmaNs=" << tdoaPpsSigmaNsArg << " must be >= 0\n";
+        return 1;
+    }
+    // L.2.2. A PCS input with no classifier behind it would silently fall back to the tag on
+    // every cycle -- a flag that reads as on and does nothing.
+    if (pcsNlosClassifierArg && !nlosClassifierArg)
+    {
+        std::cerr << "FATAL: --pcsNlosClassifier needs --nlosClassifier=true: without it no link"
+                  << " carries a score and PCS would read the tag on every cycle\n";
+        return 1;
+    }
+    if (pcsNlosClassifierArg && pcsForm == CA_TBL_PCS_V2)
+    {
+        std::cerr << "FATAL: --pcsNlosClassifier has nothing to feed under --pcsForm=v2, which"
+                  << " has no NLOS term\n";
+        return 1;
+    }
+    if (!(nlosScoreThresholdArg > 0.0 && nlosScoreThresholdArg < 1.0))
+    {
+        std::cerr << "FATAL: --nlosScoreThreshold=" << nlosScoreThresholdArg
+                  << " must lie in (0, 1)\n";
         return 1;
     }
 
@@ -10567,7 +11057,10 @@ main(int argc, char* argv[])
                                        fixRoutingArg,
                                        fixRoutingConfidenceArg,
                                        tier1TdoaArg,
-                                       tdoaPpsSigmaNsArg);
+                                       tdoaPpsSigmaNsArg,
+                                       nlosClassifierArg,
+                                       pcsNlosClassifierArg,
+                                       nlosScoreThresholdArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -10658,6 +11151,10 @@ main(int argc, char* argv[])
     if (tier1TdoaArg)
     {
         digestPatterns += " tdoa_*.csv";
+    }
+    if (nlosClassifierArg)
+    {
+        digestPatterns += " nlos_*.csv";
     }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {

@@ -82,6 +82,12 @@ struct CaTblRangeMeasurement
     //! submits ranges whose sigmas span four orders of magnitude, so a single
     //! tier-keyed constant cannot weight them.
     double sigmaM;
+    //! The tier-specific NLOS_score of Physical sect 1.3 / 2.5, in [0,1], from
+    //! ca-tbl-nlos-classifier.h; -1 when no classifier scored this link (the default,
+    //! and always the case without --nlosClassifier). Read ONLY by the PCS NLOS term,
+    //! and only under CaTblPolicyConfig::pcsNlosFromScore. R, the integrity check's
+    //! all-LOS condition and every count above still key off the boolean `nlos`.
+    double nlosScore;
 
     CaTblRangeMeasurement();
 };
@@ -226,6 +232,15 @@ struct CaTblPolicyConfig
     //! which the uncertainty term has saturated hard enough that the rest of the
     //! score should not be allowed to speak for it.
     double pcsGateFloor;
+    //! PCS term 3 from the classifier (TECH_DEBT L.2.2, K.8). FALSE by default, and false
+    //! reproduces every prior result. True: term 3 becomes the spec's (1 - NLOS_score),
+    //! averaged over the links this cycle that carry a score (nlosScore >= 0), instead of
+    //! the fraction of links the boolean tag calls LOS. With no scored link in the set it
+    //! falls back to that fraction. Only the TERM changes: the LEGACY/WEIGHTED/GATED sums,
+    //! their weights and thresholds are untouched, so the saturation defect (term2 + term3
+    //! can reach 2.0 against 1.55) is exactly as it was. CA_TBL_PCS_V2 has no NLOS term,
+    //! so the flag has nothing to feed there and the scenario refuses that combination.
+    bool pcsNlosFromScore;
     //! Demote on the FIRST cycle where the active tier addressed zero anchors. A
     //! cycle with no anchors addressed is categorically different from one whose
     //! anchors failed to answer: it means the tier has nothing there at all, after a
@@ -539,6 +554,14 @@ struct CaTblDecision
     //! Neighbours ranged inside t2PredictRadiusM this cycle, or -1 when the
     //! tier-2 predicate did not run. The counterpart of predictedVisUwb.
     int32_t predictedVis2p4;
+    //! Links in this cycle's set that carried a classifier NLOS_score (nlosScore >= 0).
+    uint32_t nNlosScored;
+    //! mean(1 - NLOS_score) over those links: the spec's PCS term 3. Computed on every
+    //! fix cycle that has a scored link, whether or not it is fed to PCS, so the term can
+    //! be observed before it is allowed to decide anything; -1 when no link was scored.
+    double nlosScoreTerm;
+    //! Whether nlosScoreTerm replaced the tag's LOS fraction inside ComputePcs this cycle.
+    bool nlosScoreFed;
 
     CaTblDecision();
 };
@@ -893,12 +916,15 @@ class CaTblPolicy
     //! Fuse the queued TDoA position (SetAuxPositionFix) and count it if it went in.
     void FuseAux();
 
+    //! \p losTermOverride >= 0 replaces term 3 (nLos / nTotal) and nothing else; the
+    //! default -1 leaves every form exactly as it was.
     double ComputePcs(double traceSigma,
                       double gdop,
                       uint32_t nLos,
                       uint32_t nTotal,
                       uint32_t hopCount,
-                      double sigmaGeoM) const;
+                      double sigmaGeoM,
+                      double losTermOverride = -1.0) const;
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
