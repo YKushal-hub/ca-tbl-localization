@@ -54,8 +54,8 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 17 | PCS term 1 = 1/trace(Σ) (Phys 2.5) | DIVERGENT (kept) | The bounded transform `traceRef/(traceRef+trace)` (`ca-tbl-policy.cc:857`); monotone equivalent | — |
 | 18 | PCS term 3 from the tier-specific NLOS score (Phys 2.5) | OPT-IN | `--pcsNlosClassifier`; the default reads the boolean tag | preset |
 | 19 | PCS weights tuned empirically, by LOOCV (Phys 2.5, audit Gap B) | DIVERGENT | Unweighted sum by default. CAL-01 ran and gave (3,0,0), not adopted. Since DC-6 (2026-09-30) the calibrated form is expressible: `--pcsForm=calibrated` with the weights (0 included) and per-tier thresholds from the CLI, gate G28. What is still missing is the calibration itself, CAL-02 | DC-5, ~~DC-6~~ done, CAL-02 |
-| 20 | Switching-point integrity: SUSPECT downweights PCS (Phys 2.6) | DIVERGENT | Rejects the fix and forces escalation (`ca-tbl-policy.cc:1185-1312`) | DC-7 |
-| 21 | Integrity eligibility "NLOS_score LOW" (Phys 2.6) | DIVERGENT | "All links tagged LOS", which has no population under the default tag (I.1) | DC-8 |
+| 20 | Switching-point integrity: SUSPECT downweights PCS (Phys 2.6) | OPT-IN | `--suspectRecovery=downweight` (DC-7, `d31dd0a`, gate G29) accepts the fix at R x 4 and scales its PCS by 0.5 (OURS), and the fix stays SUSPECT so it cannot count toward a de-escalation. The default still rejects it and forces an escalation (`ca-tbl-policy.cc`, the suspect branch of `Step()`). The spec's form also needs `--suspectForcesEscalation=false`, which the preset will set | ~~DC-7~~ done; preset |
+| 21 | Integrity eligibility "NLOS_score LOW" (Phys 2.6) | OPT-IN | `--integrityNlosFromScore` (DC-8, gate G30): the mean NLOS_score of the fix set's scored links is below `--nlosScoreThreshold`, and with none scored the tag decides. The default is still "all links tagged LOS", which has no population under the default tag: 0 of 305 evaluated fixes at seed 7 (I.1). Read from the score, 296 of 297 are eligible and 152 are called suspect -- see I.1 for why that is its own problem | ~~DC-8~~ done; preset |
 | 22 | Cross-validation against IMU dead reckoning and neighbours (novelty item 2) | OPT-IN | `--imuCrossCheck`, `--corroborationCheck`. The IMU witness uses the diverging SHS; withdrawn in the default because the evidence gate absorbs its refusals (B3 C1) | DC-9 |
 | 23 | Sequence-number supersession (Phys 2.7) | OPT-IN | Runs only when the digest exchange does (`--sendHandshakeFrames`, finders) | MC-3 |
 | 24 | Covariance Intersection on equal sequence numbers (Phys 2.7) | OPT-IN | `--tableFuseCI`; near-zero population (L.2) | MC-3 |
@@ -121,12 +121,14 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 11 |
+| OPT-IN | 12 |
 | PARTIAL | 14 |
-| DIVERGENT | 14 (one of them, row 17, kept) |
+| DIVERGENT | 13 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They moved once since the first parsed count (16/10/14/15/2): row 20, DIVERGENT → OPT-IN, when DC-7 landed.
+They have moved since the first parsed count (16/10/14/15/2): row 20, DIVERGENT → OPT-IN, with DC-7, and row 21 likewise with DC-8.
+
+**Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 
 Recount it from the tables. Do not edit the numbers by hand.

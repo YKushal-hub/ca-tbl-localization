@@ -1195,7 +1195,44 @@ CaTblPolicy::Step(double dt,
         if (haveFix)
         {
             d.mahalanobis = mahal;
-            const bool allLos = (d.nNlos == 0);
+            // "Every link tagged LOS": the Python reference's condition, and the default.
+            bool allLos = (d.nNlos == 0);
+            if (m_config.integrityNlosFromScore)
+            {
+                // DC-8, the spec's condition: "NLOS_score is LOW" (Physical 2.6), read as
+                // the mean score over the links that carry one. With none scored there is
+                // nothing to read, and the tag decides as before.
+                double sum = 0.0;
+                uint32_t nScored = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
+                {
+                    if (meas[i].nlosScore >= 0.0)
+                    {
+                        sum += std::min(1.0, meas[i].nlosScore);
+                        ++nScored;
+                    }
+                }
+                if (nScored > 0)
+                {
+                    d.integrityBasis = 1;
+                    d.integrityMeanScore = sum / static_cast<double>(nScored);
+                    allLos = d.integrityMeanScore < m_config.integrityNlosScoreThreshold;
+                    if (allLos)
+                    {
+                        ++m_integrityScoreEligible;
+                    }
+                    else
+                    {
+                        ++m_integrityScoreIneligible;
+                    }
+                }
+                else
+                {
+                    d.integrityBasis = 2;
+                    ++m_integrityTagFallback;
+                }
+            }
+            d.integrityEligible = allLos;
             if (mahal > m_config.mahalanobisThreshold && allLos)
             {
                 suspect = true;

@@ -558,6 +558,25 @@ configure it are consequently untestable.
 that the Mahalanobis form is not exercised under this topology. Uncosted, and it needs
 deciding before either is written up as a contribution.
 
+**2026-09-30 / 10-01, DC-8: the spec's eligibility is built, and it gives the check a
+population.**
+- What it is: the docx's condition is "NLOS_score is LOW", not "every link tagged LOS".
+  `--integrityNlosFromScore` (with `--nlosClassifier`) reads the mean score of the fix
+  set's scored links instead (gate G30).
+- What it does, at seed 7, 900 s, `ca_tbl_full`, defaults:
+  - the tag-based control evaluates 305 fixes and finds **0** all-LOS, so this entry's
+    zero reproduces;
+  - read from the score, **296 of 297** scored fixes are eligible, and the check calls
+    **152** of them suspect.
+- **That is a new problem, not a solution.** Under the default response, which is
+  reject-and-coast, half of the fix cycles are now rejected. The check's reference is the
+  prior, and a tier-1 RSSI fix sits many sigma from it on most cycles (median Mahalanobis
+  in the tens). So the check now fires constantly for the reason this entry's lock-out
+  paragraph (`CaTblSuspectRecovery`) describes.
+- Single seed: a population, not a rate (rule 8).
+- The spec pairs this condition with DC-7's downweight (`--suspectRecovery=downweight`),
+  and the preset turns on both. Whether that pair behaves is CAMP-SPEC's to measure.
+
 ### I.2 `--uwbEvidenceFromNeighbours` was broken on arrival, and is fixed
 Recorded in full at `c236834`. It read a neighbour table belonging to a radio that is
 put in deep sleep and cleared every cycle, so it was a permanent veto on tier 3 and

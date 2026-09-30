@@ -4936,6 +4936,9 @@ struct SpecOptions
     //! DC-7. --suspectPcsFactor; NaN = not given (the policy's own 0.5). Read only under
     //! --suspectRecovery=downweight, and refused anywhere else.
     double suspectPcsFactor = std::numeric_limits<double>::quiet_NaN();
+    //! DC-8. --integrityNlosFromScore: the integrity check's eligibility from the mean
+    //! NLOS_score rather than the tag. Needs --nlosClassifier.
+    bool integrityNlosFromScore = false;
 };
 
 /**
@@ -5286,6 +5289,11 @@ RunArm(CaTblPolicyMode mode,
     if (std::isfinite(spec.suspectPcsFactor))
     {
         pcfg.suspectPcsFactor = spec.suspectPcsFactor;
+    }
+    if (spec.integrityNlosFromScore)
+    {
+        pcfg.integrityNlosFromScore = true;
+        pcfg.integrityNlosScoreThreshold = nlosScoreThreshold;
     }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
@@ -6195,6 +6203,18 @@ RunArm(CaTblPolicyMode mode,
             << ".csv";
         nlosScorer.reset(new NlosScoring(seed, nlosScoreThreshold, engine2p4.GetConfig(),
                                          engineUwb.GetConfig(), lfn.str(), sfn.str()));
+    }
+    // --integrityNlosFromScore (DC-8). One row per fix cycle the integrity check evaluated:
+    // what its eligibility was read from, and the verdict. Only the arm that runs the check.
+    std::unique_ptr<std::ofstream> integrityLog;
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    {
+        std::ostringstream ifn;
+        ifn << traceDir << "/integrity_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        integrityLog.reset(new std::ofstream(ifn.str().c_str()));
+        *integrityLog << "t,fixTier,nRanges,nNlosTag,nScored,meanScore,basis,eligible,"
+                         "mahalanobis,suspect\n";
     }
     // Rival systems, scored from the same measurements. See the accumulation
     // block beside the EKF error for what each one is. Declared HERE, in RunArm,
@@ -8096,6 +8116,15 @@ RunArm(CaTblPolicyMode mode,
         {
             nlosScorer->NoteStep(d);
         }
+        if (integrityLog && d.integrityBasis != 0)
+        {
+            *integrityLog << std::fixed << std::setprecision(4) << t << ","
+                          << CaTblTierName(fixTier) << "," << meas.size() << "," << d.nNlos
+                          << "," << d.nNlosScored << "," << std::setprecision(9)
+                          << d.integrityMeanScore << "," << static_cast<unsigned>(d.integrityBasis)
+                          << "," << (d.integrityEligible ? 1 : 0) << "," << std::setprecision(4)
+                          << d.mahalanobis << "," << (d.suspect ? 1 : 0) << "\n";
+        }
 
         // What the subject would have reported this cycle, read by the alert test at
         // the top of the NEXT cycle: posterior radial sigma, sqrt of the covariance
@@ -9241,6 +9270,17 @@ RunArm(CaTblPolicyMode mode,
     if (tdoa)
     {
         tdoa->Report(std::cout, policy, energy.GetAccount(CA_TBL_TIER_868));
+    }
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    {
+        // DC-8. The measured node's policy, the only one whose links are scored.
+        std::cout << "    DC-8 integrity eligibility from NLOS_score: "
+                  << policy.GetIntegrityScoreEligible() << " eligible and "
+                  << policy.GetIntegrityScoreIneligible()
+                  << " not, of fix cycles with a scored link; "
+                  << policy.GetIntegrityTagFallback()
+                  << " with none fell back to the tag; " << policy.GetSuspectCount()
+                  << " suspects\n";
     }
     if (suspectRecovery == CA_TBL_RECOVERY_DOWNWEIGHT)
     {
@@ -10906,6 +10946,19 @@ main(int argc, char* argv[])
                  "verdict. Sweep it for an operating curve rather than trusting one point. "
                  "Must lie in (0, 1).",
                  nlosScoreThresholdArg);
+    cmd.AddValue("integrityNlosFromScore",
+                 "The integrity check's eligibility from the classifier's score -- the "
+                 "spec's condition, 'NLOS_score is LOW' (Physical 2.6; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md DC-8) -- instead of 'every link tagged "
+                 "LOS'. A fix is eligible to be called SUSPECT when the mean NLOS_score over "
+                 "its scored links is below --nlosScoreThreshold; a fix set with no scored "
+                 "link falls back to the tag. FALSE by default, which reproduces every prior "
+                 "result. Under the default tag, which fires on 75-78% of links (K.8), an "
+                 "all-LOS set is so rare that the check had 0-9 eligible cycles a run (I.1), "
+                 "so it could not fire. Needs --nlosClassifier=true. Writes "
+                 "integrity_ca_tbl_full_seed<N>.csv, one row per fix cycle the check "
+                 "evaluated.",
+                 spec.integrityNlosFromScore);
     cmd.AddValue("uwbNlosModel",
                  "The UWB engine's LOS/NLOS state model, legacy or ieee802154a (TECH_DEBT M.2, "
                  "registered in report/PREREG_UWB_NLOS.md). LEGACY (default) is every UWB result "
@@ -11323,6 +11376,14 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --pcsNlosClassifier needs --nlosClassifier=true: without it no link"
                   << " carries a score and PCS would read the tag on every cycle\n";
+        return 1;
+    }
+    // DC-8, for the same reason: with no classifier every fix set is unscored and the tag
+    // would decide on every cycle.
+    if (spec.integrityNlosFromScore && !nlosClassifierArg)
+    {
+        std::cerr << "FATAL: --integrityNlosFromScore needs --nlosClassifier=true: without it "
+                  << "no link carries a score and the tag would decide on every cycle\n";
         return 1;
     }
     if (pcsNlosClassifierArg && pcsForm == CA_TBL_PCS_V2)
@@ -12044,6 +12105,10 @@ main(int argc, char* argv[])
     if (nlosClassifierArg)
     {
         digestPatterns += " nlos_*.csv";
+    }
+    if (spec.integrityNlosFromScore)
+    {
+        digestPatterns += " integrity_*.csv";
     }
     if (queryProxyArg)
     {
