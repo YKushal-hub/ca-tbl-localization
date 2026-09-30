@@ -1457,6 +1457,44 @@ engine-like states (outdoor tp 157, fp 0, fn 277, tn 495). **DECISION:** filling
 needs a channel-model or regime change, for example a smaller UWB NLOS penalty or an NLOS
 scale at UWB distances. That changes the UWB physics every UWB result rests on.
 
+**2026-09-30: decided and registered, then built.** Owner decision "fix them all". The
+model is registered in `report/PREREG_UWB_NLOS.md` (`166d431`). It is built exactly as that
+registration's §2 specifies, behind `--uwbNlosModel=legacy|ieee802154a`, **default
+`legacy`**:
+- The state comes from the 3GPP TR 38.901 InF-SL law.
+- On an NLOS draw, the excess is the IEEE 802.15.4a NLOS-minus-LOS path loss.
+- It makes one sampler draw per evaluation, in the UWB engine only.
+
+Evidence at the change:
+- *The default reproduces the build before it.* The default and `=legacy` are byte-identical
+  to the frozen `53e5c38` binary (`~/catbl_prev_uwbnlos`) in 7 configurations, in every
+  output file, stdout and stderr. They are NC1, NC2, seed 11 with all arms, both
+  legacy-topology UWB cells at seed 101, the office class, and a UWB-active finder regime.
+- *The formula, on every evaluation.* The unit suite drives the engine directly, 4 000
+  evaluations at each of 2, 10 and 20 m. Every NLOS evaluation carries ΔPL(d_3D) to 1e-9 dB,
+  every LOS one 0. The NLOS fraction matches P_NLOS(d_2D) to 4σ, and `nlosProbability`
+  reports it. Legacy stays below 1 % as the negative control.
+- *In the scenario.* Gate G20b asserts the model's NLOS share of polled UWB links (≥ 0.10),
+  and the formula on decoded NLOS rows (the registration's P4). A legacy run's share was
+  1/110. Its self-test has 9 fixtures.
+
+**A finding against the registration's own expectation.** §2 "Randomness" expected the
+868 MHz and 2.4 GHz engines, the MAC, and every non-UWB static arm to be byte-identical
+between the two models, and asked the code commit to check it. **They are not.** Under
+`ieee802154a` at NC1's flags, `static_868` moves in 28 `arm_summary` columns, and its trace
+diverges at t = 10 s.
+- The network-wide MAC counters move: `mac_tx` 11 353 → 12 143, and `mac_deliveries`
+  5 227 → 6 381.
+- The mechanism: the UWB model changes which UWB-channel MAC frames are delivered. The one
+  shared MAC random stream is then consumed differently, and every tier's frame timing,
+  and so every engine's draw sequence, shifts. This is rule 8 in its MAC form.
+- It is not a defect in the model: the physics change is confined to the UWB engine.
+- It does not touch the registered design. Its predictions are populations inside each cell,
+  and its §8 already forbids cross-model magnitudes.
+
+The results file records it as a finding. The registered cells run next, at the code
+commit.
+
 ### M.3 `run_id.txt` records the working directory's commit, not the binary's
 
 The simulator writes `source` from `git rev-parse --short HEAD` run in the **working

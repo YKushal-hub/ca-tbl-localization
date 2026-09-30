@@ -354,11 +354,31 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
     
     // 1. Non-Line-of-Sight (NLOS) blockage penalty (Moved up for DAG Coupling)
     double rawNlosDb = 0.0;
+    // report/PREREG_UWB_NLOS.md sect 2, under --uwbNlosModel=ieee802154a (TECH_DEBT M.2).
+    // ONE sampler draw, at the point where the legacy model draws its u (the first draw
+    // inside ComputeNLOSPenaltyDb), and no further draw on an NLOS outcome: the excess is
+    // deterministic given d. No new random variable, so no stream index moves and only
+    // this engine's own later draws are displaced. The legacy SDR-grade Markov penalties
+    // (+6 / +18 dB) are not added; they are inactive at FIDELITY_ULTRA_FAST_STATISTICAL.
+    double ieeeNlosProbability = -1.0;
     if (m_config.nlos.enabled) {
-        rawNlosDb = ComputeNLOSPenaltyDb(txPosition, rxPosition, m_config.nlos, m_sampler);
-        if (m_config.fidelityMode == FIDELITY_SDR_GRADE_REALISM && m_config.environment != ENV_TUNNEL_CONFINED) {
-            if (activeMarkovState == 1) rawNlosDb += 6.0;        // Partial obstruction
-            else if (activeMarkovState == 2) rawNlosDb += 18.0;   // Deep NLOS
+        if (m_config.nlosModel == UWB_NLOS_IEEE802154A) {
+            const double dx = txPosition.x - rxPosition.x;
+            const double dy = txPosition.y - rxPosition.y;
+            const double d2D = std::sqrt(dx * dx + dy * dy);
+            ieeeNlosProbability = UwbNlosProbabilityInfSl(d2D);
+            const double u = m_sampler.Sample(DistributionParam::Uniform(0.0, 1.0));
+            if (u < ieeeNlosProbability) {
+                rawNlosDb = UwbNlosExcessDb802154a(CalculateDistance(txPosition, rxPosition),
+                                                   m_config.propagation.frequencyHz,
+                                                   m_config.environment);
+            }
+        } else {
+            rawNlosDb = ComputeNLOSPenaltyDb(txPosition, rxPosition, m_config.nlos, m_sampler);
+            if (m_config.fidelityMode == FIDELITY_SDR_GRADE_REALISM && m_config.environment != ENV_TUNNEL_CONFINED) {
+                if (activeMarkovState == 1) rawNlosDb += 6.0;        // Partial obstruction
+                else if (activeMarkovState == 2) rawNlosDb += 18.0;   // Deep NLOS
+            }
         }
     }
     result.nlosDb = std::max(0.0, rawNlosDb); // Remove 55.0 cap per Fix E3
@@ -387,6 +407,12 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
 
     double scaleDist = m_sampler.Sample(m_config.nlos.nlosScaleDistanceM);
     result.nlosProbability = m_config.nlos.enabled ? (1.0 - std::exp(-dist_m / (scaleDist > 0.0 ? scaleDist : 1.0))) : 0.0;
+    // Under ieee802154a, report the probability the state was actually drawn from. The
+    // Sample() call above stays in both models so the draw sequence is identical when the
+    // scale is not a fixed parameter.
+    if (ieeeNlosProbability >= 0.0) {
+        result.nlosProbability = ieeeNlosProbability;
+    }
     
     // 2. Large-scale Path Loss
     double txHeight = (txPosition.z > 0.0) ? txPosition.z : m_config.propagation.nodeHeightM.mean;

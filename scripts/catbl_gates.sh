@@ -665,6 +665,30 @@ python3 scripts/nlos_classifier_gate.py --require-fed --stdout "$WORK/g20f.log" 
 bash scripts/nlos_classifier_gate_selftest.sh || fail G20
 finish G20
 
+# ---------------- G20b: --uwbNlosModel=ieee802154a is report/PREREG_UWB_NLOS.md sect 2 (M.2)
+# The registered model: the UWB LOS/NLOS state from the 3GPP InF-SL law, and on an NLOS
+# draw the IEEE 802.15.4a NLOS-minus-LOS path loss, deterministic in distance. The
+# formula on EVERY evaluation, decoded or lost, is checked by the unit suite G20 has just
+# run ("engine, ieee802154a"). This gate checks the scenario: in a short legacy-topology
+# UWB run with the model on, the NLOS share of polled UWB links is far above anything the
+# legacy model can produce (so the flag reaches the engine through the config macro), every
+# decoded NLOS row carries dPL(distM) to 1e-6 dB and every LOS row 0 (the registration's P4).
+# Its configuration is deliberately NOT one of the registered cells. The default stays
+# legacy, whatever the registered runs show; G2-G6's null behaviour covers that.
+#
+# Negative fixtures in scripts/uwb_nlos_model_gate_selftest.sh, including the same run with
+# the model off (rule 6).
+printf '\n--- G20b UWB NLOS model is the registered one (M.2) ---\n'
+mkdir -p "$WORK/g20b"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --topology=1 --arms=static_uwb \
+    --envFacility=0 --vegFacility=0 --uwbTriad=1 --nlosClassifier=true --duration=600 \
+    --trace=false --seed=101 --uwbNlosModel=ieee802154a --outdir="$WORK/g20b" \
+    > "$WORK/g20b.log" 2>&1 || gerror G20b "model-on run exited non-zero"
+python3 scripts/uwb_nlos_model_gate.py "$WORK/g20b/nlos_links_static_uwb_seed101.csv" \
+    "$WORK/g20b/nlos_summary_static_uwb_seed101.csv" || fail G20b
+bash scripts/uwb_nlos_model_gate_selftest.sh || fail G20b
+finish G20b
+
 # ---------------- G21: the estimator-location default moves energy and nothing else (L.2.3)
 # --gatewayEdgeServer became TRUE by default on 2026-09-29 on the evidence that it changes
 # what the node is billed and not what the system does (B3 C6: seven accuracy columns

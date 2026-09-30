@@ -1833,6 +1833,9 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+// TECH_DEBT M.2 (report/PREREG_UWB_NLOS.md). --uwbNlosModel, a file-scope global for the
+// same reason as the one above: written once after cmd.Parse(), read by the macro.
+static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
 
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
@@ -1859,6 +1862,7 @@ static bool g_terrainPerTierFreq = false;
                                                                  false);                           \
     cUwb.randomSeed = (seed);                                                                      \
     cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
+    cUwb.nlosModel = g_uwbNlosModel;                                                               \
     if (g_terrainPerTierFreq)                                                                      \
     {                                                                                              \
         /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
@@ -9423,6 +9427,7 @@ main(int argc, char* argv[])
     bool nlosClassifierArg = false;       // L.2.2, off: no CIR, no score, nothing written
     bool pcsNlosClassifierArg = false;    // L.2.2, off: PCS term 3 reads the tag, as always
     double nlosScoreThresholdArg = 0.5;   // ours: the midpoint of every score's range
+    std::string uwbNlosModelSpec = "legacy"; // M.2: resolved after cmd.Parse()
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -10753,6 +10758,27 @@ main(int argc, char* argv[])
                  "verdict. Sweep it for an operating curve rather than trusting one point. "
                  "Must lie in (0, 1).",
                  nlosScoreThresholdArg);
+    cmd.AddValue("uwbNlosModel",
+                 "The UWB engine's LOS/NLOS state model, legacy or ieee802154a (TECH_DEBT M.2, "
+                 "registered in report/PREREG_UWB_NLOS.md). LEGACY (default) is every UWB result "
+                 "so far: an NLOS probability with kilometre scales outdoors (about 0.1 % at UWB "
+                 "range) and a +9.64 dB-shifted attenuation that exceeds UWB's margin, so no "
+                 "decoded UWB frame is ever NLOS and the CIR classifier's UWB matrix has no "
+                 "positives. IEEE802154A draws the state from the 3GPP TR 38.901 InF-SL law, "
+                 "P_NLOS = 1 - exp(-d_2D / 44.81 m) (d_clutter 10 m, r = 20 %), and charges an NLOS "
+                 "draw the IEEE 802.15.4a NLOS-minus-LOS path loss (CM5/CM6 outdoor, CM3/CM4 under "
+                 "--envFacility=6): about 27-37 dB outdoors over 1-20 m, deterministic in distance, "
+                 "one sampler draw per evaluation and no new random variable. Only the UWB "
+                 "engine's physics changes, but not only UWB outputs: which UWB frames the MAC "
+                 "delivers changes, the shared MAC random stream is then consumed differently, "
+                 "and every arm moves, static_868 included (measured at the change, NC1 flags). "
+                 "So no magnitude compares across the two settings, only populations (rule 8). "
+                 "It stays OFF by default whatever its registered runs show, for a reason "
+                 "the source gives: 802.15.4a has no LOS/NLOS probability and no data for disaster "
+                 "areas (its Remark 1), and its outdoor NLOS parameters are marked educated "
+                 "guesses, so mapping it onto a ground-level SAR link is OURS. Any other value is "
+                 "FATAL.",
+                 uwbNlosModelSpec);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -10863,6 +10889,29 @@ main(int argc, char* argv[])
     cmd.Parse(argc, argv);
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+
+    // M.2. --uwbNlosModel is resolved here, before any engine config is built. Silent in
+    // every case, so no output file, stdout or stderr line moves with the default.
+    {
+        std::string s = uwbNlosModelSpec;
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (s == "legacy")
+        {
+            g_uwbNlosModel = UWB_NLOS_LEGACY;
+        }
+        else if (s == "ieee802154a")
+        {
+            g_uwbNlosModel = UWB_NLOS_IEEE802154A;
+        }
+        else
+        {
+            std::cerr << "FATAL: --uwbNlosModel must be legacy or ieee802154a, got '"
+                      << uwbNlosModelSpec << "'\n";
+            return 1;
+        }
+    }
 
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
     if (pcsFormArg == "v2")
