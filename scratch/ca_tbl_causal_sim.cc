@@ -4933,6 +4933,9 @@ struct SpecOptions
     double pcsThrDown[CA_TBL_TIER_COUNT] = {std::numeric_limits<double>::quiet_NaN(),
                                             std::numeric_limits<double>::quiet_NaN(),
                                             std::numeric_limits<double>::quiet_NaN()};
+    //! DC-7. --suspectPcsFactor; NaN = not given (the policy's own 0.5). Read only under
+    //! --suspectRecovery=downweight, and refused anywhere else.
+    double suspectPcsFactor = std::numeric_limits<double>::quiet_NaN();
 };
 
 /**
@@ -5280,6 +5283,10 @@ RunArm(CaTblPolicyMode mode,
     pcfg.suspectRecovery = suspectRecovery;
     pcfg.suspectInflateFactor = suspectInflateFactor;
     pcfg.suspectRecoveryN = suspectRecoveryN;
+    if (std::isfinite(spec.suspectPcsFactor))
+    {
+        pcfg.suspectPcsFactor = spec.suspectPcsFactor;
+    }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
     pcfg.t2PredictRadiusM = t2PredictRadiusM;
@@ -9235,6 +9242,14 @@ RunArm(CaTblPolicyMode mode,
     {
         tdoa->Report(std::cout, policy, energy.GetAccount(CA_TBL_TIER_868));
     }
+    if (suspectRecovery == CA_TBL_RECOVERY_DOWNWEIGHT)
+    {
+        // DC-7. The measured node's policy; relays run the same config and are not counted.
+        std::cout << "    DC-7 downweighted suspect fixes: " << policy.GetDownweightedFixes()
+                  << " of " << policy.GetSuspectCount() << " suspects (fused at R x "
+                  << pcfg.suspectInflateFactor << ", PCS x " << pcfg.suspectPcsFactor
+                  << ")\n";
+    }
     if (nlosScorer)
     {
         nlosScorer->Report(std::cout);
@@ -9854,19 +9869,36 @@ main(int argc, char* argv[])
                  "control. off reproduces the pre-existing baseline byte-identically.",
                  fastDemote);
     cmd.AddValue("suspectRecovery",
-                 "Response when the integrity gate rejects a fix: none|inflate|bounded|"
-                 "reinit. none (default) is the pre-existing behaviour -- RevertToPrior "
-                 "with no recovery, which measurably locks the filter for up to 251 "
-                 "consecutive cycles (22 with no fault injected at all).",
+                 "Response when the integrity check (the Mahalanobis one, not the "
+                 "evidence gate) flags a fix: none|inflate|bounded|reinit|downweight. "
+                 "none (default) is the pre-existing behaviour -- reject and coast, "
+                 "which measurably locks the filter for up to 251 consecutive cycles "
+                 "(22 with no fault injected at all). downweight is the spec's "
+                 "response (Physical 2.6; docs/SPEC_CONFORMANCE_PLAN.md DC-7): the fix "
+                 "is ACCEPTED at R x --suspectInflateFactor, stays flagged SUSPECT so "
+                 "it cannot count toward a de-escalation, and its PCS is scaled by "
+                 "--suspectPcsFactor. The spec never says a suspect fix forces "
+                 "escalation; --suspectForcesEscalation still does unless set false.",
                  suspectRecoveryArg);
     cmd.AddValue("suspectInflateFactor",
                  "INFLATE: factor applied to the position covariance on rejection. "
-                 "REINIT: multiplier on the raw fix covariance when reseeding.",
+                 "REINIT: multiplier on the raw fix covariance when reseeding. "
+                 "DOWNWEIGHT: multiplier on R -- every range variance and the TDoA "
+                 "fix's covariance -- when the suspect fix is fused. Fused at full R, a "
+                 "persistent fault is absorbed into the prior within a cycle and the "
+                 "check has nothing left to disagree with.",
                  suspectInflateFactor);
     cmd.AddValue("suspectRecoveryN",
                  "BOUNDED/REINIT: consecutive rejections before recovery fires. "
                  "Default 5 = the p90 of measured rejection-run lengths on F1.",
                  suspectRecoveryN);
+    cmd.AddValue("suspectPcsFactor",
+                 "DOWNWEIGHT only: what a suspect cycle's PCS is multiplied by, in "
+                 "(0, 1]; under --pcsForm=v2, whose score can be negative, "
+                 "log10(1/factor) is subtracted instead. Not set (nan) is 0.5, which is "
+                 "OURS: the spec says 'downweight' and gives no magnitude. Refused "
+                 "without --suspectRecovery=downweight, where it would do nothing.",
+                 spec.suspectPcsFactor);
     cmd.AddValue("escalationRequiresEvidence",
                  "Escalate 2.4->UWB only when the node's own EKF estimate predicts >=3 "
                  "UWB anchors within uwbPredictRadiusM, behind an estimate-quality gate. "
@@ -11434,11 +11466,29 @@ main(int argc, char* argv[])
     if (suspectRecoveryArg == "inflate") { suspectRecovery = CA_TBL_RECOVERY_INFLATE; }
     else if (suspectRecoveryArg == "bounded") { suspectRecovery = CA_TBL_RECOVERY_BOUNDED; }
     else if (suspectRecoveryArg == "reinit") { suspectRecovery = CA_TBL_RECOVERY_REINIT; }
+    else if (suspectRecoveryArg == "downweight") { suspectRecovery = CA_TBL_RECOVERY_DOWNWEIGHT; }
     else if (suspectRecoveryArg != "none")
     {
         std::cerr << "FATAL: --suspectRecovery=" << suspectRecoveryArg
-                  << " is not one of none|inflate|bounded|reinit\n";
+                  << " is not one of none|inflate|bounded|reinit|downweight\n";
         return 1;
+    }
+    // DC-7. A PCS factor outside downweight would do nothing (TECH_DEBT I.4's class), and
+    // one outside (0, 1] would not be a downweight.
+    if (!std::isnan(spec.suspectPcsFactor)) // given, including +-inf
+    {
+        if (suspectRecovery != CA_TBL_RECOVERY_DOWNWEIGHT)
+        {
+            std::cerr << "FATAL: --suspectPcsFactor is read only under "
+                      << "--suspectRecovery=downweight\n";
+            return 1;
+        }
+        if (!(spec.suspectPcsFactor > 0.0 && spec.suspectPcsFactor <= 1.0))
+        {
+            std::cerr << "FATAL: --suspectPcsFactor must lie in (0, 1], got "
+                      << spec.suspectPcsFactor << "\n";
+            return 1;
+        }
     }
 
     // Resolve the sentinels BEFORE the casts, so the value that reaches the

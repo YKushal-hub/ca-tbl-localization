@@ -218,7 +218,22 @@ enum CaTblSuspectRecovery
     CA_TBL_RECOVERY_NONE = 0, //!< RevertToPrior only. The pre-existing behaviour.
     CA_TBL_RECOVERY_INFLATE,  //!< Scale P on rejection so the gate widens next cycle.
     CA_TBL_RECOVERY_BOUNDED,  //!< Force-accept after N consecutive rejections.
-    CA_TBL_RECOVERY_REINIT    //!< Discard the prior; reinitialise from the raw fix.
+    CA_TBL_RECOVERY_REINIT,   //!< Discard the prior; reinitialise from the raw fix.
+    /**
+     * DC-7 (docs/SPEC_CONFORMANCE_PLAN.md): the spec's response, Physical 2.6 -- flag the
+     * fix SUSPECT, do not let it alone justify a de-escalation, and "downweight in PCS
+     * regardless of raw trace(Sigma)". The fix is ACCEPTED, not rejected: it is fused
+     * with R x suspectInflateFactor (the TDoA half too), and the cycle's PCS is scaled by
+     * suspectPcsFactor -- or, on v2's log scale, where a score can be negative and
+     * scaling would raise it, lowered by log10(1/suspectPcsFactor). d.suspect stays
+     * true, so the healthy-demotion count still refuses the cycle, and
+     * suspectForcesEscalation still applies if left on.
+     *
+     * Why inflated and not full R: a persistent fault fused at full weight is absorbed
+     * into the prior within a cycle, after which the check has nothing left to disagree
+     * with. Inflating is OURS; the factor reuses INFLATE's 4.0.
+     */
+    CA_TBL_RECOVERY_DOWNWEIGHT
 };
 
 struct CaTblPolicyConfig
@@ -480,6 +495,11 @@ struct CaTblPolicyConfig
     double processNoiseStdVel;
 
     bool instantEscalate; //!< if true, a new tier takes effect the same cycle
+
+    //! DOWNWEIGHT (DC-7): what a suspect cycle's PCS is multiplied by, in (0, 1]. 0.5 is
+    //! OURS, not calibrated: "downweight" with no magnitude given, halved. Appended
+    //! last so every existing member keeps its offset.
+    double suspectPcsFactor = 0.5;
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -878,6 +898,9 @@ class CaTblPolicy
     uint64_t GetEvidenceBlockedT2() const { return m_evidenceBlockedT2; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
     uint64_t GetSuspectCount() const { return m_suspects; }
+    //! DOWNWEIGHT (DC-7): suspect fixes accepted at inflated R with PCS downweighted.
+    //! A subset of GetSuspectCount(); zero under every other recovery policy.
+    uint64_t GetDownweightedFixes() const { return m_downweightedFixes; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
     /** Per-tier count of cycles spent with that tier active. */
@@ -923,6 +946,9 @@ class CaTblPolicy
 
     //! Fuse the queued TDoA position (SetAuxPositionFix) and count it if it went in.
     void FuseAux();
+    //! FuseAux with the queued covariance scaled by \p rScale (DOWNWEIGHT, DC-7). A
+    //! separate function so FuseAux itself is untouched.
+    void FuseAuxInflated(double rScale);
 
     //! \p losTermOverride >= 0 replaces term 3 (nLos / nTotal) and nothing else; the
     //! default -1 leaves every form exactly as it was.
@@ -968,6 +994,8 @@ class CaTblPolicy
     bool m_auxFusedLast = false;
     double m_aux[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     uint64_t m_auxFused = 0;
+    // DC-7. Appended last for the same reason.
+    uint64_t m_downweightedFixes = 0;
 };
 
 } // namespace ns3
