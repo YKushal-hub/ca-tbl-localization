@@ -13,6 +13,10 @@
  * ranges placing the node 3.5 km away -- a fix the check must call suspect. The exact
  * control is BOUNDED with N = 1, which force-accepts that cycle at full R: DOWNWEIGHT at
  * inflate 1 and PCS factor 1 must equal it bit for bit.
+ *
+ * DC-8. Which fixes are ELIGIBLE to be called suspect. The spec's condition is "NLOS_score
+ * is LOW"; the default is "every link tagged LOS". Under integrityNlosFromScore the mean
+ * score over the scored links decides, and a set with no scored link falls back to the tag.
  */
 
 #include "ns3/ca-tbl-policy.h"
@@ -105,6 +109,24 @@ Run(const CaTblPolicyConfig& cfg, Pt at, bool aux = false)
     o.recoveries = p.GetRecoveryFirings();
     o.auxFused = p.AuxFusedLast();
     return o;
+}
+
+//! One Step on ranges placing the node at \p at, every link tagged \p nlosTag and carrying
+//! the classifier score \p score (-1 = unscored).
+static CaTblDecision
+RunScored(const CaTblPolicyConfig& cfg, Pt at, bool nlosTag, double score, CaTblPolicy* keep = nullptr)
+{
+    CaTblPolicy local;
+    CaTblPolicy& p = keep ? *keep : local;
+    p.Configure(cfg);
+    p.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+    std::vector<CaTblRangeMeasurement> m = Ranges(kA3, at, 20.0);
+    for (CaTblRangeMeasurement& r : m)
+    {
+        r.nlos = nlosTag;
+        r.nlosScore = score;
+    }
+    return p.Step(1.0, m, 0, 3, 3, 7u);
 }
 
 static bool
@@ -206,6 +228,49 @@ main(int argc, char* argv[])
     Check(probe.d.pcs > 0.0 && !o1.d.escalated && o5.d.escalated,
           "with the forced escalation off, the penalised score crosses the threshold and "
           "escalates; the same cycle unpenalised does not");
+
+    std::cout << "--- DC-8: eligibility from the NLOS score\n";
+    {
+        CaTblPolicyConfig tag; // the default: every link tagged LOS
+        CaTblPolicyConfig sc = tag;
+        sc.integrityNlosFromScore = true;
+        const CaTblDecision a = RunScored(tag, far, true, 0.1);
+        Check(!a.suspect && a.integrityBasis == 0 && !a.integrityEligible,
+              "NEGATIVE: default, links tagged NLOS but scored low: ineligible, not suspect");
+        CaTblPolicy pb;
+        const CaTblDecision b = RunScored(sc, far, true, 0.1, &pb);
+        Check(b.suspect && b.integrityBasis == 1 && b.integrityEligible &&
+                  std::fabs(b.integrityMeanScore - 0.1) < 1e-12,
+              "flag: the same fix, scored 0.1 -- the score decides, eligible, suspect");
+        Check(pb.GetIntegrityScoreEligible() == 1 && pb.GetIntegrityScoreIneligible() == 0 &&
+                  pb.GetIntegrityTagFallback() == 0,
+              "counted: 1 score-eligible, 0 ineligible, 0 fallbacks");
+        CaTblPolicy pc;
+        const CaTblDecision c = RunScored(sc, far, false, 0.8, &pc);
+        Check(!c.suspect && c.integrityBasis == 1 && !c.integrityEligible &&
+                  pc.GetIntegrityScoreIneligible() == 1,
+              "flag: tagged LOS but scored 0.8 -- the score decides, ineligible, not suspect");
+        CaTblPolicy pd;
+        const CaTblDecision dd = RunScored(sc, far, false, -1.0, &pd);
+        Check(dd.suspect && dd.integrityBasis == 2 && dd.integrityMeanScore == -1.0 &&
+                  pd.GetIntegrityTagFallback() == 1,
+              "flag: no link scored -- falls back to the tag (all LOS), suspect, counted");
+        const CaTblDecision e = RunScored(sc, far, true, -1.0);
+        Check(!e.suspect && e.integrityBasis == 2,
+              "flag: no link scored and tagged NLOS -- the tag says ineligible");
+        CaTblPolicyConfig lo = sc;
+        lo.integrityNlosScoreThreshold = 0.2;
+        const CaTblDecision f5 = RunScored(sc, far, true, 0.3);
+        const CaTblDecision f2 = RunScored(lo, far, true, 0.3);
+        Check(f5.suspect && !f2.suspect && !f2.integrityEligible,
+              "the threshold decides: 0.3 is LOW against 0.5 and not against 0.2");
+        CaTblPolicy pg;
+        const CaTblDecision g = RunScored(sc, near, true, 0.1, &pg);
+        Check(g.integrityEligible && !g.suspect && pg.GetSuspectCount() == 0,
+              "a clean fix: eligible, and the Mahalanobis test clears it");
+        Check(RunScored(tag, far, false, 0.9).suspect,
+              "NEGATIVE: default ignores the score -- tagged LOS, scored 0.9, still suspect");
+    }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;

@@ -749,7 +749,7 @@ finish G28
 # The spec flags a suspect fix, forbids it alone to justify a de-escalation, and has it
 # "downweight[ed] in PCS regardless of raw trace(Sigma)". The default rejects it. Under
 # --suspectRecovery=downweight it is fused at R x --suspectInflateFactor and its PCS is
-# scaled by --suspectPcsFactor. G29 runs the integrity check's unit suite (12 checks),
+# scaled by --suspectPcsFactor. G29 runs the integrity check's unit suite (21 checks, DC-8's included),
 # then six runs at NC8's configuration, read by scripts/suspect_downweight_gate.py.
 # Not one suspect fix is rejected, and every one is counted. At inflate 1 and factor 1,
 # downweight IS bounded with N = 1, differing in the trace's `rejected` column only. The
@@ -765,6 +765,28 @@ printf '\n--- G29 a SUSPECT fix is downweighted, not rejected (DC-7) ---\n'
 bash scripts/suspect_downweight_gate.sh "$WORK/g29" || fail G29
 bash scripts/suspect_downweight_gate_selftest.sh "$WORK/g29" || fail G29
 finish G29
+
+# ---------------- G30: the integrity check's eligibility is read from the NLOS score (DC-8)
+# The spec calls a fix SUSPECT on Mahalanobis disagreement "AND NLOS_score is LOW"
+# (Physical 2.6). The default reads "every link tagged LOS", and under the default tag that
+# set is empty -- the control below evaluates ~300 fixes at seed 7 and finds 0 all-LOS, so
+# the check can never fire (TECH_DEBT I.1). --integrityNlosFromScore reads the mean score
+# of the fix set's scored links. G29 has already run the unit suite, whose DC-8 section
+# checks the rule itself. Three runs, read by scripts/integrity_score_gate.py:
+#   - the policy's own record of each evaluated fix (integrity_*) is recounted from the
+#     scorer's nlos_links_* rows -- the fix set, its scored links, their mean;
+#   - every verdict follows the rule at the threshold the run was given (0.5 and 0.1);
+#   - the trace, arm_summary and stdout agree with the record;
+#   - only the checking arm writes it;
+#   - the flag without the classifier is refused.
+#
+# Negative fixtures in scripts/integrity_score_gate_selftest.sh, built from these runs,
+# including the control offered as the flag run (the tree before DC-8) and the 0.1 run's
+# verdicts taken at 0.5 (a threshold that does not arrive) (rule 6).
+printf '\n--- G30 the integrity check reads the NLOS score (DC-8) ---\n'
+bash scripts/integrity_score_gate.sh "$WORK/g30" || fail G30
+bash scripts/integrity_score_gate_selftest.sh "$WORK/g30" || fail G30
+finish G30
 
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"

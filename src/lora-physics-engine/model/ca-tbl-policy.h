@@ -500,6 +500,17 @@ struct CaTblPolicyConfig
     //! OURS, not calibrated: "downweight" with no magnitude given, halved. Appended
     //! last so every existing member keeps its offset.
     double suspectPcsFactor = 0.5;
+    //! DC-8 (docs/SPEC_CONFORMANCE_PLAN.md): the integrity check's eligibility read from
+    //! the classifier -- the spec's "NLOS_score is LOW" (Physical 2.6) -- instead of
+    //! "every link tagged LOS". Eligible when the mean NLOS_score over the fix set's
+    //! scored links is below integrityNlosScoreThreshold; a set with no scored link falls
+    //! back to the tag. False by default, which reproduces every prior result: under the
+    //! default tag, which fires on 75-78% of links (K.8), an all-LOS fix set is so rare
+    //! that the check had 0-9 eligible cycles a run (TECH_DEBT I.1).
+    bool integrityNlosFromScore = false;
+    //! The scenario passes --nlosScoreThreshold (0.5, OURS): the cut at which the
+    //! confusion matrix calls a link NLOS, so "LOW" means what a verdict of LOS means.
+    double integrityNlosScoreThreshold = 0.5;
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -590,6 +601,14 @@ struct CaTblDecision
     double nlosScoreTerm;
     //! Whether nlosScoreTerm replaced the tag's LOS fraction inside ComputePcs this cycle.
     bool nlosScoreFed;
+    //! DC-8. What the integrity check's eligibility was read from on a cycle it evaluated
+    //! under integrityNlosFromScore: 1 = the mean NLOS_score, 2 = no link was scored, so
+    //! the tag. 0 = not evaluated, or the flag is off. Appended last, like the rest.
+    uint8_t integrityBasis = 0;
+    //! The mean NLOS_score it read (basis 1); -1 otherwise.
+    double integrityMeanScore = -1.0;
+    //! Whether an evaluated fix was eligible to be called SUSPECT, by whichever basis.
+    bool integrityEligible = false;
 
     CaTblDecision();
 };
@@ -901,6 +920,12 @@ class CaTblPolicy
     //! DOWNWEIGHT (DC-7): suspect fixes accepted at inflated R with PCS downweighted.
     //! A subset of GetSuspectCount(); zero under every other recovery policy.
     uint64_t GetDownweightedFixes() const { return m_downweightedFixes; }
+    //! DC-8. Evaluated fix cycles whose eligibility was read from the mean NLOS_score, by
+    //! verdict, and those with no scored link, which fell back to the tag. All zero
+    //! unless integrityNlosFromScore.
+    uint64_t GetIntegrityScoreEligible() const { return m_integrityScoreEligible; }
+    uint64_t GetIntegrityScoreIneligible() const { return m_integrityScoreIneligible; }
+    uint64_t GetIntegrityTagFallback() const { return m_integrityTagFallback; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
     /** Per-tier count of cycles spent with that tier active. */
@@ -996,6 +1021,10 @@ class CaTblPolicy
     uint64_t m_auxFused = 0;
     // DC-7. Appended last for the same reason.
     uint64_t m_downweightedFixes = 0;
+    // DC-8.
+    uint64_t m_integrityScoreEligible = 0;
+    uint64_t m_integrityScoreIneligible = 0;
+    uint64_t m_integrityTagFallback = 0;
 };
 
 } // namespace ns3
