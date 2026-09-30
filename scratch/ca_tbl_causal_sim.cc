@@ -4939,6 +4939,8 @@ struct SpecOptions
     //! DC-8. --integrityNlosFromScore: the integrity check's eligibility from the mean
     //! NLOS_score rather than the tag. Needs --nlosClassifier.
     bool integrityNlosFromScore = false;
+    //! DC-10. --entryVelocity: table entries carry the producer's velocity.
+    bool entryVelocity = false;
 };
 
 /**
@@ -6231,6 +6233,37 @@ RunArm(CaTblPolicyMode mode,
     bool blMlatHave = false, blWclHave = false, blProxHave = false;
     uint64_t mlatSolved = 0;
     Vector prevTruePos = pos;
+    // DC-10 (--entryVelocity). Each finder's last published position and time, for the
+    // velocity its GNSS receiver would report, and the entries_ record of what every
+    // producer published and every node holds. Untouched without the flag.
+    std::vector<Vector> finderPubPrev(nFinders);
+    std::vector<double> finderPubPrevT(nFinders, -1.0);
+    std::unique_ptr<std::ofstream> entriesLog;
+    if (spec.entryVelocity)
+    {
+        std::ostringstream efn;
+        efn << traceDir << "/entries_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        entriesLog.reset(new std::ofstream(efn.str().c_str()));
+        *entriesLog << "kind,t,holderId,entryId,seqNo,hopCount,timestampS,x,y,vx,vy,refVx,"
+                       "refVy\n";
+    }
+    // One row of the record. kind "pub": a producer's own slot read back from its MAC,
+    // with the value it was handed (refVx/refVy). kind "held": an entry of another node, as
+    // this node's radios hold it (the union, newest sequence winning).
+    auto entryRow = [&](const char* kind, double tNow, uint16_t holder,
+                        const CaTblTableEntry& e, const std::string& ref) {
+        *entriesLog << kind << ',' << std::fixed << std::setprecision(4) << tNow << ','
+                    << holder << ',' << e.nodeId << ',' << e.seqNo << ','
+                    << int(e.hopCount) << ',' << e.timestampS << ','
+                    << std::setprecision(6) << e.x << ',' << e.y << ','
+                    << std::setprecision(9) << e.vx << ',' << e.vy << ',' << ref << '\n';
+    };
+    auto refOf = [](double vx, double vy) {
+        std::ostringstream r;
+        r << std::fixed << std::setprecision(9) << vx << ',' << vy;
+        return r.str();
+    };
     // WHERE THE SUBJECT WAS LAST SEEN. With a base camp that is the camp itself,
     // because the walker starts there; without one it is wherever the run began.
     // The LKP baseline never updates it -- no direction is known, so the point
@@ -6522,7 +6555,17 @@ RunArm(CaTblPolicyMode mode,
             {
                 nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(),
                                               policy.Pxx(), policy.Pyy(), policy.Pxy(),
-                                              0.0, 0.0, t);
+                                              spec.entryVelocity ? policy.EstVx() : 0.0,
+                                              spec.entryVelocity ? policy.EstVy() : 0.0, t);
+            }
+        }
+        if (entriesLog && nodeMac[0] != nullptr)
+        {
+            CaTblTableEntry e;
+            if (nodeMac[0]->GetTableEntry(nodeMac[0]->GetNodeId(), e))
+            {
+                entryRow("pub", t, nodeMac[0]->GetNodeId(), e,
+                         refOf(policy.EstVx(), policy.EstVy()));
             }
         }
 
@@ -6554,7 +6597,18 @@ RunArm(CaTblPolicyMode mode,
                 peerMacs[pi][ti]->PublishSelfEntry(
                     tags[pt].policy.EstX(), tags[pt].policy.EstY(),
                     tags[pt].policy.Pxx(), tags[pt].policy.Pyy(),
-                    tags[pt].policy.Pxy(), 0.0, 0.0, t);
+                    tags[pt].policy.Pxy(),
+                    spec.entryVelocity ? tags[pt].policy.EstVx() : 0.0,
+                    spec.entryVelocity ? tags[pt].policy.EstVy() : 0.0, t);
+            }
+            if (entriesLog && !peerMacs[pi].empty() && peerMacs[pi][0] != nullptr)
+            {
+                CaTblTableEntry e;
+                if (peerMacs[pi][0]->GetTableEntry(peerMacs[pi][0]->GetNodeId(), e))
+                {
+                    entryRow("pub", t, peerMacs[pi][0]->GetNodeId(), e,
+                             refOf(tags[pt].policy.EstVx(), tags[pt].policy.EstVy()));
+                }
             }
         }
 
@@ -6576,6 +6630,21 @@ RunArm(CaTblPolicyMode mode,
                 return;
             }
             const Vector& off = finderGpsOffset[fi];
+            // DC-10. The velocity a GNSS receiver reports: displacement over the time
+            // since the last publication. The offset is constant, so it cancels. 0 on the
+            // first publication, which has nothing to difference against.
+            double fvx = 0.0;
+            double fvy = 0.0;
+            if (spec.entryVelocity)
+            {
+                if (finderPubPrevT[fi] >= 0.0 && nowS > finderPubPrevT[fi])
+                {
+                    fvx = (truePos.x - finderPubPrev[fi].x) / (nowS - finderPubPrevT[fi]);
+                    fvy = (truePos.y - finderPubPrev[fi].y) / (nowS - finderPubPrevT[fi]);
+                }
+                finderPubPrev[fi] = truePos;
+                finderPubPrevT[fi] = nowS;
+            }
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 if (finderMacAll[fi][ti] != nullptr)
@@ -6583,7 +6652,15 @@ RunArm(CaTblPolicyMode mode,
                     finderMacAll[fi][ti]->PublishSelfEntry(truePos.x + off.x,
                                                            truePos.y + off.y,
                                                            finderPosVar, finderPosVar,
-                                                           0.0, 0.0, 0.0, nowS);
+                                                           0.0, fvx, fvy, nowS);
+                }
+            }
+            if (entriesLog && finderMacAll[fi][0] != nullptr)
+            {
+                CaTblTableEntry e;
+                if (finderMacAll[fi][0]->GetTableEntry(finderMacAll[fi][0]->GetNodeId(), e))
+                {
+                    entryRow("pub", nowS, finderMacAll[fi][0]->GetNodeId(), e, refOf(fvx, fvy));
                 }
             }
         };
@@ -8766,6 +8843,38 @@ RunArm(CaTblPolicyMode mode,
         }
         steps++;
 
+        // DC-10: what every node holds of every other node, once per cycle.
+        if (entriesLog)
+        {
+            std::map<uint16_t, std::map<uint16_t, CaTblTableEntry>> held;
+            for (size_t mi = 0; mi < macs.size(); ++mi)
+            {
+                const uint16_t nid = macs[mi].GetNodeId();
+                const std::map<uint16_t, CaTblTableEntry>& tb = macs[mi].GetTable();
+                for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = tb.begin();
+                     it != tb.end(); ++it)
+                {
+                    if (!it->second.valid || it->first == nid)
+                    {
+                        continue;
+                    }
+                    std::map<uint16_t, CaTblTableEntry>& m = held[nid];
+                    std::map<uint16_t, CaTblTableEntry>::iterator ex = m.find(it->first);
+                    if (ex == m.end() || CaTblSeqNewer(it->second.seqNo, ex->second.seqNo))
+                    {
+                        m[it->first] = it->second;
+                    }
+                }
+            }
+            for (const auto& h : held)
+            {
+                for (const auto& en : h.second)
+                {
+                    entryRow("held", t, h.first, en.second, ",");
+                }
+            }
+        }
+
         if (writeTrace)
         {
             trace << std::fixed << std::setprecision(4) << t << "," << CaTblPolicyModeName(mode)
@@ -10946,6 +11055,18 @@ main(int argc, char* argv[])
                  "verdict. Sweep it for an operating curve rather than trusting one point. "
                  "Must lie in (0, 1).",
                  nlosScoreThresholdArg);
+    cmd.AddValue("entryVelocity",
+                 "Table entries carry the producer's velocity, as the spec's entry does "
+                 "(Physical 2.1: {pos, Sigma, timestamp, seq_no, hop_count, source_type, "
+                 "velocity_estimate}; docs/SPEC_CONFORMANCE_PLAN.md DC-10). A field node "
+                 "publishes its EKF velocity; a finder the displacement over the time since "
+                 "its last publication, which is what its GNSS receiver reports; a gateway "
+                 "0, correctly. FALSE by default: the fields were billed on the wire and "
+                 "published as 0, 0. Nothing reads them yet -- the RESPONSE contents "
+                 "(NW-9), entry prediction (DC-13) and sessions (TA-1) will -- so turning it "
+                 "on moves no other output. Writes entries_<arm>_seed<N>.csv: what each "
+                 "producer published and what every node holds, once per cycle.",
+                 spec.entryVelocity);
     cmd.AddValue("integrityNlosFromScore",
                  "The integrity check's eligibility from the classifier's score -- the "
                  "spec's condition, 'NLOS_score is LOW' (Physical 2.6; "
@@ -12109,6 +12230,10 @@ main(int argc, char* argv[])
     if (spec.integrityNlosFromScore)
     {
         digestPatterns += " integrity_*.csv";
+    }
+    if (spec.entryVelocity)
+    {
+        digestPatterns += " entries_*.csv";
     }
     if (queryProxyArg)
     {

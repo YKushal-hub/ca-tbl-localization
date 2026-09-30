@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 151 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 152 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30 and 2026-10-01, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -9,18 +9,20 @@ for each change.** Row numbers below are as of the latest regeneration:
   `auto`.
 - `--edgeDownlinkTier` (row 103 of §3, and its §1 row): added with its default, `fix`
   (M.10). Every row after it moved down one.
-- `--uwbNlosModel` (row 142 of §3, and its §1 row): added with its default, `legacy`
+- `--uwbNlosModel` (row 143 of §3, and its §1 row): added with its default, `legacy`
   (M.2, `report/PREREG_UWB_NLOS.md`). Every row after it moved down one.
 - `--pcsThrUp868`, `--pcsThrUp2p4`, `--pcsThrDown2p4`, `--pcsThrUpUwb`, `--pcsThrDownUwb`
   (rows 80–84 of §3, and their §1 row): added with the default `nan`, "not given"
   (`docs/SPEC_CONFORMANCE_PLAN.md` DC-6). Every row after them moved down five.
 - `--suspectPcsFactor` (row 52 of §3, and its §1 row): added with the default `nan`,
   "not given" (DC-7). Every row after it moved down one.
-- `--integrityNlosFromScore` (row 141 of §3, and its §1 row): added with the default
+- `--integrityNlosFromScore` (row 142 of §3, and its §1 row): added with the default
   `false` (DC-8). Every row after it moved down one.
+- `--entryVelocity` (row 141 of §3, and its §1 row): added with the default `false`
+  (DC-10). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-nine names. Three flags changed meaning without changing their printed default, and §1
+ten names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -86,6 +88,7 @@ precondition missing.
 | `--suspectRecovery` | string | `none` | value `downweight` added 2026-09-30 | `downweight` is the spec's response to a SUSPECT fix (Physical 2.6, DC-7): accepted at R x `--suspectInflateFactor` (the TDoA half too), still flagged so it cannot count toward a de-escalation, and its PCS scaled by `--suspectPcsFactor` | At inflate 1 and factor 1 it equals `bounded` with `--suspectRecoveryN=1` in every trace column but `rejected` (G29). `--suspectForcesEscalation` still applies; the spec's form sets it false. `none`, `inflate`, `bounded` and `reinit` are byte-identical to the build before |
 | `--suspectPcsFactor` | double | `nan`, not given (0.5) | added 2026-09-30 | Under `downweight`, what a suspect cycle's PCS is multiplied by; under `--pcsForm=v2`, log10(1/factor) is subtracted instead, because a v2 score can be negative | 0.5 is OURS. FATAL outside (0, 1], and FATAL without `--suspectRecovery=downweight`, where it would do nothing |
 | `--integrityNlosFromScore` | bool | `false` | added 2026-10-01 | The integrity check's eligibility from the classifier -- the spec's "NLOS_score is LOW" (Physical 2.6, DC-8) -- instead of "every link tagged LOS": eligible when the mean NLOS_score of the fix set's scored links is below `--nlosScoreThreshold`; with none scored the tag decides. Writes `integrity_ca_tbl_full_seed<N>.csv`, digested | Needs `--nlosClassifier=true`, or FATAL. At seed 7 the default tag leaves 0 of 305 evaluated fixes eligible; the score leaves 296 of 297, and 152 are called suspect (TECH_DEBT I.1: a population, and a new problem under the default reject response) |
+| `--entryVelocity` | bool | `false` | added 2026-10-01 | Table entries carry the producer's velocity (Physical 2.1, DC-10): a field node its EKF velocity, a finder its GNSS velocity (displacement over the time since its last publication), a gateway 0. Writes `entries_<arm>_seed<N>.csv` (what each producer published, what every node holds, once per cycle), digested | The default publishes 0,0, as every result so far did. Nothing reads the fields yet, so the flag moves no other output byte for byte (G31) |
 
 ## 2. Help text corrected, default unchanged
 
@@ -253,14 +256,15 @@ prints it.
 | 138 | `--nlosClassifier` | `false` |
 | 139 | `--pcsNlosClassifier` | `false` |
 | 140 | `--nlosScoreThreshold` | `0.5` |
-| 141 | `--integrityNlosFromScore` | `false` |
-| 142 | `--uwbNlosModel` | `legacy` |
-| 143 | `--relayTier` | `1` |
-| 144 | `--nTags` | `1` |
-| 145 | `--identityQueryPeriodS` | `0` |
-| 146 | `--identityQueryTarget` | `2` |
-| 147 | `--uwbArbitration` | `false` |
-| 148 | `--arbBatteryCapJ` | `1000` |
-| 149 | `--anchorGrantGossipS` | `0` |
-| 150 | `--suspectForcesEscalation` | `true` |
-| 151 | `--nlosSource` | `legacy` |
+| 141 | `--entryVelocity` | `false` |
+| 142 | `--integrityNlosFromScore` | `false` |
+| 143 | `--uwbNlosModel` | `legacy` |
+| 144 | `--relayTier` | `1` |
+| 145 | `--nTags` | `1` |
+| 146 | `--identityQueryPeriodS` | `0` |
+| 147 | `--identityQueryTarget` | `2` |
+| 148 | `--uwbArbitration` | `false` |
+| 149 | `--arbBatteryCapJ` | `1000` |
+| 150 | `--anchorGrantGossipS` | `0` |
+| 151 | `--suspectForcesEscalation` | `true` |
+| 152 | `--nlosSource` | `legacy` |
