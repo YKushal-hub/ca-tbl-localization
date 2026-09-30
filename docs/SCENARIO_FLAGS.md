@@ -1,17 +1,19 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 143 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 144 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
-unchanged. **Two rows have changed since, both on 2026-09-30, and §3 was regenerated for
+unchanged. **Three rows have changed since, all on 2026-09-30, and §3 was regenerated for
 each:**
 
 - `--relaySlots` (row 127 of §3, and its §1 row): its default moved from `false` to
   `auto`.
 - `--edgeDownlinkTier` (row 97 of §3, and its §1 row): added with its default, `fix`
   (M.10). Every row after it moved down one.
+- `--uwbNlosModel` (row 135 of §3, and its §1 row): added with its default, `legacy`
+  (M.2, `report/PREREG_UWB_NLOS.md`). Every row after it moved down one.
 
-A fresh `--PrintHelp` differs from the `ff4f8bb` one in those two rows only, and adds the
-one name.
+A fresh `--PrintHelp` differs from the `ff4f8bb` one in those three rows only, and adds the
+two names.
 
 **Why this file exists.** No tracked document listed the scenario's flags.
 `HANDOFF_2026_09_09.md` §8 asked for `--gwArcDeg`, `--gwArcCentreDeg`, `--trailDeviateSide`
@@ -68,6 +70,7 @@ precondition missing.
 | `--nlosScoreThreshold` | double | `0.5` | `86e43f2` | The score at which the confusion matrix calls a link NLOS. PCS reads the continuous score, never the verdict | Ours, uncited. Must lie in (0, 1), or FATAL |
 | `--gatewayEdgeServer` | bool | **`true`**, was `false` | `db2ac2e` | Runs the estimator on the gateways. At defaults only the energy columns move (L.2.3) | `=false` reproduces every result in `results/` except C6's edge cell, which ran with it `true`. Which radio the downlink is billed on is `--edgeDownlinkTier` (M.10, decided 2026-09-30) |
 | `--edgeDownlinkTier` | string: `fix`, `active` | **`fix`**; the old bill is `active` | added 2026-09-30, with this default | Picks which radio the gateways' downlink is billed on. `fix` bills the radio whose measurements produced the fix, so a hybrid arm's floor-solved fix is an 868 MHz downlink (0.9042 mJ) instead of one on the active tier (0.2005 mJ on 2.4 GHz, 0.3224 mJ on UWB) (M.10) | Read only with `--gatewayEdgeServer=true`. `=active` reproduces the commit before the change byte-for-byte, and C6's `results/regen27_edge/edge` (seed 7 checked). At defaults only energy moves, on hybrid arms' floor-solved fix cycles. Any other value is FATAL. **Owner decision taken 2026-09-30** (M.10) |
+| `--uwbNlosModel` | string: `legacy`, `ieee802154a` | `legacy` | added 2026-09-30 | The UWB engine's LOS/NLOS state model. `ieee802154a` is `report/PREREG_UWB_NLOS.md` sect 2: the state from the 3GPP TR 38.901 InF-SL law (P_NLOS = 1 - exp(-d_2D / 44.81 m)) and, on an NLOS draw, the IEEE 802.15.4a NLOS-minus-LOS path loss (CM5/CM6 outdoor, CM3/CM4 office), deterministic in distance (M.2) | Default `legacy`, byte-identical to the build before the change in 7 configurations. It stays the default whatever the registered runs show. Under `ieee802154a` every arm moves, static_868 included, through the shared MAC random stream, so only populations compare across the two settings. Any other value is FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -217,12 +220,13 @@ prints it.
 | 132 | `--nlosClassifier` | `false` |
 | 133 | `--pcsNlosClassifier` | `false` |
 | 134 | `--nlosScoreThreshold` | `0.5` |
-| 135 | `--relayTier` | `1` |
-| 136 | `--nTags` | `1` |
-| 137 | `--identityQueryPeriodS` | `0` |
-| 138 | `--identityQueryTarget` | `2` |
-| 139 | `--uwbArbitration` | `false` |
-| 140 | `--arbBatteryCapJ` | `1000` |
-| 141 | `--anchorGrantGossipS` | `0` |
-| 142 | `--suspectForcesEscalation` | `true` |
-| 143 | `--nlosSource` | `legacy` |
+| 135 | `--uwbNlosModel` | `legacy` |
+| 136 | `--relayTier` | `1` |
+| 137 | `--nTags` | `1` |
+| 138 | `--identityQueryPeriodS` | `0` |
+| 139 | `--identityQueryTarget` | `2` |
+| 140 | `--uwbArbitration` | `false` |
+| 141 | `--arbBatteryCapJ` | `1000` |
+| 142 | `--anchorGrantGossipS` | `0` |
+| 143 | `--suspectForcesEscalation` | `true` |
+| 144 | `--nlosSource` | `legacy` |

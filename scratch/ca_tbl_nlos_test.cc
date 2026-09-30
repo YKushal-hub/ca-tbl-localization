@@ -33,6 +33,8 @@
 #include "ns3/core-module.h"
 #include "ns3/lora-distribution-sampler.h"
 #include "ns3/lora-propagation-submodule.h"
+#include "ns3/lora-uwb-physics-parameters.h"
+#include "ns3/lora-uwb-physics-engine.h"
 
 #include <cmath>
 #include <cstdint>
@@ -421,6 +423,125 @@ main(int argc, char* argv[])
         Check(tp > 0 && fn + tn > 0 && tp + fn > 0 && fp + tn > 0 && tpr > fpr,
               office ? "office: both classes reached; P(NLOS verdict | NLOS) > P(... | LOS)"
                      : "outdoor: both classes reached; P(NLOS verdict | NLOS) > P(... | LOS)");
+    }
+
+    // TECH_DEBT M.2, --uwbNlosModel=ieee802154a: the two formulas of
+    // report/PREREG_UWB_NLOS.md sect 2, against the values that registration tabulates
+    // (computed there by hand from the cited sources, quoted to 2 d.p. / 3 d.p.).
+    {
+        const double f = 7.99e9; // the engine's UWB carrier, lora-uwb-physics-parameters.cc
+        const double d[5] = {1.0, 2.0, 5.0, 10.0, 20.0};
+        const double outdoor[5] = {27.44, 29.67, 32.61, 34.84, 37.07};
+        const double office[5] = {25.27, 29.60, 35.33, 39.67, 44.00};
+        bool okOut = true;
+        bool okOff = true;
+        for (int i = 0; i < 5; ++i)
+        {
+            okOut = okOut && Near(UwbNlosExcessDb802154a(d[i], f, ENV_RURAL_FORESTED), outdoor[i], 0.005);
+            okOff = okOff && Near(UwbNlosExcessDb802154a(d[i], f, ENV_INDOOR_OFFICE), office[i], 0.005);
+        }
+        Check(okOut, "802.15.4a CM6-CM5 excess matches the registered table at 1/2/5/10/20 m");
+        Check(okOff, "802.15.4a CM4-CM3 excess matches the registered table at 1/2/5/10/20 m");
+        Check(UwbNlosExcessDb802154a(0.3, f, ENV_RURAL_OPEN) ==
+                  UwbNlosExcessDb802154a(1.0, f, ENV_RURAL_OPEN),
+              "the excess floors d_3D at 1 m");
+        Check(UwbNlosExcessDb802154a(7.0, f, ENV_RURAL_OPEN) ==
+                      UwbNlosExcessDb802154a(7.0, f, ENV_URBAN_DENSE) &&
+                  UwbNlosExcessDb802154a(7.0, f, ENV_RURAL_OPEN) !=
+                      UwbNlosExcessDb802154a(7.0, f, ENV_INDOOR_OFFICE),
+              "every class but ENV_INDOOR_OFFICE takes the outdoor pair, as CaTblCirModelFor does");
+        // 1 - exp(-d/k) with k = -10/ln(0.8): exactly 1 - 0.8 at 10 m and 1 - 0.64 at 20 m.
+        Check(Near(UwbNlosProbabilityInfSl(10.0), 0.2, 1e-12) &&
+                  Near(UwbNlosProbabilityInfSl(20.0), 0.36, 1e-12),
+              "InF-SL P_NLOS is 1 - (1 - r) at d_clutter and 1 - (1 - r)^2 at twice it");
+        Check(Near(UwbNlosProbabilityInfSl(1.0), 0.022, 0.0005) &&
+                  Near(UwbNlosProbabilityInfSl(2.0), 0.044, 0.0005) &&
+                  Near(UwbNlosProbabilityInfSl(5.0), 0.106, 0.0005),
+              "InF-SL P_NLOS matches the registered 0.022 / 0.044 / 0.106 at 1 / 2 / 5 m");
+        Check(UwbNlosProbabilityInfSl(0.0) == 0.0 && UwbNlosProbabilityInfSl(-3.0) == 0.0,
+              "InF-SL P_NLOS is 0 at d_2D <= 0 (a node directly under its anchor)");
+    }
+
+    // The ENGINE under each model: registration P4 checked on EVERY evaluation, decoded or
+    // not. In a scenario run nearly every NLOS UWB poll is lost (M.2), so the decoded rows
+    // G20b can read hardly exercise the formula; here the engine is driven directly.
+    // Anchor at 2.5 m height, node at 1.5 m (the scenario's heights), so d_3D != d_2D and a
+    // formula keyed on the wrong distance fails.
+    for (int model = 0; model < 2; ++model)
+    {
+        LoRaUWBPhysicsConfig c = LoRaUWBPhysicsConfig::ForScenario(
+            ENV_RURAL_OPEN, WEATHER_CLEAR_DRY, FADING_RICIAN, VEG_SPARSE_SHRUBS,
+            MOB_CONSTANT_VELOCITY, false);
+        c.rangingModelMode = RANGING_PHYSICS_DERIVED;
+        c.nlosModel = (model == 1) ? UWB_NLOS_IEEE802154A : UWB_NLOS_LEGACY;
+        LoRaUWBPhysicsEngine e;
+        e.Initialize(c);
+        const Vector gw(0.0, 0.0, 2.5);
+        e.RegisterGateway(9001, gw, true);
+        const double dists[3] = {2.0, 10.0, 20.0};
+        const int n = 4000;
+        bool formulaOk = true;
+        bool losZero = true;
+        bool probOk = true;
+        bool fracOk = true;
+        int nlosSeen = 0;
+        for (int k = 0; k < 3; ++k)
+        {
+            const Vector node(dists[k], 0.0, 1.5);
+            e.RegisterNode(1, node);
+            const double d3 = std::sqrt(dists[k] * dists[k] + 1.0);
+            const double want = UwbNlosExcessDb802154a(d3, c.propagation.frequencyHz, ENV_RURAL_OPEN);
+            int nl = 0;
+            for (int i = 0; i < n; ++i)
+            {
+                const PhysicsResultUWB r = e.ProcessTransmission(
+                    1, 9001, node, gw, -16.47, 7, 499.2e6, 0, Seconds(1.0 + 2.5 * i));
+                if (r.isNLOS)
+                {
+                    ++nl;
+                    formulaOk = formulaOk && std::fabs(r.nlosDb - want) <= 1e-9;
+                }
+                else
+                {
+                    losZero = losZero && (r.nlosDb == 0.0);
+                }
+                if (model == 1)
+                {
+                    probOk = probOk && std::fabs(r.nlosProbability - UwbNlosProbabilityInfSl(dists[k])) <= 1e-12;
+                }
+            }
+            nlosSeen += nl;
+            const double p = (model == 1) ? UwbNlosProbabilityInfSl(dists[k]) : 0.0;
+            const double frac = static_cast<double>(nl) / n;
+            if (model == 1)
+            {
+                // 4 binomial sigmas plus one count.
+                fracOk = fracOk && std::fabs(frac - p) <= 4.0 * std::sqrt(p * (1.0 - p) / n) + 1.0 / n;
+            }
+            else
+            {
+                fracOk = fracOk && frac < 0.01; // legacy: 1 - exp(-d / 54 km) at <= 20 m
+            }
+        }
+        if (model == 1)
+        {
+            // The negative this check stands on: at 2 m the two distances give excesses
+            // 1e-3 dB apart or more, so an engine keyed on d_2D could not pass the 1e-9 test.
+            Check(std::fabs(UwbNlosExcessDb802154a(std::sqrt(5.0), c.propagation.frequencyHz,
+                                                   ENV_RURAL_OPEN) -
+                            UwbNlosExcessDb802154a(2.0, c.propagation.frequencyHz,
+                                                   ENV_RURAL_OPEN)) > 1e-3,
+                  "the fixture separates d_3D from d_2D, so the wrong distance cannot pass");
+            Check(fracOk, "engine, ieee802154a: NLOS fraction at 2/10/20 m matches P_NLOS(d_2D) (4 sigma)");
+            Check(nlosSeen > 0 && formulaOk,
+                  "engine, ieee802154a: EVERY NLOS evaluation carries dPL(d_3D) exactly (P4)");
+            Check(losZero, "engine, ieee802154a: every LOS evaluation carries nlosDb = 0");
+            Check(probOk, "engine, ieee802154a: nlosProbability reports P_NLOS(d_2D)");
+        }
+        else
+        {
+            Check(fracOk, "engine, legacy (negative control): NLOS stays below 1% at <= 20 m outdoors");
+        }
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
