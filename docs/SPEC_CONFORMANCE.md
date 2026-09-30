@@ -53,7 +53,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 16 | Case D, one range + IMU (Phys 2.4D) | ABSENT | `Step()` discards fewer than three ranges | DC-4 |
 | 17 | PCS term 1 = 1/trace(Σ) (Phys 2.5) | DIVERGENT (kept) | The bounded transform `traceRef/(traceRef+trace)` (`ca-tbl-policy.cc:857`); monotone equivalent | — |
 | 18 | PCS term 3 from the tier-specific NLOS score (Phys 2.5) | OPT-IN | `--pcsNlosClassifier`; the default reads the boolean tag | preset |
-| 19 | PCS weights tuned empirically, by LOOCV (Phys 2.5, audit Gap B) | DIVERGENT | Unweighted sum by default. CAL-01 ran and gave (3,0,0), not adopted; its thresholds cannot be set from the CLI | DC-5, DC-6, CAL-02 |
+| 19 | PCS weights tuned empirically, by LOOCV (Phys 2.5, audit Gap B) | DIVERGENT | Unweighted sum by default. CAL-01 ran and gave (3,0,0), not adopted. Since DC-6 (2026-09-30) the calibrated form is expressible: `--pcsForm=calibrated` with the weights (0 included) and per-tier thresholds from the CLI, gate G28. What is still missing is the calibration itself, CAL-02 | DC-5, ~~DC-6~~ done, CAL-02 |
 | 20 | Switching-point integrity: SUSPECT downweights PCS (Phys 2.6) | DIVERGENT | Rejects the fix and forces escalation (`ca-tbl-policy.cc:1185-1312`) | DC-7 |
 | 21 | Integrity eligibility "NLOS_score LOW" (Phys 2.6) | DIVERGENT | "All links tagged LOS", which has no population under the default tag (I.1) | DC-8 |
 | 22 | Cross-validation against IMU dead reckoning and neighbours (novelty item 2) | OPT-IN | `--imuCrossCheck`, `--corroborationCheck`. The IMU witness uses the diverging SHS; withdrawn in the default because the evidence gate absorbs its refusals (B3 C1) | DC-9 |

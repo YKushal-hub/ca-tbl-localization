@@ -505,12 +505,20 @@ Already conformant, and on by default:
 - **Correction (verified 2026-09-30).** The NC2 regime does **not** reach UWB as configured. Its reference run (seed 7, 1800 s) has `cycles_uwb=0`, `meanNbr_uwb=0` and `trig_tn=720`. The reasons:
   - The evidence gate's default coverage predictor uses a gateway-only anchor map (`scratch:5225-5229`) and needs 3 UWB anchors within 20 m (`ca-tbl-policy.cc:1462-1485`), which never happens.
   - The ground-truth label ignores finders, so `shouldUwb` is structurally false.
+- **A second observation (2026-09-30, while building G28).** Reaching the UWB *tier* is not
+  the same as getting a UWB *fix*. In the null-control config NC9 (`--nFinders=4
+  --finderMode=1 --boxHalf=750 --uwbCoverageIncludesFinders=true
+  --escalationRequiresEvidence=false`, seed 1, 600 s), `ca_tbl_full` spends 155 cycles on
+  UWB, and `nbrUwb = 0` on every one of them. Every one is fixed by the tier-1 floor and
+  leaves UWB by blind demotion. So no PCS threshold at UWB is ever read, and G28 cannot
+  observe the UWB pair. The P5 checkpoint must therefore require **UWB-delivered fixes**
+  (`fixTier = UWB`), not just `cycles_uwb > 0`.
 - **Steps.**
   - The preset sets `--nFinders=4 --finderMode=2 --finderDispersal=1.0 --finderPseudoAnchor=true --finderDigestPeriodS=20`, and **also**:
     - `--uwbEvidenceFromNeighbours=true`: the evidence gate predicts from the measured range on the awake radio (TECH_DEBT I.2: tier-3 cycles went from 0.0 to 5.4);
     - `--uwbCoverageIncludesFinders=true`: the trigger label counts finders (TECH_DEBT H.1).
   - Finders arbitrate their own UWB radio as mobile anchors (NW-5). Finders can be session requesters (TA-1b), and are tasked per subject (MS-1).
-  - **Checkpoint before P6.** A short preset probe must show `cycles_uwb > 0` with the evidence gate on (decision 7). If it is still 0, stop and bring it to the owner: decision 7 would then leave every tier-3 item (PH-2, NW-5, NW-7, TA-3, TA-4, DC-2) without a population.
+  - **Checkpoint before P6.** A short preset probe must show `cycles_uwb > 0` **and UWB-delivered fixes** (`fixTier = UWB` in the trace) with the evidence gate on (decision 7). If it is still 0, stop and bring it to the owner: decision 7 would then leave every tier-3 item (PH-2, NW-5, NW-7, TA-3, TA-4, DC-2) without a population.
 - **Effort.** Only the preset, plus the checkpoint probe.
 
 ### 1.E Network layer
@@ -958,7 +966,7 @@ The order is load-bearing: later phases read what earlier phases produce. Every 
 | **P2** | DC-11 sparse solving inside `Step()` (with the one-time measurement-struct extension, rule 14, and the double-count fix), then DC-1 synthetic IMU, then DC-4 Case D, DC-2 Case B heading, DC-9 witness on the IMU vs the raw fix, DC-13 entry prediction. | Three spec items depend on an IMU, and so does the integrity check's independent prior (MASTER_PLAN C3). | 7–9 d |
 | **P3** | MS-1 multi-subject: the no-behaviour move, then `--measuredSubjects`, relay/subject dedup, per-subject components, finder tasking, `subject_summary`/`subjtrace_*`, and G22. In parallel: NW-0 mesh links, with G26 one-hop. | Every multi-target mechanism after this reads real subjects. The network/transport layer needs mesh links. | 9–12 d |
 | **P4** | Network and application on real subjects and the mesh, in data-flow order: NW-8 previous hop and reverse path (with `forceFlood`), NW-9 QUERY/RESPONSE contents (batch-safe rebroadcast), NW-7 grant-gated UWB, **NW-4 + NW-5 in one commit** (query bit plus arbitration queue, terms and UWB-range eligibility), NW-6 gossip incl. finders; then NW-1 hop provenance (per-leg variability) and NW-2 routing of subjects' position-fix traffic; then TA-1a/TA-1b sessions, TA-2 requests to UWB-capable arbiters, TA-3 grant via RESPONSE plus cancel, TA-4, TA-5; finally DC-3 Case C (shared peer ranges, base-station MDS). | Needs P2 (IMU), P3 (subjects) and NW-0. The order follows the data: frames carry content, then routing, then sessions read it. | 14–17 d |
-| **P5** | SY-2 LR1121 basis. The UWB-reach checkpoint (MS-3): a preset-minus-geometry probe must show `cycles_uwb > 0` with the evidence gate on, or the owner is consulted. **GEO-01 stage 2** (registered) on the P4 build, which fixes the preset geometry. MS-3 rescuer settings. | Energy basis and geometry are preset settings, and GEO-01 needs the P4 mechanisms that carry load at sparse geometry. | 3–4 d + compute |
+| **P5** | SY-2 LR1121 basis. The UWB-reach checkpoint (MS-3): a preset-minus-geometry probe must show `cycles_uwb > 0` and UWB-delivered fixes with the evidence gate on, or the owner is consulted. **GEO-01 stage 2** (registered) on the P4 build, which fixes the preset geometry. MS-3 rescuer settings. | Energy basis and geometry are preset settings, and GEO-01 needs the P4 mechanisms that carry load at sparse geometry. | 3–4 d + compute |
 | **P6** | `--specProfile` preset (incl. the §3.1 additions), gate G24 (aggregating, with the last-gasp run), CAL-02 registered and run (legacy-PCS data generation, held-out evaluation), then CAMP-SPEC registered and run (incl. GEO-01 stage 3 and the comparator arms). | The preset composes everything above; the campaigns measure it. | 5–6 d + compute |
 | **P7** | Documentation sweep: SPEC_CONFORMANCE register, MASTER_PLAN §2.1 recount (parsed, not hand-counted), TECH_DEBT new section N, `docs/SCENARIO_FLAGS.md` regenerated from `--PrintHelp`, handoff. `CLAUDE.md` numbers (M.11) only with the owner's say-so. | Nothing is done until the record says so. | 1–2 d |
 

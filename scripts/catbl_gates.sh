@@ -724,6 +724,27 @@ fi
 bash scripts/edge_default_gate_selftest.sh || fail G21
 finish G21
 
+# ---------------- G28: the spec's calibrated PCS is expressible and reaches the policy (DC-6)
+# The spec's PCS is w1*t1 + w2*t2 + w3*t3 with weights AND thresholds calibrated by
+# leave-one-out (Physical 2.5). Until 2026-09-30 neither could be given: the thresholds
+# had no flag and a weight of 0 -- LOOCV's answer is (3, 0, 0) -- was silently the default.
+# 18 short runs, read by scripts/pcs_calibrated_gate.py: --pcsForm=calibrated at weights
+# (1, 1, 1) and the legacy thresholds must reproduce --pcsForm=legacy byte-for-byte, trace
+# included; each of the three observable thresholds, moved alone, must move the decision
+# it owns; --pcsW2=0 must remove exactly the geometry term from every scored cycle; what
+# was resolved must sit in each flag's own tier slot; and a missing value, an inverted
+# pair (explicit or resolved against a built-in) and the 868 MHz down threshold, which
+# decides nothing, are refused. The UWB thresholds' EFFECT is not checked, and the gate
+# says why: no regime this build has delivers a UWB fix.
+#
+# Negative fixtures in scripts/pcs_calibrated_gate_selftest.sh, built from these runs,
+# including --pcsW2=0 ignored (the tree before this gate), a threshold that reaches
+# nothing, two tiers' slots swapped, and an inverted pair accepted (rule 6).
+printf '\n--- G28 the calibrated PCS is expressible and reaches the policy (DC-6) ---\n'
+bash scripts/pcs_calibrated_gate.sh "$WORK/g28" || fail G28
+bash scripts/pcs_calibrated_gate_selftest.sh "$WORK/g28" || fail G28
+finish G28
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
