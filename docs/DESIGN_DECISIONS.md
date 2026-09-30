@@ -104,6 +104,18 @@ built.
 
 **Anyone quoting a gateway count should read it off `deployment.json`, not off the brief.**
 
+> **2026-09-30, stale.** Explicit placement *is* built.
+> - `--nGateways` with `--gwRingFrac` (`089a9f1`, 2026-09-07) puts N gateways on a ring.
+>   `--nGateways=3 --gwRingFrac=0.6 --boxHalf=5000` gives the brief's triangle at R = 3000 m.
+> - Arc and ridge variants followed (`--gwArcDeg`, `--gwArcCentreDeg`, `--gwRidge`).
+> - The owner rejected the interior grid on 2026-09-09 as unrealistic for SAR
+>   (`HANDOFF_2026_09_09.md` §4: cep50 28 m, but "no SAR team carries a repeater into the
+>   middle"), and the ridge as degenerate (cep50 1932 m). The arc was built as the
+>   access-route deployment.
+> - The **default** is still the 3×3 grid. Which shape the brief should be run with is now a
+>   registered study, GEO-01 (`docs/SPEC_CONFORMANCE_PLAN.md` §3.4): least infrastructure,
+>   gateways only where a vehicle can reach.
+
 ## 6. Facilities remain, as places rather than infrastructure
 
 **Decision.** The four facility sites still exist and the lost node still dwells at them,
@@ -135,7 +147,7 @@ packet log.
 - **Finder-to-gateway relaying.** Finders do not carry the casualty's fixes back to
   infrastructure; they are ranging targets only.
 - **A still lost node.** Supported via `--speed=0`, not yet exercised as a scenario.
-- **5 km radius.** Untested; all corrected-topology runs so far are at `boxHalf=1000`.
+- **5 km radius.** Untested; all corrected-topology runs so far are at `boxHalf=1000`. *(2026-09-30, stale: K1c ran at `boxHalf=2500`, K10 at 6000, and the L.2 coverage probe at 3000 and 5000.)*
 
 ---
 
