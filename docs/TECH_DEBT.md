@@ -176,6 +176,13 @@ is registered as a **separate PCS campaign**, not part of C5.
 Also: **A2 caps hop depth at 1, so `hopCount` is binary.** A term linear in it has two
 reachable values. Worth knowing before anyone tunes a weight expecting a gradient.
 
+> **2026-09-30, stale references, corrected here rather than in place.**
+> - The hop term now sits at `ca-tbl-policy.cc:848-851` (v2 path) and `:890-893`; the
+>   `hopWeight` default is at `:101`, not `:83`.
+> - A2 is no longer a fixed depth-1 cap. It admits depth up to `--maxRelayDepth` under a
+>   variance budget (`ca-tbl-relay-admission.cc:120-134`). The cap is still 1 **at the
+>   default** `--maxRelayDepth=1`.
+
 ### 3.3 C2-full — the peer is not a measured subject
 Rebased onto current main as `wip/c2-on-main` (`7cbfead`), builds, and the C4 conflict is
 resolved with `pcsHist` / `pcsDegradation` / `batteryUsedFrac` made **per tag** — with two
@@ -188,6 +195,15 @@ removed its role as C4's blocker, but a relay with no filter has no `P_B` to rep
 **Merge decision is open and is the owner's**, against a bar rather than a judgement:
 RULES.md §4.2 requires byte-identical output — `arm_summary` **and every trace**. This is
 result-exact and not bit-exact (§4.1), so it does not meet that bar as written.
+
+> **2026-09-30, stale.** The merge happened at `abbe3de` (2026-09-06, "merge C2-full:
+> per-tag state, so a second target can be a measured subject"). `wip/c2-on-main` and
+> `wip/c2-full-refactor` have no commits ahead of `main`.
+> - What exists is the **data structure**: `CaTblTagState`, `scratch/ca_tbl_causal_sim.cc:2627-2701`.
+> - The **behaviour** is still tag 0's alone. The cycle body is not looped over tags. Peers
+>   have no policy, and relays under `--relayedRanging` have a policy but never escalate.
+>   Their energy accounts are incompletely configured.
+> - Finishing it is `docs/SPEC_CONFORMANCE_PLAN.md` MS-1.
 
 ### 3.4 A4 / A5 — blocked on data that does not exist
 A4 says to compare reported sigma against realised error *"from the existing traces"*.
