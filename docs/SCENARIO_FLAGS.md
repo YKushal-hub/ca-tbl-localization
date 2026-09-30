@@ -1,24 +1,28 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 144 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 149 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
-unchanged. **Three rows have changed since, all on 2026-09-30, and §3 was regenerated for
-each:**
+unchanged. **Rows have changed since, all on 2026-09-30, and §3 was regenerated for each
+change:**
 
-- `--relaySlots` (row 127 of §3, and its §1 row): its default moved from `false` to
+- `--relaySlots` (row 132 of §3, and its §1 row): its default moved from `false` to
   `auto`.
-- `--edgeDownlinkTier` (row 97 of §3, and its §1 row): added with its default, `fix`
+- `--edgeDownlinkTier` (row 102 of §3, and its §1 row): added with its default, `fix`
   (M.10). Every row after it moved down one.
-- `--uwbNlosModel` (row 135 of §3, and its §1 row): added with its default, `legacy`
+- `--uwbNlosModel` (row 140 of §3, and its §1 row): added with its default, `legacy`
   (M.2, `report/PREREG_UWB_NLOS.md`). Every row after it moved down one.
+- `--pcsThrUp868`, `--pcsThrUp2p4`, `--pcsThrDown2p4`, `--pcsThrUpUwb`, `--pcsThrDownUwb`
+  (rows 79–83 of §3, and their §1 row): added with the default `nan`, "not given"
+  (`docs/SPEC_CONFORMANCE_PLAN.md` DC-6). Every row after them moved down five.
 
-A fresh `--PrintHelp` differs from the `ff4f8bb` one in those three rows only, and adds the
-two names.
+A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
+seven names. Two flags changed meaning without changing their printed default, and §1
+says how: `--pcsForm` gained the value `calibrated`, and `--pcsW1..3` take 0.
 
 **Why this file exists.** No tracked document listed the scenario's flags.
 `HANDOFF_2026_09_09.md` §8 asked for `--gwArcDeg`, `--gwArcCentreDeg`, `--trailDeviateSide`
 and `--searchLaunchAtS` to get "a line in whichever document lists scenario flags", and
-there was no such document. Those four are rows 84, 85, 86 and 114 of §3.
+there was no such document. Those four are rows 89, 90, 91 and 119 of §3.
 
 **It is a snapshot, not the ground truth.** `RULES.md` §8 puts the ground truth in the
 `cmd.AddValue` block of `scratch/ca_tbl_causal_sim.cc` and in the `run_id.txt` sidecars.
@@ -43,7 +47,7 @@ Two checks found what §1 lists:
 
 ---
 
-## 1. Added or changed 2026-09-27 – 2026-09-29
+## 1. Added or changed 2026-09-27 – 2026-09-30
 
 All of these are on `work/2026-09-27-spec-b1`. Every added flag is default off, and its
 off state was null-controlled against the frozen `084a7ff` reference (`docs/TECH_DEBT.md`
@@ -71,6 +75,9 @@ precondition missing.
 | `--gatewayEdgeServer` | bool | **`true`**, was `false` | `db2ac2e` | Runs the estimator on the gateways. At defaults only the energy columns move (L.2.3) | `=false` reproduces every result in `results/` except C6's edge cell, which ran with it `true`. Which radio the downlink is billed on is `--edgeDownlinkTier` (M.10, decided 2026-09-30) |
 | `--edgeDownlinkTier` | string: `fix`, `active` | **`fix`**; the old bill is `active` | added 2026-09-30, with this default | Picks which radio the gateways' downlink is billed on. `fix` bills the radio whose measurements produced the fix, so a hybrid arm's floor-solved fix is an 868 MHz downlink (0.9042 mJ) instead of one on the active tier (0.2005 mJ on 2.4 GHz, 0.3224 mJ on UWB) (M.10) | Read only with `--gatewayEdgeServer=true`. `=active` reproduces the commit before the change byte-for-byte, and C6's `results/regen27_edge/edge` (seed 7 checked). At defaults only energy moves, on hybrid arms' floor-solved fix cycles. Any other value is FATAL. **Owner decision taken 2026-09-30** (M.10) |
 | `--uwbNlosModel` | string: `legacy`, `ieee802154a` | `legacy` | added 2026-09-30 | The UWB engine's LOS/NLOS state model. `ieee802154a` is `report/PREREG_UWB_NLOS.md` sect 2: the state from the 3GPP TR 38.901 InF-SL law (P_NLOS = 1 - exp(-d_2D / 44.81 m)) and, on an NLOS draw, the IEEE 802.15.4a NLOS-minus-LOS path loss (CM5/CM6 outdoor, CM3/CM4 office), deterministic in distance (M.2) | Default `legacy`, byte-identical to the build before the change in 7 configurations. It stays the default whatever the registered runs show. Under `ieee802154a` every arm moves, static_868 included, through the shared MAC random stream, so only populations compare across the two settings. Any other value is FATAL |
+| `--pcsThrUp868`, `--pcsThrUp2p4`, `--pcsThrUpUwb`, `--pcsThrDown2p4`, `--pcsThrDownUwb` | double | `nan`, not given | added 2026-09-30 | Explicit per-tier PCS thresholds: escalate below the up one, count a cycle healthy above the down one. Applied after the form's own and after `--pcsHysteresisBand`, so an explicit value wins (DC-6) | Not given keeps the form's own, so the default is byte-identical to the build before (NC1–NC9). A resolved down below its up is FATAL whichever was given; the resolved values are printed as a `NOTE` on stderr. There is no `--pcsThrDown868`: nothing is below 868 MHz, so that threshold decides nothing. In no current regime does a UWB cycle deliver a UWB fix, so the UWB pair's effect is unobserved (gate G28) |
+| `--pcsForm` | string | `legacy` | value `calibrated` added 2026-09-30 | `calibrated` is the spec's PCS: the weighted sum with `--pcsW1..3`, the three `--pcsThrUp*` and the two `--pcsThrDown*` all given explicitly, the values a leave-one-out calibration produced (DC-5/6, CAL-02) | FATAL unless all eight are given. At weights (1, 1, 1) and the legacy thresholds it reproduces `legacy` byte-for-byte, trace included (G28) |
+| `--pcsW1`, `--pcsW2`, `--pcsW3` | double | `-1`, not given | changed 2026-09-30 | Weights of the `weighted` and `calibrated` forms | Any value ≥ 0 is taken, 0 included. Until 2026-09-30 only a value > 0 was, so a requested 0, which is CAL-01's answer (3, 0, 0), silently became the hand-set default. No tracked `run_id.txt` passes `--pcsW1..3` at all |
 
 ## 2. Help text corrected, default unchanged
 
@@ -78,6 +85,15 @@ precondition missing.
   Its "FALSE by default" had been wrong since `4779bf7`, and `db2ac2e` corrected it
   (`docs/TECH_DEBT.md` M.5).
 - `--queryStalenessBoundS` (default `120`): it now carries L.2.5's measurement (`f017da4`).
+- `af492ca`, 2026-09-30: `--pcsForm` listed only `legacy|v2`, though `weighted` and `gated`
+  exist. `--pcsHysteresisBand` claimed a 0.20 gap on every tier; UWB's is 0.25.
+  `--imuCrossCheck` called itself a displacement check; it compares absolute positions.
+  `--sparseCaseAMargin` is in Mahalanobis units. `--nTags` said peers have no policy or
+  energy model, which is false under `--relayedRanging`. `--uwbArbitration` without
+  `--sendHandshakeFrames` is now FATAL, and `--imuFusion` without its stated requirements
+  draws a warning.
+- 2026-09-30, DC-6: `--pcsHysteresisBand` said the down thresholds had no flag; they have
+  one per tier now, and it wins over the band.
 
 ## 3. Every flag, with its default
 
@@ -164,69 +180,74 @@ prints it.
 | 76 | `--pcsW3` | `-1` |
 | 77 | `--pcsGateFloor` | `-1` |
 | 78 | `--pcsHysteresisBand` | `-1` |
-| 79 | `--nDeescalate` | `0` |
-| 80 | `--sendHandshakeFrames` | `false` |
-| 81 | `--terrainPerTierFreq` | `false` |
-| 82 | `--intraCycleHandshakeDefer` | `false` |
-| 83 | `--gwRidge` | `false` |
-| 84 | `--gwArcDeg` | `360` |
-| 85 | `--gwArcCentreDeg` | `90` |
-| 86 | `--trailDeviateSide` | `-1` |
-| 87 | `--gwRidgeY` | `0.55` |
-| 88 | `--trailDeviateAtS` | `0` |
-| 89 | `--trailStopAfterS` | `0` |
-| 90 | `--vizTablePeriodS` | `0` |
-| 91 | `--vizEvents` | `false` |
-| 92 | `--uwbCoverageIncludesFinders` | `false` |
-| 93 | `--finderDispersal` | `0` |
-| 94 | `--processNoiseStdPos` | `1` |
-| 95 | `--processNoiseStdVel` | `0.5` |
-| 96 | `--gatewayEdgeServer` | `true` |
-| 97 | `--edgeDownlinkTier` | `fix` |
-| 98 | `--tier1ChargeReplies` | `true` |
-| 99 | `--bidirectionalDigest` | `false` |
-| 100 | `--finderPosSigma` | `0` |
-| 101 | `--finderPseudoAnchor` | `false` |
-| 102 | `--hopProvenanceForm` | `0` |
-| 103 | `--hopPenalty` | `0` |
-| 104 | `--imuCrossCheck` | `false` |
-| 105 | `--imuDriftMps` | `0.15` |
-| 106 | `--imuConsistencyK` | `3` |
-| 107 | `--imuSigmaFloorM` | `5` |
-| 108 | `--corroborationCheck` | `false` |
-| 109 | `--corroborationK` | `3` |
-| 110 | `--corroborationRangeSigmaM` | `30` |
-| 111 | `--finderDigestPeriodS` | `30` |
-| 112 | `--finderSpeed` | `-1` |
-| 113 | `--searchLaunchOnLoss` | `0` |
-| 114 | `--searchLaunchAtS` | `0` |
-| 115 | `--searchLaunchSigmaM` | `0` |
-| 116 | `--finderStaleSteerBound` | `0` |
-| 117 | `--finderMode` | `1` |
-| 118 | `--nFinders` | `0` |
-| 119 | `--nGateways` | `0` |
-| 120 | `--gwRingFrac` | `0.6` |
-| 121 | `--topology` | `0` |
-| 122 | `--sitingMode` | `0` |
-| 123 | `--relayedRanging` | `false` |
-| 124 | `--maxRelayDepth` | `1` |
-| 125 | `--relayVarBudget` | `0` |
-| 126 | `--relayChain` | `false` |
-| 127 | `--relaySlots` | `auto` |
-| 128 | `--fixRouting` | `false` |
-| 129 | `--fixRoutingConfidence` | `false` |
-| 130 | `--tier1Tdoa` | `false` |
-| 131 | `--tdoaPpsSigmaNs` | `20` |
-| 132 | `--nlosClassifier` | `false` |
-| 133 | `--pcsNlosClassifier` | `false` |
-| 134 | `--nlosScoreThreshold` | `0.5` |
-| 135 | `--uwbNlosModel` | `legacy` |
-| 136 | `--relayTier` | `1` |
-| 137 | `--nTags` | `1` |
-| 138 | `--identityQueryPeriodS` | `0` |
-| 139 | `--identityQueryTarget` | `2` |
-| 140 | `--uwbArbitration` | `false` |
-| 141 | `--arbBatteryCapJ` | `1000` |
-| 142 | `--anchorGrantGossipS` | `0` |
-| 143 | `--suspectForcesEscalation` | `true` |
-| 144 | `--nlosSource` | `legacy` |
+| 79 | `--pcsThrUp868` | `nan` |
+| 80 | `--pcsThrUp2p4` | `nan` |
+| 81 | `--pcsThrDown2p4` | `nan` |
+| 82 | `--pcsThrUpUwb` | `nan` |
+| 83 | `--pcsThrDownUwb` | `nan` |
+| 84 | `--nDeescalate` | `0` |
+| 85 | `--sendHandshakeFrames` | `false` |
+| 86 | `--terrainPerTierFreq` | `false` |
+| 87 | `--intraCycleHandshakeDefer` | `false` |
+| 88 | `--gwRidge` | `false` |
+| 89 | `--gwArcDeg` | `360` |
+| 90 | `--gwArcCentreDeg` | `90` |
+| 91 | `--trailDeviateSide` | `-1` |
+| 92 | `--gwRidgeY` | `0.55` |
+| 93 | `--trailDeviateAtS` | `0` |
+| 94 | `--trailStopAfterS` | `0` |
+| 95 | `--vizTablePeriodS` | `0` |
+| 96 | `--vizEvents` | `false` |
+| 97 | `--uwbCoverageIncludesFinders` | `false` |
+| 98 | `--finderDispersal` | `0` |
+| 99 | `--processNoiseStdPos` | `1` |
+| 100 | `--processNoiseStdVel` | `0.5` |
+| 101 | `--gatewayEdgeServer` | `true` |
+| 102 | `--edgeDownlinkTier` | `fix` |
+| 103 | `--tier1ChargeReplies` | `true` |
+| 104 | `--bidirectionalDigest` | `false` |
+| 105 | `--finderPosSigma` | `0` |
+| 106 | `--finderPseudoAnchor` | `false` |
+| 107 | `--hopProvenanceForm` | `0` |
+| 108 | `--hopPenalty` | `0` |
+| 109 | `--imuCrossCheck` | `false` |
+| 110 | `--imuDriftMps` | `0.15` |
+| 111 | `--imuConsistencyK` | `3` |
+| 112 | `--imuSigmaFloorM` | `5` |
+| 113 | `--corroborationCheck` | `false` |
+| 114 | `--corroborationK` | `3` |
+| 115 | `--corroborationRangeSigmaM` | `30` |
+| 116 | `--finderDigestPeriodS` | `30` |
+| 117 | `--finderSpeed` | `-1` |
+| 118 | `--searchLaunchOnLoss` | `0` |
+| 119 | `--searchLaunchAtS` | `0` |
+| 120 | `--searchLaunchSigmaM` | `0` |
+| 121 | `--finderStaleSteerBound` | `0` |
+| 122 | `--finderMode` | `1` |
+| 123 | `--nFinders` | `0` |
+| 124 | `--nGateways` | `0` |
+| 125 | `--gwRingFrac` | `0.6` |
+| 126 | `--topology` | `0` |
+| 127 | `--sitingMode` | `0` |
+| 128 | `--relayedRanging` | `false` |
+| 129 | `--maxRelayDepth` | `1` |
+| 130 | `--relayVarBudget` | `0` |
+| 131 | `--relayChain` | `false` |
+| 132 | `--relaySlots` | `auto` |
+| 133 | `--fixRouting` | `false` |
+| 134 | `--fixRoutingConfidence` | `false` |
+| 135 | `--tier1Tdoa` | `false` |
+| 136 | `--tdoaPpsSigmaNs` | `20` |
+| 137 | `--nlosClassifier` | `false` |
+| 138 | `--pcsNlosClassifier` | `false` |
+| 139 | `--nlosScoreThreshold` | `0.5` |
+| 140 | `--uwbNlosModel` | `legacy` |
+| 141 | `--relayTier` | `1` |
+| 142 | `--nTags` | `1` |
+| 143 | `--identityQueryPeriodS` | `0` |
+| 144 | `--identityQueryTarget` | `2` |
+| 145 | `--uwbArbitration` | `false` |
+| 146 | `--arbBatteryCapJ` | `1000` |
+| 147 | `--anchorGrantGossipS` | `0` |
+| 148 | `--suspectForcesEscalation` | `true` |
+| 149 | `--nlosSource` | `legacy` |

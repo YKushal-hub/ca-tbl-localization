@@ -4913,6 +4913,67 @@ WriteProxyChecks(const std::deque<CaTblMac>& macs,
     std::cout << s.str();
 }
 
+/**
+ * \brief Every flag the spec-conformance programme adds, carried into RunArm as ONE
+ *        parameter (docs/SPEC_CONFORMANCE_PLAN.md rule 7).
+ *
+ * RunArm already takes 127 positional parameters, and HANDOFF_2026_09_09 sect 3 records
+ * what that costs: a new one has to sit in the same position in the signature and in the
+ * call, and a comma expression there is silent. New flags go in here instead, each with
+ * the value that reproduces the build before it.
+ */
+struct SpecOptions
+{
+    //! DC-6. Explicit per-tier PCS thresholds; NaN = keep whatever the form set.
+    //! pcsThrDown[CA_TBL_TIER_868] has no flag and stays NaN: nothing is below 868 MHz,
+    //! so the policy's 868 MHz de-escalation threshold decides nothing.
+    double pcsThrUp[CA_TBL_TIER_COUNT] = {std::numeric_limits<double>::quiet_NaN(),
+                                          std::numeric_limits<double>::quiet_NaN(),
+                                          std::numeric_limits<double>::quiet_NaN()};
+    double pcsThrDown[CA_TBL_TIER_COUNT] = {std::numeric_limits<double>::quiet_NaN(),
+                                            std::numeric_limits<double>::quiet_NaN(),
+                                            std::numeric_limits<double>::quiet_NaN()};
+};
+
+/**
+ * \brief DC-6. The last two steps of resolving a run's PCS thresholds: --pcsHysteresisBand,
+ *        then the explicit per-tier values, so an explicit value always wins.
+ *
+ * RunArm applies it after the form's own thresholds (v2's are derived). main() applies it
+ * to a probe config built the same way, to refuse an inverted pair and to print what was
+ * resolved -- one function, so the refusal and the run cannot disagree about the values.
+ */
+static void
+ResolvePcsThresholds(CaTblPolicyConfig& pcfg, double pcsHysteresisBand, const SpecOptions& spec)
+{
+    // A6 / CAL-03 / CAL-04. Applied LAST so it composes with either score:
+    // ApplyV2Thresholds() has already run for v2, and the band is expressed
+    // RELATIVE to whatever thresholdUp ended up being. The BAND, not the two
+    // absolute thresholds, is the swept quantity -- 868 MHz and 2.4 GHz carry a
+    // 0.20 gap today and UWB 0.25, so one number moves the hysteresis without also
+    // silently moving the operating point, which sweeping thresholdDown alone
+    // would do.
+    if (pcsHysteresisBand >= 0.0)
+    {
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            pcfg.pcsThresholdDown[k] = pcfg.pcsThresholdUp[k] + pcsHysteresisBand;
+        }
+    }
+    // NaN (the default) leaves each untouched.
+    for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+    {
+        if (std::isfinite(spec.pcsThrUp[k]))
+        {
+            pcfg.pcsThresholdUp[k] = spec.pcsThrUp[k];
+        }
+        if (std::isfinite(spec.pcsThrDown[k]))
+        {
+            pcfg.pcsThresholdDown[k] = spec.pcsThrDown[k];
+        }
+    }
+}
+
 ArmResult
 RunArm(CaTblPolicyMode mode,
        uint32_t seed,
@@ -5039,7 +5100,8 @@ RunArm(CaTblPolicyMode mode,
        bool pcsNlosClassifier,
        double nlosScoreThreshold,
        bool relaySlots,
-       bool edgeDownlinkOnFixTier)
+       bool edgeDownlinkOnFixTier,
+       const SpecOptions& spec)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -5237,9 +5299,11 @@ RunArm(CaTblPolicyMode mode,
     pcfg.processNoiseStdVel = processNoiseStdVel;
     // Non-positive means leave the built-in default, matching the sentinel
     // convention fixedVarThresholdM2 and pcsSigmaTargetM already use below.
-    if (pcsW1 > 0.0) { pcfg.pcsW1 = pcsW1; }
-    if (pcsW2 > 0.0) { pcfg.pcsW2 = pcsW2; }
-    if (pcsW3 > 0.0) { pcfg.pcsW3 = pcsW3; }
+    // Zero is a weight since 2026-09-30 (DC-6): LOOCV's answer is (3, 0, 0), and "> 0"
+    // silently turned a requested 0 into the hand-set default. The sentinel is -1.
+    if (pcsW1 >= 0.0) { pcfg.pcsW1 = pcsW1; }
+    if (pcsW2 >= 0.0) { pcfg.pcsW2 = pcsW2; }
+    if (pcsW3 >= 0.0) { pcfg.pcsW3 = pcsW3; }
     if (pcsGateFloor > 0.0) { pcfg.pcsGateFloor = pcsGateFloor; }
     // --pcsNlosClassifier. Only the measured node's policy: its measurements are the only
     // ones scored, so a relay's policy would find no score and fall back to the tag anyway.
@@ -5294,20 +5358,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.multiStepDemote =
             (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY);
     }
-    // A6 / CAL-03 / CAL-04. Applied LAST so it composes with either score:
-    // ApplyV2Thresholds() has already run for v2, and the band is expressed
-    // RELATIVE to whatever thresholdUp ended up being. The BAND, not the two
-    // absolute thresholds, is the swept quantity -- every tier carries the
-    // same 0.20 gap today, so one number moves the hysteresis without also
-    // silently moving the operating point, which sweeping thresholdDown
-    // alone would do.
-    if (pcsHysteresisBand >= 0.0)
-    {
-        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
-        {
-            pcfg.pcsThresholdDown[k] = pcfg.pcsThresholdUp[k] + pcsHysteresisBand;
-        }
-    }
+    // The band, then DC-6's explicit per-tier thresholds; see ResolvePcsThresholds.
+    ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -9413,6 +9465,8 @@ main(int argc, char* argv[])
     double pcsW3Arg = -1.0;
     double pcsGateFloorArg = -1.0;
     double pcsHysteresisBandArg = -1.0;
+    // DC-6. Explicit per-tier PCS thresholds and the calibrated form. NaN = not given.
+    SpecOptions spec;
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
@@ -9991,13 +10045,19 @@ main(int argc, char* argv[])
                  "did not list them until 2026-09-30: 'weighted' is "
                  "pcsW1*t1 + pcsW2*t2 + pcsW3*t3 with the hand-set weights 2, 0.5, 0.5 "
                  "(--pcsW1..3), and 'gated' scores 0 whenever t1 < --pcsGateFloor and "
-                 "the plain sum otherwise. Both reuse the legacy thresholds.",
+                 "the plain sum otherwise. Both reuse the legacy thresholds. "
+                 "'calibrated' is the spec's form (docs/SPEC_CONFORMANCE_PLAN.md DC-5/6): "
+                 "the weighted sum with --pcsW1..3, the three --pcsThrUp* and the two "
+                 "--pcsThrDown* all given explicitly, the values a leave-one-out "
+                 "calibration produced; it is refused unless all eight are given.",
                  pcsFormArg);
     cmd.AddValue("pcsW1",
                  "CA_TBL_PCS_WEIGHTED weight on the filter-uncertainty term. "
-                 "Default 2.0. The defaults are HAND-SET, not from the "
-                 "leave-one-out cross-validation CAL-01 specifies -- that has "
-                 "still never been run. They are chosen for one property: "
+                 "Default 2.0; any value >= 0 is taken, 0 included (a requested 0 "
+                 "was silently ignored until 2026-09-30). The defaults are "
+                 "HAND-SET. CAL-01, the leave-one-out calibration, ran on "
+                 "2026-09-28 and fitted (3, 0, 0) -- the trace alone -- which "
+                 "--pcsForm=calibrated can now express. They are chosen for one property: "
                  "pcsW2 + pcsW3 = 1.0 sits below every pcsThresholdUp, so "
                  "term1 = 0 forces the score under the threshold whatever "
                  "geometry and LOS do. The unweighted LEGACY sum cannot do "
@@ -10036,8 +10096,9 @@ main(int argc, char* argv[])
                  "Negative (default) leaves the built-in thresholds untouched "
                  "so the baseline reproduces byte-for-byte. This is "
                  "CAL-03/CAL-04, which the register defers to Phase 2.1 and "
-                 "which has NEVER been swept, because until now "
-                 "pcsThresholdDown was not registered with AddValue at all. "
+                 "which has NEVER been swept, because until 2026-09-30 "
+                 "pcsThresholdDown was not registered with AddValue at all "
+                 "(it is now, per tier: --pcsThrDown2p4/--pcsThrDownUwb, which win over this). "
                  "The BAND is the swept quantity rather than the two absolute "
                  "thresholds: 868 MHz and 2.4 GHz carry a 0.20 gap today and UWB "
                  "0.25 (up 1.55/1.70/2.30, down 1.75/1.90/2.55; this text said 0.20 on "
@@ -10045,6 +10106,43 @@ main(int argc, char* argv[])
                  "without silently also moving the operating point -- and sets UWB's "
                  "gap to the same band as the others.",
                  pcsHysteresisBandArg);
+    {
+        // DC-6: five explicit thresholds, registered in one loop so the help text is one
+        // argument rather than five copies of it. There is no --pcsThrDown868: nothing is
+        // below 868 MHz, so the policy's 868 MHz de-escalation threshold decides nothing,
+        // and a flag that can only ever do nothing is TECH_DEBT I.4's defect class.
+        static const char* kTierFlag[CA_TBL_TIER_COUNT] = {"868", "2p4", "Uwb"};
+        static std::string upName[CA_TBL_TIER_COUNT];
+        static std::string downName[CA_TBL_TIER_COUNT];
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            upName[k] = std::string("pcsThrUp") + kTierFlag[k];
+            downName[k] = std::string("pcsThrDown") + kTierFlag[k];
+            cmd.AddValue(upName[k],
+                         "Explicit PCS escalation threshold for this tier: escalate when PCS "
+                         "falls below it. Not set (nan, the default) keeps the form's own "
+                         "(legacy/weighted/gated 1.55 / 1.70 / 2.30; v2 0.0). Applied after "
+                         "--pcsHysteresisBand, so an explicit value wins. The thresholds the "
+                         "spec asks for are the ones fitted with the weights by leave-one-out "
+                         "calibration (docs/SPEC_CONFORMANCE_PLAN.md CAL-02); CAL-01 found the "
+                         "old ones cannot serve a trace-only score, whose term 1 never "
+                         "reaches 1.55 on a tier-1 fix. UWB's decides no escalation -- there "
+                         "is no tier above -- but a score under it keeps a UWB node out of "
+                         "the healthy-demotion count, so it is the UWB dwell's other half.",
+                         spec.pcsThrUp[k]);
+            if (k == CA_TBL_TIER_868)
+            {
+                continue;
+            }
+            cmd.AddValue(downName[k],
+                         "Explicit PCS de-escalation threshold for this tier: demote after "
+                         "--nDeescalate consecutive cycles above it. Not set (nan) keeps the "
+                         "form's own (1.90 / 2.55; v2 log10 2), or --pcsHysteresisBand's. "
+                         "Refused if the resolved pair is inverted, i.e. below the same "
+                         "tier's escalation threshold, whichever of the two was given.",
+                         spec.pcsThrDown[k]);
+        }
+    }
     cmd.AddValue("nDeescalate",
                  "Consecutive healthy cycles required before demoting a tier. "
                  "Zero (default) keeps the built-in 5. The other half of "
@@ -10946,11 +11044,77 @@ main(int argc, char* argv[])
     {
         pcsForm = CA_TBL_PCS_GATED;
     }
+    else if (pcsFormArg == "calibrated")
+    {
+        // DC-6. The spec's PCS: the weighted sum, with weights AND thresholds given
+        // explicitly -- the values a leave-one-out calibration produced (CAL-02). Refused
+        // unless all eight are given: a half-calibrated score would silently borrow hand-set
+        // values for the rest, which is the state the spec's calibration exists to end.
+        pcsForm = CA_TBL_PCS_WEIGHTED;
+        bool all = (pcsW1Arg >= 0.0) && (pcsW2Arg >= 0.0) && (pcsW3Arg >= 0.0);
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            all = all && std::isfinite(spec.pcsThrUp[k]) &&
+                  (k == CA_TBL_TIER_868 || std::isfinite(spec.pcsThrDown[k]));
+        }
+        if (!all)
+        {
+            std::cerr << "FATAL: --pcsForm=calibrated needs --pcsW1, --pcsW2, --pcsW3 (>= 0), "
+                      << "the three --pcsThrUp* and the two --pcsThrDown* given explicitly\n";
+            return 1;
+        }
+    }
     else if (pcsFormArg != "legacy")
     {
-        std::cout << "ERROR: --pcsForm must be 'legacy', 'v2', 'weighted' or "
-                  << "'gated', got '" << pcsFormArg << "'\n";
+        std::cout << "ERROR: --pcsForm must be 'legacy', 'v2', 'weighted', 'gated' or "
+                  << "'calibrated', got '" << pcsFormArg << "'\n";
         return 1;
+    }
+    // DC-6. Resolve the thresholds exactly as RunArm will, on a probe config, whenever one
+    // was given explicitly. An inverted pair (down below up) would let a tier escalate and
+    // be counted healthy on the same score -- thrashing by construction -- and is refused
+    // whichever of the two was given: --pcsThrUp868=2.0 alone inverts against the built-in
+    // 1.75 just as surely. 868 MHz is exempt: its down threshold decides nothing. What was
+    // resolved is printed, so a flag landing on the wrong tier is visible (gate G28).
+    bool anyPcsThr = false;
+    for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+    {
+        anyPcsThr = anyPcsThr || std::isfinite(spec.pcsThrUp[k]) ||
+                    std::isfinite(spec.pcsThrDown[k]);
+    }
+    if (anyPcsThr)
+    {
+        CaTblPolicyConfig probe;
+        if (pcsForm == CA_TBL_PCS_V2)
+        {
+            probe.ApplyV2Thresholds();
+        }
+        ResolvePcsThresholds(probe, pcsHysteresisBandArg, spec);
+        if (pcsW1Arg >= 0.0) { probe.pcsW1 = pcsW1Arg; }
+        if (pcsW2Arg >= 0.0) { probe.pcsW2 = pcsW2Arg; }
+        if (pcsW3Arg >= 0.0) { probe.pcsW3 = pcsW3Arg; }
+        for (int k = CA_TBL_TIER_868 + 1; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            if (probe.pcsThresholdDown[k] < probe.pcsThresholdUp[k])
+            {
+                std::cerr << "FATAL: PCS de-escalation threshold " << probe.pcsThresholdDown[k]
+                          << " is below the escalation threshold " << probe.pcsThresholdUp[k]
+                          << " on tier " << k << " (as resolved)\n";
+                return 1;
+            }
+        }
+        std::cerr << std::setprecision(17) << "NOTE: PCS form " << pcsFormArg
+                  << " resolved: up 868/2p4/uwb " << probe.pcsThresholdUp[CA_TBL_TIER_868]
+                  << " " << probe.pcsThresholdUp[CA_TBL_TIER_2P4] << " "
+                  << probe.pcsThresholdUp[CA_TBL_TIER_UWB] << "; down 2p4/uwb "
+                  << probe.pcsThresholdDown[CA_TBL_TIER_2P4] << " "
+                  << probe.pcsThresholdDown[CA_TBL_TIER_UWB];
+        if (pcsForm == CA_TBL_PCS_WEIGHTED)
+        {
+            std::cerr << "; weights " << probe.pcsW1 << " " << probe.pcsW2 << " "
+                      << probe.pcsW3;
+        }
+        std::cerr << std::setprecision(6) << "\n";
     }
 
     CaTblNlosSource nlosSource = CA_TBL_NLOS_LEGACY;
@@ -11734,7 +11898,8 @@ main(int argc, char* argv[])
                                        pcsNlosClassifierArg,
                                        nlosScoreThresholdArg,
                                        relaySlotsArg,
-                                       edgeDownlinkOnFixTierArg);
+                                       edgeDownlinkOnFixTierArg,
+                                       spec);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
