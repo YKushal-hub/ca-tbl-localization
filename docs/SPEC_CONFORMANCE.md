@@ -121,11 +121,12 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 10 |
+| OPT-IN | 11 |
 | PARTIAL | 14 |
-| DIVERGENT | 15 (one of them, row 17, kept) |
+| DIVERGENT | 14 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
+They moved once since the first parsed count (16/10/14/15/2): row 20, DIVERGENT → OPT-IN, when DC-7 landed.
 
 Recount it from the tables. Do not edit the numbers by hand.

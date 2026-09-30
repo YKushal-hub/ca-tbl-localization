@@ -419,6 +419,20 @@ CaTblPolicy::FuseAux()
     }
 }
 
+void
+CaTblPolicy::FuseAuxInflated(double rScale)
+{
+    if (m_ekf.FusePositionCov(m_aux[0],
+                              m_aux[1],
+                              rScale * m_aux[2],
+                              rScale * m_aux[3],
+                              rScale * m_aux[4]))
+    {
+        m_auxFusedLast = true;
+        ++m_auxFused;
+    }
+}
+
 bool
 CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
 {
@@ -1191,14 +1205,34 @@ CaTblPolicy::Step(double dt,
     }
     d.suspect = suspect;
 
-    if (suspect)
+    const bool downweight =
+        suspect && m_config.suspectRecovery == CA_TBL_RECOVERY_DOWNWEIGHT;
+    if (downweight)
+    {
+        // DC-7, the spec's response (Physical 2.6): accepted, flagged, fused at inflated
+        // R, and its PCS downweighted below. Not a rejection, so the rejection run ends.
+        std::vector<double> inflated(varM2);
+        for (double& v : inflated)
+        {
+            v *= m_config.suspectInflateFactor;
+        }
+        m_ekf.Update(meas, inflated);
+        if (auxQueued)
+        {
+            FuseAuxInflated(m_config.suspectInflateFactor);
+        }
+        m_consecutiveRejections = 0;
+        m_downweightedFixes++;
+    }
+    else if (suspect)
     {
         m_consecutiveRejections++;
         // RECOVERY POLICY. NONE is the pre-existing behaviour and the default.
         //
-        // Rejecting is only half a response. RevertToPrior() restores the PRE-UPDATE
-        // covariance, so P does not grow across a rejection run and the filter is
-        // stuck rather than coasting. Because the gate's reference IS the prior, a
+        // Rejecting is only half a response. RevertToPrior() runs before any Update()
+        // of this cycle, so it is a no-op and a rejected cycle is a plain coast (this
+        // comment said until 2026-09-30 that it froze P; see the correction on
+        // CaTblSuspectRecovery). Because the gate's reference IS the prior, a
         // wrong prior makes every honest measurement look anomalous, and the gate
         // holds itself shut -- measured at 22 consecutive cycles on a run with NO
         // fault injected, and 108 / 251 on F1 / F3.
@@ -1275,13 +1309,22 @@ CaTblPolicy::Step(double dt,
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
     const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
-    const double pcs = ComputePcs(traceSigma,
-                                  gdop,
-                                  nLos,
-                                  static_cast<uint32_t>(meas.size()),
-                                  hopCount,
-                                  sigmaGeoM,
-                                  d.nlosScoreFed ? d.nlosScoreTerm : -1.0);
+    double pcs = ComputePcs(traceSigma,
+                            gdop,
+                            nLos,
+                            static_cast<uint32_t>(meas.size()),
+                            hopCount,
+                            sigmaGeoM,
+                            d.nlosScoreFed ? d.nlosScoreTerm : -1.0);
+    if (downweight)
+    {
+        // "Downweight in PCS regardless of raw trace(Sigma)" (Physical 2.6). Form-aware,
+        // as ApplyProvenance should be (sect 1.H item 3): v2 scores can be negative, and
+        // scaling a negative score by a factor < 1 would RAISE it.
+        pcs = (m_config.pcsForm == CA_TBL_PCS_V2)
+                  ? pcs - std::log10(1.0 / m_config.suspectPcsFactor)
+                  : pcs * m_config.suspectPcsFactor;
+    }
 
     d.traceSigma = traceSigma;
     d.gdop = gdop;

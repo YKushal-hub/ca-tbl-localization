@@ -745,6 +745,27 @@ bash scripts/pcs_calibrated_gate.sh "$WORK/g28" || fail G28
 bash scripts/pcs_calibrated_gate_selftest.sh "$WORK/g28" || fail G28
 finish G28
 
+# ---------------- G29: a SUSPECT fix is downweighted, not rejected (DC-7, Physical 2.6)
+# The spec flags a suspect fix, forbids it alone to justify a de-escalation, and has it
+# "downweight[ed] in PCS regardless of raw trace(Sigma)". The default rejects it. Under
+# --suspectRecovery=downweight it is fused at R x --suspectInflateFactor and its PCS is
+# scaled by --suspectPcsFactor. G29 runs the integrity check's unit suite (12 checks),
+# then six runs at NC8's configuration, read by scripts/suspect_downweight_gate.py.
+# Not one suspect fix is rejected, and every one is counted. At inflate 1 and factor 1,
+# downweight IS bounded with N = 1, differing in the trace's `rejected` column only. The
+# PCS factor alone moves pcs, only on suspect cycles, by exactly x 0.5. The inflate
+# factor alone leaves a larger trace(P) at the first suspect cycle. The factor is refused
+# where it would do nothing.
+#
+# Negative fixtures in scripts/suspect_downweight_gate_selftest.sh, built from these
+# runs, including the default's run offered as the downweight run -- the tree before DC-7
+# -- and each factor not applied (rule 6).
+printf '\n--- G29 a SUSPECT fix is downweighted, not rejected (DC-7) ---\n'
+./build/scratch/ns3.47-ca_tbl_integrity_test-optimized || fail G29
+bash scripts/suspect_downweight_gate.sh "$WORK/g29" || fail G29
+bash scripts/suspect_downweight_gate_selftest.sh "$WORK/g29" || fail G29
+finish G29
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
