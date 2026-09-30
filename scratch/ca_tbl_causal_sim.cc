@@ -5034,7 +5034,8 @@ RunArm(CaTblPolicyMode mode,
        bool nlosClassifier,
        bool pcsNlosClassifier,
        double nlosScoreThreshold,
-       bool relaySlots)
+       bool relaySlots,
+       bool edgeDownlinkOnFixTier)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -8079,9 +8080,21 @@ RunArm(CaTblPolicyMode mode,
         // does not compute this fix -- it is sent one -- and that is a frame it
         // must be awake to receive. Only a cycle that produced a fix generates a
         // downlink: a network with nothing to say sends nothing.
+        //
+        // ON THE RADIO THE FIX CAME FROM (TECH_DEBT M.10, decided 2026-09-30). The
+        // gateways that computed a floor-solved fix are the ones that heard the node's
+        // 868 MHz broadcast this cycle; the escalated tier is the link that has just
+        // failed to reach three anchors. So the answer comes back on 868 MHz and is
+        // billed there -- 0.9042 mJ at the defaults, not the 0.2005 mJ a 2.4 GHz frame
+        // costs. fixTier differs from active only on a hybrid arm's floor-solved cycle,
+        // where 868 has already transmitted (rangeTier() billed the broadcast), so this
+        // charges no radio that stayed silent (sect 6). The downlink shares the fix's
+        // radio because that is the link known to have closed to three gateways this
+        // cycle: our choice, not cited. --edgeDownlinkTier=active keeps the old bill on
+        // the active tier.
         if (gatewayEdgeServer && d.hadFix)
         {
-            energy.AccountEdgeServerDownlink(active);
+            energy.AccountEdgeServerDownlink(edgeDownlinkOnFixTier ? fixTier : active);
         }
 
         // sect 49 BATTERY DEPLETION. The measured tag has a finite budget; when it is
@@ -9446,6 +9459,13 @@ main(int argc, char* argv[])
     // energy-only at defaults. Pass false to reproduce anything measured before,
     // results/regen27_* included.
     bool gatewayEdgeServerArg = true;
+    // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
+    // the gateways' fix back is billed on the radio whose measurements produced it, so a
+    // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
+    // on the policy's active tier -- and reproduces the build before it byte-for-byte,
+    // B3 C6's results/regen27_edge/edge included. Read only with --gatewayEdgeServer=true.
+    std::string edgeDownlinkTierSpec = "fix";
+    bool edgeDownlinkOnFixTierArg = true; // resolved from edgeDownlinkTierSpec after Parse()
     // The values ca-tbl-policy.cc already sets, so passing nothing is
     // byte-identical to every run taken before this flag existed.
     double processNoiseStdPosArg = 1.0;
@@ -10192,7 +10212,11 @@ main(int argc, char* argv[])
                  "B3_REGEN_RESULTS.md C6, 20 seeds x 3600 s) all seven accuracy columns "
                  "were byte-identical to node-side estimation on 20/20 seeds, and totalJ "
                  "fell 42.5% on static_868 and 32.9% on fixed_threshold and ca_tbl_full, "
-                 "20/20 each. It is NOT a saving everywhere. Tiers 2 and 3 range by "
+                 "20/20 each. Those two hybrid figures were measured with the downlink "
+                 "on the ACTIVE tier; since 2026-09-30 it is billed on the tier the fix "
+                 "came from (--edgeDownlinkTier), which makes them smaller savings by an "
+                 "amount not yet measured on 20 seeds. It is NOT a saving everywhere. "
+                 "Tiers 2 and 3 range by "
                  "two-way time-of-flight because the endpoints share no clock, so that "
                  "exchange cannot move without the synchronisation TECH_DEBT J.2 records "
                  "as absent; there this only ADDS the downlink, and static_2p4 costs 0.2% "
@@ -10212,6 +10236,31 @@ main(int argc, char* argv[])
                  "this default changed, results/regen27_* included, so pass it to replay "
                  "any earlier sidecar.",
                  gatewayEdgeServerArg);
+    cmd.AddValue("edgeDownlinkTier",
+                 "Which radio the gateways' downlink is billed on, fix or active. READ "
+                 "ONLY WITH --gatewayEdgeServer=true. 'fix' by default since 2026-09-30 "
+                 "(TECH_DEBT M.10, owner decision): the downlink goes on the radio whose "
+                 "measurements produced the fix. That differs from the active tier only "
+                 "on a hybrid arm's floor-solved cycle, where the escalated tier returned "
+                 "fewer than three ranges and the 868 MHz floor supplied the fix. There "
+                 "the answer comes back on 868 MHz, the link that has just reached three "
+                 "gateways, and not on the escalated link that has just failed to. At the "
+                 "defaults that is 0.9042 mJ per floor-solved fix instead of the 0.2005 mJ "
+                 "of a 2.4 GHz frame, or the 0.3224 mJ of a UWB one (ca-tbl-energy-"
+                 "model.cc: a 12-byte payload at SF7, 868 MHz at 125 kHz, 2.4 GHz at "
+                 "800 kHz, one guarded receive window). Only energy moves at defaults, "
+                 "and only on those cycles; --batteryDepleteJ and --uwbArbitration read "
+                 "energy, so under them more can move. On every one of those cycles 868 "
+                 "MHz has already transmitted this cycle's broadcast, so the bill charges "
+                 "no radio that stayed silent (CLAUDE.md sect 6). Putting the answer on "
+                 "the fix's radio is our choice, not cited. 'active' is the bill before "
+                 "2026-09-30: the downlink on the policy's active tier even when the floor "
+                 "supplied the fix, which charged the link that had just failed. With it "
+                 "this build reproduces the build before the change byte-for-byte. B3 "
+                 "C6's hybrid figures (results/regen27_edge/edge, -32.9%) were measured "
+                 "under it, so add --edgeDownlinkTier=active to replay them. Any other "
+                 "value is FATAL.",
+                 edgeDownlinkTierSpec);
     cmd.AddValue("tier1ChargeReplies",
                  "Charge tier 1 for the downlink that carries its ranges back. READ ONLY "
                  "WITH --gatewayEdgeServer=false: since 2026-09-29 the estimator is on "
@@ -10967,6 +11016,28 @@ main(int argc, char* argv[])
                   << " spends its 2.5% tier-1 budget every cycle, so routed frames will be"
                   << " refused by the duty governor\n";
     }
+    // M.10. --edgeDownlinkTier is resolved here. Silent in every case, so no output file,
+    // stdout or stderr line moves with it; under --gatewayEdgeServer=false it is never read.
+    {
+        std::string s = edgeDownlinkTierSpec;
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (s == "fix")
+        {
+            edgeDownlinkOnFixTierArg = true;
+        }
+        else if (s == "active")
+        {
+            edgeDownlinkOnFixTierArg = false;
+        }
+        else
+        {
+            std::cerr << "FATAL: --edgeDownlinkTier must be fix or active, got '"
+                      << edgeDownlinkTierSpec << "'\n";
+            return 1;
+        }
+    }
     // L.2.1. Refused rather than run: with the estimator on the node and no reply billed,
     // the gateways' stamps would reach its filter on frames nobody paid for -- the very
     // billing/observable disagreement the flag exists to close.
@@ -11573,7 +11644,8 @@ main(int argc, char* argv[])
                                        nlosClassifierArg,
                                        pcsNlosClassifierArg,
                                        nlosScoreThresholdArg,
-                                       relaySlotsArg);
+                                       relaySlotsArg,
+                                       edgeDownlinkOnFixTierArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

@@ -37,7 +37,38 @@ WHAT IT CHECKS
 It does not test the SIZE or SIGN of the saving: that is a measurement (B3 C6), and a
 gate that encoded it would turn a finding into a threshold.
 
+WHICH RADIO THE DOWNLINK IS BILLED ON (TECH_DEBT M.10, --active). Since 2026-09-30 the
+downlink is billed on the tier the fix came from (--edgeDownlinkTier=fix), not on the
+active tier (=active, the old bill). The two differ only on a hybrid arm's floor-solved
+fix cycle, where the fix came from the 868 MHz floor while 2.4 GHz or UWB was active; there
+one downlink moves from the active tier onto 868 MHz. Given a third arm_summary.csv, from
+the same binary, seed and duration at --edgeDownlinkTier=active, this checks that decision
+the way checks 1-4 check the estimator location. On disk (rule 9):
+  * PRESENCE -- the bill moved something other than energy, moved a downlink OFF 868 MHz
+    or ONTO a tier other than 868 MHz, charged 868 MHz where it had not transmitted, or
+    moved energy on a row whose arm never had a tier other than 868 active;
+  * ABSENCE -- the default reverted to the active tier, or the fix-tier branch went dead,
+    which shows as no row moving at all.
+  5. Same header and the same (arm, seed) rows, in order, as the defaults file.
+  6. Every column outside the movable set is byte-identical on every row.
+  7. Per row, a downlink can only TRANSFER onto 868 MHz from the tier that was active:
+     j_868 never falls, j_2p4 and j_uwb never rise, and a row that moved at all gains on
+     868 MHz AND loses on 2.4 GHz or UWB -- energy that appears on one side only is a
+     charge from nowhere. Each tier's rx_ and idle_ follow its j_ in direction.
+  8. The sect 6 invariant for the move: a row whose 868 MHz energy rose has tx_868 > 0,
+     so the downlink went onto a radio that transmitted in that run. (The per-cycle form
+     -- 868 MHz ranged on every cycle whose bill moved -- needs the trace and was checked
+     at the change, M.10.) A row with fixCycles == 0, or whose arm had only 868 MHz active
+     (cycles_2p4 == cycles_uwb == 0), is identical in every movable column: there fix tier
+     and active tier cannot differ.
+  9. Reachability: at least one row moved.
+It does not test how many downlinks moved or what each cost; the change measured that
+from the traces (0.9042 mJ onto 868 MHz, 0.2005 mJ off 2.4 GHz, 0.3224 mJ off UWB, per
+floor-solved fix at the defaults), and a gate that encoded it would be a threshold on a
+radio profile.
+
 usage: edge_default_gate.py <arm_summary at defaults> <arm_summary with --gatewayEdgeServer=false>
+                            [--active <arm_summary with --edgeDownlinkTier=active>]
 exit 0 PASS, 1 FAIL, 2 usage.
 """
 import csv
@@ -60,12 +91,108 @@ def read(path):
     return header, rows
 
 
+def check_active(ha, ra, pc):
+    """Checks 5-9: the defaults file against the same run at --edgeDownlinkTier=active.
+    Returns a list of failure strings; empty is a pass."""
+    try:
+        hc, rc = read(pc)
+    except OSError as e:
+        return [f"cannot read the --active input: {e}"]
+    if not hc or hc != ha:
+        return ["the --active file's header differs or is missing -- not the same binary"]
+    if len(rc) != len(ra):
+        return [f"--active row counts differ, {len(ra)} at defaults vs {len(rc)}"]
+    col = {c: i for i, c in enumerate(ha)}
+    for need in ("arm", "seed", "fixCycles", "cycles_2p4", "cycles_uwb", "tx_868"):
+        if need not in col:
+            return [f"no {need} column"]
+    bad = []
+    moved_rows = []
+    moved_cols = set()
+    for n, (x, y) in enumerate(zip(ra, rc), start=2):
+        key = f"{x[col['arm']]} seed {x[col['seed']]}"
+        if (x[col["arm"]], x[col["seed"]]) != (y[col["arm"]], y[col["seed"]]):
+            bad.append(f"--active line {n}: rows are not the same arm and seed ({key} vs "
+                       f"{y[col['arm']]} seed {y[col['seed']]})")
+            continue
+        if len(x) != len(ha) or len(y) != len(ha):
+            bad.append(f"--active line {n}: {key} has the wrong number of fields")
+            continue
+        # 6. nothing but energy
+        for c, i in col.items():
+            if x[i] == y[i]:
+                continue
+            if movable(c):
+                moved_cols.add(c)
+            else:
+                bad.append(f"--active line {n}: {key}: {c} moved, {x[i]} vs {y[i]} -- the "
+                           f"downlink's tier changed something other than energy")
+        moved = any(x[i] != y[i] for c, i in col.items() if movable(c))
+        if not moved:
+            continue
+        moved_rows.append(key)
+        # 8. rows where fix tier and active tier cannot differ
+        if int(float(x[col["fixCycles"]])) == 0:
+            bad.append(f"--active line {n}: {key}: no fix cycles and energy moved -- the "
+                       f"downlink is billed only on a fix")
+        if (int(float(x[col["cycles_2p4"]])) == 0 and int(float(x[col["cycles_uwb"]])) == 0):
+            bad.append(f"--active line {n}: {key}: only 868 MHz was ever active and energy "
+                       f"moved -- there the fix's tier IS the active tier")
+        # 7. a transfer onto 868 MHz from the active tier, never the reverse
+        d = {}
+        for t in TIERS:
+            for pre in MOVABLE_PREFIX:
+                c = f"{pre}{t}"
+                if c in col:
+                    d[c] = float(x[col[c]]) - float(y[col[c]])
+        for pre in MOVABLE_PREFIX:
+            c = f"{pre}868"
+            if d.get(c, 0.0) < 0.0:
+                bad.append(f"--active line {n}: {key}: {c} FELL at defaults ({d[c]:+.9f}) -- "
+                           f"a downlink moved off 868 MHz")
+            for t in ("2p4", "uwb"):
+                c = f"{pre}{t}"
+                if d.get(c, 0.0) > 0.0:
+                    bad.append(f"--active line {n}: {key}: {c} ROSE at defaults "
+                               f"({d[c]:+.9f}) -- a downlink moved onto a tier other than "
+                               f"868 MHz")
+        gain = d.get("j_868", 0.0) > 0.0
+        loss = d.get("j_2p4", 0.0) < 0.0 or d.get("j_uwb", 0.0) < 0.0
+        if gain != loss:
+            bad.append(f"--active line {n}: {key}: energy moved on one side only (j_868 "
+                       f"{d.get('j_868', 0.0):+.9f}, j_2p4 {d.get('j_2p4', 0.0):+.9f}, j_uwb "
+                       f"{d.get('j_uwb', 0.0):+.9f}) -- a moved downlink leaves one tier "
+                       f"and arrives on another")
+        # 8. sect 6: the downlink went onto a radio that transmitted
+        if gain and not float(x[col["tx_868"]]) > 0.0:
+            bad.append(f"--active line {n}: {key}: j_868 rose with tx_868 = "
+                       f"{x[col['tx_868']]} -- a downlink billed on a radio that never "
+                       f"transmitted (sect 6)")
+    # 9. reachability
+    if not moved_rows:
+        bad.append("--active: no row moved -- the downlink is still billed on the active "
+                   "tier (reverted default) or the fix-tier branch never ran")
+    print(f"G21 --active rows whose energy moved: {len(moved_rows)} "
+          f"({', '.join(moved_rows)}); columns that moved: {sorted(moved_cols)}")
+    return bad
+
+
 def main(argv):
-    if len(argv) != 3:
+    args = list(argv[1:])
+    pc = None
+    if "--active" in args:
+        k = args.index("--active")
+        if k + 1 >= len(args):
+            print("usage: --active needs a file")
+            return 2
+        pc = args[k + 1]
+        del args[k:k + 2]
+    if len(args) != 2:
         print("usage: edge_default_gate.py <arm_summary at defaults> "
-              "<arm_summary with --gatewayEdgeServer=false>")
+              "<arm_summary with --gatewayEdgeServer=false> "
+              "[--active <arm_summary with --edgeDownlinkTier=active>]")
         return 2
-    pa, pb = argv[1], argv[2]
+    pa, pb = args[0], args[1]
     try:
         ha, ra = read(pa)
         hb, rb = read(pb)
@@ -132,6 +259,8 @@ def main(argv):
         bad.append("no row has a fix cycle -- the edge path cannot have been exercised")
     print(f"G21 rows with a fix: {fixed_rows}; rows whose energy moved: {moved_rows}; "
           f"columns that moved: {sorted(moved_cols)}")
+    if pc is not None:
+        bad.extend(check_active(ha, ra, pc))
     if bad:
         for b in bad[:12]:
             print(f"G21 FAIL: {b}")
@@ -139,6 +268,9 @@ def main(argv):
             print(f"G21 FAIL: ... and {len(bad) - 12} more")
         return 1
     print("G21 PASS: only energy moved, on every row with a fix and on no row without one")
+    if pc is not None:
+        print("G21 PASS: the downlink is billed on the fix's tier -- it moved onto 868 MHz "
+              "from the active tier, on energy only, and only where 868 MHz transmitted")
     return 0
 
 

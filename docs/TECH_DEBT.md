@@ -1176,6 +1176,9 @@ produce, so each is a change of its own, with its own null control:
   the tree, `results/regen27_*` included, was produced with the estimator on the node; to
   replay one, add `--gatewayEdgeServer=false`. An open question the review raised about
   which radio the downlink is billed on is M.10 (a DECISION since 2026-09-30).
+  *Decided 2026-09-30:* the downlink is billed on the fix's tier by default
+  (`--edgeDownlinkTier`). To replay an edge-server run from before that date, add
+  `--edgeDownlinkTier=active`.
 - **L.2.4 — PARTIAL.** `hopDepth` takes 1 and 2 on relayed legs, beside the direct anchors'
   0, in `relay_chain_*.csv` under `--relayChain --relaySlots --maxRelayDepth=2` (`d24690c`).
   So the done-when holds in the relay-chain log. It does not hold where PCS reads a hop
@@ -1203,7 +1206,7 @@ control, or is withdrawn.
 | The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing. **→ 2026-09-29: WITHDRAWN in the shipped default (B3 C1, no population). With the evidence gate off, the witness lowers energy on 20/20 seeds, but it acts as a near-blanket veto and no detection claim follows (C1_NOGATE)** — see below | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
 | Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1. **→ 2026-09-29: still no population for the claim. Depth 2 is now reachable in the relay chain, but PCS's hop input is a literal 0** — see below | L.1.2 then a registered PCS campaign |
 | *(row added 2026-09-29)* The mesh carries availability | **supported (B3 C5).** `fixCycles / steps` 0.041 < 0.319 < 0.647 (WAN only < sparse < WAN + mesh); WAN + mesh minus WAN only is positive on 20/20 seeds, p = 1.9×10⁻⁶. The availability belongs to the mesh, not to tiering | — |
-| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3). *2026-09-30:* the downlink-tier DECISION (M.10) would move the two hybrid figures, not `static_868`'s |
+| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3). *2026-09-30:* the downlink-tier DECISION (M.10) would move the two hybrid figures, not `static_868`'s. *Decided the same day:* the downlink is billed on the fix's tier by default. The two hybrid figures describe `--edgeDownlinkTier=active` and have not been re-measured |
 | *(row added 2026-09-29)* An ideal IMU collapses the error tail | **supported as a CEILING, never as a system result (B3 C7).** cep95 median: `static_uwb` 8 413 → 17 m, `static_2p4` 27 151 → 537 m, both 20+/0−. `ca_tbl_full` 11+/9−, not significant | A measured SHS error model (K.9) |
 
 **Before any of these can be re-stated, two things must happen and they are not optional:**
@@ -1520,7 +1523,7 @@ counter reports that message type. The comment at `scratch/ca_tbl_causal_sim.cc:
 (at `ff4f8bb`) still says "Nothing here sets mobility state … the receding branch never
 runs". It has been false since `50a229a`.
 
-### M.10 Which radio the gateway-estimator downlink is billed on — DECISION
+### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
 *Filed on 2026-09-29 as "an open question, not an established defect"; the review's
 finding is filed below, 2026-09-30.*
@@ -1567,6 +1570,80 @@ is billed as a 2.4 GHz downlink.
 **DECISION:** bill the downlink on the tier the fix came from, or on the active tier as
 now. Until it is taken, every hybrid-arm energy figure under the edge setting carries this
 caveat. The accuracy figures do not.
+
+**DECIDED 2026-09-30 (owner: "fix them all"): the downlink is billed on the tier the fix
+came from.** The new flag `--edgeDownlinkTier=fix|active` defaults to `fix`. It is read only
+with `--gatewayEdgeServer=true`. `active` keeps the old bill, and any other value is FATAL.
+The two differ only on a hybrid arm's floor-solved fix cycle. On one of those, the downlink
+moves off the active tier and onto 868 MHz. Checked at the change against `fab313c` (the
+commit before it), frozen at `~/catbl_prev_m10`:
+
+- *The old value reproduces the old commit.* `--edgeDownlinkTier=active` against `fab313c`
+  with no flag is byte-identical in 11 configurations, in every output file, stdout and
+  stderr:
+  - NC1's and NC2's flags, and seed 11 × 900 s with all arms;
+  - NC2's flags with `--uwbArbitration`;
+  - NC1's flags with `--tier1Tdoa`, with `--relayedRanging --nTags=3`, and with
+    `--batteryDepleteJ=4.5`;
+  - two finder regimes, and a third with the evidence gate off, where the hybrid arms are
+    UWB-active;
+  - C6's edge cell at seed 7 × 3600 s. This run also reproduces the seed-7 rows of
+    `results/regen27_edge/edge/arm_summary.csv` byte-for-byte.
+
+  `~/catbl_ref_edge/nc.sh` passes with `--edgeDownlinkTier=active` (NC1 7/7, NC2 2/2).
+- *The node-side setting does not move.* `--gatewayEdgeServer=false` passes
+  `~/catbl_ref/nc.sh` against `084a7ff`, with and without `--edgeDownlinkTier=active`.
+- *What moves at the default.* Only energy, only on hybrid arms, and only on floor-solved
+  fix cycles:
+  - `arm_summary.csv`: `totalJ`, `accuracyPerJoule`, and the `j_`, `rx_` and `idle_`
+    columns on 868 MHz and on the active tier (2.4 GHz, or UWB where it was active);
+  - the traces: `cumJ`;
+  - stdout: the arm table's energy and acc/J columns, and the tier-1 rx count under
+    `--tier1Tdoa`.
+
+  `static_868`, `static_2p4` and `static_uwb` are byte-identical in every configuration,
+  which control flow requires. `fixTier` differs from `active` only when `usedFloor` is
+  set, and `runFloor` is false on a static arm. The bill is accounting only, so both
+  settings make the same engine evaluations and their magnitudes compare (rule 8 does not
+  bite).
+- *Recounted from the traces (rule 3).* In every traced configuration, `cumJ` at `fix` minus
+  `cumJ` at `active` steps on exactly the rows with `usedFloor=1` and `hadFix=1`, and on no
+  other row.
+  - The step is 0.703675 mJ where 2.4 GHz was active and 0.581780 mJ where UWB was.
+  - Per moved downlink, `arm_summary.csv` gives +0.904183 mJ on 868 MHz, −0.200508 mJ on
+    2.4 GHz and −0.322403 mJ on UWB.
+  - At NC1, 230 downlinks move on `ca_tbl_full` (the review's figure) and 234 on
+    `fixed_threshold`.
+- *The §6 invariant on those cycles.* Every row whose bill moved has `floorRanged=1`, which
+  means 868 MHz had transmitted its broadcast that cycle. That is 3 568 of 3 568 rows over
+  the nine traced configurations. The downlink now lands on the radio whose ranges made the
+  fix, and never on a radio that stayed silent.
+- *Where energy is an input, more moves.* With `--batteryDepleteJ=4.5` on NC1's flags, the
+  hybrid arms' batteries run out earlier:
+  - `fixed_threshold` at 780.0 s instead of 812.5 s;
+  - `ca_tbl_full` at 657.5 s instead of 672.5 s.
+
+  Their accuracy, tier and MAC columns then move too. With `--uwbArbitration` and one
+  requester, nothing but energy moved.
+- *C6: one seed, an illustration only.* At seed 7 × 3600 s, C6's edge cell moves 943
+  downlinks on `fixed_threshold` and 946 on `ca_tbl_full`. Against node-side estimation,
+  their totalJ saving goes from −32.30 % to −30.13 % and from −31.64 % to −29.53 %.
+  `static_868` (−42.15 %) and `static_2p4` (+0.13 %) do not move. The registered 20-seed
+  figures (−32.9 %) describe the old bill. Re-measuring them under the new default needs a
+  registered C6 re-run, which has not been done.
+- *Gates.* G21 gains a third input: G3's seed and duration at `--edgeDownlinkTier=active`.
+  Against G3's run, only energy may move, only as a transfer onto 868 MHz from the active
+  tier, and only on rows where 868 MHz transmitted. At least one row must move, so a
+  reverted default goes red. The self-test gains P1 and N8–N14. N8 is the active-tier run
+  offered as the defaults. All 17 fixtures behave as expected. No other gate bills the
+  downlink on a floor-solved fix:
+  - G6 pins `--gatewayEdgeServer=false`;
+  - G19's edge run uses `static_868` only;
+  - G2–G5 compare runs of one binary, never a tracked edge-server result.
+- *Results before it.* No `results/` directory moves. The only tracked edge-server cells,
+  `results/regen27_edge/edge`, describe `--edgeDownlinkTier=active`, which reproduces them.
+  Every hybrid-arm energy figure with the edge setting recorded before 2026-09-30
+  describes the old bill.
 
 ### M.11 Stale numbers in the rules and setup documents
 

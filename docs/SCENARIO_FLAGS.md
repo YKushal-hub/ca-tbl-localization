@@ -1,15 +1,22 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 142 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 143 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
-unchanged. **One row has been regenerated since:** `--relaySlots` (row 126 of §3, and its §1
-row), whose default moved from `false` to `auto` on 2026-09-30. A fresh `--PrintHelp`
-differs from the `ff4f8bb` one in that row only, and in no name.
+unchanged. **Two rows have changed since, both on 2026-09-30, and §3 was regenerated for
+each:**
+
+- `--relaySlots` (row 127 of §3, and its §1 row): its default moved from `false` to
+  `auto`.
+- `--edgeDownlinkTier` (row 97 of §3, and its §1 row): added with its default, `fix`
+  (M.10). Every row after it moved down one.
+
+A fresh `--PrintHelp` differs from the `ff4f8bb` one in those two rows only, and adds the
+one name.
 
 **Why this file exists.** No tracked document listed the scenario's flags.
 `HANDOFF_2026_09_09.md` §8 asked for `--gwArcDeg`, `--gwArcCentreDeg`, `--trailDeviateSide`
 and `--searchLaunchAtS` to get "a line in whichever document lists scenario flags", and
-there was no such document. Those four are rows 84, 85, 86 and 113 of §3.
+there was no such document. Those four are rows 84, 85, 86 and 114 of §3.
 
 **It is a snapshot, not the ground truth.** `CLAUDE.md` §8 puts the ground truth in the
 `cmd.AddValue` block of `scratch/ca_tbl_causal_sim.cc` and in the `run_id.txt` sidecars.
@@ -38,9 +45,14 @@ Two checks found what §1 lists:
 
 All of these are on `work/2026-09-27-spec-b1`. Every added flag is default off, and its
 off state was null-controlled against the frozen `084a7ff` reference (`docs/TECH_DEBT.md`
-L.1 status). The one exception since is `--relaySlots`, which since 2026-09-30 is on in
-relayed runs and still off in every other run (its row). "FATAL" means the run is refused
-with exit 1 rather than run with a precondition missing.
+L.1 status). There are two exceptions since, both from 2026-09-30:
+
+- `--relaySlots` is on in relayed runs, and still off in every other run.
+- `--edgeDownlinkTier` was added with its new bill as the default. Its old value, `active`,
+  reproduces the commit before it.
+
+Each has its own row. "FATAL" means the run is refused with exit 1 rather than run with a
+precondition missing.
 
 | flag | type | default | commit | what it does | preconditions and notes |
 |---|---|---|---|---|---|
@@ -54,7 +66,8 @@ with exit 1 rather than run with a precondition missing.
 | `--nlosClassifier` | bool | `false` | `86e43f2` | Scores every ranged link with the spec's tier-specific NLOS score, against the channel model's own draw. It writes `nlos_links_*` and `nlos_summary_*` (L.2.2) | The UWB CIR confusion matrix cannot fill under the channel model (M.2) |
 | `--pcsNlosClassifier` | bool | `false` | `86e43f2` | PCS term 3 reads the classifier's score instead of the `--nlosSource` tag | Needs `--nlosClassifier=true`, and is FATAL under `--pcsForm=v2`. CAL-01 ran with it on |
 | `--nlosScoreThreshold` | double | `0.5` | `86e43f2` | The score at which the confusion matrix calls a link NLOS. PCS reads the continuous score, never the verdict | Ours, uncited. Must lie in (0, 1), or FATAL |
-| `--gatewayEdgeServer` | bool | **`true`**, was `false` | `db2ac2e` | Runs the estimator on the gateways. At defaults only the energy columns move (L.2.3) | `=false` reproduces every result in `results/`. The downlink-tier question is a pending DECISION (M.10) |
+| `--gatewayEdgeServer` | bool | **`true`**, was `false` | `db2ac2e` | Runs the estimator on the gateways. At defaults only the energy columns move (L.2.3) | `=false` reproduces every result in `results/` except C6's edge cell, which ran with it `true`. Which radio the downlink is billed on is `--edgeDownlinkTier` (M.10, decided 2026-09-30) |
+| `--edgeDownlinkTier` | string: `fix`, `active` | **`fix`**; the old bill is `active` | added 2026-09-30, with this default | Picks which radio the gateways' downlink is billed on. `fix` bills the radio whose measurements produced the fix, so a hybrid arm's floor-solved fix is an 868 MHz downlink (0.9042 mJ) instead of one on the active tier (0.2005 mJ on 2.4 GHz, 0.3224 mJ on UWB) (M.10) | Read only with `--gatewayEdgeServer=true`. `=active` reproduces the commit before the change byte-for-byte, and C6's `results/regen27_edge/edge` (seed 7 checked). At defaults only energy moves, on hybrid arms' floor-solved fix cycles. Any other value is FATAL. **Owner decision taken 2026-09-30** (M.10) |
 
 ## 2. Help text corrected, default unchanged
 
@@ -166,49 +179,50 @@ prints it.
 | 94 | `--processNoiseStdPos` | `1` |
 | 95 | `--processNoiseStdVel` | `0.5` |
 | 96 | `--gatewayEdgeServer` | `true` |
-| 97 | `--tier1ChargeReplies` | `true` |
-| 98 | `--bidirectionalDigest` | `false` |
-| 99 | `--finderPosSigma` | `0` |
-| 100 | `--finderPseudoAnchor` | `false` |
-| 101 | `--hopProvenanceForm` | `0` |
-| 102 | `--hopPenalty` | `0` |
-| 103 | `--imuCrossCheck` | `false` |
-| 104 | `--imuDriftMps` | `0.15` |
-| 105 | `--imuConsistencyK` | `3` |
-| 106 | `--imuSigmaFloorM` | `5` |
-| 107 | `--corroborationCheck` | `false` |
-| 108 | `--corroborationK` | `3` |
-| 109 | `--corroborationRangeSigmaM` | `30` |
-| 110 | `--finderDigestPeriodS` | `30` |
-| 111 | `--finderSpeed` | `-1` |
-| 112 | `--searchLaunchOnLoss` | `0` |
-| 113 | `--searchLaunchAtS` | `0` |
-| 114 | `--searchLaunchSigmaM` | `0` |
-| 115 | `--finderStaleSteerBound` | `0` |
-| 116 | `--finderMode` | `1` |
-| 117 | `--nFinders` | `0` |
-| 118 | `--nGateways` | `0` |
-| 119 | `--gwRingFrac` | `0.6` |
-| 120 | `--topology` | `0` |
-| 121 | `--sitingMode` | `0` |
-| 122 | `--relayedRanging` | `false` |
-| 123 | `--maxRelayDepth` | `1` |
-| 124 | `--relayVarBudget` | `0` |
-| 125 | `--relayChain` | `false` |
-| 126 | `--relaySlots` | `auto` |
-| 127 | `--fixRouting` | `false` |
-| 128 | `--fixRoutingConfidence` | `false` |
-| 129 | `--tier1Tdoa` | `false` |
-| 130 | `--tdoaPpsSigmaNs` | `20` |
-| 131 | `--nlosClassifier` | `false` |
-| 132 | `--pcsNlosClassifier` | `false` |
-| 133 | `--nlosScoreThreshold` | `0.5` |
-| 134 | `--relayTier` | `1` |
-| 135 | `--nTags` | `1` |
-| 136 | `--identityQueryPeriodS` | `0` |
-| 137 | `--identityQueryTarget` | `2` |
-| 138 | `--uwbArbitration` | `false` |
-| 139 | `--arbBatteryCapJ` | `1000` |
-| 140 | `--anchorGrantGossipS` | `0` |
-| 141 | `--suspectForcesEscalation` | `true` |
-| 142 | `--nlosSource` | `legacy` |
+| 97 | `--edgeDownlinkTier` | `fix` |
+| 98 | `--tier1ChargeReplies` | `true` |
+| 99 | `--bidirectionalDigest` | `false` |
+| 100 | `--finderPosSigma` | `0` |
+| 101 | `--finderPseudoAnchor` | `false` |
+| 102 | `--hopProvenanceForm` | `0` |
+| 103 | `--hopPenalty` | `0` |
+| 104 | `--imuCrossCheck` | `false` |
+| 105 | `--imuDriftMps` | `0.15` |
+| 106 | `--imuConsistencyK` | `3` |
+| 107 | `--imuSigmaFloorM` | `5` |
+| 108 | `--corroborationCheck` | `false` |
+| 109 | `--corroborationK` | `3` |
+| 110 | `--corroborationRangeSigmaM` | `30` |
+| 111 | `--finderDigestPeriodS` | `30` |
+| 112 | `--finderSpeed` | `-1` |
+| 113 | `--searchLaunchOnLoss` | `0` |
+| 114 | `--searchLaunchAtS` | `0` |
+| 115 | `--searchLaunchSigmaM` | `0` |
+| 116 | `--finderStaleSteerBound` | `0` |
+| 117 | `--finderMode` | `1` |
+| 118 | `--nFinders` | `0` |
+| 119 | `--nGateways` | `0` |
+| 120 | `--gwRingFrac` | `0.6` |
+| 121 | `--topology` | `0` |
+| 122 | `--sitingMode` | `0` |
+| 123 | `--relayedRanging` | `false` |
+| 124 | `--maxRelayDepth` | `1` |
+| 125 | `--relayVarBudget` | `0` |
+| 126 | `--relayChain` | `false` |
+| 127 | `--relaySlots` | `auto` |
+| 128 | `--fixRouting` | `false` |
+| 129 | `--fixRoutingConfidence` | `false` |
+| 130 | `--tier1Tdoa` | `false` |
+| 131 | `--tdoaPpsSigmaNs` | `20` |
+| 132 | `--nlosClassifier` | `false` |
+| 133 | `--pcsNlosClassifier` | `false` |
+| 134 | `--nlosScoreThreshold` | `0.5` |
+| 135 | `--relayTier` | `1` |
+| 136 | `--nTags` | `1` |
+| 137 | `--identityQueryPeriodS` | `0` |
+| 138 | `--identityQueryTarget` | `2` |
+| 139 | `--uwbArbitration` | `false` |
+| 140 | `--arbBatteryCapJ` | `1000` |
+| 141 | `--anchorGrantGossipS` | `0` |
+| 142 | `--suspectForcesEscalation` | `true` |
+| 143 | `--nlosSource` | `legacy` |
