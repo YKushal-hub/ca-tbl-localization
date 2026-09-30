@@ -9,6 +9,11 @@
 #
 # The CSV fixtures each remove or falsify ONE thing the gate claims to check, so a gate that
 # only tested for a non-empty file, or only counted divergences, would pass most of them.
+#
+# P3-P4 and N11-N16 hold --require-round, which G18 and G18b pass since --relaySlots became
+# the default for relayed runs (2026-09-30). N14 is its absence form, run for real: G18's own
+# flags with --relaySlots=false, the old default, which must pass without the requirement
+# (P4) and fail with it.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
@@ -111,6 +116,29 @@ printf '%s\n' "$H" \
     > "$D/n10.csv"
 check "N10 G18b: the diverged hop was never carried" 1 --require-confidence "$D/n10.csv"
 
+# ---- --require-round: G18 and G18b test the --relaySlots default (C5_INSTANT, on in every
+# relayed run since 2026-09-30), so the relays' round must be seen in the log. The round
+# line is G18's own at the default (static_2p4, seed 7, 600 s, --nTags=6, five relays).
+RND='    C5_INSTANT relay round: slot 50.0 ms x 5 = 250.0 ms before the instant, of a 2500.0 ms cycle; anchor polls moved 436 in 360 bursts; relay-to-relay moved 0, at most 0 of 0 slots in a cycle'
+summary "$D/p3.log" 4 1
+printf '%s\n' "$RND" >> "$D/p3.log"
+check "P3 P1 rows, log with the round, --require-round" 0 --require-round \
+    --stdout "$D/p3.log" "$D/p1.csv"
+check "N11 P1 rows, log without the round (--relaySlots=false)" 1 --require-round \
+    --stdout "$D/p1.log" "$D/p1.csv"
+summary "$D/n12.log" 4 1
+printf '%s\n' "${RND/anchor polls moved 436 in 360 bursts/anchor polls moved 0 in 0 bursts}" \
+    >> "$D/n12.log"
+check "N12 the round moved no anchor poll (inert)" 1 --require-round \
+    --stdout "$D/n12.log" "$D/p1.csv"
+summary "$D/n13.log" 4 1
+printf '%s\n' "${RND/slot 50.0 ms x 5 = 250.0 ms/slot 50.0 ms x 60 = 3000.0 ms}" >> "$D/n13.log"
+check "N13 a round longer than the cycle" 1 --require-round --stdout "$D/n13.log" "$D/p1.csv"
+summary "$D/n15.log" 4 1
+printf '%s\n' "$RND" "$RND" >> "$D/n15.log"
+check "N15 two round lines (two arms)" 1 --require-round --stdout "$D/n15.log" "$D/p1.csv"
+check "N16 --require-round with no log to read (usage)" 2 --require-round "$D/p1.csv"
+
 # N0 / N0b -- the real scenario. Same flags as the gate's run, shorter: with the flag off
 # no router is constructed and no log is written however long it runs, and the ETX log
 # needs only to exist to be refused by G18b.
@@ -139,6 +167,29 @@ if [ -x "$BIN" ]; then
     fi
 else
     printf '  G18 ERROR %-58s no binary at %s\n' "N0 flag-off run" "$BIN"
+    fail=$((fail + 1))
+fi
+
+# N14 -- G18's own run, full length, with --relaySlots=false: the default before
+# 2026-09-30, byte-identical to G18's run at 7a36b63. It is a good G18 run in every other
+# respect -- G18 was green on it -- so it must PASS without --require-round and FAIL with
+# it: the pair shows the round requirement, and nothing else, is what refuses it.
+if [ -x "$BIN" ]; then
+    mkdir -p "$D/n14"
+    "$BIN" --arms=static_2p4 --seed=7 --duration=600 --trace=false --relayedRanging=true \
+        --nTags=6 --fixRouting=true --relaySlots=false --outdir="$D/n14" > "$D/n14.log" 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '  G18 FAIL  %-58s sim exit=%d\n' "N14 G18 run, --relaySlots=false" "$rc"
+        fail=$((fail + 1))
+    else
+        check "P4 G18 run, --relaySlots=false, no --require-round" 0 \
+            --stdout "$D/n14.log" "$D/n14/fix_routing_static_2p4_seed7.csv"
+        check "N14 G18 run, --relaySlots=false, --require-round" 1 --require-round \
+            --stdout "$D/n14.log" "$D/n14/fix_routing_static_2p4_seed7.csv"
+    fi
+else
+    printf '  G18 ERROR %-58s no binary at %s\n' "N14 G18 run, --relaySlots=false" "$BIN"
     fail=$((fail + 1))
 fi
 

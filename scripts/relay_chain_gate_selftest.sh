@@ -15,9 +15,11 @@
 # 310, 311 and 326). Both are positive controls for G17b.
 #
 # C5_INSTANT fixtures (N14-N19) hold G17b's --stdout recount to the round's own counters.
-# N14 is the absence form, run for real: G17b's own flags with --relaySlots OFF, which is
-# the state every --relayedRanging run was in before it -- no relay-to-relay exchange
-# delivers, nothing fuses, and the log carries no round.
+# N14 is the absence form, run for real: G17b's own flags with --relaySlots=false, which is
+# the state every --relayedRanging run was in before d24690c and the default until
+# 2026-09-30 -- no relay-to-relay exchange delivers, nothing fuses, and the log carries no
+# round. Since that date G17 and G17b name no --relaySlots and run at the default, so N14
+# is also what G17b would see if the default ever reverted: it must stay red.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
@@ -155,7 +157,7 @@ RND='    C5_INSTANT relay round: slot 50.0 ms x 9 = 450.0 ms before the instant,
 printf '%s\n' "$L12" "$RND" > "$D/p5.log"
 check "P5 P1 rows, log consistent, G17b --stdout" 0 "$D/p1.csv" --require-depth2 --stdout "$D/p5.log"
 printf '%s\n' "$L12" > "$D/n15.log"
-check "N15 no round line (--relaySlots off)" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n15.log"
+check "N15 no round line (--relaySlots=false)" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n15.log"
 printf '%s\n' "$L12" "${RND/relay-to-relay moved 1,/relay-to-relay moved 0,}" > "$D/n16.log"
 check "N16 a relay-to-relay exchange left at the instant" 1 "$D/p1.csv" --require-depth2 --stdout "$D/n16.log"
 printf '%s\n' "$L12" "${RND/slot 50.0 ms x 9 = 450.0 ms/slot 60.0 ms x 50 = 3000.0 ms}" > "$D/n17.log"
@@ -185,26 +187,27 @@ else
     fail=$((fail + 1))
 fi
 
-# N14 -- G17b's own run with --relaySlots OFF: the chain is on, the round is not. Before
-# C5_INSTANT this was the only state there was. It must fail G17b on its rows (nothing
-# fuses) and on its log (no round).
+# N14 -- G17b's own run with --relaySlots=false: the chain is on, the round is not. Before
+# C5_INSTANT this was the only state there was, and until 2026-09-30 it was the default,
+# so the flag is named explicitly: omitted, the run now gets the round and is G17b's own.
+# It must fail G17b on its rows (nothing fuses) and on its log (no round).
 if [ -x "$BIN" ]; then
     mkdir -p "$D/n14"
     "$BIN" --arms=static_2p4 --seed=7 --duration=600 --trace=false --boxHalf=200 --nTags=4 \
         --relayedRanging=true --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 \
-        --outdir="$D/n14" > "$D/n14.log" 2>&1
+        --relaySlots=false --outdir="$D/n14" > "$D/n14.log" 2>&1
     rc=$?
     if [ "$rc" -ne 0 ]; then
-        printf '  G17 FAIL  %-56s sim exit=%d\n' "N14 G17b run, --relaySlots off" "$rc"
+        printf '  G17 FAIL  %-56s sim exit=%d\n' "N14 G17b run, --relaySlots=false" "$rc"
         fail=$((fail + 1))
     else
-        check "N14 G17b run, --relaySlots off: rows" 1 \
+        check "N14 G17b run, --relaySlots=false: rows" 1 \
             "$D/n14/relay_chain_static_2p4_seed7.csv" --require-depth2
-        check "N14 G17b run, --relaySlots off: rows + log" 1 \
+        check "N14 G17b run, --relaySlots=false: rows + log" 1 \
             "$D/n14/relay_chain_static_2p4_seed7.csv" --require-depth2 --stdout "$D/n14.log"
     fi
 else
-    printf '  G17 ERROR %-56s no binary at %s\n' "N14 G17b run, --relaySlots off" "$BIN"
+    printf '  G17 ERROR %-56s no binary at %s\n' "N14 G17b run, --relaySlots=false" "$BIN"
     fail=$((fail + 1))
 fi
 

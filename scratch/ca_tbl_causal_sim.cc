@@ -101,6 +101,7 @@
 #include "ns3/lora-uwb-physics-parameters.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <deque>
@@ -2700,7 +2701,12 @@ struct CaTblTagState
 };
 
 /**
- * C5_INSTANT -- THE RELAYS' ROUND, GIVEN INSTANTS OF ITS OWN, behind --relaySlots.
+ * C5_INSTANT -- THE RELAYS' ROUND, GIVEN INSTANTS OF ITS OWN, under --relaySlots.
+ *
+ * ON BY DEFAULT IN EVERY RELAYED RUN SINCE 2026-09-30 (--relaySlots=auto; the owner's
+ * decision on TECH_DEBT M.1). It was default off from d24690c until then, so every relayed
+ * run before that date without an explicit --relaySlots=true was measured under the defect
+ * below. --relaySlots=false restores it, byte-for-byte against the build before the change.
  *
  * THE DEFECT. Every exchange a cycle makes by calling an engine directly carried the same
  * `now`, and the engines' interference registry (lora-interference-submodule.cc:49-162)
@@ -2755,7 +2761,8 @@ struct CaTblTagState
  * about 16% of exchanges on 2.4 GHz and less on the one tier: that is the sliver of MAC
  * interference the relays give up in the round. The measured tag keeps its sliver.
  *
- * Off, this is never constructed: every instant is `now` and every charge time `t`.
+ * Off -- --relaySlots=false, or any run without a relay to schedule -- this is never
+ * constructed: every instant is `now` and every charge time `t`.
  */
 struct RelayRound
 {
@@ -2910,7 +2917,7 @@ RelayRound::Report(std::ostream& os, double dt) const
  * pays, and the answering relay is not charged, as an answering gateway is not. No other
  * tier and no other account is touched; the measured tag's energy is not.
  *
- * WITHOUT --relaySlots THE EXCHANGE IS STAMPED AT THE CYCLE'S ONE INSTANT, like every C5
+ * UNDER --relaySlots=false THE EXCHANGE IS STAMPED AT THE CYCLE'S ONE INSTANT, like every C5
  * exchange. Every ProcessTransmission in a cycle then carries the same `now`, and the
  * engines' interference registry keys on time overlap and transmitter id alone, so every
  * relay's exchanges collide with every exchange registered before them in that instant.
@@ -2918,7 +2925,8 @@ RelayRound::Report(std::ostream& os, double dt) const
  * fix in the same cycle ONCE, 17 relay-to-relay exchanges were possible and made and none
  * delivered a range, so no chain ever fused and depth 2 never arose. That scheduling
  * belongs to C5, for every relay exchange and not only this one; --relaySlots (RelayRound,
- * C5_INSTANT) gives each exchange here the next slot of the relays' round.
+ * C5_INSTANT) gives each exchange here the next slot of the relays' round, and has been on
+ * by default in relayed runs since 2026-09-30.
  *
  * Off, this is never constructed, the relays step exactly as before, and not one engine
  * evaluation is added. Every relayed-range decision it sees -- both legs -- is written to
@@ -9391,7 +9399,10 @@ main(int argc, char* argv[])
     uint32_t maxRelayDepthArg = 1;
     double relayVarBudgetM2Arg = 0.0;
     bool relayChainArg = false; // L.1.2, off: every relay stays at depth 0
-    bool relaySlotsArg = false; // C5_INSTANT, off: every relay exchange at the cycle instant
+    // C5_INSTANT. "auto" (the default since 2026-09-30): the relays' round has instants of its
+    // own in every run with a relay to schedule. "false" is every relayed run before that.
+    std::string relaySlotsSpec = "auto";
+    bool relaySlotsArg = false; // resolved from relaySlotsSpec after cmd.Parse()
     bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
@@ -10459,7 +10470,11 @@ main(int argc, char* argv[])
                  "measured node: it ranges, filters and is charged, but does not "
                  "escalate, because a relay that escalated would earn its P_B on a "
                  "different tier between one report and the next and the error model "
-                 "does not cover that.",
+                 "does not cover that. With two or more tags, TRUE also turns on "
+                 "--relaySlots by default since 2026-09-30, so the relays' exchanges get "
+                 "instants of their own instead of colliding at the cycle's one instant; "
+                 "--relaySlots=false restores the collision every relayed run before that "
+                 "date was measured under.",
                  relayedRangingArg);
     cmd.AddValue("maxRelayDepth",
                  "Hard ceiling on how many hops a relayed measurement may have crossed. "
@@ -10504,8 +10519,10 @@ main(int argc, char* argv[])
                  "all when anchors plus holders cannot reach three. KNOWN LIMIT: without "
                  "--relaySlots every relay exchange shares the cycle's one instant and "
                  "the engines treat them as simultaneous, which in every regime probed "
-                 "has kept any chain from fusing -- see the RelayChain comment; gate G17b "
-                 "runs with --relaySlots. REQUIRES "
+                 "has kept any chain from fusing -- see the RelayChain comment. Since "
+                 "2026-09-30 --relaySlots is on by default in every relayed run, so this "
+                 "limit binds only under an explicit --relaySlots=false; gates G17 and "
+                 "G17b run at the default. REQUIRES "
                  "--relayedRanging=true and --nTags >= 3 (two relays): with fewer, no "
                  "relay has a filter or no relay has another to lean on, every count "
                  "would be a structural zero, and that combination is refused rather "
@@ -10513,16 +10530,27 @@ main(int argc, char* argv[])
                  relayChainArg);
     cmd.AddValue("relaySlots",
                  "Give the relays' ranging round instants of its own inside each cycle "
-                 "(C5_INSTANT). FALSE (default) is every result so far, and EVERY "
-                 "--relayedRanging NUMBER TO DATE WAS MEASURED WITHOUT IT: every exchange "
-                 "a cycle makes directly is then stamped at the cycle's one instant, and "
-                 "the engines' interference registry decides overlap on time and "
-                 "transmitter alone, at the interferer's own link power, so each relay's "
-                 "polls collide with the other relays' and the measured tag's. With only "
+                 "(C5_INSTANT). 'auto' (DEFAULT since 2026-09-30, the owner's decision on "
+                 "TECH_DEBT M.1) turns it ON in every run that has a relay to schedule -- "
+                 "--relayedRanging=true and --nTags >= 2 -- and leaves it off in every "
+                 "other run, where nothing is constructed and the output is byte-identical "
+                 "to the build before. 'true' asks for it and is refused where there is no "
+                 "relay; 'false' turns it off, which is the old default, and reproduces the "
+                 "build before the change byte-for-byte in relayed runs (13 configurations "
+                 "checked, TECH_DEBT M.1). A bare --relaySlots means true, as it did when "
+                 "this was a boolean. WHY ON: off, every exchange a cycle makes directly "
+                 "is stamped at the cycle's one instant, and the engines' interference "
+                 "registry decides overlap on time and transmitter alone, at the "
+                 "interferer's own link power, so each relay's polls collide with the "
+                 "other relays' and the measured tag's. That is an artefact of calling the "
+                 "engines at one timestamp, not a channel effect the model means to have: "
+                 "the code makes those exchanges one after another, and one stamp turns "
+                 "the order of the calls into mutual interference. With only "
                  "--relayedRanging on, the measured tag's 3+-anchor cycles fall from "
                  "107/120 to 2/120 (static_2p4, seed 7, 300 s, --boxHalf=200, four tags), "
                  "relays after the first never hold a fix, and no --relayChain exchange "
-                 "ever delivers. On, relay pt polls at now-(K-pt+1)*50 ms and the j-th "
+                 "ever delivers; with the round the same run gives 103/120. HOW: relay pt "
+                 "polls at now-(K-pt+1)*50 ms and the j-th "
                  "relay-to-relay exchange runs at now-(C-j)*50 ms, with C = (nTags-1)"
                  "(nTags-2) under --relayChain, else 0, and K = nTags-1+C -- all BEFORE "
                  "the measured tag, which still ranges at the instant and reads every "
@@ -10532,14 +10560,25 @@ main(int argc, char* argv[])
                  "slot, order and layout are OURS, the spec defines no schedule. Nothing "
                  "is added, removed or re-ordered and every charge is unchanged -- to the "
                  "relay that sent it, on --relayTier, inside the per-cycle loop -- with "
-                 "its duty governor armed from its slot. It stays off because on, every "
-                 "--relayedRanging result moves and none is comparable across the two "
-                 "settings, and because the round sits in the slice the event layer has "
-                 "already run, so a MAC frame completing in its last K*50 ms never meets "
-                 "it (RelayRound comment). REQUIRES --relayedRanging=true and --nTags >= 2 "
-                 "(with no relay there is nothing to schedule), and a round shorter than "
-                 "--dt; refused otherwise.",
-                 relaySlotsArg);
+                 "its duty governor armed from its slot. WHAT IT GIVES UP: the round sits "
+                 "in the slice the event layer has already run, so a MAC frame completing "
+                 "in its last K*50 ms never meets it (RelayRound comment), and no relayed "
+                 "magnitude compares across the two settings (rule 8). EVERY "
+                 "--relayedRanging FIGURE RECORDED BEFORE 2026-09-30 WITHOUT "
+                 "--relaySlots=true WAS MEASURED UNDER THE COLLISION, which "
+                 "--relaySlots=false restores. A round that does not fit inside --dt -- at "
+                 "the 2.5 s default, --nTags >= 9 under --relayChain or >= 51 without -- "
+                 "is refused "
+                 "under 'auto' as under 'true', rather than run under the collision "
+                 "unannounced; --relaySlots=false runs it the old way.",
+                 // A callback item and not a string one, so that a bare --relaySlots
+                 // still parses: ns-3 refuses an empty value for a string, and the
+                 // resolution after Parse() reads empty as true.
+                 Callback<bool, const std::string&>([&relaySlotsSpec](const std::string& v) {
+                     relaySlotsSpec = v;
+                     return true;
+                 }),
+                 relaySlotsSpec);
     cmd.AddValue("fixRouting",
                  "Route each relay's position fix to the gateway backbone hop by hop, so a "
                  "relay that cannot reach a gateway on --relayTier hands its ENTRY_PUSH to "
@@ -10839,9 +10878,46 @@ main(int argc, char* argv[])
                   << ": every depth-2 range will be refused by the ceiling, never by the"
                   << " budget\n";
     }
-    // C5_INSTANT. Refused rather than run: with no relay there is nothing to schedule and
-    // every count would be a structural zero; and a round longer than the cycle would put
-    // its first slots in the previous cycle, where they are not this cycle's exchanges.
+    // C5_INSTANT. --relaySlots is resolved here. 'auto', the default since 2026-09-30, is
+    // on exactly when there is a relay to schedule, so it can never trip the refusal below,
+    // and in a run without relayed ranging it is off and nothing is constructed. 'true'
+    // and 'false' are the values the flag had as a boolean, spelled as ns-3 parses a bool;
+    // a bare --relaySlots arrives empty and means true, as the boolean's toggle did.
+    bool relaySlotsAuto = false;
+    {
+        std::string s = relaySlotsSpec;
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (s == "auto")
+        {
+            relaySlotsAuto = true;
+            relaySlotsArg = relayedRangingArg && nTagsArg >= 2;
+        }
+        else if (s.empty() || s == "true" || s == "t" || s == "1")
+        {
+            relaySlotsArg = true;
+        }
+        else if (s == "false" || s == "f" || s == "0")
+        {
+            relaySlotsArg = false;
+        }
+        else
+        {
+            std::cerr << "FATAL: --relaySlots must be auto, true or false, got '"
+                      << relaySlotsSpec << "'\n";
+            return 1;
+        }
+    }
+    // What a refusal says when the round came from the default rather than the command line.
+    const char* relaySlotsWhy =
+        relaySlotsAuto ? " (--relaySlots=auto, on by default in relayed runs since 2026-09-30;"
+                         " --relaySlots=false runs every relay exchange at the cycle instant,"
+                         " as before)"
+                       : "";
+    // Refused rather than run: with no relay there is nothing to schedule and every count
+    // would be a structural zero; and a round longer than the cycle would put its first
+    // slots in the previous cycle, where they are not this cycle's exchanges.
     if (relaySlotsArg && (!relayedRangingArg || nTagsArg < 2))
     {
         std::cerr << "FATAL: --relaySlots schedules the relays' exchanges; it needs"
@@ -10858,9 +10934,18 @@ main(int argc, char* argv[])
             std::cerr << "FATAL: --relaySlots needs " << k << " slots of "
                       << FixRouter::kSlotS * 1e3 << " ms at --nTags=" << nTagsArg
                       << (relayChainArg ? " with --relayChain" : "") << ", which does not"
-                      << " fit inside a --dt=" << dt << " s cycle\n";
+                      << " fit inside a --dt=" << dt << " s cycle" << relaySlotsWhy << "\n";
             return 1;
         }
+    }
+    // The run says which it got, on stderr, so no output file moves: a relayed run whose
+    // round came from the default is the case the 2026-09-30 change created, and its
+    // invocation line in run_id.txt does not name the flag.
+    if (relaySlotsAuto && relaySlotsArg)
+    {
+        std::cerr << "NOTE: --relaySlots=auto is on (the default for --relayedRanging runs"
+                  << " since 2026-09-30); --relaySlots=false restores the collision relayed"
+                  << " runs before it were measured under\n";
     }
     // L.1.1. Refused rather than run, on the same reasoning as --relayChain: without relay
     // filters there is no account to charge, and with one relay no route through another.
@@ -11063,7 +11148,7 @@ main(int argc, char* argv[])
         {
             std::cerr << "FATAL: --relaySlots slot of " << FixRouter::kSlotS * 1e3
                       << " ms is not longer than the relay tier's airtime " << airS * 1e3
-                      << " ms; its exchanges would overlap\n";
+                      << " ms; its exchanges would overlap" << relaySlotsWhy << "\n";
             return 1;
         }
     }

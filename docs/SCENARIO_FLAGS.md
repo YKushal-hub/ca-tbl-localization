@@ -2,7 +2,9 @@
 
 **Snapshot of 2026-09-30.** It lists 142 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
-unchanged.
+unchanged. **One row has been regenerated since:** `--relaySlots` (row 126 of §3, and its §1
+row), whose default moved from `false` to `auto` on 2026-09-30. A fresh `--PrintHelp`
+differs from the `ff4f8bb` one in that row only, and in no name.
 
 **Why this file exists.** No tracked document listed the scenario's flags.
 `HANDOFF_2026_09_09.md` §8 asked for `--gwArcDeg`, `--gwArcCentreDeg`, `--trailDeviateSide`
@@ -36,14 +38,15 @@ Two checks found what §1 lists:
 
 All of these are on `work/2026-09-27-spec-b1`. Every added flag is default off, and its
 off state was null-controlled against the frozen `084a7ff` reference (`docs/TECH_DEBT.md`
-L.1 status). "FATAL" means the run is refused with exit 1 rather than run with a
-precondition missing.
+L.1 status). The one exception since is `--relaySlots`, which since 2026-09-30 is on in
+relayed runs and still off in every other run (its row). "FATAL" means the run is refused
+with exit 1 rather than run with a precondition missing.
 
 | flag | type | default | commit | what it does | preconditions and notes |
 |---|---|---|---|---|---|
 | `--anchorGrantGossipS` | double | `0` (off) | `17ab7dd` | Seconds between rounds in which each gateway broadcasts the UWB grants it holds to neighbouring gateways. Two overlapping grants for one node are resolved by the lower node id deferring (L.1.4) | > 0 needs `--sendHandshakeFrames=true`, or FATAL. A period of at least the 10 s arbiter slot hold draws a warning. The done-when evidence file `grant_verdicts_*.csv` is digested since `ff4f8bb` |
-| `--relayChain` | bool | `false` | `b390ed6` | A relay that ranged fewer than three anchors this cycle ranges a relay that holds a fix, and inherits depth + 1 (L.1.2) | Needs `--relayedRanging=true` and `--nTags >= 3`, or FATAL. Warns if `--maxRelayDepth < 2`. Reaches depth 2 only with `--relaySlots` (`docs/TECH_DEBT.md` M.1) |
-| `--relaySlots` | bool | `false` | `d24690c` | Gives the relays' ranging round slots of its own (50 ms each) before the cycle instant, so relay exchanges no longer collide at one instant | Needs `--relayedRanging=true` and `--nTags >= 2`, and the round must fit inside `--dt`, or FATAL. **Owner decision pending on its default** (M.1). Every `--relayedRanging` figure recorded before it was measured without it |
+| `--relayChain` | bool | `false` | `b390ed6` | A relay that ranged fewer than three anchors this cycle ranges a relay that holds a fix, and inherits depth + 1 (L.1.2) | Needs `--relayedRanging=true` and `--nTags >= 3`, or FATAL. Warns if `--maxRelayDepth < 2`. Reaches depth 2 only with the relays' round, `--relaySlots`, which is on by default in relayed runs since 2026-09-30 (`docs/TECH_DEBT.md` M.1) |
+| `--relaySlots` | string: `auto`, `true`, `false` | **`auto`**, was `false` (a bool) | `d24690c`; default moved 2026-09-30 | Gives the relays' ranging round slots of its own (50 ms each) before the cycle instant, so relay exchanges no longer collide at one instant. `auto` is on exactly when `--relayedRanging=true` and `--nTags >= 2`, and off in every other run | `=false` is the old default and reproduces the commit before the change byte-for-byte in relayed runs, and at plain defaults nothing moves (NC1 and NC2 identical to `db2ac2e`). `=true` without a relay is FATAL, and a round that does not fit inside `--dt` is FATAL under `auto` as under `true`. A bare `--relaySlots` means true. **Owner decision taken 2026-09-30** (M.1). Every `--relayedRanging` figure recorded before it without `=true` was measured under the collision |
 | `--fixRouting` | bool | `false` | `5f3ad42` | Routes each relay's position fix to the gateway backbone hop by hop. It selects on ETX and scores the confidence metric beside it (L.1.1) | Needs `--relayedRanging=true` and `--nTags >= 3`, or FATAL. Warns on `--relayTier=0` |
 | `--fixRoutingConfidence` | bool | `false` | `5f3ad42` | Makes the confidence metric the active selector instead of ETX | Needs `--fixRouting=true`, or FATAL. The weights α, β, γ and the slack are ours and uncalibrated |
 | `--tier1Tdoa` | bool | `false` | `7377ed0` | Tier-1 TDoA from surveyed gateways' PPS-disciplined stamps of the node's broadcast. Four or more gateways are solved by Chan seeding Foy; exactly three by a closed form that keeps every root (L.2.1) | FATAL with `--tier1ChargeReplies=false` and `--gatewayEdgeServer=false` together. It changes the tier-1 observable, so making it the default is a planned campaign (`docs/TECH_DEBT.md` J.2) |
@@ -192,7 +195,7 @@ prints it.
 | 123 | `--maxRelayDepth` | `1` |
 | 124 | `--relayVarBudget` | `0` |
 | 125 | `--relayChain` | `false` |
-| 126 | `--relaySlots` | `false` |
+| 126 | `--relaySlots` | `auto` |
 | 127 | `--fixRouting` | `false` |
 | 128 | `--fixRoutingConfidence` | `false` |
 | 129 | `--tier1Tdoa` | `false` |
