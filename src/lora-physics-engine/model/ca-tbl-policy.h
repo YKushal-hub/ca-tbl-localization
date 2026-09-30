@@ -190,10 +190,18 @@ enum CaTblPcsForm
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */
 /** Response policy when the integrity gate rejects a fix.
  *
- * MEASURED, and this enum exists because the default was never designed. At
- * ca-tbl-policy.cc:913 a suspect fix calls RevertToPrior() and skips the update.
- * RevertToPrior restores the PRE-UPDATE covariance every cycle, so P does not even
- * grow across a rejection run -- the filter is not coasting, it is stuck. The gate's
+ * MEASURED, and this enum exists because the default was never designed. A suspect
+ * fix calls RevertToPrior() and skips the update (ca-tbl-policy.cc, the suspect branch
+ * of Step()).
+ *
+ * CORRECTION 2026-09-30 (docs/SPEC_CONFORMANCE_PLAN.md sect 1.H item 1). This comment
+ * used to say that RevertToPrior "restores the PRE-UPDATE covariance every cycle, so P
+ * does not even grow across a rejection run -- the filter is not coasting, it is
+ * stuck". Read against the code order that is wrong: RevertToPrior() runs before any
+ * Update() of that cycle, when m_x / m_P already equal the post-Predict prior, so it is
+ * a no-op and a rejected cycle is a plain coast -- P grows by Q each cycle. The lock-out
+ * measured below is real; the mechanism given for it was not. It is the prior, not a
+ * frozen covariance, that the gate keeps rejecting against. The gate's
  * reference is the prior, so once the prior is wrong every honest measurement
  * disagrees with it and the gate keeps firing:
  *
