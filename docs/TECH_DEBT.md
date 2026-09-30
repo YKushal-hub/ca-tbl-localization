@@ -1183,6 +1183,9 @@ produce, so each is a change of its own, with its own null control:
   - **The UWB CIR half cannot fill its TP and FN cells in any regime tried (M.2).** The
     circularity is stated in the source: the classifier can only rediscover the NLOS the
     channel model created.
+    *2026-09-30:* still true with the registered IEEE 802.15.4a model (`--uwbNlosModel`,
+    `57225b8`). Its NLOS frames are almost all lost, and the few decoded ones are too weak
+    to score (`report/UWB_NLOS_RESULTS.md`).
   - The 868 detector barely separates LOS from NLOS (mean score 0.089 against 0.109). CAL-01
     then measured the live PCS term at |ρ| ≤ 0.06.
 - **L.2.3 — CLOSED, `db2ac2e`** (row above). The branch review re-ran the null control at
@@ -1510,6 +1513,23 @@ diverges at t = 10 s.
 
 The results file records it as a finding. The registered cells run next, at the code
 commit.
+
+**2026-09-30, measured: the cited model does not fill the matrix.** The 40 registered cells
+(`results/uwb_nlos_20260930`, all `57225b8 dirty 0`) were read in `report/UWB_NLOS_RESULTS.md`.
+- **P1 is FALSIFIED.** In open ground at 1–4 m, `A_802` decodes 30 NLOS UWB frames of 1 475
+  NLOS draws. 28 of them are unscored, because the CIR peak is under the noise floor at
+  accumulated SNRs of about +11 to −6 dB. The 2 scored ones score 0, so they read as LOS:
+  tp 0, fn 2.
+- **P4 HOLDS**: the model is as registered.
+- **P2's count clause failed** because the registration assumed polls at 2 m. The legacy
+  poll set reaches tens of metres. Legacy's per-poll NLOS rate, 0.084 % and 0.13 %, confirms
+  this entry's "about 0.1 %".
+- **P3 failed on one frame at 4.38 m.**
+
+By the registration's §6, M.2 stands for every cited NLOS excess. Filling the matrix needs
+an obstruction model of our own (a blocked direct path with the scattered energy intact),
+and that is a separate owner decision. The read-out adds one design constraint: the SNR
+headroom that model would have to leave. The default stays `legacy`.
 
 ### M.3 `run_id.txt` records the working directory's commit, not the binary's
 

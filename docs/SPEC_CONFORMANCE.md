@@ -35,7 +35,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 3 | Tier-1 TDoA, Chan/Taylor, combined with RSSI (Phys 1.1) | OPT-IN | `--tier1Tdoa`, `7377ed0`; J.2 item 4 (σ) is not done | PH-1 |
 | 4 | Tier-2 symmetric two-way ToF (Phys 1.2) | CONFORMANT | `LoRa2p4PhysicsEngine`, floor 3.0 m (Zhou et al.) | — |
 | 5 | Tier-3 UWB three-message TWR (Phys 1.3) | CONFORMANT | `LoRaUWBPhysicsEngine`, floor 0.10 m (Benouakta et al.) | — |
-| 6 | UWB CIR leading-edge NLOS score (Phys 1.3) | PARTIAL | `--nlosClassifier` (`86e43f2`); the UWB matrix is empty under legacy physics (M.2). The registered 802.15.4a model is built behind `--uwbNlosModel=ieee802154a` (`57225b8`), and its campaign decides the fill | PH-2 |
+| 6 | UWB CIR leading-edge NLOS score (Phys 1.3) | PARTIAL | `--nlosClassifier` (`86e43f2`); the UWB matrix is empty under legacy physics (M.2). The registered 802.15.4a model (`--uwbNlosModel=ieee802154a`, `57225b8`) **does not** fill it: P1 FALSIFIED (`report/UWB_NLOS_RESULTS.md`) | PH-2 |
 | 7 | Radio basis LR1121 (868 + 2.4 GHz) + DW3000 (hardware) | DIVERGENT | The energy model uses SX1262/SX1280 currents (PROV-03) | SY-2 |
 | 8 | Energy metered per action (hardware: fuel gauge) | CONFORMANT | `CaTblEnergyModel`, reconciled to 10 s.f. | — |
 
