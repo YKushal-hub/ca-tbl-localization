@@ -37,15 +37,29 @@ WHAT IT CHECKS
      router's and the sum of CaTblRoutingTable::Selections()/Divergences() over every
      table -- must equal the counts recomputed here from the CSV. A CSV that drifted from
      the in-memory counters, or counters that drifted from the table, fails.
+  7. --require-round (needs --stdout): the relays' ranging round ran (C5_INSTANT,
+     --relaySlots). It has been on by default in every relayed run since 2026-09-30, and
+     G18 and G18b pass this so that they test that default rather than co-occur with it:
+     the log must carry exactly one `C5_INSTANT relay round:` line whose slots add up to
+     a round shorter than the cycle and which moved anchor polls (1 <= bursts <= polls).
+     With --relaySlots=false the run prints no round and fails here -- the state every
+     relayed run was in before, including G18's own until that date.
 
-usage: fix_routing_gate.py [--require-confidence] [--stdout LOG] <fix_routing csv>
+usage: fix_routing_gate.py [--require-confidence] [--require-round] [--stdout LOG]
+                           <fix_routing csv>
 exit 0 PASS, 1 FAIL, 2 usage.
 """
 import csv
 import re
 import sys
 
-COLS = ["t", "originId", "hop", "senderId", "etxNext", "etxHops", "etxCost", "confNext",
+# The round's own line, as RelayRound::Report prints it (the same pattern G17b reads).
+ROUND_RE = re.compile(
+    r"C5_INSTANT relay round: slot ([0-9.]+) ms x (\d+) = ([0-9.]+) ms before the instant, "
+    r"of a ([0-9.]+) ms cycle; anchor polls moved (\d+) in (\d+) bursts; relay-to-relay "
+    r"moved (\d+), at most (\d+) of (\d+) slots in a cycle")
+
+COLS =["t", "originId", "hop", "senderId", "etxNext", "etxHops", "etxCost", "confNext",
         "confHops", "confCost", "metric", "chosenNext", "chosenClass", "diverged", "outcome"]
 OUTCOMES = {"delivered", "forwarded", "lost", "loop", "noslot", "duty", "noroute"}
 
@@ -61,17 +75,20 @@ def is_relay(i):
 def main(argv):
     args = argv[1:]
     need_conf = False
+    need_round = False
     stdout_log = None
     while args and args[0].startswith("--"):
         a = args.pop(0)
         if a == "--require-confidence":
             need_conf = True
+        elif a == "--require-round":
+            need_round = True
         elif a == "--stdout" and args:
             stdout_log = args.pop(0)
         else:
             print(__doc__)
             return 2
-    if len(args) != 1:
+    if len(args) != 1 or (need_round and stdout_log is None):
         print(__doc__)
         return 2
     path = args[0]
@@ -219,6 +236,28 @@ def main(argv):
         else:
             print(f"G18 recount agrees: selections {sel}, divergences {div} "
                   "(router = tables = CSV)")
+        # 7. the relays' round, when the default is what is under test
+        if need_round:
+            rounds = ROUND_RE.findall(text)
+            if len(rounds) != 1:
+                print(f"G18 FAIL: {len(rounds)} C5_INSTANT round line(s) in {stdout_log}, "
+                      "expected one -- was --relaySlots off, or more than one arm?")
+                ok = False
+            else:
+                slot, k, rnd, cyc, polls, bursts = rounds[0][:6]
+                slot, rnd, cyc = float(slot), float(rnd), float(cyc)
+                k, polls, bursts = int(k), int(polls), int(bursts)
+                if k < 1 or abs(slot * k - rnd) > 0.1 or not rnd < cyc:
+                    print(f"G18 FAIL: round {slot} ms x {k} = {rnd} ms against a {cyc} ms "
+                          "cycle -- it must add up and end inside the cycle")
+                    ok = False
+                elif polls == 0 or bursts == 0 or bursts > polls:
+                    print(f"G18 FAIL: the round moved {polls} anchor polls in {bursts} "
+                          "bursts -- nothing moved means the round was inert")
+                    ok = False
+                else:
+                    print(f"G18 round: {k} x {slot} ms = {rnd} ms of a {cyc} ms cycle, "
+                          f"anchor polls moved {polls} in {bursts} bursts")
     if not ok:
         return 1
     print("G18b PASS" if need_conf else "G18 PASS")

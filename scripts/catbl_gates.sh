@@ -502,17 +502,24 @@ finish G16
 # refusing. GREEN.
 #
 # G17b is the L.1.2 done-when: depth 2 reached, and A2 admitting and refusing on the
-# budget AT depth 2. It runs G17's flags plus --relaySlots (C5_INSTANT). Without it every
+# budget AT depth 2. It needs the relays' round (--relaySlots, C5_INSTANT). Without it every
 # relay exchange in a cycle is stamped with the cycle's one instant and the engines'
 # interference registry treats them as simultaneous, so no two relays hold a fix in one
-# cycle and no relay-to-relay exchange delivers: G17's own run is that state, and it was
-# red here from b390ed6 until the round got instants of its own. With it, 4 fuses and 40
-# depth-2 decisions (A2 at depth 2: pass 19, budget 21). --stdout recounts the run's own
-# counters, so the green is traced to the round: every relay-to-relay exchange moved, the
-# round inside the cycle, the CSV's fuse rows equal to the run's.
+# cycle and no relay-to-relay exchange delivers: that was G17's own run until 2026-09-30,
+# and G17b was red from b390ed6 until the round got instants of its own. With it, 4 fuses
+# and 40 depth-2 decisions (A2 at depth 2: pass 19, budget 21). --stdout recounts the run's
+# own counters, so the green is traced to the round: every relay-to-relay exchange moved,
+# the round inside the cycle, the CSV's fuse rows equal to the run's.
+#
+# SINCE 2026-09-30 THE ROUND IS THE DEFAULT in every relayed run (--relaySlots=auto), so
+# neither gate names the flag: G17's run is at the default, and G17b reads that same run.
+# Until then G17b ran its own copy with --relaySlots=true. The two runs are byte-identical
+# (every output file; only the stderr NOTE that the default engaged differs), so reading
+# G17's is the same evidence without the second run, and a default that reverted would
+# turn G17b red through --stdout (no round line) and the fuse count -- which is N14.
 #
 # Negative fixtures in scripts/relay_chain_gate_selftest.sh, including the same run with
-# the flag off, G17b's run with --relaySlots off (N14), and the first draft's own
+# the chain off, G17b's run with --relaySlots=false (N14), and the first draft's own
 # depth-from-nowhere rows (rule 6).
 printf '\n--- G17 relay chain wired, A2 and provenance honest (L.1.2) ---\n'
 mkdir -p "$WORK/g17"
@@ -525,13 +532,12 @@ bash scripts/relay_chain_gate_selftest.sh || fail G17
 finish G17
 
 printf '\n--- G17b relay depth 2 reached, A2 on the budget at depth 2 (L.1.2 done-when) ---\n'
-mkdir -p "$WORK/g17b"
-./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
-    --duration=600 --trace=false --boxHalf=200 --nTags=4 --relayedRanging=true \
-    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --relaySlots=true \
-    --outdir="$WORK/g17b" > "$WORK/g17b.log" 2>&1 || gerror G17b "flag-on run exited non-zero"
-python3 scripts/relay_chain_gate.py --require-depth2 --stdout "$WORK/g17b.log" \
-    "$WORK/g17b/relay_chain_static_2p4_seed7.csv" || fail G17b
+if [ ! -s "$WORK/g17/relay_chain_static_2p4_seed7.csv" ] || [ ! -s "$WORK/g17.log" ]; then
+    gerror G17b "G17's run wrote no chain log or no stdout -- nothing to read"
+else
+    python3 scripts/relay_chain_gate.py --require-depth2 --stdout "$WORK/g17.log" \
+        "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17b
+fi
 finish G17b
 
 # ---------------- G18 / G18b: position fixes routed (L.1.1, Network sect 2-3)
@@ -550,14 +556,21 @@ finish G17b
 # G18b is the same file contract under the confidence selector, and requires a diverged
 # hop that the fix actually crossed: traffic sent where ETX would not have sent it.
 #
+# SINCE 2026-09-30 both runs are at the --relaySlots default, which gives the relays'
+# ranging round instants of its own in every relayed run (C5_INSTANT; TECH_DEBT M.1), and
+# --require-round makes both gates TEST that default rather than merely run under it: the
+# log must show the round. Until then both ran with every relay exchange at the cycle's one
+# instant, which that run still reproduces byte-for-byte with --relaySlots=false.
+#
 # Negative fixtures in scripts/fix_routing_gate_selftest.sh, including the same run with
-# the flag off and a real ETX-routed log offered to G18b (rule 6).
+# the flag off, a real ETX-routed log offered to G18b, and G18's own run with
+# --relaySlots=false offered with and without --require-round (P4/N14) (rule 6).
 printf '\n--- G18 position fixes routed, ETX and confidence diverge (L.1.1) ---\n'
 mkdir -p "$WORK/g18" "$WORK/g18b"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
     --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
     --outdir="$WORK/g18" > "$WORK/g18.log" 2>&1 || gerror G18 "flag-on run exited non-zero"
-python3 scripts/fix_routing_gate.py --stdout "$WORK/g18.log" \
+python3 scripts/fix_routing_gate.py --require-round --stdout "$WORK/g18.log" \
     "$WORK/g18/fix_routing_static_2p4_seed7.csv" || fail G18
 bash scripts/fix_routing_gate_selftest.sh || fail G18
 finish G18
@@ -567,8 +580,8 @@ printf '\n--- G18b position fixes routed BY the confidence metric (L.1.1 done-wh
     --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
     --fixRoutingConfidence=true --outdir="$WORK/g18b" > "$WORK/g18b.log" 2>&1 \
     || gerror G18b "flag-on run exited non-zero"
-python3 scripts/fix_routing_gate.py --require-confidence --stdout "$WORK/g18b.log" \
-    "$WORK/g18b/fix_routing_static_2p4_seed7.csv" || fail G18b
+python3 scripts/fix_routing_gate.py --require-confidence --require-round \
+    --stdout "$WORK/g18b.log" "$WORK/g18b/fix_routing_static_2p4_seed7.csv" || fail G18b
 finish G18b
 
 # ---------------- G19: tier-1 TDoA produced, fused and billed (L.2.1, Physical sect 1.1)

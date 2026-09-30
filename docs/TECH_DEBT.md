@@ -161,6 +161,11 @@ them. With the flag off a direct exchange meets only frames straddling the insta
 one airtime of look-back. In G17b's regime (~50 MAC frames/s over three tiers) that bounds
 the interference the relays give up at about 16% of exchanges on 2.4 GHz.
 
+> **2026-09-30:** `--relaySlots` is now the default in every relayed run (M.1, decided). The
+> paragraph above describes the state before that. A relayed figure recorded before
+> 2026-09-30 without `--relaySlots=true` was measured under the collision, which
+> `--relaySlots=false` restores.
+
 ### 3.2 `hopWeight` stays 0, and the PCS hop term is the wrong shape
 `ca-tbl-policy.cc:672`, `:708`. The current term is **unbounded below**, penalises a
 *count* rather than an *uncertainty the covariance already carries*, and does not encode
@@ -1004,6 +1009,8 @@ of 8.
   been green since `d24690c`. `hopWeight` stays 0. The earlier probe outputs
   `~/catbl_probe/v3/L.1.2/{on_*,sw_*,sx_*,sy_*,sz_*}` came from a defective draft that set
   depth on admission rather than on a fused step, and **must not be cited**.
+  *2026-09-30:* `--relaySlots` became the default in relayed runs (M.1). G17's flags as
+  written now give the 541 rows above, and G17b reads G17's run.
 - **L.1.3 — CLOSED before this week; the row was stale.** Case A reached the fix path at
   `c94507b`, Case B at `ac5766f`, and the census became a partition at `0031a5b` (A.7).
   Probe of 2026-09-28, EXPLORATORY (unregistered, frozen `084a7ff` binary). Invocation
@@ -1042,6 +1049,10 @@ of 8.
 
 **B1, 2026-09-29: met.** One qualification: L.1.2's done-when needs `--relaySlots`, which is
 off by default until the owner decides.
+
+> **2026-09-30:** the owner decided (M.1). `--relaySlots` is on by default in relayed runs,
+> so L.1.2's done-when holds with G17's flags as written. `--relayChain` and
+> `--maxRelayDepth=2` are still opt-in.
 
 ---
 
@@ -1357,7 +1368,7 @@ Found while building Bar 1 and Bar 2 and regenerating Bar 3 on
 `work/2026-09-27-spec-b1`. Each item says whether it is fixed, and where. Items that need
 an owner decision are marked **DECISION**.
 
-### M.1 Relays ranged at the cycle's one instant, and collided — fixed behind a flag; DECISION on its default
+### M.1 Relays ranged at the cycle's one instant, and collided — fixed behind a flag; DECIDED 2026-09-30: on by default in relayed runs
 
 Every exchange a cycle made by calling an engine directly carried the cycle's one `now`:
 each relay's anchor polls, every relay-to-relay exchange, and the measured tag's own
@@ -1376,6 +1387,46 @@ measured under the collision:** `MASTER_PLAN.md`'s C5 row, `b390ed6`'s sweep and
 
 **DECISION:** whether `--relaySlots` becomes the default for `--relayedRanging` runs. It
 moves every relayed result.
+
+**DECIDED 2026-09-30 (owner: "fix them all"): the relays' round is the default in every
+relayed run.** The flag is now `--relaySlots=auto|true|false`, default `auto`. `auto` is on
+exactly when `--relayedRanging=true` and `--nTags >= 2`, and off in every other run, where
+nothing is constructed. `true` without a relay is still refused. A round that does not fit
+inside `--dt` is refused under `auto` as under `true`: at the 2.5 s default that is
+`--nTags >= 9` under `--relayChain`, or `>= 51` without it. `--relaySlots=false` keeps the
+old behaviour. Checked at the change against `7a36b63` (the commit before it), frozen at
+`~/catbl_prev_relayslots`:
+
+- *Plain defaults move nothing.* NC1 and NC2 against `~/catbl_ref_edge` (`db2ac2e`) are
+  byte-identical: 7/7 and 2/2 files, stderr identical, stdout identical but for the outdir.
+  The same holds with `--relaySlots=false` and with `--relaySlots=auto` appended.
+- *The old value reproduces the old commit.* `--relaySlots=false` against `7a36b63` with no
+  flag is byte-identical in 13 configurations: every output file, stdout and stderr. The
+  configurations are the regime above at seeds 7/11/13 with and without `--relayedRanging`;
+  868 MHz relays (`--relayTier=0`); G17's, G18's and G18b's flags; a UWB-relay chain with
+  finders; and NC1's and NC2's flags with `--relayedRanging --nTags=3`.
+- *The default is the round.* The default and `--relaySlots=true` write identical files in
+  every relayed configuration. They differ only in a stderr NOTE that the default engaged.
+- *What moves at the default in a relayed run* is everything downstream of the relays'
+  exchanges, in every relayed file. These are populations, one seed each, and not effects.
+  Engine evaluations differ between the two settings (`directCalls`), so no magnitude
+  compares across them (rule 8).
+  - The regime above: the measured tag's 3+-anchor cycles go from 2/0/11 to 103/104/107 of
+    120 (107/112/106 without relayed ranging). Relay 3 now holds a fix at seeds 7 and 11.
+  - G17's flags: relay-to-relay exchanges go from 0 to 7, fuses from 0 to 4, and depth-2
+    decisions from 0 to 40. `relay_chain_*.csv` goes from 112 rows to 541.
+  - NC2's flags with relays: `fixCycles` go from 665 to 713 of 720.
+  - NC1's flags with relays: `ca_tbl_full`'s `fixCycles` go from 291 to 303 of 360.
+  - G18's flags: the measured tag's fix cycles go from 0 to 6 of 240.
+- *Gates.* G17 and G17b no longer name the flag, so they run at the default, and G17b reads
+  G17's run. G18 and G18b pass a new `--require-round`, so that the log must show the round.
+  Their self-tests hold the old value red: N14 in each is the gate's own run with
+  `--relaySlots=false`. No other gate runs relayed ranging.
+- *Results before it.* No `results/` sidecar uses `--relayedRanging=true`, so no tracked
+  result moves. Every relayed figure recorded before 2026-09-30 without `--relaySlots=true`
+  describes the old default. `--relaySlots=false` restores it. Any other default that moved
+  since that figure was recorded is a separate flag, for example `--gatewayEdgeServer=false`
+  before `db2ac2e`.
 
 Still open:
 
