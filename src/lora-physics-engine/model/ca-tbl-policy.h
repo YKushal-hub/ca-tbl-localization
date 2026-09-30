@@ -782,6 +782,10 @@ class CaTblPolicy
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
     double EstX() const { return m_ekf.X(); }
     double EstY() const { return m_ekf.Y(); }
+    //! DC-10. The filter's velocity estimate, m/s: what a table entry's velocity
+    //! fields carry under --entryVelocity (Physical 2.1).
+    double EstVx() const { return m_ekf.Vx(); }
+    double EstVy() const { return m_ekf.Vy(); }
     /** Fuse an absolute position observation into the filter -- the door the
      *  inertial engine needs, since every other measurement path takes a range.
      *  The caller owns the error model: this takes the variance it is given and

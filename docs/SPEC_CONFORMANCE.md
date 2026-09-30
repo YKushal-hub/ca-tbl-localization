@@ -43,7 +43,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 
 | # | mechanism (docx §) | status | evidence | plan |
 |---|---|---|---|---|
-| 9 | Table entry `{pos, Σ, t, seq, hop, source_type, velocity}` (Phys 2.1) | DIVERGENT | Velocity is billed on the wire but published as 0,0 (`scratch:6435-6437`) | DC-10 |
+| 9 | Table entry `{pos, Σ, t, seq, hop, source_type, velocity}` (Phys 2.1) | OPT-IN | `--entryVelocity` (DC-10, gate G31): a field node publishes its EKF velocity, a finder its GNSS velocity (displacement over time), a gateway 0; held entries carry it intact. The default still publishes 0,0. Nothing reads it yet: NW-9 (RESPONSE), DC-13 (entry prediction) and TA-1 (sessions) will | ~~DC-10~~ done; preset |
 | 10 | EKF prediction with IMU control input u_k (Phys 2.2) | DIVERGENT | Constant velocity only (`ca-tbl-policy.cc:207-259`); the SHS engine diverges (K.9) | DC-1 |
 | 11 | EKF correction with tier-specific R (Phys 2.3) | CONFORMANT | Per-measurement σ from each engine | — |
 | 12 | Sparse cases solved against the propagated prior (Phys 2.4) | DIVERGENT | Solved before `Step()` against the previous posterior, and fused at t−dt. `Step()` then counts the cycle as a no-fix | DC-11 |
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 12 |
+| OPT-IN | 13 |
 | PARTIAL | 14 |
-| DIVERGENT | 13 (one of them, row 17, kept) |
+| DIVERGENT | 12 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2): row 20, DIVERGENT → OPT-IN, with DC-7, and row 21 likewise with DC-8.
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10.
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

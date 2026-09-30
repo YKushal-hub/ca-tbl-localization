@@ -788,6 +788,28 @@ bash scripts/integrity_score_gate.sh "$WORK/g30" || fail G30
 bash scripts/integrity_score_gate_selftest.sh "$WORK/g30" || fail G30
 finish G30
 
+# ---------------- G31: table entries carry the producer's velocity (DC-10, Physical 2.1)
+# The spec's entry carries a velocity estimate. The wire format billed the two fields,
+# and every producer published 0, 0. Under --entryVelocity:
+#   - a field node publishes its EKF velocity;
+#   - a finder publishes its GNSS velocity, the displacement over the time since its last
+#     publication;
+#   - a gateway publishes 0.
+# Two pairs of runs, flag off and on, read by scripts/entry_velocity_gate.py: the NC2
+# searcher regime, where entries travel by digest, and the NC4 relay regime, where peers
+# publish too. Nothing reads the velocity yet, so the flag must move no other output, byte
+# for byte. Every producer's read-back publication must equal what it was handed. Each
+# finder's is recounted from its own published displacement. Every held entry must carry
+# the velocity published under its sequence number. Gateways must carry 0.
+#
+# Negative fixtures in scripts/entry_velocity_gate_selftest.sh, built from these runs,
+# including every velocity 0 (the tree before DC-10), a trace that moved when the flag
+# came on, and a velocity changed in transit (rule 6).
+printf '\n--- G31 table entries carry the producer velocity (DC-10) ---\n'
+bash scripts/entry_velocity_gate.sh "$WORK/g31" || fail G31
+bash scripts/entry_velocity_gate_selftest.sh "$WORK/g31" || fail G31
+finish G31
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
