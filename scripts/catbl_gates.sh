@@ -674,14 +674,28 @@ finish G20
 # non-energy column must match, tx_/cad_/sleep_ included; every row with a fix must differ
 # in totalJ, and every row without one must not; an unused tier must not be charged.
 #
-# Negative fixtures in scripts/edge_default_gate_selftest.sh, built from a fresh real pair,
-# including the node-side run offered as both sides -- the edge path dead (rule 6).
-printf '\n--- G21 the edge-server default moves energy and nothing else (L.2.3) ---\n'
-if [ ! -s "$WORK/causal/arm_summary.csv" ] || [ ! -s "$WORK/g6_nodeside/arm_summary.csv" ]; then
-    gerror G21 "G3's or G6's run produced no arm_summary -- nothing to compare"
+# AND WHICH RADIO THE DOWNLINK IS BILLED ON (TECH_DEBT M.10, 2026-09-30). Since then it is
+# billed on the tier the fix came from, so a hybrid arm's floor-solved fix is an 868 MHz
+# downlink rather than one on the active tier. One more run, the same seed and duration
+# at --edgeDownlinkTier=active (the old bill), is compared with G3's: only energy may
+# move, only as a transfer onto 868 MHz from the active tier, only where 868 MHz
+# transmitted, and at least one row must move -- so a reverted default goes red here.
+#
+# Negative fixtures in scripts/edge_default_gate_selftest.sh, built from a fresh real
+# triple, including the node-side run offered as both sides -- the edge path dead -- and
+# the active-tier run offered as the defaults -- the downlink default reverted (rule 6).
+printf '\n--- G21 the edge-server default moves energy and nothing else (L.2.3, M.10) ---\n'
+mkdir -p "$WORK/g21_active"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
+    --trace=false --edgeDownlinkTier=active --outdir="$WORK/g21_active" \
+    > "$WORK/g21_active.log" 2>&1 || gerror G21 "active-tier run exited non-zero"
+if [ ! -s "$WORK/causal/arm_summary.csv" ] || [ ! -s "$WORK/g6_nodeside/arm_summary.csv" ] \
+   || [ ! -s "$WORK/g21_active/arm_summary.csv" ]; then
+    gerror G21 "G3's, G6's or the active-tier run produced no arm_summary -- nothing to compare"
 else
     python3 scripts/edge_default_gate.py "$WORK/causal/arm_summary.csv" \
-        "$WORK/g6_nodeside/arm_summary.csv" || fail G21
+        "$WORK/g6_nodeside/arm_summary.csv" \
+        --active "$WORK/g21_active/arm_summary.csv" || fail G21
 fi
 bash scripts/edge_default_gate_selftest.sh || fail G21
 finish G21
