@@ -5570,9 +5570,14 @@ RunArm(CaTblPolicyMode mode,
     // A peer is a real MAC on the real channel with a real trajectory. It beacons, so
     // anchors discover it; it contends, so it costs the medium what it costs; and it
     // carries a DISTINCT targetManifestId, which is what an identity-scoped query
-    // discriminates on. It has no CaTblPolicy and no CaTblEnergyModel: it is an
-    // addressing and contention peer, NOT a second measured subject, and its energy
+    // discriminates on. By default it has no CaTblPolicy and no CaTblEnergyModel: it is
+    // an addressing and contention peer, NOT a second measured subject, and its energy
     // is deliberately not accounted. Anything that reports peer energy is wrong.
+    // EXCEPT under --relayedRanging (C5, below): then each peer is also a RELAY with a
+    // configured CaTblPolicy and an energy model charged for its own ranging -- a
+    // fixed-tier measured node that never escalates, not a full subject (this comment
+    // omitted that until 2026-09-30; making peers full subjects is
+    // docs/SPEC_CONFORMANCE_PLAN.md MS-1).
     std::deque<Tourist> peerWalkers;
     std::vector<uint32_t> peerIds;
     // One MAC per tier per peer, recorded AT CONSTRUCTION. CaTblMac exposes no
@@ -8381,11 +8386,13 @@ RunArm(CaTblPolicyMode mode,
         // targeted Entry-Push, with the access category and therefore the
         // contention window selected per message type.
         //
-        // HALF-TESTED, and say so. StartHandshake() branches on mobility state, and
-        // the RECEDING branch -- skip the digest, one-shot urgent push at CW_high --
-        // is the interesting half. Nothing here sets mobility state, so every node
-        // reports STATIONARY and the receding branch never runs. Claim 4 is
-        // exercised for its stationary path only until a mobility estimator exists.
+        // StartHandshake() branches on mobility state, and the RECEDING branch -- skip
+        // the digest, one-shot urgent push at CW_high -- is the interesting half. At
+        // defaults nothing sets mobility state, so every node reports STATIONARY and
+        // only the stationary path runs. Under --mobilityFromRange (50a229a) the state
+        // is driven from the node's own mean-range trend and the RECEDING branch does
+        // run: TRIGGERED_UPDATE frames appear in events_* (TECH_DEBT L.1.5, M.9). This
+        // comment said "the receding branch never runs" until 2026-09-30.
         if (d.escalated)
         {
             const std::vector<CaTblNeighbour> peers = nodeMac[active]->GetNeighbours(active, t);
@@ -9629,7 +9636,8 @@ main(int argc, char* argv[])
                  sparseCaseAArg);
     cmd.AddValue("sparseCaseAMargin",
                  "sect 7: Mahalanobis separation the two candidates must have before one "
-                 "is accepted. Larger refuses more.",
+                 "is accepted -- in Mahalanobis-distance units, not metres, whatever the "
+                 "variable's M suffix says. Larger refuses more.",
                  sparseCaseAMarginMArg);
     cmd.AddValue("injectSilentId",
                  "sect 49: node id whose TRANSMIT goes silent for a window, then returns. "
@@ -9979,7 +9987,11 @@ main(int argc, char* argv[])
                  "position uncertainty from the 3.1623 m target traceRef already "
                  "specifies -- and carries its own pre-registered thresholds "
                  "(up 0.0, down log10(2), one target for all tiers). See "
-                 "report/PCS_REDESIGN_RESULTS.md §0.",
+                 "report/PCS_REDESIGN_RESULTS.md §0. Two more forms exist and this text "
+                 "did not list them until 2026-09-30: 'weighted' is "
+                 "pcsW1*t1 + pcsW2*t2 + pcsW3*t3 with the hand-set weights 2, 0.5, 0.5 "
+                 "(--pcsW1..3), and 'gated' scores 0 whenever t1 < --pcsGateFloor and "
+                 "the plain sum otherwise. Both reuse the legacy thresholds.",
                  pcsFormArg);
     cmd.AddValue("pcsW1",
                  "CA_TBL_PCS_WEIGHTED weight on the filter-uncertainty term. "
@@ -10027,9 +10039,11 @@ main(int argc, char* argv[])
                  "which has NEVER been swept, because until now "
                  "pcsThresholdDown was not registered with AddValue at all. "
                  "The BAND is the swept quantity rather than the two absolute "
-                 "thresholds: every tier carries the same 0.20 gap today, so "
-                 "one number moves the hysteresis without silently also "
-                 "moving the operating point.",
+                 "thresholds: 868 MHz and 2.4 GHz carry a 0.20 gap today and UWB "
+                 "0.25 (up 1.55/1.70/2.30, down 1.75/1.90/2.55; this text said 0.20 on "
+                 "every tier until 2026-09-30), so one number moves the hysteresis "
+                 "without silently also moving the operating point -- and sets UWB's "
+                 "gap to the same band as the others.",
                  pcsHysteresisBandArg);
     cmd.AddValue("nDeescalate",
                  "Consecutive healthy cycles required before demoting a tier. "
@@ -10339,8 +10353,12 @@ main(int argc, char* argv[])
                  "certain by the filter own account and not equally trustworthy.",
                  hopPenaltyArg);
     cmd.AddValue("imuCrossCheck",
-                 "Refuse an escalation when the filter's displacement disagrees with "
-                 "the body's, measured by dead reckoning. FALSE by default so the check "
+                 "Refuse an escalation when the filter's POSITION disagrees with the "
+                 "step-and-heading engine's dead-reckoned position by more than a "
+                 "tolerance that grows with time since the last trusted fix. It compares "
+                 "absolute positions, not displacements (this text said displacement "
+                 "until 2026-09-30), so an SHS that has diverged (TECH_DEBT K.9) refuses "
+                 "almost everything. FALSE by default so the check "
                  "can be run on against off, which is the comparison the project brief "
                  "asks for and one you cannot make if the mechanism is always on. "
                  "SUPPRESS-ONLY: it can withhold an escalation, never cause one, so it "
@@ -10800,7 +10818,9 @@ main(int argc, char* argv[])
                  "a distinct targetManifestId so an identity-scoped query has "
                  "something to discriminate on. A peer is NOT a second measured "
                  "subject -- it has no policy, no EKF and no energy model, and its "
-                 "joules are not accounted. Reporting peer energy would be wrong. "
+                 "joules are not accounted -- except under --relayedRanging, where each "
+                 "peer is also a fixed-tier relay with a policy and a ranging-only "
+                 "energy account (C5). Reporting peer energy would be wrong. "
                  "Making a peer a measured system is the full per-tag refactor, "
                  "which is a separate and larger piece of work.",
                  nTagsArg);
@@ -11120,6 +11140,26 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --nlosScoreThreshold=" << nlosScoreThresholdArg
                   << " must lie in (0, 1)\n";
         return 1;
+    }
+    // C4 arbitration runs only where anchors receive ESC_REQUEST frames, and those exist
+    // only under --sendHandshakeFrames (ca-tbl-mac.cc, the handshake block of DeliverRx).
+    // Without them every arbitration counter is a structural zero -- a flag that reads as
+    // on and does nothing, TECH_DEBT I.4's class. Refused rather than run (2026-09-30;
+    // no tracked results/ sidecar uses --uwbArbitration).
+    if (uwbArbitrationArg && !sendHandshakeFramesArg)
+    {
+        std::cerr << "FATAL: --uwbArbitration arbitrates ESC_REQUEST frames, which exist only"
+                  << " under --sendHandshakeFrames=true\n";
+        return 1;
+    }
+    // --imuFusion's own help text says it needs --shsTrustedFixK (and --shsSnapPosition's
+    // says the two are only correct together); nothing checked it. A warning, not a
+    // refusal: runs that used the combination exist, and --imuIdeal fuses the ideal
+    // reckoner rather than the SHS, where neither applies.
+    if (imuFusionArg && !imuIdealArg && (!(shsTrustedFixKArg > 0.0) || !shsSnapPositionArg))
+    {
+        std::cerr << "WARNING: --imuFusion without --shsTrustedFixK > 0 and --shsSnapPosition"
+                  << " fuses an SHS calibrated on noise (TECH_DEBT K.9)\n";
     }
 
     // Run identifier, written as a SIDECAR rather than a CSV column. A column would

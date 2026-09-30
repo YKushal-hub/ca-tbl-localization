@@ -560,6 +560,13 @@ CaTblPolicy::CaTblPolicy()
     : m_tier(CA_TBL_TIER_868),
       m_deescalateCounter(0),
       m_escalations(0),
+      // Initialised here since 2026-09-30. Until then these three were zero only because
+      // the scenario value-initialises its std::vector<CaTblTagState>, which zero-fills
+      // before this constructor runs; a CaTblPolicy constructed any other way started with
+      // indeterminate counters (docs/SPEC_CONFORMANCE_PLAN.md sect 1.H item 2).
+      m_consecutiveRejections(0),
+      m_reinitFallbackCount(0),
+      m_recoveryFirings(0),
       m_predictBlockedQuality(0),
       m_predictBlockedCoverage(0),
       m_evidenceBlockedT2(0),
@@ -959,9 +966,11 @@ CaTblPolicy::Step(double dt,
                                : (static_cast<uint32_t>(activeTierRanges) >= 3);
 
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
-    // prediction. Note this is where Case B (1 anchor + 1 peer) and Case C
-    // (relative-only) from the design would plug in; they are not implemented
-    // yet, so sparse geometry currently degrades to dead reckoning.
+    // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f), but
+    // they run in the SCENARIO, before Step(), against the previous posterior -- so a
+    // two-range cycle still arrives here, is counted a no-fix and counts toward
+    // demotion. Case C only classifies; Case D does not exist. Moving the sparse cases
+    // in here, after the prediction, is docs/SPEC_CONFORMANCE_PLAN.md DC-11.
     if (meas.size() < 3)
     {
         m_noFixCycles++;
