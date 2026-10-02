@@ -11,6 +11,7 @@
  * good manners.
  */
 
+#include "ns3/ca-tbl-policy.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/core-module.h"
 
@@ -132,6 +133,87 @@ main(int argc, char* argv[])
                                                   0.0, 1.0, 100.0, 0.0, 100.0, 5.0);
         Check(loose.verdict == CA_TBL_SPARSE_OK && tight.verdict == CA_TBL_SPARSE_AMBIGUOUS,
               "the same geometry is accepted at a loose margin and refused at a tight one");
+    }
+
+    // --- DC-11: Cases A/B inside CaTblPolicy::Step(), after the prediction ------
+    {
+        // Two gateways 1000 m apart, the node at (500, 300); the mirror root is (500, -300).
+        auto two = [](uint8_t k0, uint8_t k1) {
+            std::vector<CaTblRangeMeasurement> m(2);
+            const double gx[2] = {0.0, 1000.0};
+            const uint8_t kind[2] = {k0, k1};
+            for (int i = 0; i < 2; ++i)
+            {
+                m[i].anchorX = gx[i];
+                m[i].anchorY = 0.0;
+                m[i].rangeM = std::hypot(500.0 - gx[i], 300.0);
+                m[i].sigmaM = 5.0;
+                m[i].sourceKind = kind[i];
+                m[i].anchorId = static_cast<uint16_t>(101 + i);
+            }
+            return m;
+        };
+        auto run = [&](bool inStep, double priorY, uint8_t k0, uint8_t k1, uint64_t* noFix,
+                       double* ex, double* ey) {
+            CaTblPolicyConfig cfg;
+            cfg.sparseInStep = inStep;
+            cfg.sparseMarginM = 1.0;
+            CaTblPolicy p;
+            p.Configure(cfg);
+            p.Initialize(500.0, priorY, 60.0, 0.0);
+            CaTblDecision d = p.Step(1.0, two(k0, k1), 0, 2, 2, 7u);
+            *noFix = p.GetNoFixCount();
+            *ex = p.EstX();
+            *ey = p.EstY();
+            return d;
+        };
+        const uint8_t GW = CA_TBL_SRC_SURVEYED_GATEWAY;
+        uint64_t nf = 0;
+        double ex = 0.0, ey = 0.0;
+
+        CaTblDecision off = run(false, 250.0, GW, GW, &nf, &ex, &ey);
+        Check(!off.hadFix && off.fixKind == CA_TBL_FIX_NONE && off.sparseVerdict == 255 &&
+                  nf == 1 && ex == 500.0 && ey == 250.0,
+              "DC-11 off: two ranges coast and count as a no-fix, as before");
+
+        CaTblDecision a = run(true, 250.0, GW, GW, &nf, &ex, &ey);
+        Check(a.hadFix && a.fixKind == CA_TBL_FIX_CASE_A && a.sparseVerdict == CA_TBL_SPARSE_OK &&
+                  nf == 0,
+              "DC-11: two surveyed gateways solve as Case A and are a fix, not a no-fix");
+        Check(a.positionFuses == 1 && a.rangeUpdates == 0,
+              "DC-11: the pair is fused once as a position and never also as ranges");
+        Check(std::fabs(a.sparseX - 500.0) < 1e-6 && std::fabs(a.sparseY - 300.0) < 1e-6 &&
+                  a.sparsePriorX == 500.0 && a.sparsePriorY == 250.0 && ey > 250.0 && ey < 300.0,
+              "DC-11: the propagated prior chose the true root, and the estimate moved toward it");
+
+        CaTblDecision b = run(true, 250.0, GW, CA_TBL_SRC_FINDER, &nf, &ex, &ey);
+        Check(b.fixKind == CA_TBL_FIX_CASE_B,
+              "DC-11: a gateway and a finder solve as Case B -- provenance decides");
+        CaTblDecision u = run(true, 250.0, CA_TBL_SRC_UNSTATED, CA_TBL_SRC_UNSTATED, &nf, &ex, &ey);
+        Check(u.fixKind == CA_TBL_FIX_CASE_B,
+              "DC-11: unlabelled ranges are never taken for surveyed gateways");
+
+        CaTblDecision amb = run(true, 0.0, GW, GW, &nf, &ex, &ey);
+        Check(amb.sparseVerdict == CA_TBL_SPARSE_AMBIGUOUS && !amb.hadFix &&
+                  amb.fixKind == CA_TBL_FIX_NONE && nf == 1 && amb.positionFuses == 0,
+              "DC-11: a prior equidistant from both roots refuses, and the cycle coasts");
+
+        // Three ranges take the ordinary path: FULL, range updates, no sparse attempt.
+        CaTblPolicyConfig cfg;
+        cfg.sparseInStep = true;
+        CaTblPolicy p;
+        p.Configure(cfg);
+        p.Initialize(500.0, 250.0, 60.0, 0.0);
+        std::vector<CaTblRangeMeasurement> m3 = two(GW, GW);
+        CaTblRangeMeasurement third = m3[0];
+        third.anchorX = 500.0;
+        third.anchorY = 1000.0;
+        third.rangeM = 700.0;
+        m3.push_back(third);
+        CaTblDecision full = p.Step(1.0, m3, 0, 3, 3, 7u);
+        Check(full.fixKind == CA_TBL_FIX_FULL && full.sparseVerdict == 255 &&
+                  full.rangeUpdates >= 1 && full.positionFuses == 0,
+              "DC-11: three ranges take the ordinary update path");
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";

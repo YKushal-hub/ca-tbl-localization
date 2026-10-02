@@ -940,6 +940,25 @@ bash scripts/gw_layout_gate.sh "$WORK/g38" || fail G38
 bash scripts/gw_layout_gate_selftest.sh "$WORK/g38" || fail G38
 finish G38
 
+# ---------------- G39: Cases A/B solved inside Step(), after the prediction (DC-11)
+# --sparseCaseA solves before Step() against the previous posterior, and Step() then counts
+# the cycle a no-fix (and, with relays, updates on the same pair again). --sparseInStep
+# solves after Predict() on the final set. NC3's regime four ways and NC4's relayed one,
+# read by scripts/sparse_in_step_gate.py:
+#   - --sparseInStep=false is the default, byte for byte;
+#   - the old path's solved cycles recorded as no-fixes, observed;
+#   - every accepted solve is one position fuse and zero range updates, a fix in the trace,
+#     no demotion; the propagated prior, not the previous posterior; the census complete;
+#   - relays completing a two-range set take the full path, never both;
+#   - --sparseCaseA with --sparseInStep is refused.
+#
+# Negative fixtures in scripts/sparse_in_step_gate_selftest.sh, built from these runs
+# (rule 6). The policy cases are in ca_tbl_sparse_anchor_test (G-less unit suite).
+printf '\n--- G39 Cases A/B solved inside Step(), after the prediction (DC-11) ---\n'
+bash scripts/sparse_in_step_gate.sh "$WORK/g39" || fail G39
+bash scripts/sparse_in_step_gate_selftest.sh "$WORK/g39" || fail G39
+finish G39
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

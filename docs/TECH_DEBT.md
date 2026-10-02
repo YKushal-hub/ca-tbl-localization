@@ -1797,3 +1797,16 @@ DISCOVERY and every other flooded type.
   silenced, and the queued frame still leaves. A fix must keep that, by gating forwarding
   only, or by checking silence at the moment of queueing.
 
+
+### N.2 Case A with relays counts one pair of ranges twice — fixed only under `--sparseInStep`
+
+With `--sparseCaseA --relayedRanging`, the scenario solves Case A from the active tier's two
+ranges and fuses that position. C5 then appends the relays, and `Step()` range-updates on the
+same two ranges plus the relays, so one measurement goes in twice (plan §1.H item 9). The
+same path records every Case A cycle as a no-fix and counts it toward demotion: 64 of 64 at
+NC3's seed 7 (G39, OLD).
+
+- *2026-10-02, DC-11:* `--sparseInStep` solves inside `Step()`, on the final set after C5.
+  Two ranges are fused once, as a position. Two plus relays take the full path, and no
+  sparse point is fused. G39 recounts 0 cycles that do both.
+- The default is unchanged, so every `--sparseCaseA` result so far carries both effects.

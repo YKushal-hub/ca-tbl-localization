@@ -1,5 +1,7 @@
 #include "ca-tbl-policy.h"
 
+#include "ca-tbl-sparse-anchor.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -979,12 +981,59 @@ CaTblPolicy::Step(double dt,
         (activeTierRanges < 0) ? (meas.size() >= 3)
                                : (static_cast<uint32_t>(activeTierRanges) >= 3);
 
+    // DC-11. Two ranges, solved HERE, after the prediction: the current state IS the
+    // propagated prior Physical 2.4 resolves Cases A/B against (the scenario's pre-Step
+    // solve used the previous posterior). Case A when both ranges are to surveyed
+    // gateways, Case B otherwise -- provenance, not geometry, decides, as before. The
+    // point is fused ONCE, as a position, with the same conservative variance the
+    // scenario used, 2 (s0^2 + s1^2); the two ranges are never also applied as ranges,
+    // which closes the double count of Case A plus relays (plan sect 1.H item 9) -- with
+    // relays appended the set has three or more and takes the full path instead. A
+    // solved cycle is a fix and does not count toward demotion. A refused one falls
+    // through to the coast below, exactly as before.
+    if (m_config.sparseInStep && meas.size() == 2)
+    {
+        const bool bothSurveyed = meas[0].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY &&
+                                  meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
+        d.sparsePriorX = m_ekf.X();
+        d.sparsePriorY = m_ekf.Y();
+        const CaTblSparseResult sr =
+            bothSurveyed
+                ? CaTblSolveCaseA(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
+                                  meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
+                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  m_config.sparseMarginM)
+                : CaTblSolveCaseB(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
+                                  meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
+                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  m_config.sparseMarginM);
+        d.sparseVerdict = static_cast<uint8_t>(sr.verdict);
+        const double var = 2.0 * (meas[0].sigmaM * meas[0].sigmaM +
+                                  meas[1].sigmaM * meas[1].sigmaM);
+        if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
+        {
+            m_ekf.FusePosition(sr.x, sr.y, var);
+            d.positionFuses = 1;
+            d.sparseX = sr.x;
+            d.sparseY = sr.y;
+            d.sparseVarM2 = var;
+            d.fixKind = (sr.solvedBy == CA_TBL_CASE_B) ? CA_TBL_FIX_CASE_B : CA_TBL_FIX_CASE_A;
+            d.hadFix = true;
+            d.estX = m_ekf.X();
+            d.estY = m_ekf.Y();
+            d.traceSigma = m_ekf.TracePos();
+            d.nAnchorsUsed = 2;
+            d.nextTier = m_tier;
+            return d;
+        }
+    }
+
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
-    // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f), but
-    // they run in the SCENARIO, before Step(), against the previous posterior -- so a
-    // two-range cycle still arrives here, is counted a no-fix and counts toward
-    // demotion. Case C only classifies; Case D does not exist. Moving the sparse cases
-    // in here, after the prediction, is docs/SPEC_CONFORMANCE_PLAN.md DC-11.
+    // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f). By
+    // default they run in the SCENARIO, before Step(), against the previous posterior --
+    // so a two-range cycle still arrives here, is counted a no-fix and counts toward
+    // demotion. Under sparseInStep (DC-11) they run above, and only a refused one
+    // arrives here. Case C only classifies; Case D does not exist yet (DC-4).
     if (meas.size() < 3)
     {
         m_noFixCycles++;
@@ -1018,6 +1067,10 @@ CaTblPolicy::Step(double dt,
 
     d.hadFix = true;
     d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
+    if (m_config.sparseInStep)
+    {
+        d.fixKind = CA_TBL_FIX_FULL; // DC-11: the census reads it
+    }
 
     // Per-measurement variance, inflated for NLOS-tagged links. This is the
     // NLOS-adaptive R the design calls for.
@@ -1254,6 +1307,7 @@ CaTblPolicy::Step(double dt,
             v *= m_config.suspectInflateFactor;
         }
         m_ekf.Update(meas, inflated);
+        ++d.rangeUpdates;
         if (auxQueued)
         {
             FuseAuxInflated(m_config.suspectInflateFactor);
@@ -1281,6 +1335,7 @@ CaTblPolicy::Step(double dt,
             // during a genuine persistent fault this fuses the very measurement the
             // gate identified as faulty.
             m_ekf.Update(meas, varM2);
+            ++d.rangeUpdates;
             recovered = true;
             if (auxQueued)
             {
@@ -1329,6 +1384,7 @@ CaTblPolicy::Step(double dt,
     {
         m_consecutiveRejections = 0;
         m_ekf.Update(meas, varM2);
+        ++d.rangeUpdates;
         if (auxQueued)
         {
             FuseAux(); // the COMBINED tier-1 fix: RSSI ranges above, TDoA position here

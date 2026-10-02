@@ -1090,6 +1090,22 @@ CaTblQuantise(double x)
     return static_cast<uint8_t>(x * 255.0 + 0.5);
 }
 
+/** DC-11. A range's source kind from the id classes: 101-499 surveyed gateways (and the
+ *  legacy topology's anchors), 501+ finders, anything else a peer tag. */
+static uint8_t
+CaTblSourceKindOf(uint32_t id)
+{
+    if (id >= 501)
+    {
+        return CA_TBL_SRC_FINDER;
+    }
+    if (id >= 101)
+    {
+        return CA_TBL_SRC_SURVEYED_GATEWAY;
+    }
+    return CA_TBL_SRC_PEER;
+}
+
 /**
  * \brief MC-1. The C4 terms as they stand when a request is SENT.
  *
@@ -5200,6 +5216,8 @@ struct SpecOptions
     //! SY-5. --injectTxPowerDropDb / --injectAntennaLossDb, over the fault window.
     double injectTxPowerDropDb = 0.0;
     double injectAntennaLossDb = 0.0;
+    //! DC-11. --sparseInStep: Cases A/B solved inside Step() against the propagated prior.
+    bool sparseInStep = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -5572,6 +5590,11 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.integrityNlosFromScore = true;
         pcfg.integrityNlosScoreThreshold = nlosScoreThreshold;
+    }
+    if (spec.sparseInStep)
+    {
+        pcfg.sparseInStep = true;
+        pcfg.sparseMarginM = sparseCaseAMarginM;
     }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
@@ -6557,6 +6580,29 @@ RunArm(CaTblPolicyMode mode,
     {
         edgeUp.reset(new EdgeUplinkTally());
     }
+    // DC-11. Per-run state of --sparseInStep, null without it.
+    struct SparseInStepState
+    {
+        bool twoNoFloor = false;
+        double prevX = 0.0;
+        double prevY = 0.0;
+        uint64_t attempts = 0;
+        uint64_t caseA = 0;
+        uint64_t caseB = 0;
+        uint64_t refused[4] = {0, 0, 0, 0};
+        uint64_t fullWithRelays = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<SparseInStepState> sparse;
+    if (spec.sparseInStep)
+    {
+        sparse.reset(new SparseInStepState());
+        std::ostringstream sfn;
+        sfn << traceDir << "/sparse_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sparse->log.open(sfn.str().c_str());
+        sparse->log << "t,nMeas,verdict,fixKind,priorX,priorY,prevX,prevY,x,y,varM2,estX,estY,"
+                       "rangeUpdates,positionFuses\n";
+    }
     // MC-2. Per-run state of --triggeredUpdates, null without it.
     struct TriggeredUpdateState
     {
@@ -7417,6 +7463,9 @@ RunArm(CaTblPolicyMode mode,
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
                         m.sigmaM = sigmaM;
+                        // DC-11: who the range is to (rule 14's fields).
+                        m.anchorId = anchorId;
+                        m.sourceKind = CaTblSourceKindOf(anchorId);
                         pmeas.push_back(m);
                     }
                 }
@@ -7956,6 +8005,11 @@ RunArm(CaTblPolicyMode mode,
                     m.hiddenChannelActive = hiddenActive;
                     m.sigmaM = sigmaM;
                     m.nlosScore = nlosScore;
+                    // DC-11: who the range is to, and whether this is the floor's set
+                    // (the floor is the only tier ranged other than the active one).
+                    m.anchorId = anchorId;
+                    m.sourceKind = CaTblSourceKindOf(anchorId);
+                    m.fromFloor = (tier != active);
                     out.push_back(m);
                 }
             }
@@ -8178,7 +8232,7 @@ RunArm(CaTblPolicyMode mode,
             // categories with a hole where the commonest outcome lived.
             ++caseSolved[4];
         }
-        else if (activeMeas.size() == 2 && !sparseCaseA)
+        else if (activeMeas.size() == 2 && !sparseCaseA && !spec.sparseInStep)
         {
             // Two ranges, no floor, and sparse solving disabled: the estimator coasts.
             // Unlocalisable in the same sense as C, and counted there so the census does
@@ -8265,6 +8319,14 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        if (sparse)
+        {
+            // DC-11. Classified after Step(), which now does the solving; noted before
+            // the relays below append to activeMeas.
+            sparse->twoNoFloor = (activeMeas.size() == 2 && floorMeas.size() < 3);
+            sparse->prevX = policy.EstX();
+            sparse->prevY = policy.EstY();
+        }
         const bool activeSolved = (activeMeas.size() >= 3) || caseAUsed;
         const bool usedFloor = (!activeSolved && floorMeas.size() >= 3);
 
@@ -8429,6 +8491,9 @@ RunArm(CaTblPolicyMode mode,
                     m.nlosPropagation = false;
                     m.hiddenChannelActive = false;
                     m.sigmaM = sigmaEff;
+                    m.anchorId = rr.relayId; // DC-11
+                    m.sourceKind = CA_TBL_SRC_RELAY;
+                    m.hopDepth = rr.hopDepth;
                     activeMeas.push_back(m);
 
                     relaysUsedThisUpdate.insert(rr.relayId);
@@ -8616,6 +8681,48 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (sparse && sparse->twoNoFloor)
+        {
+            // DC-11. The census of a two-range cycle, now that Step() has decided it:
+            // solved as A or B, refused (C), or -- relays having made the set three or
+            // more -- the ordinary solve (bucket 0).
+            if (d.sparseVerdict != 255)
+            {
+                ++sparse->attempts;
+                ++caseAAttempts;
+                if (d.fixKind == CA_TBL_FIX_CASE_A || d.fixKind == CA_TBL_FIX_CASE_B)
+                {
+                    ++caseAAdmitted;
+                    const bool isB = (d.fixKind == CA_TBL_FIX_CASE_B);
+                    ++caseSolved[isB ? 2 : 1];
+                    ++(isB ? sparse->caseB : sparse->caseA);
+                }
+                else if (d.sparseVerdict < 4)
+                {
+                    ++caseARefused[d.sparseVerdict];
+                    ++sparse->refused[d.sparseVerdict];
+                    ++caseSolved[3];
+                }
+            }
+            else if (d.hadFix)
+            {
+                ++caseSolved[0];
+                ++sparse->fullWithRelays;
+            }
+            else
+            {
+                ++caseSolved[3];
+            }
+        }
+        if (sparse && d.sparseVerdict != 255)
+        {
+            sparse->log << std::fixed << std::setprecision(4) << t << ',' << meas.size() << ','
+                        << int(d.sparseVerdict) << ',' << int(d.fixKind) << ',' << d.sparsePriorX
+                        << ',' << d.sparsePriorY << ',' << sparse->prevX << ',' << sparse->prevY
+                        << ',' << d.sparseX << ',' << d.sparseY << ',' << d.sparseVarM2 << ','
+                        << d.estX << ',' << d.estY << ',' << d.rangeUpdates << ','
+                        << d.positionFuses << '\n';
+        }
         if (tdoa)
         {
             tdoa->EndCycle(t, cycleIndex, pos, policy.AuxFusedLast(), d.measurementRejected,
@@ -9617,6 +9724,15 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
         std::cout << line.str();
+    }
+    // DC-11. The two-range cycles Step() decided. Printed only under the flag.
+    if (sparse)
+    {
+        std::cout << "    DC-11 sparse in Step: attempts " << sparse->attempts << ", case A "
+                  << sparse->caseA << ", case B " << sparse->caseB << ", refused degenerate "
+                  << sparse->refused[1] << " ambiguous " << sparse->refused[2] << " no-prior "
+                  << sparse->refused[3] << "; two-range cycles made full by relays "
+                  << sparse->fullWithRelays << "\n";
     }
     // MC-2. Triggers, frames billed and transmitted by the measured node, and receptions
     // of them anywhere in the mesh, per kind. Printed only under the flag.
@@ -11869,6 +11985,20 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("sparseInStep",
+                 "Solve a two-range cycle inside Step(), after the prediction, against the "
+                 "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
+                 "DC-11). False (default) is every result so far: --sparseCaseA solves in the "
+                 "scenario BEFORE Step(), against the previous cycle's posterior, fuses the "
+                 "point one cycle early, and Step() then counts the cycle as a no-fix and "
+                 "toward demotion -- and with relays appended it range-updates on the same "
+                 "two ranges again (a double count). True: Case A when both ranges are to "
+                 "surveyed gateways, Case B otherwise; the point is fused once, the ranges "
+                 "never also as ranges; a solved cycle is a fix that does not count toward "
+                 "demotion; with relays appended the set takes the full path. Margin: "
+                 "--sparseCaseAMargin. Writes sparse_<arm>_seed<N>.csv (digested) and one "
+                 "DC-11 line per arm. Replaces --sparseCaseA, so the two together are FATAL.",
+                 spec.sparseInStep);
     cmd.AddValue("edgeUplinkRanges",
                  "Bill the uplink that carries a tier-2 or tier-3 range to the gateway "
                  "estimator (TECH_DEBT L.2.3; docs/SPEC_CONFORMANCE_PLAN.md SY-1). READ ONLY "
@@ -12307,6 +12437,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // DC-11. --sparseInStep replaces --sparseCaseA's pre-Step solve; both would solve twice.
+    if (spec.sparseInStep && sparseCaseAArg)
+    {
+        std::cerr << "FATAL: --sparseInStep replaces --sparseCaseA's solve before Step(); "
+                  << "give one or the other\n";
         return 1;
     }
     // SY-5. The faults ride the seeded window; without one they would never act.
@@ -13196,6 +13333,10 @@ main(int argc, char* argv[])
     if (spec.triggeredUpdates)
     {
         digestPatterns += " triggered_*.csv";
+    }
+    if (spec.sparseInStep)
+    {
+        digestPatterns += " sparse_*.csv";
     }
     if (queryProxyArg)
     {
