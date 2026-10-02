@@ -216,6 +216,41 @@ main(int argc, char* argv[])
               "DC-11: three ranges take the ordinary update path");
     }
 
+    // --- DC-2: Case B against the IMU-propagated prior -----------------------------------
+    {
+        // A gateway at (0, 0) and a finder at (1000, 0); the node is truly at (500, 300), the
+        // mirror root at (500, -300). The previous estimate is (500, -50), still. The walker
+        // went 150 m north: the constant-velocity prior stays at (500, -50) and picks the
+        // wrong root; the IMU, which saw the 150 m, carries the prior to (500, 100).
+        std::vector<CaTblRangeMeasurement> m(2);
+        const double gx[2] = {0.0, 1000.0};
+        const uint8_t kind[2] = {CA_TBL_SRC_SURVEYED_GATEWAY, CA_TBL_SRC_FINDER};
+        for (int i = 0; i < 2; ++i)
+        {
+            m[i].anchorX = gx[i];
+            m[i].anchorY = 0.0;
+            m[i].rangeM = std::hypot(500.0 - gx[i], 300.0);
+            m[i].sigmaM = 5.0;
+            m[i].sourceKind = kind[i];
+        }
+        CaTblPolicyConfig cfg;
+        cfg.sparseInStep = true;
+        CaTblPolicy cv, imu;
+        cv.Configure(cfg);
+        imu.Configure(cfg);
+        cv.Initialize(500.0, -50.0, 60.0, 0.0);
+        imu.Initialize(500.0, -50.0, 60.0, 0.0);
+        imu.SetImuControl(0.0, 150.0, 25.0, 0.0, 25.0);
+        CaTblDecision dc = cv.Step(1.0, m, 0, 2, 2, 7u);
+        CaTblDecision di = imu.Step(1.0, m, 0, 2, 2, 7u);
+        Check(dc.fixKind == CA_TBL_FIX_CASE_B && dc.sparsePriorSource == 0 &&
+                  std::fabs(dc.sparseY + 300.0) < 1e-6,
+              "DC-2: the constant-velocity prior picks the mirror root (labelled CV)");
+        Check(di.fixKind == CA_TBL_FIX_CASE_B && di.sparsePriorSource == 1 &&
+                  std::fabs(di.sparseY - 300.0) < 1e-6 && di.sparsePriorY == 100.0,
+              "DC-2: the IMU-propagated prior picks the true root (labelled IMU)");
+    }
+
     // --- DC-4: Case D, one range on the propagated state --------------------------------
     {
         // One gateway due east of the prior at 300 m; the node is truly at 310 m.

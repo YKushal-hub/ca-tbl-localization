@@ -1037,6 +1037,7 @@ CaTblPolicy::Step(double dt,
                                   meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
         d.sparsePriorX = m_ekf.X();
         d.sparsePriorY = m_ekf.Y();
+        d.sparsePriorSource = d.imuPredicted ? 1 : 0; // DC-2
         const CaTblSparseResult sr =
             bothSurveyed
                 ? CaTblSolveCaseA(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,

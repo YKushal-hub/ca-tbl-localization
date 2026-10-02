@@ -996,6 +996,21 @@ bash scripts/case_d_gate.sh "$WORK/g41" || fail G41
 bash scripts/case_d_gate_selftest.sh "$WORK/g41" || fail G41
 finish G41
 
+# ---------------- G42: Case B resolves against the IMU-propagated prior (DC-2)
+# Physical 2.4 resolves Case B's orientation by IMU heading; the code chose with the prior,
+# a recorded deviation. Under --imuPredict --sparseInStep the prior IS the last posterior +
+# the IMU's u_k. NC3's regime with four finders, seeds 1-4, with and without --imuPredict,
+# read by scripts/case_b_imu_gate.py:
+#   - every solve labelled by its prior (IMU / constant-velocity);
+#   - Case B occurs under --imuPredict;
+#   - every prior there is the previous posterior + u, recounted from the imu_ file.
+#
+# Negative fixtures in scripts/case_b_imu_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G42 Case B resolves against the IMU-propagated prior (DC-2) ---\n'
+bash scripts/case_b_imu_gate.sh "$WORK/g42" || fail G42
+bash scripts/case_b_imu_gate_selftest.sh "$WORK/g42" || fail G42
+finish G42
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

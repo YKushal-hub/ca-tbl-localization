@@ -6660,7 +6660,7 @@ RunArm(CaTblPolicyMode mode,
         sfn << traceDir << "/sparse_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         sparse->log.open(sfn.str().c_str());
         sparse->log << "t,nMeas,verdict,fixKind,priorX,priorY,prevX,prevY,x,y,varM2,estX,estY,"
-                       "rangeUpdates,positionFuses\n";
+                       "rangeUpdates,positionFuses,priorSource\n";
     }
     // MC-2. Per-run state of --triggeredUpdates, null without it.
     struct TriggeredUpdateState
@@ -8835,7 +8835,7 @@ RunArm(CaTblPolicyMode mode,
                         << ',' << d.sparsePriorY << ',' << sparse->prevX << ',' << sparse->prevY
                         << ',' << d.sparseX << ',' << d.sparseY << ',' << d.sparseVarM2 << ','
                         << d.estX << ',' << d.estY << ',' << d.rangeUpdates << ','
-                        << d.positionFuses << '\n';
+                        << d.positionFuses << ',' << int(d.sparsePriorSource) << '\n';
         }
         if (tdoa)
         {
