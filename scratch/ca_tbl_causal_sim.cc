@@ -695,6 +695,11 @@ class EnginePhyProvider : public CaTblPhyProvider
     uint64_t GetFaultTxLinks() const { return m_faultTxLinks; }
     uint64_t GetFaultRxLinks() const { return m_faultRxLinks; }
 
+    //! NW-0. Under mesh links ("all") every registered pair on a tier both carry is a
+    //! link -- tag-tag, gateway-gateway, finder-gateway -- not only field node to anchor.
+    void SetMeshAll(bool m) { m_meshAll = m; }
+    uint64_t GetMeshEvaluations() const { return m_meshEvals; }
+
     //! Register an additional field node (a peer tag). The measured tag keeps its
     //! own scalar id/position rather than joining this map, so that with nTags=1
     //! the map stays empty and every branch below behaves as it did before.
@@ -720,6 +725,10 @@ class EnginePhyProvider : public CaTblPhyProvider
         uint16_t anchor = 0;
         uint16_t node = m_nodeId;
         const Vector* nodePos = &m_nodePos;
+        if (m_meshAll && !StarPair(txId, rxId, tier))
+        {
+            return EvaluateMeshPair(txId, rxId, tier, txPowerDbm, hopsTraversed);
+        }
         if (txId == m_nodeId)
         {
             anchor = rxId;
@@ -898,6 +907,106 @@ class EnginePhyProvider : public CaTblPhyProvider
     uint64_t GetSkipped() const { return m_skipped; }
 
   private:
+    //! NW-0. Whether (tx, rx) is a pair the star model already evaluates: exactly one
+    //! endpoint a field node (the measured node or a peer) and the other an anchor that
+    //! carries the tier. Those keep their exact evaluation, in the same order.
+    bool StarPair(uint16_t txId, uint16_t rxId, CaTblTier tier) const
+    {
+        const bool txField = (txId == m_nodeId) || m_peerPos.count(txId) != 0;
+        const bool rxField = (rxId == m_nodeId) || m_peerPos.count(rxId) != 0;
+        if (txField == rxField)
+        {
+            return false;
+        }
+        const uint16_t anchor = txField ? rxId : txId;
+        std::map<uint16_t, uint8_t>::const_iterator at = m_anchorTiers.find(anchor);
+        return at != m_anchorTiers.end() &&
+               (at->second & static_cast<uint8_t>(1u << static_cast<int>(tier))) != 0;
+    }
+
+    //! NW-0. Any other registered pair on a tier both carry, the transmitter in the
+    //! engine's node slot (as EvaluateAnchorPair does). Field nodes carry every tier.
+    CaTblLinkOutcome EvaluateMeshPair(uint16_t txId, uint16_t rxId, CaTblTier tier,
+                                      double txPowerDbm, uint8_t hopsTraversed)
+    {
+        CaTblLinkOutcome o;
+        const uint8_t bit = static_cast<uint8_t>(1u << static_cast<int>(tier));
+        auto where = [&](uint16_t id, Vector& p) -> bool {
+            if (id == m_nodeId)
+            {
+                p = m_nodePos;
+                return true;
+            }
+            std::map<uint16_t, Vector>::const_iterator pp = m_peerPos.find(id);
+            if (pp != m_peerPos.end())
+            {
+                p = pp->second;
+                return true;
+            }
+            std::map<uint16_t, uint8_t>::const_iterator at = m_anchorTiers.find(id);
+            if (at != m_anchorTiers.end() && (at->second & bit) != 0)
+            {
+                p = m_anchorPos[id];
+                return true;
+            }
+            return false;
+        };
+        Vector txPos, rxPos;
+        if (txId == rxId || !where(txId, txPos) || !where(rxId, rxPos))
+        {
+            ++m_skipped;
+            return o;
+        }
+        if (txId == m_nodeId && m_faultTxDb != 0.0)
+        {
+            txPowerDbm -= m_faultTxDb; // SY-5, as on the star pairs
+        }
+        else if (rxId == m_nodeId && m_faultRxDb != 0.0)
+        {
+            txPowerDbm -= m_faultRxDb;
+        }
+        const Time now = Simulator::Now();
+        const int t = static_cast<int>(tier);
+        ++m_evaluations;
+        ++m_meshEvals;
+        if (tier == CA_TBL_TIER_868)
+        {
+            PhysicsResult r = m_e868.ProcessTransmission(txId, rxId, txPos, rxPos, txPowerDbm,
+                                                         m_phy[t].sf, m_phy[t].bandwidthHz,
+                                                         hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else if (tier == CA_TBL_TIER_2P4)
+        {
+            PhysicsResult2p4 r = m_e2p4.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                            txPowerDbm, m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        else
+        {
+            PhysicsResultUWB r = m_eUwb.ProcessTransmission(txId, rxId, txPos, rxPos,
+                                                            txPowerDbm, m_phy[t].sf,
+                                                            m_phy[t].bandwidthHz,
+                                                            hopsTraversed, now);
+            o.received = r.packetReceived;
+            o.rxPowerDbm = r.rxPowerDbm;
+            o.snrDb = r.snr_db;
+            o.nlos = CaTblNlosFlag(m_nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
+            o.estimatedRangeM = r.estimatedRangeM;
+        }
+        return o;
+    }
+
     //! L.1.4. Gateway-to-gateway link on \p tier, for the gossip frame only. Same
     //! engine calls as Evaluate(), with the transmitting gateway in the node slot.
     CaTblLinkOutcome EvaluateAnchorPair(uint16_t txId,
@@ -983,6 +1092,9 @@ class EnginePhyProvider : public CaTblPhyProvider
     double m_faultRxDb = 0.0;
     uint64_t m_faultTxLinks = 0;
     uint64_t m_faultRxLinks = 0;
+    //! NW-0. False unless --meshLinks=all.
+    bool m_meshAll = false;
+    uint64_t m_meshEvals = 0;
 };
 
 /**
@@ -5227,6 +5339,8 @@ struct SpecOptions
     bool entryPrediction = false;
     //! DC-9. --imuWitnessSource: "" or "shs" (the SHS absolute track), or "model".
     std::string imuWitnessSource;
+    //! NW-0. --meshLinks: "" or "star" (field node to anchor only), or "all".
+    std::string meshLinks;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -5880,6 +5994,7 @@ RunArm(CaTblPolicyMode mode,
         mc.targetManifestId = 1;
         mc.sendHandshakeFrames = sendHandshakeFrames;
         mc.handshakeFixes = spec.handshakeFixes;
+        mc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
         mc.bandwidthHz = phy[ti].bandwidthHz;
@@ -5914,6 +6029,7 @@ RunArm(CaTblPolicyMode mode,
             mc.uwbArbitration = uwbArbitration;
             mc.sendHandshakeFrames = sendHandshakeFrames;
             mc.handshakeFixes = spec.handshakeFixes;
+            mc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
             // tier-1 beacon period one gateway occupies 51.5 ms / 10 s = 0.51%,
@@ -6009,6 +6125,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.targetManifestId = static_cast<uint8_t>(1 + pt);
             pmc.sendHandshakeFrames = sendHandshakeFrames;
             pmc.handshakeFixes = spec.handshakeFixes;
+            pmc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
             pmc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
             pmc.sf = phy[ti].sf;
             pmc.bandwidthHz = phy[ti].bandwidthHz;
@@ -6274,6 +6391,7 @@ RunArm(CaTblPolicyMode mode,
             fc.uwbArbitration = uwbArbitration;
             fc.sendHandshakeFrames = sendHandshakeFrames;
             fc.handshakeFixes = spec.handshakeFixes;
+            fc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
             fc.sf = phy[ti].sf;
             fc.bandwidthHz = phy[ti].bandwidthHz;
             fc.txPowerDbm = phy[ti].txPowerDbm;
@@ -6625,6 +6743,33 @@ RunArm(CaTblPolicyMode mode,
         imuPred->log.open(ifn.str().c_str());
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
+    }
+    // NW-0. Per-run state of --meshLinks=all, null without it.
+    struct MeshState
+    {
+        double billedAir[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+        uint64_t billedFrames[CA_TBL_TIER_COUNT] = {0, 0, 0};
+        uint64_t peersSkipped = 0;
+    };
+    std::unique_ptr<MeshState> mesh;
+    if (spec.meshLinks == "all")
+    {
+        mesh.reset(new MeshState());
+        provider.SetMeshAll(true);
+        // NW-0. The first slice belongs to the starting tier; a hybrid arm keeps 868 MHz
+        // awake whenever it is off 868.
+        const CaTblTier t0 = policy.GetActiveTier();
+        const bool hybrid0 = (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY ||
+                              mode == CA_TBL_MODE_FIXED_THRESHOLD);
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            if (nodeMac[ti] != nullptr)
+            {
+                nodeMac[ti]->SetAsleep(!(ti == static_cast<int>(t0) ||
+                                         (hybrid0 && t0 != CA_TBL_TIER_868 &&
+                                          ti == CA_TBL_TIER_868)));
+            }
+        }
     }
     // DC-9. Per-run state of --imuWitnessSource=model, null without it: the witness track,
     // anchored at the last fused fix and advanced by the synthetic IMU's u.
@@ -7840,7 +7985,27 @@ RunArm(CaTblPolicyMode mode,
             //
             // A node cannot address a peer it has never heard from. It ranges
             // against what it has discovered, which is what this now does.
-            const std::vector<CaTblNeighbour> nb = nodeMac[tier]->GetNeighbours(tier, t);
+            std::vector<CaTblNeighbour> nb = nodeMac[tier]->GetNeighbours(tier, t);
+            if (mesh)
+            {
+                // NW-0. Under mesh links a peer's frames reach the node and the peer enters
+                // the neighbour table -- but the poll is to ANCHORS (gateways and finders)
+                // with known positions. operator[] below would otherwise range a peer as a
+                // free "anchor" at (0, 0, 0). Peers are ranged only through C5 (relays).
+                std::vector<CaTblNeighbour> keep;
+                for (size_t k = 0; k < nb.size(); ++k)
+                {
+                    if (nb[k].id >= 101 && anchorPosById.find(nb[k].id) != anchorPosById.end())
+                    {
+                        keep.push_back(nb[k]);
+                    }
+                    else
+                    {
+                        ++mesh->peersSkipped;
+                    }
+                }
+                nb.swap(keep);
+            }
 
             energy.AccountCad(tier);
 
@@ -8883,6 +9048,25 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (mesh)
+        {
+            // NW-0. Which of the node's radios are awake for the coming slice. The slice
+            // runs BEFORE the next cycle's ranging (Simulator::Run at the loop head), so it
+            // belongs to the tier that cycle will use -- d.nextTier -- plus 868 MHz while a
+            // hybrid arm keeps the floor awake: the same attribution the listen billing
+            // below makes. A radio asleep for the slice neither receives nor relays
+            // (RULES.md sect 6). Gating on THIS cycle's tier instead would keep a newly
+            // chosen radio asleep through the slice in which it should discover neighbours.
+            const bool floorNext = hybridArm && d.nextTier != CA_TBL_TIER_868;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->SetAsleep(!(ti == static_cast<int>(d.nextTier) ||
+                                             (floorNext && ti == CA_TBL_TIER_868)));
+                }
+            }
+        }
         if (witness)
         {
             // DC-9. The cycle's witness, then the anchor moves to a fused fix.
@@ -9480,6 +9664,20 @@ RunArm(CaTblPolicyMode mode,
         {
             const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
             const bool wasAwake = (tr == active) || (runFloor && tr == CA_TBL_TIER_868);
+            if (mesh && nodeMac[tierIdx] != nullptr)
+            {
+                // NW-0. Under mesh links the node relays others' floods on its awake radios;
+                // each such frame is a transmission on that tier, billed to the node.
+                const double air = nodeMac[tierIdx]->GetRebroadcastAirtimeS();
+                const uint64_t fr = nodeMac[tierIdx]->GetRebroadcastFrames();
+                if (fr > mesh->billedFrames[tierIdx])
+                {
+                    energy.AccountTx(tr, air - mesh->billedAir[tierIdx],
+                                     fr - mesh->billedFrames[tierIdx]);
+                    mesh->billedAir[tierIdx] = air;
+                    mesh->billedFrames[tierIdx] = fr;
+                }
+            }
             const uint64_t rxNow = nodeMac[tierIdx]->GetTotals().received;
 
             if (wasAwake)
@@ -9987,6 +10185,27 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->frames[CA_TBL_TIER_UWB] << " records "
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
+        std::cout << line.str();
+    }
+    // NW-0. The mesh's cost and its guards. Printed only under the flag.
+    if (mesh)
+    {
+        uint64_t asleep = 0;
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            if (nodeMac[ti] != nullptr)
+            {
+                asleep += nodeMac[ti]->GetAsleepRefused();
+            }
+        }
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    NW-0 mesh: link evaluations " << provider.GetEvaluations() << " (mesh pairs "
+             << provider.GetMeshEvaluations() << "), peers kept out of poll sets "
+             << mesh->peersSkipped << ", receptions refused asleep " << asleep
+             << ", node rebroadcasts billed " << (mesh->billedFrames[0] + mesh->billedFrames[1] +
+                                                  mesh->billedFrames[2])
+             << " frames " << std::setprecision(9)
+             << (mesh->billedAir[0] + mesh->billedAir[1] + mesh->billedAir[2]) << " s\n";
         std::cout << line.str();
     }
     // DC-9. The model witness's counters, split. Printed only under the flag.
@@ -12281,6 +12500,20 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("meshLinks",
+                 "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
+                 "mesh'; docs/SPEC_CONFORMANCE_PLAN.md NW-0, the prerequisite of the network "
+                 "and transport layer). Not given, or star, is every result so far: a link "
+                 "exists only between a field node and an anchor, so a finder cannot reach a "
+                 "gateway and a casualty cannot reach one through a peer -- the flood is "
+                 "star-plus-anchor-reflection. all: every registered pair on a tier both "
+                 "carry is a link (tag-tag, gateway-gateway, finder-gateway). Under it "
+                 "DISCOVERY is one-hop (discovery is one-hop by definition, and flooding it "
+                 "in a full mesh is a storm), the ranging poll addresses anchors only (a peer "
+                 "would otherwise be ranged as an anchor at the origin), the node's sleeping "
+                 "radios neither receive nor relay, and its relays are billed. About N^2 link "
+                 "evaluations per frame. Prints one NW-0 line per arm.",
+                 spec.meshLinks);
     cmd.AddValue("imuWitnessSource",
                  "Which IMU track the --imuCrossCheck witness compares (the final plan's "
                  "'IMU dead-reckoning consistency' before an escalation; "
@@ -12787,6 +13020,12 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // NW-0.
+    if (!spec.meshLinks.empty() && spec.meshLinks != "star" && spec.meshLinks != "all")
+    {
+        std::cerr << "FATAL: --meshLinks must be star or all, got '" << spec.meshLinks << "'\n";
         return 1;
     }
     // DC-9. The model witness needs the synthetic IMU and the witness itself.

@@ -1044,6 +1044,24 @@ bash scripts/imu_witness_gate.sh "$WORK/g44" || fail G44
 bash scripts/imu_witness_gate_selftest.sh "$WORK/g44" || fail G44
 finish G44
 
+# ---------------- G45: real mesh links (NW-0)
+# The PHY provider linked only field nodes to anchors, so the "mesh" was a star with anchor
+# reflection. --meshLinks=all links every registered pair on a shared tier, makes DISCOVERY
+# one-hop, polls anchors only, sleeps the node's idle radios and bills its relays. NC9's
+# regime with peers, handshakes and per-tier identity queries, read by
+# scripts/mesh_links_gate.py:
+#   - --meshLinks=star is the default, byte for byte;
+#   - finder->gateway, gateway->gateway and tag->tag frames delivered under all, none under
+#     star; no DISCOVERY relayed under all;
+#   - nothing received or relayed at the node on a sleeping radio; floods terminate;
+#   - the node's relays billed; the poll guard fired; one refusal.
+#
+# Negative fixtures in scripts/mesh_links_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G45 real mesh links (NW-0) ---\n'
+bash scripts/mesh_links_gate.sh "$WORK/g45" || fail G45
+bash scripts/mesh_links_gate_selftest.sh "$WORK/g45" || fail G45
+finish G45
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

@@ -919,7 +919,11 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         f.hdr.SetGrants(m_nextGossip);
     }
     f.hdr.SetOriginId(m_cfg.nodeId);
-    f.hdr.SetHopLimit(CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1);
+    // NW-0: a one-hop DISCOVERY leaves with hop limit 0. A limit of 1 would still be
+    // relayed once -- DecrementHopLimit() refuses only at 0 -- which is two hops.
+    f.hdr.SetHopLimit((m_cfg.discoveryOneHop && type == CA_TBL_MSG_DISCOVERY)
+                          ? 0
+                          : (CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1));
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
     f.hdr.SetMsgType(type);
     f.hdr.SetTier(static_cast<uint8_t>(tier));
@@ -977,6 +981,10 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
 void
 CaTblMac::AttemptCad(PendingFrame f)
 {
+    if (m_asleep && f.hdr.GetOriginId() != m_cfg.nodeId)
+    {
+        return; // NW-0: a relay queued before the radio fell asleep does not leave
+    }
     if (m_channel == nullptr)
     {
         return;
@@ -1099,6 +1107,8 @@ CaTblMac::DoTransmit(PendingFrame f)
     if (f.hdr.GetOriginId() != m_cfg.nodeId)
     {
         ++c.rebroadcast;
+        m_rebroadcastAirS += toa.GetSeconds(); // NW-0
+        ++m_rebroadcastFrames;
     }
 
     m_channel->Transmit(m_cfg.nodeId, f.tier, f.hdr, toa, m_txPowerDbm, f.destId);
@@ -1166,6 +1176,10 @@ CaTblMac::OnAckTimeout(uint32_t packetId)
 void
 CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
 {
+    if (m_asleep)
+    {
+        return; // NW-0: the channel skips a sleeping radio (and counts it) before this
+    }
     const uint32_t pid = hdr.GetPacketId();
     CaTblMsgCounters& c = Counters(hdr.GetMsgType());
 
@@ -1650,6 +1664,10 @@ CaTblMac::NoteCapture(CaTblMsgType t)
 void
 CaTblMac::MaybeRebroadcast(CaTblHeader hdr, CaTblTier tier)
 {
+    if (m_asleep)
+    {
+        return; // NW-0: fell asleep between hearing the frame and its jittered relay
+    }
     PendingFrame f;
     f.hdr = hdr;
     f.tier = tier;
@@ -1834,6 +1852,13 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         // (destId 0) reaches everyone in range.
         if (me.destId != 0 && me.destId != rxId)
         {
+            continue;
+        }
+        // NW-0: a radio asleep this cycle hears nothing -- no link is evaluated, nothing is
+        // logged. Never true unless the scenario sets it (--meshLinks=all).
+        if (rx->IsAsleep())
+        {
+            rx->NoteAsleepRefusal();
             continue;
         }
 
