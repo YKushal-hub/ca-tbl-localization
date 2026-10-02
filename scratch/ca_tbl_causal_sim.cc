@@ -4990,6 +4990,8 @@ struct SpecOptions
     bool triggeredUpdates = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
+    //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
+    bool edgeUplinkRanges = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6304,6 +6306,19 @@ RunArm(CaTblPolicyMode mode,
     // producer published and every node holds. Untouched without the flag.
     std::vector<Vector> finderPubPrev(nFinders);
     std::vector<double> finderPubPrevT(nFinders, -1.0);
+    // SY-1. Per-run tally of --edgeUplinkRanges, null without it: frames, bytes and the
+    // joules they were billed, per tier.
+    struct EdgeUplinkTally
+    {
+        uint64_t frames[CA_TBL_TIER_COUNT] = {0, 0, 0};
+        uint64_t records[CA_TBL_TIER_COUNT] = {0, 0, 0};
+        double airS[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+    };
+    std::unique_ptr<EdgeUplinkTally> edgeUp;
+    if (spec.edgeUplinkRanges)
+    {
+        edgeUp.reset(new EdgeUplinkTally());
+    }
     // MC-2. Per-run state of --triggeredUpdates, null without it.
     struct TriggeredUpdateState
     {
@@ -7670,6 +7685,29 @@ RunArm(CaTblPolicyMode mode,
                                           static_cast<uint32_t>(nb.size()),
                                           static_cast<uint32_t>(out.size()),
                                           t);
+            // SY-1 (TECH_DEBT L.2.3). With the estimator on the gateways, a tier-2 or
+            // tier-3 range has to REACH them, and nothing billed that. Tiers 2 and 3 range
+            // by two-way time of flight, which leaves the range at the initiator -- the
+            // node (Poucet's START/ACK/DATA_REPLY, docx Physical 1.3) -- so the node sends
+            // it up: one frame on the tier that just ranged, carrying one record per
+            // answered anchor. A record is anchor id (2 B) + range (2 B, decimetres) +
+            // sigma (1 B) + NLOS score (1 B) = 6 B, OURS, shaped on the table entry's
+            // fields. The 868 MHz exchange needs no uplink: the gateways measured it.
+            // The tier transmitted this cycle, so RULES.md sect 6 holds.
+            if (edgeUp && gatewayEdgeServer && tier != CA_TBL_TIER_868 && !out.empty())
+            {
+                const uint32_t bytes = CA_TBL_MAC_HEADER_BYTES +
+                                       6u * static_cast<uint32_t>(out.size());
+                const double airS =
+                    (tier == CA_TBL_TIER_UWB)
+                        ? CaTblEnergyModel::UwbFrameTimeS(bytes)
+                        : CaTblEnergyModel::LoRaTimeOnAirS(phy[tier].sf, phy[tier].bandwidthHz,
+                                                           bytes, 1);
+                energy.AccountFrameTx(tier, t, airS);
+                ++edgeUp->frames[tier];
+                edgeUp->records[tier] += out.size();
+                edgeUp->airS[tier] += airS;
+            }
             if (tdoa && tier == CA_TBL_TIER_868)
             {
                 tdoa->NoteExchange(out.size());
@@ -9268,6 +9306,18 @@ RunArm(CaTblPolicyMode mode,
                           << " grants\n";
             }
         }
+    }
+    // SY-1. The uplink frames billed, per tier. Printed only under the flag.
+    if (edgeUp)
+    {
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    SY-1 edge uplink: 2.4 GHz frames " << edgeUp->frames[CA_TBL_TIER_2P4]
+             << " records " << edgeUp->records[CA_TBL_TIER_2P4] << " airtime "
+             << std::setprecision(9) << edgeUp->airS[CA_TBL_TIER_2P4] << " s; UWB frames "
+             << edgeUp->frames[CA_TBL_TIER_UWB] << " records "
+             << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
+             << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
+        std::cout << line.str();
     }
     // MC-2. Triggers, frames billed and transmitted by the measured node, and receptions
     // of them anywhere in the mesh, per kind. Printed only under the flag.
@@ -11429,6 +11479,20 @@ main(int argc, char* argv[])
                  "must correctly ignore it -- which is the observation that shows "
                  "scoping works rather than that flooding works.",
                  identityQueryTargetArg);
+    cmd.AddValue("edgeUplinkRanges",
+                 "Bill the uplink that carries a tier-2 or tier-3 range to the gateway "
+                 "estimator (TECH_DEBT L.2.3; docs/SPEC_CONFORMANCE_PLAN.md SY-1). READ ONLY "
+                 "WITH --gatewayEdgeServer=true. False (default) is every result so far: the "
+                 "gateways fuse ranges the node measured by two-way time of flight, and the "
+                 "frame that would bring each range to them is never billed, which flatters "
+                 "the edge setting on tiers 2 and 3 and not on tier 1, whose gateways measure "
+                 "the broadcast themselves. True bills one frame on the tier that ranged, per "
+                 "cycle with at least one range: the 9-byte header plus 6 bytes per answered "
+                 "anchor (OURS: id, decimetre range, sigma, NLOS score). At defaults only "
+                 "energy moves, and only on tiers 2 and 3 (gate G35); --batteryDepleteJ and "
+                 "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
+                 "line per arm.",
+                 spec.edgeUplinkRanges);
     cmd.AddValue("triggeredUpdates",
                  "Send the spec's 'Triggered-update / last-gasp -- large correction or dying "
                  "battery' (MAC sect 3 and 8; docs/SPEC_CONFORMANCE_PLAN.md MC-2). False "
@@ -11853,6 +11917,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // SY-1. Without the edge estimator the node fuses its own ranges and nothing goes up.
+    if (spec.edgeUplinkRanges && !gatewayEdgeServerArg)
+    {
+        std::cerr << "FATAL: --edgeUplinkRanges needs --gatewayEdgeServer=true: with the "
+                  << "estimator on the node no range travels to a gateway\n";
         return 1;
     }
     if (!spec.queryTierBinding.empty() && spec.queryTierBinding != "first" &&
