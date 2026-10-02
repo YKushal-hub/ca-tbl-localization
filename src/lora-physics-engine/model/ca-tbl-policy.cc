@@ -261,6 +261,36 @@ CaTblEkf::Predict(double dt)
 }
 
 void
+CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, double quxy,
+                             double quyy)
+{
+    m_x[0] += ux;
+    m_x[1] += uy;
+    const double inv = (dt > 0.0) ? 1.0 / dt : 0.0;
+    m_x[2] = ux * inv;
+    m_x[3] = uy * inv;
+    const double q[2][2] = {{quxx, quxy}, {quxy, quyy}};
+    for (int i = 0; i < 2; ++i)
+    {
+        for (int j = 0; j < 2; ++j)
+        {
+            m_P[i][j] += q[i][j];
+            m_P[i][j + 2] = q[i][j] * inv;
+            m_P[i + 2][j] = q[i][j] * inv;
+            m_P[i + 2][j + 2] = q[i][j] * inv * inv;
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        m_xPrior[i] = m_x[i];
+        for (int j = 0; j < 4; ++j)
+        {
+            m_PPrior[i][j] = m_P[i][j];
+        }
+    }
+}
+
+void
 CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
     const size_t n = std::min(meas.size(), varM2.size());
@@ -970,7 +1000,17 @@ CaTblPolicy::Step(double dt,
 
     m_tierCycles[m_tier]++;
 
-    m_ekf.Predict(dt);
+    if (m_imuPending)
+    {
+        // DC-1: the queued synthetic-IMU displacement drives the prediction.
+        m_imuPending = false;
+        m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
+        d.imuPredicted = true;
+    }
+    else
+    {
+        m_ekf.Predict(dt);
+    }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
     // somewhere". A concurrent-tier caller substitutes tier-1 ranges when the active

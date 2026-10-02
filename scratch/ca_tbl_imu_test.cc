@@ -1,0 +1,188 @@
+/*
+ * CA-TBL DC-1 unit suite: the synthetic IMU dead-reckoner and the controlled prediction
+ * (docs/SPEC_CONFORMANCE_PLAN.md DC-1).
+ *
+ *   - zero-error parameters reproduce the true displacement exactly, with zero covariance;
+ *   - the heading error's variance grows as N^2 t (angle random walk) and as sigma_b^2 t^2
+ *     (bias), across 10^4 Monte-Carlo runs on distinct streams;
+ *   - the reckoner takes no automatic stream index, so nothing else's draws move;
+ *   - the accumulated covariance matches its formula, its increments are PSD, and a reset
+ *     restarts it;
+ *   - PredictWithControl() equals Predict() in mean and position block when the velocity
+ *     block is zero, u = v dt and Qu = the constant-velocity Q, and it snapshots the prior.
+ */
+
+#include "ns3/ca-tbl-imu-model.h"
+#include "ns3/ca-tbl-policy.h"
+#include "ns3/core-module.h"
+
+#include <cmath>
+#include <iostream>
+
+using namespace ns3;
+
+static int g_pass = 0;
+static int g_fail = 0;
+
+static void
+Check(bool ok, const char* what)
+{
+    if (ok)
+    {
+        ++g_pass;
+        std::cout << "  ok    " << what << "\n";
+    }
+    else
+    {
+        ++g_fail;
+        std::cout << "  FAIL  " << what << "\n";
+    }
+}
+
+int
+main(int argc, char* argv[])
+{
+    std::cout << "CA-TBL DC-1 synthetic IMU suite\n";
+
+    // --- zero error -----------------------------------------------------------------
+    {
+        CaTblImuParams z;
+        z.gyroNoiseDensityRadSqrtS = 0.0;
+        z.gyroBiasSigmaRadS = 0.0;
+        z.scaleSigma = 0.0;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(z, 12345);
+        bool exact = true;
+        bool zeroQ = true;
+        for (int k = 0; k < 50; ++k)
+        {
+            double ux, uy, q[3];
+            const double dx = 1.3 * std::cos(0.1 * k), dy = 1.3 * std::sin(0.1 * k);
+            rk.Step(dx, dy, 2.5, ux, uy, q);
+            exact = exact && ux == dx && uy == dy;
+            zeroQ = zeroQ && q[0] == 0.0 && q[1] == 0.0 && q[2] == 0.0;
+        }
+        Check(exact, "zero-error parameters give u = Delta exactly");
+        Check(zeroQ, "zero-error parameters give Q_u = 0 on every moving step");
+    }
+
+    // --- heading-error growth, Monte Carlo ---------------------------------------------
+    {
+        const int runs = 10000;
+        const int steps = 40;
+        const double dt = 2.5;
+        CaTblImuParams arw;
+        arw.gyroBiasSigmaRadS = 0.0;
+        arw.scaleSigma = 0.0;
+        CaTblImuParams bias;
+        bias.gyroNoiseDensityRadSqrtS = 0.0;
+        bias.scaleSigma = 0.0;
+        double sa = 0.0, sb = 0.0, sa20 = 0.0, sb20 = 0.0;
+        for (int r = 0; r < runs; ++r)
+        {
+            CaTblImuDeadReckoner a, b;
+            a.Configure(arw, 900000 + r);
+            b.Configure(bias, 700000 + r);
+            for (int k = 0; k < steps; ++k)
+            {
+                double ux, uy, q[3];
+                a.Step(1.0, 0.0, dt, ux, uy, q);
+                b.Step(1.0, 0.0, dt, ux, uy, q);
+                if (k == 19)
+                {
+                    sa20 += a.Heading() * a.Heading();
+                    sb20 += b.Heading() * b.Heading();
+                }
+            }
+            sa += a.Heading() * a.Heading();
+            sb += b.Heading() * b.Heading();
+        }
+        const double t = steps * dt;
+        const double wantA = arw.gyroNoiseDensityRadSqrtS * arw.gyroNoiseDensityRadSqrtS * t;
+        const double wantB = bias.gyroBiasSigmaRadS * bias.gyroBiasSigmaRadS * t * t;
+        const double gotA = sa / runs, gotB = sb / runs;
+        std::cout << "  ----  ARW var " << gotA << " vs " << wantA << "; bias var " << gotB
+                  << " vs " << wantB << "; ratio t=50 s to t=100 s: ARW " << (sa20 / sa)
+                  << " (0.5), bias " << (sb20 / sb) << " (0.25)\n";
+        Check(std::fabs(gotA / wantA - 1.0) < 0.05,
+              "angle random walk: var(psi) = N^2 t to 5% over 10^4 runs");
+        Check(std::fabs(gotB / wantB - 1.0) < 0.05,
+              "gyro bias: var(psi) = sigma_b^2 t^2 to 5% over 10^4 runs");
+        Check(std::fabs(sa20 / sa - 0.5) < 0.03 && std::fabs(sb20 / sb - 0.25) < 0.02,
+              "the variance grows linearly (ARW) and quadratically (bias) in t");
+    }
+
+    // --- the dedicated stream takes no automatic index -----------------------------------
+    {
+        const uint64_t before = RngSeedManager::GetNextStreamIndex();
+        CaTblImuDeadReckoner rk;
+        rk.Configure(CaTblImuParams(), 4242);
+        double ux, uy, q[3];
+        rk.Step(1.0, 1.0, 2.5, ux, uy, q);
+        const uint64_t after = RngSeedManager::GetNextStreamIndex();
+        Check(after == before + 1,
+              "configuring and stepping the reckoner takes no automatic stream index");
+    }
+
+    // --- the accumulated covariance -------------------------------------------------------
+    {
+        CaTblImuParams p;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(p, 777);
+        double ux, uy, q[3];
+        double acc[3] = {0.0, 0.0, 0.0};
+        bool psd = true, sums = true;
+        for (int k = 0; k < 30; ++k)
+        {
+            rk.Step(1.0, 0.5, 2.5, ux, uy, q);
+            const double det = q[0] * q[2] - q[1] * q[1];
+            psd = psd && q[0] >= -1e-12 && q[2] >= -1e-12 && det >= -1e-9 * (q[0] + q[2] + 1e-30);
+            for (int i = 0; i < 3; ++i)
+            {
+                acc[i] += q[i];
+            }
+        }
+        const double* s = rk.SigmaAcc();
+        const double t = rk.ElapsedS(), Dx = rk.AccX(), Dy = rk.AccY();
+        const double vpsi = p.gyroBiasSigmaRadS * p.gyroBiasSigmaRadS * t * t +
+                            p.gyroNoiseDensityRadSqrtS * p.gyroNoiseDensityRadSqrtS * t;
+        const double ss = p.scaleSigma * p.scaleSigma;
+        const double want[3] = {vpsi * Dy * Dy + ss * Dx * Dx, -vpsi * Dx * Dy + ss * Dx * Dy,
+                                vpsi * Dx * Dx + ss * Dy * Dy};
+        bool formula = true;
+        for (int i = 0; i < 3; ++i)
+        {
+            formula = formula && std::fabs(s[i] - want[i]) <= 1e-9 * std::fabs(want[i]) + 1e-12;
+            sums = sums && std::fabs(acc[i] - s[i]) <= 1e-6 * std::fabs(s[i]) + 1e-9;
+        }
+        Check(formula, "Sigma_acc = var_psi(t) |D|^2 p p^T + sigma_s^2 D D^T");
+        Check(psd, "every increment Q_u is positive semi-definite");
+        Check(sums, "on a straight walk the increments sum to Sigma_acc");
+        rk.ResetAccumulation();
+        Check(rk.SigmaAcc()[0] == 0.0 && rk.AccX() == 0.0 && rk.Heading() != 0.0,
+              "a reset restarts the position error and keeps the heading error");
+        rk.Step(0.0, 0.0, 2.5, ux, uy, q);
+        Check(q[0] == p.dwellSigmaM * p.dwellSigmaM && q[1] == 0.0 && ux == 0.0,
+              "a dwelling step gives Q_u = sigma_w^2 I and no displacement");
+    }
+
+    // --- PredictWithControl against Predict ------------------------------------------------
+    {
+        CaTblEkf a, b;
+        a.Init(10.0, -5.0, 1.2, -0.4, 400.0, 0.0); // velocity block zero
+        b.Init(10.0, -5.0, 1.2, -0.4, 400.0, 0.0);
+        const double dt = 2.5;
+        a.Predict(dt);
+        const double q = 1.0 * 1.0 * dt; // the CV Q's position term, qPos = 1
+        b.PredictWithControl(dt, 1.2 * dt, -0.4 * dt, q, 0.0, q);
+        Check(std::fabs(a.X() - b.X()) < 1e-12 && std::fabs(a.Y() - b.Y()) < 1e-12 &&
+                  std::fabs(a.Pxx() - b.Pxx()) < 1e-9 && std::fabs(a.Pyy() - b.Pyy()) < 1e-9 &&
+                  std::fabs(a.Pxy() - b.Pxy()) < 1e-12,
+              "PredictWithControl = Predict in mean and position block (zero velocity block)");
+        Check(b.PriorX() == b.X() && b.PriorY() == b.Y(),
+              "PredictWithControl snapshots the prior the integrity check reads");
+    }
+
+    std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
+    return (g_fail == 0) ? 0 : 1;
+}
