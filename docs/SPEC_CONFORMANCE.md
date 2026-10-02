@@ -111,7 +111,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 54 | GPS-surveyed, PPS-synchronised anchors (audit Q1) | OPT-IN | Under `--tier1Tdoa`, a per-stamp PPS residual on surveyed positions. The audit says GPS lock needs no separate sync protocol, so nothing further is missing | PH-1 |
 | 55 | Five localised field nodes (audit Q2) | PARTIAL | One measured subject (C2-full structure merged at `abbe3de`, behaviour not looped) | MS-1 |
 | 56 | Three gateways, 5 km radius (audit Q2) | PARTIAL | Reachable with `--nGateways`. The shape is to be chosen by study | MS-2, GEO-01 |
-| 57 | Environmental fault classes for evaluation (exec Phase 5) | PARTIAL | Range bias, silence and depletion exist; no TX-power or antenna-loss fault | SY-5 |
+| 57 | Environmental fault classes for evaluation (exec Phase 5) | OPT-IN | Range bias (`--injectRangeBias`), silence (`--injectSilentId`) and depletion (`--batteryDepleteJ`) existed. Since 2026-10-02 (SY-5, G37) `--injectTxPowerDropDb` (cold-sagged battery) and `--injectAntennaLossDb` (detuned or covered antenna, reciprocal) act over the same seeded window: tier-1 RSSI ranges read long by 10^(dB/(10 n)), and tiers 2/3 lose SNR and links. Magnitudes OURS. A silenced radio still forwards floods (TECH_DEBT N.1) | ~~SY-5~~ done; campaigns |
 
 ## 2. Count
 
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 16 |
-| PARTIAL | 11 |
+| OPT-IN | 17 |
+| PARTIAL | 10 |
 | DIVERGENT | 12 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 
