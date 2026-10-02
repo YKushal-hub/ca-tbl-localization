@@ -5223,6 +5223,8 @@ struct SpecOptions
     bool imuPredict = false;
     //! DC-4. --caseD: a single range as a constraint on the propagated state.
     bool caseD = false;
+    //! DC-13. --entryPrediction: held entries propagated as x + v age, P + Q_src age^2.
+    bool entryPrediction = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6618,6 +6620,22 @@ RunArm(CaTblPolicyMode mode,
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
     }
+    // DC-13. Per-run state of --entryPrediction, null without it.
+    struct EntryPredState
+    {
+        uint64_t subs = 0;
+        uint64_t moved = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<EntryPredState> entryPred;
+    if (spec.entryPrediction)
+    {
+        entryPred.reset(new EntryPredState());
+        std::ostringstream efn2;
+        efn2 << traceDir << "/entrypred_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        entryPred->log.open(efn2.str().c_str());
+        entryPred->log << "t,anchorId,seqNo,ageS,x0,y0,vx,vy,xPred,yPred,varAdd,varAddLegacy\n";
+    }
     // DC-4. Per-run state of --caseD, null without it.
     struct CaseDState
     {
@@ -8005,6 +8023,37 @@ RunArm(CaTblPolicyMode mode,
                         CaTblTableEntry fe;
                         if (freshestEntry(anchorId, fe))
                         {
+                            // DC-13. Under --entryPrediction the entry is first carried
+                            // forward to now: position + velocity x age (DC-10's velocity),
+                            // and a source-type Q in place of the walk-speed bound below.
+                            // For a finder (the only kind substituted here) Q is the
+                            // error of a GNSS-derived velocity, 0.5 m/s, OURS: DC-10 takes
+                            // it as displacement over the publication interval, which a
+                            // walker's turns corrupt well beyond the GNSS fixes' own error.
+                            // Gateways are surveyed and never substituted (Q = 0).
+                            double fePredVar = -1.0;
+                            if (entryPred)
+                            {
+                                const double ageP = std::max(0.0, t - fe.timestampS);
+                                const double x0 = fe.x, y0 = fe.y;
+                                fe.x += fe.vx * ageP;
+                                fe.y += fe.vy * ageP;
+                                const double sv = 0.5 * ageP;
+                                fePredVar = sv * sv;
+                                const double legacy = walkSpeedMps * ageP;
+                                ++entryPred->subs;
+                                if (fe.x != x0 || fe.y != y0)
+                                {
+                                    ++entryPred->moved;
+                                }
+                                entryPred->log << std::fixed << std::setprecision(4) << t << ','
+                                               << anchorId << ',' << fe.seqNo << ',' << ageP
+                                               << ',' << std::setprecision(6) << x0 << ','
+                                               << y0 << ',' << std::setprecision(9) << fe.vx
+                                               << ',' << fe.vy << ',' << std::setprecision(6)
+                                               << fe.x << ',' << fe.y << ',' << fePredVar
+                                               << ',' << legacy * legacy << '\n';
+                            }
                             const double ux = policy.EstX() - fe.x;
                             const double uy = policy.EstY() - fe.y;
                             const double un = std::sqrt(ux * ux + uy * uy);
@@ -8040,7 +8089,8 @@ RunArm(CaTblPolicyMode mode,
                                 // than needing a staleness cutoff of its own.
                                 const double ageS = std::max(0.0, t - fe.timestampS);
                                 const double travel = walkSpeedMps * ageS;
-                                const double ageVar = travel * travel;
+                                const double ageVar = (fePredVar >= 0.0) ? fePredVar
+                                                                         : travel * travel;
                                 const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
                                                           {fe.covXY, fe.varY + ageVar}};
                                 const double proj =
@@ -9838,6 +9888,12 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
         std::cout << line.str();
+    }
+    // DC-13. Entries carried forward before use. Printed only under the flag.
+    if (entryPred)
+    {
+        std::cout << "    DC-13 entry prediction: substitutions " << entryPred->subs
+                  << ", moved by their velocity " << entryPred->moved << "\n";
     }
     // DC-4. The single-range cycles and what they did. Printed only under the flag.
     if (caseDst)
@@ -12116,6 +12172,18 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("entryPrediction",
+                 "Carry a held entry forward before using it, as Physical 2.2 says (Q set by "
+                 "source type: higher for IMU-drifting field nodes, lower for gateways; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md DC-13). False (default) is every result so "
+                 "far: a finder's entry is used where it was reported, with its variance "
+                 "inflated isotropically by (walk speed x age)^2, because no velocity was "
+                 "populated. True, with --entryVelocity: the position is x + v x age and the "
+                 "added variance (0.5 m/s x age)^2 for a finder's GNSS-derived velocity "
+                 "(OURS). Gateways are surveyed and never substituted. Writes "
+                 "entrypred_<arm>_seed<N>.csv (digested) and one DC-13 line per arm. Needs "
+                 "--entryVelocity, without which every velocity is 0 and nothing moves.",
+                 spec.entryPrediction);
     cmd.AddValue("caseD",
                  "Case D, single-range IMU-assisted tracking (Physical 2.4D; "
                  "docs/SPEC_CONFORMANCE_PLAN.md DC-4): when the final set holds exactly one "
@@ -12595,6 +12663,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // DC-13. Without DC-10's velocities every entry would be carried forward by zero.
+    if (spec.entryPrediction && !spec.entryVelocity)
+    {
+        std::cerr << "FATAL: --entryPrediction needs --entryVelocity=true: without it every "
+                  << "entry's velocity is 0 and the prediction is the legacy path\n";
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
@@ -13515,6 +13590,10 @@ main(int argc, char* argv[])
     if (spec.caseD)
     {
         digestPatterns += " cased_*.csv";
+    }
+    if (spec.entryPrediction)
+    {
+        digestPatterns += " entrypred_*.csv";
     }
     if (queryProxyArg)
     {

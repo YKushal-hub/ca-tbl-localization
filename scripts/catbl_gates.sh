@@ -1011,6 +1011,22 @@ bash scripts/case_b_imu_gate.sh "$WORK/g42" || fail G42
 bash scripts/case_b_imu_gate_selftest.sh "$WORK/g42" || fail G42
 finish G42
 
+# ---------------- G43: held entries carried forward before use (DC-13)
+# A held finder entry was used where it was reported, inflated isotropically by walk
+# speed x age. --entryPrediction (with --entryVelocity) uses x + v age and a source-type Q.
+# NC9's regime with pseudo-anchor finders and digests, read by
+# scripts/entry_prediction_gate.py:
+#   - --entryPrediction=false is the flag absent, byte for byte;
+#   - every substitution is x0 + v age with (0.5 age)^2, recomputed; moving entries move;
+#   - every substituted entry is one node 1 held (DC-10's entries_ record);
+#   - the stdout counts equal the CSV's; the flag without --entryVelocity is refused.
+#
+# Negative fixtures in scripts/entry_prediction_gate_selftest.sh, built from these runs.
+printf '\n--- G43 held entries carried forward before use (DC-13) ---\n'
+bash scripts/entry_prediction_gate.sh "$WORK/g43" || fail G43
+bash scripts/entry_prediction_gate_selftest.sh "$WORK/g43" || fail G43
+finish G43
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
