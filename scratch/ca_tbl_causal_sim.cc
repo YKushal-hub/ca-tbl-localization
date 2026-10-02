@@ -1064,6 +1064,49 @@ CaTblQuantise(double x)
 }
 
 /**
+ * \brief MC-1. The C4 terms as they stand when a request is SENT.
+ *
+ * The end-of-cycle update computes T_deg from the last five PCS values and T_batt from
+ * the energy spent, and it runs AFTER the cycle's request has gone, so by default every
+ * request carries the previous cycle's terms. These are the same arithmetic, in the same
+ * order, on the history with this cycle's PCS appended. With fewer than three values the
+ * end-of-cycle update leaves T_deg where it was, and so does this.
+ */
+static double
+CaTblDegradationWith(const std::deque<double>& hist, double pcsNow, double prev)
+{
+    std::deque<double> h = hist;
+    h.push_back(pcsNow);
+    while (h.size() > 5)
+    {
+        h.pop_front();
+    }
+    if (h.size() < 3)
+    {
+        return prev;
+    }
+    const size_t np = h.size();
+    double sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+    for (size_t i = 0; i < np; ++i)
+    {
+        const double x = static_cast<double>(i);
+        sx += x;
+        sy += h[i];
+        sxx += x * x;
+        sxy += x * h[i];
+    }
+    const double den = static_cast<double>(np) * sxx - sx * sx;
+    const double slope = (den != 0.0) ? ((static_cast<double>(np) * sxy - sx * sy) / den) : 0.0;
+    return 1.0 - std::exp(-std::max(0.0, -slope));
+}
+
+static double
+CaTblBatteryUsedFrac(double totalJ, double capJ)
+{
+    return (capJ > 0.0) ? std::min(1.0, totalJ / capJ) : 0.0;
+}
+
+/**
  * \brief L.1.4 / Network sect 6 -- anchors gossip the UWB slots they hold, and on an
  *        overlap for the same field node the LOWER node id defers.
  *
@@ -4941,6 +4984,8 @@ struct SpecOptions
     bool integrityNlosFromScore = false;
     //! DC-10. --entryVelocity: table entries carry the producer's velocity.
     bool entryVelocity = false;
+    //! MC-1. --handshakeFixes: the escalation handshake as MAC sect 8 specifies it.
+    bool handshakeFixes = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -5567,6 +5612,7 @@ RunArm(CaTblPolicyMode mode,
         // and the null control confirms that rather than assuming it.
         mc.targetManifestId = 1;
         mc.sendHandshakeFrames = sendHandshakeFrames;
+        mc.handshakeFixes = spec.handshakeFixes;
         mc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
         mc.sf = phy[ti].sf;
         mc.bandwidthHz = phy[ti].bandwidthHz;
@@ -5600,6 +5646,7 @@ RunArm(CaTblPolicyMode mode,
             // C4. Only anchors arbitrate -- a target has no slot to award.
             mc.uwbArbitration = uwbArbitration;
             mc.sendHandshakeFrames = sendHandshakeFrames;
+            mc.handshakeFixes = spec.handshakeFixes;
             // Anchors are network access points under WPC G.S.R. 853(E) Table-II,
             // so their 865-868 MHz cap is 10%, not 2.5%. At the default 10 s
             // tier-1 beacon period one gateway occupies 51.5 ms / 10 s = 0.51%,
@@ -5694,6 +5741,7 @@ RunArm(CaTblPolicyMode mode,
             // every query and C3 has nothing to discriminate.
             pmc.targetManifestId = static_cast<uint8_t>(1 + pt);
             pmc.sendHandshakeFrames = sendHandshakeFrames;
+            pmc.handshakeFixes = spec.handshakeFixes;
             pmc.isAccessPoint = false; // field node: WPC Table-II 2.5% cap
             pmc.sf = phy[ti].sf;
             pmc.bandwidthHz = phy[ti].bandwidthHz;
@@ -5958,6 +6006,7 @@ RunArm(CaTblPolicyMode mode,
             fc.isAccessPoint = false;
             fc.uwbArbitration = uwbArbitration;
             fc.sendHandshakeFrames = sendHandshakeFrames;
+            fc.handshakeFixes = spec.handshakeFixes;
             fc.sf = phy[ti].sf;
             fc.bandwidthHz = phy[ti].bandwidthHz;
             fc.txPowerDbm = phy[ti].txPowerDbm;
@@ -7680,6 +7729,18 @@ RunArm(CaTblPolicyMode mode,
             // contention and to nothing else.
             if (sendHandshakeFrames && nodeMac[pendingHandshakeTier] != nullptr)
             {
+                if (spec.handshakeFixes)
+                {
+                    // MC-1. This send carried no terms at all -- 0/0, whatever the node's
+                    // state -- because SetRequestTerms was called at the other two sites
+                    // only. pcsDegradation is current here: last updated at the end of
+                    // the previous cycle, and no PCS has been computed since. Under the
+                    // flag a pending handshake exists only for an escalation into UWB.
+                    nodeMac[pendingHandshakeTier]->SetRequestTerms(
+                        CaTblQuantise(pcsDegradation),
+                        CaTblQuantise(CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                    nodeMac[pendingHandshakeTier]->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                }
                 nodeMac[pendingHandshakeTier]->Send(
                     CA_TBL_MSG_ESC_REQUEST, pendingHandshakeTier, 0, 0);
             }
@@ -8412,7 +8473,14 @@ RunArm(CaTblPolicyMode mode,
             lastTrustedFixS = t;
         }
 
-        if (d.escalated || d.deescalated)
+        // MC-1. Under --handshakeFixes only an escalation INTO UWB is signalled: MAC sect 8
+        // asks for an ACK'd "tier escalation request (UWB specifically)", and a demotion
+        // is never deferred (Architecture sect 9.4), so it needs no one's permission. By
+        // default 868 -> 2.4 GHz and every de-escalation were signalled and charged too.
+        // Under the flag those send nothing and are charged nothing, so energy and duty
+        // move.
+        if (spec.handshakeFixes ? (d.escalated && d.nextTier == CA_TBL_TIER_UWB)
+                                : (d.escalated || d.deescalated))
         {
             // THE GOVERNOR IS ADVISORY -- THE CALLER MUST CONSULT IT.
             //
@@ -8449,8 +8517,21 @@ RunArm(CaTblPolicyMode mode,
                     // C4. Fill the two terms the anchor cannot see: T_deg is this
                     // node's own confidence degradation, T_batt how much of the stated
                     // budget it has spent. Quantised to a byte over [0,1].
-                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
-                                                     CaTblQuantise(batteryUsedFrac));
+                    if (spec.handshakeFixes)
+                    {
+                        // MC-1. This cycle's terms, not the previous cycle's: the
+                        // end-of-cycle update that refreshes them runs after this send.
+                        nodeMac[active]->SetRequestTerms(
+                            CaTblQuantise(CaTblDegradationWith(pcsHist, d.pcs, pcsDegradation)),
+                            CaTblQuantise(
+                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                        nodeMac[active]->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                    }
+                    else
+                    {
+                        nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                         CaTblQuantise(batteryUsedFrac));
+                    }
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
@@ -8480,8 +8561,21 @@ RunArm(CaTblPolicyMode mode,
                     // C4. Fill the two terms the anchor cannot see: T_deg is this
                     // node's own confidence degradation, T_batt how much of the stated
                     // budget it has spent. Quantised to a byte over [0,1].
-                    nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
-                                                     CaTblQuantise(batteryUsedFrac));
+                    if (spec.handshakeFixes)
+                    {
+                        // MC-1. This cycle's terms, not the previous cycle's: the
+                        // end-of-cycle update that refreshes them runs after this send.
+                        nodeMac[active]->SetRequestTerms(
+                            CaTblQuantise(CaTblDegradationWith(pcsHist, d.pcs, pcsDegradation)),
+                            CaTblQuantise(
+                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                        nodeMac[active]->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                    }
+                    else
+                    {
+                        nodeMac[active]->SetRequestTerms(CaTblQuantise(pcsDegradation),
+                                                         CaTblQuantise(batteryUsedFrac));
+                    }
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
             }
@@ -9068,6 +9162,31 @@ RunArm(CaTblPolicyMode mode,
                           << " grants\n";
             }
         }
+    }
+    // MC-1. The handshake's outcomes, summed over every MAC. Printed only under the flag.
+    if (spec.handshakeFixes)
+    {
+        uint64_t reqSent = 0, reqRetx = 0, skipped = 0, gs = 0, ds = 0, gh = 0, dh = 0;
+        uint64_t settled = 0, am = 0, au = 0;
+        for (std::deque<CaTblMac>::const_iterator mi = macs.begin(); mi != macs.end(); ++mi)
+        {
+            const CaTblMsgCounters& rc = mi->GetCounters(CA_TBL_MSG_ESC_REQUEST);
+            reqSent += rc.sent;
+            reqRetx += rc.retransmissions;
+            skipped += mi->GetHsRequestAcksSkipped();
+            gs += mi->GetHsGrantsSent();
+            ds += mi->GetHsDeniesSent();
+            gh += mi->GetHsGrantsHeard();
+            dh += mi->GetHsDeniesHeard();
+            settled += mi->GetHsRequestsAnswered();
+            am += mi->GetHsAcksMatched();
+            au += mi->GetHsAcksUnmatched();
+        }
+        std::cout << "    MC-1 handshake: ESC_REQUEST sent " << reqSent << " (retransmitted "
+                  << reqRetx << "), bare ACKs to a request withheld " << skipped
+                  << "; GRANT sent granted " << gs << " denied " << ds << "; heard granted "
+                  << gh << " denied " << dh << ", requests settled by a grant " << settled
+                  << "; ACKs matched by id " << am << ", unmatched " << au << "\n";
     }
     // L.1.4. Per-gateway gossip traffic, tie-break verdicts and the gossip's own energy.
     // Stdout for the same byte-identity reason as C4 above; the per-verdict record is
@@ -11182,6 +11301,22 @@ main(int argc, char* argv[])
                  "must correctly ignore it -- which is the observation that shows "
                  "scoping works rather than that flooding works.",
                  identityQueryTargetArg);
+    cmd.AddValue("handshakeFixes",
+                 "The escalation handshake as the spec's MAC sect 8 describes it: 'Tier "
+                 "escalation request (UWB specifically): ACK'd -- must know definitively "
+                 "whether the grant was received' (docs/SPEC_CONFORMANCE_PLAN.md MC-1). False "
+                 "(default) is every result so far, with five defects: an ACK clears its "
+                 "receiver's OLDEST pending frame, whatever it acknowledged; an anchor ACKs a "
+                 "request BEFORE arbitrating, so a denied request is settled and never retried; "
+                 "the pre-emption send carries no terms (0/0); the other two sends carry the "
+                 "previous cycle's terms; and 868 -> 2.4 GHz escalations and de-escalations "
+                 "are signalled and charged as well. True fixes all five: ACKs name the frame "
+                 "they acknowledge, an anchor answers a request only with a GRANT saying "
+                 "granted or denied, a denial is retried on the ACK timeout, the terms are "
+                 "this cycle's, and only escalations into UWB send a request -- so energy, "
+                 "duty and every frame move. Prints one MC-1 line per arm. Needs "
+                 "--sendHandshakeFrames=true, without which no handshake frame exists.",
+                 spec.handshakeFixes);
     cmd.AddValue("queryTierBinding",
                  "Which radio each tier's identity-query driver sends on: first|per-tier "
                  "(docs/SPEC_CONFORMANCE_PLAN.md NW-3). Not given, or first, is the build "
@@ -11552,6 +11687,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --integrityNlosFromScore needs --nlosClassifier=true: without it "
                   << "no link carries a score and the tag would decide on every cycle\n";
+        return 1;
+    }
+    // MC-1. Every fix acts on a frame, and without --sendHandshakeFrames there is none.
+    if (spec.handshakeFixes && !sendHandshakeFramesArg)
+    {
+        std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
+                  << "the handshake is only billed and there is no frame to fix\n";
         return 1;
     }
     if (!spec.queryTierBinding.empty() && spec.queryTierBinding != "first" &&

@@ -760,6 +760,191 @@ TestHandshake()
           "not conditioned on anything");
 }
 
+// ---------------------------------------------------------------------------
+// Test 7 -- MC-1: ACK matched by packet id, and a denied request retried
+// ---------------------------------------------------------------------------
+
+int g_drops = 0;
+
+void
+OnDropCount(uint16_t nodeId, CaTblMsgType t, std::string why)
+{
+    (void)nodeId;
+    (void)t;
+    (void)why;
+    ++g_drops;
+}
+
+void
+RequestWithTerms(CaTblMac* m, uint8_t degradation, uint8_t battery)
+{
+    m->SetRequestTerms(degradation, battery);
+    m->SetRequestTargetTier(CA_TBL_TIER_UWB);
+    m->Send(CA_TBL_MSG_ESC_REQUEST, CA_TBL_TIER_868, 0, 0);
+}
+
+CaTblMacConfig
+Mc1Config(uint16_t id, CaTblIdentityClass cls, bool fixes)
+{
+    CaTblMacConfig c;
+    c.nodeId = id;
+    c.identityClass = cls;
+    c.sf = 7;
+    c.bandwidthHz = 125e3;
+    c.isAccessPoint = true;
+    c.sendHandshakeFrames = true;
+    c.uwbArbitration = true;
+    c.handshakeFixes = fixes;
+    return c;
+}
+
+struct AckByIdResult
+{
+    uint64_t retx;
+    int drops;
+    uint64_t matched;
+    uint64_t unmatched;
+};
+
+// Node 1 sends a RESPONSE (an ACK'd frame) to node 2, which is silenced and so never ACKs,
+// then one to node 3, which does. Node 3's ACK names the second frame.
+AckByIdResult
+RunAckById(bool fixes)
+{
+    g_drops = 0;
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac a, c, d;
+    a.Configure(Mc1Config(1, CA_TBL_ID_TARGET, fixes));
+    c.Configure(Mc1Config(2, CA_TBL_ID_TARGET, fixes));
+    d.Configure(Mc1Config(3, CA_TBL_ID_TARGET, fixes));
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(7);
+    a.SetRng(rng);
+    c.SetRng(rng);
+    d.SetRng(rng);
+    a.SetDropCallback(MakeCallback(&OnDropCount));
+    channel.Register(&a);
+    channel.Register(&c);
+    channel.Register(&d);
+    c.SetSilent(true);
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &a, CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868,
+                        1u, static_cast<uint16_t>(2));
+    Simulator::Schedule(Seconds(1.3), &CaTblMac::Send, &a, CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868,
+                        1u, static_cast<uint16_t>(3));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    AckByIdResult r;
+    r.retx = a.GetCounters(CA_TBL_MSG_RESPONSE).retransmissions;
+    r.drops = g_drops;
+    r.matched = a.GetHsAcksMatched();
+    r.unmatched = a.GetHsAcksUnmatched();
+    Simulator::Destroy();
+    return r;
+}
+
+struct DenyResult
+{
+    uint64_t reqRetx;
+    uint64_t arbDenials;
+    uint64_t deniesSent;
+    uint64_t deniesHeard;
+    uint64_t grantsHeardByWinner;
+    uint64_t winnerRetx;
+    uint64_t skipped;
+};
+
+// Node 3 asks first with high terms and takes the slot (held 10 s); node 1 asks next with
+// zero terms and loses to the holder.
+DenyResult
+RunDenyRetry(bool fixes)
+{
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac a, b, e;
+    a.Configure(Mc1Config(1, CA_TBL_ID_TARGET, fixes));
+    b.Configure(Mc1Config(2, CA_TBL_ID_ANCHOR, fixes));
+    e.Configure(Mc1Config(3, CA_TBL_ID_TARGET, fixes));
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(11);
+    a.SetRng(rng);
+    b.SetRng(rng);
+    e.SetRng(rng);
+    channel.Register(&a);
+    channel.Register(&b);
+    channel.Register(&e);
+    Simulator::Schedule(Seconds(1.0), &RequestWithTerms, &e, uint8_t(255), uint8_t(255));
+    Simulator::Schedule(Seconds(1.6), &RequestWithTerms, &a, uint8_t(0), uint8_t(0));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    DenyResult r;
+    r.reqRetx = a.GetCounters(CA_TBL_MSG_ESC_REQUEST).retransmissions;
+    r.arbDenials = b.GetArbDenials();
+    r.deniesSent = b.GetHsDeniesSent();
+    r.deniesHeard = a.GetHsDeniesHeard();
+    r.grantsHeardByWinner = e.GetHsGrantsHeard();
+    r.winnerRetx = e.GetCounters(CA_TBL_MSG_ESC_REQUEST).retransmissions;
+    r.skipped = b.GetHsRequestAcksSkipped() + a.GetHsRequestAcksSkipped() +
+                e.GetHsRequestAcksSkipped();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestHandshakeFixes()
+{
+    std::cout << "\n[7] MC-1 handshake fixes (MAC sect 8: an ACK'd UWB request)\n";
+
+    const AckByIdResult a0 = RunAckById(false);
+    const AckByIdResult a1 = RunAckById(true);
+    Report("ACK by id, default: retransmissions / drops",
+           std::to_string(a0.retx) + " / " + std::to_string(a0.drops));
+    Report("ACK by id, fixed: retransmissions / drops / matched / unmatched",
+           std::to_string(a1.retx) + " / " + std::to_string(a1.drops) + " / " +
+               std::to_string(a1.matched) + " / " + std::to_string(a1.unmatched));
+    // Default: node 3's ACK clears the OLDEST pending frame -- the one node 2 never
+    // acknowledged -- so that frame is never retried, and the acknowledged one is.
+    Check("default: an ACK clears the oldest frame (the unACKed one is never retried)",
+          a0.retx == 1 && a0.drops == 0,
+          "retx " + std::to_string(a0.retx) + ", drops " + std::to_string(a0.drops));
+    // Fixed: the ACK clears the frame it names; the unACKed one is retried to the limit
+    // (maxRetransmissions = 2) and then dropped.
+    Check("fixed: an ACK clears the frame it names; the unACKed one is retried and dropped",
+          a1.retx == 2 && a1.drops == 1 && a1.matched == 1 && a1.unmatched == 0,
+          "retx " + std::to_string(a1.retx) + ", drops " + std::to_string(a1.drops) +
+              ", matched " + std::to_string(a1.matched));
+
+    const DenyResult d0 = RunDenyRetry(false);
+    const DenyResult d1 = RunDenyRetry(true);
+    Report("deny, default: loser retransmissions / arbiter denials",
+           std::to_string(d0.reqRetx) + " / " + std::to_string(d0.arbDenials));
+    Report("deny, fixed: loser retransmissions / denials scored / sent / heard",
+           std::to_string(d1.reqRetx) + " / " + std::to_string(d1.arbDenials) + " / " +
+               std::to_string(d1.deniesSent) + " / " + std::to_string(d1.deniesHeard));
+    // Default: the anchor ACKs before arbitrating, so the denied request is settled and
+    // the requester never asks again.
+    Check("default: a denied request is ACKed first and never retried",
+          d0.arbDenials == 1 && d0.reqRetx == 0,
+          "denials " + std::to_string(d0.arbDenials) + ", retx " + std::to_string(d0.reqRetx));
+    // Fixed: each denial is answered and the request is retried on its ACK timeout; with
+    // the slot held 10 s, the original and both retries are scored and denied.
+    Check("fixed: a denial is answered, and the request is retried and re-scored",
+          d1.reqRetx == 2 && d1.arbDenials == 3 && d1.deniesSent == 3 && d1.deniesHeard == 3,
+          "retx " + std::to_string(d1.reqRetx) + ", denials " + std::to_string(d1.arbDenials) +
+              ", sent " + std::to_string(d1.deniesSent) + ", heard " +
+              std::to_string(d1.deniesHeard));
+    Check("fixed: the winner's request is settled by its GRANT, not retried",
+          d1.grantsHeardByWinner == 1 && d1.winnerRetx == 0,
+          "grants heard " + std::to_string(d1.grantsHeardByWinner) + ", retx " +
+              std::to_string(d1.winnerRetx));
+    // 4 request transmissions (the winner's, and the loser's original and two retries),
+    // each heard by the 2 other nodes.
+    Check("fixed: no node answers a request with a bare ACK", d1.skipped == 8,
+          "withheld " + std::to_string(d1.skipped) + " (need 4 transmissions x 2 hearers)");
+}
+
 } // namespace
 
 int
@@ -784,6 +969,7 @@ main(int argc, char* argv[])
     TestPriorityContention(contenders, outdir);
     TestFlood(nodes);
     TestHandshake();
+    TestHandshakeFixes();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)
