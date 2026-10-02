@@ -71,6 +71,20 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";acks=" << h.GetAckedPacketId();
     }
+    // NW-9. Set only under queryV2, so printed only there.
+    if (h.HasQueryV2())
+    {
+        o << ";q2=" << h.GetQueryV2Id() << ";prio=" << static_cast<int>(h.GetQueryPriority())
+          << ";list=";
+        for (size_t k = 0; k < h.GetQueryManifests().size(); ++k)
+        {
+            o << (k ? "|" : "") << static_cast<int>(h.GetQueryManifests()[k]);
+        }
+    }
+    if (h.GetRespManifest() != 0)
+    {
+        o << ";rm=" << static_cast<int>(h.GetRespManifest());
+    }
     // NW-8. Non-zero only under reversePathHop, so printed only there.
     if (h.GetRespQueryId() != 0)
     {
@@ -289,6 +303,59 @@ CaTblMac::PublishSelfEntry(double x, double y, double varX, double varY, double 
     e.targetManifestId = m_cfg.targetManifestId;
     e.seqNo = ++m_selfSeq;
     e.valid = true;
+    if (m_cfg.queryV2)
+    {
+        // NW-9: the status the caller set for this publication.
+        e.pcsQ = m_selfPcsQ;
+        e.integrityFlag = m_selfIntegrity;
+        e.batteryQ = m_selfBatteryQ;
+        e.degradationQ = m_selfDegradationQ;
+        e.uwbActive = m_selfUwbActive;
+        e.grantedBy = m_selfGrantedBy;
+    }
+}
+
+void
+CaTblMac::SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
+                        uint8_t degradationQ, bool uwbActive, uint16_t grantedBy)
+{
+    m_selfPcsQ = pcsQ;
+    m_selfIntegrity = integrityFlag;
+    m_selfBatteryQ = batteryQ;
+    m_selfDegradationQ = degradationQ;
+    m_selfUwbActive = uwbActive;
+    m_selfGrantedBy = grantedBy;
+}
+
+void
+CaTblMac::SendQueryV2(CaTblTier tier, const std::vector<uint8_t>& manifests, uint8_t priority)
+{
+    // NW-9. nEntries = the list length: CaTblPayloadBytes(QUERY, n) bills 6 + n.
+    m_nextV2 = true;
+    m_nextV2Manifests = manifests;
+    m_nextV2Priority = priority;
+    Send(CA_TBL_MSG_QUERY, tier, static_cast<uint32_t>(manifests.empty() ? 1 : manifests.size()),
+         0);
+    m_nextV2 = false;
+    m_nextV2Manifests.clear();
+}
+
+void
+CaTblMac::LogQueryV2(double tS, uint8_t tier, uint32_t queryId, const char* what,
+                     uint8_t manifest, const std::vector<uint8_t>& left)
+{
+    if (m_queryLog == nullptr)
+    {
+        return;
+    }
+    *m_queryLog << std::fixed << std::setprecision(6) << tS << ',' << m_cfg.nodeId << ','
+                << static_cast<int>(tier) << ',' << queryId << ',' << what << ','
+                << static_cast<int>(manifest) << ',';
+    for (size_t k = 0; k < left.size(); ++k)
+    {
+        *m_queryLog << (k ? "|" : "") << static_cast<int>(left[k]);
+    }
+    *m_queryLog << '\n';
 }
 
 bool
@@ -667,7 +734,8 @@ CaTblMac::ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const
 }
 
 bool
-CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId)
+CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId,
+                         CaTblTableEntry* answered)
 {
     if (manifestId == 0)
     {
@@ -712,6 +780,10 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32
         }
         rec.answered = true;
         m_proxyChecks.push_back(rec);
+        if (answered != nullptr)
+        {
+            *answered = e; // NW-9: the answer carries the entry it is given on
+        }
         return true;
     }
     if (!rec.held)
@@ -724,10 +796,17 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32
 uint32_t
 CaTblMac::RouteOverheadBytes(uint8_t msgType) const
 {
-    // NW-8: the query_id (4), requester id (2) and answerer id (2) a RESPONSE must carry
-    // for each hop to find its own reverse-path entry and to deduplicate retransmissions. Billed only under reversePathHop, the only
-    // configuration that carries them -- the same rule as ManifestOverheadBytes.
-    return (m_cfg.reversePathHop && msgType == CA_TBL_MSG_RESPONSE) ? 8u : 0u;
+    // A RESPONSE's header beyond the 28-byte entry CaTblPayloadBytes already bills, under
+    // the flags that carry it -- the same rule as ManifestOverheadBytes.
+    // - NW-9 (queryV2): query_id(4) + requester(2) + manifest(1) + tier_source(1) + pcs(1)
+    //   + integrity(1) + battery(1) + degradation(1) = 12.
+    // - NW-8 (reversePathHop): query_id(4) + requester(2) + answerer(2) = 8, or only the
+    //   answerer's 2 when queryV2 already bills the other six.
+    if (msgType != CA_TBL_MSG_RESPONSE)
+    {
+        return 0u;
+    }
+    return (m_cfg.queryV2 ? 12u : 0u) + (m_cfg.reversePathHop ? (m_cfg.queryV2 ? 2u : 8u) : 0u);
 }
 
 uint32_t
@@ -751,10 +830,10 @@ CaTblMac::CancelPendingRequests()
 }
 
 bool
-CaTblMac::RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS)
+CaTblMac::RpFirstCopy(uint32_t queryId, uint16_t answererId, uint8_t manifest, double nowS)
 {
-    const std::pair<uint32_t, uint16_t> key(queryId, answererId);
-    std::map<std::pair<uint32_t, uint16_t>, double>::iterator it = m_rpSeen.find(key);
+    const std::tuple<uint32_t, uint16_t, uint8_t> key(queryId, answererId, manifest);
+    std::map<std::tuple<uint32_t, uint16_t, uint8_t>, double>::iterator it = m_rpSeen.find(key);
     // The dedup window, not the reverse-path one: this is duplicate suppression, and a
     // short path window must not let a retransmitted copy through as new.
     if (it != m_rpSeen.end() && (nowS - it->second) < m_cfg.dedupWindowS)
@@ -764,8 +843,10 @@ CaTblMac::RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS)
     }
     if (it == m_rpSeen.end() && m_rpSeen.size() >= m_cfg.reversePathMaxEntries)
     {
-        std::map<std::pair<uint32_t, uint16_t>, double>::iterator oldest = m_rpSeen.begin();
-        for (std::map<std::pair<uint32_t, uint16_t>, double>::iterator o = m_rpSeen.begin();
+        std::map<std::tuple<uint32_t, uint16_t, uint8_t>, double>::iterator oldest =
+            m_rpSeen.begin();
+        for (std::map<std::tuple<uint32_t, uint16_t, uint8_t>, double>::iterator o =
+                 m_rpSeen.begin();
              o != m_rpSeen.end(); ++o)
         {
             if (o->second < oldest->second)
@@ -810,15 +891,19 @@ CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId,
     // Transport §1. Unicast home along the cached reverse path; flood only when
     // there is no path to unicast along. The fallback is what makes this safe to
     // enable: a cache miss costs airtime, never the answer.
+    if (m_cfg.reversePathHop || m_cfg.queryV2)
+    {
+        // NW-8 / NW-9: the answer names its query, its requester and its answerer.
+        m_nextRespQueryId = queryId;
+        m_nextRespRequester = requesterId;
+        m_nextRespAnswerer = (answererId != 0) ? answererId : m_cfg.nodeId;
+    }
     if (m_cfg.reversePath && m_cfg.reversePathHop)
     {
         // NW-8. The cache holds the PREVIOUS HOP, so this is one hop of the path home;
         // the node it reaches does the same with its own entry. An entry older than the
         // window is not a path: the neighbour it names may have moved or slept since.
         const double nowS = Simulator::Now().GetSeconds();
-        m_nextRespQueryId = queryId;
-        m_nextRespRequester = requesterId;
-        m_nextRespAnswerer = (answererId != 0) ? answererId : m_cfg.nodeId;
         std::map<uint32_t, std::pair<uint16_t, double> >::const_iterator it =
             m_reversePath.find(queryId);
         const bool fresh =
@@ -965,6 +1050,8 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         m_nextRespRequester = 0;
         m_nextRespAnswerer = 0;
         m_nextForceFlood = false;
+        m_nextHasRespEntry = false; // NW-9
+        m_nextRespManifest = 0;
         if (m_cfg.handshakeFixes)
         {
             // MC-1: what this frame would have answered must not ride a later one.
@@ -1030,11 +1117,31 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     f.hdr.SetHopLimit((m_cfg.discoveryOneHop && type == CA_TBL_MSG_DISCOVERY)
                           ? 0
                           : ((CaTblIsFlooded(type) || forceFlood) ? m_cfg.defaultHopLimit : 1));
-    if (type == CA_TBL_MSG_RESPONSE && m_cfg.reversePathHop)
+    if (type == CA_TBL_MSG_RESPONSE && (m_cfg.reversePathHop || m_cfg.queryV2))
     {
         f.hdr.SetRespRoute(m_nextRespQueryId, m_nextRespRequester, m_nextRespAnswerer,
                            forceFlood);
     }
+    if (m_cfg.queryV2)
+    {
+        // NW-9. A QUERY carries its id (its packet id), requester, priority and list; a
+        // RESPONSE the entry it answers with and the manifest. Consumed here, one frame.
+        if (type == CA_TBL_MSG_QUERY && m_nextV2)
+        {
+            f.hdr.SetQueryV2(f.hdr.GetPacketId(), m_cfg.nodeId, m_nextV2Priority,
+                             m_nextV2Manifests);
+        }
+        if (type == CA_TBL_MSG_RESPONSE)
+        {
+            if (m_nextHasRespEntry)
+            {
+                f.hdr.SetSelfEntry(m_nextRespEntry);
+            }
+            f.hdr.SetRespManifest(m_nextRespManifest);
+        }
+    }
+    m_nextHasRespEntry = false;
+    m_nextRespManifest = 0;
     m_nextRespQueryId = 0;
     m_nextRespRequester = 0;
     m_nextRespAnswerer = 0;
@@ -1456,6 +1563,9 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
     // every target hears it, and only the one whose manifest id matches answers.
     // Without the id every target answers every query and the search is a broadcast
     // with extra steps. Anchors do not answer -- they issue.
+    // NW-9: what this node does with a v2 QUERY's list, read by the flood branch below.
+    bool v2Handled = false;
+    std::vector<uint8_t> v2Left;
     if (hdr.GetMsgType() == CA_TBL_MSG_QUERY)
     {
         const CaTblTier qTier = static_cast<CaTblTier>(hdr.GetTier());
@@ -1471,7 +1581,65 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
                                 (m_cfg.reversePathHop && txId != 0) ? txId : hdr.GetOriginId(),
                                 nowS);
         }
-        if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
+        if (m_cfg.queryV2 && hdr.HasQueryV2())
+        {
+            // NW-9. Answer EVERY listed manifest this node can -- itself as the target, or
+            // others by proxy from a fresh entry -- each with its own RESPONSE carrying the
+            // entry. Whatever it could not answer is left for the rebroadcast; if nothing is
+            // left, the query stops here (the batch-safe rule: a blanket "do not
+            // rebroadcast after answering" would stop target 1 passing a five-manifest
+            // batch on to targets 2-5).
+            v2Handled = true;
+            const std::vector<uint8_t>& want = hdr.GetQueryManifests();
+            bool ownListed = false;
+            for (size_t k = 0; k < want.size(); ++k)
+            {
+                const uint8_t m = want[k];
+                CaTblTableEntry e;
+                bool ok = false;
+                const char* how = "";
+                std::map<uint16_t, CaTblTableEntry>::const_iterator self =
+                    m_table.find(m_cfg.nodeId);
+                if (m_cfg.identityClass == CA_TBL_ID_TARGET && m == m_cfg.targetManifestId)
+                {
+                    ownListed = true;
+                    if (self != m_table.end() && self->second.valid)
+                    {
+                        e = self->second;
+                        ok = true;
+                        how = "answer";
+                        ++m_queriesAnswered;
+                        ++m_v2Answered;
+                    }
+                }
+                else if (m_cfg.queryProxy &&
+                         ProxyAnswerFor(m, nowS, qTier, hdr.GetPacketId(), &e))
+                {
+                    ok = true;
+                    how = "proxy";
+                    ++m_proxyResponses;
+                    ++m_v2Proxied;
+                }
+                if (ok)
+                {
+                    m_nextRespEntry = e;
+                    m_nextHasRespEntry = true;
+                    m_nextRespManifest = m;
+                    SendResponse(qTier, hdr.GetQueryV2Id(), hdr.GetQueryRequesterId());
+                    LogQueryV2(nowS, hdr.GetTier(), hdr.GetQueryV2Id(), how, m,
+                               std::vector<uint8_t>());
+                }
+                else
+                {
+                    v2Left.push_back(m);
+                }
+            }
+            if (m_cfg.identityClass == CA_TBL_ID_TARGET && !ownListed)
+            {
+                ++m_queriesIgnored;
+            }
+        }
+        else if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
             hdr.GetQueryManifestId() == m_cfg.targetManifestId)
         {
             ++m_queriesAnswered;
@@ -1503,21 +1671,46 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
     // at every other receiver), so a copy here that is not this node's own answer is a
     // hop this node must carry on, using ITS OWN cached previous hop. A flooded copy is
     // forwarded by the flood branch below instead.
-    if (m_cfg.reversePathHop && hdr.GetMsgType() == CA_TBL_MSG_RESPONSE &&
+    // NW-9: the same first-copy rule hands each answer to the requester once.
+    if ((m_cfg.reversePathHop || m_cfg.queryV2) && hdr.GetMsgType() == CA_TBL_MSG_RESPONSE &&
         hdr.GetRespQueryId() != 0)
     {
         const double nowRp = Simulator::Now().GetSeconds();
         if (hdr.GetRespRequesterId() == m_cfg.nodeId)
         {
-            if (RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(), nowRp))
+            if (RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(),
+                            hdr.GetRespManifest(), nowRp))
             {
-                ++m_rpDelivered;
+                if (m_cfg.reversePathHop)
+                {
+                    ++m_rpDelivered;
+                }
+                if (m_cfg.queryV2)
+                {
+                    ++m_v2ResponsesHeard;
+                    if (hdr.HasSelfEntry() && hdr.GetSelfEntry().valid)
+                    {
+                        ++m_v2EntriesHeard;
+                    }
+                    if (m_respCb)
+                    {
+                        m_respCb(hdr);
+                    }
+                }
             }
         }
-        else if (!hdr.GetForceFlood() &&
-                 RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(), nowRp))
+        else if (m_cfg.reversePathHop && !hdr.GetForceFlood() &&
+                 RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(),
+                             hdr.GetRespManifest(), nowRp))
         {
             ++m_rpForwarded;
+            if (m_cfg.queryV2)
+            {
+                // NW-9: the hop carries the answer on unchanged, entry and manifest.
+                m_nextHasRespEntry = hdr.HasSelfEntry() && hdr.GetSelfEntry().valid;
+                m_nextRespEntry = hdr.GetSelfEntry();
+                m_nextRespManifest = hdr.GetRespManifest();
+            }
             SendResponse(static_cast<CaTblTier>(hdr.GetTier()), hdr.GetRespQueryId(),
                          hdr.GetRespRequesterId(), hdr.GetRespAnswererId());
         }
@@ -1796,10 +1989,35 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
         hdr.GetOriginId() != m_cfg.nodeId)
     {
         CaTblHeader fwd = hdr;
+        if (v2Handled)
+        {
+            // NW-9: relay only what this node could not answer.
+            const double nowQ = Simulator::Now().GetSeconds();
+            if (v2Left.empty())
+            {
+                ++m_v2Suppressed;
+                LogQueryV2(nowQ, hdr.GetTier(), hdr.GetQueryV2Id(), "suppress", 0, v2Left);
+                return;
+            }
+            if (v2Left.size() < hdr.GetQueryManifests().size())
+            {
+                fwd.SetQueryManifests(v2Left);
+            }
+        }
         if (!fwd.DecrementHopLimit())
         {
             ++c.droppedHopLimit;
             return;
+        }
+        if (v2Handled)
+        {
+            // Counted only once it is really relayed, past the hop limit.
+            if (v2Left.size() < hdr.GetQueryManifests().size())
+            {
+                ++m_v2Reduced;
+            }
+            LogQueryV2(Simulator::Now().GetSeconds(), hdr.GetTier(), hdr.GetQueryV2Id(), "relay",
+                       0, v2Left);
         }
         const double jitter =
             (m_rng != nullptr) ? m_rng->GetValue(0.0, m_cfg.rebroadcastJitterMaxS) : 0.05;
@@ -1841,6 +2059,12 @@ CaTblMac::MaybeRebroadcast(CaTblHeader hdr, CaTblTier tier)
     // flooded type is QUERY, whose manifest list is small. Flagged rather than
     // hidden: a relay's airtime for a flooded QUERY is slightly optimistic.
     f.nEntries = 1;
+    if (m_cfg.queryV2 && hdr.GetMsgType() == CA_TBL_MSG_QUERY && hdr.HasQueryV2() &&
+        !hdr.GetQueryManifests().empty())
+    {
+        // NW-9: the relayed list is carried, so it is billed (6 + n).
+        f.nEntries = static_cast<uint32_t>(hdr.GetQueryManifests().size());
+    }
     f.destId = 0;
     f.cadAttempts = 0;
     f.txAttempts = 0;

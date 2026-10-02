@@ -1152,6 +1152,168 @@ TestReversePathHop()
           "RESPONSE " + std::to_string(tOff) + " -> " + std::to_string(tOn) + " s");
 }
 
+// [10] NW-9. The same four-node line 1-2-3-4 under queryV2 (and reversePathHop, so an
+// answer from node 4 can come home). Node 1 asks; nodes 2, 3, 4 carry manifests 8, 22, 7
+// -- or, for the proxy case, 8, 7, 22, with node 3's entry pushed to node 2 first.
+//
+// The relay jitter is widened to 1.5 s because a node can put two frames on the air at
+// once (TECH_DEBT N.6): node 2's answer and its relay of the rest of the list otherwise
+// overlap and destroy each other at node 3. That defect is not what this case tests.
+struct V2Run
+{
+    uint64_t answered[4] = {0, 0, 0, 0};
+    uint64_t proxied[4] = {0, 0, 0, 0};
+    uint64_t suppressed[4] = {0, 0, 0, 0};
+    uint64_t reduced[4] = {0, 0, 0, 0};
+    uint64_t queriesHeard[4] = {0, 0, 0, 0};
+    uint64_t heard = 0;
+    uint64_t withEntry = 0;
+    std::vector<std::vector<int>> answers; // {manifest, answerer, entryNode, pcsQ, batteryQ}
+};
+
+V2Run
+RunV2Line(const std::vector<uint8_t>& list, bool proxyAt2)
+{
+    V2Run r;
+    StubPhy phy(StubPhy::LINE, 4, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(10);
+    const uint8_t midList[4] = {0, 8, 22, 7};
+    const uint8_t midProxy[4] = {0, 8, 7, 22};
+    const uint8_t* mid = proxyAt2 ? midProxy : midList;
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = mid[i];
+        c.reversePath = true;
+        c.reversePathHop = true;
+        c.queryV2 = true;
+        c.queryProxy = (i == 1) && proxyAt2;
+        c.rebroadcastJitterMaxS = 1.5;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+        if (i > 0)
+        {
+            m[i].SetSelfStatus(200, 0, 150, 10, false, 0);
+            m[i].PublishSelfEntry(100.0 * i, 50.0 * i, 9.0, 9.0, 0.0, 0.0, 0.0, 0.5);
+        }
+    }
+    m[0].SetResponseCallback([&r](const CaTblHeader& h) {
+        r.answers.push_back({static_cast<int>(h.GetRespManifest()),
+                             static_cast<int>(h.GetRespAnswererId()),
+                             static_cast<int>(h.HasSelfEntry() ? h.GetSelfEntry().nodeId : 0),
+                             static_cast<int>(h.GetSelfEntry().pcsQ),
+                             static_cast<int>(h.GetSelfEntry().batteryQ)});
+    });
+    if (proxyAt2)
+    {
+        // Node 3's entry reaches its neighbour node 2 first, by its own update.
+        Simulator::Schedule(Seconds(0.6), &CaTblMac::SendTriggeredUpdate, &m[2], CA_TBL_TIER_868,
+                            uint8_t(1));
+    }
+    Simulator::Schedule(Seconds(5.0), &CaTblMac::SendQueryV2, &m[0], CA_TBL_TIER_868, list,
+                        uint8_t(0));
+    Simulator::Stop(Seconds(40.0));
+    Simulator::Run();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.answered[i] = m[i].GetV2Answered();
+        r.proxied[i] = m[i].GetV2Proxied();
+        r.suppressed[i] = m[i].GetV2Suppressed();
+        r.reduced[i] = m[i].GetV2Reduced();
+        r.queriesHeard[i] = m[i].GetCounters(CA_TBL_MSG_QUERY).received;
+    }
+    {
+        const CaTblMsgCounters& q = m[1].GetCounters(CA_TBL_MSG_QUERY);
+            const CaTblMsgCounters& q3 = m[2].GetCounters(CA_TBL_MSG_QUERY);
+        }
+    {
+        CaTblTableEntry e4;
+        }
+    r.heard = m[0].GetV2ResponsesHeard();
+    r.withEntry = m[0].GetV2EntriesHeard();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestQueryV2()
+{
+    std::cout << "\n[10] NW-9 QUERY and RESPONSE carry what the spec says (Network sect 4)\n";
+    const V2Run a = RunV2Line({7, 8, 9}, false);
+    Report("list {7,8,9}: answered at 2/3/4, reduced at 2/3/4, answers heard / with entry",
+           std::to_string(a.answered[1]) + "/" + std::to_string(a.answered[2]) + "/" +
+               std::to_string(a.answered[3]) + ", " + std::to_string(a.reduced[1]) + "/" +
+               std::to_string(a.reduced[2]) + "/" + std::to_string(a.reduced[3]) + ", " +
+               std::to_string(a.heard) + " / " + std::to_string(a.withEntry));
+    bool got7 = false, got8 = false;
+    for (size_t k = 0; k < a.answers.size(); ++k)
+    {
+        got7 = got7 || (a.answers[k][0] == 7 && a.answers[k][1] == 4 && a.answers[k][2] == 4);
+        got8 = got8 || (a.answers[k][0] == 8 && a.answers[k][1] == 2 && a.answers[k][2] == 2);
+    }
+    Check("every listed manifest a node carries is answered, by its target, with its entry",
+          a.answered[1] == 1 && a.answered[3] == 1 && a.answered[2] == 0 && got7 && got8 &&
+              a.heard == 2 && a.withEntry == 2,
+          "answers heard " + std::to_string(a.heard));
+    Check("a node that answered part of the list relays the rest (batch-safe), and one that "
+          "answered nothing relays it whole",
+          a.reduced[1] == 1 && a.reduced[2] == 0 && a.queriesHeard[3] >= 1 &&
+              a.suppressed[1] == 0,
+          "reduced at 2: " + std::to_string(a.reduced[1]));
+    const V2Run b = RunV2Line({8}, false);
+    Check("a node that answered every listed manifest does not rebroadcast",
+          b.answered[1] == 1 && b.suppressed[1] == 1 && b.queriesHeard[2] == 0 && b.heard == 1,
+          "suppressed " + std::to_string(b.suppressed[1]) + ", node 3 heard " +
+              std::to_string(b.queriesHeard[2]));
+    // The answer's header is billed under queryV2 (12 bytes over the 28-byte entry), alone
+    // and with reversePathHop (then only the answerer's 2 more), and a QUERY is not.
+    CaTblMacConfig cb;
+    cb.nodeId = 1;
+    cb.sf = 7;
+    cb.bandwidthHz = 125e3;
+    CaTblMacConfig cv = cb;
+    cv.queryV2 = true;
+    CaTblMacConfig cvh = cv;
+    cvh.reversePathHop = true;
+    CaTblMac mb, mv, mvh;
+    mb.Configure(cb);
+    mv.Configure(cv);
+    mvh.Configure(cvh);
+    const double rb = mb.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double rv = mv.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double rvh = mvh.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    Check("the v2 RESPONSE header is billed, with NW-8's fields not billed twice, and a QUERY "
+          "is unchanged",
+          rv > rb && rvh >= rv &&
+              mv.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 3) ==
+                  mb.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 3),
+          "RESPONSE " + std::to_string(rb) + " -> " + std::to_string(rv) + " -> " +
+              std::to_string(rvh) + " s");
+    const V2Run c = RunV2Line({7}, true);
+    bool proxy7 = false;
+    for (size_t k = 0; k < c.answers.size(); ++k)
+    {
+        // ... with the status node 3 published (PCS 200, battery 150), carried unchanged.
+        proxy7 = proxy7 || (c.answers[k][0] == 7 && c.answers[k][1] == 2 && c.answers[k][2] == 3 &&
+                            c.answers[k][3] == 200 && c.answers[k][4] == 150);
+    }
+    Check("a proxy answers on behalf of the entry it holds (answerer 2, entry node 3), and "
+          "having answered the whole list does not pass the query on to the target",
+          c.proxied[1] == 1 && proxy7 && c.suppressed[1] == 1 && c.answered[2] == 0 &&
+              c.queriesHeard[2] == 0,
+          "proxied " + std::to_string(c.proxied[1]));
+}
+
 } // namespace
 
 int
@@ -1179,6 +1341,7 @@ main(int argc, char* argv[])
     TestHandshakeFixes();
     TestTriggeredUpdates();
     TestReversePathHop();
+    TestQueryV2();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

@@ -88,7 +88,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 41 | Confidence-weighted path selection for position-fix traffic (Net §3) | PARTIAL | `--fixRoutingConfidence`; the measured tag's traffic is never routed; α, β, γ are uncalibrated | NW-2 |
 | 42 | Hop provenance reaches confidence and the RESULT (Phys 2.5, Net, Transp §3) | PARTIAL | Σ inflation exists (C5). The hop count reaches `Step` and RESULT as a literal 0; per-hop variance is missing | NW-1 |
 | 43 | Identity-scoped QUERY, tier binding (Net §4) | PARTIAL | `--identityQueryPeriodS`. By default every driver is bound to gateway 101's 868 MHz MAC (L.2): G32 shows that the "2.4 GHz" queries were billed at 868 MHz airtime. `--queryTierBinding=per-tier` (NW-3, 2026-10-01, G32) binds each tier's driver to that tier's radio. Still PARTIAL: QUERY carries one manifest and nothing handles the RESPONSE at the requester (NW-9, TA-1) | ~~NW-3~~ done; NW-9 |
-| 44 | QUERY/RESPONSE contents; the answering node stops the flood (Net §4) | DIVERGENT | Single manifest, no priority carried, empty RESPONSE, no requester handler; answering nodes still rebroadcast | NW-9 |
+| 44 | QUERY/RESPONSE contents; the answering node stops the flood (Net §4) | OPT-IN | `--queryV2` (NW-9, 2026-10-03, G50): a QUERY carries its query id, manifest list, requester and priority (`--identityQueryManifests` sets the list); a node answers every listed manifest it can, as target or by proxy, each RESPONSE carrying the entry (with the producer's PCS, integrity verdict, battery, degradation, UWB state and granting anchor), the manifest and query id (12 bytes billed over the entry); it relays the query with the answered manifests removed and not at all if nothing is left; the requester counts and logs every answer. G50, a five-manifest batch under mesh links: 53 answers, each the named subject's own published state; 63 lists reduced, 7 relays suppressed. Under the default PCS form PCS exceeds 1 and its byte saturates (22 of 53 at 255) | ~~NW-9~~ done; TA-1 |
 | 45 | Proxy response with a staleness bound (Net §4) | OPT-IN | `--queryProxy`; the bound was measured at L.2.5 | preset |
 | 46 | Query-triggered UWB escalation (Net §4) | ABSENT | No path from QUERY to escalation | NW-4 |
 | 47 | UWB arbitration U(r) with a queue at anchors (Net §5) | DIVERGENT | Battery term is the fraction spent; T_query is constant; no queue; finders never arbitrate | NW-5 |
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 25 |
+| OPT-IN | 26 |
 | PARTIAL | 10 |
-| DIVERGENT | 5 (one of them, row 17, kept) |
+| DIVERGENT | 4 (one of them, row 17, kept) |
 | ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN); row 48 with NW-7 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN); row 48 with NW-7 (DIVERGENT → OPT-IN); row 44 with NW-9 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

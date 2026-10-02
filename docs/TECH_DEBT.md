@@ -1889,3 +1889,31 @@ binaries without rebuilding them. After NW-7's policy-header change,
 NW-8 (`184d688`) included binaries built before that commit's MAC-header change. Rebuilt
 and re-run on the NW-7 tree, which contains NW-8, all 321 pass. The helper now rebuilds
 first.
+
+### N.6 A radio can put two frames on the air at once
+
+`CaTblChannel::IsBusy()` skips the observer's own transmissions
+(`f.txId == observerId`), so a node's CAD never sees its own frame in flight. A MAC with two
+queued frames can start the second while the first is still on air. A third receiver then
+counts the two as a collision, since the interference loop skips only the receiver itself.
+A half-duplex radio cannot do this.
+
+It surfaced building NW-9 (2026-10-03). In a four-node line, node 2 answered part of a batch
+query and relayed the rest within the default jitter; the two frames destroyed each other at
+node 3, and the query never reached node 4. The unit case widens the relay jitter to step
+around it.
+
+It is not new to NW-9. Any node that answers and rebroadcasts at once has always done it (a
+target answering a legacy QUERY still rebroadcast it), as has any node whose ACK, beacon or
+relay overlaps its own frame. How often it happens in the scenario is not measured. A fix
+changes every run's channel and so every result (rule 8): it would be a default-off flag
+with its own null control, not a bug fix. Open.
+
+### N.7 PCS does not fit the byte a table entry and a beacon give it
+
+NW-9 carries the producer's PCS in its entry, quantised 0..255 over [0, 1], the same mapping
+as the C4 request terms and the 1-byte pcs_q DISCOVERY already bills. Under the default PCS
+form PCS is not bounded by 1: values of 1.96 appear in G50's regime, and 22 of 53 answers
+carried 255. A requester can therefore tell "high" from "low" but not grade within the
+saturated range. This is K.8 (PCS uncalibrated) seen from the wire. `--pcsForm=calibrated`
+(DC-6) is where a bounded score comes from. Open, with CAL-02.

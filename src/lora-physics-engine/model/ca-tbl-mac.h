@@ -54,6 +54,7 @@
 #include <functional>
 #include <ostream>
 #include <map>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -302,6 +303,14 @@ struct CaTblMacConfig
     //! miss FLOOD the RESPONSE. Without it, reversePath caches the originator and both
     //! branches send the same one-hop frame (the pre-NW-8 behaviour, kept).
     bool reversePathHop = false;
+    //! NW-9. QUERY and RESPONSE carry what the spec says. A QUERY carries its query id,
+    //! manifest list, requester and priority; a node answers EVERY listed manifest it can
+    //! (as the target, or by proxy from a fresh entry), with a RESPONSE carrying the
+    //! answered entry, its manifest and the producer's status; it rebroadcasts the QUERY
+    //! with the answered manifests removed, and not at all if it answered every one. The
+    //! requester counts the answers and hands them to SetResponseCallback(). False keeps
+    //! the single-manifest QUERY and the empty RESPONSE.
+    bool queryV2 = false;
 
     //! NW-0. Under mesh links DISCOVERY is one-hop: neighbour discovery is one-hop by
     //! definition (MAC sect 8, "next beacon supersedes"), and flooding it through a mesh
@@ -487,11 +496,29 @@ class CaTblMac
     //! Simulator::Schedule binds a member function at EXACT arity, so widening Send
     //! breaks every scheduled call to it. Found by the compiler, not by inspection.
     void SendQuery(CaTblTier tier, uint8_t manifestId);
+    //! NW-9. A query for a LIST of manifests at a priority (0 ROUTINE). Its query id is
+    //! its packet id and its requester this node.
+    void SendQueryV2(CaTblTier tier, const std::vector<uint8_t>& manifests, uint8_t priority);
+    //! NW-9. The status the next PublishSelfEntry() stamps on this node's entry.
+    void SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
+                       uint8_t degradationQ, bool uwbActive, uint16_t grantedBy);
+    //! NW-9. Every first copy of an answer that reaches this node as its requester.
+    void SetResponseCallback(std::function<void(const CaTblHeader&)> cb) { m_respCb = cb; }
+    //! NW-9. One row per decision on a v2 QUERY (answered, proxied, relayed with the
+    //! listed manifests left, suppressed), for the gate. Null = no log.
+    void SetQueryLog(std::ostream* os) { m_queryLog = os; }
+    uint64_t GetV2Answered() const { return m_v2Answered; }
+    uint64_t GetV2Proxied() const { return m_v2Proxied; }
+    uint64_t GetV2Suppressed() const { return m_v2Suppressed; }
+    uint64_t GetV2Reduced() const { return m_v2Reduced; }
+    uint64_t GetV2ResponsesHeard() const { return m_v2ResponsesHeard; }
+    uint64_t GetV2EntriesHeard() const { return m_v2EntriesHeard; }
 
     /** Network §4: is there a fresh table entry about \p manifestId to answer on
      *  behalf of? Freshness is checked here, not by the caller, because a stale
      *  match and no match are different outcomes and are counted separately. */
-    bool ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId);
+    bool ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId,
+                        CaTblTableEntry* answered = nullptr);
     /** Network §1: extra wire bytes for target_manifest_id, zero unless the
      *  proxy responder is enabled and the message actually carries entries. */
     uint32_t ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const;
@@ -814,10 +841,35 @@ class CaTblMac
     uint64_t m_rpDuplicates = 0;
     //! (query, answerer) already forwarded or delivered here, with when; bounded like
     //! m_reversePath and windowed by dedupWindowS, like m_dedupSeen.
-    std::map<std::pair<uint32_t, uint16_t>, double> m_rpSeen;
-    bool RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS);
+    std::map<std::tuple<uint32_t, uint16_t, uint8_t>, double> m_rpSeen;
+    //! NW-9 adds the answered manifest to the key: one proxy can answer two manifests of a
+    //! batch query, and those are two answers, not a retransmission. 0 outside queryV2.
+    bool RpFirstCopy(uint32_t queryId, uint16_t answererId, uint8_t manifest, double nowS);
     // NW-7.
     std::function<void(uint16_t, int)> m_uwbGrantCb;
+    // NW-9.
+    std::function<void(const CaTblHeader&)> m_respCb;
+    std::ostream* m_queryLog = nullptr;
+    std::vector<uint8_t> m_nextV2Manifests;
+    uint8_t m_nextV2Priority = 0;
+    bool m_nextV2 = false;
+    CaTblTableEntry m_nextRespEntry;
+    bool m_nextHasRespEntry = false;
+    uint8_t m_nextRespManifest = 0;
+    uint8_t m_selfPcsQ = 0;
+    uint8_t m_selfIntegrity = 0;
+    uint8_t m_selfBatteryQ = 0;
+    uint8_t m_selfDegradationQ = 0;
+    bool m_selfUwbActive = false;
+    uint16_t m_selfGrantedBy = 0;
+    uint64_t m_v2Answered = 0;
+    uint64_t m_v2Proxied = 0;
+    uint64_t m_v2Suppressed = 0;
+    uint64_t m_v2Reduced = 0;
+    uint64_t m_v2ResponsesHeard = 0;
+    uint64_t m_v2EntriesHeard = 0;
+    void LogQueryV2(double tS, uint8_t tier, uint32_t queryId, const char* what,
+                    uint8_t manifest, const std::vector<uint8_t>& left);
     bool m_nextForceFlood = false;
     uint64_t m_rpUnicastHops = 0;
     uint64_t m_rpFloods = 0;
