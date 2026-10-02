@@ -967,6 +967,48 @@ CaTblPolicy::ApplyProvenance(double pcs) const
     return pcs / (1.0 + m_config.hopPenalty * f);
 }
 
+bool
+CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
+                                   const std::vector<CaTblRangeMeasurement>& meas) const
+{
+    // DC-9. Step()'s evidence-gate UWB branch, side-effect free. The tier-2 branch runs
+    // BEFORE the witness, so a witness that was evaluated has already passed it.
+    const bool haveMap = !m_config.uwbAnchorX.empty();
+    if (!m_config.escalationRequiresEvidence || m_tier != CA_TBL_TIER_2P4 ||
+        !(m_config.uwbEvidenceFromNeighbours || haveMap))
+    {
+        return false;
+    }
+    const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
+    if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+    {
+        return true;
+    }
+    if (m_config.uwbEvidenceFromNeighbours)
+    {
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.uwbPredictRadiusM)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
+    uint32_t vis = 0;
+    for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
+    {
+        const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
+        const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+        if (dx * dx + dy * dy <= r2)
+        {
+            ++vis;
+        }
+    }
+    return vis < 3;
+}
+
 void
 CaTblPolicy::AbortTierChange(CaTblTier restoreTo)
 {
@@ -1598,6 +1640,11 @@ CaTblPolicy::Step(double dt,
     {
         if (m_config.imuCrossCheck && m_imuTolM > 0.0)
         {
+            if (m_config.witnessCounts)
+            {
+                ++m_witnessEvals; // DC-9
+                d.witnessEvaluated = true;
+            }
             // The inertial estimate is an independent ABSOLUTE position that drifts.
             // The caller supplies both the disagreement and the tolerance, because the
             // drift model belongs with the engine that produces it -- an SHS is bounded
@@ -1608,6 +1655,7 @@ CaTblPolicy::Step(double dt,
             {
                 wantEscalate = false;
                 m_imuRejections++;
+                d.witnessRefused = m_config.witnessCounts; // DC-9
             }
         }
 
@@ -1715,6 +1763,12 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // DC-9: a witness refusal the evidence gate would have made anyway is ABSORBED.
+    if (d.witnessRefused && UwbEvidenceWouldBlock(traceSigma, meas))
+    {
+        ++m_witnessAbsorbed;
+        d.witnessAbsorbed = true;
+    }
     // DC-4: a Case D cycle has a live covariance and is not a blind cycle, so it takes the
     // normal escalation decision below and does not count toward demotion.
     if (dynamic && !activeDelivered && !caseD)
