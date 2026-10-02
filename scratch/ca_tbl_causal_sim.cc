@@ -5344,6 +5344,8 @@ struct SpecOptions
     std::string imuWitnessSource;
     //! NW-0. --meshLinks: "" or "star" (field node to anchor only), or "all".
     std::string meshLinks;
+    //! NW-8. --reversePathHop: with --reversePath, the reverse path is hop by hop.
+    bool reversePathHop = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -5994,6 +5996,7 @@ RunArm(CaTblPolicyMode mode,
         mc.digestSummary = digestSummary;
         mc.queryStalenessBoundS = queryStalenessBoundS;
         mc.reversePath = reversePath;
+        mc.reversePathHop = spec.reversePathHop;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
         // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
@@ -6031,6 +6034,7 @@ RunArm(CaTblPolicyMode mode,
             mc.digestSummary = digestSummary;
             mc.queryStalenessBoundS = queryStalenessBoundS;
             mc.reversePath = reversePath;
+            mc.reversePathHop = spec.reversePathHop;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
@@ -6125,6 +6129,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.digestSummary = digestSummary;
             pmc.queryStalenessBoundS = queryStalenessBoundS;
             pmc.reversePath = reversePath;
+            pmc.reversePathHop = spec.reversePathHop;
             pmc.nodeId = static_cast<uint16_t>(pid);
             pmc.identityClass = CA_TBL_ID_TARGET;
             // THE POINT OF THE PEER. A distinct manifest id is what makes an
@@ -6393,6 +6398,7 @@ RunArm(CaTblPolicyMode mode,
             fc.queryProxy = queryProxy;
             fc.queryStalenessBoundS = queryStalenessBoundS;
             fc.reversePath = reversePath;
+            fc.reversePathHop = spec.reversePathHop;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
@@ -11039,6 +11045,25 @@ RunArm(CaTblPolicyMode mode,
                       << proxyStale << ", responses unicast " << uni << ", flooded "
                       << flood << "\n";
         }
+        if (spec.reversePathHop)
+        {
+            // NW-8. Summed over every MAC: a hop is sent by the answerer and by each
+            // forwarder, and only the requester counts a delivery.
+            uint64_t hops = 0, fwd = 0, fl = 0, expd = 0, del = 0, dup = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                hops += macs[i].GetRpUnicastHops();
+                fwd += macs[i].GetRpForwarded();
+                fl += macs[i].GetRpFloods();
+                expd += macs[i].GetRpExpired();
+                del += macs[i].GetRpDelivered();
+                dup += macs[i].GetRpDuplicates();
+            }
+            std::cout << "    NW-8 reverse path: unicast hops " << hops << ", forwarded " << fwd
+                      << ", floods " << fl << ", expired entries " << expd
+                      << ", delivered to the requester " << del << ", duplicates absorbed "
+                      << dup << "\n";
+        }
         if (queryProxy)
         {
             WriteProxyChecks(macs, traceDir, mode, seed, queryStalenessBoundS);
@@ -11747,6 +11772,21 @@ main(int argc, char* argv[])
                  "counted separately because the spec asks for the airtime saving as a "
                  "number rather than a claim.",
                  reversePathArg);
+    cmd.AddValue("reversePathHop",
+                 "With --reversePath, make the reverse path real (Transport sect 1; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md NW-8). FALSE by default, which keeps "
+                 "--reversePath as it has always been: the cache holds the QUERY's "
+                 "originator, and its hit and miss branches send the same one-hop frame. "
+                 "TRUE: each node caches the PREVIOUS HOP the query came from (the channel's "
+                 "transmitter), the RESPONSE is unicast to it and every node on the way "
+                 "forwards it to its own cached previous hop, the 300 s window is honoured, "
+                 "and a miss FLOODS the RESPONSE with the default hop limit. The RESPONSE "
+                 "carries its query_id, requester and answerer (8 bytes, billed); a copy "
+                 "retransmitted after a lost ACK is absorbed, not forwarded again. One NW-8 "
+                 "line. "
+                 "Needs --reversePath and --identityQueryPeriodS > 0. A multi-hop path needs "
+                 "--meshLinks=all; under the star model every path is one hop.",
+                 spec.reversePathHop);
     cmd.AddValue("imuIdeal",
                  "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
                  "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
@@ -13667,6 +13707,14 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --finderTasking=roundrobin needs --measuredSubjects > 1, "
                      "--nFinders > 0 and --finderMode 1 or 2: otherwise every finder already "
                      "searches for tag 0, or none steers on an entry\n";
+        return 1;
+    }
+    // NW-8.
+    if (spec.reversePathHop && (!reversePathArg || !(identityQueryPeriodSArg > 0.0)))
+    {
+        std::cerr << "FATAL: --reversePathHop needs --reversePath=true and "
+                     "--identityQueryPeriodS > 0: without them no QUERY is cached or no "
+                     "RESPONSE is sent\n";
         return 1;
     }
     // NW-0.

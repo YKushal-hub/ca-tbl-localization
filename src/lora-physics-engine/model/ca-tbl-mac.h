@@ -295,6 +295,12 @@ struct CaTblMacConfig
     //! Bounded and time-windowed on the same discipline as the dedup cache.
     double reversePathWindowS = 300.0;
     uint32_t reversePathMaxEntries = 64;
+    //! NW-8. With reversePath: cache the PREVIOUS HOP a QUERY arrived from (the channel's
+    //! transmitter), not its originator; unicast the RESPONSE to it, and every node on the
+    //! way forwards it to its own cached previous hop; honour reversePathWindowS; and on a
+    //! miss FLOOD the RESPONSE. Without it, reversePath caches the originator and both
+    //! branches send the same one-hop frame (the pre-NW-8 behaviour, kept).
+    bool reversePathHop = false;
 
     //! NW-0. Under mesh links DISCOVERY is one-hop: neighbour discovery is one-hop by
     //! definition (MAC sect 8, "next beacon supersedes"), and flooding it through a mesh
@@ -490,8 +496,10 @@ class CaTblMac
     uint32_t ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const;
     /** Transport §1: record which neighbour a QUERY arrived from. */
     void RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS);
-    /** Transport §1: unicast a RESPONSE home, or flood if no path is cached. */
-    void SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId);
+    /** Transport §1: unicast a RESPONSE home, or flood if no path is cached. NW-8:
+     *  answererId 0 means this node is answering; a forwarder passes the original's. */
+    void SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId,
+                      uint16_t answererId = 0);
 
     //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
     //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
@@ -550,6 +558,18 @@ class CaTblMac
     uint64_t GetResponsesFlooded() const { return m_responsesFlooded; }
     uint64_t GetReversePathHits() const { return m_reversePathHits; }
     uint64_t GetReversePathMisses() const { return m_reversePathMisses; }
+    //! NW-8 accounting (reversePathHop): RESPONSE frames sent unicast to a cached
+    //! previous hop (by the answerer and by every forwarder), misses that flooded,
+    //! RESPONSEs forwarded on behalf of another node, and RESPONSEs that reached this
+    //! node as their requester.
+    uint64_t GetRpUnicastHops() const { return m_rpUnicastHops; }
+    uint64_t GetRpFloods() const { return m_rpFloods; }
+    uint64_t GetRpForwarded() const { return m_rpForwarded; }
+    uint64_t GetRpDelivered() const { return m_rpDelivered; }
+    uint64_t GetRpExpired() const { return m_rpExpired; }
+    //! Copies of an answer already forwarded or delivered: retransmissions after a lost
+    //! ACK, which carry a fresh packet id.
+    uint64_t GetRpDuplicates() const { return m_rpDuplicates; }
     //! L.2.5: every proxy check this radio made, in arrival order. Empty unless
     //! --queryProxy is on, because nothing else reaches ProxyAnswerFor.
     const std::vector<CaTblProxyCheck>& GetProxyChecks() const { return m_proxyChecks; }
@@ -623,8 +643,9 @@ class CaTblMac
      */
     void StartHandshake(CaTblTier tier, uint16_t peerId, uint32_t nEntriesToPush);
 
-    /** Delivered by the channel after propagation and capture arbitration. */
-    void DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out);
+    /** Delivered by the channel after propagation and capture arbitration. txId is
+     *  the transmitter of THIS copy -- the previous hop, which NW-8 needs. */
+    void DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_t txId = 0);
 
     /** Channel-side notifications, so per-message-type collision and capture
      *  counts are attributable instead of only existing as channel totals.
@@ -773,6 +794,22 @@ class CaTblMac
     uint64_t m_responsesFlooded = 0;
     uint64_t m_reversePathHits = 0;
     uint64_t m_reversePathMisses = 0;
+    // NW-8 (reversePathHop).
+    uint32_t m_nextRespQueryId = 0;   //!< consumed by the next Send(), like the C4 terms
+    uint16_t m_nextRespRequester = 0;
+    uint16_t m_nextRespAnswerer = 0;
+    uint64_t m_rpDuplicates = 0;
+    //! (query, answerer) already forwarded or delivered here, with when; bounded like
+    //! m_reversePath and windowed by dedupWindowS, like m_dedupSeen.
+    std::map<std::pair<uint32_t, uint16_t>, double> m_rpSeen;
+    bool RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS);
+    bool m_nextForceFlood = false;
+    uint64_t m_rpUnicastHops = 0;
+    uint64_t m_rpFloods = 0;
+    uint64_t m_rpForwarded = 0;
+    uint64_t m_rpDelivered = 0;
+    uint64_t m_rpExpired = 0;
+    uint32_t RouteOverheadBytes(uint8_t msgType) const;
     std::vector<CaTblProxyCheck> m_proxyChecks;
     uint64_t m_dutyViolationAttempts;
     // MC-1 (handshakeFixes). Consumed by the next Send(), like the C4 terms.

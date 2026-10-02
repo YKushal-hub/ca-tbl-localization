@@ -71,6 +71,12 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";acks=" << h.GetAckedPacketId();
     }
+    // NW-8. Non-zero only under reversePathHop, so printed only there.
+    if (h.GetRespQueryId() != 0)
+    {
+        o << ";rq=" << h.GetRespQueryId() << ";req=" << h.GetRespRequesterId()
+          << ";ans=" << h.GetRespAnswererId() << ";flood=" << (h.GetForceFlood() ? 1 : 0);
+    }
     if (h.HasGrantVerdict())
     {
         o << ";granted=" << (h.GetGranted() ? 1 : 0)
@@ -715,6 +721,44 @@ CaTblMac::ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32
     return false;
 }
 
+uint32_t
+CaTblMac::RouteOverheadBytes(uint8_t msgType) const
+{
+    // NW-8: the query_id (4), requester id (2) and answerer id (2) a RESPONSE must carry
+    // for each hop to find its own reverse-path entry and to deduplicate retransmissions. Billed only under reversePathHop, the only
+    // configuration that carries them -- the same rule as ManifestOverheadBytes.
+    return (m_cfg.reversePathHop && msgType == CA_TBL_MSG_RESPONSE) ? 8u : 0u;
+}
+
+bool
+CaTblMac::RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS)
+{
+    const std::pair<uint32_t, uint16_t> key(queryId, answererId);
+    std::map<std::pair<uint32_t, uint16_t>, double>::iterator it = m_rpSeen.find(key);
+    // The dedup window, not the reverse-path one: this is duplicate suppression, and a
+    // short path window must not let a retransmitted copy through as new.
+    if (it != m_rpSeen.end() && (nowS - it->second) < m_cfg.dedupWindowS)
+    {
+        ++m_rpDuplicates;
+        return false;
+    }
+    if (it == m_rpSeen.end() && m_rpSeen.size() >= m_cfg.reversePathMaxEntries)
+    {
+        std::map<std::pair<uint32_t, uint16_t>, double>::iterator oldest = m_rpSeen.begin();
+        for (std::map<std::pair<uint32_t, uint16_t>, double>::iterator o = m_rpSeen.begin();
+             o != m_rpSeen.end(); ++o)
+        {
+            if (o->second < oldest->second)
+            {
+                oldest = o;
+            }
+        }
+        m_rpSeen.erase(oldest);
+    }
+    m_rpSeen[key] = nowS;
+    return true;
+}
+
 void
 CaTblMac::RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS)
 {
@@ -740,11 +784,47 @@ CaTblMac::RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS)
 }
 
 void
-CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId)
+CaTblMac::SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId,
+                       uint16_t answererId)
 {
     // Transport §1. Unicast home along the cached reverse path; flood only when
     // there is no path to unicast along. The fallback is what makes this safe to
     // enable: a cache miss costs airtime, never the answer.
+    if (m_cfg.reversePath && m_cfg.reversePathHop)
+    {
+        // NW-8. The cache holds the PREVIOUS HOP, so this is one hop of the path home;
+        // the node it reaches does the same with its own entry. An entry older than the
+        // window is not a path: the neighbour it names may have moved or slept since.
+        const double nowS = Simulator::Now().GetSeconds();
+        m_nextRespQueryId = queryId;
+        m_nextRespRequester = requesterId;
+        m_nextRespAnswerer = (answererId != 0) ? answererId : m_cfg.nodeId;
+        std::map<uint32_t, std::pair<uint16_t, double> >::const_iterator it =
+            m_reversePath.find(queryId);
+        const bool fresh =
+            it != m_reversePath.end() && (nowS - it->second.second) <= m_cfg.reversePathWindowS;
+        if (it != m_reversePath.end() && !fresh)
+        {
+            ++m_rpExpired;
+        }
+        if (fresh)
+        {
+            ++m_reversePathHits;
+            ++m_responsesUnicast;
+            ++m_rpUnicastHops;
+            Send(CA_TBL_MSG_RESPONSE, tier, 1, it->second.first);
+            return;
+        }
+        // Transport sect 1, "fall back to flood": a real flood, with the default hop
+        // limit -- the QUERY's remaining limit h cannot carry an answer back over the
+        // H - h hops the query travelled whenever h < H - h.
+        ++m_reversePathMisses;
+        ++m_responsesFlooded;
+        ++m_rpFloods;
+        m_nextForceFlood = true;
+        Send(CA_TBL_MSG_RESPONSE, tier, 1, 0);
+        return;
+    }
     if (m_cfg.reversePath)
     {
         std::map<uint32_t, std::pair<uint16_t, double> >::const_iterator it =
@@ -803,7 +883,7 @@ double
 CaTblMac::FrameAirtimeS(CaTblMsgType type, CaTblTier tier, uint32_t nEntries) const
 {
     const uint32_t payload = CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(type, nEntries) +
-                             ManifestOverheadBytes(type, nEntries);
+                             ManifestOverheadBytes(type, nEntries) + RouteOverheadBytes(type);
     return (tier == CA_TBL_TIER_UWB)
                ? CaTblEnergyModel::UwbFrameTimeS(payload)
                : CaTblEnergyModel::LoRaTimeOnAirS(m_cfg.sf, m_cfg.bandwidthHz, payload,
@@ -861,6 +941,10 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     {
         ++m_suppressedTx;
         m_nextTriggerReason = 0; // MC-2: 0 unless SendTriggeredUpdate set it
+        m_nextRespQueryId = 0;   // NW-8, the same one-frame discipline
+        m_nextRespRequester = 0;
+        m_nextRespAnswerer = 0;
+        m_nextForceFlood = false;
         if (m_cfg.handshakeFixes)
         {
             // MC-1: what this frame would have answered must not ride a later one.
@@ -921,9 +1005,20 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     f.hdr.SetOriginId(m_cfg.nodeId);
     // NW-0: a one-hop DISCOVERY leaves with hop limit 0. A limit of 1 would still be
     // relayed once -- DecrementHopLimit() refuses only at 0 -- which is two hops.
+    // NW-8: the fallback RESPONSE floods with the flooded types' limit.
+    const bool forceFlood = (type == CA_TBL_MSG_RESPONSE) && m_nextForceFlood;
     f.hdr.SetHopLimit((m_cfg.discoveryOneHop && type == CA_TBL_MSG_DISCOVERY)
                           ? 0
-                          : (CaTblIsFlooded(type) ? m_cfg.defaultHopLimit : 1));
+                          : ((CaTblIsFlooded(type) || forceFlood) ? m_cfg.defaultHopLimit : 1));
+    if (type == CA_TBL_MSG_RESPONSE && m_cfg.reversePathHop)
+    {
+        f.hdr.SetRespRoute(m_nextRespQueryId, m_nextRespRequester, m_nextRespAnswerer,
+                           forceFlood);
+    }
+    m_nextRespQueryId = 0;
+    m_nextRespRequester = 0;
+    m_nextRespAnswerer = 0;
+    m_nextForceFlood = false;
     f.hdr.SetInitialHopLimit(f.hdr.GetHopLimit());
     f.hdr.SetMsgType(type);
     f.hdr.SetTier(static_cast<uint8_t>(tier));
@@ -992,7 +1087,8 @@ CaTblMac::AttemptCad(PendingFrame f)
 
     const uint32_t payload = CA_TBL_MAC_HEADER_BYTES +
                              CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
-                             ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries);
+                             ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
+        RouteOverheadBytes(f.hdr.GetMsgType());
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1087,7 +1183,8 @@ CaTblMac::DoTransmit(PendingFrame f)
 
     const uint32_t payload =
         CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
-        ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries);
+        ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
+        RouteOverheadBytes(f.hdr.GetMsgType());
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1117,7 +1214,7 @@ CaTblMac::DoTransmit(PendingFrame f)
     // response. Arm a timeout so a lost grant surfaces as a retransmission
     // rather than as a node silently believing it holds a UWB slot.
     if (CaTblAckPolicyFor(f.hdr.GetMsgType()) == CA_TBL_ACK_EXPLICIT &&
-        f.hdr.GetMsgType() != CA_TBL_MSG_ACK)
+        f.hdr.GetMsgType() != CA_TBL_MSG_ACK && !f.hdr.GetForceFlood())
     {
         m_awaitingAck[f.hdr.GetPacketId()] = f;
         Simulator::Schedule(Seconds(m_cfg.ackTimeoutS),
@@ -1174,7 +1271,7 @@ CaTblMac::OnAckTimeout(uint32_t packetId)
 // ---- receive path (§2.6) --------------------------------------------------
 
 void
-CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
+CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_t txId)
 {
     if (m_asleep)
     {
@@ -1290,7 +1387,7 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
 
     // Explicit ACK obligation.
     if (CaTblAckPolicyFor(hdr.GetMsgType()) == CA_TBL_ACK_EXPLICIT &&
-        hdr.GetMsgType() != CA_TBL_MSG_ACK)
+        hdr.GetMsgType() != CA_TBL_MSG_ACK && !hdr.GetForceFlood())
     {
         if (m_cfg.handshakeFixes && hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
         {
@@ -1344,7 +1441,11 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         // one that answers.
         if (m_cfg.reversePath)
         {
-            RememberReversePath(hdr.GetPacketId(), hdr.GetOriginId(), nowS);
+            // NW-8: the previous hop -- the transmitter of this copy -- not the
+            // originator, which is a neighbour only when the query came one hop.
+            RememberReversePath(hdr.GetPacketId(),
+                                (m_cfg.reversePathHop && txId != 0) ? txId : hdr.GetOriginId(),
+                                nowS);
         }
         if (m_cfg.identityClass == CA_TBL_ID_TARGET &&
             hdr.GetQueryManifestId() == m_cfg.targetManifestId)
@@ -1369,6 +1470,32 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
             // that reaches nothing is evidence it does not, and without this counter
             // the two look identical from the outside.
             ++m_queriesIgnored;
+        }
+    }
+
+    // ---- NW-8: a RESPONSE on the reverse path --------------------------------
+    //
+    // A unicast RESPONSE reaches only the node it was addressed to (the channel drops it
+    // at every other receiver), so a copy here that is not this node's own answer is a
+    // hop this node must carry on, using ITS OWN cached previous hop. A flooded copy is
+    // forwarded by the flood branch below instead.
+    if (m_cfg.reversePathHop && hdr.GetMsgType() == CA_TBL_MSG_RESPONSE &&
+        hdr.GetRespQueryId() != 0)
+    {
+        const double nowRp = Simulator::Now().GetSeconds();
+        if (hdr.GetRespRequesterId() == m_cfg.nodeId)
+        {
+            if (RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(), nowRp))
+            {
+                ++m_rpDelivered;
+            }
+        }
+        else if (!hdr.GetForceFlood() &&
+                 RpFirstCopy(hdr.GetRespQueryId(), hdr.GetRespAnswererId(), nowRp))
+        {
+            ++m_rpForwarded;
+            SendResponse(static_cast<CaTblTier>(hdr.GetTier()), hdr.GetRespQueryId(),
+                         hdr.GetRespRequesterId(), hdr.GetRespAnswererId());
         }
     }
 
@@ -1631,7 +1758,10 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     }
 
     // Flood forwarding (§2.6): dedup, decrement, jitter, rebroadcast.
-    if (CaTblIsFlooded(hdr.GetMsgType()) && hdr.GetOriginId() != m_cfg.nodeId)
+    // NW-8: the fallback RESPONSE floods too, except at the requester it is for.
+    if ((CaTblIsFlooded(hdr.GetMsgType()) ||
+         (hdr.GetForceFlood() && hdr.GetRespRequesterId() != m_cfg.nodeId)) &&
+        hdr.GetOriginId() != m_cfg.nodeId)
     {
         CaTblHeader fwd = hdr;
         if (!fwd.DecrementHopLimit())
@@ -1925,7 +2055,7 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
                         << (captured ? "capture" : "delivered") << ',' << mine.rxPowerDbm
                         << ',' << CaTblEventPayload(me.hdr) << '\n';
         }
-        rx->DeliverRx(me.hdr, mine);
+        rx->DeliverRx(me.hdr, mine, me.txId);
     }
 
     // Remove the completed transmission.

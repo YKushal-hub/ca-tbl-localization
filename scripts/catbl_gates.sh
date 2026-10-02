@@ -1097,6 +1097,22 @@ bash scripts/finder_tasking_gate.sh "$WORK/g47" || fail G47
 bash scripts/finder_tasking_gate_selftest.sh "$WORK/g47" || fail G47
 finish G47
 
+# ---------------- G48: the reverse path really exists (NW-8)
+# The MAC was never told who transmitted a frame, so --reversePath cached a QUERY's
+# originator and sent the RESPONSE one hop to it on hit and miss alike. --reversePathHop
+# caches the previous hop, unicasts the RESPONSE hop by hop, floods on a miss and absorbs
+# retransmitted copies. G32's query regime under --meshLinks=all with the event log, read
+# by scripts/reverse_path_gate.py:
+#   - every unicast hop goes to the sender's previous hop, recomputed from QUERY rows;
+#   - forwarded, delivered and duplicates recounted per (query, answerer);
+#   - paths of more than one hop exist; --reversePath alone is unchanged; two refusals.
+#
+# Negative fixtures in scripts/reverse_path_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G48 the reverse path really exists (NW-8) ---\n'
+bash scripts/reverse_path_gate.sh "$WORK/g48" || fail G48
+bash scripts/reverse_path_gate_selftest.sh "$WORK/g48" || fail G48
+finish G48
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

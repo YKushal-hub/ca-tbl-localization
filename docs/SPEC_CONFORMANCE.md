@@ -99,7 +99,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 
 | # | mechanism (docx §) | status | evidence | plan |
 |---|---|---|---|---|
-| 50 | Reverse-path unicast of RESPONSE, flood fallback (Transp §1) | DIVERGENT | `--reversePath` caches the originator, so it is a no-op | NW-8 |
+| 50 | Reverse-path unicast of RESPONSE, flood fallback (Transp §1) | OPT-IN | `--reversePath --reversePathHop` (NW-8, 2026-10-03, G48): each node caches the previous hop of a QUERY (the channel now hands the MAC its transmitter), the RESPONSE is unicast hop by hop along those entries, the 300 s window is honoured, and a miss floods with the default hop limit (a carried force-flood bit, since RESPONSE is not a flooded type). Retransmissions after a lost ACK are absorbed per (query, answerer). Under G32's query regime with mesh links: 137 hops, each to the previous hop recomputed from the event log; 40 forwarded, 55 delivered. `--reversePath` alone keeps the old one-hop behaviour. The flood fallback is shown in the unit suite only (0 floods in the gate regime). The RESPONSE still carries no entry (NW-9) | ~~NW-8~~ done; NW-9 |
 | 51 | Session state machine fed by RESPONSEs to a requester (Transp §2) | PARTIAL | `--sessionLayer`; fed the tag's own filter; the requester is the tag itself | TA-1, TA-3 |
 | 52 | SEARCH_AND_LOCALIZE and BATCH_SEARCH over identified targets (Transp §4–§5) | PARTIAL | API exists; only manifest 1 is fed; spread always UNDEFINED | TA-2, TA-4 |
 
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 23 |
+| OPT-IN | 24 |
 | PARTIAL | 10 |
-| DIVERGENT | 7 (one of them, row 17, kept) |
+| DIVERGENT | 6 (one of them, row 17, kept) |
 | ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 
