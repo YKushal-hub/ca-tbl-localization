@@ -1220,6 +1220,15 @@ produce, so each is a change of its own, with its own null control:
   the tree, `results/regen27_*` included, was produced with the estimator on the node; to
   replay one, add `--gatewayEdgeServer=false`. An open question the review raised about
   which radio the downlink is billed on is M.10 (a DECISION since 2026-09-30).
+  - *2026-10-02, SY-1:* `--edgeUplinkRanges` bills the uplink the row above records as
+    unbilled: one frame on the tier that ranged, 9 header bytes plus 6 per answered anchor
+    (OURS). Gate G35: only energy moves, only on tiers 2 and 3, at one TX power per radio
+    (2.4 GHz: 0.0792 J per second of airtime on every arm that moved). On UWB the frame
+    goes from the node too. The spec's TWR is Poucet's START/ACK/DATA_REPLY, which leaves
+    the range at the initiator, so "the final message leaves it with the responder" above
+    describes a different exchange. The UWB branch is not exercised today, because no
+    regime returns a UWB range to the node (DC-6). The default is unchanged, so the edge
+    figures above still describe an unbilled uplink.
   *Decided 2026-09-30:* the downlink is billed on the fix's tier by default
   (`--edgeDownlinkTier`). To replay an edge-server run from before that date, add
   `--edgeDownlinkTier=active`.

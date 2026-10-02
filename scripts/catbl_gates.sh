@@ -869,6 +869,24 @@ bash scripts/triggered_updates_gate.sh "$WORK/g34" || fail G34
 bash scripts/triggered_updates_gate_selftest.sh "$WORK/g34" || fail G34
 finish G34
 
+# ---------------- G35: the uplink of a tier-2/3 range to the gateway estimator (SY-1)
+# With the estimator on the gateways (the default), a range measured by two-way time of
+# flight is left at the node and the frame that carries it up was never billed (TECH_DEBT
+# L.2.3). --edgeUplinkRanges bills it. Three runs of all six arms (seed 7, 900 s), read by
+# scripts/edge_uplink_gate.py:
+#   - --edgeUplinkRanges=false is the default, byte for byte;
+#   - only energy moves: every non-energy summary column and every trace column but cumJ
+#     is byte-identical; tier-2/3 tx_/airtime_ only rise; a silent tier is never charged;
+#   - static_2p4 is billed; the extra joules per extra second are one TX power per radio;
+#     the stdout airtime equals the bill;
+#   - the flag with the estimator on the node is refused.
+#
+# Negative fixtures in scripts/edge_uplink_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G35 the uplink of a tier-2/3 range to the gateways is billed (SY-1) ---\n'
+bash scripts/edge_uplink_gate.sh "$WORK/g35" || fail G35
+bash scripts/edge_uplink_gate_selftest.sh "$WORK/g35" || fail G35
+finish G35
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
