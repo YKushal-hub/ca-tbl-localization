@@ -851,6 +851,24 @@ bash scripts/handshake_fixes_gate.sh "$WORK/g33" || fail G33
 bash scripts/handshake_fixes_gate_selftest.sh "$WORK/g33" || fail G33
 finish G33
 
+# ---------------- G34: the spec's triggered update and last gasp (MC-2)
+# By default the only TRIGGERED_UPDATE is StartHandshake's RECEDING push and nothing counts
+# it (TECH_DEBT M.9). --triggeredUpdates adds a large-correction push and a last gasp for
+# the measured node. Three runs at seed 7 with a 3 J battery, read by
+# scripts/triggered_updates_gate.py:
+#   - --triggeredUpdates=false is the default, byte for byte;
+#   - each large correction agrees with the trace (estimate, threshold, active tier);
+#   - every reason-coded frame follows its trigger; the last gasp is the last frame the
+#     node originated; the stdout counts equal the CSV's;
+#   - --triggeredUpdateK without the flag is refused.
+#
+# Negative fixtures in scripts/triggered_updates_gate_selftest.sh, built from these runs
+# (rule 6). The MAC cases are in ca_tbl_packet_validator [8].
+printf '\n--- G34 the spec triggered update and last gasp (MC-2) ---\n'
+bash scripts/triggered_updates_gate.sh "$WORK/g34" || fail G34
+bash scripts/triggered_updates_gate_selftest.sh "$WORK/g34" || fail G34
+finish G34
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

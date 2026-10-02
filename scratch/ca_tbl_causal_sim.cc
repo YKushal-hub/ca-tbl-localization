@@ -4986,6 +4986,10 @@ struct SpecOptions
     bool entryVelocity = false;
     //! MC-1. --handshakeFixes: the escalation handshake as MAC sect 8 specifies it.
     bool handshakeFixes = false;
+    //! MC-2. --triggeredUpdates: large-correction and last-gasp TRIGGERED_UPDATEs.
+    bool triggeredUpdates = false;
+    //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
+    double triggeredUpdateK = 1.0;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6300,6 +6304,30 @@ RunArm(CaTblPolicyMode mode,
     // producer published and every node holds. Untouched without the flag.
     std::vector<Vector> finderPubPrev(nFinders);
     std::vector<double> finderPubPrevT(nFinders, -1.0);
+    // MC-2. Per-run state of --triggeredUpdates, null without it.
+    struct TriggeredUpdateState
+    {
+        double preX = 0.0;
+        double preY = 0.0;
+        double preVx = 0.0;
+        double preVy = 0.0;
+        double preTraceP = 0.0;
+        uint64_t nLarge = 0;
+        uint64_t nGasp = 0;
+        uint64_t billedLarge = 0;
+        uint64_t billedGasp = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<TriggeredUpdateState> trig;
+    if (spec.triggeredUpdates)
+    {
+        trig.reset(new TriggeredUpdateState());
+        std::ostringstream tfn;
+        tfn << traceDir << "/triggered_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            << ".csv";
+        trig->log.open(tfn.str().c_str());
+        trig->log << "t,kind,tier,moveM,threshM,estX,estY,predX,predY,totalJ,framesBilled\n";
+    }
     std::unique_ptr<std::ofstream> entriesLog;
     if (spec.entryVelocity)
     {
@@ -8252,6 +8280,15 @@ RunArm(CaTblPolicyMode mode,
         policy.SetCrossCheck(imuDisagreeM, imuCrossCheck ? imuTolM : 0.0,
                              corrOk, corrTotal);
 
+        if (trig)
+        {
+            // MC-2. The filter's state carried into this cycle, before Step() moves it.
+            trig->preX = policy.EstX();
+            trig->preY = policy.EstY();
+            trig->preVx = policy.EstVx();
+            trig->preVy = policy.EstVy();
+            trig->preTraceP = policy.Pxx() + policy.Pyy();
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             0,
@@ -8360,10 +8397,79 @@ RunArm(CaTblPolicyMode mode,
         // and its estimate degrades from that moment because no measurement arrives to
         // correct it. Stopping the estimator instead would model a node that switched
         // OFF, which is a different failure and would hide the drift this one causes.
+        // MC-2. LARGE CORRECTION (MAC sect 3 and 8: "large correction or dying battery").
+        // The posterior moved further from the constant-velocity prediction than
+        // k * sqrt(trace P) of the covariance carried into the cycle -- the uncertainty
+        // the entry the mesh holds was published with -- so that entry is now wrong by
+        // more than it claims: push the corrected one at once, on the radio this cycle
+        // already used, instead of waiting for a digest. k is --triggeredUpdateK
+        // (default 1, OURS). The plan's draft said 3; measured, a Kalman update moves
+        // the mean by about one prior sigma at most (max 1.05 sigma over 359 cycles at
+        // seed 7), so k = 3 never fires. P is the previous posterior, before this
+        // cycle's process noise -- also OURS: it is smaller than the predicted
+        // covariance, so the trigger fires a little more often than against it.
+        if (trig && !batteryDead && nodeMac[active] != nullptr && trig->preTraceP > 0.0 &&
+            std::isfinite(trig->preTraceP))
+        {
+            const double kTrig = spec.triggeredUpdateK;
+            const double moveM = std::hypot(policy.EstX() - (trig->preX + trig->preVx * dt),
+                                            policy.EstY() - (trig->preY + trig->preVy * dt));
+            const double threshM = kTrig * std::sqrt(trig->preTraceP);
+            if (moveM > threshM)
+            {
+                // The entry the frame carries is the corrected one.
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->PublishSelfEntry(
+                            policy.EstX(), policy.EstY(), policy.Pxx(), policy.Pyy(),
+                            policy.Pxy(), spec.entryVelocity ? policy.EstVx() : 0.0,
+                            spec.entryVelocity ? policy.EstVy() : 0.0, t);
+                    }
+                }
+                nodeMac[active]->SendTriggeredUpdate(active, 1);
+                // Billed to the node on the tier it rides, which transmitted this cycle
+                // (CLAUDE.md sect 6): the first frame and its jittered repeats, as
+                // attempted. A repeat the duty governor then refuses is still billed;
+                // the MC-2 line prints frames billed against frames transmitted.
+                const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
+                energy.AccountFrameTx(active, t,
+                                      frames * nodeMac[active]->FrameAirtimeS(
+                                                   CA_TBL_MSG_TRIGGERED_UPDATE, active, 1));
+                ++trig->nLarge;
+                trig->billedLarge += frames;
+                trig->log << std::fixed << std::setprecision(4) << t << ",large_correction,"
+                          << static_cast<int>(active) << ',' << moveM << ',' << threshM << ','
+                          << policy.EstX() << ',' << policy.EstY() << ','
+                          << (trig->preX + trig->preVx * dt) << ','
+                          << (trig->preY + trig->preVy * dt) << ',' << std::setprecision(9)
+                          << energy.GetTotalJ() << ',' << frames << '\n';
+            }
+        }
+
         if (batteryDepleteJ > 0.0 && !batteryDead && energy.GetTotalJ() >= batteryDepleteJ)
         {
             batteryDead = true;
             batteryDeadAtS = t;
+            if (trig && nodeMac[active] != nullptr)
+            {
+                // MC-2. LAST GASP: one unrepeated TRIGGERED_UPDATE on the active radio,
+                // queued BEFORE the radios are silenced below. SetSilent() gates Send()
+                // only, so the queued frame leaves after CAD and nothing after it does.
+                // Billed like any frame on the tier that transmitted this cycle; the
+                // battery overshoots its budget by this one frame, which is stated.
+                nodeMac[active]->SendTriggeredUpdate(active, 2);
+                energy.AccountFrameTx(
+                    active, t, nodeMac[active]->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE,
+                                                              active, 1));
+                ++trig->nGasp;
+                trig->billedGasp += 1;
+                trig->log << std::fixed << std::setprecision(4) << t << ",last_gasp,"
+                          << static_cast<int>(active) << ",,," << policy.EstX() << ','
+                          << policy.EstY() << ",,," << std::setprecision(9)
+                          << energy.GetTotalJ() << ",1\n";
+            }
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 if (nodeMac[ti] != nullptr)
@@ -9162,6 +9268,28 @@ RunArm(CaTblPolicyMode mode,
                           << " grants\n";
             }
         }
+    }
+    // MC-2. Triggers, frames billed and transmitted by the measured node, and receptions
+    // of them anywhere in the mesh, per kind. Printed only under the flag.
+    if (trig)
+    {
+        uint64_t sentFrames = 0, heardLarge = 0, heardGasp = 0;
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            if (nodeMac[ti] != nullptr)
+            {
+                sentFrames += nodeMac[ti]->GetTrigFramesSent();
+            }
+        }
+        for (std::deque<CaTblMac>::const_iterator mi = macs.begin(); mi != macs.end(); ++mi)
+        {
+            heardLarge += mi->GetTrigHeard(1);
+            heardGasp += mi->GetTrigHeard(2);
+        }
+        std::cout << "    MC-2 triggered updates: large correction " << trig->nLarge
+                  << " (heard " << heardLarge << "), last gasp " << trig->nGasp << " (heard "
+                  << heardGasp << "); frames billed " << (trig->billedLarge + trig->billedGasp)
+                  << ", transmitted " << sentFrames << "\n";
     }
     // MC-1. The handshake's outcomes, summed over every MAC. Printed only under the flag.
     if (spec.handshakeFixes)
@@ -11301,6 +11429,30 @@ main(int argc, char* argv[])
                  "must correctly ignore it -- which is the observation that shows "
                  "scoping works rather than that flooding works.",
                  identityQueryTargetArg);
+    cmd.AddValue("triggeredUpdates",
+                 "Send the spec's 'Triggered-update / last-gasp -- large correction or dying "
+                 "battery' (MAC sect 3 and 8; docs/SPEC_CONFORMANCE_PLAN.md MC-2). False "
+                 "(default) is every result so far, where the only TRIGGERED_UPDATE is "
+                 "StartHandshake's RECEDING push. True adds two triggers for the measured "
+                 "node. A LARGE CORRECTION: the posterior moved more than k x sqrt(trace P) "
+                 "from the constant-velocity prediction in one cycle (k is "
+                 "--triggeredUpdateK; it and the use of the previous posterior's P are OURS), "
+                 "so the corrected entry is pushed at once on "
+                 "the active radio, with the redundant class's 3 jittered repeats. A LAST GASP: "
+                 "when --batteryDepleteJ is crossed, one unrepeated frame goes out before the "
+                 "radio is silenced. Both are billed to the node on the tier that transmitted "
+                 "this cycle. Writes triggered_<arm>_seed<N>.csv (digested) and one MC-2 line "
+                 "per arm. Frames, energy and duty move.",
+                 spec.triggeredUpdates);
+    cmd.AddValue("triggeredUpdateK",
+                 "Under --triggeredUpdates, how far the posterior must move from the "
+                 "prediction, in units of sqrt(trace P) of the previous posterior, to count "
+                 "as a large correction (MC-2). 1 (default, OURS): the entry the mesh holds "
+                 "is then off by more than the uncertainty it was published with. Not 3, "
+                 "the plan's draft: a Kalman update moves the mean by about one prior sigma "
+                 "at most (max 1.05 sigma over 359 cycles at seed 7), so a 3-sigma trigger "
+                 "never fires. FATAL unless > 0, and FATAL without --triggeredUpdates.",
+                 spec.triggeredUpdateK);
     cmd.AddValue("handshakeFixes",
                  "The escalation handshake as the spec's MAC sect 8 describes it: 'Tier "
                  "escalation request (UWB specifically): ACK'd -- must know definitively "
@@ -11687,6 +11839,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --integrityNlosFromScore needs --nlosClassifier=true: without it "
                   << "no link carries a score and the tag would decide on every cycle\n";
+        return 1;
+    }
+    // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    if (!(spec.triggeredUpdateK > 0.0) ||
+        (spec.triggeredUpdateK != 1.0 && !spec.triggeredUpdates))
+    {
+        std::cerr << "FATAL: --triggeredUpdateK must be > 0 and needs --triggeredUpdates=true\n";
         return 1;
     }
     // MC-1. Every fix acts on a frame, and without --sendHandshakeFrames there is none.
@@ -12437,6 +12596,10 @@ main(int argc, char* argv[])
     if (spec.entryVelocity)
     {
         digestPatterns += " entries_*.csv";
+    }
+    if (spec.triggeredUpdates)
+    {
+        digestPatterns += " triggered_*.csv";
     }
     if (queryProxyArg)
     {

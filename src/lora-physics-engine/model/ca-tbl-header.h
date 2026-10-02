@@ -546,6 +546,16 @@ class CaTblHeader : public Header
     //! 0xFF: not stated, which is every request outside --handshakeFixes.
     void SetReqTargetTier(uint8_t t) { m_reqTargetTier = t; }
     uint8_t GetReqTargetTier() const { return m_reqTargetTier; }
+
+    /**
+     * \brief MC-2 (--triggeredUpdates). Why a TRIGGERED_UPDATE was sent: 1 = a large
+     * correction, 2 = the last gasp before a flat battery silences the radio. 0 = not
+     * stated, which is every frame outside the flag, including StartHandshake's
+     * RECEDING push. CaTblPayloadBytes already bills "a reason code" byte on every
+     * TRIGGERED_UPDATE, so it is carried, not serialised.
+     */
+    void SetTriggerReason(uint8_t r) { m_triggerReason = r; }
+    uint8_t GetTriggerReason() const { return m_triggerReason; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -578,6 +588,7 @@ class CaTblHeader : public Header
     bool m_granted = true;          //!< MC-1
     uint8_t m_queuePos = 0;         //!< MC-1; no queue exists until NW-5
     uint8_t m_reqTargetTier = 0xFF; //!< MC-1
+    uint8_t m_triggerReason = 0;    //!< MC-2, carried not serialised -- see above
 };
 
 } // namespace ns3

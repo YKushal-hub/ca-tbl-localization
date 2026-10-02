@@ -76,6 +76,11 @@ CaTblEventPayload(const CaTblHeader& h)
         o << ";granted=" << (h.GetGranted() ? 1 : 0)
           << ";qpos=" << static_cast<int>(h.GetQueuePos());
     }
+    // MC-2. Non-zero only under --triggeredUpdates.
+    if (h.GetTriggerReason() != 0)
+    {
+        o << ";reason=" << static_cast<int>(h.GetTriggerReason());
+    }
     return o.str();
 }
 } // namespace
@@ -788,6 +793,24 @@ CaTblMac::SendGrantGossip(CaTblTier tier)
 }
 
 void
+CaTblMac::SendTriggeredUpdate(CaTblTier tier, uint8_t reason)
+{
+    m_nextTriggerReason = reason;
+    Send(CA_TBL_MSG_TRIGGERED_UPDATE, tier, 1, 0);
+}
+
+double
+CaTblMac::FrameAirtimeS(CaTblMsgType type, CaTblTier tier, uint32_t nEntries) const
+{
+    const uint32_t payload = CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(type, nEntries) +
+                             ManifestOverheadBytes(type, nEntries);
+    return (tier == CA_TBL_TIER_UWB)
+               ? CaTblEnergyModel::UwbFrameTimeS(payload)
+               : CaTblEnergyModel::LoRaTimeOnAirS(m_cfg.sf, m_cfg.bandwidthHz, payload,
+                                                  m_cfg.codingRate);
+}
+
+void
 CaTblMac::PrepareReply(uint32_t ackedPacketId, bool isGrant, bool granted)
 {
     if (!m_cfg.handshakeFixes)
@@ -837,6 +860,7 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     if (m_silent)
     {
         ++m_suppressedTx;
+        m_nextTriggerReason = 0; // MC-2: 0 unless SendTriggeredUpdate set it
         if (m_cfg.handshakeFixes)
         {
             // MC-1: what this frame would have answered must not ride a later one.
@@ -929,6 +953,17 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     f.repeatsLeft = (CaTblAckPolicyFor(type) == CA_TBL_ACK_REDUNDANT)
                         ? m_cfg.triggeredUpdateRepeats
                         : 1;
+    if (m_nextTriggerReason != 0)
+    {
+        // MC-2. Set only by SendTriggeredUpdate, for this one frame. A last gasp is
+        // unrepeated: see SendTriggeredUpdate.
+        f.hdr.SetTriggerReason(m_nextTriggerReason);
+        if (m_nextTriggerReason == 2)
+        {
+            f.repeatsLeft = 1;
+        }
+        m_nextTriggerReason = 0;
+    }
     f.enqueuedAt = Simulator::Now();
 
     // Its own packet_id goes in the dedup cache immediately, so a flooded frame
@@ -1056,6 +1091,10 @@ CaTblMac::DoTransmit(PendingFrame f)
     RecordAirtime(f.tier, toa);
     CaTblMsgCounters& c = Counters(f.hdr.GetMsgType());
     ++c.sent;
+    if (f.hdr.GetTriggerReason() != 0 && f.hdr.GetOriginId() == m_cfg.nodeId)
+    {
+        ++m_trigFramesSent; // MC-2
+    }
     c.airtimeS += toa.GetSeconds();
     if (f.hdr.GetOriginId() != m_cfg.nodeId)
     {
@@ -1153,6 +1192,11 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     }
 
     ++c.received;
+    if (hdr.GetMsgType() == CA_TBL_MSG_TRIGGERED_UPDATE && hdr.GetTriggerReason() != 0 &&
+        hdr.GetTriggerReason() < 3)
+    {
+        ++m_trigHeard[hdr.GetTriggerReason()]; // MC-2
+    }
 
     // Before the flood-forwarding branch below, which is where a relayed copy
     // would otherwise become indistinguishable from a direct one.

@@ -945,6 +945,89 @@ TestHandshakeFixes()
           "withheld " + std::to_string(d1.skipped) + " (need 4 transmissions x 2 hearers)");
 }
 
+// ---------------------------------------------------------------------------
+// Test 8 -- MC-2: a last gasp leaves before the silence; a large correction repeats
+// ---------------------------------------------------------------------------
+
+void
+GaspThenSilence(CaTblMac* m)
+{
+    m->SendTriggeredUpdate(CA_TBL_TIER_868, 2);
+    m->SetSilent(true);
+    // Anything after the silence must not leave.
+    m->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+}
+
+void
+TestTriggeredUpdates()
+{
+    std::cout << "\n[8] MC-2 triggered updates (MAC sect 3 and 8)\n";
+
+    uint64_t heard[3] = {0, 0, 0};
+    uint64_t sentFrames[3] = {0, 0, 0};
+    uint64_t suppressed = 0;
+    uint64_t digestsHeard = 0;
+    for (uint8_t reason = 1; reason <= 2; ++reason)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel channel;
+        channel.SetPhyProvider(&phy);
+        CaTblMac a, b;
+        CaTblMacConfig ca;
+        ca.nodeId = 1;
+        ca.sf = 7;
+        ca.bandwidthHz = 125e3;
+        ca.isAccessPoint = true;
+        ca.defaultHopLimit = 1; // no rebroadcast, so every reception is an original
+        CaTblMacConfig cb = ca;
+        cb.nodeId = 2;
+        a.Configure(ca);
+        b.Configure(cb);
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(5);
+        a.SetRng(rng);
+        b.SetRng(rng);
+        channel.Register(&a);
+        channel.Register(&b);
+        a.PublishSelfEntry(10.0, 20.0, 4.0, 4.0, 0.0, 0.0, 0.0, 0.5);
+        if (reason == 2)
+        {
+            Simulator::Schedule(Seconds(1.0), &GaspThenSilence, &a);
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::SendTriggeredUpdate, &a,
+                                CA_TBL_TIER_868, uint8_t(1));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        heard[reason] = b.GetTrigHeard(reason);
+        sentFrames[reason] = a.GetTrigFramesSent();
+        if (reason == 2)
+        {
+            suppressed = a.GetSuppressedTx();
+            digestsHeard = b.GetCounters(CA_TBL_MSG_DIGEST).received;
+        }
+        Simulator::Destroy();
+    }
+    Report("large correction: frames sent / heard",
+           std::to_string(sentFrames[1]) + " / " + std::to_string(heard[1]));
+    Report("last gasp: frames sent / heard / later frames suppressed",
+           std::to_string(sentFrames[2]) + " / " + std::to_string(heard[2]) + " / " +
+               std::to_string(suppressed));
+    // The redundant class: the first frame and two jittered repeats, all one packet id, so
+    // the receiver's dedup keeps one.
+    Check("a large correction goes with the redundant class's 3 frames",
+          sentFrames[1] == 3 && heard[1] == 1,
+          "sent " + std::to_string(sentFrames[1]) + ", heard " + std::to_string(heard[1]));
+    // Queued before SetSilent(true), so it leaves; unrepeated; and what follows does not.
+    Check("a last gasp leaves once, before the silence, and nothing after it",
+          sentFrames[2] == 1 && heard[2] == 1 && suppressed == 1 && digestsHeard == 0,
+          "sent " + std::to_string(sentFrames[2]) + ", heard " + std::to_string(heard[2]) +
+              ", suppressed " + std::to_string(suppressed) + ", digests heard " +
+              std::to_string(digestsHeard));
+}
+
 } // namespace
 
 int
@@ -970,6 +1053,7 @@ main(int argc, char* argv[])
     TestFlood(nodes);
     TestHandshake();
     TestHandshakeFixes();
+    TestTriggeredUpdates();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

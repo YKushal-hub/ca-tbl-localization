@@ -1622,6 +1622,12 @@ counter reports that message type. The comment at `scratch/ca_tbl_causal_sim.cc:
 (at `ff4f8bb`) still says "Nothing here sets mobility state … the receding branch never
 runs". It has been false since `50a229a`.
 
+- *2026-09-30:* the comment was corrected (P1, `af492ca`).
+- *2026-10-02, MC-2:* under `--triggeredUpdates` the scenario's own triggers (large
+  correction, last gasp) are counted on stdout and in `triggered_<arm>_seed<N>.csv`
+  (gate G34). The RECEDING push is still uncounted; it moves into `subject_summary.csv`
+  with MS-1.
+
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
 *Filed on 2026-09-29 as "an open question, not an established defect"; the review's
@@ -1758,3 +1764,27 @@ commit before it), frozen at `~/catbl_prev_m10`:
 
 Documentation only. It is recorded here rather than edited in the rules file, because
 `CLAUDE.md` changes are the owner's.
+
+# N. Found 2026-10-02, while building the spec-conformance programme
+
+### N.1 A silenced radio still forwards other nodes' floods
+
+`CaTblMac::SetSilent(true)` gates `Send()` and nothing else. Flood forwarding goes through
+`MaybeRebroadcast()` → `AttemptCad()`, which never consults it, and so does a frame already
+queued when the radio was silenced (its CAD, its repeats). So a node whose battery is
+spent (`--batteryDepleteJ`), or one silenced by `--injectSilentId`, goes on relaying
+DISCOVERY and every other flooded type.
+
+- *Measured,* G34's default run (seed 7, 900 s, `--batteryDepleteJ=3`): after the battery
+  died at 505 s, node 1's radios rebroadcast 322 distinct DISCOVERY frames that other
+  nodes had originated (1 277 receptions of them), and originated none.
+- *Effect.* A dead node still extends the flood, so every `--batteryDepleteJ` and
+  `--injectSilentId` result overstates how much of the mesh the fault removes. Its own
+  traffic does stop, which is what the fault counters measure.
+- *Why not fixed here.* Fixing it changes every run under those two flags. It needs its
+  own flag value and null control, like any behaviour replaced under an existing flag
+  (plan §0 rule 12).
+- MC-2's last gasp RELIES on the second half: the gasp is queued, then the radio is
+  silenced, and the queued frame still leaves. A fix must keep that, by gating forwarding
+  only, or by checking silence at the moment of queueing.
+
