@@ -5346,6 +5346,9 @@ struct SpecOptions
     std::string meshLinks;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
+    //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
+    //! "roundrobin" (finder k for subject (k mod N) + 1).
+    std::string finderTasking;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6777,6 +6780,22 @@ RunArm(CaTblPolicyMode mode,
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
+    // MS-1. --finderTasking=roundrobin: finder k searches for subject (k mod N) + 1, and
+    // every cycle of every finder is a row of tasking_<arm>_seed<N>.csv.
+    const bool taskRR = (spec.finderTasking == "roundrobin");
+    std::unique_ptr<std::ofstream> taskLog;
+    std::vector<uint64_t> taskSweep, taskConverge, taskBlind;
+    if (taskRR)
+    {
+        std::ostringstream tfn;
+        tfn << traceDir << "/tasking_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        taskLog.reset(new std::ofstream(tfn.str().c_str()));
+        *taskLog << "t,finderId,targetId,phase,entryX,entryY,entryVarX,entryVarY,entryT,goalX,"
+                    "goalY\n";
+        taskSweep.assign(nFinders, 0);
+        taskConverge.assign(nFinders, 0);
+        taskBlind.assign(nFinders, 0);
+    }
     // NW-0. Per-run state of --meshLinks=all, null without it.
     struct MeshState
     {
@@ -7485,9 +7504,31 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        auto writeTask = [&](size_t fi, uint16_t tid, const char* phase, bool found,
+                             const CaTblTableEntry& e, double gx, double gy) {
+            *taskLog << std::fixed << std::setprecision(4) << t << ',' << finderIds[fi] << ','
+                     << tid << ',' << phase << ',';
+            if (found)
+            {
+                *taskLog << e.x << ',' << e.y << ',' << std::setprecision(6) << e.varX << ','
+                         << e.varY << ',' << std::setprecision(4) << e.timestampS;
+            }
+            else
+            {
+                *taskLog << ",,,,";
+            }
+            *taskLog << ',' << gx << ',' << gy << '\n';
+        };
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
+            // MS-1. The subject this finder searches for: tag 0, or under roundrobin
+            // subject (fi mod N) + 1. The assignment rule is OURS.
+            const uint32_t taskK =
+                taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u;
+            const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
+            CaTblTableEntry taskTe;
+            bool taskFound = false;
             // No alert yet: the party is at base camp and has been told nothing. Standing
             // still is correct here, and it makes the moment of dispatch visible instead
             // of implicit.
@@ -7523,10 +7564,14 @@ RunArm(CaTblPolicyMode mode,
                 if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId),
-                                                     te) && te.valid)
+                    if (finderMac[fi]->GetTableEntry(taskId, te) && te.valid)
                     {
                         entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
+                        if (taskLog)
+                        {
+                            taskTe = te;
+                            taskFound = true;
+                        }
                     }
                 }
                 // How far the subject could physically have gone since it was last
@@ -7566,6 +7611,11 @@ RunArm(CaTblPolicyMode mode,
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
                     finderWalkers[fi].SetPosition(fp.x, fp.y);
+                    if (taskLog)
+                    {
+                        ++taskSweep[fi];
+                        writeTask(fi, taskId, "sweep", taskFound, taskTe, fp.x, fp.y);
+                    }
                 }
             }
             if (!searching && (finderMode == 1 || finderMode == 2))
@@ -7583,11 +7633,16 @@ RunArm(CaTblPolicyMode mode,
                 if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    if (finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+                    if (finderMac[fi]->GetTableEntry(taskId, te))
                     {
                         gx = te.x;
                         gy = te.y;
                         known = true;
+                        if (taskLog)
+                        {
+                            taskTe = te;
+                            taskFound = true;
+                        }
                         // A STALE ENTRY IS NOT KNOWLEDGE. An entry, once received,
                         // persists forever, so a finder that heard the subject ONCE
                         // converges on that position for the rest of the run. Measured
@@ -7634,16 +7689,38 @@ RunArm(CaTblPolicyMode mode,
                         // covers the region, just less efficiently -- and it avoids an
                         // eigen decomposition on a 2x2 for a search pattern that is
                         // heuristic anyway.
-                        if (finderDispersal > 0.0 && nFinders > 1)
+                        //
+                        // MS-1: under roundrobin the spread is over the finders tasked
+                        // to the same subject, finder fi being the (fi / N)-th of them.
+                        const uint32_t grpN =
+                            taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
+                                         spec.measuredSubjects
+                                   : nFinders;
+                        const size_t grpI = taskRR ? fi / spec.measuredSubjects : fi;
+                        if (finderDispersal > 0.0 && grpN > 1)
                         {
                             const double sx = std::sqrt(std::max(te.varX, 0.0));
                             const double sy = std::sqrt(std::max(te.varY, 0.0));
-                            const double th = 2.0 * M_PI * static_cast<double>(fi) /
-                                              static_cast<double>(nFinders);
+                            const double th = 2.0 * M_PI * static_cast<double>(grpI) /
+                                              static_cast<double>(grpN);
                             gx += finderDispersal * sx * std::cos(th);
                             gy += finderDispersal * sy * std::sin(th);
                         }
                     }
+                }
+                if (taskLog)
+                {
+                    if (known)
+                    {
+                        ++taskConverge[fi];
+                    }
+                    else
+                    {
+                        ++taskBlind[fi];
+                    }
+                    writeTask(fi, taskId, known ? "converge" : "blind", taskFound, taskTe,
+                              known ? gx : std::numeric_limits<double>::quiet_NaN(),
+                              known ? gy : std::numeric_limits<double>::quiet_NaN());
                 }
                 if (!known)
                 {
@@ -10568,6 +10645,19 @@ RunArm(CaTblPolicyMode mode,
         }
         std::cout << line.str() << "\n";
     }
+    if (taskLog)
+    {
+        taskLog->close();
+        std::ostringstream line;
+        line << "    MS-1 tasking (roundrobin):";
+        for (size_t fi = 0; fi < taskSweep.size(); ++fi)
+        {
+            line << " finder " << finderIds[fi] << " -> subject "
+                 << tags[fi % spec.measuredSubjects].nodeId << " sweep " << taskSweep[fi]
+                 << " converge " << taskConverge[fi] << " blind " << taskBlind[fi] << ";";
+        }
+        std::cout << line.str() << "\n";
+    }
     res.escalations = policy.GetEscalationCount();
     res.deescalations = policy.GetDeescalationCount();
     res.suspects = policy.GetSuspectCount();
@@ -12974,6 +13064,17 @@ main(int argc, char* argv[])
                  "and subjtrace_<arm>_seed<N>_subj<id>.csv, both digested, and one MS-1 line. "
                  "Needs N <= --nTags. Tag-0-only mechanisms are warned about.",
                  spec.measuredSubjects);
+    cmd.AddValue("finderTasking",
+                 "Which subject each finder searches for: tag0|roundrobin (the spec's "
+                 "rescuers searching for specific people; docs/SPEC_CONFORMANCE_PLAN.md MS-1). "
+                 "Empty (default) or tag0 is every result so far: every finder steers on tag "
+                 "0's entry. roundrobin: finder k (0-based) steers on subject (k mod N) + 1's "
+                 "freshest entry, N = --measuredSubjects, and the --finderDispersal spread is "
+                 "over the finders tasked to the same subject. The rule is OURS. Writes "
+                 "tasking_<arm>_seed<N>.csv (every finder-cycle after dispatch: target, phase, "
+                 "the entry steered on and the goal), digested, and one MS-1 tasking line. "
+                 "Needs --measuredSubjects > 1, --nFinders > 0 and --finderMode 1 or 2.",
+                 spec.finderTasking);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
                  "mesh'; docs/SPEC_CONFORMANCE_PLAN.md NW-0, the prerequisite of the network "
@@ -13551,6 +13652,22 @@ main(int argc, char* argv[])
             }
             std::cerr << "\n";
         }
+    }
+    if (!spec.finderTasking.empty() && spec.finderTasking != "tag0" &&
+        spec.finderTasking != "roundrobin")
+    {
+        std::cerr << "FATAL: --finderTasking must be tag0 or roundrobin, got '"
+                  << spec.finderTasking << "'\n";
+        return 1;
+    }
+    if (spec.finderTasking == "roundrobin" &&
+        (spec.measuredSubjects < 2 || nFindersArg == 0 ||
+         (finderModeArg != 1 && finderModeArg != 2)))
+    {
+        std::cerr << "FATAL: --finderTasking=roundrobin needs --measuredSubjects > 1, "
+                     "--nFinders > 0 and --finderMode 1 or 2: otherwise every finder already "
+                     "searches for tag 0, or none steers on an entry\n";
+        return 1;
     }
     // NW-0.
     if (!spec.meshLinks.empty() && spec.meshLinks != "star" && spec.meshLinks != "all")
@@ -14531,6 +14648,10 @@ main(int argc, char* argv[])
     if (spec.measuredSubjects > 1)
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
+    }
+    if (spec.finderTasking == "roundrobin")
+    {
+        digestPatterns += " tasking_*.csv";
     }
     if (queryProxyArg)
     {
