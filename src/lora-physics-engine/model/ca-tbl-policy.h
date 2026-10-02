@@ -48,6 +48,30 @@ namespace ns3
 {
 
 /** One anchor's range observation for a single cycle. */
+/**
+ * \brief DC-11. What a range is TO, for the cases that depend on it (Physical 2.4: Case A
+ * needs two surveyed gateways; Case B one gateway and a peer). UNSTATED is every
+ * measurement built before DC-11 and every one a caller does not label.
+ */
+enum CaTblSourceKind : uint8_t
+{
+    CA_TBL_SRC_UNSTATED = 0,
+    CA_TBL_SRC_SURVEYED_GATEWAY = 1,
+    CA_TBL_SRC_FINDER = 2,
+    CA_TBL_SRC_RELAY = 3,
+    CA_TBL_SRC_PEER = 4
+};
+
+/** DC-11. Which kind of fix a cycle produced. NONE: coasted. */
+enum CaTblFixKind : uint8_t
+{
+    CA_TBL_FIX_NONE = 0,
+    CA_TBL_FIX_FULL = 1,
+    CA_TBL_FIX_CASE_A = 2,
+    CA_TBL_FIX_CASE_B = 3,
+    CA_TBL_FIX_CASE_D = 4
+};
+
 struct CaTblRangeMeasurement
 {
     double anchorX;
@@ -88,6 +112,16 @@ struct CaTblRangeMeasurement
     //! and only under CaTblPolicyConfig::pcsNlosFromScore. R, the integrity check's
     //! all-LOS condition and every count above still key off the boolean `nlos`.
     double nlosScore;
+
+    //! DC-11 -- the ONE extension of this struct the plan allows (sect 0 rule 14: every
+    //! later item reads these rather than re-extending it, because each layout change
+    //! risks the 1-ulp drift of TECH_DEBT 4.1). Who the range is to, how many hops it
+    //! came, and whether it is the tier-1 floor's set. The defaults describe every
+    //! measurement built before DC-11.
+    uint8_t sourceKind = CA_TBL_SRC_UNSTATED;
+    uint16_t anchorId = 0;
+    uint8_t hopDepth = 0;
+    bool fromFloor = false;
 
     CaTblRangeMeasurement();
 };
@@ -511,6 +545,15 @@ struct CaTblPolicyConfig
     //! The scenario passes --nlosScoreThreshold (0.5, OURS): the cut at which the
     //! confusion matrix calls a link NLOS, so "LOW" means what a verdict of LOS means.
     double integrityNlosScoreThreshold = 0.5;
+    //! DC-11. Solve a two-range cycle inside Step(), after the prediction, against the
+    //! PROPAGATED prior (Physical 2.4), instead of in the scenario before Step() against
+    //! the previous posterior. Case A when both ranges are to surveyed gateways, Case B
+    //! otherwise. A solved cycle is a fix (fixKind CASE_A/B) and does not count toward
+    //! demotion; the two ranges are fused once, as a position, and never also as ranges.
+    //! False reproduces every prior result.
+    bool sparseInStep = false;
+    //! The Case A/B acceptance margin in Mahalanobis units (--sparseCaseAMargin).
+    double sparseMarginM = 1.0;
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -609,6 +652,21 @@ struct CaTblDecision
     double integrityMeanScore = -1.0;
     //! Whether an evaluated fix was eligible to be called SUSPECT, by whichever basis.
     bool integrityEligible = false;
+    //! DC-11. Which kind of fix this cycle produced (CaTblFixKind); NONE on a coast. Set
+    //! only under sparseInStep, so every earlier run leaves it NONE.
+    uint8_t fixKind = CA_TBL_FIX_NONE;
+    //! DC-11. 255: Step() did not try a sparse solve; otherwise the CaTblSparseVerdict.
+    uint8_t sparseVerdict = 255;
+    //! DC-11. The propagated prior the sparse solve chose against, its result, the
+    //! variance it was fused with, and how many range updates and position fuses the
+    //! cycle made.
+    double sparsePriorX = 0.0;
+    double sparsePriorY = 0.0;
+    double sparseX = 0.0;
+    double sparseY = 0.0;
+    double sparseVarM2 = 0.0;
+    uint32_t rangeUpdates = 0;
+    uint32_t positionFuses = 0;
 
     CaTblDecision();
 };
