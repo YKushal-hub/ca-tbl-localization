@@ -1009,9 +1009,53 @@ CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
     return vis < 3;
 }
 
+bool
+CaTblPolicy::ConfirmUwbGrant()
+{
+    if (!m_uwbPending || m_tier != CA_TBL_TIER_2P4)
+    {
+        ++m_uwbLate;
+        return false;
+    }
+    m_uwbPending = false;
+    m_tier = CA_TBL_TIER_UWB;
+    m_escalations++;
+    m_deescalateCounter = 0;
+    ++m_uwbConfirmed;
+    return true;
+}
+
+bool
+CaTblPolicy::ClearUwbPending(bool timeout)
+{
+    if (!m_uwbPending)
+    {
+        return false;
+    }
+    m_uwbPending = false;
+    if (timeout)
+    {
+        ++m_uwbTimeouts;
+    }
+    else
+    {
+        ++m_uwbDenied;
+    }
+    return true;
+}
+
 void
 CaTblPolicy::AbortTierChange(CaTblTier restoreTo)
 {
+    // NW-7: an escalation into UWB that is only pending changed no tier and counted
+    // nothing, so aborting it drops the request and restores nothing.
+    if (m_uwbPending && m_tier == restoreTo)
+    {
+        m_uwbPending = false;
+        ++m_uwbAborted;
+        m_deescalateCounter = 0;
+        return;
+    }
     m_tier = restoreTo;
     if (m_escalations > 0)
     {
@@ -1031,6 +1075,20 @@ CaTblPolicy::Step(double dt,
                   uint32_t tierEvidenceMask)
 {
     CaTblDecision d;
+    // NW-7. A request is pending only on 2.4 GHz; a demotion since (coverage loss, which
+    // the freeze allows) has cancelled it. Otherwise this is one more cycle waiting.
+    if (m_uwbPending)
+    {
+        if (m_tier != CA_TBL_TIER_2P4)
+        {
+            m_uwbPending = false;
+            ++m_uwbCoverageClears;
+        }
+        else
+        {
+            ++m_uwbWaitCycles;
+        }
+    }
     d.activeTier = m_tier;
     d.nextTier = m_tier;
 
@@ -1826,13 +1884,32 @@ CaTblPolicy::Step(double dt,
     }
     else if (dynamic && wantEscalate)
     {
-        if (m_tier < CA_TBL_TIER_UWB)
+        if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+        {
+            // NW-7: into UWB only on a confirmed grant. The first cycle that wants it asks
+            // (escalated, so the caller sends the request); while pending, nothing more.
+            if (!m_uwbPending)
+            {
+                m_uwbPending = true;
+                ++m_uwbRequests;
+                d.escalated = true;
+                d.uwbPending = true;
+            }
+            m_deescalateCounter = 0;
+        }
+        else if (m_tier < CA_TBL_TIER_UWB)
         {
             m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
             m_escalations++;
             d.escalated = true;
             m_deescalateCounter = 0;
         }
+    }
+    else if (dynamic && m_uwbPending)
+    {
+        // NW-7: frozen while a UWB request is pending -- no healthy demotion, which could
+        // otherwise let the grant land on a node that has stepped down to 868.
+        m_deescalateCounter = 0;
     }
     else if (dynamic)
     {

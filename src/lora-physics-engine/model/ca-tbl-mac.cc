@@ -730,6 +730,26 @@ CaTblMac::RouteOverheadBytes(uint8_t msgType) const
     return (m_cfg.reversePathHop && msgType == CA_TBL_MSG_RESPONSE) ? 8u : 0u;
 }
 
+uint32_t
+CaTblMac::CancelPendingRequests()
+{
+    uint32_t n = 0;
+    for (std::map<uint32_t, PendingFrame>::iterator it = m_awaitingAck.begin();
+         it != m_awaitingAck.end();)
+    {
+        if (it->second.hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
+        {
+            it = m_awaitingAck.erase(it);
+            ++n;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return n;
+}
+
 bool
 CaTblMac::RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS)
 {
@@ -1254,6 +1274,10 @@ CaTblMac::OnAckTimeout(uint32_t packetId)
         {
             m_dropCb(m_cfg.nodeId, f.hdr.GetMsgType(), "retx");
         }
+        if (m_uwbGrantCb && f.hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
+        {
+            m_uwbGrantCb(0, -1); // NW-7: the request ran out of retries unanswered
+        }
         return;
     }
 
@@ -1718,11 +1742,19 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
             {
                 m_awaitingAck.erase(rq);
                 ++m_hsRequestsAnswered;
+                if (m_uwbGrantCb)
+                {
+                    m_uwbGrantCb(hdr.GetOriginId(), 1); // NW-7: only the answer to ours
+                }
             }
         }
         else
         {
             ++m_hsDeniesHeard;
+            if (m_uwbGrantCb && m_awaitingAck.count(hdr.GetAckedPacketId()) != 0)
+            {
+                m_uwbGrantCb(hdr.GetOriginId(), 0); // NW-7
+            }
         }
     }
 

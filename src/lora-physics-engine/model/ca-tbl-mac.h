@@ -51,6 +51,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <ostream>
 #include <map>
 #include <string>
@@ -570,6 +571,18 @@ class CaTblMac
     //! Copies of an answer already forwarded or delivered: retransmissions after a lost
     //! ACK, which carry a fresh packet id.
     uint64_t GetRpDuplicates() const { return m_rpDuplicates; }
+
+    /**
+     * \brief NW-7. Told the outcome of this node's own outstanding ESC_REQUEST: 1 a
+     * GRANT(granted) answering it, 0 a GRANT(denied) answering it (both under
+     * handshakeFixes, which carries the verdict and the acked packet id), -1 its
+     * retransmissions ran out unanswered. The first argument is the answering anchor, 0
+     * for -1. Unset (the default) changes nothing.
+     */
+    void SetUwbGrantCallback(std::function<void(uint16_t, int)> cb) { m_uwbGrantCb = cb; }
+    //! NW-7. Drop this node's outstanding ESC_REQUESTs, so a denied one is not retried
+    //! after the caller has given up on it. Returns how many.
+    uint32_t CancelPendingRequests();
     //! L.2.5: every proxy check this radio made, in arrival order. Empty unless
     //! --queryProxy is on, because nothing else reaches ProxyAnswerFor.
     const std::vector<CaTblProxyCheck>& GetProxyChecks() const { return m_proxyChecks; }
@@ -803,6 +816,8 @@ class CaTblMac
     //! m_reversePath and windowed by dedupWindowS, like m_dedupSeen.
     std::map<std::pair<uint32_t, uint16_t>, double> m_rpSeen;
     bool RpFirstCopy(uint32_t queryId, uint16_t answererId, double nowS);
+    // NW-7.
+    std::function<void(uint16_t, int)> m_uwbGrantCb;
     bool m_nextForceFlood = false;
     uint64_t m_rpUnicastHops = 0;
     uint64_t m_rpFloods = 0;
