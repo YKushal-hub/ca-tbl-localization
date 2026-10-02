@@ -1028,6 +1028,130 @@ TestTriggeredUpdates()
               std::to_string(digestsHeard));
 }
 
+// [9] NW-8. A four-node line 1-2-3-4: node 1 (an anchor) asks for manifest 7, which
+// only node 4 carries. The QUERY floods out over two relays; the RESPONSE must come back
+// hop by hop, each node sending it to the previous hop IT cached.
+struct RpRun
+{
+    uint64_t answered = 0;
+    uint64_t hops[4] = {0, 0, 0, 0};
+    uint64_t forwarded[4] = {0, 0, 0, 0};
+    uint64_t floods[4] = {0, 0, 0, 0};
+    uint64_t expired[4] = {0, 0, 0, 0};
+    uint64_t delivered = 0;
+    uint64_t respHeardAtRequester = 0;
+    uint64_t duplicates = 0;
+};
+
+RpRun
+RunReversePathLine(bool hop, double node3WindowS)
+{
+    RpRun r;
+    StubPhy phy(StubPhy::LINE, 4, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(9);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = (i == 3) ? 7 : static_cast<uint8_t>(20 + i);
+        c.reversePath = true;
+        c.reversePathHop = hop;
+        if (i == 2)
+        {
+            c.reversePathWindowS = node3WindowS;
+        }
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendQuery, &m[0], CA_TBL_TIER_868, uint8_t(7));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.answered = m[3].GetQueriesAnswered();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.hops[i] = m[i].GetRpUnicastHops();
+        r.forwarded[i] = m[i].GetRpForwarded();
+        r.floods[i] = m[i].GetRpFloods();
+        r.expired[i] = m[i].GetRpExpired();
+    }
+    r.delivered = m[0].GetRpDelivered();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.duplicates += m[i].GetRpDuplicates();
+    }
+    r.respHeardAtRequester = m[0].GetCounters(CA_TBL_MSG_RESPONSE).received;
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestReversePathHop()
+{
+    std::cout << "\n[9] NW-8 reverse path, hop by hop (Transport sect 1)\n";
+    const RpRun a = RunReversePathLine(true, 300.0);
+    Report("chain: unicast hops at nodes 4/3/2, forwarded at 3/2, delivered at 1",
+           std::to_string(a.hops[3]) + "/" + std::to_string(a.hops[2]) + "/" +
+               std::to_string(a.hops[1]) + ", " + std::to_string(a.forwarded[2]) + "/" +
+               std::to_string(a.forwarded[1]) + ", " + std::to_string(a.delivered));
+    Check("the RESPONSE follows the reverse path: one unicast hop from each of 4, 3, 2",
+          a.answered == 1 && a.hops[3] == 1 && a.hops[2] == 1 && a.hops[1] == 1 &&
+              a.hops[0] == 0 && a.forwarded[2] == 1 && a.forwarded[1] == 1,
+          "answered " + std::to_string(a.answered));
+    // A lost ACK makes a hop retransmit under a fresh packet id, which dedup cannot
+    // catch: those copies must be absorbed as duplicates, not forwarded again (the first
+    // build forwarded every copy, 1 -> 3 -> 5).
+    Report("frames heard at the requester / duplicates absorbed on the path",
+           std::to_string(a.respHeardAtRequester) + " / " + std::to_string(a.duplicates));
+    Check("it is delivered once, with no flood, whatever the retransmissions",
+          a.delivered == 1 && a.respHeardAtRequester >= 1 &&
+              a.floods[0] + a.floods[1] + a.floods[2] + a.floods[3] == 0,
+          "delivered " + std::to_string(a.delivered) + ", heard " +
+              std::to_string(a.respHeardAtRequester));
+    // Node 3's entry is past its window when the answer comes back: the hop must flood,
+    // and node 2 then carries the flood on rather than unicasting it.
+    const RpRun b = RunReversePathLine(true, 0.0);
+    Report("node 3 window 0: expired / floods at 3, forwarded at 2, delivered at 1",
+           std::to_string(b.expired[2]) + " / " + std::to_string(b.floods[2]) + ", " +
+               std::to_string(b.forwarded[1]) + ", " + std::to_string(b.delivered));
+    Check("a missing (expired) entry floods, and the flood still reaches the requester",
+          b.expired[2] == 1 && b.floods[2] == 1 && b.hops[2] == 0 && b.forwarded[1] == 0 &&
+              b.delivered == 1,
+          "expired " + std::to_string(b.expired[2]) + ", floods " + std::to_string(b.floods[2]));
+    // The pre-NW-8 behaviour, kept under reversePath alone: the cache names the
+    // originator, node 1, which is not node 4's neighbour -- the answer never arrives.
+    const RpRun c = RunReversePathLine(false, 300.0);
+    Check("without reversePathHop the one-hop answer to a 3-hop originator is lost",
+          c.answered == 1 && c.respHeardAtRequester == 0 && c.delivered == 0,
+          "heard " + std::to_string(c.respHeardAtRequester));
+    // The route fields are billed under the flag and only there.
+    CaTblMac on, off;
+    CaTblMacConfig co;
+    co.nodeId = 1;
+    co.sf = 7;
+    co.bandwidthHz = 125e3;
+    co.reversePath = true;
+    CaTblMacConfig cn = co;
+    cn.reversePathHop = true;
+    off.Configure(co);
+    on.Configure(cn);
+    const double tOff = off.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double tOn = on.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double qOff = off.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 1);
+    const double qOn = on.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 1);
+    Check("a RESPONSE's route fields are billed under reversePathHop, and nothing else is",
+          tOn > tOff && qOn == qOff,
+          "RESPONSE " + std::to_string(tOff) + " -> " + std::to_string(tOn) + " s");
+}
+
 } // namespace
 
 int
@@ -1054,6 +1178,7 @@ main(int argc, char* argv[])
     TestHandshake();
     TestHandshakeFixes();
     TestTriggeredUpdates();
+    TestReversePathHop();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

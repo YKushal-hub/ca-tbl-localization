@@ -556,6 +556,30 @@ class CaTblHeader : public Header
      */
     void SetTriggerReason(uint8_t r) { m_triggerReason = r; }
     uint8_t GetTriggerReason() const { return m_triggerReason; }
+
+    /**
+     * \brief NW-8 (--reversePathHop). A RESPONSE names the QUERY it answers and the node
+     * that asked, so each hop of the reverse path can look up ITS OWN cached previous hop
+     * and the requester can tell that the answer reached it; forceFlood marks the
+     * fallback copy that floods although RESPONSE is not a flooded type. Carried, not
+     * serialised; the MAC bills their eight bytes (query_id 4, requester 2, answerer 2)
+     * under the flag. answererId is the node whose answer this is (the target, or the proxy
+     * answering for it), unchanged by forwarding: a lost ACK makes the sender retransmit
+     * under a fresh packet id, which dedup cannot catch, so (query, answerer) is what a
+     * forwarder and the requester deduplicate on. 0 / 0 / 0 / false outside the flag.
+     */
+    void SetRespRoute(uint32_t queryId, uint16_t requesterId, uint16_t answererId,
+                      bool forceFlood)
+    {
+        m_respQueryId = queryId;
+        m_respRequesterId = requesterId;
+        m_respAnswererId = answererId;
+        m_forceFlood = forceFlood;
+    }
+    uint16_t GetRespAnswererId() const { return m_respAnswererId; }
+    uint32_t GetRespQueryId() const { return m_respQueryId; }
+    uint16_t GetRespRequesterId() const { return m_respRequesterId; }
+    bool GetForceFlood() const { return m_forceFlood; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -589,6 +613,10 @@ class CaTblHeader : public Header
     uint8_t m_queuePos = 0;         //!< MC-1; no queue exists until NW-5
     uint8_t m_reqTargetTier = 0xFF; //!< MC-1
     uint8_t m_triggerReason = 0;    //!< MC-2, carried not serialised -- see above
+    uint32_t m_respQueryId = 0;     //!< NW-8, carried not serialised -- see above
+    uint16_t m_respRequesterId = 0; //!< NW-8
+    uint16_t m_respAnswererId = 0;  //!< NW-8
+    bool m_forceFlood = false;      //!< NW-8
 };
 
 } // namespace ns3
