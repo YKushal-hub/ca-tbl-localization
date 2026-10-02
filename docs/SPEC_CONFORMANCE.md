@@ -50,7 +50,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 13 | Case A, two-circle + Mahalanobis choice (Phys 2.4) | OPT-IN | `--sparseCaseA` (before `Step()`) or `--sparseInStep` (inside it, DC-11), both `CaTblSolveCaseA`; Case A when both ranges are to surveyed gateways, read since DC-11 from the measurement's `sourceKind` rather than its position | preset |
 | 14 | Case B, orientation from IMU heading (Phys 2.4) | DIVERGENT | Prior-based choice; deliberate while the SHS diverges (`ca-tbl-sparse-anchor.h:78-83`) | DC-2 |
 | 15 | Case C, relative shape only (Phys 2.4) | PARTIAL | Classified as unlocalisable; no relative tracking | DC-3 |
-| 16 | Case D, one range + IMU (Phys 2.4D) | ABSENT | `Step()` discards fewer than three ranges | DC-4 |
+| 16 | Case D, one range + IMU (Phys 2.4D) | OPT-IN | `--caseD` (DC-4, 2026-10-02, G41; needs `--sparseInStep`, best with `--imuPredict`): a single range is applied as a scalar update on the (IMU-)propagated state when NIS <= 6.63; the cycle is not a position fix but its covariance is live, it reaches the escalation decision (evidence gate still applies) and does not count toward demotion (OURS). NC3 regime, seed 7: 65 Case D cycles, all applied, 30 escalated, 0 demoted. The scenario's old census label "CASE D" means the ordinary 3+ solve | ~~DC-4~~ done; preset |
 | 17 | PCS term 1 = 1/trace(Σ) (Phys 2.5) | DIVERGENT (kept) | The bounded transform `traceRef/(traceRef+trace)` (`ca-tbl-policy.cc:857`); monotone equivalent | — |
 | 18 | PCS term 3 from the tier-specific NLOS score (Phys 2.5) | OPT-IN | `--pcsNlosClassifier`; the default reads the boolean tag | preset |
 | 19 | PCS weights tuned empirically, by LOOCV (Phys 2.5, audit Gap B) | DIVERGENT | Unweighted sum by default. CAL-01 ran and gave (3,0,0), not adopted. Since DC-6 (2026-09-30) the calibrated form is expressible: `--pcsForm=calibrated` with the weights (0 included) and per-tier thresholds from the CLI, gate G28. What is still missing is the calibration itself, CAL-02 | DC-5, ~~DC-6~~ done, CAL-02 |
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 19 |
+| OPT-IN | 20 |
 | PARTIAL | 10 |
 | DIVERGENT | 10 (one of them, row 17, kept) |
-| ABSENT | 2 |
+| ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

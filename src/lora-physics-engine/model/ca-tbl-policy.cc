@@ -1068,13 +1068,17 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // DC-4. Case D: exactly one range, under the flag, goes down the ordinary path below
+    // as a scalar update on the propagated state (NIS-guarded), and reaches the decision.
+    const bool caseD = m_config.caseD && meas.size() == 1;
+
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
     // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f). By
     // default they run in the SCENARIO, before Step(), against the previous posterior --
     // so a two-range cycle still arrives here, is counted a no-fix and counts toward
     // demotion. Under sparseInStep (DC-11) they run above, and only a refused one
     // arrives here. Case C only classifies; Case D does not exist yet (DC-4).
-    if (meas.size() < 3)
+    if (meas.size() < 3 && !caseD)
     {
         m_noFixCycles++;
         d.hadFix = false;
@@ -1110,6 +1114,15 @@ CaTblPolicy::Step(double dt,
     if (m_config.sparseInStep)
     {
         d.fixKind = CA_TBL_FIX_FULL; // DC-11: the census reads it
+    }
+    if (caseD)
+    {
+        // DC-4: not a position fix -- one range constrains one direction -- but the
+        // covariance it leaves is live.
+        d.hadFix = false;
+        d.fixKind = CA_TBL_FIX_CASE_D;
+        m_noFixCycles++;
+        m_caseDCycles++;
     }
 
     // Per-measurement variance, inflated for NLOS-tagged links. This is the
@@ -1423,8 +1436,35 @@ CaTblPolicy::Step(double dt,
     else
     {
         m_consecutiveRejections = 0;
-        m_ekf.Update(meas, varM2);
-        ++d.rangeUpdates;
+        if (caseD)
+        {
+            // DC-4. One range against a wide P can leave an inconsistent covariance, so it
+            // goes in only if its innovation is plausible: NIS = nu^2 / (H P H^T + R) with
+            // H the unit vector from the anchor, against chi^2(1 dof, 0.99) = 6.63.
+            const double dx = m_ekf.X() - meas[0].anchorX;
+            const double dy = m_ekf.Y() - meas[0].anchorY;
+            const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
+            const double hx = dx / r, hy = dy / r;
+            const double s = hx * hx * m_ekf.Pxx() + 2.0 * hx * hy * m_ekf.Pxy() +
+                             hy * hy * m_ekf.Pyy() + varM2[0];
+            const double nu = meas[0].rangeM - r;
+            d.caseDNis = (s > 0.0) ? nu * nu / s : -1.0;
+            if (s > 0.0 && d.caseDNis <= 6.63)
+            {
+                m_ekf.Update(meas, varM2);
+                ++d.rangeUpdates;
+                d.caseDApplied = true;
+            }
+            else
+            {
+                m_caseDRefused++;
+            }
+        }
+        else
+        {
+            m_ekf.Update(meas, varM2);
+            ++d.rangeUpdates;
+        }
         if (auxQueued)
         {
             FuseAux(); // the COMBINED tier-1 fix: RSSI ranges above, TDoA position here
@@ -1497,6 +1537,7 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    d.wantedEscalation = wantEscalate; // DC-4: before any precondition suppresses it
     // ------------------------------------------ availability precondition (B.2+) --
     // Escalate only into a tier there are grounds to believe can deliver. Applied
     // AFTER wantEscalate is formed, so it can only ever SUPPRESS an escalation the
@@ -1673,7 +1714,9 @@ CaTblPolicy::Step(double dt,
         }
     }
 
-    if (dynamic && !activeDelivered)
+    // DC-4: a Case D cycle has a live covariance and is not a blind cycle, so it takes the
+    // normal escalation decision below and does not count toward demotion.
+    if (dynamic && !activeDelivered && !caseD)
     {
         // A fix was obtained, but NOT from the active tier -- the caller fell back to
         // the tier-1 floor. That is direct evidence the active tier has no coverage

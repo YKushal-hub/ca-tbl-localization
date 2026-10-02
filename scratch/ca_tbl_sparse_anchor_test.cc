@@ -216,6 +216,57 @@ main(int argc, char* argv[])
               "DC-11: three ranges take the ordinary update path");
     }
 
+    // --- DC-4: Case D, one range on the propagated state --------------------------------
+    {
+        // One gateway due east of the prior at 300 m; the node is truly at 310 m.
+        auto one = [](double range) {
+            std::vector<CaTblRangeMeasurement> m(1);
+            m[0].anchorX = 300.0;
+            m[0].anchorY = 0.0;
+            m[0].rangeM = range;
+            m[0].sigmaM = 5.0;
+            m[0].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+            return m;
+        };
+        auto mk = [](bool caseD, CaTblPolicy& p) {
+            CaTblPolicyConfig cfg;
+            cfg.sparseInStep = true;
+            cfg.caseD = caseD;
+            cfg.nDeescalate = 1;
+            cfg.mode = CA_TBL_MODE_FULL;
+            p.Configure(cfg);
+            p.Initialize(0.0, 0.0, 50.0, 0.0);
+            // Start on 2.4 GHz, so a demotion is possible and its absence means something.
+            p.AbortTierChange(CA_TBL_TIER_2P4);
+        };
+        CaTblPolicy off, on, wild;
+        mk(false, off);
+        mk(true, on);
+        mk(true, wild);
+        const double pyy0 = 2500.0;
+        CaTblDecision d0 = off.Step(1.0, one(310.0), 0, 1, 1, 7u);
+        CaTblDecision d1 = on.Step(1.0, one(310.0), 0, 1, 1, 7u);
+        CaTblDecision d2 = wild.Step(1.0, one(5000.0), 0, 1, 1, 7u);
+        Check(d0.fixKind == CA_TBL_FIX_NONE && d0.caseDNis < 0.0 && !d0.caseDApplied,
+              "DC-4 off: a single range is discarded, as before");
+        Check(d1.fixKind == CA_TBL_FIX_CASE_D && !d1.hadFix && d1.caseDApplied &&
+                  d1.rangeUpdates == 1,
+              "DC-4: one plausible range is applied as a scalar update; not a position fix");
+        // The range runs along x, so only Pxx shrinks; Pyy keeps the prediction's value.
+        Check(on.Pxx() < off.Pxx() && std::fabs(on.Pyy() - off.Pyy()) < 1e-9 && on.Pyy() > pyy0,
+              "DC-4: the update shrinks P only along the range direction");
+        Check(d2.fixKind == CA_TBL_FIX_CASE_D && !d2.caseDApplied && d2.caseDNis > 6.63 &&
+                  wild.GetCaseDRefused() == 1 && wild.Pxx() == off.Pxx(),
+              "DC-4: a wild range fails NIS <= 6.63 and is refused, P untouched");
+        Check(d0.deescalated,
+              "DC-4 off: the discarded single range counts toward demotion (nDeescalate 1)");
+        // Its PCS is low (one range leaves P wide), so the confidence model wants to
+        // escalate, and it may: the cycle went on up to UWB or stayed, never down.
+        Check(d1.pcs > 0.0 && d1.wantedEscalation && !d1.deescalated &&
+                  d1.nextTier != CA_TBL_TIER_868,
+              "DC-4: the Case D cycle reaches the decision (PCS computed) and is not demoted");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

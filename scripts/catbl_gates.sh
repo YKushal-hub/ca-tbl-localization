@@ -978,6 +978,24 @@ bash scripts/imu_predict_gate.sh "$WORK/g40" || fail G40
 bash scripts/imu_predict_gate_selftest.sh "$WORK/g40" || fail G40
 finish G40
 
+# ---------------- G41: Case D, a single range on the propagated state (DC-4)
+# Step() discarded a single range and coasted, counting it toward demotion; Physical 2.4D
+# applies it as a constraint on the IMU-propagated state. --caseD does, behind a NIS guard,
+# and the cycle reaches the escalation decision. NC3's regime with --sparseInStep and
+# --imuPredict, read by scripts/case_d_gate.py:
+#   - --caseD=false is the flag absent, byte for byte;
+#   - a range went in exactly when its NIS passed 6.63;
+#   - every Case D cycle is a one-range non-fix IMU-predicted cycle that did not demote;
+#   - every one reached the decision (PCS computed), and some wanted to escalate;
+#   - the stdout counts equal the CSV's; one refusal and one warning.
+#
+# Negative fixtures in scripts/case_d_gate_selftest.sh, built from these runs (rule 6). The
+# policy cases are in ca_tbl_sparse_anchor_test.
+printf '\n--- G41 Case D, a single range on the propagated state (DC-4) ---\n'
+bash scripts/case_d_gate.sh "$WORK/g41" || fail G41
+bash scripts/case_d_gate_selftest.sh "$WORK/g41" || fail G41
+finish G41
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

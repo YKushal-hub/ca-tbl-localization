@@ -5221,6 +5221,8 @@ struct SpecOptions
     bool sparseInStep = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
     bool imuPredict = false;
+    //! DC-4. --caseD: a single range as a constraint on the propagated state.
+    bool caseD = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -5598,6 +5600,10 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.sparseInStep = true;
         pcfg.sparseMarginM = sparseCaseAMarginM;
+    }
+    if (spec.caseD)
+    {
+        pcfg.caseD = true;
     }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
@@ -6611,6 +6617,27 @@ RunArm(CaTblPolicyMode mode,
         imuPred->log.open(ifn.str().c_str());
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
+    }
+    // DC-4. Per-run state of --caseD, null without it.
+    struct CaseDState
+    {
+        uint64_t cycles = 0;
+        uint64_t applied = 0;
+        uint64_t refused = 0;
+        uint64_t wanted = 0;
+        uint64_t escalated = 0;
+        uint64_t demoted = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<CaseDState> caseDst;
+    if (spec.caseD)
+    {
+        caseDst.reset(new CaseDState());
+        std::ostringstream cfn;
+        cfn << traceDir << "/cased_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        caseDst->log.open(cfn.str().c_str());
+        caseDst->log << "t,activeTier,anchorId,sourceKind,nis,applied,traceSigma,pcs,"
+                        "wantedEscalation,escalated,deescalated,nextTier\n";
     }
     // DC-11. Per-run state of --sparseInStep, null without it.
     struct SparseInStepState
@@ -8248,7 +8275,9 @@ RunArm(CaTblPolicyMode mode,
         {
             // CASE D -- the ordinary overdetermined solve. Counted so the sparse cases
             // have a denominator: "Case A fired 8 times" means nothing without knowing
-            // how often the normal path ran.
+            // how often the normal path ran. NOT the spec's Case D (Physical 2.4D, one
+            // range plus the IMU), which is --caseD (DC-4) and counted on its own DC-4
+            // line; the label is kept so stdout stays comparable with every earlier run.
             ++caseSolved[0];
         }
         else if (floorMeas.size() >= 3)
@@ -8726,6 +8755,23 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (caseDst && d.fixKind == CA_TBL_FIX_CASE_D)
+        {
+            // DC-4. Every Case D cycle, with what the decision did with it.
+            ++caseDst->cycles;
+            caseDst->applied += d.caseDApplied ? 1 : 0;
+            caseDst->refused += d.caseDApplied ? 0 : 1;
+            caseDst->wanted += d.wantedEscalation ? 1 : 0;
+            caseDst->escalated += d.escalated ? 1 : 0;
+            caseDst->demoted += d.deescalated ? 1 : 0;
+            caseDst->log << std::fixed << std::setprecision(4) << t << ','
+                         << static_cast<int>(d.activeTier) << ',' << meas[0].anchorId << ','
+                         << static_cast<int>(meas[0].sourceKind) << ',' << std::setprecision(6)
+                         << d.caseDNis << ',' << (d.caseDApplied ? 1 : 0) << ','
+                         << d.traceSigma << ',' << d.pcs << ',' << (d.wantedEscalation ? 1 : 0)
+                         << ',' << (d.escalated ? 1 : 0) << ',' << (d.deescalated ? 1 : 0)
+                         << ',' << static_cast<int>(d.nextTier) << '\n';
+        }
         if (imuPred)
         {
             // DC-1. A fused fix restarts the accumulated position error; a rejected one
@@ -9792,6 +9838,14 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
         std::cout << line.str();
+    }
+    // DC-4. The single-range cycles and what they did. Printed only under the flag.
+    if (caseDst)
+    {
+        std::cout << "    DC-4 Case D: cycles " << caseDst->cycles << ", updates applied "
+                  << caseDst->applied << ", refused by NIS " << caseDst->refused
+                  << "; wanted escalation " << caseDst->wanted << ", escalated "
+                  << caseDst->escalated << ", demoted " << caseDst->demoted << "\n";
     }
     // DC-1. The run's IMU errors and how often the accumulation restarted. Under the flag.
     if (imuPred)
@@ -12062,6 +12116,19 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("caseD",
+                 "Case D, single-range IMU-assisted tracking (Physical 2.4D; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md DC-4): when the final set holds exactly one "
+                 "range, it is applied as a scalar measurement on the propagated state if "
+                 "its innovation passes NIS <= 6.63 (chi^2, 1 dof, 0.99). The cycle is not a "
+                 "position fix, but its covariance is live: PCS is computed from it, the "
+                 "normal escalation decision runs (the evidence gate still applies), and it "
+                 "does not count toward demotion (OURS). False (default) is every result so "
+                 "far, where Step() discards a single range and coasts. Needs "
+                 "--sparseInStep; without --imuPredict the propagation is constant-velocity. "
+                 "Writes cased_<arm>_seed<N>.csv (digested) and one DC-4 line per arm. The "
+                 "scenario's old census label 'CASE D' (the ordinary 3+ solve) is unrelated.",
+                 spec.caseD);
     cmd.AddValue("imuPredict",
                  "Drive the filter's prediction with a synthetic IMU, as Physical 2.2 says "
                  "(x_k|k-1 = F x + B u_k; docs/SPEC_CONFORMANCE_PLAN.md DC-1). False (default) "
@@ -12529,6 +12596,18 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
         return 1;
+    }
+    // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    if (spec.caseD && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --caseD needs --sparseInStep=true: Case D is one of the sparse "
+                  << "cases Step() resolves after the prediction\n";
+        return 1;
+    }
+    if (spec.caseD && !spec.imuPredict)
+    {
+        std::cerr << "WARNING: --caseD without --imuPredict: the single range constrains a "
+                  << "constant-velocity prediction, not an IMU-propagated one\n";
     }
     // DC-11. --sparseInStep replaces --sparseCaseA's pre-Step solve; both would solve twice.
     if (spec.sparseInStep && sparseCaseAArg)
@@ -13432,6 +13511,10 @@ main(int argc, char* argv[])
     if (spec.imuPredict)
     {
         digestPatterns += " imu_*.csv";
+    }
+    if (spec.caseD)
+    {
+        digestPatterns += " cased_*.csv";
     }
     if (queryProxyArg)
     {
