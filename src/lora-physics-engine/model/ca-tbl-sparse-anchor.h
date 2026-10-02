@@ -76,11 +76,18 @@ CaTblSparseResult CaTblSolveCaseA(double x1, double y1, double d1,
  * \brief Case B -- one anchor and one peer whose own position is held.
  *
  * The spec resolves the remaining rotational freedom with the IMU heading. This
- * project's inertial driver is recorded as debt (TECH_DEBT K.9) and its heading is not
+ * project's SHS inertial driver is recorded as debt (TECH_DEBT K.9) and its heading is not
  * trustworthy, so Case B uses the SAME prior-based disambiguation as Case A rather than
- * a heading it cannot rely on. That is a DEVIATION FROM THE SPEC and is deliberate:
- * substituting a known-bad heading would be a mechanism that fires and misleads, which
- * is worse than one that is honest about its input.
+ * a heading it cannot rely on.
+ *
+ * WHAT THE PRIOR IS decides whether that is a deviation (docs/SPEC_CONFORMANCE_PLAN.md
+ * DC-2). Under --imuPredict and --sparseInStep, Step() solves Case B AFTER the controlled
+ * prediction, so the prior is the last posterior plus the synthetic IMU's displacement u_k
+ * with covariance P + Q_u: the IMU heading estimate carried into position, which in this
+ * geometry is what resolving the orientation by heading means. The deviation is CLOSED
+ * there, and the decision says so (CaTblDecision::sparsePriorSource = 1). Without
+ * --imuPredict the prior is the constant-velocity one and the deviation stays OPEN (0).
+ * The SHS heading is still not used, by owner decision.
  *
  * Structurally this is Case A with the peer standing in as the second anchor, so it
  * shares the implementation and differs only in what it reports as solvedBy -- which

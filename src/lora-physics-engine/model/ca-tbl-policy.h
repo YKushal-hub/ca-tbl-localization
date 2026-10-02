@@ -676,6 +676,10 @@ struct CaTblDecision
     uint32_t positionFuses = 0;
     //! DC-1. Whether this cycle's prediction used the IMU control.
     bool imuPredicted = false;
+    //! DC-2. On a sparse solve: the prior it chose against. 0 the constant-velocity
+    //! prediction (Case B's prior-based choice, a deviation from the spec); 1 the
+    //! IMU-propagated one, last posterior + u_k with P + Q_u (the spec's IMU heading).
+    uint8_t sparsePriorSource = 0;
     //! DC-4. On a Case D cycle: the range's NIS against the propagated state, and whether
     //! the update went in (NIS <= 6.63). -1 / false otherwise.
     double caseDNis = -1.0;
