@@ -82,7 +82,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 
 | # | mechanism (docx §) | status | evidence | plan |
 |---|---|---|---|---|
-| 38 | Mesh: any two radios can exchange frames (throughout) | DIVERGENT | Links exist only between a field node and an anchor (`scratch:608-760`) | NW-0 |
+| 38 | Mesh: any two radios can exchange frames (throughout) | OPT-IN | `--meshLinks=all` (NW-0, 2026-10-03, G45): every registered pair on a tier both carry is a link (tag-tag, gateway-gateway, finder-gateway); DISCOVERY one-hop (it leaves with hop limit 0); the ranging poll addresses anchors only; the node's sleeping radios neither receive nor relay, and its relays are billed. By default links exist only between a field node and an anchor. Multi-hop RESPONSE needs NW-8 | ~~NW-0~~ done; preset |
 | 39 | Addressing: node_id, identity class, target manifest id (Net §1) | CONFORMANT | `CaTblHeader`, `CaTblMac` | — |
 | 40 | Routing table, ETX baseline (Net §2) | OPT-IN | `--fixRouting`, relays only | NW-2 |
 | 41 | Confidence-weighted path selection for position-fix traffic (Net §3) | PARTIAL | `--fixRoutingConfidence`; the measured tag's traffic is never routed; α, β, γ are uncalibrated | NW-2 |
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 22 |
+| OPT-IN | 23 |
 | PARTIAL | 10 |
-| DIVERGENT | 8 (one of them, row 17, kept) |
+| DIVERGENT | 7 (one of them, row 17, kept) |
 | ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

@@ -296,6 +296,11 @@ struct CaTblMacConfig
     double reversePathWindowS = 300.0;
     uint32_t reversePathMaxEntries = 64;
 
+    //! NW-0. Under mesh links DISCOVERY is one-hop: neighbour discovery is one-hop by
+    //! definition (MAC sect 8, "next beacon supersedes"), and flooding it through a mesh
+    //! where every pair can hear every other is a beacon storm. False keeps it flooded.
+    bool discoveryOneHop = false;
+
     //! MC-1 (docs/SPEC_CONFORMANCE_PLAN.md). The escalation handshake as MAC sect 8
     //! specifies it: an ACK matched by the packet id it names; an anchor that arbitrates
     //! FIRST and answers every request with a GRANT saying granted or denied (no bare
@@ -427,6 +432,16 @@ class CaTblMac
      * present data.
      */
     void SetSilent(bool s) { m_silent = s; }
+    //! NW-0. A radio the node has asleep this cycle neither receives nor rebroadcasts
+    //! (under mesh links a sleeping 2.4 GHz/UWB radio would otherwise relay peers'
+    //! floods on a tier the arm never woke, unbilled -- CLAUDE.md sect 6).
+    void SetAsleep(bool a) { m_asleep = a; }
+    bool IsAsleep() const { return m_asleep; }
+    void NoteAsleepRefusal() { ++m_asleepRefused; }
+    uint64_t GetAsleepRefused() const { return m_asleepRefused; }
+    //! NW-0. Airtime and frames of rebroadcasts this MAC transmitted (others' frames).
+    double GetRebroadcastAirtimeS() const { return m_rebroadcastAirS; }
+    uint64_t GetRebroadcastFrames() const { return m_rebroadcastFrames; }
     bool IsSilent() const { return m_silent; }
     //! Frames this MAC declined to transmit while silenced.
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
@@ -777,6 +792,11 @@ class CaTblMac
     uint8_t m_nextTriggerReason = 0; //!< consumed by the next Send()
     uint64_t m_trigFramesSent = 0;
     uint64_t m_trigHeard[3] = {0, 0, 0};
+    // NW-0.
+    bool m_asleep = false;
+    uint64_t m_asleepRefused = 0;
+    double m_rebroadcastAirS = 0.0;
+    uint64_t m_rebroadcastFrames = 0;
 };
 
 /**
