@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 170 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 171 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,16 +20,16 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 147 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 165 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 166 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 164 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 165 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 162 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 163 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 163 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 164 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
-- `--edgeUplinkRanges` (row 161 of §3, and its §1 row): added with the default `false`
+- `--edgeUplinkRanges` (row 162 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
 - `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 144–147 of §3, and their §1 row): added with the
   default 0, "not given" (SY-3). Every row after them moved down four.
@@ -38,11 +38,13 @@ for each change.** Row numbers below are as of the latest regeneration:
 - `--gwLayout`, `--gwLayoutFrac`, `--gwClusterRadiusM`, `--gwStarArms`, `--gwStarSpacingM`,
   `--gwLayoutFile` (rows 91–96 of §3, and their §1 row): added with the defaults
   `legacy`, `0.9`, `300`, `3`, `1500` and empty (MS-2). Every row after them moved down six.
-- `--sparseInStep` (row 160 of §3, and its §1 row): added with the default `false`
+- `--sparseInStep` (row 161 of §3, and its §1 row): added with the default `false`
   (DC-11). Every row after it moved down one.
+- `--imuPredict` (row 160 of §3, and its §1 row): added with the default `false`
+  (DC-1). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-twenty-eight names. Three flags changed meaning without changing their printed default, and §1
+twenty-nine names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -118,6 +120,7 @@ precondition missing.
 | `--injectTxPowerDropDb`, `--injectAntennaLossDb` | double | `0` (off) | added 2026-10-02 | Fault classes for the evaluation (exec Phase 5; SY-5): the measured node's transmit power drops (cold-sagged battery), or its antenna loses gain on what it sends AND receives (ice, a covering hand), over the `--injectBiasFraction` window. Tier 1 inverts RSSI against the nominal power, so its ranges read long by 10^(dB/(10 n)); tiers 2 and 3 lose SNR and links. No random draw. One `SY-5` line | > 0 needs `--injectBiasFraction > 0`, negative is FATAL. Magnitudes OURS. 10 dB at the default n = 2.3 skews tier-1 ranges ×2.72 (G37) |
 | `--gwLayout` (+ `--gwLayoutFrac`, `--gwClusterRadiusM`, `--gwStarArms`, `--gwStarSpacingM`, `--gwLayoutFile`) | string, double, uint | `legacy`; 0.9, 300, 3, 1500, empty | added 2026-10-02 | Gateway placement shapes GEO-01 compares (MS-2): `perimeter` round the frac square, `cluster` round the camp, `star` along roads out of the camp, `lshape` on two perpendicular roads, `file` from an x,y CSV. They replace the gateways in every tier list, ids 101+. The camp is the base camp if `--baseCampFrac` gives one, else the west midpoint of the frac square. One `MS-2` line with every coordinate | `legacy` is the default byte for byte (G38). Needs `--topology=0` and, except `file`, `--nGateways > 0`; FATAL otherwise. Every constant OURS |
 | `--sparseInStep` | bool | `false` | added 2026-10-02 | Cases A/B solved inside `Step()`, after the prediction, against the propagated prior (Physical 2.4; DC-11). The point is fused once and the pair never also as ranges; a solved cycle is a fix (`fixKind` CASE_A/B) that does not count toward demotion; with relays appended the set takes the full path. Writes `sparse_<arm>_seed<N>.csv`, digested, and one `DC-11` line | Replaces `--sparseCaseA`: the two together are FATAL. Margin `--sparseCaseAMargin`. NC3 regime, seed 7: 73 of 131 two-range cycles solved, each a fix, against 64 recorded as no-fixes on the old path (G39) |
+| `--imuPredict` | bool | `false` | added 2026-10-02 | The filter's prediction takes a synthetic-IMU displacement (Physical 2.2; DC-1): a dead-reckoning error model turns the walker's true displacement into what an IMU would report -- heading error from a per-run gyro bias plus angle random walk (MPU-6050, Rudyk 2020), a per-run 2.66% scale error (OURS) -- and `PredictWithControl` predicts with it, covariance the accumulated error since the last fused fix. Own random stream. Writes `imu_<arm>_seed<N>.csv`, digested, and one `DC-1` line | NEES over 20 seeds 2.15, inside the chi^2_40/20 band [1.22, 2.97]; an independent per-step Q gives 24.6 (G40). The SHS gait engine is untouched |
 
 ## 2. Help text corrected, default unchanged
 
@@ -304,14 +307,15 @@ prints it.
 | 157 | `--identityQueryTarget` | `2` |
 | 158 | `--injectTxPowerDropDb` | `0` |
 | 159 | `--injectAntennaLossDb` | `0` |
-| 160 | `--sparseInStep` | `false` |
-| 161 | `--edgeUplinkRanges` | `false` |
-| 162 | `--triggeredUpdates` | `false` |
-| 163 | `--triggeredUpdateK` | `1` |
-| 164 | `--handshakeFixes` | `false` |
-| 165 | `--queryTierBinding` | (empty) |
-| 166 | `--uwbArbitration` | `false` |
-| 167 | `--arbBatteryCapJ` | `1000` |
-| 168 | `--anchorGrantGossipS` | `0` |
-| 169 | `--suspectForcesEscalation` | `true` |
-| 170 | `--nlosSource` | `legacy` |
+| 160 | `--imuPredict` | `false` |
+| 161 | `--sparseInStep` | `false` |
+| 162 | `--edgeUplinkRanges` | `false` |
+| 163 | `--triggeredUpdates` | `false` |
+| 164 | `--triggeredUpdateK` | `1` |
+| 165 | `--handshakeFixes` | `false` |
+| 166 | `--queryTierBinding` | (empty) |
+| 167 | `--uwbArbitration` | `false` |
+| 168 | `--arbBatteryCapJ` | `1000` |
+| 169 | `--anchorGrantGossipS` | `0` |
+| 170 | `--suspectForcesEscalation` | `true` |
+| 171 | `--nlosSource` | `legacy` |

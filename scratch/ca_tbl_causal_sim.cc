@@ -86,6 +86,7 @@
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/ca-tbl-tdoa.h"
 #include "ns3/ca-tbl-nlos-classifier.h"
+#include "ns3/ca-tbl-imu-model.h"
 #include "ns3/lora-shs-engine.h"
 #include "ns3/lora-shs-parameters.h"
 #include "ns3/core-module.h"
@@ -5218,6 +5219,8 @@ struct SpecOptions
     double injectAntennaLossDb = 0.0;
     //! DC-11. --sparseInStep: Cases A/B solved inside Step() against the propagated prior.
     bool sparseInStep = false;
+    //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
+    bool imuPredict = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6579,6 +6582,35 @@ RunArm(CaTblPolicyMode mode,
     if (spec.edgeUplinkRanges)
     {
         edgeUp.reset(new EdgeUplinkTally());
+    }
+    // DC-1. Per-run state of --imuPredict, null without it.
+    struct ImuPredictState
+    {
+        CaTblImuDeadReckoner rk;
+        bool havePrev = false;
+        double prevX = 0.0;
+        double prevY = 0.0;
+        double dx = 0.0;
+        double dy = 0.0;
+        double ux = 0.0;
+        double uy = 0.0;
+        double qu[3] = {0.0, 0.0, 0.0};
+        uint64_t cycles = 0;
+        uint64_t resets = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<ImuPredictState> imuPred;
+    if (spec.imuPredict)
+    {
+        imuPred.reset(new ImuPredictState());
+        // Its own stream (plan sect 0 rule 5): seed*7919 + 1400071, the measured node being
+        // subject 0 (MS-1 adds 97 per subject).
+        imuPred->rk.Configure(CaTblImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071);
+        std::ostringstream ifn;
+        ifn << traceDir << "/imu_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        imuPred->log.open(ifn.str().c_str());
+        imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
+                        "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
     }
     // DC-11. Per-run state of --sparseInStep, null without it.
     struct SparseInStepState
@@ -8666,6 +8698,19 @@ RunArm(CaTblPolicyMode mode,
         policy.SetCrossCheck(imuDisagreeM, imuCrossCheck ? imuTolM : 0.0,
                              corrOk, corrTotal);
 
+        if (imuPred)
+        {
+            // DC-1. What an IMU-based dead-reckoner reports for the walker's true
+            // displacement this cycle, queued as Step()'s control input.
+            imuPred->dx = imuPred->havePrev ? pos.x - imuPred->prevX : 0.0;
+            imuPred->dy = imuPred->havePrev ? pos.y - imuPred->prevY : 0.0;
+            imuPred->rk.Step(imuPred->dx, imuPred->dy, dt, imuPred->ux, imuPred->uy, imuPred->qu);
+            policy.SetImuControl(imuPred->ux, imuPred->uy, imuPred->qu[0], imuPred->qu[1],
+                                 imuPred->qu[2]);
+            imuPred->prevX = pos.x;
+            imuPred->prevY = pos.y;
+            imuPred->havePrev = true;
+        }
         if (trig)
         {
             // MC-2. The filter's state carried into this cycle, before Step() moves it.
@@ -8681,6 +8726,29 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (imuPred)
+        {
+            // DC-1. A fused fix restarts the accumulated position error; a rejected one
+            // was not fused and does not.
+            const double* sa = imuPred->rk.SigmaAcc();
+            const bool reset = d.hadFix && !d.measurementRejected;
+            imuPred->log << std::fixed << std::setprecision(6) << t << ',' << imuPred->dx << ','
+                         << imuPred->dy << ',' << imuPred->ux << ',' << imuPred->uy << ','
+                         << std::setprecision(9) << imuPred->rk.Heading() << ','
+                         << std::setprecision(9) << imuPred->qu[0] << ',' << imuPred->qu[1] << ','
+                         << imuPred->qu[2] << ',' << sa[0] << ',' << sa[1] << ',' << sa[2] << ','
+                         << std::setprecision(6) << imuPred->rk.AccX() << ','
+                         << imuPred->rk.AccY() << ',' << imuPred->rk.ElapsedS() << ','
+                         << (d.imuPredicted ? 1 : 0) << ',' << (d.hadFix ? 1 : 0) << ','
+                         << (d.measurementRejected ? 1 : 0) << ',' << (reset ? 1 : 0) << ','
+                         << d.estX << ',' << d.estY << '\n';
+            ++imuPred->cycles;
+            if (reset)
+            {
+                imuPred->rk.ResetAccumulation();
+                ++imuPred->resets;
+            }
+        }
         if (sparse && sparse->twoNoFloor)
         {
             // DC-11. The census of a two-range cycle, now that Step() has decided it:
@@ -9723,6 +9791,15 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->frames[CA_TBL_TIER_UWB] << " records "
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
+        std::cout << line.str();
+    }
+    // DC-1. The run's IMU errors and how often the accumulation restarted. Under the flag.
+    if (imuPred)
+    {
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    DC-1 IMU: bias " << std::setprecision(9) << imuPred->rk.Bias()
+             << " rad/s, scale " << imuPred->rk.Scale() << ", cycles " << imuPred->cycles
+             << ", resets " << imuPred->resets << "\n";
         std::cout << line.str();
     }
     // DC-11. The two-range cycles Step() decided. Printed only under the flag.
@@ -11985,6 +12062,20 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("imuPredict",
+                 "Drive the filter's prediction with a synthetic IMU, as Physical 2.2 says "
+                 "(x_k|k-1 = F x + B u_k; docs/SPEC_CONFORMANCE_PLAN.md DC-1). False (default) "
+                 "is every result so far: constant velocity, Q alone. True: each cycle a "
+                 "dead-reckoning error model turns the walker's true displacement into what an "
+                 "IMU would report -- a heading error from a per-run gyro bias plus angle "
+                 "random walk (MPU-6050, Rudyk 2020, already cited in lora-shs-parameters.h; "
+                 "the BMI270 datasheet needs a PDF tool this machine lacks) and a per-run "
+                 "step-length scale error of 2.66% (OURS: this project's SHS straight "
+                 "traverse) -- and the filter predicts with it, its covariance the ACCUMULATED "
+                 "error since the last fused fix, so drift is not understated. Its own random "
+                 "stream. Writes imu_<arm>_seed<N>.csv (digested) and one DC-1 line per arm. "
+                 "The SHS gait engine is untouched (owner decision 2).",
+                 spec.imuPredict);
     cmd.AddValue("sparseInStep",
                  "Solve a two-range cycle inside Step(), after the prediction, against the "
                  "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
@@ -13337,6 +13428,10 @@ main(int argc, char* argv[])
     if (spec.sparseInStep)
     {
         digestPatterns += " sparse_*.csv";
+    }
+    if (spec.imuPredict)
+    {
+        digestPatterns += " imu_*.csv";
     }
     if (queryProxyArg)
     {

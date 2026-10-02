@@ -667,6 +667,8 @@ struct CaTblDecision
     double sparseVarM2 = 0.0;
     uint32_t rangeUpdates = 0;
     uint32_t positionFuses = 0;
+    //! DC-1. Whether this cycle's prediction used the IMU control.
+    bool imuPredicted = false;
 
     CaTblDecision();
 };
@@ -688,6 +690,23 @@ class CaTblEkf
 
     /** Constant-velocity prediction. Stores the prior for the integrity test. */
     void Predict(double dt);
+
+    /**
+     * \brief DC-1. The prediction driven by a dead-reckoned displacement u (synthetic IMU).
+     *
+     * Position += u; velocity := u / dt, because velocity is now the IMU's; the position
+     * block gains the control's covariance Qu (xx, xy, yy), P_pv := Qu / dt and
+     * P_vv := Qu / dt^2 -- the old velocity correlations are discarded with the old
+     * velocity. The prior is snapshotted exactly as Predict() does, so the integrity
+     * check compares against this prior and not a stale one.
+     *
+     * RECORDED DEVIATION: overwriting the velocity with u/dt is a displacement-driven
+     * pedestrian-dead-reckoning prediction, not a literal F x + B u with the constant-
+     * velocity F. The docx's u_k is an "acceleration/heading correction", which this
+     * subsumes. Predict() is untouched.
+     */
+    void PredictWithControl(double dt, double ux, double uy, double quxx, double quxy,
+                            double quyy);
 
     /** Sequential scalar update with per-measurement variance. */
     void Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
@@ -876,6 +895,19 @@ class CaTblPolicy
      *
      *  Consumed by exactly one Step() whatever it decides, so a queued fix never outlives
      *  the cycle it was measured in. Never called, it changes nothing. */
+    /** DC-1. Queue this cycle's IMU control for the next Step(), which then predicts with
+     *  PredictWithControl() instead of Predict(). Consumed by that Step(), like the aux
+     *  fix. Never queued, Step() is exactly as before. */
+    void SetImuControl(double ux, double uy, double quxx, double quxy, double quyy)
+    {
+        m_imuPending = true;
+        m_imu[0] = ux;
+        m_imu[1] = uy;
+        m_imu[2] = quxx;
+        m_imu[3] = quxy;
+        m_imu[4] = quyy;
+    }
+
     void SetAuxPositionFix(double zx, double zy, double rxx, double rxy, double ryy)
     {
         m_auxPending = true;
@@ -1087,6 +1119,9 @@ class CaTblPolicy
     uint64_t m_integrityScoreEligible = 0;
     uint64_t m_integrityScoreIneligible = 0;
     uint64_t m_integrityTagFallback = 0;
+    // DC-1. Appended last.
+    bool m_imuPending = false;
+    double m_imu[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
 };
 
 } // namespace ns3

@@ -959,6 +959,25 @@ bash scripts/sparse_in_step_gate.sh "$WORK/g39" || fail G39
 bash scripts/sparse_in_step_gate_selftest.sh "$WORK/g39" || fail G39
 finish G39
 
+# ---------------- G40: the prediction takes a synthetic-IMU control input (DC-1)
+# Physical 2.2 predicts with an IMU control input; the filter was constant velocity.
+# --imuPredict drives PredictWithControl from a dead-reckoning error model whose covariance
+# is the ACCUMULATED error since the last fused fix. NC3's regime, read by
+# scripts/imu_predict_gate.py:
+#   - --imuPredict=false is the default, byte for byte;
+#   - every coasted cycle moved by exactly u;
+#   - every residual and covariance is the stated model, recomputed with the cited constants;
+#   - Q_u is the PSD increment of the accumulation, which resets exactly on a fused fix;
+#   - NEES across 20 seeds inside the chi^2 band (one sample per seed: the errors are per run).
+#
+# Negative fixtures in scripts/imu_predict_gate_selftest.sh, built from these runs (rule 6),
+# among them an independent per-step Q, which fails NEES. The model's unit cases are in
+# ca_tbl_imu_test.
+printf '\n--- G40 the prediction takes a synthetic-IMU control input (DC-1) ---\n'
+bash scripts/imu_predict_gate.sh "$WORK/g40" || fail G40
+bash scripts/imu_predict_gate_selftest.sh "$WORK/g40" || fail G40
+finish G40
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

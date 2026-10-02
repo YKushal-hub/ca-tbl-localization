@@ -44,7 +44,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | # | mechanism (docx §) | status | evidence | plan |
 |---|---|---|---|---|
 | 9 | Table entry `{pos, Σ, t, seq, hop, source_type, velocity}` (Phys 2.1) | OPT-IN | `--entryVelocity` (DC-10, gate G31): a field node publishes its EKF velocity, a finder its GNSS velocity (displacement over time), a gateway 0; held entries carry it intact. The default still publishes 0,0. Nothing reads it yet: NW-9 (RESPONSE), DC-13 (entry prediction) and TA-1 (sessions) will | ~~DC-10~~ done; preset |
-| 10 | EKF prediction with IMU control input u_k (Phys 2.2) | DIVERGENT | Constant velocity only (`ca-tbl-policy.cc:207-259`); the SHS engine diverges (K.9) | DC-1 |
+| 10 | EKF prediction with IMU control input u_k (Phys 2.2) | OPT-IN | `--imuPredict` (DC-1, 2026-10-02, G40): a synthetic-IMU dead-reckoning error model (MPU-6050 gyro, Rudyk 2020; 2.66% scale, OURS) drives `PredictWithControl`, its covariance the accumulated error since the last fused fix; NEES across 20 seeds 2.15, inside the chi^2 band. Recorded deviation: velocity is overwritten with u/dt (a PDR prediction, not a literal F x + B u). By default the prediction is constant velocity; the SHS engine is untouched (K.9) | ~~DC-1~~ done; preset |
 | 11 | EKF correction with tier-specific R (Phys 2.3) | CONFORMANT | Per-measurement σ from each engine | — |
 | 12 | Sparse cases solved against the propagated prior (Phys 2.4) | OPT-IN | `--sparseInStep` (DC-11, 2026-10-02, G39): Cases A/B solved inside `Step()` after the prediction, against the propagated prior; fused once as a position (never also as ranges, which closes the Case A + relays double count); a solved cycle is a fix and does not count toward demotion. By default `--sparseCaseA` solves before `Step()` against the previous posterior and `Step()` counts the cycle a no-fix | ~~DC-11~~ done; preset |
 | 13 | Case A, two-circle + Mahalanobis choice (Phys 2.4) | OPT-IN | `--sparseCaseA` (before `Step()`) or `--sparseInStep` (inside it, DC-11), both `CaTblSolveCaseA`; Case A when both ranges are to surveyed gateways, read since DC-11 from the measurement's `sourceKind` rather than its position | preset |
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 18 |
+| OPT-IN | 19 |
 | PARTIAL | 10 |
-| DIVERGENT | 11 (one of them, row 17, kept) |
+| DIVERGENT | 10 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

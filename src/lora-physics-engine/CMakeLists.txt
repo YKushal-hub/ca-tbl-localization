@@ -68,6 +68,7 @@ set(source_files
     model/ca-tbl-loocv.cc          # CA-TBL CAL-01 LOOCV weight fitting
     model/ca-tbl-tdoa.cc           # CA-TBL Physical sect 1.1 tier-1 TDoA solver
     model/ca-tbl-nlos-classifier.cc # CA-TBL Physical sect 1.3/2.5 NLOS scores
+    model/ca-tbl-imu-model.cc      # CA-TBL DC-1 synthetic IMU dead-reckoning error model
 )
 
 set(header_files
@@ -138,6 +139,7 @@ set(header_files
     model/ca-tbl-grant-coord.h     # CA-TBL Network sect 6 grant coordination
     model/ca-tbl-node-lifecycle.h  # CA-TBL sect 24-27 node lifecycle
     model/ca-tbl-loocv.h           # CA-TBL CAL-01 LOOCV weight fitting
+    model/ca-tbl-imu-model.h       # CA-TBL DC-1 synthetic IMU dead-reckoning error model
     model/ca-tbl-tdoa.h            # CA-TBL Physical sect 1.1 tier-1 TDoA solver
     model/ca-tbl-nlos-classifier.h  # CA-TBL Physical sect 1.3/2.5 NLOS scores
 )
