@@ -923,6 +923,23 @@ bash scripts/link_fault_gate.sh "$WORK/g37" || fail G37
 bash scripts/link_fault_gate_selftest.sh "$WORK/g37" || fail G37
 finish G37
 
+# ---------------- G38: gateway placement shapes (MS-2)
+# GEO-01 compares gateway shapes the scenario could not build: perimeter, cluster, star,
+# L-shape and an optimiser's file. --gwLayout builds them, in every tier list, ids 101+.
+# Short runs at boxHalf 5000 with 5 gateways, read by scripts/gw_layout_gate.py:
+#   - --gwLayout=legacy is the default, byte for byte;
+#   - every shape's coordinates recomputed from its documented construction, camp
+#     included (base camp, or the west midpoint);
+#   - the deployment the run used has those gateways in all three tier lists;
+#   - a file layout is its rows, clamped to the box;
+#   - four refusals.
+#
+# Negative fixtures in scripts/gw_layout_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G38 gateway placement shapes (MS-2) ---\n'
+bash scripts/gw_layout_gate.sh "$WORK/g38" || fail G38
+bash scripts/gw_layout_gate_selftest.sh "$WORK/g38" || fail G38
+finish G38
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

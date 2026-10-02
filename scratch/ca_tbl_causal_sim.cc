@@ -1966,6 +1966,159 @@ static bool g_sy3Given = false;
     }
 
 /**
+ * \brief MS-2. Gateway positions for a named placement shape (--gwLayout).
+ *
+ * The shapes GEO-01 (docs/SPEC_CONFORMANCE_PLAN.md sect 3.4) compares, besides the
+ * ring, arc, ridge and grid BuildDeployment already builds. Every one keeps to positions
+ * a vehicle could plausibly reach -- the box edge, roads out of a base camp -- except
+ * `file`, which takes whatever the optimiser wrote. Coordinates are clamped to the box.
+ * All constants are OURS. Returns an empty vector, with a reason, on a bad input.
+ *
+ *   perimeter  N points evenly spaced along the square of half-width frac*boxHalf, the
+ *              first at its west midpoint, going south (counter-clockwise).
+ *   cluster    N points on a circle of radius clusterR around the camp (N = 1: at it).
+ *   star       N points on `arms` straight roads out of the camp, `spacing` apart along
+ *              each, the roads spread over 120 degrees about the bearing from the camp to
+ *              the box centre (east when the camp is the centre); point k on road k % arms.
+ *   lshape     two perpendicular roads meeting at the south-west corner of the frac
+ *              square, up its west side and along its south side: point 0 at the corner,
+ *              then alternately north and east, ceil((N-1)/2) steps of 2*frac*boxHalf/
+ *              ceil((N-1)/2) each way.
+ *   file       one "x,y" per line from a CSV (a header line and '#' lines are skipped).
+ */
+static std::vector<Vector>
+CaTblGatewayLayout(const std::string& layout, uint32_t n, double boxHalfM, double frac,
+                   double campX, double campY, double clusterR, uint32_t arms,
+                   double spacingM, const std::string& file, std::string& why)
+{
+    std::vector<Vector> pts;
+    const double gwH = 15.0; // the mast height every BuildDeployment shape uses
+    auto clampBox = [boxHalfM](double v) { return std::max(-boxHalfM, std::min(boxHalfM, v)); };
+    const double h = frac * boxHalfM;
+    if (layout == "perimeter")
+    {
+        const double L = 8.0 * h;
+        for (uint32_t k = 0; k < n; ++k)
+        {
+            double s = L * static_cast<double>(k) / static_cast<double>(n);
+            double x, y;
+            // Legs from the west midpoint: south half-side, south side, east side,
+            // north side, north half of the west side.
+            if (s < h)
+            {
+                x = -h;
+                y = -s;
+            }
+            else if (s < 3.0 * h)
+            {
+                x = -h + (s - h);
+                y = -h;
+            }
+            else if (s < 5.0 * h)
+            {
+                x = h;
+                y = -h + (s - 3.0 * h);
+            }
+            else if (s < 7.0 * h)
+            {
+                x = h - (s - 5.0 * h);
+                y = h;
+            }
+            else
+            {
+                x = -h;
+                y = h - (s - 7.0 * h);
+            }
+            pts.push_back(Vector(clampBox(x), clampBox(y), gwH));
+        }
+    }
+    else if (layout == "cluster")
+    {
+        for (uint32_t k = 0; k < n; ++k)
+        {
+            const double th = 2.0 * M_PI * static_cast<double>(k) / static_cast<double>(n);
+            const double r = (n == 1) ? 0.0 : clusterR;
+            pts.push_back(Vector(clampBox(campX + r * std::cos(th)),
+                                 clampBox(campY + r * std::sin(th)), gwH));
+        }
+    }
+    else if (layout == "star")
+    {
+        const double centre = (campX == 0.0 && campY == 0.0) ? 0.0 : std::atan2(-campY, -campX);
+        const double spread = 120.0 * M_PI / 180.0;
+        for (uint32_t k = 0; k < n; ++k)
+        {
+            const uint32_t arm = k % arms;
+            const uint32_t step = 1 + k / arms;
+            const double th = (arms == 1)
+                                  ? centre
+                                  : centre - spread / 2.0 +
+                                        spread * static_cast<double>(arm) /
+                                            static_cast<double>(arms - 1);
+            const double r = spacingM * static_cast<double>(step);
+            pts.push_back(Vector(clampBox(campX + r * std::cos(th)),
+                                 clampBox(campY + r * std::sin(th)), gwH));
+        }
+    }
+    else if (layout == "lshape")
+    {
+        const uint32_t steps = std::max<uint32_t>(1, (n) / 2); // ceil((n-1)/2)
+        const double d = 2.0 * h / static_cast<double>(steps);
+        for (uint32_t k = 0; k < n; ++k)
+        {
+            double x = -h, y = -h;
+            if (k > 0)
+            {
+                const uint32_t step = 1 + (k - 1) / 2;
+                if ((k - 1) % 2 == 0)
+                {
+                    y += d * static_cast<double>(step); // north, up the west side
+                }
+                else
+                {
+                    x += d * static_cast<double>(step); // east, along the south side
+                }
+            }
+            pts.push_back(Vector(clampBox(x), clampBox(y), gwH));
+        }
+    }
+    else if (layout == "file")
+    {
+        std::ifstream in(file.c_str());
+        if (!in.is_open())
+        {
+            why = "cannot open --gwLayoutFile '" + file + "'";
+            return std::vector<Vector>();
+        }
+        std::string line;
+        while (std::getline(in, line))
+        {
+            if (line.empty() || line[0] == '#')
+            {
+                continue;
+            }
+            std::istringstream ls(line);
+            double x, y;
+            char comma;
+            if (!(ls >> x >> comma >> y) || comma != ',')
+            {
+                continue; // a header line
+            }
+            pts.push_back(Vector(clampBox(x), clampBox(y), gwH));
+        }
+        if (pts.empty())
+        {
+            why = "--gwLayoutFile '" + file + "' holds no x,y rows";
+        }
+    }
+    else
+    {
+        why = "unknown --gwLayout '" + layout + "'";
+    }
+    return pts;
+}
+
+/**
  * \brief Pre-flight geometry check.
  *
  * Sweeps distance per tier and reports reception rate and ranging error. Run
@@ -10198,6 +10351,13 @@ main(int argc, char* argv[])
     double corroborationRangeSigmaMArg = 30.0;
     uint32_t sitingModeArg = 0;
     uint32_t topologyArg = 0;
+    // MS-2. legacy = the --gw* flags as before.
+    std::string gwLayoutArg = "legacy";
+    double gwLayoutFracArg = 0.9;
+    double gwClusterRadiusMArg = 300.0;
+    uint32_t gwStarArmsArg = 3;
+    double gwStarSpacingMArg = 1500.0;
+    std::string gwLayoutFileArg;
     uint32_t nGatewaysArg = 0;
     double gwRingFracArg = 0.6;
     double identityQueryPeriodSArg = 0.0;
@@ -10890,6 +11050,41 @@ main(int argc, char* argv[])
                  "Centred on north, so a trail beneath it can be strayed from either "
                  "way -- see --trailDeviateSide.",
                  gwArcDegArg);
+    cmd.AddValue("gwLayout",
+                 "Gateway placement shape: legacy|perimeter|cluster|star|lshape|file "
+                 "(docs/SPEC_CONFORMANCE_PLAN.md MS-2, the shapes GEO-01 compares). legacy "
+                 "(default) is every result so far: the grid, ring, arc or ridge the other "
+                 "--gw* flags build. perimeter spaces --nGateways evenly round the square of "
+                 "half-width --gwLayoutFrac x boxHalf; cluster rings them --gwClusterRadiusM "
+                 "round the camp; star strings them --gwStarSpacingM apart along "
+                 "--gwStarArms roads out of the camp, spread over 120 degrees towards the "
+                 "box centre; lshape puts them on two perpendicular roads meeting at the "
+                 "south-west corner; file reads x,y rows from --gwLayoutFile (the "
+                 "optimiser's output). The camp is the base camp when --baseCampFrac gives "
+                 "one, else the west midpoint of the frac square -- the trailhead side the "
+                 "arc runs centre on (OURS). Every constant here is OURS. Prints one MS-2 "
+                 "line with the coordinates. Needs --topology=0, and --nGateways > 0 except "
+                 "for file.",
+                 gwLayoutArg);
+    cmd.AddValue("gwLayoutFrac",
+                 "MS-2: the half-width of the square the perimeter and lshape layouts use, "
+                 "as a fraction of boxHalf. 0.9 (default, OURS) is the inset the legacy "
+                 "grid uses.",
+                 gwLayoutFracArg);
+    cmd.AddValue("gwClusterRadiusM",
+                 "MS-2: radius of the cluster layout round the camp, metres. 300 (default, "
+                 "OURS): a deployment a team sets up on foot from one vehicle.",
+                 gwClusterRadiusMArg);
+    cmd.AddValue("gwStarArms",
+                 "MS-2: roads out of the camp in the star layout. 3 (default, OURS).",
+                 gwStarArmsArg);
+    cmd.AddValue("gwStarSpacingM",
+                 "MS-2: spacing of gateways along each star road, metres. 1500 (default, "
+                 "OURS): about the tier-1 r80 of 1515 m at the default environment.",
+                 gwStarSpacingMArg);
+    cmd.AddValue("gwLayoutFile",
+                 "MS-2: the x,y CSV --gwLayout=file reads.",
+                 gwLayoutFileArg);
     cmd.AddValue("gwArcCentreDeg",
                  "Bearing the gateway arc is centred on, degrees CCW from east. 90 "
                  "(DEFAULT) is north. Only meaningful with --gwArcDeg < 360. MEASURED "
@@ -12516,6 +12711,61 @@ main(int argc, char* argv[])
                       << " tour sites retained\n";
             dep.facilities = kept;
         }
+    }
+
+    // MS-2. A named placement shape replaces the gateways BuildDeployment placed, in every
+    // tier list (topology 0: one tri-band node per gateway), keeping ids 101+. Applied
+    // after the base-camp shift so the shapes' coordinates are absolute. The camp the
+    // cluster and star grow from is the base camp when there is one, otherwise the west
+    // midpoint of the frac square -- the trailhead side every arc run centres on (OURS).
+    if (gwLayoutArg != "legacy")
+    {
+        if (topologyArg != 0)
+        {
+            std::cerr << "FATAL: --gwLayout needs --topology=0: the legacy topology's "
+                      << "per-tier anchor rings are not gateways\n";
+            return 1;
+        }
+        if (gwLayoutArg != "file" && nGatewaysArg == 0)
+        {
+            std::cerr << "FATAL: --gwLayout=" << gwLayoutArg << " needs --nGateways > 0\n";
+            return 1;
+        }
+        if (!(gwLayoutFracArg > 0.0 && gwLayoutFracArg <= 1.0) || !(gwClusterRadiusMArg > 0.0) ||
+            gwStarArmsArg == 0 || !(gwStarSpacingMArg > 0.0))
+        {
+            std::cerr << "FATAL: --gwLayoutFrac must be in (0, 1], --gwClusterRadiusM and "
+                      << "--gwStarSpacingM > 0, --gwStarArms >= 1\n";
+            return 1;
+        }
+        const double campX = dep.hasBaseCamp ? dep.baseCampX : -gwLayoutFracArg * boxHalfM;
+        const double campY = dep.hasBaseCamp ? dep.baseCampY : 0.0;
+        std::string why;
+        const std::vector<Vector> pts =
+            CaTblGatewayLayout(gwLayoutArg, nGatewaysArg, boxHalfM, gwLayoutFracArg, campX, campY,
+                               gwClusterRadiusMArg, gwStarArmsArg, gwStarSpacingMArg,
+                               gwLayoutFileArg, why);
+        if (pts.empty())
+        {
+            std::cerr << "FATAL: " << why << "\n";
+            return 1;
+        }
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "  MS-2 layout " << gwLayoutArg << ": " << pts.size() << " gateways, camp ("
+             << std::setprecision(9) << campX << ", " << campY << "):";
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            dep.anchors[ti].clear();
+            for (size_t i = 0; i < pts.size(); ++i)
+            {
+                dep.anchors[ti].push_back({static_cast<uint32_t>(101 + i), pts[i]});
+            }
+        }
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            line << " " << (101 + i) << " " << pts[i].x << " " << pts[i].y;
+        }
+        std::cout << line.str() << "\n";
     }
 
     if (vizEventsArg)
