@@ -887,6 +887,24 @@ bash scripts/edge_uplink_gate.sh "$WORK/g35" || fail G35
 bash scripts/edge_uplink_gate_selftest.sh "$WORK/g35" || fail G35
 finish G35
 
+# ---------------- G36: tier-1 and tier-2 SF and bandwidth from the CLI (SY-3)
+# Physical 1.1 makes SF7-SF12 and 125/250/500 kHz configurable; phy[] was hard-coded.
+# --sf868/--bw868/--sf2p4/--bw2p4 replace it when given, and a non-default bandwidth
+# shifts the engine's sensitivity table by 10 log10(BW/BW0). Four runs (seed 7, 600 s),
+# read by scripts/phy_flags_gate.py:
+#   - the four flags at their defaults are the default, byte for byte;
+#   - the SY-3 PHY line's offset and time on air, recomputed;
+#   - every arm's engine sensitivity is the table entry plus the offset;
+#   - static_868's airtime is cycles x ToA at the run's SF/BW, and static_2p4's a whole
+#     number of frames;
+#   - out-of-range values are refused.
+#
+# Negative fixtures in scripts/phy_flags_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G36 tier-1 and tier-2 SF and bandwidth from the CLI (SY-3) ---\n'
+bash scripts/phy_flags_gate.sh "$WORK/g36" || fail G36
+bash scripts/phy_flags_gate_selftest.sh "$WORK/g36" || fail G36
+finish G36
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

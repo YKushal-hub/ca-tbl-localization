@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 157 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 161 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,20 +20,22 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 141 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 152 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 156 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 151 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 155 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 149 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 153 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 150 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 154 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
-- `--edgeUplinkRanges` (row 148 of §3, and its §1 row): added with the default `false`
+- `--edgeUplinkRanges` (row 152 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
+- `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 144–147 of §3, and their §1 row): added with the
+  default 0, "not given" (SY-3). Every row after them moved down four.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-fifteen names. Three flags changed meaning without changing their printed default, and §1
+nineteen names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -105,6 +107,7 @@ precondition missing.
 | `--triggeredUpdates` | bool | `false` | added 2026-10-02 | The spec's triggered update and last gasp (MAC §3, §8; MC-2) for the measured node: a large correction (the posterior moves more than `--triggeredUpdateK` sqrt(trace P) from the prediction) pushes the corrected entry with the redundant class's 3 jittered repeats; when `--batteryDepleteJ` is crossed one unrepeated last gasp goes out before the radio is silenced. Billed on the tier that transmitted. Writes `triggered_<arm>_seed<N>.csv`, digested, and one `MC-2` line | Frames, energy and duty move. At seed 7 × 900 s with a 3 J battery: 1 large correction, 1 last gasp (G34). A silenced radio still forwards floods (TECH_DEBT N.1) |
 | `--triggeredUpdateK` | double | `1` | added 2026-10-02 | How far, in sqrt(trace P) of the previous posterior, the posterior must move from the prediction to be a large correction (MC-2). 1 is OURS: the mesh's copy is then off by more than the uncertainty it was published with | FATAL unless > 0, and FATAL without `--triggeredUpdates`. The plan's draft 3 never fires: a Kalman update moves the mean by about one prior sigma at most (1.05 over 359 cycles) |
 | `--edgeUplinkRanges` | bool | `false` | added 2026-10-02 | Bills the uplink that carries a tier-2 or tier-3 range from the node to the gateway estimator (SY-1, TECH_DEBT L.2.3): one frame per cycle with a range, on the tier that ranged, 9 B header + 6 B per answered anchor (OURS). One `SY-1` line per arm | Needs `--gatewayEdgeServer=true`, or FATAL. At defaults only energy moves, only on tiers 2 and 3 (G35): `static_2p4` +213 frames at seed 7 × 900 s. The UWB branch is unexercised (no regime returns a UWB range) |
+| `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` | uint, double | `0`, not given (SF7, 125 kHz; SF7, 800 kHz) | added 2026-10-02 | Tier-1 and tier-2 spreading factor and bandwidth (Physical 1.1, SY-3). They replace the literal `phy[]` values, which flow into the engines, the MACs, the energy model and the relay-slot check. A bandwidth other than the table's (125 kHz; 800 kHz) shifts the engine's sensitivity table by 10 log10(BW/BW0) dB. Given, they print one `SY-3 PHY` line and one `SY-3 engine sensitivity` line per arm | FATAL outside SF7-SF12 / 125-250-500 kHz on 868 MHz, and outside SF5-SF12 / the SX1280 bandwidths (or 800 kHz) on 2.4 GHz. Explicit defaults are the default byte for byte (G36). 800 kHz is not an SX1280 setting; recorded, not changed |
 
 ## 2. Help text corrected, default unchanged
 
@@ -275,17 +278,21 @@ prints it.
 | 141 | `--entryVelocity` | `false` |
 | 142 | `--integrityNlosFromScore` | `false` |
 | 143 | `--uwbNlosModel` | `legacy` |
-| 144 | `--relayTier` | `1` |
-| 145 | `--nTags` | `1` |
-| 146 | `--identityQueryPeriodS` | `0` |
-| 147 | `--identityQueryTarget` | `2` |
-| 148 | `--edgeUplinkRanges` | `false` |
-| 149 | `--triggeredUpdates` | `false` |
-| 150 | `--triggeredUpdateK` | `1` |
-| 151 | `--handshakeFixes` | `false` |
-| 152 | `--queryTierBinding` | (empty) |
-| 153 | `--uwbArbitration` | `false` |
-| 154 | `--arbBatteryCapJ` | `1000` |
-| 155 | `--anchorGrantGossipS` | `0` |
-| 156 | `--suspectForcesEscalation` | `true` |
-| 157 | `--nlosSource` | `legacy` |
+| 144 | `--sf868` | `0` |
+| 145 | `--bw868` | `0` |
+| 146 | `--sf2p4` | `0` |
+| 147 | `--bw2p4` | `0` |
+| 148 | `--relayTier` | `1` |
+| 149 | `--nTags` | `1` |
+| 150 | `--identityQueryPeriodS` | `0` |
+| 151 | `--identityQueryTarget` | `2` |
+| 152 | `--edgeUplinkRanges` | `false` |
+| 153 | `--triggeredUpdates` | `false` |
+| 154 | `--triggeredUpdateK` | `1` |
+| 155 | `--handshakeFixes` | `false` |
+| 156 | `--queryTierBinding` | (empty) |
+| 157 | `--uwbArbitration` | `false` |
+| 158 | `--arbBatteryCapJ` | `1000` |
+| 159 | `--anchorGrantGossipS` | `0` |
+| 160 | `--suspectForcesEscalation` | `true` |
+| 161 | `--nlosSource` | `legacy` |
