@@ -1027,6 +1027,23 @@ bash scripts/entry_prediction_gate.sh "$WORK/g43" || fail G43
 bash scripts/entry_prediction_gate_selftest.sh "$WORK/g43" || fail G43
 finish G43
 
+# ---------------- G44: the IMU witness against the raw radio fix (DC-9)
+# --imuCrossCheck compared the diverging SHS track with the EKF estimate. Under
+# --imuWitnessSource=model the synthetic IMU track is compared with the cycle's raw fix --
+# not the estimate, which already contains u -- and the counters are split. NC9's regime,
+# read by scripts/imu_witness_gate.py:
+#   - --imuWitnessSource=shs is the default witness, byte for byte;
+#   - the track is the anchor + u; disagreement and tolerance recomputed; the raw fix is not
+#     the estimate;
+#   - evaluations, refusals and absorbed refusals consistent, none absorbed with the
+#     evidence gate off; two refusals.
+#
+# Negative fixtures in scripts/imu_witness_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G44 the IMU witness against the raw radio fix (DC-9) ---\n'
+bash scripts/imu_witness_gate.sh "$WORK/g44" || fail G44
+bash scripts/imu_witness_gate_selftest.sh "$WORK/g44" || fail G44
+finish G44
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

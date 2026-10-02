@@ -5225,6 +5225,8 @@ struct SpecOptions
     bool caseD = false;
     //! DC-13. --entryPrediction: held entries propagated as x + v age, P + Q_src age^2.
     bool entryPrediction = false;
+    //! DC-9. --imuWitnessSource: "" or "shs" (the SHS absolute track), or "model".
+    std::string imuWitnessSource;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -5691,6 +5693,10 @@ RunArm(CaTblPolicyMode mode,
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
     pcfg.imuCrossCheck = imuCrossCheck;
+    if (spec.imuWitnessSource == "model")
+    {
+        pcfg.witnessCounts = true; // DC-9
+    }
     pcfg.corroborationCheck = corroborationCheck;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
@@ -6619,6 +6625,36 @@ RunArm(CaTblPolicyMode mode,
         imuPred->log.open(ifn.str().c_str());
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
+    }
+    // DC-9. Per-run state of --imuWitnessSource=model, null without it: the witness track,
+    // anchored at the last fused fix and advanced by the synthetic IMU's u.
+    struct ImuWitnessState
+    {
+        bool anchored = false;
+        double wx = 0.0;
+        double wy = 0.0;
+        bool haveFix = false;
+        double fx = 0.0;
+        double fy = 0.0;
+        double rxx = 0.0;
+        double ryy = 0.0;
+        double sigTrace = 0.0;
+        double disagree = 0.0;
+        double tol = 0.0;
+        uint64_t evals = 0;
+        uint64_t refusals = 0;
+        uint64_t absorbed = 0;
+        std::ofstream log;
+    };
+    std::unique_ptr<ImuWitnessState> witness;
+    if (spec.imuWitnessSource == "model")
+    {
+        witness.reset(new ImuWitnessState());
+        std::ostringstream wfn;
+        wfn << traceDir << "/witness_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        witness->log.open(wfn.str().c_str());
+        witness->log << "t,anchored,wx,wy,haveFix,fixX,fixY,rxx,ryy,sigTrace,disagree,tol,"
+                        "evaluated,refused,absorbed,estX,estY\n";
     }
     // DC-13. Per-run state of --entryPrediction, null without it.
     struct EntryPredState
@@ -8790,6 +8826,48 @@ RunArm(CaTblPolicyMode mode,
             imuPred->prevY = pos.y;
             imuPred->havePrev = true;
         }
+        if (witness && imuPred)
+        {
+            // DC-9. The witness under --imuWitnessSource=model: the synthetic IMU's track,
+            // anchored at the last fused fix and advanced by u, against THIS cycle's raw
+            // radio fix -- multilateration of the fix set alone, which never saw u. The EKF
+            // estimate already contains u under --imuPredict, so comparing the track with
+            // the estimate would compare the IMU with itself (the plan's review finding).
+            // Tolerance K sqrt(trace(R_fix) + trace(Sigma_acc)), K = --imuConsistencyK: the
+            // fix's own covariance plus the IMU's accumulated error since the anchor.
+            if (witness->anchored)
+            {
+                witness->wx += imuPred->ux;
+                witness->wy += imuPred->uy;
+            }
+            witness->haveFix = false;
+            witness->tol = 0.0;
+            witness->disagree = 0.0;
+            if (witness->anchored && meas.size() >= 3)
+            {
+                std::vector<double> mv(meas.size());
+                for (size_t mi = 0; mi < meas.size(); ++mi)
+                {
+                    const double sg = (meas[mi].sigmaM > 0.0) ? meas[mi].sigmaM : 1.0;
+                    mv[mi] = sg * sg;
+                }
+                double rxy = 0.0;
+                witness->haveFix = CaTblPolicy::RawMultilaterationWeighted(
+                    meas, mv, policy.EstX(), policy.EstY(), witness->fx, witness->fy,
+                    witness->rxx, rxy, witness->ryy);
+                if (witness->haveFix)
+                {
+                    const double* sa = imuPred->rk.SigmaAcc();
+                    witness->sigTrace = sa[0] + sa[2];
+                    witness->disagree =
+                        std::hypot(witness->wx - witness->fx, witness->wy - witness->fy);
+                    witness->tol = imuConsistencyK *
+                                   std::sqrt(std::max(0.0, witness->rxx + witness->ryy +
+                                                               witness->sigTrace));
+                }
+            }
+            policy.SetCrossCheck(witness->disagree, witness->tol, corrOk, corrTotal);
+        }
         if (trig)
         {
             // MC-2. The filter's state carried into this cycle, before Step() moves it.
@@ -8805,6 +8883,28 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (witness)
+        {
+            // DC-9. The cycle's witness, then the anchor moves to a fused fix.
+            witness->evals += d.witnessEvaluated ? 1 : 0;
+            witness->refusals += d.witnessRefused ? 1 : 0;
+            witness->absorbed += d.witnessAbsorbed ? 1 : 0;
+            witness->log << std::fixed << std::setprecision(4) << t << ','
+                         << (witness->anchored ? 1 : 0) << ',' << std::setprecision(6)
+                         << witness->wx << ',' << witness->wy << ','
+                         << (witness->haveFix ? 1 : 0) << ',' << witness->fx << ','
+                         << witness->fy << ',' << witness->rxx << ',' << witness->ryy << ','
+                         << witness->sigTrace << ',' << witness->disagree << ','
+                         << witness->tol << ',' << (d.witnessEvaluated ? 1 : 0) << ','
+                         << (d.witnessRefused ? 1 : 0) << ',' << (d.witnessAbsorbed ? 1 : 0)
+                         << ',' << d.estX << ',' << d.estY << '\n';
+            if (d.hadFix && !d.measurementRejected)
+            {
+                witness->anchored = true;
+                witness->wx = d.estX;
+                witness->wy = d.estY;
+            }
+        }
         if (caseDst && d.fixKind == CA_TBL_FIX_CASE_D)
         {
             // DC-4. Every Case D cycle, with what the decision did with it.
@@ -9888,6 +9988,13 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->records[CA_TBL_TIER_UWB] << " airtime "
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
         std::cout << line.str();
+    }
+    // DC-9. The model witness's counters, split. Printed only under the flag.
+    if (witness)
+    {
+        std::cout << "    DC-9 witness (model): evaluations " << witness->evals << ", refusals "
+                  << witness->refusals << ", absorbed by the evidence gate " << witness->absorbed
+                  << "\n";
     }
     // DC-13. Entries carried forward before use. Printed only under the flag.
     if (entryPred)
@@ -11620,7 +11727,9 @@ main(int argc, char* argv[])
                  "tolerance that grows with time since the last trusted fix. It compares "
                  "absolute positions, not displacements (this text said displacement "
                  "until 2026-09-30), so an SHS that has diverged (TECH_DEBT K.9) refuses "
-                 "almost everything. FALSE by default so the check "
+                 "almost everything. --imuWitnessSource=model replaces the SHS track with "
+                 "the synthetic IMU's, checked against the raw radio fix (DC-9). "
+                 "FALSE by default so the check "
                  "can be run on against off, which is the comparison the project brief "
                  "asks for and one you cannot make if the mechanism is always on. "
                  "SUPPRESS-ONLY: it can withhold an escalation, never cause one, so it "
@@ -12172,6 +12281,21 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("imuWitnessSource",
+                 "Which IMU track the --imuCrossCheck witness compares (the final plan's "
+                 "'IMU dead-reckoning consistency' before an escalation; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md DC-9): shs|model. Not given, or shs, is every "
+                 "result so far: the SHS gait engine's absolute position, which diverges where "
+                 "fixes are sparse (TECH_DEBT K.9), against the EKF estimate. model: the "
+                 "synthetic IMU's track (--imuPredict), anchored at the last fused fix and "
+                 "advanced by u, against the cycle's RAW radio fix -- the estimate already "
+                 "contains u, so it would be the IMU checking itself -- with tolerance "
+                 "K sqrt(trace R_fix + trace Sigma_acc), K = --imuConsistencyK. Splits the "
+                 "witness's counters into evaluations, refusals, and refusals the evidence "
+                 "gate would have made anyway (absorbed, never reported as a pass). Writes "
+                 "witness_<arm>_seed<N>.csv (digested) and one DC-9 line per arm. model needs "
+                 "--imuPredict and --imuCrossCheck.",
+                 spec.imuWitnessSource);
     cmd.AddValue("entryPrediction",
                  "Carry a held entry forward before using it, as Physical 2.2 says (Q set by "
                  "source type: higher for IMU-drifting field nodes, lower for gateways; "
@@ -12663,6 +12787,20 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // DC-9. The model witness needs the synthetic IMU and the witness itself.
+    if (!spec.imuWitnessSource.empty() && spec.imuWitnessSource != "shs" &&
+        spec.imuWitnessSource != "model")
+    {
+        std::cerr << "FATAL: --imuWitnessSource must be shs or model, got '"
+                  << spec.imuWitnessSource << "'\n";
+        return 1;
+    }
+    if (spec.imuWitnessSource == "model" && (!spec.imuPredict || !imuCrossCheckArg))
+    {
+        std::cerr << "FATAL: --imuWitnessSource=model needs --imuPredict=true (the track) and "
+                  << "--imuCrossCheck=true (the witness)\n";
         return 1;
     }
     // DC-13. Without DC-10's velocities every entry would be carried forward by zero.
@@ -13594,6 +13732,10 @@ main(int argc, char* argv[])
     if (spec.entryPrediction)
     {
         digestPatterns += " entrypred_*.csv";
+    }
+    if (spec.imuWitnessSource == "model")
+    {
+        digestPatterns += " witness_*.csv";
     }
     if (queryProxyArg)
     {

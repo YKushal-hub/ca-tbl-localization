@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 173 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 174 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,16 +20,16 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 147 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 168 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 169 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 167 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 168 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 165 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 166 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 166 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 167 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
-- `--edgeUplinkRanges` (row 164 of §3, and its §1 row): added with the default `false`
+- `--edgeUplinkRanges` (row 165 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
 - `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 144–147 of §3, and their §1 row): added with the
   default 0, "not given" (SY-3). Every row after them moved down four.
@@ -38,17 +38,19 @@ for each change.** Row numbers below are as of the latest regeneration:
 - `--gwLayout`, `--gwLayoutFrac`, `--gwClusterRadiusM`, `--gwStarArms`, `--gwStarSpacingM`,
   `--gwLayoutFile` (rows 91–96 of §3, and their §1 row): added with the defaults
   `legacy`, `0.9`, `300`, `3`, `1500` and empty (MS-2). Every row after them moved down six.
-- `--sparseInStep` (row 163 of §3, and its §1 row): added with the default `false`
+- `--sparseInStep` (row 164 of §3, and its §1 row): added with the default `false`
   (DC-11). Every row after it moved down one.
-- `--imuPredict` (row 162 of §3, and its §1 row): added with the default `false`
+- `--imuPredict` (row 163 of §3, and its §1 row): added with the default `false`
   (DC-1). Every row after it moved down one.
-- `--caseD` (row 161 of §3, and its §1 row): added with the default `false` (DC-4).
+- `--caseD` (row 162 of §3, and its §1 row): added with the default `false` (DC-4).
   Every row after it moved down one.
-- `--entryPrediction` (row 160 of §3, and its §1 row): added with the default `false`
+- `--entryPrediction` (row 161 of §3, and its §1 row): added with the default `false`
   (DC-13). Every row after it moved down one.
+- `--imuWitnessSource` (row 160 of §3, and its §1 row): added with an empty default,
+  which means `shs` (DC-9). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-thirty-one names. Three flags changed meaning without changing their printed default, and §1
+thirty-two names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -127,6 +129,7 @@ precondition missing.
 | `--imuPredict` | bool | `false` | added 2026-10-02 | The filter's prediction takes a synthetic-IMU displacement (Physical 2.2; DC-1): a dead-reckoning error model turns the walker's true displacement into what an IMU would report -- heading error from a per-run gyro bias plus angle random walk (MPU-6050, Rudyk 2020), a per-run 2.66% scale error (OURS) -- and `PredictWithControl` predicts with it, covariance the accumulated error since the last fused fix. Own random stream. Writes `imu_<arm>_seed<N>.csv`, digested, and one `DC-1` line | NEES over 20 seeds 2.15, inside the chi^2_40/20 band [1.22, 2.97]; an independent per-step Q gives 24.6 (G40). The SHS gait engine is untouched |
 | `--caseD` | bool | `false` | added 2026-10-02 | Case D (Physical 2.4D; DC-4): a set of exactly one range is applied as a scalar measurement on the propagated state when its NIS <= 6.63 (chi^2 1 dof 0.99). Not a position fix, but the covariance is live: PCS is computed, the normal escalation decision runs, and the cycle does not count toward demotion (OURS). Writes `cased_<arm>_seed<N>.csv`, digested, and one `DC-4` line | Needs `--sparseInStep` (FATAL); without `--imuPredict` a WARNING (constant-velocity propagation). NC3 regime, seed 7: 65 cycles, 30 escalated, 0 demoted (G41) |
 | `--entryPrediction` | bool | `false` | added 2026-10-02 | A held finder entry is carried forward before use (Physical 2.2; DC-13): position x + v·age with DC-10's velocity, added variance (0.5 m/s · age)² (OURS) instead of the isotropic (walk speed · age)². Gateways are never substituted. Writes `entrypred_<arm>_seed<N>.csv`, digested, and one `DC-13` line | Needs `--entryVelocity`, or FATAL. 504 of 504 substitutions moved in the converging-finder regime (G43) |
+| `--imuWitnessSource` | string: `shs`, `model` | empty (not given) = `shs` | added 2026-10-02 | Which IMU track the `--imuCrossCheck` witness compares (final plan item 2; DC-9). `shs` is every result so far: the SHS absolute track against the EKF estimate. `model`: the synthetic IMU track (DC-1), anchored at the last fused fix and advanced by u, against the cycle's raw radio fix, tolerance K sqrt(trace R_fix + trace Sigma_acc). Counters split into evaluations, refusals and absorbed refusals. Writes `witness_<arm>_seed<N>.csv`, digested, and one `DC-9` line | `model` needs `--imuPredict` and `--imuCrossCheck`, or FATAL; any other value is FATAL. NC9 regime, seed 1: 25 evaluations and 1 refusal with the evidence gate off; with it on, 1 of 1 refusal absorbed (G44) |
 
 ## 2. Help text corrected, default unchanged
 
@@ -313,17 +316,18 @@ prints it.
 | 157 | `--identityQueryTarget` | `2` |
 | 158 | `--injectTxPowerDropDb` | `0` |
 | 159 | `--injectAntennaLossDb` | `0` |
-| 160 | `--entryPrediction` | `false` |
-| 161 | `--caseD` | `false` |
-| 162 | `--imuPredict` | `false` |
-| 163 | `--sparseInStep` | `false` |
-| 164 | `--edgeUplinkRanges` | `false` |
-| 165 | `--triggeredUpdates` | `false` |
-| 166 | `--triggeredUpdateK` | `1` |
-| 167 | `--handshakeFixes` | `false` |
-| 168 | `--queryTierBinding` | (empty) |
-| 169 | `--uwbArbitration` | `false` |
-| 170 | `--arbBatteryCapJ` | `1000` |
-| 171 | `--anchorGrantGossipS` | `0` |
-| 172 | `--suspectForcesEscalation` | `true` |
-| 173 | `--nlosSource` | `legacy` |
+| 160 | `--imuWitnessSource` | (empty) |
+| 161 | `--entryPrediction` | `false` |
+| 162 | `--caseD` | `false` |
+| 163 | `--imuPredict` | `false` |
+| 164 | `--sparseInStep` | `false` |
+| 165 | `--edgeUplinkRanges` | `false` |
+| 166 | `--triggeredUpdates` | `false` |
+| 167 | `--triggeredUpdateK` | `1` |
+| 168 | `--handshakeFixes` | `false` |
+| 169 | `--queryTierBinding` | (empty) |
+| 170 | `--uwbArbitration` | `false` |
+| 171 | `--arbBatteryCapJ` | `1000` |
+| 172 | `--anchorGrantGossipS` | `0` |
+| 173 | `--suspectForcesEscalation` | `true` |
+| 174 | `--nlosSource` | `legacy` |

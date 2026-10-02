@@ -561,6 +561,10 @@ struct CaTblPolicyConfig
     //! normal escalation decision runs, and it does not count toward demotion -- that last
     //! is OURS. Requires sparseInStep. False reproduces every prior result.
     bool caseD = false;
+    //! DC-9. Count the IMU witness's evaluations, refusals, and refusals the evidence gate
+    //! would ALSO have suppressed (absorbed), so an absorbed refusal is reported as
+    //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
+    bool witnessCounts = false;
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -687,6 +691,11 @@ struct CaTblDecision
     //! DC-4. Whether the confidence model wanted to escalate this cycle (before any
     //! precondition suppressed it) -- observable on every cycle that reaches the decision.
     bool wantedEscalation = false;
+    //! DC-9. Whether the IMU witness was evaluated this cycle, refused the escalation, and
+    //! whether the evidence gate would have refused it anyway (absorbed).
+    bool witnessEvaluated = false;
+    bool witnessRefused = false;
+    bool witnessAbsorbed = false;
 
     CaTblDecision();
 };
@@ -1141,7 +1150,17 @@ class CaTblPolicy
     uint64_t m_caseDCycles = 0;
     uint64_t m_caseDRefused = 0;
 
+    // DC-9.
+    uint64_t m_witnessEvals = 0;
+    uint64_t m_witnessAbsorbed = 0;
+    //! DC-9. Would the evidence gate's UWB branch refuse an escalation from this state?
+    //! The same tests as Step()'s, with no side effect.
+    bool UwbEvidenceWouldBlock(double traceSigma,
+                               const std::vector<CaTblRangeMeasurement>& meas) const;
+
   public:
+    uint64_t GetWitnessEvaluations() const { return m_witnessEvals; }
+    uint64_t GetWitnessAbsorbed() const { return m_witnessAbsorbed; }
     uint64_t GetCaseDCycles() const { return m_caseDCycles; }
     uint64_t GetCaseDRefused() const { return m_caseDRefused; }
 
