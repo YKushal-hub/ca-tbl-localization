@@ -299,9 +299,13 @@ CaTblPayloadBytes(CaTblMsgType t, uint32_t nEntries)
 
     case CA_TBL_MSG_GRANT_GOSSIP:
         // n_grants(1) + n x (target_id(2) + slot_start_ms(2) + slot_len_ms(2)). The spec
-        // also names the request queue Q; CaTblMac holds no queue -- a request it does not
-        // grant is dropped and the requester retries on its ACK timeout -- so there is no
-        // Q to send and no byte is billed for one.
+        // also names the request queue Q; CaTblMac holds no queue, so there is no Q to send
+        // and no byte is billed for one. What happens to a request it does not grant
+        // depends on --handshakeFixes (MC-1). By default the anchor has already ACKed the
+        // request before arbitrating, so the requester's pending copy is cleared and a
+        // denied request is NEVER retried -- this comment said it was until 2026-10-02.
+        // Under the flag the anchor answers with a GRANT saying denied and no ACK, so the
+        // requester's ACK timeout retransmits and the anchor scores the retry afresh.
         return 1 + nEntries * CA_TBL_GRANT_ITEM_BYTES;
 
     default:

@@ -62,6 +62,20 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";grants=" << h.GetGrants().size();
     }
+    // MC-1. Non-default only under --handshakeFixes, so printed only there.
+    if (t == CA_TBL_MSG_ESC_REQUEST && h.GetReqTargetTier() != 0xFF)
+    {
+        o << ";target=" << static_cast<int>(h.GetReqTargetTier());
+    }
+    if (h.GetAckedPacketId() != 0)
+    {
+        o << ";acks=" << h.GetAckedPacketId();
+    }
+    if (h.HasGrantVerdict())
+    {
+        o << ";granted=" << (h.GetGranted() ? 1 : 0)
+          << ";qpos=" << static_cast<int>(h.GetQueuePos());
+    }
     return o.str();
 }
 } // namespace
@@ -230,6 +244,18 @@ CaTblMac::Reset()
     m_grantsWithheld = 0;
     m_grantsYielded = 0;
     m_gossipRxAirtimeS = 0.0;
+    m_nextReqTargetTier = 0xFF;
+    m_nextAckedPacketId = 0;
+    m_nextHasVerdict = false;
+    m_nextGranted = true;
+    m_hsGrantsSent = 0;
+    m_hsDeniesSent = 0;
+    m_hsGrantsHeard = 0;
+    m_hsDeniesHeard = 0;
+    m_hsRequestsAnswered = 0;
+    m_hsAcksMatched = 0;
+    m_hsAcksUnmatched = 0;
+    m_hsRequestAcksSkipped = 0;
 }
 
 void
@@ -762,6 +788,29 @@ CaTblMac::SendGrantGossip(CaTblTier tier)
 }
 
 void
+CaTblMac::PrepareReply(uint32_t ackedPacketId, bool isGrant, bool granted)
+{
+    if (!m_cfg.handshakeFixes)
+    {
+        return;
+    }
+    m_nextAckedPacketId = ackedPacketId;
+    if (isGrant)
+    {
+        m_nextHasVerdict = true;
+        m_nextGranted = granted;
+        if (granted)
+        {
+            ++m_hsGrantsSent;
+        }
+        else
+        {
+            ++m_hsDeniesSent;
+        }
+    }
+}
+
+void
 CaTblMac::LogGrantVerdict(uint16_t targetId,
                           uint16_t otherId,
                           const char* source,
@@ -788,6 +837,14 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     if (m_silent)
     {
         ++m_suppressedTx;
+        if (m_cfg.handshakeFixes)
+        {
+            // MC-1: what this frame would have answered must not ride a later one.
+            m_nextReqTargetTier = 0xFF;
+            m_nextAckedPacketId = 0;
+            m_nextHasVerdict = false;
+            m_nextGranted = true;
+        }
         return;
     }
 
@@ -849,6 +906,20 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     // would attach a stale degradation figure to the next unrelated frame.
     m_nextReqDegradation = 0;
     m_nextReqBattery = 0;
+    if (m_cfg.handshakeFixes)
+    {
+        // MC-1, on the same one-frame discipline.
+        f.hdr.SetReqTargetTier(m_nextReqTargetTier);
+        f.hdr.SetAckedPacketId(m_nextAckedPacketId);
+        if (m_nextHasVerdict)
+        {
+            f.hdr.SetGrantVerdict(m_nextGranted, 0);
+        }
+        m_nextReqTargetTier = 0xFF;
+        m_nextAckedPacketId = 0;
+        m_nextHasVerdict = false;
+        m_nextGranted = true;
+    }
     f.tier = tier;
     f.nEntries = nEntries;
     f.destId = destId;
@@ -1163,8 +1234,21 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
     if (CaTblAckPolicyFor(hdr.GetMsgType()) == CA_TBL_ACK_EXPLICIT &&
         hdr.GetMsgType() != CA_TBL_MSG_ACK)
     {
-        ++Counters(CA_TBL_MSG_ACK).acksSent;
-        Send(CA_TBL_MSG_ACK, static_cast<CaTblTier>(hdr.GetTier()), 0, hdr.GetOriginId());
+        if (m_cfg.handshakeFixes && hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
+        {
+            // MC-1. No bare ACK for a request. An ACK sent here, before the arbiter below
+            // has run, told the requester "settled" whatever the arbiter then decided, so
+            // a denied request was acknowledged and never retried. An anchor answers
+            // with the GRANT below, after arbitrating; a node that is not an arbiter does
+            // not answer a request at all.
+            ++m_hsRequestAcksSkipped;
+        }
+        else
+        {
+            ++Counters(CA_TBL_MSG_ACK).acksSent;
+            PrepareReply(pid, false, true);
+            Send(CA_TBL_MSG_ACK, static_cast<CaTblTier>(hdr.GetTier()), 0, hdr.GetOriginId());
+        }
     }
 
     // ---- C1: request/response semantics (default off) ---------------------
@@ -1327,13 +1411,24 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
                 {
                     // C1 behaviour: grant whoever asked, and let CAD and the duty
                     // governor decide whether it lands.
+                    PrepareReply(hdr.GetPacketId(), true, true);
                     Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
                     granted = true;
                 }
                 else if (ArbitrateRequest(hdr))
                 {
+                    PrepareReply(hdr.GetPacketId(), true, true);
                     Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
                     granted = true;
+                }
+                else if (m_cfg.handshakeFixes)
+                {
+                    // MC-1. A denial is answered too: the requester "must know
+                    // definitively whether the grant was received" (MAC sect 8). It
+                    // carries no ACK of the request, so the requester's ACK timeout
+                    // retransmits and the arbiter scores the retry afresh.
+                    PrepareReply(hdr.GetPacketId(), true, false);
+                    Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
                 }
                 if (m_grantCoord != nullptr)
                 {
@@ -1423,14 +1518,53 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out)
         }
     }
 
+    // MC-1. A granted GRANT is the answer to the request it names: the request is
+    // settled and its timeout must not retransmit it. A denied one leaves the request
+    // pending on purpose -- the timeout retransmits it, which is the retry.
+    if (m_cfg.handshakeFixes && hdr.GetMsgType() == CA_TBL_MSG_ESC_GRANT &&
+        hdr.HasGrantVerdict())
+    {
+        if (hdr.GetGranted())
+        {
+            ++m_hsGrantsHeard;
+            std::map<uint32_t, PendingFrame>::iterator rq =
+                m_awaitingAck.find(hdr.GetAckedPacketId());
+            if (rq != m_awaitingAck.end())
+            {
+                m_awaitingAck.erase(rq);
+                ++m_hsRequestsAnswered;
+            }
+        }
+        else
+        {
+            ++m_hsDeniesHeard;
+        }
+    }
+
     if (hdr.GetMsgType() == CA_TBL_MSG_ACK)
     {
         // Clearing the pending entry is what stops the timeout from firing. The
-        // ACK payload carries the acked packet_id in the real frame; here the
-        // directed reply is matched by clearing the oldest outstanding request,
-        // which is exact whenever at most one escalation is outstanding per node
-        // -- true by construction, since a node holds at most one UWB slot.
-        if (!m_awaitingAck.empty())
+        // ACK payload carries the acked packet_id in the real frame. By default the
+        // directed reply is matched by clearing the oldest outstanding frame, which
+        // is exact only while one ACK'd frame is outstanding -- and is not, because a
+        // broadcast ESC_REQUEST draws an ACK from every node that hears it, and a
+        // RESPONSE awaits its ACK on the same list. Under --handshakeFixes (MC-1) the
+        // ACK names the frame it acknowledges and only that one is cleared.
+        if (m_cfg.handshakeFixes)
+        {
+            std::map<uint32_t, PendingFrame>::iterator ak =
+                m_awaitingAck.find(hdr.GetAckedPacketId());
+            if (ak != m_awaitingAck.end())
+            {
+                m_awaitingAck.erase(ak);
+                ++m_hsAcksMatched;
+            }
+            else
+            {
+                ++m_hsAcksUnmatched;
+            }
+        }
+        else if (!m_awaitingAck.empty())
         {
             m_awaitingAck.erase(m_awaitingAck.begin());
         }

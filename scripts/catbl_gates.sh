@@ -831,6 +831,26 @@ bash scripts/query_binding_gate.sh "$WORK/g32" || fail G32
 bash scripts/query_binding_gate_selftest.sh "$WORK/g32" || fail G32
 finish G32
 
+# ---------------- G33: the escalation handshake as MAC sect 8 specifies it (MC-1)
+# By default an ACK clears its receiver's OLDEST pending frame, an anchor ACKs a request
+# before arbitrating (so a denial is never retried), the pre-emption send carries no terms,
+# the others carry the previous cycle's, and de-escalations are signalled too.
+# --handshakeFixes fixes all five. Three runs in NC9's regime with arbitration and two peer
+# tags, read by scripts/handshake_fixes_gate.py:
+#   - --handshakeFixes=false is the default, byte for byte;
+#   - the default's bare ACKs and off-UWB requests, observed;
+#   - under the flag: every request says target=2 and sits on an escalation into UWB; every
+#     ACK names a GRANT/RESPONSE; every GRANT names a request and says granted or denied;
+#     denials are retried; the terms are this cycle's, recomputed from the trace;
+#   - the flag without handshake frames is refused.
+#
+# Negative fixtures in scripts/handshake_fixes_gate_selftest.sh, built from these runs
+# (rule 6). The MAC cases (ACK by id, deny then retry) are in ca_tbl_packet_validator [7].
+printf '\n--- G33 the escalation handshake as MAC sect 8 specifies it (MC-1) ---\n'
+bash scripts/handshake_fixes_gate.sh "$WORK/g33" || fail G33
+bash scripts/handshake_fixes_gate_selftest.sh "$WORK/g33" || fail G33
+finish G33
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

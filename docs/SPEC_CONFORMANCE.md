@@ -74,7 +74,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 32 | UWB randomised-wait initiation (MAC §5) | CONFORMANT | `ca-tbl-mac.cc:909-916` | — |
 | 33 | Flood dedup, hop limit, jitter (MAC §6) | CONFORMANT | `CaTblMac` | — |
 | 34 | 9-byte header, message taxonomy (MAC §7) | CONFORMANT | Validator 38/38 | — |
-| 35 | Selective ACK; escalation handshake on the air (MAC §8) | PARTIAL | Frames are sent only with `--sendHandshakeFrames`. An ACK clears the oldest frame, not the matching one; a denied request is ACKed before arbitration; ESC_REQUEST is also sent on de-escalations | MC-1 |
+| 35 | Selective ACK; escalation handshake on the air (MAC §8) | OPT-IN | With `--sendHandshakeFrames`, `--handshakeFixes` (MC-1, 2026-10-02, G33) gives the specified handshake: an ACK names the frame it acknowledges, an anchor arbitrates first and answers with a GRANT saying granted or denied, a denial is retried on the ACK timeout, the terms are the cycle's own, and only escalations into UWB send a request. By default: frames only with `--sendHandshakeFrames`, the oldest frame is cleared by any ACK, a denied request is ACKed before arbitration, and de-escalations are signalled. The arbiter still holds no queue (NW-5) | ~~MC-1~~ done; preset |
 | 36 | Triggered update / last gasp (MAC §3, §8) | PARTIAL | Only the RECEDING branch sends; there is no large-correction or last-gasp trigger, and no counter (M.9) | MC-2 |
 | 37 | Mobility-state message selection (MAC §9) | OPT-IN | `--mobilityFromRange` | MC-4 |
 
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 13 |
-| PARTIAL | 14 |
+| OPT-IN | 14 |
+| PARTIAL | 13 |
 | DIVERGENT | 12 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10.
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

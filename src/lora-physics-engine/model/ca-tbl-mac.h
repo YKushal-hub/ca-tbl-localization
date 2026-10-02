@@ -296,6 +296,13 @@ struct CaTblMacConfig
     double reversePathWindowS = 300.0;
     uint32_t reversePathMaxEntries = 64;
 
+    //! MC-1 (docs/SPEC_CONFORMANCE_PLAN.md). The escalation handshake as MAC sect 8
+    //! specifies it: an ACK matched by the packet id it names; an anchor that arbitrates
+    //! FIRST and answers every request with a GRANT saying granted or denied (no bare
+    //! ACK); a requester that treats a granted GRANT as the answer and retries a denied
+    //! one. False reproduces the build before it.
+    bool handshakeFixes = false;
+
     CaTblMacConfig();
 };
 
@@ -474,6 +481,18 @@ class CaTblMac
     //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
     //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
     //! so a stale value cannot leak onto an unrelated frame.
+    //! MC-1. The tier an ESC_REQUEST asks for. Consumed by the next Send(), like the
+    //! terms; read only under handshakeFixes.
+    void SetRequestTargetTier(uint8_t tier) { m_nextReqTargetTier = tier; }
+    //! MC-1 counters. All 0 unless handshakeFixes.
+    uint64_t GetHsGrantsSent() const { return m_hsGrantsSent; }
+    uint64_t GetHsDeniesSent() const { return m_hsDeniesSent; }
+    uint64_t GetHsGrantsHeard() const { return m_hsGrantsHeard; }
+    uint64_t GetHsDeniesHeard() const { return m_hsDeniesHeard; }
+    uint64_t GetHsRequestsAnswered() const { return m_hsRequestsAnswered; }
+    uint64_t GetHsAcksMatched() const { return m_hsAcksMatched; }
+    uint64_t GetHsAcksUnmatched() const { return m_hsAcksUnmatched; }
+    uint64_t GetHsRequestAcksSkipped() const { return m_hsRequestAcksSkipped; }
     void SetRequestTerms(uint8_t degradation, uint8_t battery)
     {
         m_nextReqDegradation = degradation;
@@ -669,6 +688,9 @@ class CaTblMac
     void LogGrantVerdict(uint16_t targetId, uint16_t otherId, const char* source,
                          CaTblGrantVerdict v, const char* action, double startS,
                          double endS) const;
+    //! MC-1. Names what the next Send() answers and, for a GRANT, what it says. Does
+    //! nothing unless handshakeFixes.
+    void PrepareReply(uint32_t ackedPacketId, bool isGrant, bool granted);
     uint64_t m_queriesIgnored = 0;
     DropCallback m_dropCb;
 
@@ -721,6 +743,19 @@ class CaTblMac
     uint64_t m_reversePathMisses = 0;
     std::vector<CaTblProxyCheck> m_proxyChecks;
     uint64_t m_dutyViolationAttempts;
+    // MC-1 (handshakeFixes). Consumed by the next Send(), like the C4 terms.
+    uint8_t m_nextReqTargetTier = 0xFF;
+    uint32_t m_nextAckedPacketId = 0;
+    bool m_nextHasVerdict = false;
+    bool m_nextGranted = true;
+    uint64_t m_hsGrantsSent = 0;
+    uint64_t m_hsDeniesSent = 0;
+    uint64_t m_hsGrantsHeard = 0;
+    uint64_t m_hsDeniesHeard = 0;
+    uint64_t m_hsRequestsAnswered = 0;
+    uint64_t m_hsAcksMatched = 0;
+    uint64_t m_hsAcksUnmatched = 0;
+    uint64_t m_hsRequestAcksSkipped = 0;
 };
 
 /**

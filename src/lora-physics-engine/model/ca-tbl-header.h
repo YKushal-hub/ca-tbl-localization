@@ -519,6 +519,33 @@ class CaTblHeader : public Header
     uint8_t GetReqDegradation() const { return m_reqDegradation; }
     void SetReqBattery(uint8_t b) { m_reqBattery = b; }
     uint8_t GetReqBattery() const { return m_reqBattery; }
+
+    /**
+     * \brief MC-1 (--handshakeFixes). What a reply answers, what a GRANT says, and
+     * which tier a request asks for.
+     *
+     * CaTblPayloadBytes already bills an ACK for "acked packet_id(4)", a GRANT for
+     * "granted(1) ... queue_pos(1)" and a request for its terms, and until MC-1 none of
+     * them was carried: an ACK cleared its receiver's OLDEST pending frame, whatever it
+     * acknowledged, and every GRANT meant granted. Carried, not serialised, like the C4
+     * terms above, because the bytes are already billed. All of them keep their defaults
+     * unless the MAC runs with handshakeFixes, and the event payload prints them only
+     * when they differ from those defaults -- so only under the flag.
+     */
+    void SetAckedPacketId(uint32_t id) { m_ackedPacketId = id; }
+    uint32_t GetAckedPacketId() const { return m_ackedPacketId; }
+    void SetGrantVerdict(bool granted, uint8_t queuePos)
+    {
+        m_hasGrantVerdict = true;
+        m_granted = granted;
+        m_queuePos = queuePos;
+    }
+    bool HasGrantVerdict() const { return m_hasGrantVerdict; }
+    bool GetGranted() const { return m_granted; }
+    uint8_t GetQueuePos() const { return m_queuePos; }
+    //! 0xFF: not stated, which is every request outside --handshakeFixes.
+    void SetReqTargetTier(uint8_t t) { m_reqTargetTier = t; }
+    uint8_t GetReqTargetTier() const { return m_reqTargetTier; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -546,6 +573,11 @@ class CaTblHeader : public Header
     uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
     uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input
     uint8_t m_reqBattery = 0;      //!< C4, quantised T_batt input
+    uint32_t m_ackedPacketId = 0;  //!< MC-1, carried not serialised -- see above
+    bool m_hasGrantVerdict = false; //!< MC-1
+    bool m_granted = true;          //!< MC-1
+    uint8_t m_queuePos = 0;         //!< MC-1; no queue exists until NW-5
+    uint8_t m_reqTargetTier = 0xFF; //!< MC-1
 };
 
 } // namespace ns3
