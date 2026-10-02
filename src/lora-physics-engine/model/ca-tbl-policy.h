@@ -554,6 +554,13 @@ struct CaTblPolicyConfig
     bool sparseInStep = false;
     //! The Case A/B acceptance margin in Mahalanobis units (--sparseCaseAMargin).
     double sparseMarginM = 1.0;
+    //! DC-4. Case D (Physical 2.4D): a set of exactly ONE range is applied as a scalar
+    //! measurement on the propagated state, when its innovation passes NIS <= 6.63 (chi^2,
+    //! 1 dof, 0.99 -- a distributional constant). The cycle is not a position fix (hadFix
+    //! false, fixKind CASE_D) but its covariance is live: PCS is computed from it and the
+    //! normal escalation decision runs, and it does not count toward demotion -- that last
+    //! is OURS. Requires sparseInStep. False reproduces every prior result.
+    bool caseD = false;
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -669,6 +676,13 @@ struct CaTblDecision
     uint32_t positionFuses = 0;
     //! DC-1. Whether this cycle's prediction used the IMU control.
     bool imuPredicted = false;
+    //! DC-4. On a Case D cycle: the range's NIS against the propagated state, and whether
+    //! the update went in (NIS <= 6.63). -1 / false otherwise.
+    double caseDNis = -1.0;
+    bool caseDApplied = false;
+    //! DC-4. Whether the confidence model wanted to escalate this cycle (before any
+    //! precondition suppressed it) -- observable on every cycle that reaches the decision.
+    bool wantedEscalation = false;
 
     CaTblDecision();
 };
@@ -1119,6 +1133,15 @@ class CaTblPolicy
     uint64_t m_integrityScoreEligible = 0;
     uint64_t m_integrityScoreIneligible = 0;
     uint64_t m_integrityTagFallback = 0;
+    // DC-4. Appended last.
+    uint64_t m_caseDCycles = 0;
+    uint64_t m_caseDRefused = 0;
+
+  public:
+    uint64_t GetCaseDCycles() const { return m_caseDCycles; }
+    uint64_t GetCaseDRefused() const { return m_caseDRefused; }
+
+  private:
     // DC-1. Appended last.
     bool m_imuPending = false;
     double m_imu[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
