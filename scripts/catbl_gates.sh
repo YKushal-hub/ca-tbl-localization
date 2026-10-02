@@ -905,6 +905,24 @@ bash scripts/phy_flags_gate.sh "$WORK/g36" || fail G36
 bash scripts/phy_flags_gate_selftest.sh "$WORK/g36" || fail G36
 finish G36
 
+# ---------------- G37: the transmit-power-drop and antenna-loss fault classes (SY-5)
+# The docx's evaluation induces cold-soaked batteries and detuned or covered antennas;
+# only range bias, silence and depletion existed. --injectTxPowerDropDb and
+# --injectAntennaLossDb lower the measured node's link budget over the seeded
+# --injectBiasFraction window. Four runs (seed 7, 900 s), read by
+# scripts/link_fault_gate.py:
+#   - magnitudes of 0 are no fault, byte for byte;
+#   - the window is the seeded one, and the fault acts in it and not before;
+#   - the tier-1 skew factor is 10^(dB/(10 n)), applied on > 0 links;
+#   - the drop is transmit-only, the antenna loss reciprocal;
+#   - a magnitude without its window, or a negative one, is refused.
+#
+# Negative fixtures in scripts/link_fault_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G37 the transmit-power-drop and antenna-loss fault classes (SY-5) ---\n'
+bash scripts/link_fault_gate.sh "$WORK/g37" || fail G37
+bash scripts/link_fault_gate_selftest.sh "$WORK/g37" || fail G37
+finish G37
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

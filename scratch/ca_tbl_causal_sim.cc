@@ -682,6 +682,18 @@ class EnginePhyProvider : public CaTblPhyProvider
 
     void SetNodePosition(const Vector& p) { m_nodePos = p; }
 
+    //! SY-5. The measured node's injected link-budget faults, set each cycle by the
+    //! scenario and 0, 0 outside the fault window. A transmit-power drop lowers what
+    //! the node sends; an antenna loss lowers what it sends AND what it receives, since
+    //! a detuned antenna is reciprocal.
+    void SetNodeFaultDb(double txDropDb, double antennaLossDb)
+    {
+        m_faultTxDb = txDropDb + antennaLossDb;
+        m_faultRxDb = antennaLossDb;
+    }
+    uint64_t GetFaultTxLinks() const { return m_faultTxLinks; }
+    uint64_t GetFaultRxLinks() const { return m_faultRxLinks; }
+
     //! Register an additional field node (a peer tag). The measured tag keeps its
     //! own scalar id/position rather than joining this map, so that with nTags=1
     //! the map stays empty and every branch below behaves as it did before.
@@ -710,10 +722,20 @@ class EnginePhyProvider : public CaTblPhyProvider
         if (txId == m_nodeId)
         {
             anchor = rxId;
+            if (m_faultTxDb != 0.0)
+            {
+                txPowerDbm -= m_faultTxDb; // SY-5
+                ++m_faultTxLinks;
+            }
         }
         else if (rxId == m_nodeId)
         {
             anchor = txId;
+            if (m_faultRxDb != 0.0)
+            {
+                txPowerDbm -= m_faultRxDb; // SY-5: the link is evaluated reciprocally
+                ++m_faultRxLinks;
+            }
         }
         else if (!m_peerPos.empty())
         {
@@ -955,6 +977,11 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! L.1.4. Gateways admitted to the gossip link class. EMPTY unless
     //! --anchorGrantGossipS > 0, and with it empty EvaluateFrame() is Evaluate().
     std::set<uint16_t> m_gossipAnchors;
+    //! SY-5. 0 unless the link-fault flags are on and the window is open.
+    double m_faultTxDb = 0.0;
+    double m_faultRxDb = 0.0;
+    uint64_t m_faultTxLinks = 0;
+    uint64_t m_faultRxLinks = 0;
 };
 
 /**
@@ -5017,6 +5044,9 @@ struct SpecOptions
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
     bool edgeUplinkRanges = false;
+    //! SY-5. --injectTxPowerDropDb / --injectAntennaLossDb, over the fault window.
+    double injectTxPowerDropDb = 0.0;
+    double injectAntennaLossDb = 0.0;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6344,6 +6374,23 @@ RunArm(CaTblPolicyMode mode,
     // producer published and every node holds. Untouched without the flag.
     std::vector<Vector> finderPubPrev(nFinders);
     std::vector<double> finderPubPrevT(nFinders, -1.0);
+    // SY-5. Per-run state of the link-budget faults, null without them.
+    struct LinkFaultState
+    {
+        double activeDb = 0.0; //!< drop + loss this cycle; 0 outside the window
+        double skew = 1.0;     //!< the factor a tier-1 range reads long by this cycle
+        double n = 0.0;
+        uint64_t rangingLinks = 0;
+        uint64_t skewedLinks = 0;
+        double windowStartS = 0.0;
+        double windowEndS = 0.0;
+    };
+    std::unique_ptr<LinkFaultState> linkFault;
+    if (spec.injectTxPowerDropDb > 0.0 || spec.injectAntennaLossDb > 0.0)
+    {
+        linkFault.reset(new LinkFaultState());
+        linkFault->n = cfg868.propagation.pathLossExponent.mean;
+    }
     // SY-1. Per-run tally of --edgeUplinkRanges, null without it: frames, bytes and the
     // joules they were billed, per tier.
     struct EdgeUplinkTally
@@ -7370,6 +7417,25 @@ RunArm(CaTblPolicyMode mode,
         const bool biasActive =
             (injectBiasFraction > 0.0) &&
             (t >= biasStartS) && (t < biasStartS + injectBiasFraction * durationS);
+        if (linkFault)
+        {
+            // SY-5. "Statistically clean, physically wrong": the node's own link budget
+            // drops by the injected amount over the SAME seeded window as the range bias,
+            // and nothing in the per-link statistics announces it. Tier 1 is RSSI
+            // inversion against the NOMINAL transmit power, so a drop of D dB reads as D
+            // dB of extra path loss and the range comes out long by 10^(D / (10 n)), n the
+            // 868 MHz path-loss exponent -- the single-slope form the ranging submodule
+            // uses for its own loss bias. Tiers 2 and 3 range by time of flight: there the
+            // drop costs SNR and links, not bias. Magnitudes are OURS; no draw is taken.
+            linkFault->windowStartS = biasStartS;
+            linkFault->windowEndS = biasStartS + injectBiasFraction * durationS;
+            linkFault->activeDb =
+                biasActive ? spec.injectTxPowerDropDb + spec.injectAntennaLossDb : 0.0;
+            linkFault->skew =
+                biasActive ? std::pow(10.0, linkFault->activeDb / (10.0 * linkFault->n)) : 1.0;
+            provider.SetNodeFaultDb(biasActive ? spec.injectTxPowerDropDb : 0.0,
+                                    biasActive ? spec.injectAntennaLossDb : 0.0);
+        }
 
         const bool runFloor = hybridArm && (active != CA_TBL_TIER_868);
 
@@ -7499,17 +7565,29 @@ RunArm(CaTblPolicyMode mode,
 
                 if (tier == CA_TBL_TIER_868)
                 {
-                    PhysicsResult r = engine868.ProcessTransmission(nodeId,
-                                                                    anchorId,
-                                                                    pos,
-                                                                    anchorPos,
-                                                                    phy[0].txPowerDbm,
-                                                                    phy[0].sf,
-                                                                    phy[0].bandwidthHz,
-                                                                    0,
-                                                                    now);
+                    PhysicsResult r = engine868.ProcessTransmission(
+                        nodeId,
+                        anchorId,
+                        pos,
+                        anchorPos,
+                        (linkFault && linkFault->activeDb > 0.0)
+                            ? phy[0].txPowerDbm - linkFault->activeDb
+                            : phy[0].txPowerDbm,
+                        phy[0].sf,
+                        phy[0].bandwidthHz,
+                        0,
+                        now);
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
+                    if (linkFault && linkFault->activeDb > 0.0)
+                    {
+                        ++linkFault->rangingLinks;
+                        if (received && std::isfinite(range) && range > 0.0)
+                        {
+                            range *= linkFault->skew; // SY-5: the RSSI skew, see above
+                            ++linkFault->skewedLinks;
+                        }
+                    }
                     nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
@@ -7536,15 +7614,22 @@ RunArm(CaTblPolicyMode mode,
                 }
                 else if (tier == CA_TBL_TIER_2P4)
                 {
-                    PhysicsResult2p4 r = engine2p4.ProcessTransmission(nodeId,
-                                                                       anchorId,
-                                                                       pos,
-                                                                       anchorPos,
-                                                                       phy[1].txPowerDbm,
-                                                                       phy[1].sf,
-                                                                       phy[1].bandwidthHz,
-                                                                       0,
-                                                                       now);
+                    PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                        nodeId,
+                        anchorId,
+                        pos,
+                        anchorPos,
+                        (linkFault && linkFault->activeDb > 0.0)
+                            ? phy[1].txPowerDbm - linkFault->activeDb
+                            : phy[1].txPowerDbm,
+                        phy[1].sf,
+                        phy[1].bandwidthHz,
+                        0,
+                        now);
+                    if (linkFault && linkFault->activeDb > 0.0)
+                    {
+                        ++linkFault->rangingLinks;
+                    }
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
                     nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
@@ -7603,15 +7688,22 @@ RunArm(CaTblPolicyMode mode,
                 }
                 else
                 {
-                    PhysicsResultUWB r = engineUwb.ProcessTransmission(nodeId,
-                                                                       anchorId,
-                                                                       pos,
-                                                                       anchorPos,
-                                                                       phy[2].txPowerDbm,
-                                                                       phy[2].sf,
-                                                                       phy[2].bandwidthHz,
-                                                                       0,
-                                                                       now);
+                    PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                        nodeId,
+                        anchorId,
+                        pos,
+                        anchorPos,
+                        (linkFault && linkFault->activeDb > 0.0)
+                            ? phy[2].txPowerDbm - linkFault->activeDb
+                            : phy[2].txPowerDbm,
+                        phy[2].sf,
+                        phy[2].bandwidthHz,
+                        0,
+                        now);
+                    if (linkFault && linkFault->activeDb > 0.0)
+                    {
+                        ++linkFault->rangingLinks;
+                    }
                     received = r.packetReceived;
                     range = r.estimatedRangeM;
                     nlos = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS, r.hiddenChannelState);
@@ -9344,6 +9436,22 @@ RunArm(CaTblPolicyMode mode,
                           << " grants\n";
             }
         }
+    }
+    // SY-5. The fault window and what it touched. Printed only under the flags.
+    if (linkFault)
+    {
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    SY-5 link fault: window [" << std::setprecision(9) << linkFault->windowStartS
+             << ", " << linkFault->windowEndS << ") s, tx-power drop " << spec.injectTxPowerDropDb
+             << " dB, antenna loss " << spec.injectAntennaLossDb << " dB, n "
+             << linkFault->n << ", tier-1 skew x"
+             << std::pow(10.0, (spec.injectTxPowerDropDb + spec.injectAntennaLossDb) /
+                                   (10.0 * linkFault->n))
+             << "; ranging links attenuated " << linkFault->rangingLinks
+             << ", tier-1 ranges skewed " << linkFault->skewedLinks << "; MAC links attenuated "
+             << "tx " << provider.GetFaultTxLinks() << " rx " << provider.GetFaultRxLinks()
+             << "\n";
+        std::cout << line.str();
     }
     // SY-1. The uplink frames billed, per tier. Printed only under the flag.
     if (edgeUp)
@@ -11546,6 +11654,26 @@ main(int argc, char* argv[])
                  "must correctly ignore it -- which is the observation that shows "
                  "scoping works rather than that flooding works.",
                  identityQueryTargetArg);
+    cmd.AddValue("injectTxPowerDropDb",
+                 "Fault class: the measured node's transmit power drops by this many dB "
+                 "over the --injectBiasFraction window, as a cold-sagged battery does (the "
+                 "docx's 'cold-sagged battery RSSI skew'; exec plan Phase 5 'cold-soaking a "
+                 "battery'; docs/SPEC_CONFORMANCE_PLAN.md SY-5). 0 (default) injects nothing. "
+                 "Every link the node transmits on loses that much budget, and tier 1, which "
+                 "inverts RSSI against the NOMINAL power, reads each range long by "
+                 "10^(D/(10 n)) -- statistically clean and physically wrong, the case the "
+                 "integrity check exists for. The magnitude is OURS; no random draw is taken. "
+                 "Needs --injectBiasFraction > 0. Prints one SY-5 line.",
+                 spec.injectTxPowerDropDb);
+    cmd.AddValue("injectAntennaLossDb",
+                 "Fault class: the measured node's antenna loses this many dB over the "
+                 "--injectBiasFraction window, as one detuned by ice does (the docx's "
+                 "'antenna detuning from ice'; 'deliberately covering an antenna'; SY-5). 0 "
+                 "(default) injects nothing. Unlike --injectTxPowerDropDb it is reciprocal: "
+                 "frames the node RECEIVES lose it too, so its neighbour tables thin. Tier 1 "
+                 "reads long by the same rule. OURS in magnitude, no draw. Needs "
+                 "--injectBiasFraction > 0.",
+                 spec.injectAntennaLossDb);
     cmd.AddValue("edgeUplinkRanges",
                  "Bill the uplink that carries a tier-2 or tier-3 range to the gateway "
                  "estimator (TECH_DEBT L.2.3; docs/SPEC_CONFORMANCE_PLAN.md SY-1). READ ONLY "
@@ -11984,6 +12112,16 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
+        return 1;
+    }
+    // SY-5. The faults ride the seeded window; without one they would never act.
+    if (!(spec.injectTxPowerDropDb >= 0.0) || !(spec.injectAntennaLossDb >= 0.0) ||
+        ((spec.injectTxPowerDropDb > 0.0 || spec.injectAntennaLossDb > 0.0) &&
+         !(injectBiasFraction > 0.0)))
+    {
+        std::cerr << "FATAL: --injectTxPowerDropDb and --injectAntennaLossDb take a value >= 0 "
+                  << "and, when > 0, need --injectBiasFraction > 0: the fault acts over that "
+                  << "window\n";
         return 1;
     }
     // SY-1. Without the edge estimator the node fuses its own ranges and nothing goes up.
