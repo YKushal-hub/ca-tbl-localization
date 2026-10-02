@@ -1169,6 +1169,12 @@ produce, so each is a change of its own, with its own null control:
   and a UWB-labelled one is timed as a UWB frame. Every identity-query and proxy count to
   date carries this. It does not move L.2.5: the only
   tables holding a casualty entry are the finders' 868 tables, which are the ones asked.
+  - *2026-10-01, NW-3:* `--queryTierBinding=per-tier` binds each driver to its tier's
+    radio (gate G32).
+  - More precisely, what the old binding did: G32 decomposes the bound MAC's QUERY
+    airtime exactly. The "2.4 GHz" queries were billed at 868 MHz's time on air, and the
+    UWB-labelled ones at the UWB frame time, all on the 868 MHz radio.
+  - The default is unchanged, so this entry stands for every result so far.
 - **The casualty's entry is one cycle older than its stamp.** `PublishSelfEntry(policy.EstX
   ...)` runs before `policy.Step` in the per-cycle loop, so the entry stamped `t` carries
   the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in

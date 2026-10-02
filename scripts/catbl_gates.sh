@@ -810,6 +810,27 @@ bash scripts/entry_velocity_gate.sh "$WORK/g31" || fail G31
 bash scripts/entry_velocity_gate_selftest.sh "$WORK/g31" || fail G31
 finish G31
 
+# ---------------- G32: each tier's identity-query driver sends on its own radio (NW-3)
+# Every tier's C3 query driver was bound to the first anchor MAC -- gateway 101's 868 MHz
+# radio -- so a "2.4 GHz" query went out with 868 MHz's SF and bandwidth (TECH_DEBT L.2).
+# --queryTierBinding=per-tier binds each to that tier's radio; given explicitly, either value
+# prints the binding. Three runs in NC5's query regime, read by
+# scripts/query_binding_gate.py:
+#   - explicit first is the default, byte for byte;
+#   - under first, the bound MAC's airtime decomposes EXACTLY into 868 MHz and UWB frame
+#     times -- the defect, observed;
+#   - under per-tier, each driver is on its tier's radio at that tier's time on air,
+#     recomputed from the Semtech and 802.15.4z formulas;
+#   - the flag without queries is refused.
+#
+# Negative fixtures in scripts/query_binding_gate_selftest.sh, built from these runs,
+# including per-tier binding nothing (the tree before NW-3) and a 2.4 GHz driver billed at
+# 868 MHz airtime (rule 6).
+printf '\n--- G32 each query driver sends on its own tier radio (NW-3) ---\n'
+bash scripts/query_binding_gate.sh "$WORK/g32" || fail G32
+bash scripts/query_binding_gate_selftest.sh "$WORK/g32" || fail G32
+finish G32
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

@@ -87,7 +87,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 40 | Routing table, ETX baseline (Net §2) | OPT-IN | `--fixRouting`, relays only | NW-2 |
 | 41 | Confidence-weighted path selection for position-fix traffic (Net §3) | PARTIAL | `--fixRoutingConfidence`; the measured tag's traffic is never routed; α, β, γ are uncalibrated | NW-2 |
 | 42 | Hop provenance reaches confidence and the RESULT (Phys 2.5, Net, Transp §3) | PARTIAL | Σ inflation exists (C5). The hop count reaches `Step` and RESULT as a literal 0; per-hop variance is missing | NW-1 |
-| 43 | Identity-scoped QUERY, tier binding (Net §4) | PARTIAL | `--identityQueryPeriodS`; every driver is bound to the 868 MAC (L.2) | NW-3 |
+| 43 | Identity-scoped QUERY, tier binding (Net §4) | PARTIAL | `--identityQueryPeriodS`. By default every driver is bound to gateway 101's 868 MHz MAC (L.2): G32 shows that the "2.4 GHz" queries were billed at 868 MHz airtime. `--queryTierBinding=per-tier` (NW-3, 2026-10-01, G32) binds each tier's driver to that tier's radio. Still PARTIAL: QUERY carries one manifest and nothing handles the RESPONSE at the requester (NW-9, TA-1) | ~~NW-3~~ done; NW-9 |
 | 44 | QUERY/RESPONSE contents; the answering node stops the flood (Net §4) | DIVERGENT | Single manifest, no priority carried, empty RESPONSE, no requester handler; answering nodes still rebroadcast | NW-9 |
 | 45 | Proxy response with a staleness bound (Net §4) | OPT-IN | `--queryProxy`; the bound was measured at L.2.5 | preset |
 | 46 | Query-triggered UWB escalation (Net §4) | ABSENT | No path from QUERY to escalation | NW-4 |

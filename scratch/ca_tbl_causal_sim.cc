@@ -4941,6 +4941,10 @@ struct SpecOptions
     bool integrityNlosFromScore = false;
     //! DC-10. --entryVelocity: table entries carry the producer's velocity.
     bool entryVelocity = false;
+    //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
+    //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
+    //! that tier's radio. Given explicitly, either value prints the binding.
+    std::string queryTierBinding;
 };
 
 /**
@@ -5740,6 +5744,15 @@ RunArm(CaTblPolicyMode mode,
             for (size_t m = 0; m < macs.size(); ++m)
             {
                 if (macs[m].GetIdentityClass() != CA_TBL_ID_ANCHOR)
+                {
+                    continue;
+                }
+                // NW-3. per-tier: the first anchor MAC ON THIS TIER'S CHANNEL, the radio
+                // the query claims to use. Otherwise the first anchor MAC of all -- gateway
+                // 101's 868 MHz radio for every tier -- which is what every C3 result used:
+                // a "2.4 GHz" query sent with 868 MHz's SF and bandwidth, charged to its
+                // duty budget and heard by 868 MHz radios.
+                if (spec.queryTierBinding == "per-tier" && macs[m].GetChannel() != &chan[ti])
                 {
                     continue;
                 }
@@ -9086,6 +9099,30 @@ RunArm(CaTblPolicyMode mode,
                       << ", correctly ignored " << qi << "\n";
         }
     }
+    // NW-3. Which radio each tier's query driver actually used, and what its queries cost
+    // there. Printed only when --queryTierBinding is given, either value.
+    if (!spec.queryTierBinding.empty())
+    {
+        for (size_t q = 0; q < queries.size(); ++q)
+        {
+            const CaTblMac* qm = queries[q].mac;
+            int radio = -1;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (qm->GetChannel() == &chan[ti])
+                {
+                    radio = ti;
+                }
+            }
+            const CaTblMsgCounters& qc = qm->GetCounters(CA_TBL_MSG_QUERY);
+            std::ostringstream line; // its own stream: cout's precision is left alone
+            line << "    NW-3 query driver tier " << static_cast<int>(queries[q].tier)
+                 << ": node " << qm->GetNodeId() << " radio " << radio << ", QUERY sent "
+                 << qc.sent << " airtime " << std::setprecision(9) << qc.airtimeS << " s ("
+                 << spec.queryTierBinding << ")\n";
+            std::cout << line.str();
+        }
+    }
 
     // Net sect 4 / Trans sect 1. The counters existed and NOTHING PRINTED THEM, so the
     // positive control for --queryProxy and --reversePath had no observable to check --
@@ -11145,6 +11182,16 @@ main(int argc, char* argv[])
                  "must correctly ignore it -- which is the observation that shows "
                  "scoping works rather than that flooding works.",
                  identityQueryTargetArg);
+    cmd.AddValue("queryTierBinding",
+                 "Which radio each tier's identity-query driver sends on: first|per-tier "
+                 "(docs/SPEC_CONFORMANCE_PLAN.md NW-3). Not given, or first, is the build "
+                 "before: every tier's driver is bound to the first anchor MAC, gateway "
+                 "101's 868 MHz radio, so a '2.4 GHz' query goes out with 868 MHz's SF and "
+                 "bandwidth, is charged to that radio's duty budget, and is heard by 868 MHz "
+                 "radios. per-tier binds each driver to the same gateway's radio on that "
+                 "tier. Given explicitly, either value prints the binding on stdout. Needs "
+                 "--identityQueryPeriodS > 0, where the drivers exist.",
+                 spec.queryTierBinding);
     cmd.AddValue("uwbArbitration",
                  "Whether anchors arbitrate between competing UWB requests rather "
                  "than granting whoever asked. False (default) is the C1 "
@@ -11505,6 +11552,20 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --integrityNlosFromScore needs --nlosClassifier=true: without it "
                   << "no link carries a score and the tag would decide on every cycle\n";
+        return 1;
+    }
+    if (!spec.queryTierBinding.empty() && spec.queryTierBinding != "first" &&
+        spec.queryTierBinding != "per-tier")
+    {
+        std::cerr << "FATAL: --queryTierBinding must be first or per-tier, got '"
+                  << spec.queryTierBinding << "'\n";
+        return 1;
+    }
+    // NW-3. Without queries there is no driver to bind, and the flag would do nothing.
+    if (!spec.queryTierBinding.empty() && !(identityQueryPeriodSArg > 0.0))
+    {
+        std::cerr << "FATAL: --queryTierBinding needs --identityQueryPeriodS > 0: without "
+                  << "queries there is no driver to bind\n";
         return 1;
     }
     if (pcsNlosClassifierArg && pcsForm == CA_TBL_PCS_V2)
