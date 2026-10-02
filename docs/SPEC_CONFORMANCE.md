@@ -75,7 +75,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 33 | Flood dedup, hop limit, jitter (MAC §6) | CONFORMANT | `CaTblMac` | — |
 | 34 | 9-byte header, message taxonomy (MAC §7) | CONFORMANT | Validator 38/38 | — |
 | 35 | Selective ACK; escalation handshake on the air (MAC §8) | OPT-IN | With `--sendHandshakeFrames`, `--handshakeFixes` (MC-1, 2026-10-02, G33) gives the specified handshake: an ACK names the frame it acknowledges, an anchor arbitrates first and answers with a GRANT saying granted or denied, a denial is retried on the ACK timeout, the terms are the cycle's own, and only escalations into UWB send a request. By default: frames only with `--sendHandshakeFrames`, the oldest frame is cleared by any ACK, a denied request is ACKed before arbitration, and de-escalations are signalled. The arbiter still holds no queue (NW-5) | ~~MC-1~~ done; preset |
-| 36 | Triggered update / last gasp (MAC §3, §8) | PARTIAL | Only the RECEDING branch sends; there is no large-correction or last-gasp trigger, and no counter (M.9) | MC-2 |
+| 36 | Triggered update / last gasp (MAC §3, §8) | OPT-IN | `--triggeredUpdates` (MC-2, 2026-10-02, G34): a LARGE CORRECTION -- the posterior moving more than k sqrt(trace P) from the prediction, k = `--triggeredUpdateK` = 1 (OURS; k = 3 never fires, a Kalman update moves the mean by about one prior sigma) -- pushes the corrected entry with the redundant class's 3 jittered repeats; a LAST GASP goes once, unrepeated, before a flat battery silences the radio. Both billed on the tier that transmitted; counted (M.9). By default only the RECEDING branch sends. A silenced radio still forwards floods (TECH_DEBT N.1) | ~~MC-2~~ done; preset |
 | 37 | Mobility-state message selection (MAC §9) | OPT-IN | `--mobilityFromRange` | MC-4 |
 
 ### Network layer
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 14 |
-| PARTIAL | 13 |
+| OPT-IN | 15 |
+| PARTIAL | 12 |
 | DIVERGENT | 12 (one of them, row 17, kept) |
 | ABSENT | 2 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

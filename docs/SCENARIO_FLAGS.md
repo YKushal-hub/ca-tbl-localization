@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 154 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 156 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,18 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 141 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 149 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 151 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 148 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 150 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
+- `--triggeredUpdates` (row 148 of §3, and its §1 row): added with the default `false`
+  (MC-2). Every row after it moved down one.
+- `--triggeredUpdateK` (row 149 of §3, and its §1 row): added with the default `1`
+  (MC-2). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-twelve names. Three flags changed meaning without changing their printed default, and §1
+fourteen names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -96,6 +100,8 @@ precondition missing.
 | `--entryVelocity` | bool | `false` | added 2026-10-01 | Table entries carry the producer's velocity (Physical 2.1, DC-10): a field node its EKF velocity, a finder its GNSS velocity (displacement over the time since its last publication), a gateway 0. Writes `entries_<arm>_seed<N>.csv` (what each producer published, what every node holds, once per cycle), digested | The default publishes 0,0, as every result so far did. Nothing reads the fields yet, so the flag moves no other output byte for byte (G31) |
 | `--queryTierBinding` | string: `first`, `per-tier` | empty (not given) = `first` | added 2026-10-01 | Which radio each tier's identity-query driver sends on (NW-3). `first` is every result so far: all three drivers on gateway 101's 868 MHz radio, so "2.4 GHz" queries go out at 868 MHz's time on air and are heard by 868 MHz radios. `per-tier` binds each to that tier's radio. Given explicitly, either value prints the binding on stdout | Needs `--identityQueryPeriodS > 0`, or FATAL; any other value is FATAL. Explicit `first` is the default byte for byte (G32) |
 | `--handshakeFixes` | bool | `false` | added 2026-10-02 | The escalation handshake as MAC §8 specifies it (MC-1): an ACK names the frame it acknowledges; an anchor arbitrates first and answers every request with a GRANT saying granted or denied, never a bare ACK; a denial is retried on the ACK timeout; requests carry this cycle's terms (the pre-emption send carried none) and `target=2`; only escalations into UWB send a request. Prints one `MC-1 handshake:` line per arm | Needs `--sendHandshakeFrames=true`, or FATAL. Every frame, the energy and the duty move under it. In G33's regime (NC9 + arbitration + 2 peer tags, seed 1) it answers 205 denials, retries 162 requests and matches 196 ACKs by id, 0 unmatched |
+| `--triggeredUpdates` | bool | `false` | added 2026-10-02 | The spec's triggered update and last gasp (MAC §3, §8; MC-2) for the measured node: a large correction (the posterior moves more than `--triggeredUpdateK` sqrt(trace P) from the prediction) pushes the corrected entry with the redundant class's 3 jittered repeats; when `--batteryDepleteJ` is crossed one unrepeated last gasp goes out before the radio is silenced. Billed on the tier that transmitted. Writes `triggered_<arm>_seed<N>.csv`, digested, and one `MC-2` line | Frames, energy and duty move. At seed 7 × 900 s with a 3 J battery: 1 large correction, 1 last gasp (G34). A silenced radio still forwards floods (TECH_DEBT N.1) |
+| `--triggeredUpdateK` | double | `1` | added 2026-10-02 | How far, in sqrt(trace P) of the previous posterior, the posterior must move from the prediction to be a large correction (MC-2). 1 is OURS: the mesh's copy is then off by more than the uncertainty it was published with | FATAL unless > 0, and FATAL without `--triggeredUpdates`. The plan's draft 3 never fires: a Kalman update moves the mean by about one prior sigma at most (1.05 over 359 cycles) |
 
 ## 2. Help text corrected, default unchanged
 
@@ -270,10 +276,12 @@ prints it.
 | 145 | `--nTags` | `1` |
 | 146 | `--identityQueryPeriodS` | `0` |
 | 147 | `--identityQueryTarget` | `2` |
-| 148 | `--handshakeFixes` | `false` |
-| 149 | `--queryTierBinding` | (empty) |
-| 150 | `--uwbArbitration` | `false` |
-| 151 | `--arbBatteryCapJ` | `1000` |
-| 152 | `--anchorGrantGossipS` | `0` |
-| 153 | `--suspectForcesEscalation` | `true` |
-| 154 | `--nlosSource` | `legacy` |
+| 148 | `--triggeredUpdates` | `false` |
+| 149 | `--triggeredUpdateK` | `1` |
+| 150 | `--handshakeFixes` | `false` |
+| 151 | `--queryTierBinding` | (empty) |
+| 152 | `--uwbArbitration` | `false` |
+| 153 | `--arbBatteryCapJ` | `1000` |
+| 154 | `--anchorGrantGossipS` | `0` |
+| 155 | `--suspectForcesEscalation` | `true` |
+| 156 | `--nlosSource` | `legacy` |

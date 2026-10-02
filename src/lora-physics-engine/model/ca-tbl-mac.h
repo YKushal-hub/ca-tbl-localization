@@ -481,6 +481,23 @@ class CaTblMac
     //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
     //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
     //! so a stale value cannot leak onto an unrelated frame.
+    /**
+     * \brief MC-2. A TRIGGERED_UPDATE carrying this node's own entry and why it was sent
+     * (1 = large correction, 2 = last gasp).
+     *
+     * A large correction goes like any TRIGGERED_UPDATE, with the redundant class's
+     * jittered repeats. A last gasp goes ONCE and unrepeated, because the caller silences
+     * the radio straight after. SetSilent() gates Send() only, so a frame already queued
+     * still leaves -- which is what lets the last gasp out -- but repeats would leak past
+     * the silence, and a dead battery sends nothing more.
+     */
+    void SendTriggeredUpdate(CaTblTier tier, uint8_t reason);
+    //! MC-2. Time on air of a frame of this type on this MAC, as DoTransmit computes it.
+    double FrameAirtimeS(CaTblMsgType type, CaTblTier tier, uint32_t nEntries) const;
+    //! MC-2. TRIGGERED_UPDATE frames with a reason this node originated and transmitted
+    //! (repeats included), and receptions here of such frames, by reason (1, 2).
+    uint64_t GetTrigFramesSent() const { return m_trigFramesSent; }
+    uint64_t GetTrigHeard(uint8_t reason) const { return reason < 3 ? m_trigHeard[reason] : 0; }
     //! MC-1. The tier an ESC_REQUEST asks for. Consumed by the next Send(), like the
     //! terms; read only under handshakeFixes.
     void SetRequestTargetTier(uint8_t tier) { m_nextReqTargetTier = tier; }
@@ -756,6 +773,10 @@ class CaTblMac
     uint64_t m_hsAcksMatched = 0;
     uint64_t m_hsAcksUnmatched = 0;
     uint64_t m_hsRequestAcksSkipped = 0;
+    // MC-2 (triggered updates).
+    uint8_t m_nextTriggerReason = 0; //!< consumed by the next Send()
+    uint64_t m_trigFramesSent = 0;
+    uint64_t m_trigHeard[3] = {0, 0, 0};
 };
 
 /**
