@@ -30,7 +30,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 
 | # | mechanism (docx §) | status | evidence | plan |
 |---|---|---|---|---|
-| 1 | Tier-1 868 MHz LoRa CSS link (Phys 1.1) | CONFORMANT | `LoRaPhysicsEngine`; r80 1515 m. SF/BW is fixed at SF7/125 kHz, whereas the spec says "configurable" | SY-3 (flag) |
+| 1 | Tier-1 868 MHz LoRa CSS link (Phys 1.1) | CONFORMANT | `LoRaPhysicsEngine`; r80 1515 m at the default SF7/125 kHz. SF and BW are configurable since 2026-10-02 (SY-3, G36): `--sf868` SF7-SF12, `--bw868` 125/250/500 kHz, and the tier-2 pair `--sf2p4`/`--bw2p4`. A non-default bandwidth shifts the engine's sensitivity table by 10 log10(BW/BW0), read back per arm | ~~SY-3~~ done |
 | 2 | Tier-1 RSSI log-distance ranging (Phys 1.1) | CONFORMANT | `lora-ranging-submodule.cc` | — |
 | 3 | Tier-1 TDoA, Chan/Taylor, combined with RSSI (Phys 1.1) | OPT-IN | `--tier1Tdoa`, `7377ed0`; J.2 item 4 (σ) is not done | PH-1 |
 | 4 | Tier-2 symmetric two-way ToF (Phys 1.2) | CONFORMANT | `LoRa2p4PhysicsEngine`, floor 3.0 m (Zhou et al.) | — |

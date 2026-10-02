@@ -1880,6 +1880,17 @@ static bool g_terrainPerTierFreq = false;
 // same reason as the one above: written once after cmd.Parse(), read by the macro.
 static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
 
+// SY-3. Receiver sensitivity offset for a bandwidth other than the one each engine's table
+// was written for (868 MHz: 125 kHz; 2.4 GHz: the 800 kHz this scenario has always used).
+// LoRa sensitivity scales with the noise bandwidth, 10*log10(BW/BW0) dB, which is how the
+// Semtech datasheet tables step between bandwidths. Written once after cmd.Parse(), read by
+// the macro below; 0 (every default) leaves the tables untouched.
+static double g_sensShiftDb868 = 0.0;
+static double g_sensShiftDb2p4 = 0.0;
+//! SY-3. True when any of --sf868/--bw868/--sf2p4/--bw2p4 was given: RunArm then prints the
+//! sensitivity its engines were actually configured with.
+static bool g_sy3Given = false;
+
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
                                                            WEATHER_CLEAR_DRY,                      \
@@ -1911,6 +1922,20 @@ static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
         /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
         c2p4.terrain.frequencyHz = 2.4e9;                                                          \
         cUwb.terrain.frequencyHz = 7.9872e9;                                                       \
+    }                                                                                              \
+    if (g_sensShiftDb868 != 0.0)                                                                   \
+    {                                                                                              \
+        for (int sfi = 0; sfi < 6; ++sfi)                                                          \
+        {                                                                                          \
+            c868.receiver.sensitivityDbm[sfi] += g_sensShiftDb868;                                 \
+        }                                                                                          \
+    }                                                                                              \
+    if (g_sensShiftDb2p4 != 0.0)                                                                   \
+    {                                                                                              \
+        for (int sfi = 0; sfi < 8; ++sfi)                                                          \
+        {                                                                                          \
+            c2p4.receiver.sensitivityDbm[sfi] += g_sensShiftDb2p4;                                 \
+        }                                                                                          \
     }
 
 /**
@@ -5196,6 +5221,19 @@ RunArm(CaTblPolicyMode mode,
     RngSeedManager::ResetNextStreamIndex();
 
     CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, cfg868, cfg2p4, cfgUwb)
+    if (g_sy3Given)
+    {
+        // SY-3. Read back from the configs the engines are about to be built from, so the
+        // sensitivity offset is observed where it acts, not where it was computed.
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    SY-3 engine sensitivity: 868 MHz SF" << int(phy[0].sf) << " "
+             << std::setprecision(9)
+             << cfg868.receiver.sensitivityDbm[std::min(5, std::max(0, int(phy[0].sf) - 7))]
+             << " dBm; 2.4 GHz SF" << int(phy[1].sf) << " "
+             << cfg2p4.receiver.sensitivityDbm[std::min(7, std::max(0, int(phy[1].sf) - 5))]
+             << " dBm\n";
+        std::cout << line.str();
+    }
 
     LoRaPhysicsEngine engine868;
     engine868.Initialize(cfg868);
@@ -10023,6 +10061,11 @@ main(int argc, char* argv[])
     // energy-only at defaults. Pass false to reproduce anything measured before,
     // results/regen27_* included.
     bool gatewayEdgeServerArg = true;
+    // SY-3. 0 = not given: the literal phy[] defaults stand.
+    uint32_t sf868Arg = 0;
+    double bw868Arg = 0.0;
+    uint32_t sf2p4Arg = 0;
+    double bw2p4Arg = 0.0;
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -11435,6 +11478,30 @@ main(int argc, char* argv[])
                  "guesses, so mapping it onto a ground-level SAR link is OURS. Any other value is "
                  "FATAL.",
                  uwbNlosModelSpec);
+    cmd.AddValue("sf868",
+                 "Tier-1 (868 MHz) spreading factor, SF7-SF12 (Physical 1.1: 'configurable "
+                 "spreading factor'; docs/SPEC_CONFORMANCE_PLAN.md SY-3). Not given (0) is "
+                 "SF7, which every result used: the fastest frame, so the most cycles fit "
+                 "the 2.5% duty cap. A higher SF reaches further (the sensitivity table, "
+                 "-123 dBm at SF7 to -137 dBm at SF12) at a longer time on air, so duty, "
+                 "energy and every frame move. Prints one SY-3 line.",
+                 sf868Arg);
+    cmd.AddValue("bw868",
+                 "Tier-1 bandwidth in Hz: 125000, 250000 or 500000 (Physical 1.1; SY-3). Not "
+                 "given (0) is 125 kHz, the bandwidth the 868 MHz sensitivity table was "
+                 "written for. Another value shifts that table by 10*log10(BW/125 kHz) dB "
+                 "(noise bandwidth), so a wider channel is faster and hears less far.",
+                 bw868Arg);
+    cmd.AddValue("sf2p4",
+                 "Tier-2 (2.4 GHz) spreading factor, SF5-SF12 (the SX1280 table; SY-3). Not "
+                 "given (0) is SF7, every result so far.",
+                 sf2p4Arg);
+    cmd.AddValue("bw2p4",
+                 "Tier-2 bandwidth in Hz: 203125, 406250, 812500 or 1625000 (SX1280), or "
+                 "800000 (SY-3). Not given (0) is 800 kHz, which every result used and which "
+                 "is not an SX1280 setting -- recorded, not changed. Another value shifts the "
+                 "2.4 GHz sensitivity table by 10*log10(BW/800 kHz) dB.",
+                 bw2p4Arg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -12125,6 +12192,76 @@ main(int argc, char* argv[])
     TierPhy phy[CA_TBL_TIER_COUNT];
     phy[CA_TBL_TIER_868] = {7, 125e3, 14.0};
     phy[CA_TBL_TIER_2P4] = {7, 800e3, 12.5};
+    // SY-3. Physical 1.1: "configurable spreading factor (SF7-SF12) and bandwidth
+    // (125/250/500 kHz)". Applied only when a flag was given, so the defaults above stay
+    // the literal values every result used.
+    if (sf868Arg != 0 || bw868Arg != 0.0 || sf2p4Arg != 0 || bw2p4Arg != 0.0)
+    {
+        g_sy3Given = true;
+        if (sf868Arg != 0 && (sf868Arg < 7 || sf868Arg > 12))
+        {
+            std::cerr << "FATAL: --sf868=" << sf868Arg << " is outside SF7-SF12, the range "
+                      << "of the 868 MHz sensitivity table (and of Physical 1.1)\n";
+            return 1;
+        }
+        if (bw868Arg != 0.0 && bw868Arg != 125e3 && bw868Arg != 250e3 && bw868Arg != 500e3)
+        {
+            std::cerr << "FATAL: --bw868=" << bw868Arg << " must be 125000, 250000 or 500000 Hz "
+                      << "(Physical 1.1)\n";
+            return 1;
+        }
+        if (sf2p4Arg != 0 && (sf2p4Arg < 5 || sf2p4Arg > 12))
+        {
+            std::cerr << "FATAL: --sf2p4=" << sf2p4Arg << " is outside SF5-SF12, the range of "
+                      << "the 2.4 GHz sensitivity table\n";
+            return 1;
+        }
+        if (bw2p4Arg != 0.0 && bw2p4Arg != 203125.0 && bw2p4Arg != 406250.0 &&
+            bw2p4Arg != 800e3 && bw2p4Arg != 812500.0 && bw2p4Arg != 1625000.0)
+        {
+            std::cerr << "FATAL: --bw2p4=" << bw2p4Arg << " must be one of the SX1280 LoRa "
+                      << "bandwidths 203125, 406250, 812500, 1625000 Hz, or 800000 (the "
+                      << "default)\n";
+            return 1;
+        }
+        if (sf868Arg != 0)
+        {
+            phy[CA_TBL_TIER_868].sf = static_cast<uint8_t>(sf868Arg);
+        }
+        if (bw868Arg != 0.0)
+        {
+            phy[CA_TBL_TIER_868].bandwidthHz = bw868Arg;
+            g_sensShiftDb868 = 10.0 * std::log10(bw868Arg / 125e3);
+        }
+        if (sf2p4Arg != 0)
+        {
+            phy[CA_TBL_TIER_2P4].sf = static_cast<uint8_t>(sf2p4Arg);
+        }
+        if (bw2p4Arg != 0.0)
+        {
+            phy[CA_TBL_TIER_2P4].bandwidthHz = bw2p4Arg;
+            g_sensShiftDb2p4 = 10.0 * std::log10(bw2p4Arg / 800e3);
+        }
+        std::ostringstream line;
+        line << "  SY-3 PHY: 868 MHz SF" << int(phy[CA_TBL_TIER_868].sf) << " BW "
+             << std::setprecision(9) << phy[CA_TBL_TIER_868].bandwidthHz
+             << " Hz sensitivity offset " << g_sensShiftDb868 << " dB DISCOVERY time on air "
+             << CaTblEnergyModel::LoRaTimeOnAirS(phy[CA_TBL_TIER_868].sf,
+                                                 phy[CA_TBL_TIER_868].bandwidthHz,
+                                                 CA_TBL_MAC_HEADER_BYTES +
+                                                     CaTblPayloadBytes(CA_TBL_MSG_DISCOVERY, 1),
+                                                 1)
+             << " s; 2.4 GHz SF" << int(phy[CA_TBL_TIER_2P4].sf) << " BW "
+             << phy[CA_TBL_TIER_2P4].bandwidthHz << " Hz sensitivity offset "
+             << g_sensShiftDb2p4 << " dB DISCOVERY time on air "
+             << CaTblEnergyModel::LoRaTimeOnAirS(phy[CA_TBL_TIER_2P4].sf,
+                                                 phy[CA_TBL_TIER_2P4].bandwidthHz,
+                                                 CA_TBL_MAC_HEADER_BYTES +
+                                                     CaTblPayloadBytes(CA_TBL_MSG_DISCOVERY, 1),
+                                                 1)
+             << " s\n";
+        std::cout << line.str();
+    }
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
     // C5_INSTANT. The round's slots are disjoint in the registry only while the relay
     // tier's airtime is shorter than a slot; the engines register 2^sf / bw * 20 s
