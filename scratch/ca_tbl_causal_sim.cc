@@ -1142,10 +1142,20 @@ struct QueryDriver
     double untilS;
     uint8_t manifestId;
     Ptr<UniformRandomVariable> rng;
+    //! NW-9 (--queryV2): send the spec's QUERY, for this list, at ROUTINE priority.
+    bool v2 = false;
+    std::vector<uint8_t> manifests;
 
     void Fire()
     {
-        mac->SendQuery(tier, manifestId);
+        if (v2)
+        {
+            mac->SendQueryV2(tier, manifests, 0);
+        }
+        else
+        {
+            mac->SendQuery(tier, manifestId);
+        }
         const double next = periodS + rng->GetValue(0.0, jitterMaxS);
         if (Simulator::Now().GetSeconds() + next < untilS)
         {
@@ -5348,6 +5358,10 @@ struct SpecOptions
     bool reversePathHop = false;
     //! NW-7. --grantGatedUwb: an escalation into UWB commits only on a delivered grant.
     bool grantGatedUwb = false;
+    //! NW-9. --queryV2: QUERY and RESPONSE carry what the spec says.
+    bool queryV2 = false;
+    //! NW-9. --identityQueryManifests: the list a v2 query asks for (empty = the target).
+    std::vector<uint8_t> identityQueryManifests;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6003,6 +6017,7 @@ RunArm(CaTblPolicyMode mode,
         mc.queryStalenessBoundS = queryStalenessBoundS;
         mc.reversePath = reversePath;
         mc.reversePathHop = spec.reversePathHop;
+        mc.queryV2 = spec.queryV2;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
         // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
@@ -6041,6 +6056,7 @@ RunArm(CaTblPolicyMode mode,
             mc.queryStalenessBoundS = queryStalenessBoundS;
             mc.reversePath = reversePath;
             mc.reversePathHop = spec.reversePathHop;
+            mc.queryV2 = spec.queryV2;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
@@ -6136,6 +6152,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.queryStalenessBoundS = queryStalenessBoundS;
             pmc.reversePath = reversePath;
             pmc.reversePathHop = spec.reversePathHop;
+            pmc.queryV2 = spec.queryV2;
             pmc.nodeId = static_cast<uint16_t>(pid);
             pmc.identityClass = CA_TBL_ID_TARGET;
             // THE POINT OF THE PEER. A distinct manifest id is what makes an
@@ -6215,6 +6232,13 @@ RunArm(CaTblPolicyMode mode,
                 qd.untilS = durationS;
                 qd.manifestId = static_cast<uint8_t>(identityQueryTarget);
                 qd.rng = macRng;
+                if (spec.queryV2)
+                {
+                    qd.v2 = true;
+                    qd.manifests = spec.identityQueryManifests.empty()
+                                       ? std::vector<uint8_t>(1, qd.manifestId)
+                                       : spec.identityQueryManifests;
+                }
                 queries.push_back(qd);
                 break;
             }
@@ -6405,6 +6429,7 @@ RunArm(CaTblPolicyMode mode,
             fc.queryStalenessBoundS = queryStalenessBoundS;
             fc.reversePath = reversePath;
             fc.reversePathHop = spec.reversePathHop;
+            fc.queryV2 = spec.queryV2;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
@@ -6792,6 +6817,44 @@ RunArm(CaTblPolicyMode mode,
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
+    // NW-9. --queryV2: every answer a requester receives (responses_*), every decision a
+    // node takes on a v2 QUERY (queryv2_*), and each tag's last PCS / integrity verdict /
+    // granting anchor, which its published entry carries.
+    std::unique_ptr<std::ofstream> respLog;
+    std::unique_ptr<std::ofstream> qv2Log;
+    std::vector<double> v2Pcs(tags.size(), 0.0);
+    std::vector<uint8_t> v2Suspect(tags.size(), 0);
+    std::vector<uint16_t> v2GrantedBy(tags.size(), 0);
+    if (spec.queryV2)
+    {
+        std::ostringstream rfn, qfn;
+        rfn << traceDir << "/responses_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        qfn << traceDir << "/queryv2_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        respLog.reset(new std::ofstream(rfn.str().c_str()));
+        qv2Log.reset(new std::ofstream(qfn.str().c_str()));
+        *respLog << "t,requesterId,tier,queryId,manifest,answererId,entryNode,entryT,x,y,seq,hop,"
+                    "pcsQ,integrity,batteryQ,degradationQ,uwbActive,grantedBy\n";
+        *qv2Log << "t,node,tier,queryId,what,manifest,left\n";
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            macs[m].SetQueryLog(qv2Log.get());
+            const uint16_t rid = macs[m].GetNodeId();
+            std::ofstream* out = respLog.get();
+            macs[m].SetResponseCallback([out, rid](const CaTblHeader& h) {
+                const CaTblTableEntry& e = h.GetSelfEntry();
+                *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
+                     << ',' << rid << ',' << static_cast<int>(h.GetTier()) << ','
+                     << h.GetRespQueryId() << ',' << static_cast<int>(h.GetRespManifest()) << ','
+                     << h.GetRespAnswererId() << ',' << (h.HasSelfEntry() ? e.nodeId : 0) << ','
+                     << e.timestampS << ',' << std::setprecision(4) << e.x << ',' << e.y << ','
+                     << e.seqNo << ',' << static_cast<int>(e.hopCount) << ','
+                     << static_cast<int>(e.pcsQ) << ',' << static_cast<int>(e.integrityFlag)
+                     << ',' << static_cast<int>(e.batteryQ) << ','
+                     << static_cast<int>(e.degradationQ) << ',' << (e.uwbActive ? 1 : 0) << ','
+                     << e.grantedBy << '\n';
+            });
+        }
+    }
     // NW-7. --grantGatedUwb: every request, verdict and cancellation, per subject, in
     // grants_<arm>_seed<N>.csv, so a pending window is on disk exactly.
     std::unique_ptr<std::ofstream> grantLog;
@@ -7114,16 +7177,23 @@ RunArm(CaTblPolicyMode mode,
     // and exhausted retries time it out.
     if (spec.grantGatedUwb)
     {
-        auto wire = [&grantNote](CaTblMac* mm, CaTblPolicy* po, uint32_t sid) {
+        auto wire = [&grantNote, &v2GrantedBy](CaTblMac* mm, CaTblPolicy* po, uint32_t sid,
+                                               size_t tagIdx) {
             if (mm == nullptr)
             {
                 return;
             }
-            mm->SetUwbGrantCallback([mm, po, sid, &grantNote](uint16_t anchor, int outcome) {
+            mm->SetUwbGrantCallback([mm, po, sid, tagIdx, &grantNote, &v2GrantedBy](uint16_t anchor,
+                                                                                int outcome) {
                 const double nowS = Simulator::Now().GetSeconds();
                 if (outcome > 0)
                 {
-                    grantNote(nowS, sid, po->ConfirmUwbGrant() ? "confirm" : "late", anchor);
+                    const bool took = po->ConfirmUwbGrant();
+                    if (took)
+                    {
+                        v2GrantedBy[tagIdx] = anchor; // NW-9: the entry names its grantor
+                    }
+                    grantNote(nowS, sid, took ? "confirm" : "late", anchor);
                 }
                 else if (po->ClearUwbPending(outcome < 0))
                 {
@@ -7137,13 +7207,14 @@ RunArm(CaTblPolicyMode mode,
         };
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
-            wire(nodeMac[ti], &policy, nodeId);
+            wire(nodeMac[ti], &policy, nodeId, 0);
         }
         for (uint32_t pt = 1; subj && pt < spec.measuredSubjects; ++pt)
         {
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
-                wire(peerMacs[pt - 1][static_cast<size_t>(ti)], &tags[pt].policy, tags[pt].nodeId);
+                wire(peerMacs[pt - 1][static_cast<size_t>(ti)], &tags[pt].policy, tags[pt].nodeId,
+                     pt);
             }
         }
     }
@@ -7359,6 +7430,21 @@ RunArm(CaTblPolicyMode mode,
         // Published on every tier's MAC because any of them may be the one that gets
         // the airtime, and a node that only advertised on the tier it happens to be
         // using would go silent exactly when it escalated.
+        if (spec.queryV2)
+        {
+            // NW-9: the entry carries the last decision's status.
+            const bool onUwb = policy.GetActiveTier() == CA_TBL_TIER_UWB;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                                               CaTblQuantise(1.0 - batteryUsedFrac),
+                                               CaTblQuantise(pcsDegradation), onUwb,
+                                               onUwb ? v2GrantedBy[0] : 0);
+                }
+            }
+        }
         for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
         {
             if (nodeMac[ti] != nullptr)
@@ -7403,6 +7489,16 @@ RunArm(CaTblPolicyMode mode,
                 if (peerMacs[pi][ti] == nullptr)
                 {
                     continue;
+                }
+                if (spec.queryV2)
+                {
+                    // NW-9: a measured subject's status; a protocol peer has no decision.
+                    const bool onUwb = tags[pt].policy.GetActiveTier() == CA_TBL_TIER_UWB;
+                    peerMacs[pi][ti]->SetSelfStatus(
+                        CaTblQuantise(v2Pcs[pt]), v2Suspect[pt],
+                        CaTblQuantise(1.0 - tags[pt].batteryUsedFrac),
+                        CaTblQuantise(tags[pt].pcsDegradation), onUwb,
+                        onUwb ? v2GrantedBy[pt] : 0);
                 }
                 peerMacs[pi][ti]->PublishSelfEntry(
                     tags[pt].policy.EstX(), tags[pt].policy.EstY(),
@@ -8172,6 +8268,8 @@ RunArm(CaTblPolicyMode mode,
                 CaTblDecision ds = sb.policy.Step(dt, measS, 0, static_cast<int32_t>(actM.size()),
                                                   static_cast<int32_t>(addressedActive), maskS);
                 ++sb.steps;
+                v2Pcs[pt] = ds.pcs; // NW-9
+                v2Suspect[pt] = ds.suspect ? 1 : 0;
                 if (grantLog)
                 {
                     if (sb.policy.GetUwbCoverageClears() > covBeforeS)
@@ -9602,6 +9700,8 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        v2Pcs[0] = d.pcs; // NW-9
+        v2Suspect[0] = d.suspect ? 1 : 0;
         if (grantLog)
         {
             if (policy.GetUwbCoverageClears() > covBefore)
@@ -10745,6 +10845,28 @@ RunArm(CaTblPolicyMode mode,
     {
         grantLog->close(); // NW-7: before the digest, and before the MACs can call back
         grantLog.reset();
+    }
+    if (spec.queryV2)
+    {
+        // NW-9. Logs closed and unhooked before the digest; then the sums over every MAC.
+        uint64_t an = 0, px = 0, sp = 0, rd = 0, hd = 0, en = 0;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            macs[m].SetQueryLog(nullptr);
+            macs[m].SetResponseCallback(nullptr);
+            an += macs[m].GetV2Answered();
+            px += macs[m].GetV2Proxied();
+            sp += macs[m].GetV2Suppressed();
+            rd += macs[m].GetV2Reduced();
+            hd += macs[m].GetV2ResponsesHeard();
+            en += macs[m].GetV2EntriesHeard();
+        }
+        respLog->close();
+        qv2Log->close();
+        std::cout << "    NW-9 queries v2 (" << CaTblPolicyModeName(mode) << "): answered as target "
+                  << an << ", by proxy " << px << ", rebroadcasts suppressed " << sp
+                  << ", lists reduced " << rd << ", answers heard by requesters " << hd
+                  << " (with an entry " << en << ")\n";
     }
     if (spec.grantGatedUwb)
     {
@@ -11936,6 +12058,28 @@ main(int argc, char* argv[])
                  "deny, timeout, late grant and coverage cancellation, per subject), digested, "
                  "and one or two NW-7 lines. Needs --handshakeFixes.",
                  spec.grantGatedUwb);
+    cmd.AddValue("queryV2",
+                 "QUERY and RESPONSE carry what the spec says (Network sect 4; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md NW-9). FALSE by default, which is every result "
+                 "so far: a QUERY carries one manifest id, a RESPONSE carries no entry and no "
+                 "query id, nothing at the requester handles it, and a target that answered "
+                 "still rebroadcasts. TRUE: a QUERY carries its query id, manifest list, "
+                 "requester and priority; a node answers EVERY listed manifest it can -- as "
+                 "the target, or by proxy from a fresh entry -- each with a RESPONSE carrying "
+                 "the entry (with the producer's PCS, integrity verdict, battery, degradation, "
+                 "UWB state and granting anchor), the manifest and the query id, billed 12 "
+                 "bytes over the entry; it rebroadcasts with the answered manifests removed, "
+                 "and not at all if it answered every one. Writes responses_<arm>_seed<N>.csv "
+                 "(every answer a requester receives) and queryv2_<arm>_seed<N>.csv (every "
+                 "decision on a query), digested, and one NW-9 line. Needs "
+                 "--identityQueryPeriodS > 0.",
+                 spec.queryV2);
+    std::string identityQueryManifestsArg;
+    cmd.AddValue("identityQueryManifests",
+                 "Under --queryV2, the comma-separated manifest list each query asks for "
+                 "(e.g. 1,2,3: a batch for a missing team). Empty (default) asks for "
+                 "--identityQueryTarget alone. Each id is 1..255.",
+                 identityQueryManifestsArg);
     cmd.AddValue("imuIdeal",
                  "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
                  "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
@@ -13858,6 +14002,35 @@ main(int argc, char* argv[])
                      "searches for tag 0, or none steers on an entry\n";
         return 1;
     }
+    // NW-9.
+    if (!identityQueryManifestsArg.empty())
+    {
+        std::stringstream ss(identityQueryManifestsArg);
+        std::string tok;
+        while (std::getline(ss, tok, ','))
+        {
+            char* end = nullptr;
+            const long v = std::strtol(tok.c_str(), &end, 10);
+            if (tok.empty() || end == nullptr || *end != '\0' || v < 1 || v > 255)
+            {
+                std::cerr << "FATAL: --identityQueryManifests takes ids 1..255, got '"
+                          << identityQueryManifestsArg << "'\n";
+                return 1;
+            }
+            spec.identityQueryManifests.push_back(static_cast<uint8_t>(v));
+        }
+    }
+    if (spec.queryV2 && !(identityQueryPeriodSArg > 0.0))
+    {
+        std::cerr << "FATAL: --queryV2 needs --identityQueryPeriodS > 0: no query is sent\n";
+        return 1;
+    }
+    if (!spec.identityQueryManifests.empty() && !spec.queryV2)
+    {
+        std::cerr << "FATAL: --identityQueryManifests needs --queryV2: only a v2 QUERY "
+                     "carries a list\n";
+        return 1;
+    }
     // NW-7.
     if (spec.grantGatedUwb && !spec.handshakeFixes)
     {
@@ -14860,6 +15033,10 @@ main(int argc, char* argv[])
     if (spec.grantGatedUwb)
     {
         digestPatterns += " grants_*.csv";
+    }
+    if (spec.queryV2)
+    {
+        digestPatterns += " responses_*.csv queryv2_*.csv";
     }
     if (queryProxyArg)
     {

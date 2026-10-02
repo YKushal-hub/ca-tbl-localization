@@ -229,6 +229,17 @@ struct CaTblTableEntry
     //! needs its own byte, and a proxy responder cannot match without it.
     uint8_t targetManifestId;
     bool valid;
+    //! NW-9 (--queryV2). The producer's status when it published, carried with the entry
+    //! so an answer can report it: PCS, the integrity verdict (0 CLEAN, 1 SUSPECT), battery
+    //! REMAINING and confidence degradation (each quantised 0..255 over [0,1]), whether it
+    //! was on UWB, and the anchor whose UWB grant it holds (NW-7; 0 for none). Carried, not
+    //! serialised; all zero outside the flag.
+    uint8_t pcsQ;
+    uint8_t integrityFlag;
+    uint8_t batteryQ;
+    uint8_t degradationQ;
+    bool uwbActive;
+    uint16_t grantedBy;
 
     CaTblTableEntry();
 };
@@ -501,6 +512,32 @@ class CaTblHeader : public Header
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
 
     /**
+     * \brief NW-9 (--queryV2). What the spec's QUERY carries: {query_id,
+     * target_manifest_id_list[], requester_id, ttl, priority}. ttl is the hop limit.
+     * CaTblPayloadBytes(QUERY, n) already bills query_id(2) + requester_id(2) + ttl(1) +
+     * priority(1) + n manifest ids, so these are carried, not serialised. A relay that
+     * answered some of the listed manifests forwards the rest (SetQueryManifests).
+     */
+    void SetQueryV2(uint32_t queryId, uint16_t requesterId, uint8_t priority,
+                    const std::vector<uint8_t>& manifests)
+    {
+        m_hasQueryV2 = true;
+        m_queryV2Id = queryId;
+        m_queryRequesterId = requesterId;
+        m_queryPriority = priority;
+        m_queryManifests = manifests;
+    }
+    void SetQueryManifests(const std::vector<uint8_t>& manifests) { m_queryManifests = manifests; }
+    bool HasQueryV2() const { return m_hasQueryV2; }
+    uint32_t GetQueryV2Id() const { return m_queryV2Id; }
+    uint16_t GetQueryRequesterId() const { return m_queryRequesterId; }
+    uint8_t GetQueryPriority() const { return m_queryPriority; }
+    const std::vector<uint8_t>& GetQueryManifests() const { return m_queryManifests; }
+    //! NW-9. The manifest a RESPONSE answers; its entry rides the self-entry slot.
+    void SetRespManifest(uint8_t m) { m_respManifest = m; }
+    uint8_t GetRespManifest() const { return m_respManifest; }
+
+    /**
      * \brief C4. The two arbitration terms an anchor cannot observe for itself.
      *
      * U(r) = l1*T_deg + l2*T_batt + l3*T_stale + l4*T_query. The anchor can see
@@ -617,6 +654,12 @@ class CaTblHeader : public Header
     uint16_t m_respRequesterId = 0; //!< NW-8
     uint16_t m_respAnswererId = 0;  //!< NW-8
     bool m_forceFlood = false;      //!< NW-8
+    bool m_hasQueryV2 = false;      //!< NW-9, carried not serialised -- see above
+    uint32_t m_queryV2Id = 0;
+    uint16_t m_queryRequesterId = 0;
+    uint8_t m_queryPriority = 0;
+    std::vector<uint8_t> m_queryManifests;
+    uint8_t m_respManifest = 0;
 };
 
 } // namespace ns3

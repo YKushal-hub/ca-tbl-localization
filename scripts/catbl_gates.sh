@@ -1129,6 +1129,23 @@ bash scripts/grant_gated_gate.sh "$WORK/g49" || fail G49
 bash scripts/grant_gated_gate_selftest.sh "$WORK/g49" || fail G49
 finish G49
 
+# ---------------- G50: QUERY and RESPONSE carry what the spec says (NW-9)
+# A QUERY carried one manifest, a RESPONSE no entry and no query id, nothing at the
+# requester handled it, and an answering target still rebroadcast. --queryV2 answers every
+# listed manifest with the entry and relays only what is left. G32's query regime under mesh
+# links and the reverse path, five subjects, a five-manifest batch, read by
+# scripts/query_v2_gate.py:
+#   - without the flag nothing v2 is written or carried;
+#   - every answer is the named subject's own published state, recomputed from its trace;
+#   - answered + relayed manifests partition each received list; relay iff something left;
+#   - the NW-9 line recounted; digests; three refusals.
+#
+# Negative fixtures in scripts/query_v2_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G50 QUERY and RESPONSE carry what the spec says (NW-9) ---\n'
+bash scripts/query_v2_gate.sh "$WORK/g50" || fail G50
+bash scripts/query_v2_gate_selftest.sh "$WORK/g50" || fail G50
+finish G50
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
