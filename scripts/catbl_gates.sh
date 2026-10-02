@@ -1062,6 +1062,24 @@ bash scripts/mesh_links_gate.sh "$WORK/g45" || fail G45
 bash scripts/mesh_links_gate_selftest.sh "$WORK/g45" || fail G45
 finish G45
 
+# ---------------- G46: every field node is a measured subject (MS-1)
+# Only tag 0 ran the pipeline; the other tags were protocol peers or fixed-tier relays, and
+# PeerRequestDriver sent constant requests in their name. --measuredSubjects=N runs the core
+# of tag 0's cycle for tags 2..N on their own accounts, each in its own slot of a round.
+# NC9's regime with five tags, frames and arbitration, read by scripts/subjects_gate.py:
+#   - --measuredSubjects=1 writes nothing new;
+#   - subject_summary.csv has N x arms x seeds rows; subject 1's row is arm_summary's;
+#   - steps, policy cycles and trace rows all equal duration/dt per subject (a relay that is
+#     a subject is stepped once); fixes, cycles, escalations and RMSE recounted from traces;
+#   - sect 6 per subject: an unused tier is charged for sleep only;
+#   - subjects send their own requests; files digested; two refusals and a warning.
+#
+# Negative fixtures in scripts/subjects_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G46 every field node is a measured subject (MS-1) ---\n'
+bash scripts/subjects_gate.sh "$WORK/g46" || fail G46
+bash scripts/subjects_gate_selftest.sh "$WORK/g46" || fail G46
+finish G46
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
