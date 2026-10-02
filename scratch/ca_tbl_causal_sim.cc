@@ -1565,6 +1565,9 @@ struct ArmResult
     uint64_t macCollisions;
     uint64_t macCaptures;
     uint64_t macDeliveries;
+    //! MS-1. subject_summary.csv rows for this arm and seed, one per measured subject;
+    //! empty unless --measuredSubjects > 1. Appended last.
+    std::vector<std::string> subjectRows;
 };
 
 /**
@@ -5341,6 +5344,8 @@ struct SpecOptions
     std::string imuWitnessSource;
     //! NW-0. --meshLinks: "" or "star" (field node to anchor only), or "all".
     std::string meshLinks;
+    //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
+    uint32_t measuredSubjects = 1;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -6205,7 +6210,7 @@ RunArm(CaTblPolicyMode mode,
     // C4. Peer UWB requests, so the arbiter has competing claims to resolve. Only
     // when arbitration is on AND a peer exists -- otherwise there is nothing to
     // arbitrate and this would just be extra traffic.
-    if (uwbArbitration && nTags > 1)
+    if (uwbArbitration && nTags > 1 && spec.measuredSubjects <= 1)
     {
         for (size_t pi = 0; pi < peerMacs.size(); ++pi)
         {
@@ -6744,6 +6749,34 @@ RunArm(CaTblPolicyMode mode,
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
     }
+    // MS-1. Per-run state of --measuredSubjects > 1, null without it.
+    struct SubjectExtra
+    {
+        std::unique_ptr<std::ofstream> trace;
+        std::unique_ptr<CaTblImuDeadReckoner> rk;
+        double prevX = 0.0;
+        double prevY = 0.0;
+        uint64_t requests = 0;
+        uint64_t deferredAway = 0;
+        uint64_t floorCycles = 0;
+        double meshBilledAir[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
+        uint64_t meshBilledFrames[CA_TBL_TIER_COUNT] = {0, 0, 0};
+    };
+    struct SubjectsState
+    {
+        std::vector<SubjectExtra> extra;
+    };
+    std::unique_ptr<SubjectsState> subj;
+    if (spec.measuredSubjects > 1)
+    {
+        subj.reset(new SubjectsState());
+    }
+    // MS-1. Subjects range in their own slots of a round BEFORE tag 0's instant, as relays
+    // do under --relaySlots (M.1): all at one instant, they collide in the engines'
+    // interference model -- measured, tag 0's static_868 fixes fell 212 -> 2 at five
+    // subjects. The relay round is reused when it exists.
+    std::unique_ptr<RelayRound> subjRoundOwn;
+    uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
     // NW-0. Per-run state of --meshLinks=all, null without it.
     struct MeshState
     {
@@ -6985,6 +7018,48 @@ RunArm(CaTblPolicyMode mode,
     // than accumulated in the loop variable. With an event layer running, the
     // authoritative clock is Simulator::Now(); keeping a parallel float counter is
     // how the two silently drift apart.
+    if (subj)
+    {
+        // MS-1. Subjects 2..N: configured exactly as tag 0 -- the same policy config, the
+        // same energy model setup, the same beacon airtimes -- each with its own trace
+        // and, under --imuPredict, its own IMU on its own stream (+97 per subject).
+        for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+        {
+            const size_t pi = pt - 1;
+            CaTblTagState& sb = tags[pt];
+            sb.nodeId = peerIds[pi];
+            sb.walker = &peerWalkers[pi];
+            sb.pos = peerWalkers[pi].Position();
+            sb.policy.Configure(pcfg);
+            sb.policy.Initialize(sb.pos.x, sb.pos.y, 100.0, 5.0);
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                sb.energy.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz,
+                                     1);
+                sb.energy.SetTier1ChargeReplies(tier1ChargeReplies);
+                sb.energy.SetEdgeServer(gatewayEdgeServer);
+                sb.beaconToaS[ti] = beaconToaS[ti];
+            }
+            SubjectExtra ex;
+            std::ostringstream sfn;
+            sfn << traceDir << "/subjtrace_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                << "_subj" << sb.nodeId << ".csv";
+            ex.trace.reset(new std::ofstream(sfn.str().c_str()));
+            *ex.trace << "t,subjectId,activeTier,nextTier,fixTier,usedFloor,trueX,trueY,estX,"
+                         "estY,errM,pcs,traceSigma,nAnchors,hadFix,escalated,deescalated,"
+                         "cumJ\n";
+            if (spec.imuPredict)
+            {
+                ex.rk.reset(new CaTblImuDeadReckoner());
+                ex.rk->Configure(CaTblImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071 +
+                                                       97 * static_cast<int64_t>(pt));
+            }
+            ex.prevX = sb.pos.x;
+            ex.prevY = sb.pos.y;
+            subj->extra.push_back(std::move(ex));
+        }
+    }
+
     const uint64_t nSteps = static_cast<uint64_t>(std::floor(durationS / dt));
     for (uint64_t stepIdx = 0; stepIdx < nSteps; ++stepIdx)
     {
@@ -7002,9 +7077,9 @@ RunArm(CaTblPolicyMode mode,
             engine2p4.UpdateNodePosition(peerIds[pi], pp);
             engineUwb.UpdateNodePosition(peerIds[pi], pp);
             provider.SetPeerPosition(static_cast<uint16_t>(peerIds[pi]), pp);
-            if (relayedRanging && (pi + 1) < tags.size())
+            if ((relayedRanging || subj) && (pi + 1) < tags.size())
             {
-                tags[pi + 1].pos = pp;
+                tags[pi + 1].pos = pp; // MS-1: a subject's truth moves with its walker too
             }
         }
 
@@ -7652,6 +7727,12 @@ RunArm(CaTblPolicyMode mode,
                 {
                     continue;
                 }
+                // MS-1: a relay that is also a measured subject is ranged, charged and
+                // stepped once, by the subject pipeline below -- twice would break sect 6.
+                if (subj && pt < spec.measuredSubjects)
+                {
+                    continue;
+                }
                 const std::vector<CaTblNeighbour> nb =
                     peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
                 // C5_INSTANT: under --relaySlots this relay polls in its own slot of the
@@ -7754,6 +7835,318 @@ RunArm(CaTblPolicyMode mode,
                 chain->RangeShortRelays(tags, nTags, rt, phy, engine868, engine2p4, engineUwb,
                                         t, dt, now, maxRelayDepth, relayVarBudgetM2,
                                         relayRound.get());
+            }
+        }
+
+        if (subj)
+        {
+            // MS-1. SUBJECTS 2..N, each through the core of tag 0's cycle, on its own
+            // account: rangeTier on its active tier (the poll addresses discovered
+            // anchors with known positions), the tier-1 floor while a hybrid arm is off
+            // 868, the same fix selection, the IMU control under --imuPredict, Step() with
+            // its own evidence mask, the escalation handshake with its OWN terms, the
+            // gateway downlink, and the listen/sleep billing. They step here, before tag 0
+            // and at the point relays always stepped, in id order. Mechanisms outside this
+            // core run for tag 0 only; main() warns when one is on.
+            const bool hybridS = (mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY ||
+                                  mode == CA_TBL_MODE_FIXED_THRESHOLD);
+            if (!relayRound && !subjRoundOwn)
+            {
+                subjRoundOwn.reset(new RelayRound(spec.measuredSubjects, false, FixRouter::kSlotS));
+            }
+            const RelayRound* sround = relayRound ? relayRound.get() : subjRoundOwn.get();
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                const size_t pi = pt - 1;
+                CaTblTagState& sb = tags[pt];
+                SubjectExtra& ex = subj->extra[pi];
+                const CaTblTier act = sb.policy.GetActiveTier();
+                const bool floorOn = hybridS && act != CA_TBL_TIER_868;
+                const Time atS = sround->Burst(now, pt);
+                const double atSec = sround->BurstS(t, pt);
+                size_t addressedActive = 0;
+                auto rangeS = [&](CaTblTier tier) {
+                    std::vector<CaTblRangeMeasurement> out;
+                    CaTblMac* mm = peerMacs[pi][static_cast<size_t>(tier)];
+                    std::vector<CaTblNeighbour> nb = mm->GetNeighbours(tier, t);
+                    std::vector<CaTblNeighbour> keep;
+                    for (size_t k = 0; k < nb.size(); ++k)
+                    {
+                        if (nb[k].id >= 101 &&
+                            anchorPosById.find(nb[k].id) != anchorPosById.end())
+                        {
+                            keep.push_back(nb[k]);
+                        }
+                    }
+                    sb.energy.AccountCad(tier);
+                    if (tier == act)
+                    {
+                        addressedActive = keep.size();
+                    }
+                    if (keep.empty())
+                    {
+                        return out;
+                    }
+                    const int ti = static_cast<int>(tier);
+                    for (size_t a = 0; a < keep.size(); ++a)
+                    {
+                        const uint16_t aid = keep[a].id;
+                        const Vector& ap = anchorPosById.find(aid)->second;
+                        bool rcv = false;
+                        double range = 0.0, sigma = 0.0;
+                        bool nlosP = false, hid = false, nlosF = false;
+                        if (tier == CA_TBL_TIER_868)
+                        {
+                            PhysicsResult r = engine868.ProcessTransmission(
+                                sb.nodeId, aid, sb.pos, ap, phy[ti].txPowerDbm, phy[ti].sf,
+                                phy[ti].bandwidthHz, 0, atS);
+                            rcv = r.packetReceived;
+                            range = r.estimatedRangeM;
+                            sigma = r.rangingSigmaM;
+                            nlosP = r.isNLOS;
+                            hid = (r.hiddenChannelState > 0);
+                            nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
+                                                  r.hiddenChannelState);
+                        }
+                        else if (tier == CA_TBL_TIER_2P4)
+                        {
+                            PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                                sb.nodeId, aid, sb.pos, ap, phy[ti].txPowerDbm, phy[ti].sf,
+                                phy[ti].bandwidthHz, 0, atS);
+                            rcv = r.packetReceived;
+                            range = r.estimatedRangeM;
+                            sigma = r.rangingSigmaM;
+                            nlosP = r.isNLOS;
+                            hid = (r.hiddenChannelState > 0);
+                            nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
+                                                  r.hiddenChannelState);
+                        }
+                        else
+                        {
+                            PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                                sb.nodeId, aid, sb.pos, ap, phy[ti].txPowerDbm, phy[ti].sf,
+                                phy[ti].bandwidthHz, 0, atS);
+                            rcv = r.packetReceived;
+                            range = r.estimatedRangeM;
+                            sigma = r.rangingSigmaM;
+                            nlosP = r.isNLOS;
+                            hid = (r.hiddenChannelState > 0);
+                            nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
+                                                  r.hiddenChannelState);
+                        }
+                        if (rcv && std::isfinite(range) && range > 0.0)
+                        {
+                            CaTblRangeMeasurement m;
+                            m.anchorX = ap.x;
+                            m.anchorY = ap.y;
+                            m.rangeM = range;
+                            m.nlos = nlosF;
+                            m.nlosPropagation = nlosP;
+                            m.hiddenChannelActive = hid;
+                            m.sigmaM = sigma;
+                            m.anchorId = aid;
+                            m.sourceKind = CaTblSourceKindOf(aid);
+                            m.fromFloor = (tier != act);
+                            out.push_back(m);
+                        }
+                    }
+                    sb.energy.AccountRangingExchange(tier, static_cast<uint32_t>(keep.size()),
+                                                     static_cast<uint32_t>(out.size()), atSec);
+                    return out;
+                };
+                // A handshake the duty budget pushed out of the previous cycle pre-empts this
+                // cycle's ranging on its tier, as tag 0's does (arbitrateDutyBudget).
+                const bool preempt = sb.pendingHandshake && arbitrateDutyBudget;
+                const CaTblTier pendT = sb.pendingHandshakeTier;
+                auto sendRequest = [&](CaTblTier on, double atT) {
+                    sb.energy.AccountEscalationHandshake(on, atT);
+                    if (sendHandshakeFrames)
+                    {
+                        CaTblMac* mm = peerMacs[pi][static_cast<size_t>(on)];
+                        mm->SetRequestTerms(CaTblQuantise(sb.pcsDegradation),
+                                            CaTblQuantise(CaTblBatteryUsedFrac(
+                                                sb.energy.GetTotalJ(), arbBatteryCapJ)));
+                        if (spec.handshakeFixes)
+                        {
+                            mm->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                        }
+                        mm->Send(CA_TBL_MSG_ESC_REQUEST, on, 0, 0);
+                        ++ex.requests;
+                    }
+                };
+                if (preempt)
+                {
+                    sendRequest(pendT, atSec);
+                    ++sb.handshakePreemptions;
+                    sb.pendingHandshake = false;
+                }
+                std::vector<CaTblRangeMeasurement> actM;
+                if (preempt && act == pendT)
+                {
+                    sb.energy.AccountCad(act);
+                }
+                else
+                {
+                    actM = rangeS(act);
+                }
+                std::vector<CaTblRangeMeasurement> floorM;
+                if (floorOn)
+                {
+                    if (preempt && pendT == CA_TBL_TIER_868)
+                    {
+                        sb.energy.AccountCad(CA_TBL_TIER_868);
+                    }
+                    else
+                    {
+                        floorM = rangeS(CA_TBL_TIER_868);
+                        ++ex.floorCycles;
+                    }
+                }
+                const bool actSolved = actM.size() >= 3;
+                const bool usedFloorS = !actSolved && floorM.size() >= 3;
+                const std::vector<CaTblRangeMeasurement>& measS = usedFloorS ? floorM : actM;
+                const CaTblTier fixTierS = usedFloorS ? CA_TBL_TIER_868 : act;
+                if (ex.rk)
+                {
+                    double ux, uy, qu[3];
+                    ex.rk->Step(sb.pos.x - ex.prevX, sb.pos.y - ex.prevY, dt, ux, uy, qu);
+                    sb.policy.SetImuControl(ux, uy, qu[0], qu[1], qu[2]);
+                }
+                ex.prevX = sb.pos.x;
+                ex.prevY = sb.pos.y;
+                uint32_t maskS = 0;
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    if (sb.lastNonEmptyAtS[k] >= 0.0 && (t - sb.lastNonEmptyAtS[k]) <= demoteStalenessS)
+                    {
+                        maskS |= (1u << k);
+                    }
+                }
+                CaTblDecision ds = sb.policy.Step(dt, measS, 0, static_cast<int32_t>(actM.size()),
+                                                  static_cast<int32_t>(addressedActive), maskS);
+                ++sb.steps;
+                if (ex.rk && ds.hadFix && !ds.measurementRejected)
+                {
+                    ex.rk->ResetAccumulation();
+                }
+                const double errS = std::hypot(ds.estX - sb.pos.x, ds.estY - sb.pos.y);
+                sb.errors.push_back(errS);
+                if (ds.hadFix)
+                {
+                    sb.errorsFixed.push_back(errS);
+                }
+                // The escalation handshake, as tag 0's: --handshakeFixes signals only an
+                // escalation into UWB; a refused duty budget defers the escalation away.
+                if (spec.handshakeFixes ? (ds.escalated && ds.nextTier == CA_TBL_TIER_UWB)
+                                     : (ds.escalated || ds.deescalated))
+                {
+                    if (sb.energy.CanTransmit(act, t))
+                    {
+                        sendRequest(act, t);
+                    }
+                    else if (intraCycleHandshakeDefer && sb.energy.GetNextAllowedTxS(act) < t + dt)
+                    {
+                        const double tDefer = sb.energy.GetNextAllowedTxS(act);
+                        sendRequest(act, tDefer);
+                        ++sb.handshakeIntraCycleDefers;
+                        sb.handshakeIntraCycleWaitS += (tDefer - t);
+                    }
+                    else
+                    {
+                        sb.energy.NoteDeferred(act);
+                        ++sb.handshakeDeferrals;
+                        if (deferEscalationOnDutyLimit && ds.escalated)
+                        {
+                            if (arbitrateDutyBudget)
+                            {
+                                // The tier change commits; the handshake pre-empts the
+                                // next cycle's ranging on this (capped) tier.
+                                sb.pendingHandshake = true;
+                                sb.pendingHandshakeTier = act;
+                            }
+                            else
+                            {
+                                sb.policy.AbortTierChange(act);
+                                ds.escalated = false;
+                                ds.nextTier = act;
+                                ++ex.deferredAway;
+                            }
+                        }
+                    }
+                }
+                if (gatewayEdgeServer && ds.hadFix)
+                {
+                    sb.energy.AccountEdgeServerDownlink(edgeDownlinkOnFixTier ? fixTierS : act);
+                }
+                // The C4 terms, as tag 0's end-of-cycle update.
+                sb.pcsDegradation = CaTblDegradationWith(sb.pcsHist, ds.pcs, sb.pcsDegradation);
+                sb.pcsHist.push_back(ds.pcs);
+                while (sb.pcsHist.size() > 5)
+                {
+                    sb.pcsHist.pop_front();
+                }
+                sb.batteryUsedFrac = CaTblBatteryUsedFrac(sb.energy.GetTotalJ(), arbBatteryCapJ);
+                // Listen and sleep, as tag 0's.
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    const CaTblTier tr = static_cast<CaTblTier>(k);
+                    CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
+                    const bool awake = (tr == act) || (floorOn && tr == CA_TBL_TIER_868);
+                    if (mesh)
+                    {
+                        const double air = mm->GetRebroadcastAirtimeS();
+                        const uint64_t fr = mm->GetRebroadcastFrames();
+                        if (fr > ex.meshBilledFrames[k])
+                        {
+                            sb.energy.AccountTx(tr, air - ex.meshBilledAir[k],
+                                                fr - ex.meshBilledFrames[k]);
+                            ex.meshBilledAir[k] = air;
+                            ex.meshBilledFrames[k] = fr;
+                        }
+                    }
+                    const uint64_t rxNow = mm->GetTotals().received;
+                    if (awake)
+                    {
+                        const uint64_t delivered = rxNow - sb.lastRx[k];
+                        if (delivered > 0)
+                        {
+                            sb.energy.AccountListen(tr, static_cast<double>(delivered) *
+                                                            sb.beaconToaS[k]);
+                        }
+                        if (mm->GetNeighbourCount(tr, t) == 0)
+                        {
+                            const double window = std::min(dt, beaconPeriodS[k]) * searchDutyFrac;
+                            if (window > 0.0)
+                            {
+                                sb.energy.AccountListen(tr, window);
+                            }
+                        }
+                        else
+                        {
+                            sb.lastNonEmptyAtS[k] = t;
+                        }
+                    }
+                    else
+                    {
+                        sb.energy.AccountSleep(tr, dt);
+                        mm->ClearNeighbours();
+                    }
+                    sb.lastRx[k] = rxNow;
+                    if (mesh)
+                    {
+                        const bool floorNext = hybridS && ds.nextTier != CA_TBL_TIER_868;
+                        mm->SetAsleep(!(k == static_cast<int>(ds.nextTier) ||
+                                        (floorNext && k == CA_TBL_TIER_868)));
+                    }
+                }
+                *ex.trace << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId << ','
+                          << CaTblTierName(ds.activeTier) << ',' << CaTblTierName(ds.nextTier)
+                          << ',' << CaTblTierName(fixTierS) << ',' << (usedFloorS ? 1 : 0) << ','
+                          << sb.pos.x << ',' << sb.pos.y << ',' << ds.estX << ',' << ds.estY << ','
+                          << errS << ',' << ds.pcs << ',' << ds.traceSigma << ','
+                          << ds.nAnchorsUsed << ',' << (ds.hadFix ? 1 : 0) << ','
+                          << (ds.escalated ? 1 : 0) << ',' << (ds.deescalated ? 1 : 0) << ','
+                          << std::setprecision(9) << sb.energy.GetTotalJ() << '\n';
             }
         }
 
@@ -8456,6 +8849,7 @@ RunArm(CaTblPolicyMode mode,
                 }
                 nodeMac[pendingHandshakeTier]->Send(
                     CA_TBL_MSG_ESC_REQUEST, pendingHandshakeTier, 0, 0);
+                ++tag0RequestFrames;
             }
             ++handshakePreemptions;
             pendingHandshake = false;
@@ -9515,6 +9909,7 @@ RunArm(CaTblPolicyMode mode,
                                                          CaTblQuantise(batteryUsedFrac));
                     }
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                    ++tag0RequestFrames;
                 }
             }
             else if (intraCycleHandshakeDefer &&
@@ -9559,6 +9954,7 @@ RunArm(CaTblPolicyMode mode,
                                                          CaTblQuantise(batteryUsedFrac));
                     }
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
+                    ++tag0RequestFrames;
                 }
             }
             else
@@ -10108,6 +10504,69 @@ RunArm(CaTblPolicyMode mode,
         res.macCollisions += chan[i].GetTotalCollisions();
         res.macCaptures += chan[i].GetTotalCaptures();
         res.macDeliveries += chan[i].GetTotalDeliveries();
+    }
+    if (subj)
+    {
+        // MS-1. One subject_summary.csv row per measured subject. Subject 1 is tag 0 and
+        // its row is built from the very numbers arm_summary.csv prints, in its format, so
+        // the two can be compared column for column.
+        auto row = [&](uint32_t id, uint64_t st, const std::vector<double>& er,
+                       uint64_t fixc, const CaTblEnergyModel& en, const CaTblPolicy& po,
+                       uint64_t req) {
+            double q = 0.0;
+            for (size_t i = 0; i < er.size(); ++i)
+            {
+                q += er[i] * er[i];
+            }
+            std::ostringstream o;
+            o << CaTblPolicyModeName(mode) << ',' << seed << ',' << id << ',' << st << ','
+              << std::fixed << std::setprecision(4)
+              << (er.empty() ? 0.0 : std::sqrt(q / static_cast<double>(er.size()))) << ','
+              << Percentile(er, 0.50) << ',' << Percentile(er, 0.95) << ','
+              << (er.empty() ? 0.0 : *std::max_element(er.begin(), er.end())) << ',' << fixc
+              << ',' << std::setprecision(9) << en.GetTotalJ();
+            for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+            {
+                o << ',' << en.GetTierJ(static_cast<CaTblTier>(k));
+            }
+            for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+            {
+                o << ',' << po.GetTierCycles(static_cast<CaTblTier>(k));
+            }
+            for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+            {
+                o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).txJ;
+            }
+            for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+            {
+                o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).sleepJ;
+            }
+            o << ',' << po.GetEscalationCount() << ',' << po.GetDeescalationCount() << ','
+              << po.GetNoFixCount() << ',' << req;
+            return o.str();
+        };
+        res.subjectRows.push_back(row(static_cast<uint32_t>(nodeId), steps, errors,
+                                      static_cast<uint64_t>(errorsFixed.size()), energy, policy,
+                                      tag0RequestFrames));
+        for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+        {
+            const CaTblTagState& sb = tags[pt];
+            res.subjectRows.push_back(row(sb.nodeId, sb.steps, sb.errors,
+                                          static_cast<uint64_t>(sb.errorsFixed.size()),
+                                          sb.energy, sb.policy, subj->extra[pt - 1].requests));
+        }
+        std::ostringstream line; // its own stream: cout's precision is left alone
+        line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
+        for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+        {
+            const CaTblTagState& sb = tags[pt];
+            const SubjectExtra& ex = subj->extra[pt - 1];
+            line << " subj " << sb.nodeId << " steps " << sb.steps << " fixes "
+                 << sb.errorsFixed.size() << " esc " << sb.policy.GetEscalationCount()
+                 << " requests " << ex.requests << " pre-empted " << sb.handshakePreemptions
+                 << " deferred-away " << ex.deferredAway << ";";
+        }
+        std::cout << line.str() << "\n";
     }
     res.escalations = policy.GetEscalationCount();
     res.deescalations = policy.GetDeescalationCount();
@@ -12500,6 +12959,21 @@ main(int argc, char* argv[])
                  "reads long by the same rule. OURS in magnitude, no draw. Needs "
                  "--injectBiasFraction > 0.",
                  spec.injectAntennaLossDb);
+    cmd.AddValue("measuredSubjects",
+                 "How many field nodes the full pipeline localises (the spec's '5 field "
+                 "nodes', a whole missing team; docs/SPEC_CONFORMANCE_PLAN.md MS-1). 1 "
+                 "(default) is every result so far: tag 0 is measured, and the other --nTags "
+                 "are protocol peers or fixed-tier relays. N > 1: tags 2..N run the core of "
+                 "tag 0's cycle on their own accounts -- ranging on their active tier, the "
+                 "tier-1 floor, the fix selection, Step() with its own escalation state "
+                 "machine, the handshake with their OWN degradation and battery terms "
+                 "(PeerRequestDriver's constant 128/128 requests retire), the gateway "
+                 "downlink, listen/sleep billing, and under --imuPredict their own IMU. A "
+                 "relay that is a subject is stepped once. Writes subject_summary.csv (one "
+                 "row per arm, seed and subject; subject 1's row is tag 0's arm_summary row) "
+                 "and subjtrace_<arm>_seed<N>_subj<id>.csv, both digested, and one MS-1 line. "
+                 "Needs N <= --nTags. Tag-0-only mechanisms are warned about.",
+                 spec.measuredSubjects);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
                  "mesh'; docs/SPEC_CONFORMANCE_PLAN.md NW-0, the prerequisite of the network "
@@ -13021,6 +13495,62 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --handshakeFixes needs --sendHandshakeFrames=true: without it "
                   << "the handshake is only billed and there is no frame to fix\n";
         return 1;
+    }
+    // MS-1.
+    if (spec.measuredSubjects < 1 || spec.measuredSubjects > nTagsArg)
+    {
+        std::cerr << "FATAL: --measuredSubjects=" << spec.measuredSubjects << " must be 1.."
+                  << nTagsArg << " (--nTags): a subject is a field node\n";
+        return 1;
+    }
+    if (spec.measuredSubjects > 1)
+    {
+        std::vector<std::string> only;
+        if (tier1TdoaArg)
+        {
+            only.push_back("--tier1Tdoa");
+        }
+        if (nlosClassifierArg)
+        {
+            only.push_back("--nlosClassifier");
+        }
+        if (imuCrossCheckArg || imuFusionArg)
+        {
+            only.push_back("--imuCrossCheck/--imuFusion (SHS)");
+        }
+        if (sessionLayerArg)
+        {
+            only.push_back("--sessionLayer");
+        }
+        if (spec.triggeredUpdates)
+        {
+            only.push_back("--triggeredUpdates");
+        }
+        if (spec.edgeUplinkRanges)
+        {
+            only.push_back("--edgeUplinkRanges");
+        }
+        if (batteryDepleteJArg > 0.0)
+        {
+            only.push_back("--batteryDepleteJ");
+        }
+        if (spec.entryPrediction || spec.entryVelocity)
+        {
+            only.push_back("--entryVelocity/--entryPrediction");
+        }
+        if (spec.imuWitnessSource == "model")
+        {
+            only.push_back("--imuWitnessSource=model");
+        }
+        if (!only.empty())
+        {
+            std::cerr << "WARNING: --measuredSubjects > 1 runs these for subject 1 (tag 0) only:";
+            for (size_t k = 0; k < only.size(); ++k)
+            {
+                std::cerr << " " << only[k];
+            }
+            std::cerr << "\n";
+        }
     }
     // NW-0.
     if (!spec.meshLinks.empty() && spec.meshLinks != "star" && spec.meshLinks != "all")
@@ -13641,6 +14171,16 @@ main(int argc, char* argv[])
                   << " for writing -- does the --outdir exist?\n";
         return 1;
     }
+    // MS-1. subject_summary.csv, only when there is more than one subject.
+    std::unique_ptr<std::ofstream> subjSummary;
+    if (spec.measuredSubjects > 1)
+    {
+        subjSummary.reset(new std::ofstream((outdir + "/subject_summary.csv").c_str()));
+        *subjSummary << "arm,seed,subjectId,steps,rmseM,cep50M,cep95M,maxErrM,fixCycles,"
+                        "totalJ,j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,tx_868,"
+                        "tx_2p4,tx_uwb,sleep_868,sleep_2p4,sleep_uwb,escalations,"
+                        "deescalations,noFixCycles,escRequests\n";
+    }
     summary << "arm,seed,steps,durationS,rmseM,cep50M,cep95M,maxErrM,"
             << "rmseFixedM,cep50FixedM,fixCycles,totalJ,"
             << "j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,"
@@ -13896,6 +14436,14 @@ main(int argc, char* argv[])
                     << r.mlatSolvedCycles << "," << std::setprecision(4) << r.meanErrM << ","
                     << r.meanErrFixedM << "," << r.tFirstFixS << ","
                     << r.tFirst100mS << "\n";
+            if (subjSummary)
+            {
+                // MS-1: this arm and seed's subjects, subject 1 (tag 0) first.
+                for (size_t k = 0; k < r.subjectRows.size(); ++k)
+                {
+                    *subjSummary << r.subjectRows[k] << "\n";
+                }
+            }
 
             std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
                       << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
@@ -13917,6 +14465,10 @@ main(int argc, char* argv[])
                   << " cycle(s) -- fix covariance unavailable, P seeded from 100 m^2\n";
     }
 
+    if (subjSummary)
+    {
+        subjSummary->close(); // MS-1: closed before the provenance digest is taken
+    }
     summary.close();
     if (!summary)
     {
@@ -13975,6 +14527,10 @@ main(int argc, char* argv[])
     if (spec.imuWitnessSource == "model")
     {
         digestPatterns += " witness_*.csv";
+    }
+    if (spec.measuredSubjects > 1)
+    {
+        digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
     if (queryProxyArg)
     {

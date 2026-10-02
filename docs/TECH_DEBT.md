@@ -1636,6 +1636,9 @@ runs". It has been false since `50a229a`.
   correction, last gasp) are counted on stdout and in `triggered_<arm>_seed<N>.csv`
   (gate G34). The RECEDING push is still uncounted; it moves into `subject_summary.csv`
   with MS-1.
+- *2026-10-03, MS-1:* `subject_summary.csv` exists under `--measuredSubjects > 1`, but
+  triggered updates still run for tag 0 only (a start-up WARNING says so, N.3), so the
+  RECEDING push has nowhere per-subject to be counted yet. Open.
 
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
@@ -1810,3 +1813,35 @@ NC3's seed 7 (G39, OLD).
   Two ranges are fused once, as a position. Two plus relays take the full path, and no
   sparse point is fused. G39 recounts 0 cycles that do both.
 - The default is unchanged, so every `--sparseCaseA` result so far carries both effects.
+
+### N.3 Subjects 2..N run a core of tag 0's cycle, not the cycle itself
+
+The plan (MS-1 step 1) was to move the per-tag body of the loop into one `RunSubjectCycle`
+and call it for every subject, in a commit of its own with no behaviour change. That was not
+done. `--measuredSubjects` (2026-10-03, G46) instead grows C5's relay mini-pipeline into a
+subject pipeline for tags 2..N and leaves tag 0's code untouched, so the null control holds
+by construction rather than by a byte-identical move. The cost is two copies of the core:
+ranging on the active tier, the tier-1 floor, fix selection, the IMU control, `Step()`, the
+handshake and its duty-budget pre-emption, the downlink, the C4 terms, listen/sleep, and mesh
+relay billing. A change to one copy that is not made to the other drifts silently. G46's
+subject-1 = arm_summary check pins tag 0's row only, not the equivalence of the two copies.
+
+What tag 0 has and subjects 2..N do not, each named in a start-up WARNING when on:
+SHS and the SHS witness (`--imuCrossCheck`/`--imuFusion`), `--imuWitnessSource=model`,
+`--tier1Tdoa`, `--nlosClassifier`, `--sessionLayer`, `--batteryDepleteJ`,
+`--triggeredUpdates`, `--edgeUplinkRanges` and `--entryVelocity`/`--entryPrediction`.
+Finder tasking (MS-1's `--finderTasking`) is not built: finders still steer to tag 0.
+
+Two measured facts from building it (five subjects, NC9's regime with frames and
+arbitration, seed 7, 600 s):
+- Ranged at tag 0's instant, the subjects collided with it in the engines' interference
+  model, and tag 0's static_868 fixes fell from 212 to 2. Each subject now ranges in its own
+  50 ms slot before the instant (the relay round under `--relaySlots`, else a round of its
+  own). The slots sit in the slice the MAC has already run, M.1's known limit.
+- With a refused duty budget aborting the escalation, as relays never needed, subjects did
+  not escalate at all (subject 2 deferred 137 times). They now commit it and pre-empt the
+  next cycle's ranging with the handshake, as tag 0 does under `arbitrateDutyBudget`.
+
+Turning subjects on changes the number of engine evaluations, so every tag-0 magnitude moves
+with it (rule 8): at five subjects tag 0's static_868 fixes are 225, not 212. Only
+control-flow claims compare across N.
