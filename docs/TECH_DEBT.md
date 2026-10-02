@@ -1831,6 +1831,7 @@ SHS and the SHS witness (`--imuCrossCheck`/`--imuFusion`), `--imuWitnessSource=m
 `--tier1Tdoa`, `--nlosClassifier`, `--sessionLayer`, `--batteryDepleteJ`,
 `--triggeredUpdates`, `--edgeUplinkRanges` and `--entryVelocity`/`--entryPrediction`.
 Finder tasking (MS-1's `--finderTasking`) is not built: finders still steer to tag 0.
+- *2026-10-03:* built, `--finderTasking=roundrobin` (G47). See N.4.
 
 Two measured facts from building it (five subjects, NC9's regime with frames and
 arbitration, seed 7, 600 s):
@@ -1845,3 +1846,21 @@ arbitration, seed 7, 600 s):
 Turning subjects on changes the number of engine evaluations, so every tag-0 magnitude moves
 with it (rule 8): at five subjects tag 0's static_868 fixes are 225, not 212. Only
 control-flow claims compare across N.
+
+### N.4 A finder tasked to a subject it never hears stands still
+
+Under `--finderTasking=roundrobin` (2026-10-03, G47) finder k steers on subject
+(k mod N) + 1's table entry. A finder learns entries only by anti-entropy with nodes in range,
+and a finder with no entry for its subject holds position in mode 1 (the honest behaviour the
+converge branch has always had) or keeps sweeping in mode 2. In G47's regime (G43's
+converging finders, five tags, seed 7, 600 s), with one finder per subject:
+- finder 501 (tag 0) converged for 216 cycles;
+- finders 502-504 (subjects 2-4) were blind for all 240 cycles and never left base camp.
+With two subjects, the finders on subject 2 learned its entry from the pair converging on tag
+0 and converged for 206 and 188 cycles.
+
+So round-robin tasking can leave a subject with a searcher that never moves, where the
+default would have sent every finder toward tag 0. That is a property of the assignment rule
+(OURS) and the dissemination it rides on, not a defect in the code. Whether a blind finder
+should fall back to its neighbours' targets, or the base station should task finders
+(TA-1), is an open design choice. No result depends on it yet.

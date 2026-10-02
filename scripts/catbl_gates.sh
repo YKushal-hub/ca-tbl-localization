@@ -1080,6 +1080,23 @@ bash scripts/subjects_gate.sh "$WORK/g46" || fail G46
 bash scripts/subjects_gate_selftest.sh "$WORK/g46" || fail G46
 finish G46
 
+# ---------------- G47: finders search for specific people (MS-1 finder tasking)
+# Every finder steered on tag 0's entry, so with five subjects four were never searched
+# for. --finderTasking=roundrobin tasks finder k to subject (k mod N) + 1 and spreads each
+# group over its subject's ellipse. G43's converging-finder regime with five tags, read by
+# scripts/finder_tasking_gate.py:
+#   - --finderTasking=tag0 is the default, byte for byte;
+#   - every finder-cycle names the right subject, and a converging finder's entry is that
+#     subject's own published estimate (recomputed from its trace), never tag 0's;
+#   - the goal is the entry plus the within-group spread; one row per finder-cycle;
+#   - four refusals.
+#
+# Negative fixtures in scripts/finder_tasking_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G47 finders search for specific people (MS-1 finder tasking) ---\n'
+bash scripts/finder_tasking_gate.sh "$WORK/g47" || fail G47
+bash scripts/finder_tasking_gate_selftest.sh "$WORK/g47" || fail G47
+finish G47
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
