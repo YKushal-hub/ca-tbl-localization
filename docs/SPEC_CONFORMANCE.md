@@ -60,7 +60,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 23 | Sequence-number supersession (Phys 2.7) | OPT-IN | Runs only when the digest exchange does (`--sendHandshakeFrames`, finders) | MC-3 |
 | 24 | Covariance Intersection on equal sequence numbers (Phys 2.7) | OPT-IN | `--tableFuseCI`; near-zero population (L.2) | MC-3 |
 | 25 | Escalation/de-escalation hysteresis with N-cycle dwell (Phys 2.8) | CONFORMANT | `pcsThresholdUp/Down`, `--nDeescalate` | — |
-| 26 | Per-entry prediction with source-type Q (Phys 2.2) | DIVERGENT | Isotropic walk-speed × age inflation (`scratch:7352-7382`) | DC-13 |
+| 26 | Per-entry prediction with source-type Q (Phys 2.2) | OPT-IN | `--entryPrediction` with `--entryVelocity` (DC-13, 2026-10-02, G43): a held finder entry is used at x + v·age with added variance (0.5 m/s · age)² (OURS, a GNSS-derived velocity); gateways are surveyed and never substituted (Q = 0); 504 substitutions in the converging-finder regime, all carried forward. By default the entry is used where reported with an isotropic walk-speed × age inflation. Field-node (peer) entries arrive with MS-1 | ~~DC-13~~ done; preset |
 
 ### MAC / link layer
 
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 21 |
+| OPT-IN | 22 |
 | PARTIAL | 10 |
-| DIVERGENT | 9 (one of them, row 17, kept) |
+| DIVERGENT | 8 (one of them, row 17, kept) |
 | ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 
