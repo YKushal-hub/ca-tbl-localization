@@ -425,6 +425,9 @@ class CaTblMac
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
+    //! The channel this MAC is registered on, i.e. which radio it is. Read by the
+    //! scenario to bind a driver to the radio it claims to use (NW-3).
+    const CaTblChannel* GetChannel() const { return m_channel; }
     void SetEnergyModel(CaTblEnergyModel* e) { m_energy = e; }
     void SetRng(Ptr<UniformRandomVariable> rng) { m_rng = rng; }
 
