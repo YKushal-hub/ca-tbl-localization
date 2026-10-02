@@ -561,6 +561,13 @@ struct CaTblPolicyConfig
     //! normal escalation decision runs, and it does not count toward demotion -- that last
     //! is OURS. Requires sparseInStep. False reproduces every prior result.
     bool caseD = false;
+    //! NW-7 (MAC sect 8; Transport sect 4 "ON UWB grant confirmed"). An escalation INTO
+    //! UWB is recorded as pending and commits only when the caller confirms a delivered
+    //! grant (ConfirmUwbGrant), at the next cycle. While pending the tier is frozen: no
+    //! further escalation and no healthy demotion; a coverage-loss demotion still runs and
+    //! cancels the request, so a grant can never jump a node 868 -> UWB. 868 -> 2.4 is
+    //! unchanged. False reproduces every prior result.
+    bool grantGatedUwb = false;
     //! DC-9. Count the IMU witness's evaluations, refusals, and refusals the evidence gate
     //! would ALSO have suppressed (absorbed), so an absorbed refusal is reported as
     //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
@@ -688,6 +695,9 @@ struct CaTblDecision
     //! the update went in (NIS <= 6.63). -1 / false otherwise.
     double caseDNis = -1.0;
     bool caseDApplied = false;
+    //! NW-7. This cycle asked for UWB and the change waits for a grant: escalated is true,
+    //! nextTier is still the current tier.
+    bool uwbPending = false;
     //! DC-4. Whether the confidence model wanted to escalate this cycle (before any
     //! precondition suppressed it) -- observable on every cycle that reaches the decision.
     bool wantedEscalation = false;
@@ -1168,6 +1178,39 @@ class CaTblPolicy
     // DC-1. Appended last.
     bool m_imuPending = false;
     double m_imu[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+
+  public:
+    /**
+     * \brief NW-7. A delivered grant for the pending UWB request: the tier becomes UWB,
+     * effective at the next Step(), and the escalation is counted. False -- and nothing
+     * changes -- when no request is pending or the node has since been demoted below 2.4
+     * GHz (counted as late).
+     */
+    bool ConfirmUwbGrant();
+    /** \brief NW-7. The pending request was denied (timeout false) or its retries ran
+     *  out (timeout true): it is dropped and the node stays on 2.4 GHz. */
+    bool ClearUwbPending(bool timeout);
+    bool IsUwbPending() const { return m_uwbPending; }
+    uint64_t GetUwbRequests() const { return m_uwbRequests; }
+    uint64_t GetUwbConfirmed() const { return m_uwbConfirmed; }
+    uint64_t GetUwbDenied() const { return m_uwbDenied; }
+    uint64_t GetUwbTimeouts() const { return m_uwbTimeouts; }
+    uint64_t GetUwbLate() const { return m_uwbLate; }
+    uint64_t GetUwbAborted() const { return m_uwbAborted; }
+    uint64_t GetUwbCoverageClears() const { return m_uwbCoverageClears; }
+    uint64_t GetUwbWaitCycles() const { return m_uwbWaitCycles; }
+
+  private:
+    // NW-7. Appended last.
+    bool m_uwbPending = false;
+    uint64_t m_uwbRequests = 0;
+    uint64_t m_uwbConfirmed = 0;
+    uint64_t m_uwbDenied = 0;
+    uint64_t m_uwbTimeouts = 0;
+    uint64_t m_uwbLate = 0;
+    uint64_t m_uwbAborted = 0;
+    uint64_t m_uwbCoverageClears = 0;
+    uint64_t m_uwbWaitCycles = 0;
 };
 
 } // namespace ns3

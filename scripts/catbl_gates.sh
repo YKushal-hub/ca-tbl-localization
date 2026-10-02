@@ -1113,6 +1113,22 @@ bash scripts/reverse_path_gate.sh "$WORK/g48" || fail G48
 bash scripts/reverse_path_gate_selftest.sh "$WORK/g48" || fail G48
 finish G48
 
+# ---------------- G49: a UWB escalation commits only on a confirmed grant (NW-7)
+# The tier changed inside Step() and nothing at the node read ESC_GRANT, so a node could run
+# on UWB with no anchor's grant. --grantGatedUwb makes the escalation a pending request
+# committed by a delivered GRANT(granted). G33's handshake regime with the event log, read
+# by scripts/grant_gated_gate.py:
+#   - every UWB entry of every subject has a confirm in the slice before it, matched to a
+#     delivered GRANT frame; requests are exactly the trace's pending cycles;
+#   - no healthy demotion or escalation while pending; counts recounted; static arms exempt;
+#   - without the flag some UWB entries have no grant at all; a refusal.
+#
+# Negative fixtures in scripts/grant_gated_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G49 a UWB escalation commits only on a confirmed grant (NW-7) ---\n'
+bash scripts/grant_gated_gate.sh "$WORK/g49" || fail G49
+bash scripts/grant_gated_gate_selftest.sh "$WORK/g49" || fail G49
+finish G49
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

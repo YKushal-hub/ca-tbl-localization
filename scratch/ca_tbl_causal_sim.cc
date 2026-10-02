@@ -5346,6 +5346,8 @@ struct SpecOptions
     std::string meshLinks;
     //! NW-8. --reversePathHop: with --reversePath, the reverse path is hop by hop.
     bool reversePathHop = false;
+    //! NW-7. --grantGatedUwb: an escalation into UWB commits only on a delivered grant.
+    bool grantGatedUwb = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -5732,6 +5734,10 @@ RunArm(CaTblPolicyMode mode,
     if (spec.caseD)
     {
         pcfg.caseD = true;
+    }
+    if (spec.grantGatedUwb)
+    {
+        pcfg.grantGatedUwb = true; // NW-7
     }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
@@ -6786,6 +6792,23 @@ RunArm(CaTblPolicyMode mode,
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
+    // NW-7. --grantGatedUwb: every request, verdict and cancellation, per subject, in
+    // grants_<arm>_seed<N>.csv, so a pending window is on disk exactly.
+    std::unique_ptr<std::ofstream> grantLog;
+    if (spec.grantGatedUwb)
+    {
+        std::ostringstream gfn;
+        gfn << traceDir << "/grants_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        grantLog.reset(new std::ofstream(gfn.str().c_str()));
+        *grantLog << "t,subjectId,event,anchorId\n";
+    }
+    auto grantNote = [&grantLog](double atS, uint32_t sid, const char* ev, uint16_t anchor) {
+        if (grantLog)
+        {
+            *grantLog << std::fixed << std::setprecision(6) << atS << ',' << sid << ',' << ev
+                      << ',' << anchor << '\n';
+        }
+    };
     // MS-1. --finderTasking=roundrobin: finder k searches for subject (k mod N) + 1, and
     // every cycle of every finder is a row of tasking_<arm>_seed<N>.csv.
     const bool taskRR = (spec.finderTasking == "roundrobin");
@@ -7082,6 +7105,46 @@ RunArm(CaTblPolicyMode mode,
             ex.prevX = sb.pos.x;
             ex.prevY = sb.pos.y;
             subj->extra.push_back(std::move(ex));
+        }
+    }
+
+    // NW-7. Each measured subject's radios report the fate of its own UWB request to its
+    // own policy: a grant commits the change for the next cycle, a denial drops the request
+    // (and its retries -- the policy asks afresh, with fresh terms, when it next wants UWB),
+    // and exhausted retries time it out.
+    if (spec.grantGatedUwb)
+    {
+        auto wire = [&grantNote](CaTblMac* mm, CaTblPolicy* po, uint32_t sid) {
+            if (mm == nullptr)
+            {
+                return;
+            }
+            mm->SetUwbGrantCallback([mm, po, sid, &grantNote](uint16_t anchor, int outcome) {
+                const double nowS = Simulator::Now().GetSeconds();
+                if (outcome > 0)
+                {
+                    grantNote(nowS, sid, po->ConfirmUwbGrant() ? "confirm" : "late", anchor);
+                }
+                else if (po->ClearUwbPending(outcome < 0))
+                {
+                    grantNote(nowS, sid, outcome < 0 ? "timeout" : "deny", anchor);
+                    if (outcome == 0)
+                    {
+                        mm->CancelPendingRequests();
+                    }
+                }
+            });
+        };
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            wire(nodeMac[ti], &policy, nodeId);
+        }
+        for (uint32_t pt = 1; subj && pt < spec.measuredSubjects; ++pt)
+        {
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                wire(peerMacs[pt - 1][static_cast<size_t>(ti)], &tags[pt].policy, tags[pt].nodeId);
+            }
         }
     }
 
@@ -8105,9 +8168,21 @@ RunArm(CaTblPolicyMode mode,
                         maskS |= (1u << k);
                     }
                 }
+                const uint64_t covBeforeS = sb.policy.GetUwbCoverageClears(); // NW-7
                 CaTblDecision ds = sb.policy.Step(dt, measS, 0, static_cast<int32_t>(actM.size()),
                                                   static_cast<int32_t>(addressedActive), maskS);
                 ++sb.steps;
+                if (grantLog)
+                {
+                    if (sb.policy.GetUwbCoverageClears() > covBeforeS)
+                    {
+                        grantNote(t, sb.nodeId, "coverage", 0);
+                    }
+                    if (ds.uwbPending)
+                    {
+                        grantNote(t, sb.nodeId, "request", 0);
+                    }
+                }
                 if (ex.rk && ds.hadFix && !ds.measurementRejected)
                 {
                     ex.rk->ResetAccumulation();
@@ -8120,8 +8195,9 @@ RunArm(CaTblPolicyMode mode,
                 }
                 // The escalation handshake, as tag 0's: --handshakeFixes signals only an
                 // escalation into UWB; a refused duty budget defers the escalation away.
-                if (spec.handshakeFixes ? (ds.escalated && ds.nextTier == CA_TBL_TIER_UWB)
-                                     : (ds.escalated || ds.deescalated))
+                if (spec.handshakeFixes
+                        ? (ds.escalated && (ds.nextTier == CA_TBL_TIER_UWB || ds.uwbPending))
+                        : (ds.escalated || ds.deescalated))
                 {
                     if (sb.energy.CanTransmit(act, t))
                     {
@@ -9519,12 +9595,24 @@ RunArm(CaTblPolicyMode mode,
             trig->preVy = policy.EstVy();
             trig->preTraceP = policy.Pxx() + policy.Pyy();
         }
+        const uint64_t covBefore = policy.GetUwbCoverageClears(); // NW-7
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             0,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (grantLog)
+        {
+            if (policy.GetUwbCoverageClears() > covBefore)
+            {
+                grantNote(t, nodeId, "coverage", 0);
+            }
+            if (d.uwbPending)
+            {
+                grantNote(t, nodeId, "request", 0);
+            }
+        }
         if (mesh)
         {
             // NW-0. Which of the node's radios are awake for the coming slice. The slice
@@ -9938,8 +10026,10 @@ RunArm(CaTblPolicyMode mode,
         // default 868 -> 2.4 GHz and every de-escalation were signalled and charged too.
         // Under the flag those send nothing and are charged nothing, so energy and duty
         // move.
-        if (spec.handshakeFixes ? (d.escalated && d.nextTier == CA_TBL_TIER_UWB)
-                                : (d.escalated || d.deescalated))
+        // NW-7: under --grantGatedUwb the escalation into UWB is the pending request.
+        if (spec.handshakeFixes
+                ? (d.escalated && (d.nextTier == CA_TBL_TIER_UWB || d.uwbPending))
+                : (d.escalated || d.deescalated))
         {
             // THE GOVERNOR IS ADVISORY -- THE CALLER MUST CONSULT IT.
             //
@@ -10650,6 +10740,48 @@ RunArm(CaTblPolicyMode mode,
                  << " deferred-away " << ex.deferredAway << ";";
         }
         std::cout << line.str() << "\n";
+    }
+    if (grantLog)
+    {
+        grantLog->close(); // NW-7: before the digest, and before the MACs can call back
+        grantLog.reset();
+    }
+    if (spec.grantGatedUwb)
+    {
+        // NW-7. Tag 0, and subjects 2..N summed.
+        auto put = [](std::ostringstream& o, const CaTblPolicy& po) {
+            o << "requests " << po.GetUwbRequests() << ", confirmed " << po.GetUwbConfirmed()
+              << ", denied " << po.GetUwbDenied() << ", timed out " << po.GetUwbTimeouts()
+              << ", late grants " << po.GetUwbLate() << ", aborted " << po.GetUwbAborted()
+              << ", cancelled by coverage loss " << po.GetUwbCoverageClears()
+              << ", cycles waiting " << po.GetUwbWaitCycles();
+        };
+        std::ostringstream line;
+        line << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(mode) << "), tag 0: ";
+        put(line, policy);
+        std::cout << line.str() << "\n";
+        if (subj)
+        {
+            uint64_t a[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                const CaTblPolicy& po = tags[pt].policy;
+                a[0] += po.GetUwbRequests();
+                a[1] += po.GetUwbConfirmed();
+                a[2] += po.GetUwbDenied();
+                a[3] += po.GetUwbTimeouts();
+                a[4] += po.GetUwbLate();
+                a[5] += po.GetUwbAborted();
+                a[6] += po.GetUwbCoverageClears();
+                a[7] += po.GetUwbWaitCycles();
+            }
+            std::cout << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(mode)
+                      << "), subjects 2.." << spec.measuredSubjects
+                      << ": requests " << a[0] << ", confirmed " << a[1] << ", denied " << a[2]
+                      << ", timed out " << a[3] << ", late grants " << a[4] << ", aborted "
+                      << a[5] << ", cancelled by coverage loss " << a[6] << ", cycles waiting "
+                      << a[7] << "\n";
+        }
     }
     if (taskLog)
     {
@@ -11787,6 +11919,23 @@ main(int argc, char* argv[])
                  "Needs --reversePath and --identityQueryPeriodS > 0. A multi-hop path needs "
                  "--meshLinks=all; under the star model every path is one hop.",
                  spec.reversePathHop);
+    cmd.AddValue("grantGatedUwb",
+                 "An escalation into UWB commits only on a delivered grant (MAC sect 8; "
+                 "Transport sect 4 'ON UWB grant confirmed'; docs/SPEC_CONFORMANCE_PLAN.md "
+                 "NW-7). FALSE by default, which is every result so far: the tier changes "
+                 "inside Step() and nothing at the node reads ESC_GRANT, so a node can believe "
+                 "it holds a UWB slot no anchor gave it. TRUE: the escalation is a pending "
+                 "request (the ESC_REQUEST still goes out); the node stays on 2.4 GHz, frozen "
+                 "-- no further escalation, no healthy demotion, though coverage loss still "
+                 "demotes and cancels -- until a GRANT(granted) answering its own request "
+                 "arrives, and moves to UWB at the next cycle. A denial drops the request and "
+                 "its retries; exhausted retries time it out. 868 -> 2.4 GHz is unchanged; "
+                 "static arms are exempt. Applies to every measured subject. Under it the "
+                 "trace's escalated flag on 2.4 GHz marks the request, and the escalation "
+                 "count the grant. Writes grants_<arm>_seed<N>.csv (every request, confirm, "
+                 "deny, timeout, late grant and coverage cancellation, per subject), digested, "
+                 "and one or two NW-7 lines. Needs --handshakeFixes.",
+                 spec.grantGatedUwb);
     cmd.AddValue("imuIdeal",
                  "Replace the SHS with a PERFECT dead reckoner for --imuFusion. FALSE by "
                  "default. A CEILING, NOT A SYSTEM RESULT: the engine is anchored at the "
@@ -13709,6 +13858,13 @@ main(int argc, char* argv[])
                      "searches for tag 0, or none steers on an entry\n";
         return 1;
     }
+    // NW-7.
+    if (spec.grantGatedUwb && !spec.handshakeFixes)
+    {
+        std::cerr << "FATAL: --grantGatedUwb needs --handshakeFixes=true: only then does a "
+                     "GRANT carry its verdict and name the request it answers\n";
+        return 1;
+    }
     // NW-8.
     if (spec.reversePathHop && (!reversePathArg || !(identityQueryPeriodSArg > 0.0)))
     {
@@ -14700,6 +14856,10 @@ main(int argc, char* argv[])
     if (spec.finderTasking == "roundrobin")
     {
         digestPatterns += " tasking_*.csv";
+    }
+    if (spec.grantGatedUwb)
+    {
+        digestPatterns += " grants_*.csv";
     }
     if (queryProxyArg)
     {

@@ -272,6 +272,122 @@ main(int argc, char* argv[])
               "NEGATIVE: default ignores the score -- tagged LOS, scored 0.9, still suspect");
     }
 
+    std::cout << "--- NW-7: an escalation into UWB commits only on a confirmed grant\n";
+    {
+        const Pt at = {400, 300};
+        CaTblPolicyConfig g;
+        g.mode = CA_TBL_MODE_FULL;
+        g.escalationRequiresEvidence = false;
+        g.escalationRequiresEvidenceT2 = false;
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            g.pcsThresholdUp[k] = 1e9; // always wants to escalate
+            g.pcsThresholdDown[k] = 2e9;
+        }
+        g.grantGatedUwb = true;
+        CaTblPolicy p;
+        p.Configure(g);
+        p.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        const CaTblDecision s1 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision s2 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision s3 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(s1.escalated && !s1.uwbPending && s1.nextTier == CA_TBL_TIER_2P4,
+              "868 -> 2.4 GHz is not gated");
+        Check(s2.escalated && s2.uwbPending && s2.nextTier == CA_TBL_TIER_2P4 &&
+                  p.IsUwbPending() && p.GetUwbRequests() == 1 && p.GetEscalationCount() == 1,
+              "wanting UWB asks: escalated with the pending qualifier, the tier stays 2.4 GHz, "
+              "and no escalation is counted yet");
+        Check(!s3.escalated && s3.activeTier == CA_TBL_TIER_2P4 && p.GetUwbWaitCycles() == 1 &&
+                  p.GetUwbRequests() == 1,
+              "no UWB without a grant: the next cycle waits on 2.4 GHz and does not ask again");
+        Check(p.ConfirmUwbGrant() && p.GetActiveTier() == CA_TBL_TIER_UWB &&
+                  p.GetEscalationCount() == 2,
+              "a confirmed grant switches the tier, counted as the escalation");
+        const CaTblDecision s4 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(s4.activeTier == CA_TBL_TIER_UWB && !p.ConfirmUwbGrant() && p.GetUwbLate() == 1,
+              "the next cycle runs on UWB; a second grant changes nothing and is counted late");
+
+        // A denial drops the request; the next cycle that wants UWB asks afresh.
+        CaTblPolicy q;
+        q.Configure(g);
+        q.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        q.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        q.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const bool cleared = q.ClearUwbPending(false);
+        const CaTblDecision q3 = q.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(cleared && q.GetUwbDenied() == 1 && q3.uwbPending && q.GetUwbRequests() == 2 &&
+                  q3.activeTier == CA_TBL_TIER_2P4,
+              "a denial drops the request; the node stays on 2.4 GHz and asks again");
+
+        // Coverage loss still demotes while pending, and cancels the request: a grant can
+        // never jump the node 868 -> UWB.
+        CaTblPolicyConfig gb = g;
+        gb.nDeescalate = 1;
+        CaTblPolicy r;
+        r.Configure(gb);
+        r.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        r.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        r.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision r3 = r.Step(1.0, std::vector<CaTblRangeMeasurement>(), 0, 0, 0, 7u);
+        const bool lateOk = r.ConfirmUwbGrant();
+        Check(r3.deescalated && r.GetActiveTier() == CA_TBL_TIER_868 && !lateOk &&
+                  r.GetActiveTier() == CA_TBL_TIER_868,
+              "coverage loss demotes while pending, and a grant arriving after it is refused");
+        r.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(r.GetUwbCoverageClears() == 1 && !r.IsUwbPending(),
+              "the request is counted cancelled by coverage loss");
+
+        // Healthy demotion is frozen while pending. FIXED_THRESHOLD wants to escalate
+        // while trace(P) > T and is healthy below T/2; the trace falls cycle by cycle on a
+        // stationary node, so a T between the second cycle's trace and twice a later one
+        // makes the request and then reaches the healthy branch with it pending.
+        CaTblPolicyConfig f = g;
+        f.mode = CA_TBL_MODE_FIXED_THRESHOLD;
+        f.nDeescalate = 1;
+        f.grantGatedUwb = false;
+        CaTblPolicy probe;
+        probe.Configure(f);
+        probe.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        std::vector<double> tr;
+        for (int k = 0; k < 40; ++k)
+        {
+            tr.push_back(probe.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u).traceSigma);
+        }
+        f.fixedVarThresholdM2 = 0.9 * tr[1];
+        f.grantGatedUwb = true;
+        CaTblPolicy h;
+        h.Configure(f);
+        h.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        int healthyPending = 0;
+        bool demotedPending = false;
+        for (int k = 0; k < 40; ++k)
+        {
+            const bool wasPending = h.IsUwbPending();
+            const CaTblDecision dk = h.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+            if (wasPending && h.IsUwbPending() && dk.traceSigma < 0.5 * f.fixedVarThresholdM2)
+            {
+                ++healthyPending;
+            }
+            demotedPending = demotedPending || (wasPending && dk.deescalated);
+        }
+        Check(tr[0] > f.fixedVarThresholdM2 && healthyPending > 0 && !demotedPending &&
+                  h.GetActiveTier() == CA_TBL_TIER_2P4 && h.IsUwbPending(),
+              "healthy cycles while pending do not demote: the tier is frozen on 2.4 GHz");
+        CaTblPolicyConfig fo = f;
+        fo.grantGatedUwb = false;
+        CaTblPolicy ho;
+        ho.Configure(fo);
+        ho.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        bool demotedOff = false;
+        for (int k = 0; k < 40; ++k)
+        {
+            demotedOff = ho.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u).deescalated || demotedOff;
+        }
+        Check(demotedOff && ho.GetEscalationCount() == 2,
+              "CONTROL: the same cycles without the flag reach UWB and then demote -- the "
+              "healthy branch is reached");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

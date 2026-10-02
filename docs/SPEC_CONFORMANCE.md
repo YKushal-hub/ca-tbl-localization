@@ -92,7 +92,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 45 | Proxy response with a staleness bound (Net §4) | OPT-IN | `--queryProxy`; the bound was measured at L.2.5 | preset |
 | 46 | Query-triggered UWB escalation (Net §4) | ABSENT | No path from QUERY to escalation | NW-4 |
 | 47 | UWB arbitration U(r) with a queue at anchors (Net §5) | DIVERGENT | Battery term is the fraction spent; T_query is constant; no queue; finders never arbitrate | NW-5 |
-| 48 | Grant/deny on the ACK'd message; escalation only when granted (MAC §8, Transp §4) | DIVERGENT | Nothing at the tag consumes ESC_GRANT; the tier change commits without a grant | NW-7 |
+| 48 | Grant/deny on the ACK'd message; escalation only when granted (MAC §8, Transp §4) | OPT-IN | `--grantGatedUwb` with `--handshakeFixes` (NW-7, 2026-10-03, G49): an escalation into UWB is a pending request; the node stays on 2.4 GHz, frozen (no further escalation, no healthy demotion; coverage loss still demotes and cancels) until a GRANT(granted) answering its own request arrives, and moves to UWB at the next cycle. A denial drops the request and its retries; exhausted retries time it out. Applies to every measured subject. G49: 82 UWB entries over tag 0 and subjects, each confirmed by a delivered grant in the slice before it, against 8 of 38 entries with no grant at all without the flag. 868 -> 2.4 GHz is unchanged; the first verdict to arrive settles a broadcast request. `grantedBy` in the entry is NW-9's | ~~NW-7~~ done; NW-9 (grantedBy) |
 | 49 | Anchors gossip queue and grants; the lower id defers (Net §6) | PARTIAL | `--anchorGrantGossipS`; grants only, gateways only | NW-6 |
 
 ### Transport / application layer
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 24 |
+| OPT-IN | 25 |
 | PARTIAL | 10 |
-| DIVERGENT | 6 (one of them, row 17, kept) |
+| DIVERGENT | 5 (one of them, row 17, kept) |
 | ABSENT | 1 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN); row 48 with NW-7 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

@@ -1864,3 +1864,28 @@ default would have sent every finder toward tag 0. That is a property of the ass
 (OURS) and the dissemination it rides on, not a defect in the code. Whether a blind finder
 should fall back to its neighbours' targets, or the base station should task finders
 (TA-1), is an open design choice. No result depends on it yet.
+
+### N.5 What `--grantGatedUwb` decides that the spec does not
+
+NW-7 (2026-10-03, G49) gates the escalation into UWB on a delivered grant. Three choices in
+it are OURS, and each changes something a reader could otherwise assume:
+- **A denial ends the request.** MC-1 leaves a denied request pending, so its ACK timeout
+  retransmits and the arbiter scores the retry afresh. The plan says a denial clears the
+  pending state, and a retry the policy no longer waits for would earn a grant nobody uses.
+  So under the flag a denial also cancels the MAC's retries (`CancelPendingRequests`), and
+  the policy asks again, with fresh terms, the next cycle it wants UWB. In G49's regime tag
+  0 drew 24 denials against 29 grants.
+- **The first verdict settles a broadcast request.** Several anchors can hear one
+  ESC_REQUEST, and each answers. Whichever verdict arrives first decides; a grant arriving
+  after an earlier denial finds no outstanding request and is ignored, though its anchor has
+  reserved a slot. Multi-anchor reconciliation is NW-5 and NW-6.
+- **The trace's `escalated` flag changes meaning on 2.4 GHz.** It marks the request (with
+  `nextTier` still 2.4 GHz), while `escalations` in arm_summary counts the grant. Any
+  analysis that equates the two needs the flag's state.
+
+A process note from the same day: `~/catbl_tmp_gates/run_suites.sh` ran the unit-suite
+binaries without rebuilding them. After NW-7's policy-header change,
+`ca_tbl_sparse_anchor_test` segfaulted on its stale binary, and the 311 checks reported at
+NW-8 (`184d688`) included binaries built before that commit's MAC-header change. Rebuilt
+and re-run on the NW-7 tree, which contains NW-8, all 321 pass. The helper now rebuilds
+first.
