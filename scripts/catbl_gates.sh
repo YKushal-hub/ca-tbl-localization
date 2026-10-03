@@ -1343,6 +1343,24 @@ bash scripts/subject_chain_gate.sh "$WORK/g62" || fail G62
 bash scripts/subject_chain_gate_selftest.sh "$WORK/g62" || fail G62
 finish G62
 
+# ---------------- G63: the active tier fused with the floor (TECH_DEBT N.14)
+# When the active tier came up short of three, a cycle used the 868 MHz floor's set if IT had
+# three, and the active tier's 1-2 ranges otherwise: a UWB range was never fused while the
+# floor solved, and two floor ranges were dropped whenever a node was off 868 MHz.
+# --fuseFloorActive fuses the two and runs the sparse cases on the union. The preset at 5 km
+# and in its endgame, read by scripts/fuse_floor_gate.py:
+#   - every union formed only where the old path does not apply, the sum of its parts, and
+#     labelled with the active tier when it holds active ranges;
+#   - Step()'s fix kind fits the set's size; tag 0's trace rows agree with the file;
+#   - UWB-delivered fixes in the endgame (G24's zero), the N.14 line recounted, the
+#     control, a refusal.
+#
+# Negative fixtures in scripts/fuse_floor_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G63 the active tier fused with the floor (N.14) ---\n'
+bash scripts/fuse_floor_gate.sh "$WORK/g63" || fail G63
+bash scripts/fuse_floor_gate_selftest.sh "$WORK/g63" || fail G63
+finish G63
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
