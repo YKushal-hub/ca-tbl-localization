@@ -320,13 +320,18 @@ CaTblMac::PublishSelfEntry(double x, double y, double varX, double varY, double 
         e.degradationQ = m_selfDegradationQ;
         e.uwbActive = m_selfUwbActive;
         e.grantedBy = m_selfGrantedBy;
+        e.tierSource = m_selfTierSource; // TA-1
+        e.fixHop = m_selfFixHop;
     }
 }
 
 void
 CaTblMac::SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
-                        uint8_t degradationQ, bool uwbActive, uint16_t grantedBy)
+                        uint8_t degradationQ, bool uwbActive, uint16_t grantedBy,
+                        uint8_t tierSource, uint8_t fixHop)
 {
+    m_selfTierSource = tierSource;
+    m_selfFixHop = fixHop;
     m_selfPcsQ = pcsQ;
     m_selfIntegrity = integrityFlag;
     m_selfBatteryQ = batteryQ;
