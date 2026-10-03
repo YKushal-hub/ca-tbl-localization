@@ -15,6 +15,7 @@
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/core-module.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -300,6 +301,95 @@ main(int argc, char* argv[])
         Check(d1.pcs > 0.0 && d1.wantedEscalation && !d1.deescalated &&
                   d1.nextTier != CA_TBL_TIER_868,
               "DC-4: the Case D cycle reaches the decision (PCS computed) and is not demoted");
+    }
+
+    std::cout << "--- DC-3: Case C's relative shape (classical MDS)\n";
+    {
+        // Pairwise distances of a configuration, and the rigid misfit of a shape to it
+        // (best rotation, with and without a reflection, both centred).
+        auto dist = [](const std::vector<double>& x, const std::vector<double>& y) {
+            std::vector<std::vector<double>> d(x.size(), std::vector<double>(x.size(), 0.0));
+            for (size_t i = 0; i < x.size(); ++i)
+            {
+                for (size_t j = 0; j < x.size(); ++j)
+                {
+                    d[i][j] = std::hypot(x[i] - x[j], y[i] - y[j]);
+                }
+            }
+            return d;
+        };
+        auto misfit = [](const CaTblRelativeShape& s, std::vector<double> tx, std::vector<double> ty) {
+            const size_t k = tx.size();
+            double mx = 0.0, my = 0.0;
+            for (size_t i = 0; i < k; ++i)
+            {
+                mx += tx[i] / k;
+                my += ty[i] / k;
+            }
+            double best = 1e300;
+            for (int refl = 0; refl < 2; ++refl)
+            {
+                double h00 = 0.0, h01 = 0.0, h10 = 0.0, h11 = 0.0;
+                for (size_t i = 0; i < k; ++i)
+                {
+                    const double sx = s.x[i];
+                    const double sy = refl ? -s.y[i] : s.y[i];
+                    h00 += sx * (tx[i] - mx);
+                    h01 += sx * (ty[i] - my);
+                    h10 += sy * (tx[i] - mx);
+                    h11 += sy * (ty[i] - my);
+                }
+                const double th = std::atan2(h01 - h10, h00 + h11);
+                double e = 0.0;
+                for (size_t i = 0; i < k; ++i)
+                {
+                    const double sx = s.x[i];
+                    const double sy = refl ? -s.y[i] : s.y[i];
+                    const double rx = std::cos(th) * sx - std::sin(th) * sy;
+                    const double ry = std::sin(th) * sx + std::cos(th) * sy;
+                    e += std::pow(rx - (tx[i] - mx), 2) + std::pow(ry - (ty[i] - my), 2);
+                }
+                best = std::min(best, std::sqrt(e / k));
+            }
+            return best;
+        };
+        const std::vector<double> qx = {0.0, 10.0, 10.0, 0.0, 4.0};
+        const std::vector<double> qy = {0.0, 0.0, 10.0, 10.0, 7.0};
+        const CaTblRelativeShape q = CaTblRelativeShapeMds(dist(qx, qy));
+        Check(q.ok && q.stressM < 1e-9 && misfit(q, qx, qy) < 1e-9,
+              "DC-3: five points recovered exactly, up to a rotation, translation, reflection");
+        double cx = 0.0, cy = 0.0;
+        for (size_t i = 0; i < q.x.size(); ++i)
+        {
+            cx += q.x[i];
+            cy += q.y[i];
+        }
+        Check(std::fabs(cx) < 1e-9 && std::fabs(cy) < 1e-9, "DC-3: the shape is centred");
+        const std::vector<double> tx = {0.0, 3.0, 0.0};
+        const std::vector<double> ty = {0.0, 0.0, 4.0};
+        const CaTblRelativeShape tr = CaTblRelativeShapeMds(dist(tx, ty));
+        Check(tr.ok && misfit(tr, tx, ty) < 1e-9 && tr.lambda2 > 0.0,
+              "DC-3: a 3-4-5 triangle, the smallest set it accepts");
+        std::vector<std::vector<double>> noisy = dist(qx, qy);
+        noisy[0][1] += 0.5;
+        noisy[1][0] += 0.5;
+        noisy[2][4] -= 0.4;
+        noisy[4][2] -= 0.4;
+        const CaTblRelativeShape nq = CaTblRelativeShapeMds(noisy);
+        Check(nq.ok && nq.stressM > 0.0 && nq.stressM < 0.5 && misfit(nq, qx, qy) < 0.5,
+              "DC-3: noisy distances give a nearby shape, and a non-zero stress says so");
+        const std::vector<double> lx = {0.0, 5.0, 12.0};
+        const std::vector<double> ly = {0.0, 0.0, 0.0};
+        const CaTblRelativeShape ln = CaTblRelativeShapeMds(dist(lx, ly));
+        Check(ln.ok && ln.lambda2 < 1e-9 && ln.stressM < 1e-9,
+              "DC-3: three collinear members: the second eigenvalue is 0, distances still met");
+        std::vector<std::vector<double>> two = {{0.0, 7.0}, {7.0, 0.0}};
+        std::vector<std::vector<double>> bad = dist(tx, ty);
+        bad[1][2] = -1.0;
+        Check(!CaTblRelativeShapeMds(two).ok && !CaTblRelativeShapeMds(bad).ok &&
+                  CaTblSolveCaseC().solvedBy == CA_TBL_CASE_NONE,
+              "DC-3: below three members, or a negative distance, refused; the absolute "
+              "Case C solve still refuses");
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";

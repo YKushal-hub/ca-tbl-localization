@@ -1291,6 +1291,23 @@ bash scripts/subject_routing_gate.sh "$WORK/g59" || fail G59
 bash scripts/subject_routing_gate_selftest.sh "$WORK/g59" || fail G59
 finish G59
 
+# ---------------- G60: Case C's relative shape at the base station (DC-3)
+# A 0-anchor cycle was counted as Case C and coasted. --caseCRelative lets such a subject
+# range the peer subjects it hears; the ranges reach the base station in its answers, which
+# reconstructs each connected set by classical MDS (a pair as its distance) and fuses
+# nothing. G54's regime, read by scripts/case_c_gate.py:
+#   - every peer range on a 0-anchor cycle of its node, on its tier, to another subject;
+#   - delivery checked against the gateways' answers, inside the 10 s window;
+#   - the base station's sets and shapes recomputed from the delivered ranges;
+#   - nothing fused; pairs and shapes both assembled; the line recounted; the control;
+#     a refusal.
+#
+# Negative fixtures in scripts/case_c_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G60 Case C relative shape at the base station (DC-3) ---\n'
+bash scripts/case_c_gate.sh "$WORK/g60" || fail G60
+bash scripts/case_c_gate_selftest.sh "$WORK/g60" || fail G60
+finish G60
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

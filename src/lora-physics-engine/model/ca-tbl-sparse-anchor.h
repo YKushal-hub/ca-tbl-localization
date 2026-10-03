@@ -23,6 +23,7 @@
 #define CA_TBL_SPARSE_ANCHOR_H
 
 #include <cstdint>
+#include <vector>
 
 namespace ns3
 {
@@ -113,6 +114,33 @@ CaTblSparseResult CaTblSolveCaseB(double anchorX, double anchorY, double dAnchor
  * and that is different from not having asked.
  */
 CaTblSparseResult CaTblSolveCaseC();
+
+/**
+ * \brief DC-3 (--caseCRelative). Case C's relative shape: Physical sect 2.4, "0 anchors,
+ * 2+ peers -- relative-shape-only reconstruction (SSS, no absolute frame) -- explicitly
+ * not used for absolute position, only relative offset/cohesion tracking".
+ *
+ * CaTblSolveCaseC() still refuses: there is no POSITION in this input, and that does not
+ * change. What there is, is a SHAPE. Classical multidimensional scaling of a complete
+ * k x k distance matrix (k >= 3): B = -1/2 J D^2 J with J the centring matrix, and the
+ * coordinates are the two largest eigenpairs, x_i = sqrt(lambda) v_i. The result is the
+ * members' configuration up to a rotation, a translation and a reflection, centred on
+ * their centroid. A negative eigenvalue (noise, or a matrix no plane can hold) is clamped
+ * at 0, and stressM -- the RMS gap between the shape's pairwise distances and the given
+ * ones -- says how well a plane holds it.
+ */
+struct CaTblRelativeShape
+{
+    bool ok = false;        //!< false below 3 members, or for a non-square, negative or
+                            //!< non-finite matrix
+    std::vector<double> x;  //!< centred coordinates, metres, in member order
+    std::vector<double> y;
+    double stressM = 0.0;   //!< RMS of (shape distance - given distance) over the pairs
+    double lambda1 = 0.0;   //!< the two eigenvalues kept, m^2 (lambda2 ~ 0: collinear)
+    double lambda2 = 0.0;
+};
+
+CaTblRelativeShape CaTblRelativeShapeMds(const std::vector<std::vector<double>>& d);
 
 } // namespace ns3
 
