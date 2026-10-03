@@ -5433,6 +5433,8 @@ struct SpecOptions
     bool finderSessions = false;
     //! TA-1b. --finderCancelM: a finder this close to its target cancels its session.
     double finderCancelM = 2.0;
+    //! TA-2. --requesterEscalation: the base station asks for UWB on a target's behalf.
+    bool requesterEscalation = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6960,6 +6962,7 @@ RunArm(CaTblPolicyMode mode,
             }
         }
     }
+    std::map<uint32_t, std::pair<uint16_t, double>> reachSeen; // TA-2: node -> (arbiter, t)
     auto noteUwbEvidence = [&](uint16_t anchorId, uint32_t who, CaTblTier tier, double rangeM,
                                double tS) {
         // NW-5: a UWB exchange, or a 2.4 GHz range under the UWB r50, is evidence for the
@@ -6973,7 +6976,13 @@ RunArm(CaTblPolicyMode mode,
         if (am != arbMacById.end())
         {
             am->second->NoteUwbEvidence(static_cast<uint16_t>(who), tS);
+            reachSeen[who] = std::make_pair(anchorId, tS); // TA-2: the node knows it too
         }
+    };
+    auto reachOf = [&](uint32_t who, double tS) -> uint16_t {
+        // TA-2: the arbiter this node last had reach evidence with, if within 10 s.
+        std::map<uint32_t, std::pair<uint16_t, double>>::const_iterator r = reachSeen.find(who);
+        return (r != reachSeen.end() && tS - r->second.second <= 10.0) ? r->second.first : 0;
     };
     // NW-9. --queryV2: every answer a requester receives (responses_*), every decision a
     // node takes on a v2 QUERY (queryv2_*), and each tag's last PCS / integrity verdict /
@@ -6989,6 +6998,19 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<std::ofstream> sessLog;
     std::set<std::tuple<uint32_t, uint16_t, uint8_t>> baseSeen;
     uint64_t baseResults = 0;
+    // TA-2. The base station's own escalation requests: one row each in reqesc_*, at most
+    // one per target per slot hold.
+    std::unique_ptr<std::ofstream> reqLog;
+    std::map<uint16_t, double> reqLastS;
+    uint64_t reqCounts[4] = {0, 0, 0, 0}; // granted, queued, refused, unroutable
+    if (spec.requesterEscalation)
+    {
+        std::ostringstream qfn2;
+        qfn2 << traceDir << "/reqesc_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        reqLog.reset(new std::ofstream(qfn2.str().c_str()));
+        *reqLog << "t,target,manifest,pcs,threshold,arbiter,entryT,qt,outcome\n";
+    }
+    const double reqThreshold = pcfg.pcsThresholdUp[CA_TBL_TIER_2P4];
     // TA-1b. One session manager per finder (a rescuer's handheld), its session over the
     // subject it is assigned -- round-robin, finder k for subject (k mod N) + 1, the rule
     // --finderTasking uses (OURS) -- and what each has taken and when it was cancelled.
@@ -7079,8 +7101,9 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
             macs[m].SetResponseCallback([out, rid, atBase, atFinder, &sessions, &sessionId,
-                                         &sessLog, &baseSeen, &baseResults,
-                                         &renderCounts](const CaTblHeader& h) {
+                                         &sessLog, &baseSeen, &baseResults, &renderCounts,
+                                         &spec, &reqLog, &reqLastS, &reqCounts, &arbMacById,
+                                         reqThreshold](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
                      << ',' << rid << ',' << static_cast<int>(h.GetTier()) << ','
@@ -7191,6 +7214,50 @@ RunArm(CaTblPolicyMode mode,
                          << ',' << static_cast<int>(res.hopCountAtFix) << ','
                          << CaTblSessionStateName(before) << ',' << CaTblSessionStateName(after)
                          << ',' << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy << ",-1\n";
+                // TA-2. Transport sect 4: on a RESULT with PCS below the threshold and a CLEAN
+                // verdict, the requester asks for UWB for that target -- at the arbiter
+                // with UWB reach of it, never at "the nearest gateway", which under this
+                // topology offers UWB only to something beside it. The target's entry names
+                // the arbiter it last had reach evidence with (within 10 s of publishing);
+                // with none, the request is unroutable and not sent. Delivered to that
+                // arbiter over backhaul and mesh, modelled as instant and unbilled (OURS).
+                // At most one per target per slot hold.
+                if (!spec.requesterEscalation || res.suspect || e.uwbActive ||
+                    !(res.pcs < reqThreshold))
+                {
+                    return;
+                }
+                std::map<uint16_t, double>::iterator lr = reqLastS.find(e.nodeId);
+                if (lr != reqLastS.end() && nowS - lr->second < spec.arbSlotHoldS)
+                {
+                    return;
+                }
+                reqLastS[e.nodeId] = nowS;
+                CaTblMac* best = nullptr;
+                const uint16_t bestId = e.reachArbiter;
+                std::map<uint16_t, CaTblMac*>::const_iterator am = arbMacById.find(bestId);
+                if (bestId != 0 && am != arbMacById.end())
+                {
+                    best = am->second;
+                }
+                const uint8_t qt = (spec.identityQueryUrgent && !e.uwbActive) ? 1 : 0;
+                const char* outcome = "unroutable";
+                if (best != nullptr)
+                {
+                    const int v = best->SubmitRequestOnBehalf(e.nodeId, e.degradationQ, e.batteryQ,
+                                                              qt, CA_TBL_TIER_2P4);
+                    outcome = (v == 1) ? "granted" : ((v == 0) ? "queued" : "refused");
+                    ++reqCounts[(v == 1) ? 0 : ((v == 0) ? 1 : 2)];
+                }
+                else
+                {
+                    ++reqCounts[3];
+                }
+                *reqLog << std::fixed << std::setprecision(6) << nowS << ',' << e.nodeId << ','
+                        << static_cast<int>(res.targetManifestId) << ',' << std::setprecision(4)
+                        << res.pcs << ',' << reqThreshold << ',' << bestId << ','
+                        << std::setprecision(6) << e.timestampS << ',' << static_cast<int>(qt)
+                        << ',' << outcome << '\n';
             });
         }
     }
@@ -7529,6 +7596,16 @@ RunArm(CaTblPolicyMode mode,
                 {
                     grantNote(nowS, sid, "queued", anchor); // NW-5: still waiting
                 }
+                else if (outcome == 3)
+                {
+                    // TA-2: a grant a requester obtained for this node.
+                    const bool took = po->AcceptGrantOnBehalf();
+                    if (took)
+                    {
+                        v2GrantedBy[tagIdx] = anchor;
+                    }
+                    grantNote(nowS, sid, took ? "obo_accept" : "obo_refuse", anchor);
+                }
                 else if (outcome == 1)
                 {
                     const bool took = po->ConfirmUwbGrant();
@@ -7785,7 +7862,7 @@ RunArm(CaTblPolicyMode mode,
                                                CaTblQuantise(1.0 - batteryUsedFrac),
                                                CaTblQuantise(pcsDegradation), onUwb,
                                                onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
-                                               v2FixHop[0]);
+                                               v2FixHop[0], reachOf(nodeId, t));
                 }
             }
         }
@@ -7842,7 +7919,8 @@ RunArm(CaTblPolicyMode mode,
                         CaTblQuantise(v2Pcs[pt]), v2Suspect[pt],
                         CaTblQuantise(1.0 - tags[pt].batteryUsedFrac),
                         CaTblQuantise(tags[pt].pcsDegradation), onUwb,
-                        onUwb ? v2GrantedBy[pt] : 0, v2FixTier[pt], v2FixHop[pt]);
+                        onUwb ? v2GrantedBy[pt] : 0, v2FixTier[pt], v2FixHop[pt],
+                        reachOf(tags[pt].nodeId, t));
                 }
                 peerMacs[pi][ti]->PublishSelfEntry(
                     tags[pt].policy.EstX(), tags[pt].policy.EstY(),
@@ -11358,6 +11436,22 @@ RunArm(CaTblPolicyMode mode,
         }
         std::cout << line.str() << "\n";
     }
+    if (reqLog)
+    {
+        // TA-2. Closed before the digest; what was asked and what the targets did.
+        reqLog->close();
+        reqLog.reset();
+        uint64_t acc = 0, ref = 0;
+        for (uint32_t pt = 0; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            acc += tags[pt].policy.GetOboAccepted();
+            ref += tags[pt].policy.GetOboRefused();
+        }
+        std::cout << "    TA-2 requester escalation (" << CaTblPolicyModeName(mode)
+                  << "): granted " << reqCounts[0] << ", queued " << reqCounts[1] << ", refused "
+                  << reqCounts[2] << ", unroutable " << reqCounts[3] << "; at the targets accepted "
+                  << acc << ", refused " << ref << "\n";
+    }
     for (size_t fi = 0; fi < finderSearch.size(); ++fi)
     {
         // TA-1b. One line per finder's own search.
@@ -12745,6 +12839,20 @@ main(int argc, char* argv[])
                  "OURS): the spec's explicit cancel. Rows tagged with the finder id in session_*, and "
                  "one TA-1b line per finder. Needs --sessionOverMesh and --nFinders > 0.",
                  spec.finderSessions);
+    cmd.AddValue("requesterEscalation",
+                 "The requester drives escalation (Transport sect 4: on a RESULT with PCS below "
+                 "the threshold and integrity CLEAN, it submits an escalation request for the "
+                 "target; docs/SPEC_CONFORMANCE_PLAN.md TA-2). FALSE by default: only a node's "
+                 "own PCS decision asks. TRUE, under --sessionOverMesh: the base station asks "
+                 "for UWB for a target whose delivered entry is clean, not on UWB and below "
+                 "the 2.4 GHz up threshold -- at the arbiter the target's entry names as the "
+                 "one it last had UWB-reach evidence with (within 10 s), never 'the nearest "
+                 "gateway'; with none it is unroutable. The request reaches the arbiter instantly and unbilled (OURS) "
+                 "and is scored like any other (marked query-triggered when the queries are "
+                 "URGENT); a grant goes to the target, which takes it 2.4 GHz -> UWB. At most "
+                 "one per target per slot hold. Writes reqesc_<arm>_seed<N>.csv, digested, and "
+                 "one TA-2 line. Needs --sessionOverMesh, --arbitrationV2 and --grantGatedUwb.",
+                 spec.requesterEscalation);
     cmd.AddValue("finderCancelM",
                  "Under --finderSessions, how close (m, true positions) a finder must come to "
                  "its target to cancel its session as 'target physically reached'. 2 (default) "
@@ -14766,6 +14874,14 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --finderSessions needs --sessionOverMesh and --nFinders > 0\n";
         return 1;
     }
+    if (spec.requesterEscalation &&
+        (!spec.sessionOverMesh || !spec.arbitrationV2 || !spec.grantGatedUwb))
+    {
+        std::cerr << "FATAL: --requesterEscalation needs --sessionOverMesh, --arbitrationV2 and "
+                     "--grantGatedUwb: there is no requester, no arbiter to score it, or no "
+                     "node that waits for a grant\n";
+        return 1;
+    }
     if (!(spec.finderCancelM > 0.0) || (spec.finderCancelM != 2.0 && !spec.finderSessions))
     {
         std::cerr << "FATAL: --finderCancelM must be > 0, and is read only under "
@@ -15840,6 +15956,10 @@ main(int argc, char* argv[])
     if (spec.sessionOverMesh)
     {
         digestPatterns += " session_*.csv";
+    }
+    if (spec.requesterEscalation)
+    {
+        digestPatterns += " reqesc_*.csv";
     }
     if (spec.queryV2)
     {

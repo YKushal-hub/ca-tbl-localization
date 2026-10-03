@@ -1239,6 +1239,23 @@ bash scripts/finder_session_gate.sh "$WORK/g56" || fail G56
 bash scripts/finder_session_gate_selftest.sh "$WORK/g56" || fail G56
 finish G56
 
+# ---------------- G57: the requester drives escalation (TA-2)
+# Only a node's own PCS asked for UWB. --requesterEscalation makes the base station submit an
+# escalation request for a target whose delivered answer has a low PCS, routed to the arbiter
+# the target's own entry names as in UWB reach (never the nearest gateway), scored there with
+# query_triggered set; the on-behalf GRANT is taken by the target as its escalation. G47's
+# converging regime, read by scripts/reqesc_gate.py:
+#   - every request follows the rule (a clean low-PCS answer, one per slot hold);
+#   - every request sent went to the arbiter the target named, which had reach evidence;
+#   - the arbiter scored each as logged; delivered grants accepted, then UWB the next cycle;
+#   - the TA-2 line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/reqesc_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G57 the requester drives escalation (TA-2) ---\n'
+bash scripts/reqesc_gate.sh "$WORK/g57" || fail G57
+bash scripts/reqesc_gate_selftest.sh "$WORK/g57" || fail G57
+finish G57
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

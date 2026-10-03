@@ -530,7 +530,8 @@ class CaTblMac
     //! NW-9. The status the next PublishSelfEntry() stamps on this node's entry.
     void SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
                        uint8_t degradationQ, bool uwbActive, uint16_t grantedBy,
-                       uint8_t tierSource = 0xFF, uint8_t fixHop = 0);
+                       uint8_t tierSource = 0xFF, uint8_t fixHop = 0,
+                       uint16_t reachArbiter = 0);
     //! NW-9. Every first copy of an answer that reaches this node as its requester.
     void SetResponseCallback(std::function<void(const CaTblHeader&)> cb) { m_respCb = cb; }
     //! NW-9. One row per decision on a v2 QUERY (answered, proxied, relayed with the
@@ -660,6 +661,14 @@ class CaTblMac
     void NoteUwbEvidence(uint16_t nodeId, double tS) { m_uwbEvidence[nodeId] = tS; }
     //! NW-5. Re-score the queue and grant a free slot to its argmax; drop expired entries.
     void ArbitrationCycle();
+    /**
+     * \brief TA-2. A requester's escalation request for \p target, delivered to this
+     * arbiter (the scenario carries it there; see the flag). Scored and decided exactly as a
+     * request the target sent (NW-5): granted -- the GRANT goes to the target marked
+     * on-behalf -- queued, or refused out of range. Returns 1, 0 or -1.
+     */
+    int SubmitRequestOnBehalf(uint16_t target, uint8_t degradationQ, uint8_t remainingQ,
+                              uint8_t queryTriggered, CaTblTier tier);
     //! NW-5. One row per arbitration event (grant, preempt, queue, aged grant, out of
     //! range, expire) and per queued candidate scored at a cycle grant. Null = no log.
     void SetArbLog(std::ostream* os) { m_arbLog = os; }
@@ -913,8 +922,11 @@ class CaTblMac
         double tDeg;
         double rem;
         uint8_t qt;
+        bool onBehalf = false; //!< TA-2: submitted by a requester for the target
     };
     std::vector<ArbQueued> m_arbQueue;
+    bool m_curOnBehalf = false;  //!< TA-2: ArbitrateV2 is scoring a requester's request
+    bool m_nextOnBehalf = false; //!< TA-2: consumed by the next GRANT
     std::map<uint16_t, double> m_uwbEvidence;
     //! Requester side: my queued request -> the anchors holding it in their queue.
     std::map<uint32_t, std::set<uint16_t>> m_queuedReqs;
@@ -953,6 +965,7 @@ class CaTblMac
     uint16_t m_selfGrantedBy = 0;
     uint8_t m_selfTierSource = 0xFF; // TA-1
     uint8_t m_selfFixHop = 0;
+    uint16_t m_selfReachArbiter = 0; // TA-2
     uint64_t m_v2Answered = 0;
     uint64_t m_v2Proxied = 0;
     uint64_t m_v2Suppressed = 0;

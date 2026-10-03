@@ -1973,3 +1973,35 @@ Also OURS, or a consequence of the rules:
 - Finder ids (501+) are above every gateway's (101+), so under "the lower id defers" a
   finder always keeps a contested request against a gateway. The rule is the spec's; the
   id assignment makes the outcome systematic.
+
+### N.10 What `--requesterEscalation` decides that the spec does not
+
+TA-2 (2026-10-03, G57). Transport sect 4: a requester that sees a low-precision result
+drives escalation for its target, routing the request to an anchor in the target's fresh
+neighbour set. Measured in G57's regime (G47's converging finders, five subjects, seed 7,
+1 200 s): 54 requests, 5 sent, 4 granted, 4 accepted.
+- **The request reaches the arbiter instantly and unbilled.** The base station hands it to
+  the arbiter's MAC directly. No frame carries it across the mesh: routing a frame to a
+  named anchor is NW-2's (routing per subject). Only the arbiter's on-behalf GRANT is a
+  frame, billed like any GRANT.
+- **The neighbour set is one arbiter, named by the target.** The target's entry carries the
+  id of the arbiter it last had UWB-reach evidence with: a UWB exchange, or a 2.4 GHz range
+  under 29.5 m, within 10 s. That is the NW-5 evidence rule (N.8), and the 10 s window is
+  OURS. The id travels in memory with the entry and is not serialised or billed (2 bytes
+  if it were). A list would serve the spec's wording, but a requester routes to one anchor,
+  and it cannot check the list either way.
+- **Most requests are unroutable.** 49 of 54 found no arbiter named, because the target had
+  no fresh reach when it published. Those requests are not sent. The plan's review ruled
+  out the nearest gateway, and G57's fixture N3 fails a request routed there.
+- **Every clean answer from a node not on UWB asks.** The rule compares the PCS in the
+  delivered entry with the 2.4 GHz up-threshold. That PCS is a byte over [0, 1] (N.7), and
+  under the default PCS form the thresholds (1.55 to 2.30) lie above anything the byte can
+  hold. So the test always passes, and only the per-target rate limit (one request per
+  `--arbSlotHoldS`, OURS) spaces the requests. `--pcsForm=calibrated` (DC-6, CAL-02) is
+  what would make the comparison mean something.
+- **Only the base station asks.** TA-1b's finder sessions do not submit requests; that is
+  not built. Open.
+- At the target, an on-behalf grant confirms a pending request of the node's own.
+  Otherwise it is the node's escalation 2.4 GHz -> UWB on a hybrid arm, effective the next
+  cycle. It is refused on 868 MHz (never a jump to UWB) and on a static arm. Both outcomes
+  are counted. In G57 none were refused.
