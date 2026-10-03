@@ -16,7 +16,7 @@ snapshot like every other status document here (CLAUDE.md §8). Check the cited 
 | status | meaning |
 |---|---|
 | **CONFORMANT** | built as specified and **on by default** |
-| **OPT-IN** | built as specified, behind a default-off flag. It is part of the spec configuration through `--specProfile` (P6, 2026-10-03; plan §3.1), which sets every such flag unless one is given explicitly. G24 checks each mechanism's population under it; six are zero today (TECH_DEBT N.15) |
+| **OPT-IN** | built as specified, behind a default-off flag. It is part of the spec configuration through `--specProfile` (P6, 2026-10-03; plan §3.1), which sets every such flag unless one is given explicitly. G24 checks each mechanism's population under it; four are zero at `--radioBasis`'s commit, 2026-10-03 (TECH_DEBT N.15) |
 | **PARTIAL** | built, but part of the specified behaviour is missing, or the mechanism has no population where it should act |
 | **DIVERGENT** | built differently from the spec. The reason is recorded, and whether it is to be closed or kept is stated |
 | **ABSENT** | not built |
@@ -36,7 +36,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 | 4 | Tier-2 symmetric two-way ToF (Phys 1.2) | CONFORMANT | `LoRa2p4PhysicsEngine`, floor 3.0 m (Zhou et al.) | — |
 | 5 | Tier-3 UWB three-message TWR (Phys 1.3) | CONFORMANT | `LoRaUWBPhysicsEngine`, floor 0.10 m (Benouakta et al.) | — |
 | 6 | UWB CIR leading-edge NLOS score (Phys 1.3) | PARTIAL | `--nlosClassifier` (`86e43f2`); the UWB matrix is empty under legacy physics (M.2). The registered 802.15.4a model (`--uwbNlosModel=ieee802154a`, `57225b8`) **does not** fill it: P1 FALSIFIED (`report/UWB_NLOS_RESULTS.md`) | PH-2 |
-| 7 | Radio basis LR1121 (868 + 2.4 GHz) + DW3000 (hardware) | DIVERGENT | The energy model uses SX1262/SX1280 currents (PROV-03) | SY-2 |
+| 7 | Radio basis LR1121 (868 + 2.4 GHz) + DW3000 (hardware) | OPT-IN | `--radioBasis=lr1121` (SY-2, 2026-10-03, G61): tiers 1 and 2 are billed on one Semtech LR1121 from its datasheet, DS.LR1121.W.APP Rev 2.0 (Dec 2023), Tables 3-4..3-6 (TX 28 / 26 mA, RX 7.8 / 7.5 mA, idle 1.25 mA, sleep 1.6 µA); the DW3000 stays tier 3. Only currents move: at defaults every non-energy value is identical and each energy bucket is the SX one times the current ratio. `--specProfile` sets it. The default is still the SX1262/SX1280 basis (PROV-03); the choices the datasheet does not make are in TECH_DEBT N.17 | ~~SY-2~~ done; preset |
 | 8 | Energy metered per action (hardware: fuel gauge) | CONFORMANT | `CaTblEnergyModel`, reconciled to 10 s.f. | — |
 
 ### Filter, sparse cases, confidence, integrity
@@ -121,13 +121,13 @@ and 50 were split out by the code explorations behind the plan.
 | status | n |
 |---|---|
 | CONFORMANT | 16 |
-| OPT-IN | 36 |
+| OPT-IN | 37 |
 | PARTIAL | 3 |
-| DIVERGENT | 2 (one of them, row 17, kept) |
+| DIVERGENT | 1 (row 17, kept) |
 | ABSENT | 0 |
 
 These are parsed from the tables. A first hand count gave 17/11/14/13/2 and was wrong.
-They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN); row 48 with NW-7 (DIVERGENT → OPT-IN); row 44 with NW-9 (DIVERGENT → OPT-IN); row 46 with NW-4 (ABSENT → OPT-IN); row 47 with NW-5 (DIVERGENT → OPT-IN); row 49 with NW-6 (PARTIAL → OPT-IN); row 51 with TA-1b (PARTIAL → OPT-IN); row 52 with TA-2 (PARTIAL → OPT-IN); row 42 with NW-1 step 3 (PARTIAL → OPT-IN); row 41 with NW-2 (PARTIAL → OPT-IN); row 15 with DC-3 (PARTIAL → OPT-IN); row 19 with CAL-02 (DIVERGENT → OPT-IN); row 43 at the P7 review (PARTIAL → OPT-IN).
+They have moved since the first parsed count (16/10/14/15/2), each row DIVERGENT → OPT-IN: row 20 with DC-7, row 21 with DC-8, row 9 with DC-10; row 35 with MC-1 (PARTIAL → OPT-IN); row 36 with MC-2 (PARTIAL → OPT-IN); row 53 with SY-1 (PARTIAL → OPT-IN); row 57 with SY-5 (PARTIAL → OPT-IN); row 12 with DC-11 (DIVERGENT → OPT-IN); row 10 with DC-1 (DIVERGENT → OPT-IN); row 16 with DC-4 (ABSENT → OPT-IN); row 14 with DC-2 (DIVERGENT → OPT-IN); row 26 with DC-13 (DIVERGENT → OPT-IN); row 38 with NW-0 (DIVERGENT → OPT-IN); row 50 with NW-8 (DIVERGENT → OPT-IN); row 48 with NW-7 (DIVERGENT → OPT-IN); row 44 with NW-9 (DIVERGENT → OPT-IN); row 46 with NW-4 (ABSENT → OPT-IN); row 47 with NW-5 (DIVERGENT → OPT-IN); row 49 with NW-6 (PARTIAL → OPT-IN); row 51 with TA-1b (PARTIAL → OPT-IN); row 52 with TA-2 (PARTIAL → OPT-IN); row 42 with NW-1 step 3 (PARTIAL → OPT-IN); row 41 with NW-2 (PARTIAL → OPT-IN); row 15 with DC-3 (PARTIAL → OPT-IN); row 19 with CAL-02 (DIVERGENT → OPT-IN); row 43 at the P7 review (PARTIAL → OPT-IN); row 7 with SY-2 (DIVERGENT → OPT-IN).
 
 **Correction, 2026-10-01.** The DC-7 commit (`d31dd0a`) changed this block to 16/11/14/14/2 but not row 20 itself: the edit to the row was never written to disk. So for one commit the numbers above disagreed with the table they claim to be parsed from. Row 20 is corrected with DC-8, and the block is parsed again, as it says to be.
 

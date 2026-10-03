@@ -1825,6 +1825,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.14 | a UWB range never improves a fix the floor can make | open, remedy waits on the owner |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
+| N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2264,6 +2265,8 @@ nor prints its NW-1 line (NOHV). Still four zeros, one of them new:
 
 Like the moves before it, these are populations of a few events in one seed.
 
+*2026-10-03, SY-2:* the preset sets `--radioBasis=lr1121` (82 settings). The same four zeros.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -2287,3 +2290,35 @@ are:
 - the integrity check firing on nearly every preset fix (N.15's populations).
 
 Each would need its own measurement. Open, for the owner, together with N.14.
+
+### N.17 What `--radioBasis=lr1121` decides that the datasheet does not
+
+SY-2 (2026-10-03, G61). The currents come from Semtech's LR1121 datasheet, DS.LR1121.W.APP
+Rev 2.0 (Dec 2023), sect 3.4.1, Tables 3-4, 3-5 and 3-6, read from the PDF. Two
+distributors' copies (sha256 `ede17ac3...` and `f36bcf2d...`) carry the same tables; both are
+kept outside the repository in `~/catbl_work/datasheets/`. The choices:
+- **The revision.** Semtech's product page lists a datasheet dated 2025-04-26. Its download
+  is a script-driven viewer that would not serve the file, and a Rev 2.1 mirror is behind a
+  browser challenge. Rev 2.0 is the one read, so it is the one cited. A later revision
+  could move a figure.
+- **TX at 2.4 GHz:** 26 mA, the +13 dBm row. The scenario transmits 12.5 dBm; the table
+  has +13 and +10 dBm. Taking the setting that delivers 12.5 dBm is OURS.
+- **RX:** the RxBoosted figures, 7.8 mA (sub-GHz, 125 kHz) and 7.5 mA (2.4 GHz, 812 kHz,
+  the LR1121 setting nearest the scenario's 800 kHz). The SX1262 profile was boosted too,
+  and the sensitivity tables assume it.
+- **CAD:** at the RX current. The datasheet gives no CAD figure; the SX1262 profile's
+  "CAD draws RX-equivalent current" is kept. OURS.
+- **Idle and sleep:** STBY_RC (1.25 mA) and SLEEP with the RC-based RTC, no RAM retained
+  (1.6 µA), the counterparts of the SX profiles' choices.
+- **Timing:** CAD duration, turnaround, wake-up, guards and timeouts are not tabulated. They
+  are kept from the SX profiles, so a basis change moves currents only. That is what makes
+  G61's ratio check exact; it is not a claim that the LR1121's timing equals the SX parts'.
+- **What it changes beyond energy.** At defaults, nothing (G61: 6 arms and 6 traces, no
+  non-energy value moved). Under `--specProfile` energy feeds the escalation request's
+  battery term, and so arbitration. G24's populations at 82 settings: the same four zeros
+  as before.
+- **Seen while building G61:** `subject_summary.csv` carries only the tx and sleep buckets
+  of each tier, not rx, CAD or idle. So a subject's energy can be checked only through
+  those buckets and the tier totals. Recorded, not changed: adding columns would change the
+  file every subject run writes.
+

@@ -90,6 +90,13 @@ struct RadioPowerProfile
     /** DW3000-class UWB transceiver. Note rxCurrentMa > txCurrentMa -- this is
      *  real, and it is why "listen for the reply" dominates a TWR exchange. */
     static RadioPowerProfile Dw3000_Uwb();
+    /** SY-2. Semtech LR1121, sub-GHz path (868 MHz), TX at 14 dBm on the LP PA. The
+     *  spec's tiers 1 and 2 share this one die. Currents from DS.LR1121.W.APP Rev 2.0;
+     *  timing kept from Sx1262_868() (see the .cc). */
+    static RadioPowerProfile Lr1121_868();
+    /** SY-2. Semtech LR1121, 2.4 GHz path, TX on the HF PA. Currents from
+     *  DS.LR1121.W.APP Rev 2.0; timing kept from Sx1280_2p4() (see the .cc). */
+    static RadioPowerProfile Lr1121_2p4();
 };
 
 /**
