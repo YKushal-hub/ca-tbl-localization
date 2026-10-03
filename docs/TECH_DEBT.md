@@ -2032,3 +2032,29 @@ chained to depth 2, seed 7, 600 s; 2.4 GHz, path-loss exponent 2.3, so slope x r
 The preset turns the flag on (plan sect 3.1). Whether it should is for CAL-02 and the
 comparator arms to say; the "LoRaWAPS-style" baseline runs with it off. It is not a defect
 to tune away here. Open.
+
+### N.12 Routing subjects: what `--fixRoutingSubjects` decides, and the breach it replaces
+
+NW-2 (2026-10-03, G59). Measured in G59's regime: full arm, five measured subjects and one
+plain relay, the confidence selector, seed 7, 600 s.
+- **The breach.** `--fixRouting` with `--measuredSubjects` > 1 routes subjects 2..N on
+  `--relayTier` whatever tier they ranged on. In G59's control, 671 of 1 204 frames on the
+  air came from a subject that ranged on another tier that cycle: a second tier
+  transmitting in one cycle, which sect 6 forbids. No gate ran that combination before.
+  The breach still runs, warned on stderr. It is not refused, because refusing would
+  change what an existing flag combination does.
+- **The fix.** Under `--fixRoutingSubjects` there is one router per tier. Each cycle a node
+  takes part only in the router of the tier it ranged on. Routes learned on a tier persist
+  for their three-cycle lifetime while the node is elsewhere. A hop whose next hop has
+  since moved tier is refused: 46 of them in G59.
+- **868 MHz routes almost nothing.** A subject on 868 MHz has spent its 2.5 % duty budget
+  on ranging, so its routed frames are refused by the governor (1 053 refusals, 24
+  forwards, nothing delivered). No subject reached UWB in this regime, so that router had
+  no participants. Neither outcome is wrong, but the per-tier routing that works is
+  2.4 GHz.
+- **Links are learned passively on every tier.** A node notes gateway beacons on all three
+  radios whether or not it is on that tier, as the MAC's neighbour tables already do. Only
+  transmission and the receive charge are tied to the cycle's tier. Whether a node on
+  868 MHz can hear 2.4 GHz beacons at all is the model's existing assumption, not NW-2's.
+- The row's pcs field stays 0, as neither metric reads it. The weights are exposed and
+  untuned (OURS); the sweep is CAMP-SPEC's.
