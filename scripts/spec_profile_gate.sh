@@ -58,7 +58,6 @@ entryPrediction --entryPrediction=false
 triggeredUpdates --triggeredUpdates=false
 mobilityFromRange --mobilityFromRange=false
 tableFuseCI --tableFuseCI=false
-hopVarianceTerms --hopVarianceTerms=false
 queryTriggeredEscalation --queryTriggeredEscalation=false
 requesterEscalation --requesterEscalation=false --boxHalf=750 --finderMode=1
 edgeUplinkRanges --edgeUplinkRanges=false

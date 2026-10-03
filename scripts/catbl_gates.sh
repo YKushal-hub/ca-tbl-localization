@@ -1319,10 +1319,11 @@ finish G60
 #   - spec_profile.txt lists every setting, and an explicit flag is kept;
 #   - every router runs the preset's routing weights, CAMP-SPEC's pick (0,0,1,1), and
 #     the preset with routing turned off explicitly still runs;
+#   - --hopVarianceTerms is not in the preset (owner decision, N.11);
 #   - every mechanism has a non-zero population in its registered run (a zero is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
-# FAIL BY FINDING today: five mechanisms have no population under the preset (TECH_DEBT N.15).
+# FAIL BY FINDING today: four mechanisms have no population under the preset (TECH_DEBT N.15).
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'
