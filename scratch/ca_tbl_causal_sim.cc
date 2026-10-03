@@ -5427,6 +5427,8 @@ struct SpecOptions
     bool sessionOverMesh = false;
     double sessionStalenessS = 120.0;
     double sessionTimeoutS = 600.0;
+    //! TA-3. --sessionPreciseOnGrant: PRECISE is a confirmed grant in a delivered entry.
+    bool sessionPreciseOnGrant = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6566,6 +6568,7 @@ RunArm(CaTblPolicyMode mode,
         // --identityQueryManifests list (a batch) or --identityQueryTarget alone.
         sessions.SetStalenessBound(spec.sessionStalenessS);
         sessions.SetSessionTimeout(spec.sessionTimeoutS);
+        sessions.SetPreciseOnGrant(spec.sessionPreciseOnGrant); // TA-3
         const std::vector<uint8_t> targets =
             spec.identityQueryManifests.empty()
                 ? std::vector<uint8_t>(1, static_cast<uint8_t>(identityQueryTarget))
@@ -6988,7 +6991,8 @@ RunArm(CaTblPolicyMode mode,
         sfn << traceDir << "/session_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         sessLog.reset(new std::ofstream(sfn.str().c_str()));
         *sessLog << "t,requesterId,sessionId,event,manifest,queryId,answererId,entryNode,"
-                    "tierSource,pcs,suspect,hopCountAtFix,stateBefore,stateAfter\n";
+                    "tierSource,pcs,suspect,hopCountAtFix,stateBefore,stateAfter,uwbActive,"
+                    "grantedBy\n";
     }
     if (spec.queryV2)
     {
@@ -7050,6 +7054,7 @@ RunArm(CaTblPolicyMode mode,
                 res.hopCountAtFix = e.fixHop;
                 res.suspect = (e.integrityFlag != 0);
                 res.timestampS = e.timestampS;
+                res.uwbGranted = e.uwbActive && e.grantedBy != 0; // TA-3
                 const double nowS = Simulator::Now().GetSeconds();
                 std::map<uint32_t, CaTblSession>::const_iterator si =
                     sessions.Sessions().find(sessionId);
@@ -7067,7 +7072,7 @@ RunArm(CaTblPolicyMode mode,
                          << std::setprecision(4) << res.pcs << ',' << (res.suspect ? 1 : 0)
                          << ',' << static_cast<int>(res.hopCountAtFix) << ','
                          << CaTblSessionStateName(before) << ',' << CaTblSessionStateName(after)
-                         << '\n';
+                         << ',' << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy << '\n';
             });
         }
     }
@@ -10366,7 +10371,7 @@ RunArm(CaTblPolicyMode mode,
                 {
                     *sessLog << std::fixed << std::setprecision(6) << t << ",0," << sessionId
                              << ",tick,0,0,0,0,255,0,0,0," << CaTblSessionStateName(before)
-                             << ',' << CaTblSessionStateName(after) << '\n';
+                             << ',' << CaTblSessionStateName(after) << ",0,0\n";
                 }
             }
             else
@@ -11186,6 +11191,20 @@ RunArm(CaTblPolicyMode mode,
                 line << " m" << static_cast<int>(tg[k]) << " " << std::fixed
                      << std::setprecision(1) << si->second.TimeToCoarse(tg[k]) << "/"
                      << si->second.TimeToPrecise(tg[k]);
+            }
+            if (tg.size() > 1)
+            {
+                // TA-4: the batch's spread in time-to-precision, undefined below two.
+                const double spread = sessions.BatchPrecisionSpread(sessionId);
+                line << "; batch precision spread ";
+                if (spread < 0.0)
+                {
+                    line << "UNDEFINED";
+                }
+                else
+                {
+                    line << std::fixed << std::setprecision(1) << spread << " s";
+                }
             }
         }
         std::cout << line.str() << "\n";
@@ -12550,6 +12569,15 @@ main(int argc, char* argv[])
                  "state change), digested, and one TA-1 line. Needs --sessionLayer and "
                  "--queryV2. Finder sessions (TA-1b) are not built.",
                  spec.sessionOverMesh);
+    cmd.AddValue("sessionPreciseOnGrant",
+                 "Under --sessionOverMesh, the session becomes LOCATED_PRECISE on a confirmed "
+                 "UWB grant (Transport sect 4: 'ON UWB grant confirmed: session.state = "
+                 "LOCATED_PRECISE'; docs/SPEC_CONFORMANCE_PLAN.md TA-3), learned the only way "
+                 "the requester can learn it: a delivered entry saying its producer is on UWB "
+                 "with a grantor (NW-7, NW-9) -- one delivery after the fact, which is "
+                 "realistic. A result from a UWB fix without a grant is coarse. FALSE by "
+                 "default: a UWB fix is precise. Needs --sessionOverMesh and --grantGatedUwb.",
+                 spec.sessionPreciseOnGrant);
     cmd.AddValue("sessionStalenessS",
                  "Under --sessionOverMesh, seconds without a result after which a session "
                  "goes STALE (the session manager's default, 120).",
@@ -14549,6 +14577,12 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --sessionOverMesh needs --sessionLayer and --queryV2: there is no "
                      "session, or no RESPONSE carries an entry\n";
+        return 1;
+    }
+    if (spec.sessionPreciseOnGrant && (!spec.sessionOverMesh || !spec.grantGatedUwb))
+    {
+        std::cerr << "FATAL: --sessionPreciseOnGrant needs --sessionOverMesh and "
+                     "--grantGatedUwb: only then does an entry name a confirmed grant\n";
         return 1;
     }
     if ((spec.sessionStalenessS != 120.0 || spec.sessionTimeoutS != 600.0) &&
