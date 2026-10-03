@@ -1377,6 +1377,19 @@ bash scripts/finderreq_gate.sh "$WORK/g64" || fail G64
 bash scripts/finderreq_gate_selftest.sh "$WORK/g64" || fail G64
 finish G64
 
+# ---------------- G65: subjects bill their range uplink (SY-1 for subjects; N.3, row 55)
+# --edgeUplinkRanges billed tag 0's tier-2/3 range uplink only. --subjectEdgeUplink bills the
+# subjects' too. Five subjects at defaults otherwise, read by scripts/subject_uplink_gate.py:
+#   - only the subjects' energy moves, only tx on tiers 2 and 3; tag 0's files identical;
+#   - each subject's rise is the line's airtime at the radio's TX power, exactly;
+#   - no subject billed on a tier it never transmitted on; the warning; a refusal.
+#
+# Negative fixtures in scripts/subject_uplink_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G65 subjects bill their range uplink (SY-1, N.3) ---\n'
+bash scripts/subject_uplink_gate.sh "$WORK/g65" || fail G65
+bash scripts/subject_uplink_gate_selftest.sh "$WORK/g65" || fail G65
+finish G65
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and

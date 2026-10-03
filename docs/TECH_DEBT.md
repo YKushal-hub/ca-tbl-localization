@@ -1897,6 +1897,10 @@ with it (rule 8): at five subjects tag 0's static_868 fixes are 225, not 212. On
 control-flow claims compare across N.
 
 *2026-10-04:* the relay chain is open to subjects behind `--subjectRelayChain` (G62, N.18).
+
+*2026-10-04:* `--subjectEdgeUplink` (G65) bills the subjects' tier-2/3 range uplink as
+`--edgeUplinkRanges` bills tag 0's. With it on, the start-up WARNING no longer lists
+`--edgeUplinkRanges`.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
