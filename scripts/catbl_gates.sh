@@ -1256,6 +1256,23 @@ bash scripts/reqesc_gate.sh "$WORK/g57" || fail G57
 bash scripts/reqesc_gate_selftest.sh "$WORK/g57" || fail G57
 finish G57
 
+# ---------------- G58: per-hop variance and NLOS enter a relayed range sigma (NW-1 step 3)
+# C5 composed sigma_eff from the engine's sigma and the relay's covariance alone.
+# --hopVarianceTerms adds each leg's RSSI/SNR variability, converted to range by the tier's
+# path-loss slope, and inflates a leg the tier's NLOS score calls NLOS. G53's relayed regime
+# with the NLOS classifier, read by scripts/hop_variance_gate.py:
+#   - every decision row carries the leg's readings and terms;
+#   - the variability, its conversion, the NLOS verdict and sigma_leg are recomputed;
+#   - sigma_eff is composed from sigma_leg within [0, trace P];
+#   - both terms fire on admitted legs, at depths 1 and 2; lines recounted; the control;
+#     two refusals.
+#
+# Negative fixtures in scripts/hop_variance_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G58 per-hop variance and NLOS enter a relayed range sigma (NW-1 step 3) ---\n'
+bash scripts/hop_variance_gate.sh "$WORK/g58" || fail G58
+bash scripts/hop_variance_gate_selftest.sh "$WORK/g58" || fail G58
+finish G58
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

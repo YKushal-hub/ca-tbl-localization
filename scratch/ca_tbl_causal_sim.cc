@@ -3284,6 +3284,168 @@ RelayRound::Report(std::ostream& os, double dt) const
 }
 
 /**
+ * NW-1 step 3 (--hopVarianceTerms). The final plan's item 1 models a fix's confidence as a
+ * function of the path it travelled -- "hop count, per-hop RSSI/SNR variance, per-hop NLOS
+ * likelihood" -- and Physical sect 2.5 folds that into trace(Sigma). C5 already adds the
+ * relay's projected position variance (sigma_eff^2 = sigma^2 + u'P_B u); this adds the two
+ * per-hop terms to the leg's own sigma, before C5 composes it:
+ *   - THE LEG'S VARIABILITY. The von Neumann sigma of its RSSI and SNR readings, the
+ *     statistic tier 1's classifier uses (window 8, three readings, the larger of the two),
+ *     keyed by (initiator, relay). Converted to range by the tier's own nominal path-loss
+ *     slope at the measured range: sigma_var = s / |dPL/dd|. The conversion is OURS: tiers
+ *     2 and 3 range by time of flight, so RSSI variability measures how unsettled the leg
+ *     is, not a term of the range error itself, and on short legs it is large.
+ *   - THE TIER'S NLOS SCORE ON THE LEG. 2.4 GHz: the ToF/RSSI excess against a pool of legs
+ *     (200, scoring from 20, as the anchor links' pool); UWB: the leading-edge test on a
+ *     synthesised CIR. A leg scored at or above --nlosScoreThreshold has its sigma
+ *     multiplied by nlosSigmaInflation, as Step() multiplies a direct NLOS link's.
+ * sigma_leg = sqrt(sigma_raw^2 + sigma_var^2), times the inflation when NLOS, and C5 adds
+ * u'P_B u to that. Its own windows, pool and CIR stream: the anchor links' classifier
+ * (nlos_links_*) does not see a leg.
+ */
+struct LegTerms
+{
+    //! What the engine returned on the leg.
+    struct Obs
+    {
+        int tier = -1;
+        double rssiDbm = 0.0;
+        double snrDb = 0.0;
+        double txPowerDbm = 0.0;
+        bool truthNlos = false;
+        double kFactor = 0.0;
+        double nlosDb = 0.0;
+    };
+    //! The terms, one per leg that reached admission.
+    struct Out
+    {
+        double rssiDbm = 0.0;
+        double snrDb = 0.0;
+        double rangeM = 0.0;
+        uint32_t n = 0;
+        double sDb = 0.0;
+        double slopeDbPerM = 0.0;
+        double varSigmaM = 0.0;
+        double score = -1.0;
+        bool nlos = false;
+        double sigmaRawM = 0.0;
+        double sigmaLegM = 0.0;
+    };
+
+    LegTerms(uint32_t seed,
+             double threshold,
+             double inflation,
+             const LoRa2p4PhysicsConfig& c2p4,
+             const LoRaUWBPhysicsConfig& cUwb)
+        : thr(threshold),
+          infl(inflation),
+          cir(static_cast<int64_t>(seed) * 7919 + 1400071, CaTblCirConfig()),
+          var(8, 3),
+          ref2p4(200, 20),
+          prop2p4(c2p4.propagation),
+          propUwb(cUwb.propagation),
+          envUwb(cUwb.environment),
+          accumGainUwbDb(10.0 * std::log10(std::max(cUwb.ranging.uwbPreambleSymbols, 1.0)))
+    {
+    }
+
+    Out Apply(uint32_t tx, uint32_t rx, const Obs& o, double rangeM, double sigRaw)
+    {
+        Out out;
+        out.rssiDbm = o.rssiDbm;
+        out.snrDb = o.snrDb;
+        out.rangeM = rangeM;
+        out.sigmaRawM = sigRaw;
+        out.sigmaLegM = sigRaw;
+        if (o.tier != CA_TBL_TIER_2P4 && o.tier != CA_TBL_TIER_UWB)
+        {
+            return out; // tier 1: A1 refuses the leg whatever its terms
+        }
+        ++legs;
+        const CaTblLinkVariability::Result v =
+            var.Push(((tx & 0xFFFFu) << 16) | (rx & 0xFFFFu), o.rssiDbm, o.snrDb);
+        out.n = v.n;
+        const PropagationParams& prop = (o.tier == CA_TBL_TIER_2P4) ? prop2p4 : propUwb;
+        // Central difference, +-1 % of the range; the nominal model clamps its distance at
+        // 1 m, so the range is held where both points clear that.
+        const double h = 0.01;
+        const double d = std::max(rangeM, 1.0 / (1.0 - h));
+        out.slopeDbPerM = std::fabs(CaTblNominalPathLossDb(d * (1.0 + h), prop) -
+                                    CaTblNominalPathLossDb(d * (1.0 - h), prop)) /
+                          (2.0 * h * d);
+        if (v.valid && out.slopeDbPerM > 0.0)
+        {
+            out.sDb = std::max(v.sRssiDb, v.sSnrDb);
+            out.varSigmaM = out.sDb / out.slopeDbPerM;
+            ++withVar;
+            varSum += out.varSigmaM;
+        }
+        if (o.tier == CA_TBL_TIER_2P4)
+        {
+            const CaTblTofRssiResidual e =
+                CaTblTofRssiExcess(rangeM, o.rssiDbm, o.txPowerDbm, prop2p4);
+            if (e.valid)
+            {
+                double z = 0.0;
+                double med = 0.0;
+                double sig = 0.0;
+                if (ref2p4.Score(e.excessDb, z, med, sig))
+                {
+                    out.score = CaTblNlosRamp(z, 1.0, 3.0); // NlosScoring's kZLo, kZHi
+                }
+                ref2p4.Add(e.excessDb);
+            }
+        }
+        else
+        {
+            out.score = cir.Classify(envUwb, o.truthNlos, o.kFactor, o.nlosDb,
+                                     o.snrDb + accumGainUwbDb)
+                            .score;
+        }
+        if (out.score >= 0.0)
+        {
+            ++scored;
+            out.nlos = (out.score >= thr);
+        }
+        out.sigmaLegM = std::sqrt(sigRaw * sigRaw + out.varSigmaM * out.varSigmaM) *
+                        (out.nlos ? infl : 1.0);
+        inflated += out.nlos ? 1 : 0;
+        rawSum += sigRaw;
+        legSum += out.sigmaLegM;
+        return out;
+    }
+
+    void Report(std::ostream& os, const char* arm) const
+    {
+        std::ostringstream o;
+        o << std::fixed << std::setprecision(4) << "  NW-1 hop variance terms (" << arm
+          << "): legs " << legs << "; a variance term on " << withVar << " (mean sigma_var "
+          << (withVar ? varSum / withVar : 0.0) << " m); NLOS-scored " << scored
+          << ", inflated " << inflated << " (x" << infl << " at score >= " << thr
+          << "); mean sigma raw " << (legs ? rawSum / legs : 0.0) << " m -> leg "
+          << (legs ? legSum / legs : 0.0) << " m\n";
+        os << o.str();
+    }
+
+    double thr;
+    double infl;
+    CaTblCirSynth cir;
+    CaTblLinkVariability var;
+    CaTblRobustRef ref2p4;
+    PropagationParams prop2p4;
+    PropagationParams propUwb;
+    EnvironmentClass envUwb;
+    double accumGainUwbDb;
+    uint64_t legs = 0;
+    uint64_t withVar = 0;
+    uint64_t scored = 0;
+    uint64_t inflated = 0;
+    double varSum = 0.0;
+    double rawSum = 0.0;
+    double legSum = 0.0;
+};
+
+/**
  * L.1.2 -- RELAY DEPTH 2 (Network sect 5), behind --relayChain.
  *
  * WHAT WAS MISSING. CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed,
@@ -3371,7 +3533,7 @@ RelayRound::Report(std::ostream& os, double dt) const
  */
 struct RelayChain
 {
-    RelayChain(size_t nTags, const std::string& logPath);
+    RelayChain(size_t nTags, const std::string& logPath, bool legCols = false);
     void BeginCycle();
     //! A relay's anchor ranging is done. True: defer its step (short of three).
     bool Defer(size_t pt, const std::vector<CaTblRangeMeasurement>& pmeas, size_t addressed);
@@ -3396,7 +3558,8 @@ struct RelayChain
                 uint32_t consumer);
     //! One decision, either leg. verdict < 0 means the composition was refused.
     void Record(double t, uint32_t consumer, int leg, const CaTblRelayedRange& rr,
-                double inheritedVarM2, int verdict, double sigmaEffM);
+                double inheritedVarM2, int verdict, double sigmaEffM,
+                const LegTerms::Out* terms = nullptr);
     //! A short relay's step FUSED a relayed range: the depth it now carries, and why.
     void LogFuse(double t, uint32_t relayId, uint32_t viaId, CaTblTier rt, uint32_t newDepth,
                  uint32_t maxRelayDepth, double trP, double inherited, double budgetM2);
@@ -3405,6 +3568,8 @@ struct RelayChain
 
     std::vector<uint32_t> depth;          //!< hops between the estimate and infrastructure
     bool hopProvenance = false;           //!< NW-1: a short relay's Step gets its fused depth
+    LegTerms* legTerms = nullptr;         //!< NW-1 step 3: null unless --hopVarianceTerms
+    bool legCols = false;                 //!< the log carries the leg terms' columns
     std::vector<double> inheritedVarM2;   //!< projected variance that estimate leans on
     std::vector<double> upUx;             //!< direction of the upstream leg it came along
     std::vector<double> upUy;
@@ -3433,8 +3598,9 @@ struct RelayChain
 };
 
 __attribute__((noinline))
-RelayChain::RelayChain(size_t n, const std::string& logPath)
+RelayChain::RelayChain(size_t n, const std::string& logPath, bool withLegCols)
     : depth(n, 0),
+      legCols(withLegCols),
       inheritedVarM2(n, 0.0),
       upUx(n, 0.0),
       upUy(n, 0.0),
@@ -3451,7 +3617,12 @@ RelayChain::RelayChain(size_t n, const std::string& logPath)
         std::exit(1);
     }
     log << "t,consumerId,relayId,leg,tier,hopDepth,maxRelayDepth,distM,carriedVarM2,"
-           "inheritedVarM2,budgetM2,a2,verdict,sigmaRawM,sigmaEffM\n";
+           "inheritedVarM2,budgetM2,a2,verdict,sigmaRawM,sigmaEffM";
+    // NW-1 step 3: the leg's readings and terms; sigmaRawM stays the engine's sigma, and
+    // sigmaLegM is what C5 composed sigmaEffM from.
+    log << (legCols ? ",legRssiDbm,legSnrDb,legRangeM,legN,legSDb,legSlopeDbPerM,legVarSigmaM,legScore,"
+                      "legNlos,sigmaLegM\n"
+                    : "\n");
 }
 
 __attribute__((noinline)) void
@@ -3483,7 +3654,8 @@ RelayChain::Defer(size_t pt, const std::vector<CaTblRangeMeasurement>& pmeas, si
 
 __attribute__((noinline)) void
 RelayChain::Record(double t, uint32_t consumer, int leg, const CaTblRelayedRange& rr,
-                   double inherited, int verdict, double sigmaEffM)
+                   double inherited, int verdict, double sigmaEffM,
+                   const LegTerms::Out* terms)
 {
     const unsigned d = std::min<unsigned>(3u, rr.hopDepth);
     ++offered[leg][d];
@@ -3516,7 +3688,19 @@ RelayChain::Record(double t, uint32_t consumer, int leg, const CaTblRelayedRange
         << ',' << rr.relayVarBudgetM2 << ',' << a2name << ','
         << (verdict < 0 ? "COMPOSE_REFUSED"
                         : CaTblRelayVerdictName(static_cast<CaTblRelayVerdict>(verdict)))
-        << ',' << rr.sigmaRangeM << ',' << sigmaEffM << '\n';
+        << ',' << (terms ? terms->sigmaRawM : rr.sigmaRangeM) << ',' << sigmaEffM;
+    if (legCols && terms)
+    {
+        log << ',' << terms->rssiDbm << ',' << terms->snrDb << ',' << terms->rangeM << ','
+            << terms->n << ','
+            << terms->sDb << ',' << terms->slopeDbPerM << ',' << terms->varSigmaM << ','
+            << terms->score << ',' << (terms->nlos ? 1 : 0) << ',' << terms->sigmaLegM;
+    }
+    else if (legCols)
+    {
+        log << ",,,,,,,,,,";
+    }
+    log << '\n';
 }
 
 __attribute__((noinline)) void
@@ -3531,7 +3715,7 @@ RelayChain::LogFuse(double t, uint32_t relayId, uint32_t viaId, CaTblTier rt,
     log << std::fixed << std::setprecision(4) << t << ',' << relayId << ',' << viaId
         << ",fuse," << static_cast<int>(rt) << ',' << newDepth << ',' << maxRelayDepth
         << ",0.000000," << std::setprecision(6) << trP << ',' << inherited << ','
-        << budgetM2 << ",-,FUSED,0.000000,0.000000\n";
+        << budgetM2 << ",-,FUSED,0.000000,0.000000" << (legCols ? ",,,,,,,,,,\n" : "\n");
 }
 
 __attribute__((noinline)) bool
@@ -3620,6 +3804,9 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             bool got = false;
             double r = 0.0;
             double sigRaw = 0.0;
+            LegTerms::Obs obs; // NW-1 step 3
+            obs.tier = rti;
+            obs.txPowerDbm = phy[rti].txPowerDbm;
             // C5_INSTANT: the round's next relay-to-relay slot, after every relay's polls.
             double atS = t;
             const Time at = round ? round->NextChain(now, t, &atS) : now;
@@ -3631,6 +3818,8 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                 got = res.packetReceived;
                 r = res.estimatedRangeM;
                 sigRaw = res.rangingSigmaM;
+                obs.rssiDbm = res.measuredRssiDbm;
+                obs.snrDb = res.snr_db;
             }
             else if (rt == CA_TBL_TIER_UWB)
             {
@@ -3640,6 +3829,11 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                 got = res.packetReceived;
                 r = res.estimatedRangeM;
                 sigRaw = res.rangingSigmaM;
+                obs.rssiDbm = res.measuredRssiDbm;
+                obs.snrDb = res.snr_db;
+                obs.truthNlos = res.isNLOS;
+                obs.kFactor = res.sampledKFactor;
+                obs.nlosDb = res.nlosDb;
             }
             else
             {
@@ -3689,10 +3883,16 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                     continue;
                 }
             }
+            LegTerms::Out terms;
+            if (legTerms)
+            {
+                terms = legTerms->Apply(B.nodeId, C.nodeId, obs, r, sigRaw);
+                rr.sigmaRangeM = terms.sigmaLegM; // C5 composes sigma_eff from it
+            }
             double sigEff = 0.0;
             const CaTblRelayVerdict v = CaTblAdmitRelayedRange(rr, used, &sigEff);
             Record(t, B.nodeId, 0, rr, inheritedVarM2[c], static_cast<int>(v),
-                   (v == CA_TBL_RELAY_ADMIT) ? sigEff : 0.0);
+                   (v == CA_TBL_RELAY_ADMIT) ? sigEff : 0.0, legTerms ? &terms : nullptr);
             if (v != CA_TBL_RELAY_ADMIT)
             {
                 continue;
@@ -5423,6 +5623,8 @@ struct SpecOptions
     double arbSlotHoldS = 10.0;
     //! NW-1. --hopProvenance: the hop count of a fused set reaches Step() and the RESULT.
     bool hopProvenance = false;
+    //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
+    bool hopVarianceTerms = false;
     //! TA-1a. --sessionOverMesh: the base station's session is fed by delivered RESPONSEs.
     bool sessionOverMesh = false;
     double sessionStalenessS = 120.0;
@@ -6397,13 +6599,20 @@ RunArm(CaTblPolicyMode mode,
     }
     // L.1.2. Null unless --relayChain, and while null the relay loop below is unchanged.
     std::unique_ptr<RelayChain> chain;
+    std::unique_ptr<LegTerms> legTerms; // NW-1 step 3: null unless --hopVarianceTerms
     if (relayChain)
     {
         std::ostringstream cfn;
         cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
-        chain.reset(new RelayChain(tags.size(), cfn.str()));
+        chain.reset(new RelayChain(tags.size(), cfn.str(), spec.hopVarianceTerms));
         chain->hopProvenance = spec.hopProvenance;
+        if (spec.hopVarianceTerms)
+        {
+            legTerms.reset(new LegTerms(seed, nlosScoreThreshold, pcfg.nlosSigmaInflation,
+                                        engine2p4.GetConfig(), engineUwb.GetConfig()));
+            chain->legTerms = legTerms.get();
+        }
     }
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
     // cycle's instant and charged at its time, exactly as before.
@@ -9796,6 +10005,9 @@ RunArm(CaTblPolicyMode mode,
                     double sigRaw = 0.0;
                     bool got = false;
                     const int ati = static_cast<int>(active);
+                    LegTerms::Obs obs; // NW-1 step 3
+                    obs.tier = ati;
+                    obs.txPowerDbm = phy[ati].txPowerDbm;
                     if (active == CA_TBL_TIER_2P4)
                     {
                         PhysicsResult2p4 r = engine2p4.ProcessTransmission(
@@ -9805,6 +10017,8 @@ RunArm(CaTblPolicyMode mode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        obs.rssiDbm = r.measuredRssiDbm;
+                        obs.snrDb = r.snr_db;
                     }
                     else if (active == CA_TBL_TIER_UWB)
                     {
@@ -9815,6 +10029,11 @@ RunArm(CaTblPolicyMode mode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        obs.rssiDbm = r.measuredRssiDbm;
+                        obs.snrDb = r.snr_db;
+                        obs.truthNlos = r.isNLOS;
+                        obs.kFactor = r.sampledKFactor;
+                        obs.nlosDb = r.nlosDb;
                     }
                     else
                     {
@@ -9865,6 +10084,12 @@ RunArm(CaTblPolicyMode mode,
                         continue;
                     }
 
+                    LegTerms::Out terms;
+                    if (legTerms)
+                    {
+                        terms = legTerms->Apply(nodeId, tags[pt].nodeId, obs, rAB, sigRaw);
+                        rr.sigmaRangeM = terms.sigmaLegM; // C5 composes sigma_eff from it
+                    }
                     double sigmaEff = 0.0;
                     const CaTblRelayVerdict v =
                         CaTblAdmitRelayedRange(rr, relaysUsedThisUpdate, &sigmaEff);
@@ -9872,7 +10097,8 @@ RunArm(CaTblPolicyMode mode,
                     {
                         chain->Record(t, nodeId, 1, rr, chain->inheritedVarM2[pt],
                                       static_cast<int>(v),
-                                      (v == CA_TBL_RELAY_ADMIT) ? sigmaEff : 0.0);
+                                      (v == CA_TBL_RELAY_ADMIT) ? sigmaEff : 0.0,
+                                      legTerms ? &terms : nullptr);
                     }
                     switch (v)
                     {
@@ -12158,6 +12384,10 @@ RunArm(CaTblPolicyMode mode,
     {
         chain->Report(std::cout, tags, relayVarBudgetM2, maxRelayDepth);
     }
+    if (legTerms)
+    {
+        legTerms->Report(std::cout, CaTblPolicyModeName(mode));
+    }
     if (relayRound)
     {
         relayRound->Report(std::cout, dt);
@@ -12889,6 +13119,22 @@ main(int argc, char* argv[])
                  "moves is that the count is carried. Writes hops_<arm>_seed<N>.csv, "
                  "digested, and one NW-1 line. Needs --relayedRanging.",
                  spec.hopProvenance);
+    cmd.AddValue("hopVarianceTerms",
+                 "Per-hop RSSI/SNR variance and per-hop NLOS likelihood enter a relayed "
+                 "range's sigma (the final plan's item 1; Physical sect 2.5 folds them into "
+                 "trace(Sigma); docs/SPEC_CONFORMANCE_PLAN.md NW-1 step 3). FALSE by default: "
+                 "a leg's sigma is the engine's, and C5 adds the relay's projected variance. "
+                 "TRUE: every relay leg that reaches admission, on either leg of the chain, "
+                 "adds the von Neumann sigma of its RSSI/SNR readings (window 8, three "
+                 "readings, keyed by initiator and relay) converted to range by the tier's "
+                 "nominal path-loss slope at the range (OURS: tiers 2 and 3 range by time of "
+                 "flight), sigma_leg = sqrt(sigma^2 + sigma_var^2); a leg the tier's NLOS score "
+                 "puts at or above --nlosScoreThreshold (2.4 GHz: ToF/RSSI excess against a "
+                 "pool of legs; UWB: the CIR leading-edge test) is multiplied by "
+                 "nlosSigmaInflation, as a direct NLOS link is; C5 composes sigma_eff from "
+                 "sigma_leg. relay_chain_* gains the leg's readings and terms, and one NW-1 "
+                 "line. Needs --relayedRanging, --relayChain and --nlosClassifier.",
+                 spec.hopVarianceTerms);
     cmd.AddValue("arbSlotHoldS",
                  "Seconds an awarded UWB slot is held before an arbiter treats it as free "
                  "(CaTblMacConfig::arbSlotHoldS). 10 (default) is the C4 harness constant "
@@ -14899,6 +15145,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --sessionStalenessS and --sessionTimeoutS are read only under "
                      "--sessionOverMesh\n";
+        return 1;
+    }
+    // NW-1 step 3.
+    if (spec.hopVarianceTerms && (!relayedRangingArg || !relayChainArg || !nlosClassifierArg))
+    {
+        std::cerr << "FATAL: --hopVarianceTerms needs --relayedRanging, --relayChain (whose log "
+                     "carries the terms) and --nlosClassifier (whose threshold says NLOS)\n";
         return 1;
     }
     // NW-1.
