@@ -1222,6 +1222,23 @@ bash scripts/precise_gate.sh "$WORK/g55" || fail G55
 bash scripts/precise_gate_selftest.sh "$WORK/g55" || fail G55
 finish G55
 
+# ---------------- G56: every finder runs its own search (TA-1b)
+# Only the base station searched. --finderSessions gives each finder its own session for its
+# round-robin subject, fed only by the answers that reach it over the reverse path, and
+# cancels it once the finder is within --finderCancelM of its target. G54's regime with
+# finders tasked round-robin, plus G47's converging regime for the cancel, read by
+# scripts/finder_session_gate.py:
+#   - every finder result is an answer that reached that finder, once; every one is fed;
+#   - finders search for their assigned subjects and leave SEARCHING on an answer;
+#   - cancels within the distance close the session for good (and do occur at 30 m);
+#   - lines recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/finder_session_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G56 every finder runs its own search (TA-1b) ---\n'
+bash scripts/finder_session_gate.sh "$WORK/g56" || fail G56
+bash scripts/finder_session_gate_selftest.sh "$WORK/g56" || fail G56
+finish G56
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
