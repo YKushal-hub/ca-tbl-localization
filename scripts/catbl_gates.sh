@@ -1207,6 +1207,21 @@ bash scripts/session_gate.sh "$WORK/g54" || fail G54
 bash scripts/session_gate_selftest.sh "$WORK/g54" || fail G54
 finish G54
 
+# ---------------- G55: LOCATED_PRECISE on a confirmed UWB grant (TA-3), batch spread (TA-4)
+# The session went precise on any result from a UWB fix. --sessionPreciseOnGrant makes it
+# precise on a delivered entry naming a confirmed grant (NW-7), and the TA-1 line reports
+# the batch's precision spread. G49's five-subject regime with v2 batch queries, mesh links
+# and the base station's session, 1 200 s, read by scripts/precise_gate.py:
+#   - every first-precise time is the first granted result, and PRECISE is entered on one;
+#   - no target stamped precise by an ungranted UWB fix; the spread is max - min;
+#   - without the flag the default rule holds; a refusal.
+#
+# Negative fixtures in scripts/precise_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G55 LOCATED_PRECISE on a confirmed UWB grant (TA-3, TA-4) ---\n'
+bash scripts/precise_gate.sh "$WORK/g55" || fail G55
+bash scripts/precise_gate_selftest.sh "$WORK/g55" || fail G55
+finish G55
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
