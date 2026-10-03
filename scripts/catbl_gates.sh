@@ -1308,6 +1308,23 @@ bash scripts/case_c_gate.sh "$WORK/g60" || fail G60
 bash scripts/case_c_gate_selftest.sh "$WORK/g60" || fail G60
 finish G60
 
+# ---------------- G24: the preset is conformant (P6, plan sect 3.2)
+# --specProfile sets every spec flag the user did not give. G24 runs the preset, its
+# endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
+# the last-gasp run, and the preset with one flag off per mechanism, read by
+# scripts/spec_profile_gate.py:
+#   - the preset reproduces its own settings given as flags, byte for byte;
+#   - spec_profile.txt lists every setting, and an explicit flag is kept;
+#   - every mechanism has a non-zero population in its registered run (a zero is FAIL);
+#   - with each mechanism's flag off its population is 0; the --topology=1 refusal.
+# FAIL BY FINDING today: six mechanisms have no population under the preset (TECH_DEBT N.15).
+#
+# Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G24 the preset is conformant (P6) ---\n'
+bash scripts/spec_profile_gate.sh "$WORK/g24" || fail G24
+bash scripts/spec_profile_gate_selftest.sh "$WORK/g24" || fail G24
+finish G24
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
@@ -1321,6 +1338,10 @@ if [ "${GATE_ST[G6]:-}" = FAIL ]; then
     printf '  The remedy is baseline_v7: regenerate to NEW paths and move the citations.\n'
     printf '  Overwriting results/{causal,det_a,det_b} to make it green reintroduces the\n'
     printf '  defect e21666d removed -- a suite that rewrites the evidence it verifies.\n'
+fi
+if [ "${GATE_ST[G24]:-}" = FAIL ]; then
+    printf '\n  G24 is FAIL BY FINDING: mechanisms with no population under the preset\n'
+    printf '  (TECH_DEBT N.15). It passes when they are exercised or the owner accepts them.\n'
 fi
 if [ "$SUITE_BAD" -eq 0 ]; then
     printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"

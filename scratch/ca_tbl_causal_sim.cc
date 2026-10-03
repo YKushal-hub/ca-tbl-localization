@@ -12770,6 +12770,15 @@ RunArm(CaTblPolicyMode mode,
             merges += macs[m].GetTableMerges();
         }
         std::cout << "    TABLE: " << merges << " entry merges network-wide\n";
+        if (tableFuseCI)
+        {
+            uint64_t fuses = 0; // P6 (G24): only under the flag, so no default line moves
+            for (size_t m = 0; m < macs.size(); ++m)
+            {
+                fuses += macs[m].GetTableFuses();
+            }
+            std::cout << "    TABLE CI: " << fuses << " covariance-intersection fuses network-wide\n";
+        }
         if (bidirectionalDigest || pseudoAnchorSubs > 0)
         {
             std::cout << "    TABLE(reverse): casualty sent " << casualtyDigests
@@ -13002,6 +13011,92 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
     }
     return true;
 }
+
+/**
+ * P6. --specProfile: the spec preset (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1). Each row is a
+ * flag the preset sets, the value, and the docx section or owner decision it serves. NOT
+ * in it yet, and said so wherever the preset is reported: --radioBasis=lr1121 (SY-2, the
+ * LR1121 datasheet), the calibrated PCS (CAL-02), and GEO-01's geometry (stage 2).
+ * --sparseCaseA, in the plan's table, is left out: --sparseInStep replaces it (FATAL
+ * together). The UWB channel model stays legacy (P0's read-out).
+ */
+struct CaTblSpecSetting
+{
+    const char* name;
+    const char* value;
+    const char* why;
+};
+
+static const CaTblSpecSetting kSpecProfile[] = {
+    {"tier1Tdoa", "true", "Physical 1.1: tier 1 is a TDoA exchange"},
+    {"nlosClassifier", "true", "Physical 1.3 / 2.5: per-tier NLOS scores"},
+    {"pcsNlosClassifier", "true", "Physical 2.5: PCS term 3 from the classifier"},
+    {"nlosSource", "propagation", "Physical 2.5: NLOS keyed on propagation, not the Markov tag"},
+    {"terrainPerTierFreq", "true", "physics fix D-4: per-tier terrain wavelength"},
+    {"imuPredict", "true", "Physical 2.2: IMU-driven prediction"},
+    {"sparseInStep", "true", "Physical 2.4: sparse cases solved inside Step()"},
+    {"caseD", "true", "Physical 2.4 Case D: one range plus the IMU"},
+    {"caseCRelative", "true", "Physical 2.4 Case C: relative shape at the base station"},
+    {"suspectRecovery", "downweight", "Physical 2.6: a SUSPECT fix is downweighted"},
+    {"suspectForcesEscalation", "false", "Physical 2.6: SUSPECT does not force escalation"},
+    {"integrityNlosFromScore", "true", "Physical 2.6: integrity eligibility from the score"},
+    {"imuCrossCheck", "true", "Physical 2.6: IMU cross-check"},
+    {"corroborationCheck", "true", "Physical 2.6: corroboration check"},
+    {"imuWitnessSource", "model", "Physical 2.6: the witness is the IMU model"},
+    {"entryVelocity", "true", "Physical 2.1: entries carry velocity"},
+    {"entryPrediction", "true", "Physical 2.2: per-entry prediction"},
+    {"escalationRequiresEvidence", "true", "decision 7: the evidence gate stays on"},
+    {"uwbEvidenceFromNeighbours", "true", "MS-3: the gate predicts from the awake radio"},
+    {"uwbCoverageIncludesFinders", "true", "MS-3: the trigger label counts finders"},
+    {"sendHandshakeFrames", "true", "MAC 8: the handshake is on the air"},
+    {"handshakeFixes", "true", "MAC 8: the specified handshake"},
+    {"triggeredUpdates", "true", "MAC 7: triggered updates"},
+    {"mobilityFromRange", "true", "MAC 11.11: mobility state from range trend"},
+    {"bidirectionalDigest", "true", "MAC 6: bidirectional digest"},
+    {"digestSummary", "true", "MAC 6: digest summary"},
+    {"tableFuseCI", "true", "Physical 2.7: covariance-intersection table merge"},
+    {"meshLinks", "all", "throughout: any two radios can exchange frames"},
+    {"relayedRanging", "true", "Network 2: relayed ranging"},
+    {"relayChain", "true", "Network 2: relays chain"},
+    {"maxRelayDepth", "2", "Network 2: depth 2"},
+    {"relayVarBudget", "24336", "Network 2: A2's budget, (156 m)^2 as G17 (OURS); 0 makes the chain inert"},
+    {"hopVarianceTerms", "true", "final plan item 1: per-hop variance and NLOS in Sigma"},
+    {"hopProvenance", "true", "Physical 2.5 / Transport 3: hop count carried"},
+    {"fixRouting", "true", "Network 2: routing tables"},
+    {"fixRoutingConfidence", "true", "Network 3: confidence-weighted routing"},
+    {"fixRoutingSubjects", "true", "Network 3: every subject routes on its own tier"},
+    {"queryV2", "true", "Network 4: QUERY/RESPONSE contents"},
+    {"queryTierBinding", "per-tier", "Network 4: queries per tier"},
+    {"queryProxy", "true", "Network 4: proxy answers"},
+    {"reversePath", "true", "Transport 1: reverse-path RESPONSE"},
+    {"reversePathHop", "true", "Transport 1: hop by hop"},
+    {"queryTriggeredEscalation", "true", "Network 4: query-triggered escalation"},
+    {"uwbArbitration", "true", "Network 5: UWB arbitration"},
+    {"arbitrationV2", "true", "Network 5: U(r) with a queue"},
+    {"anchorGrantGossipS", "5", "Network 6: anchors gossip grants"},
+    {"gossipQueue", "true", "Network 6: and their queues"},
+    {"grantGatedUwb", "true", "MAC 8 / Transport 4: escalation only when granted"},
+    {"sessionLayer", "true", "Transport 2: sessions"},
+    {"sessionOverMesh", "true", "Transport 2: fed by delivered RESPONSEs"},
+    {"batchSearch", "true", "Transport 5: batch search"},
+    {"finderSessions", "true", "decision 8: finders search too"},
+    {"identityQueryUrgent", "true", "Transport 4: the batch session is URGENT"},
+    {"identityQueryManifests", "1,2,3,4,5", "Transport 5: the batch is the five subjects"},
+    {"identityQueryPeriodS", "30", "Transport 2: the session's query period (OURS)"},
+    {"requesterEscalation", "true", "Transport 4: the requester drives escalation"},
+    {"sessionPreciseOnGrant", "true", "Transport 2: LOCATED_PRECISE on a confirmed grant"},
+    {"vizEvents", "true", "rule 13: events_ written and digested"},
+    {"edgeUplinkRanges", "true", "final plan: the gateway edge server's uplink billed"},
+    {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
+    {"nTags", "5", "decision 4: five field nodes"},
+    {"boxHalf", "5000", "the spec's 5 km search area"},
+    {"nFinders", "4", "decision 6: four finders"},
+    {"finderMode", "2", "decision 6: the two-phase search"},
+    {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
+    {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
+    {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
+    {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
+};
 
 int
 main(int argc, char* argv[])
@@ -13638,6 +13733,21 @@ main(int argc, char* argv[])
                  "confidence route's three sums, digested, and an NW-2 line per router. Needs "
                  "--fixRouting and --measuredSubjects > 1.",
                  spec.fixRoutingSubjects);
+    bool specProfileArg = false;
+    {
+        std::ostringstream h;
+        h << "The spec preset (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1, owner decision 1). FALSE by "
+             "default: every run is as before. TRUE: each setting below is applied unless the "
+             "same flag is given explicitly, which always wins; spec_profile.txt (digested) lists "
+             "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
+             "Not yet in it: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), GEO-01's "
+             "geometry. Settings:";
+        for (const CaTblSpecSetting& ss : kSpecProfile)
+        {
+            h << " --" << ss.name << "=" << ss.value << " (" << ss.why << ");";
+        }
+        cmd.AddValue("specProfile", h.str(), specProfileArg);
+    }
     cmd.AddValue("caseCRelative",
                  "Case C's relative shape (Physical sect 2.4: 0 anchors, 2+ peers -- "
                  "relative-shape-only reconstruction, never an absolute position; "
@@ -15238,7 +15348,89 @@ main(int argc, char* argv[])
                  "realisation. A 'severe' mode keyed on the Markov state was "
                  "deliberately NOT added -- see the CaTblNlosSource comment.",
                  nlosSourceArg);
-    cmd.Parse(argc, argv);
+    // P6. --specProfile is resolved BEFORE the parse: every spec setting the user did not
+    // give explicitly is put ahead of the user's own arguments, so an explicit flag is
+    // parsed later and always wins. The plan's "resolve after Parse" by a route that needs
+    // no sentinel defaults. Off, argv goes to Parse unchanged.
+    bool specProfileOn = false;
+    std::set<std::string> explicitFlags;
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string a = argv[i];
+        if (a.rfind("--", 0) != 0)
+        {
+            continue;
+        }
+        const size_t eq = a.find('=');
+        const std::string nm = a.substr(2, eq == std::string::npos ? std::string::npos : eq - 2);
+        explicitFlags.insert(nm);
+        if (nm == "specProfile")
+        {
+            const std::string v = (eq == std::string::npos) ? "true" : a.substr(eq + 1);
+            specProfileOn = (v == "true" || v == "1");
+        }
+    }
+    std::vector<std::string> specArgs;
+    if (specProfileOn)
+    {
+        for (const CaTblSpecSetting& ss : kSpecProfile)
+        {
+            if (!explicitFlags.count(ss.name))
+            {
+                specArgs.push_back(std::string("--") + ss.name + "=" + ss.value);
+            }
+        }
+    }
+    std::vector<char*> argv2;
+    argv2.push_back(argv[0]);
+    for (size_t i = 0; i < specArgs.size(); ++i)
+    {
+        argv2.push_back(const_cast<char*>(specArgs[i].c_str()));
+    }
+    for (int i = 1; i < argc; ++i)
+    {
+        argv2.push_back(argv[i]);
+    }
+    cmd.Parse(static_cast<int>(argv2.size()), argv2.data());
+
+    if (specProfileOn)
+    {
+        if (topologyArg == 1)
+        {
+            std::cerr << "FATAL: --specProfile with --topology=1: the legacy single-tier model "
+                         "is never the spec\n";
+            return 1;
+        }
+        std::ofstream sp((outdir + "/spec_profile.txt").c_str());
+        if (!sp.is_open())
+        {
+            std::cerr << "FATAL: cannot open " << outdir
+                      << "/spec_profile.txt for writing -- does --outdir exist?\n";
+            return 1;
+        }
+        sp << "# --specProfile (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1): what the preset set, and "
+              "what the user gave explicitly instead\n"
+              "# not yet in the preset: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), "
+              "GEO-01's geometry (stage 2)\n";
+        size_t kept = 0;
+        for (const CaTblSpecSetting& ss : kSpecProfile)
+        {
+            if (explicitFlags.count(ss.name))
+            {
+                ++kept;
+                sp << ss.name << ": explicit, the preset's " << ss.value << " not applied  # "
+                   << ss.why << "\n";
+            }
+            else
+            {
+                sp << ss.name << "=" << ss.value << "  # " << ss.why << "\n";
+            }
+        }
+        std::cerr << "NOTE: --specProfile set " << (sizeof(kSpecProfile) / sizeof(kSpecProfile[0]) - kept)
+                  << " spec settings (" << kept << " given explicitly and kept); "
+                  << outdir << "/spec_profile.txt lists them. Not yet in the preset: "
+                     "--radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), GEO-01's geometry.\n";
+    }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
 
@@ -16787,6 +16979,10 @@ main(int argc, char* argv[])
     if (spec.caseCRelative)
     {
         digestPatterns += " case_c_*.csv"; // DC-3
+    }
+    if (specProfileOn)
+    {
+        digestPatterns += " spec_profile.txt"; // P6
     }
     if (spec.sessionOverMesh)
     {
