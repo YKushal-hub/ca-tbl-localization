@@ -1,87 +1,89 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 193 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 194 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
 
-- `--relaySlots` (row 155 of §3, and its §1 row): its default moved from `false` to
+- `--relaySlots` (row 156 of §3, and its §1 row): its default moved from `false` to
   `auto`.
-- `--edgeDownlinkTier` (row 125 of §3, and its §1 row): added with its default, `fix`
+- `--edgeDownlinkTier` (row 126 of §3, and its §1 row): added with its default, `fix`
   (M.10). Every row after it moved down one.
-- `--uwbNlosModel` (row 165 of §3, and its §1 row): added with its default, `legacy`
+- `--uwbNlosModel` (row 166 of §3, and its §1 row): added with its default, `legacy`
   (M.2, `report/PREREG_UWB_NLOS.md`). Every row after it moved down one.
 - `--pcsThrUp868`, `--pcsThrUp2p4`, `--pcsThrDown2p4`, `--pcsThrUpUwb`, `--pcsThrDownUwb`
-  (rows 96–100 of §3, and their §1 row): added with the default `nan`, "not given"
+  (rows 97–101 of §3, and their §1 row): added with the default `nan`, "not given"
   (`docs/SPEC_CONFORMANCE_PLAN.md` DC-6). Every row after them moved down five.
-- `--suspectPcsFactor` (row 68 of §3, and its §1 row): added with the default `nan`,
+- `--suspectPcsFactor` (row 69 of §3, and its §1 row): added with the default `nan`,
   "not given" (DC-7). Every row after it moved down one.
-- `--integrityNlosFromScore` (row 164 of §3, and its §1 row): added with the default
+- `--integrityNlosFromScore` (row 165 of §3, and its §1 row): added with the default
   `false` (DC-8). Every row after it moved down one.
-- `--entryVelocity` (row 163 of §3, and its §1 row): added with the default `false`
+- `--entryVelocity` (row 164 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 188 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 189 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 187 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 188 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 185 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 186 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 186 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 187 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
-- `--edgeUplinkRanges` (row 184 of §3, and its §1 row): added with the default `false`
+- `--edgeUplinkRanges` (row 185 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
-- `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 166–169 of §3, and their §1 row): added with the
+- `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 167–170 of §3, and their §1 row): added with the
   default 0, "not given" (SY-3). Every row after them moved down four.
-- `--injectTxPowerDropDb`, `--injectAntennaLossDb` (rows 174–175 of §3, and their §1 row): added
+- `--injectTxPowerDropDb`, `--injectAntennaLossDb` (rows 175–176 of §3, and their §1 row): added
   with the default `0` (SY-5). Every row after them moved down two.
 - `--gwLayout`, `--gwLayoutFrac`, `--gwClusterRadiusM`, `--gwStarArms`, `--gwStarSpacingM`,
-  `--gwLayoutFile` (rows 107–112 of §3, and their §1 row): added with the defaults
+  `--gwLayoutFile` (rows 108–113 of §3, and their §1 row): added with the defaults
   `legacy`, `0.9`, `300`, `3`, `1500` and empty (MS-2). Every row after them moved down six.
-- `--sparseInStep` (row 183 of §3, and its §1 row): added with the default `false`
+- `--sparseInStep` (row 184 of §3, and its §1 row): added with the default `false`
   (DC-11). Every row after it moved down one.
-- `--imuPredict` (row 182 of §3, and its §1 row): added with the default `false`
+- `--imuPredict` (row 183 of §3, and its §1 row): added with the default `false`
   (DC-1). Every row after it moved down one.
-- `--caseD` (row 181 of §3, and its §1 row): added with the default `false` (DC-4).
+- `--caseD` (row 182 of §3, and its §1 row): added with the default `false` (DC-4).
   Every row after it moved down one.
-- `--entryPrediction` (row 180 of §3, and its §1 row): added with the default `false`
+- `--entryPrediction` (row 181 of §3, and its §1 row): added with the default `false`
   (DC-13). Every row after it moved down one.
-- `--imuWitnessSource` (row 179 of §3, and its §1 row): added with an empty default,
+- `--imuWitnessSource` (row 180 of §3, and its §1 row): added with an empty default,
   which means `shs` (DC-9). Every row after it moved down one.
-- `--meshLinks` (row 178 of §3, and its §1 row): added with an empty default, which
+- `--meshLinks` (row 179 of §3, and its §1 row): added with an empty default, which
   means `star` (NW-0). Every row after it moved down one.
-- `--measuredSubjects` (row 176 of §3, and its §1 row): added with the default `1`
+- `--measuredSubjects` (row 177 of §3, and its §1 row): added with the default `1`
   (MS-1). Every row after it moved down one.
-- `--finderTasking` (row 177 of §3, and its §1 row): added with an empty default,
+- `--finderTasking` (row 178 of §3, and its §1 row): added with an empty default,
   which means `tag0` (MS-1). Every row after it moved down one.
 - `--reversePathHop` (row 31 of §3, and its §1 row): added with the default `false`
   (NW-8). Every row after it moved down one.
 - `--grantGatedUwb` (row 32 of §3, and its §1 row): added with the default `false`
   (NW-7). Every row after it moved down one.
-- `--queryV2` and `--identityQueryManifests` (rows 33 and 46 of §3, and their §1 row): added with
+- `--queryV2` and `--identityQueryManifests` (rows 33 and 47 of §3, and their §1 row): added with
   the defaults `false` and empty (NW-9). Every row after them moved down two.
 - `--queryTriggeredEscalation`, `--identityQueryUrgent`, `--arbitrationV2` (rows 34–36 of §3, and their §1 row):
   added with the default `false` (NW-4, NW-5). Every row after them moved down three.
-- `--arbSlotHoldS` and `--gossipQueue` (rows 44–45 of §3, and their §1 row): added with the
+- `--arbSlotHoldS` and `--gossipQueue` (rows 45–46 of §3, and their §1 row): added with the
   defaults `10` and `false` (NW-6). Every row after them moved down two.
-- `--hopProvenance` (row 43 of §3, and its §1 row): added with the default `false` (NW-1).
+- `--hopProvenance` (row 44 of §3, and its §1 row): added with the default `false` (NW-1).
   Every row after it moved down one.
-- `--sessionOverMesh`, `--sessionStalenessS`, `--sessionTimeoutS` (rows 37, 41 and 42 of §3, and their §1 row):
+- `--sessionOverMesh`, `--sessionStalenessS`, `--sessionTimeoutS` (rows 37, 42 and 43 of §3, and their §1 row):
   added with the defaults `false`, `120` and `600` (TA-1a). Every row after them moved down three.
-- `--sessionPreciseOnGrant` (row 40 of §3, and its §1 row): added with the default `false`
+- `--sessionPreciseOnGrant` (row 41 of §3, and its §1 row): added with the default `false`
   (TA-3). Every row after it moved down one.
-- `--finderSessions` and `--finderCancelM` (rows 38–39 of §3, and their §1 row): added with the
+- `--finderSessions` and `--finderCancelM` (rows 38 and 40 of §3, and their §1 row): added with the
   defaults `false` and `2` (TA-1b). Every row after them moved down two.
+- `--requesterEscalation` (row 39 of §3, and its §1 row): added with the default `false`
+  (TA-2). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-fifty-one names. Three flags changed meaning without changing their printed default, and §1
+fifty-two names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
 **Why this file exists.** No tracked document listed the scenario's flags.
 `HANDOFF_2026_09_09.md` §8 asked for `--gwArcDeg`, `--gwArcCentreDeg`, `--trailDeviateSide`
 and `--searchLaunchAtS` to get "a line in whichever document lists scenario flags", and
-there was no such document. Those four are rows 106, 113, 114 and 142 of §3.
+there was no such document. Those four are rows 107, 114, 115 and 143 of §3.
 
 **It is a snapshot, not the ground truth.** `CLAUDE.md` §8 puts the ground truth in the
 `cmd.AddValue` block of `scratch/ca_tbl_causal_sim.cc` and in the `run_id.txt` sidecars.
@@ -166,6 +168,7 @@ precondition missing.
 | `--sessionOverMesh`, `--sessionStalenessS`, `--sessionTimeoutS` | bool; double; double | `false`; `120`; `600` | added 2026-10-03 | TA-1a: the base station (requester 0) opens one session over what its identity queries ask and is fed only by RESPONSEs delivered to a gateway, once per answer, the RESULT built from the delivered entry (position, Σ, the producer's fix tier and hop count, PCS byte, integrity verdict). Staleness and timeout configure that session. Writes `session_<arm>_seed<N>.csv`, digested, and one `TA-1` line | `--sessionOverMesh` needs `--sessionLayer` and `--queryV2`; the two times are read only under it, else FATAL. Finder sessions (TA-1b) not built |
 | `--sessionPreciseOnGrant` | bool | `false` | added 2026-10-03 | TA-3: under `--sessionOverMesh` the session becomes LOCATED_PRECISE on a delivered entry that names a confirmed UWB grant (NW-7), one delivery after the fact; a result from a UWB fix without a grant is coarse. The TA-1 line also reports the batch's precision spread (TA-4), UNDEFINED below two precise targets | Needs `--sessionOverMesh` and `--grantGatedUwb`, else FATAL |
 | `--finderSessions`, `--finderCancelM` | bool; double | `false`; `2` | added 2026-10-03 | TA-1b: under `--sessionOverMesh` every finder runs its own session for subject (k mod N) + 1 (OURS, as `--finderTasking`), queries for it from its own tier-1 radio on the identity query period, and is fed only by answers that reach it as the requester (over the reverse path to a moving node). The session is cancelled (closed) once the finder is within `--finderCancelM` of its target, true positions (OURS). Rows tagged with the finder id in `session_*`, one `TA-1b` line per finder | `--finderSessions` needs `--sessionOverMesh` and `--nFinders` > 0; `--finderCancelM` must be > 0 and is read only under it, else FATAL. With the 8 m stand-off, 2 m rarely fires |
+| `--requesterEscalation` | bool | `false` | added 2026-10-03 | TA-2: under `--sessionOverMesh` with `--arbitrationV2`, a delivered answer whose PCS is below the 2.4 GHz up-threshold, from a node not on UWB, makes the base station submit an escalation request for that target, at most one per target per `--arbSlotHoldS` (OURS). It goes to the arbiter the target's entry names as the one it last had UWB-reach evidence with (10 s, OURS), never the nearest gateway; with none the request is unroutable and not sent. It reaches the arbiter instantly and unbilled (OURS). The arbiter scores it (query_triggered set under `--identityQueryUrgent`), and its on-behalf GRANT is accepted by the target as its escalation into UWB (or as the confirmation of its own pending request), refused on 868 MHz or a static arm. Writes `reqesc_<arm>_seed<N>.csv`, digested, and a TA-2 line | Needs `--sessionOverMesh`, `--arbitrationV2` and `--grantGatedUwb`, else FATAL. Under the default PCS form every such answer qualifies, and most requests are unroutable (TECH_DEBT N.10) |
 
 ## 2. Help text corrected, default unchanged
 
@@ -231,158 +234,159 @@ prints it.
 | 36 | `--arbitrationV2` | `false` |
 | 37 | `--sessionOverMesh` | `false` |
 | 38 | `--finderSessions` | `false` |
-| 39 | `--finderCancelM` | `2` |
-| 40 | `--sessionPreciseOnGrant` | `false` |
-| 41 | `--sessionStalenessS` | `120` |
-| 42 | `--sessionTimeoutS` | `600` |
-| 43 | `--hopProvenance` | `false` |
-| 44 | `--arbSlotHoldS` | `10` |
-| 45 | `--gossipQueue` | `false` |
-| 46 | `--identityQueryManifests` | (empty) |
-| 47 | `--imuIdeal` | `false` |
-| 48 | `--imuFusion` | `false` |
-| 49 | `--shsTrustedFixK` | `0` |
-| 50 | `--maxTurnRate` | `0` |
-| 51 | `--subjectKeepOutM` | `0` |
-| 52 | `--uwbTriad` | `10` |
-| 53 | `--t2Triad` | `150` |
-| 54 | `--uwbAnchors` | `5` |
-| 55 | `--t2Anchors` | `3` |
-| 56 | `--speed` | `1.2` |
-| 57 | `--dwell` | `90` |
-| 58 | `--vegWide` | `3` |
-| 59 | `--vegFacility` | `255` |
-| 60 | `--beacon868` | `10` |
-| 61 | `--beacon2p4` | `2` |
-| 62 | `--beaconUwb` | `2` |
-| 63 | `--nbrTtlMult` | `3` |
-| 64 | `--fastDemote` | `off` |
-| 65 | `--suspectRecovery` | `none` |
-| 66 | `--suspectInflateFactor` | `4` |
-| 67 | `--suspectRecoveryN` | `5` |
-| 68 | `--suspectPcsFactor` | `nan` |
-| 69 | `--escalationRequiresEvidence` | `true` |
-| 70 | `--escalationRequiresEvidenceT2` | `false` |
-| 71 | `--t2PredictRadius` | `156` |
-| 72 | `--t2PredictMinAnchors` | `3` |
-| 73 | `--uwbEvidenceFromNeighbours` | `false` |
-| 74 | `--mahalUseR` | `false` |
-| 75 | `--gwGrid` | `3` |
-| 76 | `--multiStepDemote` | `off` |
-| 77 | `--demoteStalenessS` | `60` |
-| 78 | `--searchDuty` | `1` |
-| 79 | `--arms` | `all` |
-| 80 | `--injectRangeBias` | `0` |
-| 81 | `--injectFaultAnchors` | `0` |
-| 82 | `--injectBiasFraction` | `0` |
-| 83 | `--floorOnDemand` | `false` |
-| 84 | `--floorSkipK` | `1` |
-| 85 | `--floorHeartbeatN` | `0` |
-| 86 | `--fixedVarThreshold` | `-1` |
-| 87 | `--pcsSigmaTargetM` | `-1` |
-| 88 | `--deferEscalationOnDutyLimit` | `true` |
-| 89 | `--arbitrateDutyBudget` | `true` |
-| 90 | `--pcsForm` | `legacy` |
-| 91 | `--pcsW1` | `-1` |
-| 92 | `--pcsW2` | `-1` |
-| 93 | `--pcsW3` | `-1` |
-| 94 | `--pcsGateFloor` | `-1` |
-| 95 | `--pcsHysteresisBand` | `-1` |
-| 96 | `--pcsThrUp868` | `nan` |
-| 97 | `--pcsThrUp2p4` | `nan` |
-| 98 | `--pcsThrDown2p4` | `nan` |
-| 99 | `--pcsThrUpUwb` | `nan` |
-| 100 | `--pcsThrDownUwb` | `nan` |
-| 101 | `--nDeescalate` | `0` |
-| 102 | `--sendHandshakeFrames` | `false` |
-| 103 | `--terrainPerTierFreq` | `false` |
-| 104 | `--intraCycleHandshakeDefer` | `false` |
-| 105 | `--gwRidge` | `false` |
-| 106 | `--gwArcDeg` | `360` |
-| 107 | `--gwLayout` | `legacy` |
-| 108 | `--gwLayoutFrac` | `0.9` |
-| 109 | `--gwClusterRadiusM` | `300` |
-| 110 | `--gwStarArms` | `3` |
-| 111 | `--gwStarSpacingM` | `1500` |
-| 112 | `--gwLayoutFile` | (empty) |
-| 113 | `--gwArcCentreDeg` | `90` |
-| 114 | `--trailDeviateSide` | `-1` |
-| 115 | `--gwRidgeY` | `0.55` |
-| 116 | `--trailDeviateAtS` | `0` |
-| 117 | `--trailStopAfterS` | `0` |
-| 118 | `--vizTablePeriodS` | `0` |
-| 119 | `--vizEvents` | `false` |
-| 120 | `--uwbCoverageIncludesFinders` | `false` |
-| 121 | `--finderDispersal` | `0` |
-| 122 | `--processNoiseStdPos` | `1` |
-| 123 | `--processNoiseStdVel` | `0.5` |
-| 124 | `--gatewayEdgeServer` | `true` |
-| 125 | `--edgeDownlinkTier` | `fix` |
-| 126 | `--tier1ChargeReplies` | `true` |
-| 127 | `--bidirectionalDigest` | `false` |
-| 128 | `--finderPosSigma` | `0` |
-| 129 | `--finderPseudoAnchor` | `false` |
-| 130 | `--hopProvenanceForm` | `0` |
-| 131 | `--hopPenalty` | `0` |
-| 132 | `--imuCrossCheck` | `false` |
-| 133 | `--imuDriftMps` | `0.15` |
-| 134 | `--imuConsistencyK` | `3` |
-| 135 | `--imuSigmaFloorM` | `5` |
-| 136 | `--corroborationCheck` | `false` |
-| 137 | `--corroborationK` | `3` |
-| 138 | `--corroborationRangeSigmaM` | `30` |
-| 139 | `--finderDigestPeriodS` | `30` |
-| 140 | `--finderSpeed` | `-1` |
-| 141 | `--searchLaunchOnLoss` | `0` |
-| 142 | `--searchLaunchAtS` | `0` |
-| 143 | `--searchLaunchSigmaM` | `0` |
-| 144 | `--finderStaleSteerBound` | `0` |
-| 145 | `--finderMode` | `1` |
-| 146 | `--nFinders` | `0` |
-| 147 | `--nGateways` | `0` |
-| 148 | `--gwRingFrac` | `0.6` |
-| 149 | `--topology` | `0` |
-| 150 | `--sitingMode` | `0` |
-| 151 | `--relayedRanging` | `false` |
-| 152 | `--maxRelayDepth` | `1` |
-| 153 | `--relayVarBudget` | `0` |
-| 154 | `--relayChain` | `false` |
-| 155 | `--relaySlots` | `auto` |
-| 156 | `--fixRouting` | `false` |
-| 157 | `--fixRoutingConfidence` | `false` |
-| 158 | `--tier1Tdoa` | `false` |
-| 159 | `--tdoaPpsSigmaNs` | `20` |
-| 160 | `--nlosClassifier` | `false` |
-| 161 | `--pcsNlosClassifier` | `false` |
-| 162 | `--nlosScoreThreshold` | `0.5` |
-| 163 | `--entryVelocity` | `false` |
-| 164 | `--integrityNlosFromScore` | `false` |
-| 165 | `--uwbNlosModel` | `legacy` |
-| 166 | `--sf868` | `0` |
-| 167 | `--bw868` | `0` |
-| 168 | `--sf2p4` | `0` |
-| 169 | `--bw2p4` | `0` |
-| 170 | `--relayTier` | `1` |
-| 171 | `--nTags` | `1` |
-| 172 | `--identityQueryPeriodS` | `0` |
-| 173 | `--identityQueryTarget` | `2` |
-| 174 | `--injectTxPowerDropDb` | `0` |
-| 175 | `--injectAntennaLossDb` | `0` |
-| 176 | `--measuredSubjects` | `1` |
-| 177 | `--finderTasking` | (empty) |
-| 178 | `--meshLinks` | (empty) |
-| 179 | `--imuWitnessSource` | (empty) |
-| 180 | `--entryPrediction` | `false` |
-| 181 | `--caseD` | `false` |
-| 182 | `--imuPredict` | `false` |
-| 183 | `--sparseInStep` | `false` |
-| 184 | `--edgeUplinkRanges` | `false` |
-| 185 | `--triggeredUpdates` | `false` |
-| 186 | `--triggeredUpdateK` | `1` |
-| 187 | `--handshakeFixes` | `false` |
-| 188 | `--queryTierBinding` | (empty) |
-| 189 | `--uwbArbitration` | `false` |
-| 190 | `--arbBatteryCapJ` | `1000` |
-| 191 | `--anchorGrantGossipS` | `0` |
-| 192 | `--suspectForcesEscalation` | `true` |
-| 193 | `--nlosSource` | `legacy` |
+| 39 | `--requesterEscalation` | `false` |
+| 40 | `--finderCancelM` | `2` |
+| 41 | `--sessionPreciseOnGrant` | `false` |
+| 42 | `--sessionStalenessS` | `120` |
+| 43 | `--sessionTimeoutS` | `600` |
+| 44 | `--hopProvenance` | `false` |
+| 45 | `--arbSlotHoldS` | `10` |
+| 46 | `--gossipQueue` | `false` |
+| 47 | `--identityQueryManifests` | (empty) |
+| 48 | `--imuIdeal` | `false` |
+| 49 | `--imuFusion` | `false` |
+| 50 | `--shsTrustedFixK` | `0` |
+| 51 | `--maxTurnRate` | `0` |
+| 52 | `--subjectKeepOutM` | `0` |
+| 53 | `--uwbTriad` | `10` |
+| 54 | `--t2Triad` | `150` |
+| 55 | `--uwbAnchors` | `5` |
+| 56 | `--t2Anchors` | `3` |
+| 57 | `--speed` | `1.2` |
+| 58 | `--dwell` | `90` |
+| 59 | `--vegWide` | `3` |
+| 60 | `--vegFacility` | `255` |
+| 61 | `--beacon868` | `10` |
+| 62 | `--beacon2p4` | `2` |
+| 63 | `--beaconUwb` | `2` |
+| 64 | `--nbrTtlMult` | `3` |
+| 65 | `--fastDemote` | `off` |
+| 66 | `--suspectRecovery` | `none` |
+| 67 | `--suspectInflateFactor` | `4` |
+| 68 | `--suspectRecoveryN` | `5` |
+| 69 | `--suspectPcsFactor` | `nan` |
+| 70 | `--escalationRequiresEvidence` | `true` |
+| 71 | `--escalationRequiresEvidenceT2` | `false` |
+| 72 | `--t2PredictRadius` | `156` |
+| 73 | `--t2PredictMinAnchors` | `3` |
+| 74 | `--uwbEvidenceFromNeighbours` | `false` |
+| 75 | `--mahalUseR` | `false` |
+| 76 | `--gwGrid` | `3` |
+| 77 | `--multiStepDemote` | `off` |
+| 78 | `--demoteStalenessS` | `60` |
+| 79 | `--searchDuty` | `1` |
+| 80 | `--arms` | `all` |
+| 81 | `--injectRangeBias` | `0` |
+| 82 | `--injectFaultAnchors` | `0` |
+| 83 | `--injectBiasFraction` | `0` |
+| 84 | `--floorOnDemand` | `false` |
+| 85 | `--floorSkipK` | `1` |
+| 86 | `--floorHeartbeatN` | `0` |
+| 87 | `--fixedVarThreshold` | `-1` |
+| 88 | `--pcsSigmaTargetM` | `-1` |
+| 89 | `--deferEscalationOnDutyLimit` | `true` |
+| 90 | `--arbitrateDutyBudget` | `true` |
+| 91 | `--pcsForm` | `legacy` |
+| 92 | `--pcsW1` | `-1` |
+| 93 | `--pcsW2` | `-1` |
+| 94 | `--pcsW3` | `-1` |
+| 95 | `--pcsGateFloor` | `-1` |
+| 96 | `--pcsHysteresisBand` | `-1` |
+| 97 | `--pcsThrUp868` | `nan` |
+| 98 | `--pcsThrUp2p4` | `nan` |
+| 99 | `--pcsThrDown2p4` | `nan` |
+| 100 | `--pcsThrUpUwb` | `nan` |
+| 101 | `--pcsThrDownUwb` | `nan` |
+| 102 | `--nDeescalate` | `0` |
+| 103 | `--sendHandshakeFrames` | `false` |
+| 104 | `--terrainPerTierFreq` | `false` |
+| 105 | `--intraCycleHandshakeDefer` | `false` |
+| 106 | `--gwRidge` | `false` |
+| 107 | `--gwArcDeg` | `360` |
+| 108 | `--gwLayout` | `legacy` |
+| 109 | `--gwLayoutFrac` | `0.9` |
+| 110 | `--gwClusterRadiusM` | `300` |
+| 111 | `--gwStarArms` | `3` |
+| 112 | `--gwStarSpacingM` | `1500` |
+| 113 | `--gwLayoutFile` | (empty) |
+| 114 | `--gwArcCentreDeg` | `90` |
+| 115 | `--trailDeviateSide` | `-1` |
+| 116 | `--gwRidgeY` | `0.55` |
+| 117 | `--trailDeviateAtS` | `0` |
+| 118 | `--trailStopAfterS` | `0` |
+| 119 | `--vizTablePeriodS` | `0` |
+| 120 | `--vizEvents` | `false` |
+| 121 | `--uwbCoverageIncludesFinders` | `false` |
+| 122 | `--finderDispersal` | `0` |
+| 123 | `--processNoiseStdPos` | `1` |
+| 124 | `--processNoiseStdVel` | `0.5` |
+| 125 | `--gatewayEdgeServer` | `true` |
+| 126 | `--edgeDownlinkTier` | `fix` |
+| 127 | `--tier1ChargeReplies` | `true` |
+| 128 | `--bidirectionalDigest` | `false` |
+| 129 | `--finderPosSigma` | `0` |
+| 130 | `--finderPseudoAnchor` | `false` |
+| 131 | `--hopProvenanceForm` | `0` |
+| 132 | `--hopPenalty` | `0` |
+| 133 | `--imuCrossCheck` | `false` |
+| 134 | `--imuDriftMps` | `0.15` |
+| 135 | `--imuConsistencyK` | `3` |
+| 136 | `--imuSigmaFloorM` | `5` |
+| 137 | `--corroborationCheck` | `false` |
+| 138 | `--corroborationK` | `3` |
+| 139 | `--corroborationRangeSigmaM` | `30` |
+| 140 | `--finderDigestPeriodS` | `30` |
+| 141 | `--finderSpeed` | `-1` |
+| 142 | `--searchLaunchOnLoss` | `0` |
+| 143 | `--searchLaunchAtS` | `0` |
+| 144 | `--searchLaunchSigmaM` | `0` |
+| 145 | `--finderStaleSteerBound` | `0` |
+| 146 | `--finderMode` | `1` |
+| 147 | `--nFinders` | `0` |
+| 148 | `--nGateways` | `0` |
+| 149 | `--gwRingFrac` | `0.6` |
+| 150 | `--topology` | `0` |
+| 151 | `--sitingMode` | `0` |
+| 152 | `--relayedRanging` | `false` |
+| 153 | `--maxRelayDepth` | `1` |
+| 154 | `--relayVarBudget` | `0` |
+| 155 | `--relayChain` | `false` |
+| 156 | `--relaySlots` | `auto` |
+| 157 | `--fixRouting` | `false` |
+| 158 | `--fixRoutingConfidence` | `false` |
+| 159 | `--tier1Tdoa` | `false` |
+| 160 | `--tdoaPpsSigmaNs` | `20` |
+| 161 | `--nlosClassifier` | `false` |
+| 162 | `--pcsNlosClassifier` | `false` |
+| 163 | `--nlosScoreThreshold` | `0.5` |
+| 164 | `--entryVelocity` | `false` |
+| 165 | `--integrityNlosFromScore` | `false` |
+| 166 | `--uwbNlosModel` | `legacy` |
+| 167 | `--sf868` | `0` |
+| 168 | `--bw868` | `0` |
+| 169 | `--sf2p4` | `0` |
+| 170 | `--bw2p4` | `0` |
+| 171 | `--relayTier` | `1` |
+| 172 | `--nTags` | `1` |
+| 173 | `--identityQueryPeriodS` | `0` |
+| 174 | `--identityQueryTarget` | `2` |
+| 175 | `--injectTxPowerDropDb` | `0` |
+| 176 | `--injectAntennaLossDb` | `0` |
+| 177 | `--measuredSubjects` | `1` |
+| 178 | `--finderTasking` | (empty) |
+| 179 | `--meshLinks` | (empty) |
+| 180 | `--imuWitnessSource` | (empty) |
+| 181 | `--entryPrediction` | `false` |
+| 182 | `--caseD` | `false` |
+| 183 | `--imuPredict` | `false` |
+| 184 | `--sparseInStep` | `false` |
+| 185 | `--edgeUplinkRanges` | `false` |
+| 186 | `--triggeredUpdates` | `false` |
+| 187 | `--triggeredUpdateK` | `1` |
+| 188 | `--handshakeFixes` | `false` |
+| 189 | `--queryTierBinding` | (empty) |
+| 190 | `--uwbArbitration` | `false` |
+| 191 | `--arbBatteryCapJ` | `1000` |
+| 192 | `--anchorGrantGossipS` | `0` |
+| 193 | `--suspectForcesEscalation` | `true` |
+| 194 | `--nlosSource` | `legacy` |

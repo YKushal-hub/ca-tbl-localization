@@ -454,6 +454,61 @@ main(int argc, char* argv[])
               "it acts on a cycle with no fix too, before the coast's demotion count");
     }
 
+    std::cout << "--- TA-2: a grant a requester obtained for this node\n";
+    {
+        const Pt at = {400, 300};
+        CaTblPolicyConfig g;
+        g.mode = CA_TBL_MODE_FULL;
+        g.escalationRequiresEvidence = false;
+        g.escalationRequiresEvidenceT2 = false;
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            g.pcsThresholdUp[k] = 1e9; // always wants to escalate
+            g.pcsThresholdDown[k] = 2e9;
+        }
+        g.grantGatedUwb = true;
+
+        // On 2.4 GHz with nothing pending: taken as the escalation into UWB.
+        CaTblPolicy a;
+        a.Configure(g);
+        a.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        a.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u); // 868 -> 2.4 (not gated)
+        const bool aOk = a.AcceptGrantOnBehalf();
+        const CaTblDecision a2 = a.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(aOk && a2.activeTier == CA_TBL_TIER_UWB && a.GetEscalationCount() == 2 &&
+                  a.GetOboAccepted() == 1 && a.GetOboRefused() == 0 && a.GetUwbRequests() == 0,
+              "on 2.4 GHz with nothing pending, it is the escalation: the next cycle runs on "
+              "UWB, counted, with no request of the node's own");
+
+        // With the node's own request pending: it confirms that request.
+        CaTblPolicy b;
+        b.Configure(g);
+        b.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        b.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        b.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u); // asks: pending
+        const bool bOk = b.IsUwbPending() && b.AcceptGrantOnBehalf();
+        Check(bOk && !b.IsUwbPending() && b.GetUwbConfirmed() == 1 &&
+                  b.GetActiveTier() == CA_TBL_TIER_UWB && b.GetEscalationCount() == 2 &&
+                  b.GetOboAccepted() == 1,
+              "with the node's own request pending, it confirms that request (one escalation)");
+
+        // Never 868 -> UWB, and never on a static arm.
+        CaTblPolicy c;
+        c.Configure(g);
+        c.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        const bool cOk = c.AcceptGrantOnBehalf();
+        CaTblPolicyConfig gs = g;
+        gs.mode = CA_TBL_MODE_STATIC_2P4;
+        CaTblPolicy s;
+        s.Configure(gs);
+        s.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        const bool sOk = s.AcceptGrantOnBehalf();
+        Check(!cOk && c.GetActiveTier() == CA_TBL_TIER_868 && c.GetOboRefused() == 1 && !sOk &&
+                  s.GetActiveTier() == CA_TBL_TIER_2P4 && s.GetOboRefused() == 1 &&
+                  s.GetEscalationCount() == 0,
+              "refused on 868 MHz (never a jump to UWB) and on a static arm, counted");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

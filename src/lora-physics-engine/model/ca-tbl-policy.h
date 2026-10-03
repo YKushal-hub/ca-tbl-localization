@@ -1201,6 +1201,12 @@ class CaTblPolicy
     /** \brief NW-7. The pending request was denied (timeout false) or its retries ran
      *  out (timeout true): it is dropped and the node stays on 2.4 GHz. */
     bool ClearUwbPending(bool timeout);
+    /** \brief TA-2. A grant a requester obtained for this node: taken as a confirmed
+     *  grant when a request is pending, as an escalation 2.4 GHz -> UWB on a hybrid arm
+     *  otherwise (next cycle), and refused anywhere else -- it never jumps 868 -> UWB. */
+    bool AcceptGrantOnBehalf();
+    uint64_t GetOboAccepted() const { return m_oboAccepted; }
+    uint64_t GetOboRefused() const { return m_oboRefused; }
     bool IsUwbPending() const { return m_uwbPending; }
     uint64_t GetUwbRequests() const { return m_uwbRequests; }
     uint64_t GetUwbConfirmed() const { return m_uwbConfirmed; }
@@ -1239,6 +1245,9 @@ class CaTblPolicy
     uint64_t m_queryEscalations = 0;
     uint64_t m_queryEscSuppressed = 0;
     uint64_t m_queryEscIgnored = 0;
+    // TA-2. Appended last.
+    uint64_t m_oboAccepted = 0;
+    uint64_t m_oboRefused = 0;
     //! NW-4: one tier up, through NW-7's gate when it is on. Used by the coast path only;
     //! the main path keeps its own escalation branch.
     void QueryEscalateOneTier(CaTblDecision& d);

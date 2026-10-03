@@ -1055,6 +1055,29 @@ CaTblPolicy::ConfirmUwbGrant()
 }
 
 bool
+CaTblPolicy::AcceptGrantOnBehalf()
+{
+    const bool hybrid = (m_config.mode == CA_TBL_MODE_FULL ||
+                         m_config.mode == CA_TBL_MODE_NO_INTEGRITY ||
+                         m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD);
+    if (m_uwbPending && ConfirmUwbGrant())
+    {
+        ++m_oboAccepted;
+        return true;
+    }
+    if (hybrid && m_tier == CA_TBL_TIER_2P4)
+    {
+        m_tier = CA_TBL_TIER_UWB;
+        m_escalations++;
+        m_deescalateCounter = 0;
+        ++m_oboAccepted;
+        return true;
+    }
+    ++m_oboRefused;
+    return false;
+}
+
+bool
 CaTblPolicy::ClearUwbPending(bool timeout)
 {
     if (!m_uwbPending)

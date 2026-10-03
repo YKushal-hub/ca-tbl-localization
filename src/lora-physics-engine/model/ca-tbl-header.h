@@ -244,6 +244,10 @@ struct CaTblTableEntry
     //! hop_count_at_fix (NW-1), so a RESULT built from a delivered entry carries them.
     uint8_t tierSource;
     uint8_t fixHop;
+    //! TA-2. The arbiter the producer last had UWB-reach evidence with (a UWB exchange, or a
+    //! 2.4 GHz range under the UWB r50) within 10 s of publishing, 0 for none: the plan's
+    //! "fresh neighbour set", reduced to the one arbiter a requester needs.
+    uint16_t reachArbiter;
 
     CaTblTableEntry();
 };
@@ -607,6 +611,10 @@ class CaTblHeader : public Header
     //! query_triggered(1) byte, so it is carried, not serialised. 0 outside the flag.
     void SetReqQueryTriggered(uint8_t q) { m_reqQueryTriggered = q; }
     uint8_t GetReqQueryTriggered() const { return m_reqQueryTriggered; }
+    //! TA-2. A GRANT answering a request a REQUESTER submitted for this node (Transport
+    //! sect 4), not one the node sent itself. Carried, not serialised; false otherwise.
+    void SetGrantOnBehalf(bool b) { m_grantOnBehalf = b; }
+    bool GetGrantOnBehalf() const { return m_grantOnBehalf; }
 
     /**
      * \brief MC-2 (--triggeredUpdates). Why a TRIGGERED_UPDATE was sent: 1 = a large
@@ -685,6 +693,7 @@ class CaTblHeader : public Header
     std::vector<uint8_t> m_queryManifests;
     uint8_t m_respManifest = 0;
     uint8_t m_reqQueryTriggered = 0; //!< NW-4, carried not serialised -- see above
+    bool m_grantOnBehalf = false;    //!< TA-2, carried not serialised -- see above
     std::vector<CaTblQueueGossipItem> m_queueItems; //!< NW-6, carried not serialised
 };
 

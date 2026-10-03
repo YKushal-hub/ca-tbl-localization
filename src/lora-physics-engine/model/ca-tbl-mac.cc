@@ -75,6 +75,10 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";qt=1"; // NW-4
     }
+    if (h.GetGrantOnBehalf())
+    {
+        o << ";obo=1"; // TA-2
+    }
     if (h.GetAckedPacketId() != 0)
     {
         o << ";acks=" << h.GetAckedPacketId();
@@ -322,16 +326,18 @@ CaTblMac::PublishSelfEntry(double x, double y, double varX, double varY, double 
         e.grantedBy = m_selfGrantedBy;
         e.tierSource = m_selfTierSource; // TA-1
         e.fixHop = m_selfFixHop;
+        e.reachArbiter = m_selfReachArbiter; // TA-2
     }
 }
 
 void
 CaTblMac::SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
                         uint8_t degradationQ, bool uwbActive, uint16_t grantedBy,
-                        uint8_t tierSource, uint8_t fixHop)
+                        uint8_t tierSource, uint8_t fixHop, uint16_t reachArbiter)
 {
     m_selfTierSource = tierSource;
     m_selfFixHop = fixHop;
+    m_selfReachArbiter = reachArbiter;
     m_selfPcsQ = pcsQ;
     m_selfIntegrity = integrityFlag;
     m_selfBatteryQ = batteryQ;
@@ -815,6 +821,7 @@ CaTblMac::ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos)
             m_arbQueue[k].tDeg = tDeg;
             m_arbQueue[k].rem = rem;
             m_arbQueue[k].qt = qt;
+            m_arbQueue[k].onBehalf = m_curOnBehalf; // TA-2: the latest request names it
             found = true;
             break;
         }
@@ -829,6 +836,7 @@ CaTblMac::ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos)
         q.tDeg = tDeg;
         q.rem = rem;
         q.qt = qt;
+        q.onBehalf = m_curOnBehalf; // TA-2
         m_arbQueue.push_back(q);
         ++m_arbQueuedN;
     }
@@ -955,6 +963,7 @@ CaTblMac::ArbitrationCycle()
     LogArb(now, w.who, "aged_grant", bestU, w.tDeg, w.rem, tBatt,
            std::min(1.0, (now - w.tReq) / 10.0), w.qt, 0);
     m_nextQueuePos = 0;
+    m_nextOnBehalf = w.onBehalf; // TA-2
     PrepareReply(w.pid, true, true);
     Send(CA_TBL_MSG_ESC_GRANT, static_cast<CaTblTier>(w.tier), 0, w.who);
     PublishQueue(now);
@@ -992,6 +1001,39 @@ CaTblMac::PublishQueue(double nowS)
         q.push_back(r);
     }
     m_grantCoord->SetOwnQueue(q);
+}
+
+int
+CaTblMac::SubmitRequestOnBehalf(uint16_t target, uint8_t degradationQ, uint8_t remainingQ,
+                                uint8_t queryTriggered, CaTblTier tier)
+{
+    if (!m_cfg.arbitrationV2)
+    {
+        return -1;
+    }
+    CaTblHeader h;
+    h.SetPacketId(NextPacketId());
+    h.SetOriginId(target);
+    h.SetMsgType(CA_TBL_MSG_ESC_REQUEST);
+    h.SetTier(static_cast<uint8_t>(tier));
+    h.SetReqDegradation(degradationQ);
+    h.SetReqBattery(remainingQ);
+    h.SetReqQueryTriggered(queryTriggered);
+    LogArb(Simulator::Now().GetSeconds(), target, "obo_submit", 0.0,
+           static_cast<double>(degradationQ) / 255.0, static_cast<double>(remainingQ) / 255.0, 0.0,
+           0.0, queryTriggered, 0);
+    uint8_t qpos = 0;
+    m_curOnBehalf = true;
+    const int v = ArbitrateV2(h, &qpos);
+    m_curOnBehalf = false;
+    if (v == 1)
+    {
+        m_nextQueuePos = 0;
+        m_nextOnBehalf = true;
+        PrepareReply(h.GetPacketId(), true, true);
+        Send(CA_TBL_MSG_ESC_GRANT, tier, 0, target);
+    }
+    return v;
 }
 
 bool
@@ -1498,6 +1540,11 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         m_nextGranted = true;
     }
     m_nextQueuePos = 0;
+    if (type == CA_TBL_MSG_ESC_GRANT && m_nextOnBehalf)
+    {
+        f.hdr.SetGrantOnBehalf(true); // TA-2
+    }
+    m_nextOnBehalf = false;
     if (type == CA_TBL_MSG_ESC_REQUEST && m_cfg.queryTriggeredEscalation)
     {
         f.hdr.SetReqQueryTriggered(m_nextReqQT); // NW-4
@@ -2315,6 +2362,10 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
                 {
                     m_uwbGrantCb(hdr.GetOriginId(), 1);
                 }
+            }
+            else if (hdr.GetGrantOnBehalf() && m_uwbGrantCb)
+            {
+                m_uwbGrantCb(hdr.GetOriginId(), 3); // TA-2: a requester asked for us
             }
         }
         else
