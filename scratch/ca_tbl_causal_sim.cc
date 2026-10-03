@@ -3463,6 +3463,57 @@ struct LegTerms
 };
 
 /**
+ * N.14 -- --fuseFloorActive. One row per node-cycle whose fix set was the union of the
+ * active tier's ranges and the floor's: fusefloor_<arm>_seed<N>.csv (digested), written
+ * only under the flag, and one N.14 line. The fix kind is what Step() made of the union.
+ */
+struct FuseFloorLog
+{
+    explicit FuseFloorLog(const std::string& path)
+    {
+        log.open(path.c_str());
+        if (!log.is_open())
+        {
+            std::cerr << "FATAL: cannot open " << path << " for writing -- does --outdir exist?\n";
+            std::exit(1);
+        }
+        log << "t,nodeId,activeTier,nActive,nFloor,nFused,hadFix,fixKind,fixTier\n";
+    }
+    void Row(double t, uint32_t nodeId, CaTblTier active, size_t nA, size_t nF,
+             const CaTblDecision& d, CaTblTier fixTier)
+    {
+        log << std::fixed << std::setprecision(4) << t << ',' << nodeId << ','
+            << CaTblTierName(active) << ',' << nA << ',' << nF << ',' << (nA + nF) << ','
+            << (d.hadFix ? 1 : 0) << ',' << static_cast<int>(d.fixKind) << ','
+            << CaTblTierName(fixTier) << '\n';
+        ++sets;
+        ++byActive[std::min<size_t>(nA, 2)];
+        ++byTier[static_cast<int>(active)];
+        ++byKind[std::min<int>(4, d.fixKind)];
+        if (d.hadFix && nA > 0)
+        {
+            ++fixesWithActive[static_cast<int>(active)];
+        }
+    }
+    void Report(std::ostream& os, const char* arm)
+    {
+        log.close();
+        os << "    N.14 floor+active fusion (" << arm << "): sets " << sets << " (active ranges 0/1/2 "
+           << byActive[0] << "/" << byActive[1] << "/" << byActive[2] << "; active tier 868/2.4/UWB "
+           << byTier[0] << "/" << byTier[1] << "/" << byTier[2] << "); Step made none/full/A/B/D "
+           << byKind[0] << "/" << byKind[1] << "/" << byKind[2] << "/" << byKind[3] << "/" << byKind[4]
+           << "; fixes using active ranges 868/2.4/UWB " << fixesWithActive[0] << "/"
+           << fixesWithActive[1] << "/" << fixesWithActive[2] << "\n";
+    }
+    std::ofstream log;
+    uint64_t sets = 0;
+    uint64_t byActive[3] = {0, 0, 0};
+    uint64_t byTier[3] = {0, 0, 0};
+    uint64_t byKind[5] = {0, 0, 0, 0, 0};
+    uint64_t fixesWithActive[3] = {0, 0, 0};
+};
+
+/**
  * L.1.2 -- RELAY DEPTH 2 (Network sect 5), behind --relayChain.
  *
  * WHAT WAS MISSING. CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed,
@@ -6001,6 +6052,8 @@ struct SpecOptions
     bool hopProvenance = false;
     //! N.15. --subjectRelayChain: measured subjects take part in the L.1.2 relay chain.
     bool subjectRelayChain = false;
+    //! N.14. --fuseFloorActive: an active tier short of three is fused with the floor.
+    bool fuseFloorActive = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
@@ -7005,6 +7058,14 @@ RunArm(CaTblPolicyMode mode,
                                         engine2p4.GetConfig(), engineUwb.GetConfig()));
             chain->legTerms = legTerms.get();
         }
+    }
+    // N.14. Null unless --fuseFloorActive.
+    std::unique_ptr<FuseFloorLog> fuseFloorLog;
+    if (spec.fuseFloorActive)
+    {
+        std::ostringstream ffn;
+        ffn << traceDir << "/fusefloor_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        fuseFloorLog.reset(new FuseFloorLog(ffn.str()));
     }
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
     // cycle's instant and charged at its time, exactly as before.
@@ -9483,6 +9544,15 @@ RunArm(CaTblPolicyMode mode,
                 }
                 const bool actSolved = actM.size() >= 3;
                 const bool usedFloorS = !actSolved && floorM.size() >= 3;
+                // N.14, as tag 0's: short active set plus floor, fused (labelled active).
+                std::vector<CaTblRangeMeasurement> fusedS;
+                const bool fuseS = spec.fuseFloorActive && actM.size() < 3 && !floorM.empty() &&
+                                   !(actM.empty() && floorM.size() >= 3);
+                if (fuseS)
+                {
+                    fusedS = actM;
+                    fusedS.insert(fusedS.end(), floorM.begin(), floorM.end());
+                }
                 // N.15 (--subjectRelayChain). Three or more direct ranges on either set
                 // make the subject a fix-holder at depth 0. Short of three on both, it
                 // ranges the holders awake on its active tier, and the relayed ranges join
@@ -9497,13 +9567,13 @@ RunArm(CaTblPolicyMode mode,
                 {
                     chain->awake[pt] = static_cast<uint8_t>((1u << static_cast<int>(act)) |
                                                             (floorOn ? 1u : 0u));
-                    if (actSolved || usedFloorS)
+                    if (actSolved || usedFloorS || (fuseS && fusedS.size() >= 3))
                     {
                         chain->SubjectHolds(pt);
                     }
                     else if (!(preempt && act == pendT))
                     {
-                        chainM = actM;
+                        chainM = fuseS ? fusedS : actM; // N.14: relays complete the union
                         chainPk = chain->RangeForSubject(
                             pt, tags, nTags, act, chain->awake, phy, engine868, engine2p4,
                             engineUwb, t, dt, now, maxRelayDepth, relayVarBudgetM2,
@@ -9512,8 +9582,10 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 const std::vector<CaTblRangeMeasurement>& measS =
-                    chainUsed ? chainM : (usedFloorS ? floorM : actM);
-                const CaTblTier fixTierS = usedFloorS ? CA_TBL_TIER_868 : act;
+                    chainUsed ? chainM : (fuseS ? fusedS : (usedFloorS ? floorM : actM));
+                const CaTblTier fixTierS =
+                    (fuseS && !chainUsed) ? (actM.empty() ? CA_TBL_TIER_868 : act)
+                                          : (usedFloorS ? CA_TBL_TIER_868 : act);
                 if (ex.rk)
                 {
                     double ux, uy, qu[3];
@@ -9555,6 +9627,10 @@ RunArm(CaTblPolicyMode mode,
                 if (chainUsed)
                 {
                     chain->SubjectFused(pt, sb, chainPk, act, t, maxRelayDepth, relayVarBudgetM2);
+                }
+                if (fuseS && !chainUsed)
+                {
+                    fuseFloorLog->Row(t, sb.nodeId, act, actM.size(), floorM.size(), ds, fixTierS);
                 }
                 ++sb.steps;
                 v2Pcs[pt] = ds.pcs; // NW-9
@@ -10843,8 +10919,26 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
-        const std::vector<CaTblRangeMeasurement>& meas = usedFloor ? floorMeas : activeMeas;
-        const CaTblTier fixTier = usedFloor ? CA_TBL_TIER_868 : active;
+        // N.14 (--fuseFloorActive). The active tier came up short of three and the floor
+        // ranged: the fix set is the active tier's ranges (relays included) WITH the floor's,
+        // and the sparse cases run on that union in Step(). Otherwise a 1-2 range UWB or
+        // 2.4 GHz set is discarded whenever the floor solves, and two floor ranges are
+        // discarded whenever the node is off 868 MHz. Floor alone at three or more is the
+        // old path. A union with active ranges is labelled with the ACTIVE tier (OURS):
+        // the cycle used them, and they are the precise ones.
+        std::vector<CaTblRangeMeasurement> fusedFA;
+        const bool fuseFA = spec.fuseFloorActive && activeMeas.size() < 3 && !floorMeas.empty() &&
+                            !(activeMeas.empty() && floorMeas.size() >= 3);
+        if (fuseFA)
+        {
+            fusedFA = activeMeas;
+            fusedFA.insert(fusedFA.end(), floorMeas.begin(), floorMeas.end());
+        }
+        const std::vector<CaTblRangeMeasurement>& meas =
+            fuseFA ? fusedFA : (usedFloor ? floorMeas : activeMeas);
+        const CaTblTier fixTier =
+            fuseFA ? (activeMeas.empty() ? CA_TBL_TIER_868 : active)
+                   : (usedFloor ? CA_TBL_TIER_868 : active);
 
         // --tier1Tdoa: the gateways in this tier-1 fix set stamped the same broadcast.
         // Solved here and queued, so Step() fuses it beside the ranges it came with.
@@ -11046,6 +11140,10 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        if (fuseFA)
+        {
+            fuseFloorLog->Row(t, nodeId, active, activeMeas.size(), floorMeas.size(), d, fixTier);
+        }
         // NW-1: a fix that fused the set carries its depth; anything else carries none.
         const uint32_t hopCountAtFix =
             (d.hadFix && !d.measurementRejected && meas.size() >= 3) ? hopArg : 0u;
@@ -13224,6 +13322,10 @@ RunArm(CaTblPolicyMode mode,
             chain->ReportSubjects(std::cout);
         }
     }
+    if (fuseFloorLog)
+    {
+        fuseFloorLog->Report(std::cout, CaTblPolicyModeName(mode));
+    }
     if (legTerms)
     {
         legTerms->Report(std::cout, CaTblPolicyModeName(mode));
@@ -14074,6 +14176,24 @@ main(int argc, char* argv[])
                  "Under --sessionOverMesh, seconds after which a session with no result "
                  "times out (the session manager's default, 600).",
                  spec.sessionTimeoutS);
+    cmd.AddValue("fuseFloorActive",
+                 "Fuse an active tier short of three with the 868 MHz floor (TECH_DEBT N.14; owner "
+                 "decision 2026-10-03: built behind a flag, adopted only by a registered campaign). "
+                 "FALSE by default: the fix set is the active tier's when it has three or more "
+                 "ranges, else the floor's when IT has three or more, and only then the active "
+                 "tier's 1-2 ranges for the sparse cases -- so a UWB or 2.4 GHz range is discarded "
+                 "whenever the floor solves, and two floor ranges are discarded whenever the node "
+                 "is off 868 MHz. TRUE: when the active tier has fewer than three ranges and the "
+                 "floor ranged, the fix set is the union (the active tier's ranges, relays "
+                 "included, then the floor's), and Step()'s sparse cases act on it below three; "
+                 "the floor alone at three or more is the old path. A union holding active ranges "
+                 "is labelled with the active tier in the traces (OURS: the cycle used them, and "
+                 "they are the precise ones), which overrides the rule that each cycle's fix "
+                 "comes from one tier. Tag 0 and every measured subject; under "
+                 "--subjectRelayChain a union of three is a fix on direct ranges, and relays may "
+                 "complete a shorter one. Writes fusefloor_<arm>_seed<N>.csv (digested) and one "
+                 "N.14 line. Needs --sparseInStep.",
+                 spec.fuseFloorActive);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
@@ -16489,6 +16609,13 @@ main(int argc, char* argv[])
         std::cerr << "WARNING: --caseD without --imuPredict: the single range constrains a "
                   << "constant-velocity prediction, not an IMU-propagated one\n";
     }
+    // N.14. The union's one- and two-range sets are solved by Step()'s sparse cases.
+    if (spec.fuseFloorActive && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --fuseFloorActive needs --sparseInStep: the sparse cases on the "
+                     "fused set run inside Step()\n";
+        return 1;
+    }
     // DC-11. --sparseInStep replaces --sparseCaseA's pre-Step solve; both would solve twice.
     if (spec.sparseInStep && sparseCaseAArg)
     {
@@ -17465,6 +17592,10 @@ main(int argc, char* argv[])
     if (spec.arbitrationV2)
     {
         digestPatterns += " arb_*.csv";
+    }
+    if (spec.fuseFloorActive)
+    {
+        digestPatterns += " fusefloor_*.csv"; // N.14
     }
     if (queryProxyArg)
     {

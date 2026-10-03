@@ -1822,7 +1822,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
-| N.14 | a UWB range never improves a fix the floor can make | open, remedy waits on the owner |
+| N.14 | a UWB range never improves a fix the floor can make | remedy built behind `--fuseFloorActive` (2026-10-04); adoption by FUSE-01 |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
@@ -2181,6 +2181,29 @@ fix, because the 868 MHz floor needs three ranges. On `static_868` the same subj
 on 868 MHz and fixes from two ranges (75 cycles against 0 for subject 3, N8_ring seed 1).
 So `static_868` beat `ca_tbl_full` on availability in every GEO-01 cell, by 0.03-0.06. Applying
 the sparse cases to the floor's set as well would be part of the same remedy.
+
+
+*2026-10-04, the remedy built (owner decision: a flag, then a registered campaign):*
+`--fuseFloorActive` (G63). When the active tier has fewer than three ranges and the floor
+ranged, the fix set is the union: the active tier's ranges, relays included, then the
+floor's. Step()'s sparse cases act on it below three. The floor alone at three or more keeps
+the old path. Tag 0 and every measured subject. What it decides, each OURS:
+- **A union holding active ranges is labelled with the active tier** in the traces. The
+  cycle used them, and they are the precise ones. This overrides the rule written above the
+  fix selection, that each cycle's fix comes from one tier, which is the point of the
+  remedy. So a "UWB fix" under the flag can hold 868 MHz ranges. `fusefloor_*.csv` says
+  which, and how many of each.
+- **Under `--subjectRelayChain`, a union of three is a fix on direct ranges** (the subject
+  holds), and relays may complete a shorter union.
+- **TDoA still runs only on a pure floor set** of three or more.
+
+In G63's preset runs (seed 7, 900 s):
+- the endgame formed 666 unions, 91 of them on UWB, with 19 UWB-delivered fixes against 0
+  without the flag;
+- at 5 km it formed 872, of which 644 had no active range and a short floor, the case
+  GEO-01 found.
+
+Whether the preset takes it is FUSE-01's registered rule, not this entry.
 
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
