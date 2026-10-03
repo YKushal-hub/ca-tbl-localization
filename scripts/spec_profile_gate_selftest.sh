@@ -22,7 +22,7 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (Case A fixes|triggered updates|fixes at hop depth 2|per-hop variance terms|UWB-delivered fixes)'
+KNOWN='POP (triggered updates|fixes at hop depth 2|per-hop variance terms|grant tie-break verdicts|UWB-delivered fixes)'
 
 pass=0
 fail=0
@@ -70,6 +70,10 @@ fresh; echo 134 > "$T/f/gasp.rc"
 check "N7 a run did not exit 0" RUNS
 fresh; echo 0 > "$T/f/r_n12.rc"; sed -i '/needs --fixRoutingSubjects/d' "$T/f/r_n12.log"
 check "N8 the preset accepted with --fixRoutingSubjects=false (N.12)" R12
+fresh; sed -i -E '0,/NW-2 weights alpha 0 beta 0 /s//NW-2 weights alpha 1 beta 1 /' "$T/f/main.log"
+check "N9 a router not running the preset's weights (0,0,1,1)" WEIGHTS
+fresh; echo 1 > "$T/f/x_froff.rc"
+check "N10 the preset refused with routing turned off explicitly" RUNS
 
 printf '  G24 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

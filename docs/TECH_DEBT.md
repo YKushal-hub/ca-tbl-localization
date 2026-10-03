@@ -2222,6 +2222,21 @@ the calibrated thresholds move when subjects ask for UWB, and two anchors now gr
 request. The other five stand: Case A, triggered updates, hop depth 2, per-hop variance
 terms, UWB-delivered fixes.
 
+*2026-10-03, the routing weights (owner decision):* the preset sets CAMP-SPEC's registered
+sweep pick, `--routeAlpha=0 --routeBeta=0 --routeGamma=1 --routeSlack=1` (82 settings). It
+reproduces the sweep's `D_route_a0_b0_g1_s1` seed-1 cell byte for byte (37 files).
+- **One choice is OURS.** The weights need `--fixRouting`, and a weight given without it is
+  refused. A weight the preset applied is exempt: with `--fixRouting=false` given
+  explicitly, as CAMP-SPEC's single-hop cells do, the preset's weights are unused, not
+  refused. G24 runs that shape (x_froff) and requires exit 0.
+- **The zero set moved, still five.** The routes changed, so the channel did, and every
+  magnitude moved with it (rule 8).
+  - Case A fixes are back: 1 in main.
+  - Grant tie-break verdicts are zero again in the endgame: 0, where CAL-02's preset gave 2.
+  - Both populations are one or two events in G24's single seed.
+  - The five zeros: triggered updates, hop depth 2, per-hop variance terms, grant tie-break
+    verdicts, UWB-delivered fixes.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,

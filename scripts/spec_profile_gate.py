@@ -10,10 +10,14 @@ last-gasp run); off_<flag> (the preset with that flag off); eq_preset / eq_flags
 against its own flags written out); r_topo and r_n12 (the refusals).
 
 Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
-  RUNS      every run exited 0 (the refusals r_* excepted).
+  RUNS      every run exited 0 (the refusals r_* excepted). x_froff, the preset with routing
+            turned off explicitly (CAMP-SPEC's single-hop shape), is one of them: the preset's
+            routing weights are unused there, not refused.
   EQUIV     --specProfile gives byte-identical CSVs to its own settings given as flags.
   FILE      spec_profile.txt lists every setting; in end/ the explicit --boxHalf and
             --finderMode are recorded as kept, not overwritten.
+  WEIGHTS   every NW-2 router in main/ and end/ ran with CAMP-SPEC's pick, alpha 0 beta 0
+            gamma 1 slack 1 (owner decision 2026-10-03).
   POP <m>   one line per mechanism: its population in its registered run is > 0.
   EFF <f>   one line per efficacy run: with flag <f> off, its mechanism's population is 0.
   R         the preset with --topology=1 exits 1 with the reason.
@@ -170,6 +174,12 @@ def main():
         ran750 = "--boxHalf=750" in open(os.path.join(d, "end", "run_id.txt")).read() if os.path.exists(os.path.join(d, "end", "run_id.txt")) else False
         report(len(rows) >= 60 and kept and ran750, "FILE",
                f"main lists {len(rows)} settings; end keeps the explicit --boxHalf/--finderMode {kept}; end ran at 750 m {ran750}")
+
+    wl = [m.groups() for n in ("main", "end") for m in re.finditer(r"NW-2 weights alpha (\S+) beta (\S+) gamma (\S+) slack (\S+);", log(d, n))]
+    badw = [w for w in wl if tuple(float(x) for x in w) != (0.0, 0.0, 1.0, 1.0)]
+    report(len(wl) >= 6 and not badw, "WEIGHTS",
+           f"NW-2 routers in main and end {len(wl)} (need 6), not at (0,0,1,1) {len(badw)} (need 0)"
+           + (f": {badw[:2]}" if badw else ""))
 
     zero = []
     for name, run, reader, flag in MECH:
