@@ -13016,8 +13016,9 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * P6. --specProfile: the spec preset (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1). Each row is a
  * flag the preset sets, the value, and the docx section or owner decision it serves. NOT
  * in it yet, and said so wherever the preset is reported: --radioBasis=lr1121 (SY-2, the
- * LR1121 datasheet) and the calibrated PCS (CAL-02). The geometry is GEO-01 stage 2's
- * registered FALLBACK (report/GEO01_RESULTS.md): no candidate met the SAR criterion.
+ * LR1121 datasheet). The geometry is GEO-01 stage 2's registered FALLBACK
+ * (report/GEO01_RESULTS.md): no candidate met the SAR criterion. The PCS is CAL-02's
+ * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md).
  * --sparseCaseA, in the plan's table, is left out: --sparseInStep replaces it (FATAL
  * together). The UWB channel model stays legacy (P0's read-out).
  */
@@ -13046,6 +13047,15 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"imuWitnessSource", "model", "Physical 2.6: the witness is the IMU model"},
     {"entryVelocity", "true", "Physical 2.1: entries carry velocity"},
     {"entryPrediction", "true", "Physical 2.2: per-entry prediction"},
+    {"pcsForm", "calibrated", "decision 3: PCS from CAL-02 (report/CAL02_RESULTS.md), adopted by its registered rule"},
+    {"pcsW1", "0.0", "CAL-02 fit.json"},
+    {"pcsW2", "1.920195", "CAL-02 fit.json"},
+    {"pcsW3", "1.079805", "CAL-02 fit.json"},
+    {"pcsThrUp868", "3.000016", "CAL-02 fit.json"},
+    {"pcsThrUp2p4", "2.023835", "CAL-02 fit.json"},
+    {"pcsThrUpUwb", "1.501074", "CAL-02 fit.json"},
+    {"pcsThrDown2p4", "2.3611", "CAL-02 fit.json"},
+    {"pcsThrDownUwb", "1.681203", "CAL-02 fit.json"},
     {"escalationRequiresEvidence", "true", "decision 7: the evidence gate stays on"},
     {"uwbEvidenceFromNeighbours", "true", "MS-3: the gate predicts from the awake radio"},
     {"uwbCoverageIncludesFinders", "true", "MS-3: the trigger label counts finders"},
@@ -13742,8 +13752,9 @@ main(int argc, char* argv[])
              "default: every run is as before. TRUE: each setting below is applied unless the "
              "same flag is given explicitly, which always wins; spec_profile.txt (digested) lists "
              "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
-             "Not yet in it: --radioBasis=lr1121 (SY-2) and the calibrated PCS (CAL-02). The "
-             "geometry is GEO-01's registered fallback; no candidate met the criterion. Settings:";
+             "Not yet in it: --radioBasis=lr1121 (SY-2). The geometry is GEO-01's registered "
+             "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form. "
+             "Settings:";
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
             h << " --" << ss.name << "=" << ss.value << " (" << ss.why << ");";
@@ -15412,8 +15423,8 @@ main(int argc, char* argv[])
         }
         sp << "# --specProfile (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1): what the preset set, and "
               "what the user gave explicitly instead\n"
-              "# not yet in the preset: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02); "
-              "the geometry is GEO-01 stage 2's registered fallback\n";
+              "# not yet in the preset: --radioBasis=lr1121 (SY-2); the geometry is GEO-01 stage "
+              "2's registered fallback; the PCS is CAL-02's calibrated form\n";
         size_t kept = 0;
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
@@ -15431,7 +15442,7 @@ main(int argc, char* argv[])
         std::cerr << "NOTE: --specProfile set " << (sizeof(kSpecProfile) / sizeof(kSpecProfile[0]) - kept)
                   << " spec settings (" << kept << " given explicitly and kept); "
                   << outdir << "/spec_profile.txt lists them. Not yet in the preset: "
-                     "--radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02).\n";
+                     "--radioBasis=lr1121 (SY-2).\n";
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
