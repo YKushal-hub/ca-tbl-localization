@@ -2176,3 +2176,27 @@ they are populations of a sparse geometry, not defects of a mechanism:
   - per-hop variance terms: 3 relay legs reached admission, and none had the three
     readings a variance term needs. With the old default grid the subjects met often
     enough for both.
+
+### N.16 At 5 km the covariance trace ranks error backwards
+
+CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
+error) over tag 0's fix cycles is +0.315 on the held-out seeds: a smaller trace goes with
+a larger error. The facts behind it, read from the 40 seeds:
+- 98 % of the fixes are 868 MHz floor fixes, and nearly all are SUSPECT, so DC-7 fuses
+  almost every one at R × 4.
+- Within the 868 MHz fixes the trace still ranks error backwards (+0.22).
+- In the endgame (2.4 GHz fixes, a 750 m box) it ranks error correctly (−0.53 overall,
+  −0.55 within 2.4 GHz).
+
+**The consequence.** CAL-02 fitted the weights where the trace is least informative. FIT-R
+wanted a negative trace weight, and the clamp to non-negative weights dropped it, leaving
+(0, 1.92, 1.08). The calibrated score then "beats" the inverted control by the registered
+test, while ranking error only weakly (ρ = −0.10).
+
+**Not established:** why the RSSI-ranged, mostly-SUSPECT fixes invert the trace. Candidates
+are:
+- range-proportional σ near gateways;
+- DC-7's inflation applied to almost every fix;
+- the integrity check firing on nearly every preset fix (N.15's populations).
+
+Each would need its own measurement. Open, for the owner, together with N.14.
