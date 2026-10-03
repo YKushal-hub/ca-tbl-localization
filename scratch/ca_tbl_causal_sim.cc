@@ -6016,6 +6016,8 @@ struct SpecOptions
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
     bool edgeUplinkRanges = false;
+    //! N.3 / row 55. --subjectEdgeUplink: subjects 2..N bill it too.
+    bool subjectEdgeUplink = false;
     //! SY-5. --injectTxPowerDropDb / --injectAntennaLossDb, over the fault window.
     double injectTxPowerDropDb = 0.0;
     double injectAntennaLossDb = 0.0;
@@ -7574,6 +7576,12 @@ RunArm(CaTblPolicyMode mode,
     if (spec.edgeUplinkRanges)
     {
         edgeUp.reset(new EdgeUplinkTally());
+    }
+    // N.3 / row 55. --subjectEdgeUplink: the same tally per subject (index = tag), null without.
+    std::unique_ptr<std::vector<EdgeUplinkTally>> edgeUpS;
+    if (spec.subjectEdgeUplink)
+    {
+        edgeUpS.reset(new std::vector<EdgeUplinkTally>(tags.size()));
     }
     // DC-1. Per-run state of --imuPredict, null without it.
     struct ImuPredictState
@@ -9558,6 +9566,23 @@ RunArm(CaTblPolicyMode mode,
                     }
                     sb.energy.AccountRangingExchange(tier, static_cast<uint32_t>(keep.size()),
                                                      static_cast<uint32_t>(out.size()), atSec);
+                    // N.3 / row 55. SY-1's uplink, as tag 0's: one frame on the tier that
+                    // ranged, 9 B + 6 B per answered anchor (OURS), billed to the subject.
+                    if (edgeUpS && gatewayEdgeServer && tier != CA_TBL_TIER_868 && !out.empty())
+                    {
+                        const uint32_t ub = CA_TBL_MAC_HEADER_BYTES +
+                                            6u * static_cast<uint32_t>(out.size());
+                        const double ua =
+                            (tier == CA_TBL_TIER_UWB)
+                                ? CaTblEnergyModel::UwbFrameTimeS(ub)
+                                : CaTblEnergyModel::LoRaTimeOnAirS(phy[tier].sf,
+                                                                   phy[tier].bandwidthHz, ub, 1);
+                        sb.energy.AccountFrameTx(tier, atSec, ua);
+                        EdgeUplinkTally& eu = (*edgeUpS)[pt];
+                        ++eu.frames[tier];
+                        eu.records[tier] += out.size();
+                        eu.airS[tier] += ua;
+                    }
                     return out;
                 };
                 // A handshake the duty budget pushed out of the previous cycle pre-empts this
@@ -12934,6 +12959,22 @@ RunArm(CaTblPolicyMode mode,
              << edgeUp->airS[CA_TBL_TIER_UWB] << " s\n";
         std::cout << line.str();
     }
+    // N.3 / row 55. The subjects' uplink frames, per subject and tier. Only under the flag.
+    if (edgeUpS)
+    {
+        std::ostringstream line;
+        line << "    SY-1 edge uplink (subjects, " << CaTblPolicyModeName(mode) << "):";
+        for (uint32_t pt = 1; pt < spec.measuredSubjects && pt < edgeUpS->size(); ++pt)
+        {
+            const EdgeUplinkTally& eu = (*edgeUpS)[pt];
+            line << " subject " << tags[pt].nodeId << " 2.4 GHz frames "
+                 << eu.frames[CA_TBL_TIER_2P4] << " records " << eu.records[CA_TBL_TIER_2P4]
+                 << " airtime " << std::setprecision(9) << eu.airS[CA_TBL_TIER_2P4]
+                 << " s, UWB frames " << eu.frames[CA_TBL_TIER_UWB] << " records "
+                 << eu.records[CA_TBL_TIER_UWB] << " airtime " << eu.airS[CA_TBL_TIER_UWB] << " s;";
+        }
+        std::cout << line.str() << "\n";
+    }
     // NW-0. The mesh's cost and its guards. Printed only under the flag.
     if (mesh)
     {
@@ -15863,6 +15904,15 @@ main(int argc, char* argv[])
                  "--sparseCaseAMargin. Writes sparse_<arm>_seed<N>.csv (digested) and one "
                  "DC-11 line per arm. Replaces --sparseCaseA, so the two together are FATAL.",
                  spec.sparseInStep);
+    cmd.AddValue("subjectEdgeUplink",
+                 "Subjects 2..N bill the uplink of their tier-2/3 ranges, as --edgeUplinkRanges "
+                 "bills tag 0's (SY-1; TECH_DEBT N.3, register row 55). FALSE by default: the "
+                 "subjects' uplink is not billed, and a start-up WARNING says --edgeUplinkRanges "
+                 "is tag 0's only. TRUE: each subject's ranging exchange on 2.4 GHz or UWB that "
+                 "returns a range is followed by one frame on that tier, 9 B + 6 B per answered "
+                 "anchor (OURS, as tag 0's), billed to the subject. Only energy moves at defaults. "
+                 "One SY-1 subjects line. Needs --edgeUplinkRanges and --measuredSubjects > 1.",
+                 spec.subjectEdgeUplink);
     cmd.AddValue("edgeUplinkRanges",
                  "Bill the uplink that carries a tier-2 or tier-3 range to the gateway "
                  "estimator (TECH_DEBT L.2.3; docs/SPEC_CONFORMANCE_PLAN.md SY-1). READ ONLY "
@@ -16494,7 +16544,7 @@ main(int argc, char* argv[])
         {
             only.push_back("--triggeredUpdates");
         }
-        if (spec.edgeUplinkRanges)
+        if (spec.edgeUplinkRanges && !spec.subjectEdgeUplink)
         {
             only.push_back("--edgeUplinkRanges");
         }
@@ -16744,6 +16794,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // SY-1. Without the edge estimator the node fuses its own ranges and nothing goes up.
+    // N.3 / row 55.
+    if (spec.subjectEdgeUplink && (!spec.edgeUplinkRanges || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectEdgeUplink needs --edgeUplinkRanges and --measuredSubjects "
+                     "> 1: it extends tag 0's uplink bill to the subjects\n";
+        return 1;
+    }
     if (spec.edgeUplinkRanges && !gatewayEdgeServerArg)
     {
         std::cerr << "FATAL: --edgeUplinkRanges needs --gatewayEdgeServer=true: with the "
