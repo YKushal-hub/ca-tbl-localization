@@ -4015,6 +4015,9 @@ RelayChain::Report(std::ostream& os, const std::vector<CaTblTagState>& tags, dou
  * tag (id 1) does not take part: its tier changes cycle to cycle, and a frame on a tier it
  * did not transmit on would charge a tier outside that cycle's transmission (sect 6).
  * Finders carry GNSS and are anchors, not routers; they are neither sinks nor next hops.
+ * NW-2 (--fixRoutingSubjects) lifts that: one router per tier, the measured tag included,
+ * and each cycle a node takes part only in the router of the tier it ranged on (part[]),
+ * which is what keeps the sect 6 reason above intact for nodes whose tier moves.
  *
  * WHERE TO. Every gateway is on the backhaul the edge-server path already assumes, so a
  * fix delivered to ANY gateway has reached the network. The destination is therefore the
@@ -4116,7 +4119,10 @@ struct FixRouter
               double cycleS,
               CaTblNlosSource src,
               const TierPhy* ph,
-              const std::string& logPath);
+              const std::string& logPath,
+              const CaTblRoutingWeights& w = CaTblRoutingWeights(),
+              bool withTag0 = false,
+              bool withTermCols = false);
     //! MAC delivery callback on each relay's --relayTier radio.
     void OnRx(uint16_t rxId, const CaTblHeader& hdr, const CaTblLinkOutcome& out);
     void Cycle(std::vector<CaTblTagState>& tags,
@@ -4139,6 +4145,11 @@ struct FixRouter
     void Row(double t, uint16_t origin, uint32_t hop, uint16_t sender, bool have,
              const CaTblRoute& etx, const CaTblRoute& conf, const CaTblRoutingTable& tbl,
              uint16_t chosen, bool chosenIsGw, const char* outcome);
+    //! NW-2: tag 0's position is the scenario's, not tags[0].pos.
+    const Vector& PosOf(const std::vector<CaTblTagState>& tags, size_t k) const
+    {
+        return (k == 0) ? tag0Pos : tags[k].pos;
+    }
 
     CaTblTier rt;
     bool confidenceActive;
@@ -4148,7 +4159,19 @@ struct FixRouter
     double dt;
     double fixAirS;     //!< one ENTRY_PUSH of one entry on rt
     double advertAirS;  //!< one DISCOVERY plus the route summary on rt
-    size_t n;           //!< tags.size(); index 0, the measured tag, never routes
+    size_t n;           //!< tags.size(); index 0, the measured tag, routes only under NW-2
+    // NW-2 (--fixRoutingSubjects). One router per tier; a node takes part in a cycle only
+    // on the router of the tier it is on that cycle (sect 6). Without the flag first = 1
+    // and every node takes part, as before.
+    size_t first = 1;              //!< 0 when the measured tag routes
+    std::vector<char> part;        //!< this cycle's participants, by tags index
+    CaTblMac* tag0Mac = nullptr;   //!< the measured tag's radio on rt
+    Vector tag0Pos;                //!< the measured tag's position this cycle
+    bool termCols = false;         //!< rows carry the confidence route's three sums
+    CaTblRoutingWeights weights;
+    uint64_t offTier = 0;          //!< hops whose next hop was on another tier this cycle
+    uint64_t partSum = 0;          //!< participants summed over cycles
+    uint64_t cycles = 0;
     std::map<uint16_t, Vector> gwPos;
     std::map<uint16_t, size_t> relayIdx; //!< node id -> tags index
     std::vector<CaTblRoutingTable> tables;
@@ -4196,7 +4219,10 @@ FixRouter::FixRouter(const std::vector<CaTblTagState>& tags,
                      double cycleS,
                      CaTblNlosSource src,
                      const TierPhy* ph,
-                     const std::string& logPath)
+                     const std::string& logPath,
+                     const CaTblRoutingWeights& w,
+                     bool withTag0,
+                     bool withTermCols)
     : rt(tier),
       confidenceActive(confActive),
       nlosSrc(src),
@@ -4229,7 +4255,15 @@ FixRouter::FixRouter(const std::vector<CaTblTagState>& tags,
     {
         gwPos[static_cast<uint16_t>(gateways[g].id)] = gateways[g].pos;
     }
-    for (size_t k = 1; k < n; ++k)
+    first = withTag0 ? 0 : 1;
+    termCols = withTermCols;
+    weights = w;
+    part.assign(n, 1);
+    for (size_t k = 0; k < tables.size(); ++k)
+    {
+        tables[k].SetWeights(w); // NW-2: --routeAlpha/Beta/Gamma/Slack, defaults 1,1,1,1
+    }
+    for (size_t k = first; k < n; ++k)
     {
         relayIdx[static_cast<uint16_t>(tags[k].nodeId)] = k;
     }
@@ -4241,7 +4275,8 @@ FixRouter::FixRouter(const std::vector<CaTblTagState>& tags,
         std::exit(1);
     }
     log << "t,originId,hop,senderId,etxNext,etxHops,etxCost,confNext,confHops,confCost,"
-           "metric,chosenNext,chosenClass,diverged,outcome\n";
+           "metric,chosenNext,chosenClass,diverged,outcome"
+        << (termCols ? ",confNlos,confVar,confJit\n" : "\n");
 }
 
 __attribute__((noinline)) void
@@ -4378,7 +4413,7 @@ FixRouter::Row(double t, uint16_t origin, uint32_t hop, uint16_t sender, bool ha
     if (!have)
     {
         log << "0,0,0,0,0,0," << (confidenceActive ? "confidence" : "etx") << ",0,none,0,"
-            << outcome << '\n';
+            << outcome << (termCols ? ",0,0,0\n" : "\n");
         return;
     }
     log << etx.nextHopId << ',' << static_cast<unsigned>(etx.hopCount) << ','
@@ -4387,7 +4422,12 @@ FixRouter::Row(double t, uint16_t origin, uint32_t hop, uint16_t sender, bool ha
         << tbl.Cost(conf, CA_TBL_ROUTE_CONFIDENCE) << ','
         << (confidenceActive ? "confidence" : "etx") << ',' << chosen << ','
         << (chosenIsGw ? "gateway" : "relay") << ','
-        << (etx.nextHopId != conf.nextHopId ? 1 : 0) << ',' << outcome << '\n';
+        << (etx.nextHopId != conf.nextHopId ? 1 : 0) << ',' << outcome;
+    if (termCols)
+    {
+        log << ',' << conf.sumNlos << ',' << conf.sumRssiVar << ',' << conf.sumJitter;
+    }
+    log << '\n';
 }
 
 __attribute__((noinline)) void
@@ -4402,6 +4442,11 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
     ++round;
     slot = 0;
     cycleEndS = t + dt;
+    ++cycles;
+    for (size_t k = first; k < n; ++k)
+    {
+        partSum += part[k] ? 1 : 0;
+    }
     const uint16_t seq = static_cast<uint16_t>(round);
     const int rti = static_cast<int>(rt);
     const CaTblRouteMetric active =
@@ -4413,23 +4458,35 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
                                           : CA_TBL_TRAFFIC_GOSSIP;
 
     // 1. Routes not refreshed recently name next hops that may be gone.
-    for (size_t b = 1; b < n; ++b)
+    for (size_t b = first; b < n; ++b)
     {
         tables[b].Expire(t, kRouteTtlCycles * dt);
     }
 
     // 2. Direct routes: gateways in the relay's own one-hop table on rt, priced from the
     //    beacons its MAC delivered.
-    for (size_t b = 1; b < n; ++b)
+    for (size_t b = first; b < n; ++b)
     {
-        const size_t pi = b - 1;
-        if (pi >= peerMacs.size() || static_cast<size_t>(rti) >= peerMacs[pi].size() ||
-            peerMacs[pi][static_cast<size_t>(rti)] == nullptr)
+        if (!part[b])
+        {
+            continue; // NW-2: on another tier this cycle
+        }
+        CaTblMac* mm = (b == 0) ? tag0Mac : nullptr;
+        if (b > 0)
+        {
+            const size_t pi = b - 1;
+            if (pi >= peerMacs.size() || static_cast<size_t>(rti) >= peerMacs[pi].size() ||
+                peerMacs[pi][static_cast<size_t>(rti)] == nullptr)
+            {
+                continue;
+            }
+            mm = peerMacs[pi][static_cast<size_t>(rti)];
+        }
+        if (mm == nullptr)
         {
             continue;
         }
-        const std::vector<CaTblNeighbour> nb =
-            peerMacs[pi][static_cast<size_t>(rti)]->GetNeighbours(rt, t);
+        const std::vector<CaTblNeighbour> nb = mm->GetNeighbours(rt, t);
         for (size_t k = 0; k < nb.size(); ++k)
         {
             if (gwPos.count(nb[k].id) == 0)
@@ -4456,7 +4513,7 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
     // 3. Advertisements. Snapshot first, so the order relays advertise in cannot let a
     //    route learned this round be re-advertised in the same round.
     std::vector<Advert> adv(n);
-    for (size_t c = 1; c < n; ++c)
+    for (size_t c = first; c < n; ++c)
     {
         CaTblRoute sel;
         if (tables[c].PeekRoute(kBackbone, active, traffic, sel))
@@ -4470,9 +4527,9 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
             adv[c].sumJit = sel.sumJitter;
         }
     }
-    for (size_t c = 1; c < n; ++c)
+    for (size_t c = first; c < n; ++c)
     {
-        if (!adv[c].have || adv[c].hops >= kMaxHops)
+        if (!part[c] || !adv[c].have || adv[c].hops >= kMaxHops)
         {
             continue;
         }
@@ -4493,14 +4550,14 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
         ++adverts;
         const Time at = now + Seconds(ts - t);
         const uint16_t cId = static_cast<uint16_t>(tags[c].nodeId);
-        for (size_t b = 1; b < n; ++b)
+        for (size_t b = first; b < n; ++b)
         {
-            if (b == c)
+            if (b == c || !part[b])
             {
                 continue;
             }
-            const Heard h = Eval(cId, static_cast<uint16_t>(tags[b].nodeId), tags[c].pos,
-                                 tags[b].pos, e868, e2p4, eUwb, at, 0);
+            const Heard h = Eval(cId, static_cast<uint16_t>(tags[b].nodeId), PosOf(tags, c),
+                                 PosOf(tags, b), e868, e2p4, eUwb, at, 0);
             if (!h.received)
             {
                 continue;
@@ -4537,8 +4594,12 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
     }
 
     // 4. Each relay reports its own estimate, hop by hop, each hop choosing once.
-    for (size_t o = 1; o < n; ++o)
+    for (size_t o = first; o < n; ++o)
     {
+        if (!part[o])
+        {
+            continue;
+        }
         ++originated;
         const uint16_t originId = static_cast<uint16_t>(tags[o].nodeId);
         size_t cur = o;
@@ -4573,6 +4634,15 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
                     isGw, "loop");
                 break;
             }
+            if (!isGw && !part[nx->second])
+            {
+                // NW-2: the route was learned on this tier, and its next hop has since
+                // moved to another. Not sent: it would not be listening.
+                ++offTier;
+                Row(t, originId, hop, sender, true, etx, conf, tables[cur], ch.nextHopId,
+                    isGw, "offtier");
+                break;
+            }
             const double ts = NextSlot(t);
             if (ts < 0.0)
             {
@@ -4591,8 +4661,8 @@ FixRouter::Cycle(std::vector<CaTblTagState>& tags,
             }
             E.AccountFrameTx(rt, ts, fixAirS);
             txAirS[cur] += fixAirS;
-            const Vector& rxPos = isGw ? gwPos[ch.nextHopId] : tags[nx->second].pos;
-            const Heard h = Eval(sender, ch.nextHopId, tags[cur].pos, rxPos, e868, e2p4,
+            const Vector& rxPos = isGw ? gwPos[ch.nextHopId] : PosOf(tags, nx->second);
+            const Heard h = Eval(sender, ch.nextHopId, PosOf(tags, cur), rxPos, e868, e2p4,
                                  eUwb, now + Seconds(ts - t),
                                  static_cast<uint8_t>(std::min<uint32_t>(255u, hop)));
             if (!h.received)
@@ -4632,7 +4702,7 @@ FixRouter::Report(std::ostream& os, const std::vector<CaTblTagState>& tags) cons
     std::ostringstream o;
     uint64_t tblSel = 0;
     uint64_t tblDiv = 0;
-    for (size_t k = 1; k < n; ++k)
+    for (size_t k = first; k < n; ++k)
     {
         tblSel += tables[k].Selections();
         tblDiv += tables[k].Divergences();
@@ -4653,9 +4723,18 @@ FixRouter::Report(std::ostream& os, const std::vector<CaTblTagState>& tags) cons
       << " / relay " << chosenRelay << "; ETX would pick a relay " << etxRelay
       << ", confidence " << confRelay << "; diverged hops crossed " << divergedCarried
       << "\n";
+    if (termCols)
+    {
+        // NW-2: the weights the confidence cost used, and who took part.
+        o << "      NW-2 weights alpha " << weights.alphaNlos << " beta " << weights.betaRssiVar
+          << " gamma " << weights.gammaJitter << " slack "
+          << static_cast<unsigned>(weights.slack) << "; measured tag routes "
+          << (first == 0 ? "yes" : "no") << "; participants " << partSum << " over "
+          << cycles << " cycles; next hop off this tier " << offTier << "\n";
+    }
     // Per relay, per tier: the sect 6 check. Every router frame is on rt, so the two
     // other tiers must read what the relay's ranging alone put there -- exactly 0.
-    for (size_t k = 1; k < n; ++k)
+    for (size_t k = first; k < n; ++k)
     {
         o << "      router node " << tags[k].nodeId << ": routes " << tables[k].Size()
           << ", selections " << tables[k].Selections() << ", divergences "
@@ -5625,6 +5704,13 @@ struct SpecOptions
     bool hopProvenance = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
+    //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
+    bool fixRoutingSubjects = false;
+    //! NW-2. The confidence cost's weights and slack (CaTblRoutingWeights), OURS.
+    double routeAlpha = 1.0;
+    double routeBeta = 1.0;
+    double routeGamma = 1.0;
+    uint32_t routeSlack = 1;
     //! TA-1a. --sessionOverMesh: the base station's session is fed by delivered RESPONSEs.
     bool sessionOverMesh = false;
     double sessionStalenessS = 120.0;
@@ -6282,6 +6368,7 @@ RunArm(CaTblPolicyMode mode,
     // a callback into it. Built below, once the relays have their ids; null unless
     // --fixRouting, and while null no callback is bound and nothing is sent or evaluated.
     std::unique_ptr<FixRouter> router;
+    std::unique_ptr<FixRouter> tierRouters[CA_TBL_TIER_COUNT]; // NW-2, null without the flag
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
     std::deque<BeaconDriver> beacons;
     std::map<uint16_t, Vector> anchorPosById;
@@ -6629,16 +6716,55 @@ RunArm(CaTblPolicyMode mode,
         std::ostringstream rfn;
         rfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
-        router.reset(new FixRouter(tags, nTags, rrt, fixRoutingConfidence,
-                                   dep.anchors[rrt], beaconPeriodS[rrt], dt, nlosSource, phy,
-                                   rfn.str()));
-        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        CaTblRoutingWeights rw; // NW-2
+        rw.alphaNlos = spec.routeAlpha;
+        rw.betaRssiVar = spec.routeBeta;
+        rw.gammaJitter = spec.routeGamma;
+        rw.slack = static_cast<uint8_t>(spec.routeSlack);
+        const bool rwSet = spec.routeAlpha != 1.0 || spec.routeBeta != 1.0 ||
+                           spec.routeGamma != 1.0 || spec.routeSlack != 1;
+        if (!spec.fixRoutingSubjects)
         {
-            if (static_cast<size_t>(rrt) < peerMacs[pi].size() &&
-                peerMacs[pi][static_cast<size_t>(rrt)] != nullptr)
+            router.reset(new FixRouter(tags, nTags, rrt, fixRoutingConfidence,
+                                       dep.anchors[rrt], beaconPeriodS[rrt], dt, nlosSource,
+                                       phy, rfn.str(), rw, false, rwSet));
+            for (size_t pi = 0; pi < peerMacs.size(); ++pi)
             {
-                peerMacs[pi][static_cast<size_t>(rrt)]->SetRxCallback(
-                    MakeCallback(&FixRouter::OnRx, router.get()));
+                if (static_cast<size_t>(rrt) < peerMacs[pi].size() &&
+                    peerMacs[pi][static_cast<size_t>(rrt)] != nullptr)
+                {
+                    peerMacs[pi][static_cast<size_t>(rrt)]->SetRxCallback(
+                        MakeCallback(&FixRouter::OnRx, router.get()));
+                }
+            }
+        }
+        else
+        {
+            // NW-2. One router per tier, the measured tag included. Each cycle a node takes
+            // part only in the router of the tier it ranged on, so a routed frame is on the
+            // one tier that node transmits on (sect 6); a relay that is not a subject stays
+            // on --relayTier. Each tier's radio of every node feeds that tier's router.
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                const CaTblTier tt = static_cast<CaTblTier>(ti);
+                std::ostringstream tfn;
+                tfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(mode) << "_seed"
+                    << seed << "_tier" << ti << ".csv";
+                tierRouters[ti].reset(new FixRouter(tags, nTags, tt, fixRoutingConfidence,
+                                                    dep.anchors[tt], beaconPeriodS[tt], dt,
+                                                    nlosSource, phy, tfn.str(), rw, true, true));
+                tierRouters[ti]->tag0Mac = tags[0].nodeMac[ti];
+                tags[0].nodeMac[ti]->SetRxCallback(
+                    MakeCallback(&FixRouter::OnRx, tierRouters[ti].get()));
+                for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+                {
+                    if (static_cast<size_t>(ti) < peerMacs[pi].size() &&
+                        peerMacs[pi][static_cast<size_t>(ti)] != nullptr)
+                    {
+                        peerMacs[pi][static_cast<size_t>(ti)]->SetRxCallback(
+                            MakeCallback(&FixRouter::OnRx, tierRouters[ti].get()));
+                    }
+                }
             }
         }
     }
@@ -7132,6 +7258,8 @@ RunArm(CaTblPolicyMode mode,
     {
         subj.reset(new SubjectsState());
     }
+    // NW-2. The tier each subject ranged on this cycle (the measured tag's is `active`).
+    std::vector<int> subjCycleTier(tags.size(), -1);
     // MS-1. Subjects range in their own slots of a round BEFORE tag 0's instant, as relays
     // do under --relaySlots (M.1): all at one instant, they collide in the engines'
     // interference model -- measured, tag 0's static_868 fixes fell 212 -> 2 at five
@@ -8740,6 +8868,7 @@ RunArm(CaTblPolicyMode mode,
                 CaTblTagState& sb = tags[pt];
                 SubjectExtra& ex = subj->extra[pi];
                 const CaTblTier act = sb.policy.GetActiveTier();
+                subjCycleTier[pt] = static_cast<int>(act); // NW-2
                 const bool floorOn = hybridS && act != CA_TBL_TIER_868;
                 const Time atS = sround->Burst(now, pt);
                 const double atSec = sround->BurstS(t, pt);
@@ -11457,6 +11586,24 @@ RunArm(CaTblPolicyMode mode,
         {
             router->Cycle(tags, peerMacs, engine868, engine2p4, engineUwb, t, now);
         }
+        if (tierRouters[0])
+        {
+            // NW-2. Who is on which tier this cycle: the measured tag on `active`, a subject
+            // on the tier it ranged on, every other relay on --relayTier.
+            const int rrtI = static_cast<int>(std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                FixRouter& fr = *tierRouters[ti];
+                fr.tag0Pos = pos;
+                for (size_t k = 0; k < fr.n; ++k)
+                {
+                    const int tk = (k == 0) ? static_cast<int>(active)
+                                            : (subjCycleTier[k] >= 0 ? subjCycleTier[k] : rrtI);
+                    fr.part[k] = (tk == ti) ? 1 : 0;
+                }
+                fr.Cycle(tags, peerMacs, engine868, engine2p4, engineUwb, t, now);
+            }
+        }
     }
 
     if (writeTrace)
@@ -12392,6 +12539,13 @@ RunArm(CaTblPolicyMode mode,
     {
         relayRound->Report(std::cout, dt);
     }
+    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+    {
+        if (tierRouters[ti])
+        {
+            tierRouters[ti]->Report(std::cout, tags); // NW-2
+        }
+    }
     if (router)
     {
         router->Report(std::cout, tags);
@@ -13135,6 +13289,37 @@ main(int argc, char* argv[])
                  "sigma_leg. relay_chain_* gains the leg's readings and terms, and one NW-1 "
                  "line. Needs --relayedRanging, --relayChain and --nlosClassifier.",
                  spec.hopVarianceTerms);
+    cmd.AddValue("fixRoutingSubjects",
+                 "Every measured subject routes its own position-fix traffic (Network sect 3; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md NW-2). FALSE by default: --fixRouting routes "
+                 "the relays' fixes on --relayTier and the measured tag never routes. TRUE: one "
+                 "router per tier, the measured tag included; each cycle a node takes part -- "
+                 "learns gateway links, advertises, originates its ENTRY_PUSH, forwards -- only "
+                 "in the router of the tier it ranged on, so a routed frame is on the one tier "
+                 "that node transmits on (sect 6); a relay that is not a subject stays on "
+                 "--relayTier. A route whose next hop has since moved tier is not sent "
+                 "(counted). Writes fix_routing_<arm>_seed<N>_tier<k>.csv per tier, with the "
+                 "confidence route's three sums, digested, and an NW-2 line per router. Needs "
+                 "--fixRouting and --measuredSubjects > 1.",
+                 spec.fixRoutingSubjects);
+    cmd.AddValue("routeAlpha",
+                 "Weight of the NLOS term in --fixRouting's confidence cost (Network sect 3, "
+                 "path_cost = alpha*NLOS + beta*RSSI_var + gamma*jitter; NW-2). 1 is every result "
+                 "so far, OURS; the spec gives none and says tune empirically. Needs --fixRouting.",
+                 spec.routeAlpha);
+    cmd.AddValue("routeBeta",
+                 "Weight of the RSSI-variance term (dB^2) in the confidence cost; 1 (OURS). At "
+                 "equal weights this term dominates. Needs --fixRouting.",
+                 spec.routeBeta);
+    cmd.AddValue("routeGamma",
+                 "Weight of the relay-jitter term (s) in the confidence cost; 1 (OURS). Needs "
+                 "--fixRouting.",
+                 spec.routeGamma);
+    cmd.AddValue("routeSlack",
+                 "Extra hops over the shortest route the confidence cost may take (Network sect "
+                 "3: start at 1, tune empirically); 1 (OURS), at most 3 (FixRouter's hop limit). "
+                 "Needs --fixRouting.",
+                 spec.routeSlack);
     cmd.AddValue("arbSlotHoldS",
                  "Seconds an awarded UWB slot is held before an arbiter treats it as free "
                  "(CaTblMacConfig::arbSlotHoldS). 10 (default) is the C4 harness constant "
@@ -14945,6 +15130,37 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --fixRouting needs --relayedRanging=true and --nTags >= 3 (got "
                   << (relayedRangingArg ? "true" : "false") << ", " << nTagsArg << ")\n";
         return 1;
+    }
+    // NW-2.
+    if (spec.fixRoutingSubjects && (!fixRoutingArg || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --fixRoutingSubjects needs --fixRouting and --measuredSubjects > 1: "
+                     "without subjects there is nothing to route on its own tier\n";
+        return 1;
+    }
+    {
+        const bool rwSet = spec.routeAlpha != 1.0 || spec.routeBeta != 1.0 ||
+                           spec.routeGamma != 1.0 || spec.routeSlack != 1;
+        if (rwSet && !fixRoutingArg)
+        {
+            std::cerr << "FATAL: --routeAlpha/--routeBeta/--routeGamma/--routeSlack weight "
+                         "--fixRouting's confidence cost; they need --fixRouting\n";
+            return 1;
+        }
+        if (!(spec.routeAlpha >= 0.0) || !(spec.routeBeta >= 0.0) || !(spec.routeGamma >= 0.0) ||
+            !std::isfinite(spec.routeAlpha + spec.routeBeta + spec.routeGamma) ||
+            spec.routeSlack > 3)
+        {
+            std::cerr << "FATAL: route weights must be finite and >= 0, and --routeSlack at "
+                         "most 3 (FixRouter's hop limit)\n";
+            return 1;
+        }
+    }
+    if (fixRoutingArg && spec.measuredSubjects > 1 && !spec.fixRoutingSubjects)
+    {
+        std::cerr << "WARNING: --fixRouting with --measuredSubjects > 1 routes subjects 2..N on "
+                     "--relayTier whatever tier they ranged on (a sect 6 breach); "
+                     "--fixRoutingSubjects routes each on its own tier\n";
     }
     if (fixRoutingArg && relayTierArg == 0)
     {

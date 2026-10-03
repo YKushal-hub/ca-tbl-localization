@@ -1273,6 +1273,24 @@ bash scripts/hop_variance_gate.sh "$WORK/g58" || fail G58
 bash scripts/hop_variance_gate_selftest.sh "$WORK/g58" || fail G58
 finish G58
 
+# ---------------- G59: every measured subject routes its own fixes, on its own tier (NW-2)
+# --fixRouting routed the relays on --relayTier; the measured tag never routed, and subjects
+# 2..N routed on --relayTier whatever tier they ranged on. --fixRoutingSubjects runs one
+# router per tier and lets a node take part only on the tier it ranged on that cycle;
+# --routeAlpha/Beta/Gamma/Slack weight the confidence cost. G18b's regime on the full arm
+# with five subjects, read by scripts/subject_routing_gate.py:
+#   - sect 6 per routed frame, against tag 0's trace and each subject's subjtrace;
+#   - a hop to a next hop on another tier is refused, never sent;
+#   - the measured tag and subjects deliver fixes, on two tiers;
+#   - every routed row's cost recomputed from the run's weights (and beta 0 drops a term);
+#   - router blocks recounted; the control (and its WARNING); two refusals.
+#
+# Negative fixtures in scripts/subject_routing_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G59 every measured subject routes its own fixes on its own tier (NW-2) ---\n'
+bash scripts/subject_routing_gate.sh "$WORK/g59" || fail G59
+bash scripts/subject_routing_gate_selftest.sh "$WORK/g59" || fail G59
+finish G59
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
