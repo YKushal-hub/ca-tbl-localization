@@ -13743,7 +13743,8 @@ main(int argc, char* argv[])
                  "--relayTier. A route whose next hop has since moved tier is not sent "
                  "(counted). Writes fix_routing_<arm>_seed<N>_tier<k>.csv per tier, with the "
                  "confidence route's three sums, digested, and an NW-2 line per router. Needs "
-                 "--fixRouting and --measuredSubjects > 1.",
+                 "--fixRouting and --measuredSubjects > 1; and --fixRouting with "
+                 "--measuredSubjects > 1 is refused without it (TECH_DEBT N.12).",
                  spec.fixRoutingSubjects);
     bool specProfileArg = false;
     {
@@ -15723,11 +15724,16 @@ main(int argc, char* argv[])
             return 1;
         }
     }
+    // N.12. Refused since 2026-10-03 (owner decision), where it used to warn: without
+    // --fixRoutingSubjects the router puts subjects 2..N on --relayTier whatever tier they
+    // ranged on, a second tier transmitting in one cycle (sect 6; 671 of 1 204 frames in
+    // G59's old control). No tracked result used the combination.
     if (fixRoutingArg && spec.measuredSubjects > 1 && !spec.fixRoutingSubjects)
     {
-        std::cerr << "WARNING: --fixRouting with --measuredSubjects > 1 routes subjects 2..N on "
-                     "--relayTier whatever tier they ranged on (a sect 6 breach); "
-                     "--fixRoutingSubjects routes each on its own tier\n";
+        std::cerr << "FATAL: --fixRouting with --measuredSubjects > 1 needs --fixRoutingSubjects: "
+                     "without it subjects 2..N route on --relayTier whatever tier they ranged "
+                     "on, a second tier transmitting in one cycle (sect 6; TECH_DEBT N.12)\n";
+        return 1;
     }
     if (fixRoutingArg && relayTierArg == 0)
     {

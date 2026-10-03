@@ -1810,7 +1810,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.9 | queue gossip is built and rarely needed | recorded |
 | N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS) |
 | N.11 | per-hop variance swamps a relayed leg's sigma | open, for the owner |
-| N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | warned, not refused |
+| N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
 | N.14 | a UWB range never improves a fix the floor can make | open, remedy waits on the owner |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
@@ -2095,6 +2095,15 @@ plain relay, the confidence selector, seed 7, 600 s.
   868 MHz can hear 2.4 GHz beacons at all is the model's existing assumption, not NW-2's.
 - The row's pcs field stays 0, as neither metric reads it. The weights are exposed and
   untuned (OURS); the sweep is CAMP-SPEC's.
+
+*2026-10-03, CLOSED by owner decision:* the breach is now refused. `--fixRouting` with
+`--measuredSubjects` > 1 and without `--fixRoutingSubjects` exits 1 with the reason, where it
+warned. Nothing at defaults moves (the combination needs two non-default flags), the null
+control passes, and no `run_id.txt` under `results/` used it. Two gates read it:
+- G59's control is now `--measuredSubjects=1` (the relays on `--relayTier`), and the old
+  combination is its third refusal, with a fixture that accepts it.
+- G24 can no longer turn `--fixRoutingSubjects` off under the preset, which has subjects
+  and `--fixRouting`. Its efficacy run became a refusal check (R12), with a fixture.
 
 ### N.13 Case C shapes: what `--caseCRelative` decides, and how coarse they are
 

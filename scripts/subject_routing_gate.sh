@@ -11,7 +11,9 @@
 # G18b's routed regime (relays across the default box, the confidence selector, 600 s) on
 # the full arm with five measured subjects and one plain relay, tag 0's trace on: the
 # subjects routing on their own tiers; the same with the RSSI-variance weight off and a
-# slack of 2; the flag off (the control); and two refusals.
+# slack of 2; the control (no subjects: --fixRouting's relays on --relayTier); and three
+# refusals, one of them the old breach (--fixRouting with subjects and without the flag,
+# refused since 2026-10-03, TECH_DEBT N.12).
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -34,9 +36,10 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
 
 run on $B --fixRoutingSubjects=true &
 run w $B --fixRoutingSubjects=true --routeBeta=0 --routeSlack=2 &
-run off $B &
+run off $B --measuredSubjects=1 &
 wait
 run r_nosubj --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true --fixRoutingSubjects=true
 run r_w --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --routeBeta=0
+run r_breach --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --relayedRanging=true --nTags=6 --measuredSubjects=5 --fixRouting=true
 
 python3 scripts/subject_routing_gate.py "$D"

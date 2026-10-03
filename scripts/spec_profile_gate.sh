@@ -13,7 +13,10 @@
 #          2026-10-03 decision after MS-3: UWB is evaluated where finders reach subjects);
 #   gasp   --batteryDepleteJ=2, the only way the last-gasp population exists.
 # Then the preset with one mechanism's flag forced off, per mechanism (flag efficacy), the
-# preset against its own flags written out (equivalence, 300 s), and a refusal.
+# preset against its own flags written out (equivalence, 300 s), and two refusals. The
+# preset with --fixRoutingSubjects=false is one of them since 2026-10-03: --fixRouting
+# with subjects and without it is refused (TECH_DEBT N.12), so that flag has no
+# efficacy run.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -56,7 +59,6 @@ triggeredUpdates --triggeredUpdates=false
 mobilityFromRange --mobilityFromRange=false
 tableFuseCI --tableFuseCI=false
 hopVarianceTerms --hopVarianceTerms=false
-fixRoutingSubjects --fixRoutingSubjects=false
 queryTriggeredEscalation --queryTriggeredEscalation=false
 requesterEscalation --requesterEscalation=false --boxHalf=750 --finderMode=1
 edgeUplinkRanges --edgeUplinkRanges=false
@@ -65,5 +67,6 @@ lim; run eq_preset --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --spe
 lim; run eq_flags --arms=ca_tbl_full --seed=7 --duration=300 --trace=true $(grep -oE '^ *\{"[A-Za-z0-9]+", "[^"]*"' scratch/ca_tbl_causal_sim.cc | sed -E 's/^ *\{"([A-Za-z0-9]+)", "([^"]*)"/--\1=\2/' | tr '\n' ' ') &
 wait
 run r_topo --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --topology=1
+run r_n12 --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --fixRoutingSubjects=false
 
 python3 scripts/spec_profile_gate.py "$D"
