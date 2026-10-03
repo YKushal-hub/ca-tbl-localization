@@ -18,6 +18,9 @@ Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
             --finderMode are recorded as kept, not overwritten.
   WEIGHTS   every NW-2 router in main/ and end/ ran with CAMP-SPEC's pick, alpha 0 beta 0
             gamma 1 slack 1 (owner decision 2026-10-03).
+  NOHV      --hopVarianceTerms is not in the preset (owner decision 2026-10-03, TECH_DEBT
+            N.11): spec_profile.txt does not set it, and no NW-1 hop-variance line is printed
+            in main/ or end/.
   POP <m>   one line per mechanism: its population in its registered run is > 0.
   EFF <f>   one line per efficacy run: with flag <f> off, its mechanism's population is 0.
   R         the preset with --topology=1 exits 1 with the reason.
@@ -126,7 +129,6 @@ MECH = [
     # another. Moved there after the first G24 run read 0 at 5 km (2026-10-03).
     ("fixes at hop depth 1", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:(\d+)"), None),
     ("fixes at hop depth 2", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:\d+ 2:(\d+)"), None),
-    ("per-hop variance terms", "main", lambda d, n: num(log(d, n), r"a variance term on (\d+)"), "hopVarianceTerms"),
     ("subjects' fixes routed", "main", routed_subjects, None),  # off: refused, R12
     ("v2 answers heard", "main", lambda d, n: num(log(d, n), r"answers heard by requesters (\d+)"), None),
     ("query-triggered escalations", "main", lambda d, n: num(log(d, n), r"NW-4 query-triggered escalation[^\n]*escalations (\d+)"), "queryTriggeredEscalation"),
@@ -180,6 +182,12 @@ def main():
     report(len(wl) >= 6 and not badw, "WEIGHTS",
            f"NW-2 routers in main and end {len(wl)} (need 6), not at (0,0,1,1) {len(badw)} (need 0)"
            + (f": {badw[:2]}" if badw else ""))
+
+    hv = [n for n in ("main", "end") if os.path.exists(os.path.join(d, n, "spec_profile.txt"))
+          and re.search(r"^hopVarianceTerms", open(os.path.join(d, n, "spec_profile.txt")).read(), re.M)]
+    hvl = [n for n in ("main", "end") if "NW-1 hop variance terms" in log(d, n)]
+    report(not hv and not hvl, "NOHV",
+           f"--hopVarianceTerms set by the preset in {hv} and its NW-1 line in {hvl} (need none)")
 
     zero = []
     for name, run, reader, flag in MECH:

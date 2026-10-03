@@ -13023,7 +13023,10 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * 2026-10-03 (report/CAMP_SPEC_RESULTS.md sect 3); a weight the preset applied is not
  * refused when --fixRouting is turned off explicitly, it is simply unused.
  * --sparseCaseA, in the plan's table, is left out: --sparseInStep replaces it (FATAL
- * together). The UWB channel model stays legacy (P0's read-out).
+ * together). The UWB channel model stays legacy (P0's read-out). --hopVarianceTerms, in the
+ * plan's table and in the preset until 2026-10-03, is left out by owner decision: its RSSI
+ * variability, converted to range, swamps a relayed leg's sigma (64-83 m against 3.5 m;
+ * TECH_DEBT N.11). It stays a flag, and the single-hop comparator ran with it off.
  */
 struct CaTblSpecSetting
 {
@@ -13074,7 +13077,6 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"relayChain", "true", "Network 2: relays chain"},
     {"maxRelayDepth", "2", "Network 2: depth 2"},
     {"relayVarBudget", "24336", "Network 2: A2's budget, (156 m)^2 as G17 (OURS); 0 makes the chain inert"},
-    {"hopVarianceTerms", "true", "final plan item 1: per-hop variance and NLOS in Sigma"},
     {"hopProvenance", "true", "Physical 2.5 / Transport 3: hop count carried"},
     {"fixRouting", "true", "Network 2: routing tables"},
     {"fixRoutingConfidence", "true", "Network 3: confidence-weighted routing"},
@@ -13763,7 +13765,8 @@ main(int argc, char* argv[])
              "Not yet in it: --radioBasis=lr1121 (SY-2). The geometry is GEO-01's registered "
              "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form; "
              "the routing weights are CAMP-SPEC's sweep pick (0,0,1,1), unused (not refused) "
-             "when --fixRouting is turned off explicitly. Settings:";
+             "when --fixRouting is turned off explicitly. --hopVarianceTerms is left out "
+             "(owner decision, TECH_DEBT N.11). Settings:";
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
             h << " --" << ss.name << "=" << ss.value << " (" << ss.why << ");";

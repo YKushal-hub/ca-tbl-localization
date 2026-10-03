@@ -1809,7 +1809,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
 | N.9 | queue gossip is built and rarely needed | recorded |
 | N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS) |
-| N.11 | per-hop variance swamps a relayed leg's sigma | open, for the owner |
+| N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
 | N.14 | a UWB range never improves a fix the floor can make | open, remedy waits on the owner |
@@ -2070,6 +2070,13 @@ The preset turns the flag on (plan sect 3.1). Whether it should is for CAL-02 an
 comparator arms to say; the "LoRaWAPS-style" baseline runs with it off. It is not a defect
 to tune away here. Open.
 
+*2026-10-03, DECIDED by the owner:* `--hopVarianceTerms` leaves `--specProfile`. The flag
+stays, default off, unchanged. What the preset loses is a term that, where it fired, gave a
+relayed leg almost no weight. At 5 km it had no population at all (N.15: no relay leg had
+the three readings a variance term needs). The conversion of RSSI variability into a range
+sigma for time-of-flight tiers is still OURS and still open. A tier-aware form, or none on
+ToF tiers, would be its own flag.
+
 ### N.12 Routing subjects: what `--fixRoutingSubjects` decides, and the breach it replaces
 
 NW-2 (2026-10-03, G59). Measured in G59's regime: full arm, five measured subjects and one
@@ -2236,6 +2243,16 @@ reproduces the sweep's `D_route_a0_b0_g1_s1` seed-1 cell byte for byte (37 files
   - Both populations are one or two events in G24's single seed.
   - The five zeros: triggered updates, hop depth 2, per-hop variance terms, grant tie-break
     verdicts, UWB-delivered fixes.
+
+*2026-10-03, `--hopVarianceTerms` out of the preset (owner decision, N.11):* 81 settings. G24
+no longer asks for its population. It checks instead that the preset neither sets the flag
+nor prints its NW-1 line (NOHV). Still four zeros, one of them new:
+- triggered updates, hop depth 2 and UWB-delivered fixes, as before;
+- requester escalations accepted in the endgame. No request was granted: 2 refused and 44
+  unroutable, where the routing-weight preset had 1 accepted.
+- Grant tie-break verdicts are back (1).
+
+Like the moves before it, these are populations of a few events in one seed.
 
 ### N.16 At 5 km the covariance trace ranks error backwards
 
