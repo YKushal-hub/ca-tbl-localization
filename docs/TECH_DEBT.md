@@ -1783,7 +1783,38 @@ commit before it), frozen at `~/catbl_prev_m10`:
 Documentation only. It is recorded here rather than edited in the rules file, because
 `CLAUDE.md` changes are the owner's.
 
-# N. Found 2026-10-02, while building the spec-conformance programme
+*2026-10-03 (P7):* the numbers have moved again, and `CLAUDE.md` still waits for the
+owner.
+- **The gate suite:** 58 gates, from G1 to G60 with G17b, G18b and G20b; G22-G23 and
+  G25-G27 were never built. At `cef0fc6` it gives 53 PASS and 5 FAIL: the documented G4,
+  G5, G6 and G11, and G24 FAIL BY FINDING (N.15).
+- **The unit suites:** twelve, 356 checks:
+  - packet_validator 62, nlos 41, integrity 38;
+  - sparse_anchor 33, tdoa 33, session 32, netlayer 30;
+  - routing 27, relay_admission 22, lifecycle 16, imu 13, loocv 9.
+
+# N. Found 2026-10-02 to 2026-10-03, while building the spec-conformance programme
+
+Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it says otherwise:
+
+| entry | in one line | status |
+|---|---|---|
+| N.1 | a silenced radio still forwards other nodes' floods | open |
+| N.2 | Case A with relays counts one pair twice | fixed under `--sparseInStep` only |
+| N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | open (MS-1's deviation) |
+| N.4 | a finder tasked to a subject it never hears stands still | open |
+| N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
+| N.6 | a radio can put two frames on the air at once | open |
+| N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
+| N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
+| N.9 | queue gossip is built and rarely needed | recorded |
+| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS) |
+| N.11 | per-hop variance swamps a relayed leg's sigma | open, for the owner |
+| N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | warned, not refused |
+| N.13 | Case C shapes are coarse on 868 MHz | recorded |
+| N.14 | a UWB range never improves a fix the floor can make | open, remedy waits on the owner |
+| N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
+| N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2119,7 +2150,7 @@ on 868 MHz and fixes from two ranges (75 cycles against 0 for subject 3, N8_ring
 So `static_868` beat `ca_tbl_full` on availability in every GEO-01 cell, by 0.03-0.06. Applying
 the sparse cases to the floor's set as well would be part of the same remedy.
 
-### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its six zeros
+### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
 P6 (2026-10-03, G24). `--specProfile` sets 68 flags. It differs from the plan's §3.1 table
 in these ways, each forced by the build:
