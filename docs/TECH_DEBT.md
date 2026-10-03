@@ -2272,6 +2272,19 @@ Like the moves before it, these are populations of a few events in one seed.
 
 *2026-10-03, SY-2:* the preset sets `--radioBasis=lr1121` (82 settings). The same four zeros.
 
+*2026-10-04, `--subjectRelayChain` (N.18; owner decision: preset entry if it shows a
+population):* the preset sets it (83 settings).
+- **Hop depth 2 has a population:** 137 of tag 0's fixes in the endgame, where subjects
+  fused through the chain 39 times; with the flag off, 0.
+- **A preset-applied `--subjectRelayChain` is unused, not refused,** when `--relayChain` is
+  turned off explicitly, as the routing weights are with `--fixRouting`. Otherwise
+  CAMP-SPEC's single-hop command line would be refused.
+- **Case A and Case B fixes read 0 at 5 km,** where they were 1 and 3. The subjects' chain
+  exchanges at 5 km are few, and none is admitted, but they are transmissions: the channel
+  moved, and with it these one-event populations (rule 8).
+- **The five zeros:** Case A, Case B, triggered updates, UWB-delivered fixes, requester
+  escalations accepted.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -2354,7 +2367,7 @@ subjects. The choices, each OURS:
   and 16 of tag 0's fixes at depth 2.
 - In the hybrid arm of the same regime, no exchange. On 2.4 GHz the floor solves, so the
   subject holds a fix; on 868 MHz A1 admits nothing (554 short subject-cycles).
-- Under the preset (900 s, seeds 7, 1 and 2):
+- Under the preset (900 s, seeds 7, 1 and 2; the preset sets the flag since 2026-10-04):
   - at 5 km, no admitted exchange: subjects are kilometres apart;
   - in the endgame, subjects fused through the chain 39-67 times a run, and tag 0 had 50,
     137 and 183 fixes at depth 2.

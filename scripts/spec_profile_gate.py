@@ -128,7 +128,8 @@ MECH = [
     # Hop depth is read in the endgame: relaying needs subjects within 2.4 GHz reach of one
     # another. Moved there after the first G24 run read 0 at 5 km (2026-10-03).
     ("fixes at hop depth 1", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:(\d+)"), None),
-    ("fixes at hop depth 2", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:\d+ 2:(\d+)"), None),
+    ("fixes at hop depth 2", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:\d+ 2:(\d+)"), "subjectRelayChain"),
+    ("subjects fused through the chain", "end", lambda d, n: num(log(d, n), r"L\.1\.2 subject chain: [^\n]*, fused (\d+)"), None),
     ("subjects' fixes routed", "main", routed_subjects, None),  # off: refused, R12
     ("v2 answers heard", "main", lambda d, n: num(log(d, n), r"answers heard by requesters (\d+)"), None),
     ("query-triggered escalations", "main", lambda d, n: num(log(d, n), r"NW-4 query-triggered escalation[^\n]*escalations (\d+)"), "queryTriggeredEscalation"),
