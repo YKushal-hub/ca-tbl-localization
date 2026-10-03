@@ -2086,3 +2086,21 @@ seed 7, 900 s.
 - **The carry is billed, not modelled.** "3 bytes a range" is billed as extra airtime on
   the node's active tier when the ranges are taken, as if they rode an entry sent that
   cycle. No frame grows.
+
+### N.14 A UWB range never improves a fix the floor can make
+
+The MS-3 checkpoint (report/MS3_UWB_CHECKPOINT.md, 2026-10-03) failed: no UWB-delivered
+fix on any seed of the preset. Two structural reasons.
+- **One finder per subject at most.** `--finderTasking=roundrobin` gives each subject one
+  finder; with 4 finders and 5 subjects, one subject has none. A UWB multilateration
+  needs three anchors in UWB reach, and gateways are never that close. In a 750 m box
+  tag 0 had two UWB neighbours on 16 of 2 160 cycles and three on none.
+- **Floor-first fix selection.** When the active tier returns fewer than three ranges and
+  the 868 MHz floor solves, the cycle uses the floor's set, and the active tier's ranges
+  are not fused at all (`nRangesEkf` = `nAnchors` on every such UWB cycle). Case A and
+  Case D on the active tier run only when the floor fails. The rule was measured as right
+  for 2.4 GHz Case A against the floor (the census comment in the scenario). For UWB it
+  throws away a range three orders of magnitude better than the RSSI ranges it keeps.
+
+The remedy, not built and waiting on the owner: fuse the active tier's 1-2 ranges with the
+floor's set (a flag, its own null control and gate). Open.
