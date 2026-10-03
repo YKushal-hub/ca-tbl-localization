@@ -1827,6 +1827,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
+| N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2356,6 +2357,11 @@ seed tried (1-3 a run), and none at 5 km, where all were unroutable.
   `--finderSessions` or `--requesterEscalation` is turned off explicitly. G24's
   requesterEscalation efficacy run does exactly that.
 
+*2026-10-04, `--subjectEdgeUplink` (SY-1 for every subject; decision 4):* the preset sets it
+(86 settings). The subjects' uplink has a population at 5 km: 189 records in G24's main run,
+0 with the flag off. A preset-applied value is unused, not refused, when
+`--edgeUplinkRanges` is turned off explicitly. The same three zeros.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -2443,3 +2449,21 @@ subjects. The choices, each OURS:
   - in the endgame, subjects fused through the chain 39-67 times a run, and tag 0 had 50,
     137 and 183 fixes at depth 2.
 
+### N.19 G24 reads one seed, and several of its populations are one or two events
+
+G24 decides each spec mechanism's population from one 900 s run per configuration (seed 7).
+Several of those populations are one or two events, so a preset change that moves the
+channel flips them between zero and non-zero. That happened six times on 2026-10-03/04:
+- Case A: 0 -> 1 -> 0;
+- Case B: 1 -> 0 -> 1;
+- grant tie-break verdicts: 2 -> 0 -> 1;
+- requester escalations accepted: 1 -> 0 -> 1 -> 0.
+
+Each flip was a single-seed fact about rare events, not a mechanism starting or stopping,
+and each commit said so. But a reader of the suite summary sees "FAIL BY FINDING" with a
+moving list, and a real regression in a rare mechanism would look the same as noise.
+
+A remedy, not built: read populations over three seeds and call a mechanism zero only when
+all three are. That is about three more preset runs per configuration, roughly two minutes
+of suite time. It changes what G24 asserts, so it is its own commit with its own selftest.
+Open (engineering, no owner decision).

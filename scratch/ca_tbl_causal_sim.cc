@@ -13701,6 +13701,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"sessionPreciseOnGrant", "true", "Transport 2: LOCATED_PRECISE on a confirmed grant"},
     {"vizEvents", "true", "rule 13: events_ written and digested"},
     {"edgeUplinkRanges", "true", "final plan: the gateway edge server's uplink billed"},
+    {"subjectEdgeUplink", "true", "final plan / decision 4: every subject's uplink billed too (row 55)"},
     {"radioBasis", "lr1121", "hardware: tiers 1 and 2 on one LR1121 (SY-2; DS.LR1121.W.APP Rev 2.0)"},
     {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
     {"nTags", "5", "decision 4: five field nodes"},
@@ -16802,7 +16803,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // SY-1. Without the edge estimator the node fuses its own ranges and nothing goes up.
-    // N.3 / row 55.
+    // N.3 / row 55. Applied by the preset while the user turned a prerequisite off
+    // explicitly: unused, not refused (as the preset's other dependent settings).
+    if (spec.subjectEdgeUplink && specProfileOn && !explicitFlags.count("subjectEdgeUplink") &&
+        (!spec.edgeUplinkRanges || spec.measuredSubjects < 2))
+    {
+        spec.subjectEdgeUplink = false;
+    }
     if (spec.subjectEdgeUplink && (!spec.edgeUplinkRanges || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectEdgeUplink needs --edgeUplinkRanges and --measuredSubjects "
