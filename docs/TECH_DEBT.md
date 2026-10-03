@@ -464,7 +464,7 @@ Takes precedence over anything above it that it contradicts.
 |---|---|---|
 | **A. No baseline for the corrected topology** | "outranks everything else" | **Closed.** `baseline_v8` (`ae1faf5`), `dirty 0`, reproduces 7/7. Null controls work again and five changes have since used it. |
 | **B. Gateway count/placement to the brief** | 9 over 2 km vs the brief's 3 over 5 km | **Closed.** `--nGateways` / `--gwRingFrac` (`089a9f1`). |
-| **C.1 Hop weight is zero / provenance inert** | "the confidence side is untouched" | **Partly closed.** The provenance term reaches the score (`57ebb41`) and now has a non-zero input (`edf73a5`): share 0.20 over 180 cycles, and `--hopProvenanceForm` 0 vs 1 finally differ. **Still open:** whether it carries information the covariance does not, and per-hop RSSI/SNR variance, which still never reaches the score. |
+| **C.1 Hop weight is zero / provenance inert** | "the confidence side is untouched" | **Partly closed.** The provenance term reaches the score (`57ebb41`) and now has a non-zero input (`edf73a5`): share 0.20 over 180 cycles, and `--hopProvenanceForm` 0 vs 1 finally differ. **Still open:** whether it carries information the covariance does not. *2026-10-03:* per-hop RSSI/SNR variance and per-hop NLOS reach σ_eff under `--hopVarianceTerms` (NW-1 step 3, G58), and on tag-to-tag legs they swamp it (N.11). |
 | **B. Only the self-entry propagates / exchange is one-directional** | listed as missing | **Closed.** `cf25341`. The casualty asks as well as answers, and a node reads the union of its own three tables. |
 | **E. The integrity result has no confidence interval** | "four qualifications short of a claim" | **One qualification closed.** All three intervals exclude zero (`cf09176`). The other three stand. |
 | **B. Finder entries are stale by construction** | not previously recorded | **Closed.** A finder published its spawn position once and then walked for the whole run (`5262c59`). |
@@ -2005,3 +2005,30 @@ neighbour set. Measured in G57's regime (G47's converging finders, five subjects
   Otherwise it is the node's escalation 2.4 GHz -> UWB on a hybrid arm, effective the next
   cycle. It is refused on 868 MHz (never a jump to UWB) and on a static arm. Both outcomes
   are counted. In G57 none were refused.
+
+### N.11 Per-hop variance swamps a relayed leg's sigma
+
+NW-1 step 3 (2026-10-03, G58). `--hopVarianceTerms` adds a leg's RSSI/SNR variability to its
+sigma. The variability is the von Neumann sigma of its readings, converted to range by the
+tier's nominal path-loss slope. Measured in G53's regime (four tags in a 400 m box, relays
+chained to depth 2, seed 7, 600 s; 2.4 GHz, path-loss exponent 2.3, so slope x range =
+9.99 dB):
+- **The term is large.** The median leg variability is 5.5 dB (static 2.4 GHz arm) and
+  6.2 dB (full arm), at a median range of 137 m. Converted, that is a median sigma_var of
+  64 and 83 m (90th percentile 127 and 159 m), against the engine's raw sigma of 3.5 m. The
+  relayed share of the measured tag's variance rises from 0.62 to 0.98.
+- **So a relayed leg carries almost no weight.** The measured tag's RMSE barely moves
+  (3.528 -> 3.494 m and 9.898 -> 9.884 m, same binary and seed). A short relay that fuses
+  through the chain coasts: relay 3's error on the static arm went from 65 to 122 m.
+- **Why.** The engine draws fading and NLOS independently for each transmission, so
+  successive readings on a link differ by several dB even when nothing moves, and the
+  statistic measures exactly that. Tiers 2 and 3 range by time of flight, so RSSI
+  variability is not a term of their range error at all. The conversion is OURS: the spec
+  names the term, not how to put it in metres.
+- **The NLOS half rarely fires.** 16 of 1 040 scored legs were at or above 0.5, and two of
+  those were admitted. The 2.4 GHz leg score is the ToF/RSSI excess against the legs' own
+  pool, and per-transmission fading moves that pool as much as NLOS does.
+
+The preset turns the flag on (plan sect 3.1). Whether it should is for CAL-02 and the
+comparator arms to say; the "LoRaWAPS-style" baseline runs with it off. It is not a defect
+to tune away here. Open.
