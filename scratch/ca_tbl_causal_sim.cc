@@ -6073,6 +6073,8 @@ struct SpecOptions
     bool sessionPreciseOnGrant = false;
     //! TA-1b. --finderSessions: every finder runs its own search for its assigned subject.
     bool finderSessions = false;
+    //! TA-1b. --finderRequesterEscalation: a finder's session asks for UWB as the base does.
+    bool finderRequesterEscalation = false;
     //! TA-1b. --finderCancelM: a finder this close to its target cancels its session.
     double finderCancelM = 2.0;
     //! TA-2. --requesterEscalation: the base station asks for UWB on a target's behalf.
@@ -7860,7 +7862,18 @@ RunArm(CaTblPolicyMode mode,
         uint64_t results = 0;
         double cancelledAtS = -1.0;
         double cancelledAtM = -1.0;
+        std::map<uint16_t, double> reqLastS; // TA-1b requests: one per target per slot hold
     };
+    // TA-1b. --finderRequesterEscalation: every finder's request, in finderreq_*.
+    std::unique_ptr<std::ofstream> finderReqLog;
+    uint64_t finderReq[6] = {0, 0, 0, 0, 0, 0}; // own, named, unroutable; granted, queued, refused
+    if (spec.finderRequesterEscalation)
+    {
+        std::ostringstream ffn;
+        ffn << traceDir << "/finderreq_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        finderReqLog.reset(new std::ofstream(ffn.str().c_str()));
+        *finderReqLog << "t,finderId,target,manifest,pcs,threshold,route,arbiter,entryT,qt,outcome\n";
+    }
     std::deque<FinderSearch> finderSearch; // deque: the callbacks hold pointers
     if (spec.finderSessions)
     {
@@ -7940,6 +7953,7 @@ RunArm(CaTblPolicyMode mode,
             macs[m].SetResponseCallback([out, rid, atBase, atFinder, &sessions, &sessionId,
                                          &sessLog, &baseSeen, &baseResults, &renderCounts,
                                          &caseCBaseT, &spec, &reqLog, &reqLastS, &reqCounts, &arbMacById,
+                                         &finderReqLog, &finderReq,
                                          reqThreshold](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
@@ -8001,6 +8015,69 @@ RunArm(CaTblPolicyMode mode,
                                      << CaTblSessionStateName(fa) << ','
                                      << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy
                                      << ",-1\n";
+                        }
+                        // TA-1b. Transport sect 4 at a rescuer's handheld, as TA-2 at the base:
+                        // a clean result below the threshold, not on UWB, at most one request
+                        // per target per slot hold. A finder is itself a UWB arbiter (NW-5):
+                        // holding reach evidence of the target, it scores the request in its
+                        // own queue, no frame needed ("own"). Otherwise the request goes to the
+                        // arbiter the target's entry names, as TA-2's does ("named"; instant and
+                        // unbilled, N.10), and with none it is unroutable and not sent. OURS.
+                        if (spec.finderRequesterEscalation && !fr.suspect && !e.uwbActive &&
+                            fr.pcs < reqThreshold)
+                        {
+                            std::map<uint16_t, double>::iterator fl =
+                                atFinder->reqLastS.find(e.nodeId);
+                            if (fl == atFinder->reqLastS.end() ||
+                                nowF - fl->second >= spec.arbSlotHoldS)
+                            {
+                                atFinder->reqLastS[e.nodeId] = nowF;
+                                CaTblMac* best = nullptr;
+                                uint16_t bestId = 0;
+                                const char* route = "unroutable";
+                                std::map<uint16_t, CaTblMac*>::const_iterator own =
+                                    arbMacById.find(rid);
+                                if (own != arbMacById.end() &&
+                                    own->second->HasUwbEvidence(e.nodeId, nowF))
+                                {
+                                    best = own->second;
+                                    bestId = rid;
+                                    route = "own";
+                                    ++finderReq[0];
+                                }
+                                else
+                                {
+                                    std::map<uint16_t, CaTblMac*>::const_iterator nm =
+                                        arbMacById.find(e.reachArbiter);
+                                    if (e.reachArbiter != 0 && nm != arbMacById.end())
+                                    {
+                                        best = nm->second;
+                                        bestId = e.reachArbiter;
+                                        route = "named";
+                                        ++finderReq[1];
+                                    }
+                                    else
+                                    {
+                                        ++finderReq[2];
+                                    }
+                                }
+                                const uint8_t fqt = (spec.identityQueryUrgent && !e.uwbActive) ? 1 : 0;
+                                const char* outcome = "unroutable";
+                                if (best != nullptr)
+                                {
+                                    const int v = best->SubmitRequestOnBehalf(
+                                        e.nodeId, e.degradationQ, e.batteryQ, fqt, CA_TBL_TIER_2P4);
+                                    outcome = (v == 1) ? "granted" : ((v == 0) ? "queued" : "refused");
+                                    ++finderReq[(v == 1) ? 3 : ((v == 0) ? 4 : 5)];
+                                }
+                                *finderReqLog << std::fixed << std::setprecision(6) << nowF << ','
+                                              << rid << ',' << e.nodeId << ','
+                                              << static_cast<int>(fr.targetManifestId) << ','
+                                              << std::setprecision(4) << fr.pcs << ','
+                                              << reqThreshold << ',' << route << ',' << bestId
+                                              << ',' << std::setprecision(6) << e.timestampS << ','
+                                              << static_cast<int>(fqt) << ',' << outcome << '\n';
+                            }
                         }
                     }
                 }
@@ -12587,6 +12664,16 @@ RunArm(CaTblPolicyMode mode,
         }
         std::cout << line.str() << "\n";
     }
+    if (finderReqLog)
+    {
+        // TA-1b. Closed before the digest.
+        finderReqLog->close();
+        finderReqLog.reset();
+        std::cout << "    TA-1b finder requester escalation (" << CaTblPolicyModeName(mode)
+                  << "): requests own-arbiter " << finderReq[0] << ", named " << finderReq[1]
+                  << ", unroutable " << finderReq[2] << "; granted " << finderReq[3]
+                  << ", queued " << finderReq[4] << ", refused " << finderReq[5] << "\n";
+    }
     if (reqLog)
     {
         // TA-2. Closed before the digest; what was asked and what the targets did.
@@ -14179,6 +14266,18 @@ main(int argc, char* argv[])
                  "Under --sessionOverMesh, seconds after which a session with no result "
                  "times out (the session manager's default, 600).",
                  spec.sessionTimeoutS);
+    cmd.AddValue("finderRequesterEscalation",
+                 "A finder's own session drives escalation, as the base station's does "
+                 "(Transport sect 4; docs/SPEC_CONFORMANCE_PLAN.md TA-1b; TECH_DEBT N.10). FALSE by "
+                 "default: only the base station asks (--requesterEscalation). TRUE: a finder whose "
+                 "session receives a clean result below the 2.4 GHz up-threshold for a target not "
+                 "on UWB asks, at most once per target per --arbSlotHoldS. A finder is itself a UWB "
+                 "arbiter (NW-5): holding reach evidence of the target it scores the request in its "
+                 "own queue ('own', no frame); else the request goes to the arbiter the target's "
+                 "entry names, as TA-2's ('named', instant and unbilled); else it is unroutable "
+                 "and not sent (OURS). Writes finderreq_<arm>_seed<N>.csv (digested) and one TA-1b "
+                 "line. Needs --finderSessions and --requesterEscalation.",
+                 spec.finderRequesterEscalation);
     cmd.AddValue("fuseFloorActive",
                  "Fuse an active tier short of three with the 868 MHz floor (TECH_DEBT N.14; owner "
                  "decision 2026-10-03: built behind a flag, adopted only by a registered campaign). "
@@ -16613,6 +16712,13 @@ main(int argc, char* argv[])
         std::cerr << "WARNING: --caseD without --imuPredict: the single range constrains a "
                   << "constant-velocity prediction, not an IMU-propagated one\n";
     }
+    // TA-1b.
+    if (spec.finderRequesterEscalation && (!spec.finderSessions || !spec.requesterEscalation))
+    {
+        std::cerr << "FATAL: --finderRequesterEscalation needs --finderSessions (whose results "
+                     "drive it) and --requesterEscalation (its rule and arbiters)\n";
+        return 1;
+    }
     // N.14. The union's one- and two-range sets are solved by Step()'s sparse cases.
     if (spec.fuseFloorActive && !spec.sparseInStep)
     {
@@ -17600,6 +17706,10 @@ main(int argc, char* argv[])
     if (spec.fuseFloorActive)
     {
         digestPatterns += " fusefloor_*.csv"; // N.14
+    }
+    if (spec.finderRequesterEscalation)
+    {
+        digestPatterns += " finderreq_*.csv"; // TA-1b
     }
     if (queryProxyArg)
     {

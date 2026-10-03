@@ -1361,6 +1361,22 @@ bash scripts/fuse_floor_gate.sh "$WORK/g63" || fail G63
 bash scripts/fuse_floor_gate_selftest.sh "$WORK/g63" || fail G63
 finish G63
 
+# ---------------- G64: a finder's session drives escalation (TA-1b; TECH_DEBT N.10)
+# Only the base station asked for UWB on a target's behalf (TA-2). --finderRequesterEscalation
+# lets each finder's own session ask too: in its own queue when it holds UWB-reach evidence of
+# the target, else at the arbiter the target's entry names. G57's converging regime, read by
+# scripts/finderreq_gate.py:
+#   - every request follows a clean low-PCS result in that finder's session, one per 10 s;
+#   - own requests only with the finder's evidence; named ones never to itself;
+#   - each sent request scored at its arbiter as logged; some granted;
+#   - the TA-1b line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/finderreq_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G64 a finder session drives escalation (TA-1b) ---\n'
+bash scripts/finderreq_gate.sh "$WORK/g64" || fail G64
+bash scripts/finderreq_gate_selftest.sh "$WORK/g64" || fail G64
+finish G64
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
