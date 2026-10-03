@@ -111,6 +111,68 @@ CaTblGrantCoordinator::OwnActiveGrants(double nowS) const
     return out;
 }
 
+uint32_t
+CaTblGrantCoordinator::NoteGossipedQueue(uint16_t fromAnchor,
+                                         const std::vector<CaTblQueueRecord>& items,
+                                         double nowS)
+{
+    if (fromAnchor == m_selfId)
+    {
+        return 0;
+    }
+    // A gossip states the sender's WHOLE queue, so it replaces what that anchor said
+    // before: a request it has since granted or dropped must stop counting.
+    std::vector<CaTblQueueRecord> keep;
+    for (size_t i = 0; i < m_heardQueue.size(); ++i)
+    {
+        if (m_heardQueue[i].anchorId != fromAnchor)
+        {
+            keep.push_back(m_heardQueue[i]);
+        }
+    }
+    uint32_t doubled = 0;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        CaTblQueueRecord q = items[i];
+        q.anchorId = fromAnchor;
+        q.heardAtS = nowS;
+        keep.push_back(q);
+        for (size_t k = 0; k < m_ownQueue.size(); ++k)
+        {
+            if (m_ownQueue[k].targetId == q.targetId)
+            {
+                ++doubled;
+                break;
+            }
+        }
+    }
+    m_heardQueue.swap(keep);
+    m_doubleQueued += doubled;
+    return doubled;
+}
+
+bool
+CaTblGrantCoordinator::QueueYields(uint16_t targetId, double nowS, double maxAgeS) const
+{
+    for (size_t i = 0; i < m_heardQueue.size(); ++i)
+    {
+        const CaTblQueueRecord& q = m_heardQueue[i];
+        if (q.targetId == targetId && q.anchorId > m_selfId && nowS - q.heardAtS <= maxAgeS)
+        {
+            return true;
+        }
+    }
+    for (size_t i = 0; i < m_grants.size(); ++i)
+    {
+        const CaTblGrantRecord& g = m_grants[i];
+        if (g.targetId == targetId && g.anchorId > m_selfId && g.endS > nowS)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void
 CaTblGrantCoordinator::Expire(double nowS)
 {

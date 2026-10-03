@@ -49,6 +49,18 @@ struct CaTblGrantRecord
     bool OverlapsInTime(double s, double e) const { return startS < e && s < endS; }
 };
 
+//! NW-6. A request an anchor holds in its arbitration queue (NW-5), as gossiped:
+//! Network sect 6 has anchors "periodically gossip their current Q (request queue) and
+//! active grants".
+struct CaTblQueueRecord
+{
+    uint16_t anchorId = 0;    //!< whose queue
+    uint16_t targetId = 0;    //!< which field node is waiting
+    uint8_t uQ = 0;           //!< its U(r) score, quantised (OURS: U/4 over 0..255)
+    double queuedSinceS = 0.0;
+    double heardAtS = 0.0;    //!< receiver side: when this copy arrived
+};
+
 //! Why a grant was allowed or refused, so the demo can show the reason and not just
 //! the outcome.
 enum CaTblGrantVerdict : uint8_t
@@ -141,12 +153,31 @@ class CaTblGrantCoordinator
     uint64_t Wins() const { return m_wins; }
     uint64_t Defers() const { return m_defers; }
 
+    /** \brief NW-6. The queue the arbiter holds now (set by the arbiter, read by the
+     *  radio that gossips -- the coordinator is shared by an anchor's radios). */
+    void SetOwnQueue(const std::vector<CaTblQueueRecord>& q) { m_ownQueue = q; }
+    const std::vector<CaTblQueueRecord>& OwnQueue() const { return m_ownQueue; }
+    /** \brief NW-6. Queue items heard from another anchor's gossip, replacing what that
+     *  anchor said before. Returns how many name a target this anchor also queues: the
+     *  double-queued requests the tie-break then settles. */
+    uint32_t NoteGossipedQueue(uint16_t fromAnchor, const std::vector<CaTblQueueRecord>& items,
+                               double nowS);
+    /** \brief NW-6. Should this anchor give up its queued request from \p targetId? The
+     *  tie-break, extended to queues: yes when a HIGHER-id anchor is heard to queue it, or
+     *  holds an active grant for it. Heard queue items older than \p maxAgeS are ignored. */
+    bool QueueYields(uint16_t targetId, double nowS, double maxAgeS) const;
+    uint64_t DoubleQueued() const { return m_doubleQueued; }
+
   private:
     uint16_t m_selfId;
     std::vector<CaTblGrantRecord> m_grants;
     mutable uint64_t m_wins = 0;
     mutable uint64_t m_defers = 0;
     mutable uint16_t m_lastConflict = 0;
+    // NW-6.
+    std::vector<CaTblQueueRecord> m_ownQueue;
+    std::vector<CaTblQueueRecord> m_heardQueue;
+    uint64_t m_doubleQueued = 0;
 };
 
 } // namespace ns3
