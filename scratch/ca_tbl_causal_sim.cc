@@ -13436,6 +13436,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"relayChain", "true", "Network 2: relays chain"},
     {"maxRelayDepth", "2", "Network 2: depth 2"},
     {"relayVarBudget", "24336", "Network 2: A2's budget, (156 m)^2 as G17 (OURS); 0 makes the chain inert"},
+    {"subjectRelayChain", "true", "Network 2: subjects in the relay chain, so depth 2 exists with five subjects (N.18; owner decision 2026-10-03)"},
     {"hopProvenance", "true", "Physical 2.5 / Transport 3: hop count carried"},
     {"fixRouting", "true", "Network 2: routing tables"},
     {"fixRoutingConfidence", "true", "Network 3: confidence-weighted routing"},
@@ -14144,7 +14145,8 @@ main(int argc, char* argv[])
              "The geometry is GEO-01's registered "
              "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form; "
              "the routing weights are CAMP-SPEC's sweep pick (0,0,1,1), unused (not refused) "
-             "when --fixRouting is turned off explicitly. --hopVarianceTerms is left out "
+             "when --fixRouting is turned off explicitly, as --subjectRelayChain is when "
+             "--relayChain is. --hopVarianceTerms is left out "
              "(owner decision, TECH_DEBT N.11). Settings:";
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
@@ -16368,7 +16370,13 @@ main(int argc, char* argv[])
                      "--sessionOverMesh\n";
         return 1;
     }
-    // N.15.
+    // N.15. Applied by the preset while the user turned the chain off explicitly (as
+    // CAMP-SPEC's single-hop cells do): unused, not refused, as the preset's routing weights.
+    if (spec.subjectRelayChain && specProfileOn && !explicitFlags.count("subjectRelayChain") &&
+        (!relayChainArg || spec.measuredSubjects < 2))
+    {
+        spec.subjectRelayChain = false;
+    }
     if (spec.subjectRelayChain && (!relayChainArg || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectRelayChain needs --relayChain and --measuredSubjects > 1: "

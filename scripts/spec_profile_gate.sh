@@ -61,6 +61,7 @@ tableFuseCI --tableFuseCI=false
 queryTriggeredEscalation --queryTriggeredEscalation=false
 requesterEscalation --requesterEscalation=false --boxHalf=750 --finderMode=1
 edgeUplinkRanges --edgeUplinkRanges=false
+subjectRelayChain --subjectRelayChain=false --boxHalf=750 --finderMode=1
 LIST
 lim; run eq_preset --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --specProfile=true &
 # routing turned off explicitly, as CAMP-SPEC's single-hop cells do: the preset's routing
