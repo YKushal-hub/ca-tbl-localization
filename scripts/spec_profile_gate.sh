@@ -64,6 +64,9 @@ requesterEscalation --requesterEscalation=false --boxHalf=750 --finderMode=1
 edgeUplinkRanges --edgeUplinkRanges=false
 LIST
 lim; run eq_preset --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --specProfile=true &
+# routing turned off explicitly, as CAMP-SPEC's single-hop cells do: the preset's routing
+# weights (CAMP-SPEC's pick, 2026-10-03) are then unused, not refused (RUNS).
+lim; run x_froff --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --relayedRanging=false --relayChain=false --hopVarianceTerms=false --hopProvenance=false --fixRouting=false --fixRoutingConfidence=false --fixRoutingSubjects=false &
 lim; run eq_flags --arms=ca_tbl_full --seed=7 --duration=300 --trace=true $(grep -oE '^ *\{"[A-Za-z0-9]+", "[^"]*"' scratch/ca_tbl_causal_sim.cc | sed -E 's/^ *\{"([A-Za-z0-9]+)", "([^"]*)"/--\1=\2/' | tr '\n' ' ') &
 wait
 run r_topo --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --topology=1

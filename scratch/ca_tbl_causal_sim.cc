@@ -13018,7 +13018,10 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * in it yet, and said so wherever the preset is reported: --radioBasis=lr1121 (SY-2, the
  * LR1121 datasheet). The geometry is GEO-01 stage 2's registered FALLBACK
  * (report/GEO01_RESULTS.md): no candidate met the SAR criterion. The PCS is CAL-02's
- * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md).
+ * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md). The routing
+ * weights are CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision
+ * 2026-10-03 (report/CAMP_SPEC_RESULTS.md sect 3); a weight the preset applied is not
+ * refused when --fixRouting is turned off explicitly, it is simply unused.
  * --sparseCaseA, in the plan's table, is left out: --sparseInStep replaces it (FATAL
  * together). The UWB channel model stays legacy (P0's read-out).
  */
@@ -13076,6 +13079,10 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"fixRouting", "true", "Network 2: routing tables"},
     {"fixRoutingConfidence", "true", "Network 3: confidence-weighted routing"},
     {"fixRoutingSubjects", "true", "Network 3: every subject routes on its own tier"},
+    {"routeAlpha", "0", "Network 3: CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision 2026-10-03"},
+    {"routeBeta", "0", "Network 3: CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision 2026-10-03"},
+    {"routeGamma", "1", "Network 3: CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision 2026-10-03"},
+    {"routeSlack", "1", "Network 3: CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision 2026-10-03"},
     {"queryV2", "true", "Network 4: QUERY/RESPONSE contents"},
     {"queryTierBinding", "per-tier", "Network 4: queries per tier"},
     {"queryProxy", "true", "Network 4: proxy answers"},
@@ -13754,8 +13761,9 @@ main(int argc, char* argv[])
              "same flag is given explicitly, which always wins; spec_profile.txt (digested) lists "
              "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
              "Not yet in it: --radioBasis=lr1121 (SY-2). The geometry is GEO-01's registered "
-             "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form. "
-             "Settings:";
+             "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form; "
+             "the routing weights are CAMP-SPEC's sweep pick (0,0,1,1), unused (not refused) "
+             "when --fixRouting is turned off explicitly. Settings:";
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
             h << " --" << ss.name << "=" << ss.value << " (" << ss.why << ");";
@@ -15707,8 +15715,16 @@ main(int argc, char* argv[])
         return 1;
     }
     {
-        const bool rwSet = spec.routeAlpha != 1.0 || spec.routeBeta != 1.0 ||
-                           spec.routeGamma != 1.0 || spec.routeSlack != 1;
+        // A weight the preset applied (CAMP-SPEC's pick, owner decision 2026-10-03) is not
+        // refused when --fixRouting is turned off explicitly: the user turned routing off,
+        // and the preset's weights are simply unused. Only a weight given explicitly, or
+        // set without the preset, is refused without --fixRouting.
+        const bool presetWeights =
+            specProfileOn && !explicitFlags.count("routeAlpha") && !explicitFlags.count("routeBeta") &&
+            !explicitFlags.count("routeGamma") && !explicitFlags.count("routeSlack");
+        const bool rwSet = !presetWeights &&
+                           (spec.routeAlpha != 1.0 || spec.routeBeta != 1.0 ||
+                            spec.routeGamma != 1.0 || spec.routeSlack != 1);
         if (rwSet && !fixRoutingArg)
         {
             std::cerr << "FATAL: --routeAlpha/--routeBeta/--routeGamma/--routeSlack weight "
