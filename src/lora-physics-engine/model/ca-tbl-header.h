@@ -583,6 +583,11 @@ class CaTblHeader : public Header
     //! 0xFF: not stated, which is every request outside --handshakeFixes.
     void SetReqTargetTier(uint8_t t) { m_reqTargetTier = t; }
     uint8_t GetReqTargetTier() const { return m_reqTargetTier; }
+    //! NW-4. 1 when the request follows an URGENT query (Transport sect 4,
+    //! request.is_query_triggered). CaTblPayloadBytes(ESC_REQUEST) already bills its
+    //! query_triggered(1) byte, so it is carried, not serialised. 0 outside the flag.
+    void SetReqQueryTriggered(uint8_t q) { m_reqQueryTriggered = q; }
+    uint8_t GetReqQueryTriggered() const { return m_reqQueryTriggered; }
 
     /**
      * \brief MC-2 (--triggeredUpdates). Why a TRIGGERED_UPDATE was sent: 1 = a large
@@ -660,6 +665,7 @@ class CaTblHeader : public Header
     uint8_t m_queryPriority = 0;
     std::vector<uint8_t> m_queryManifests;
     uint8_t m_respManifest = 0;
+    uint8_t m_reqQueryTriggered = 0; //!< NW-4, carried not serialised -- see above
 };
 
 } // namespace ns3

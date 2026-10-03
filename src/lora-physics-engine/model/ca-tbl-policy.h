@@ -568,6 +568,15 @@ struct CaTblPolicyConfig
     //! cancels the request, so a grant can never jump a node 868 -> UWB. 868 -> 2.4 is
     //! unchanged. False reproduces every prior result.
     bool grantGatedUwb = false;
+    //! NW-4 (Network sect 4: "a QUERY match with priority == URGENT can itself trigger UWB
+    //! tier escalation for that specific target, bypassing the normal PCS threshold-crossing
+    //! trigger"). RequestQueryEscalation() arms a hook that forces the escalation decision,
+    //! one tier per cycle, until the node is on UWB (or has asked for it), whatever the PCS.
+    //! The suppress-only preconditions still apply, and a suppression disarms it and is
+    //! counted. It acts before the fewer-than-three-ranges coast and the blind demotion,
+    //! which both precede the escalation decision. Static arms ignore it. False reproduces
+    //! every prior result.
+    bool queryTriggeredEscalation = false;
     //! DC-9. Count the IMU witness's evaluations, refusals, and refusals the evidence gate
     //! would ALSO have suppressed (absorbed), so an absorbed refusal is reported as
     //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
@@ -698,6 +707,8 @@ struct CaTblDecision
     //! NW-7. This cycle asked for UWB and the change waits for a grant: escalated is true,
     //! nextTier is still the current tier.
     bool uwbPending = false;
+    //! NW-4. This cycle's escalation decision was forced by an URGENT query.
+    bool queryTriggered = false;
     //! DC-4. Whether the confidence model wanted to escalate this cycle (before any
     //! precondition suppressed it) -- observable on every cycle that reaches the decision.
     bool wantedEscalation = false;
@@ -1200,6 +1211,16 @@ class CaTblPolicy
     uint64_t GetUwbCoverageClears() const { return m_uwbCoverageClears; }
     uint64_t GetUwbWaitCycles() const { return m_uwbWaitCycles; }
 
+    /** \brief NW-4. An URGENT query named this node: force the escalation decision from the
+     *  next Step() on, until UWB is reached or requested, or a precondition suppresses it. */
+    void RequestQueryEscalation();
+    bool IsQueryEscalationArmed() const { return m_queryEscArmed; }
+    uint64_t GetQueryEscRequests() const { return m_queryEscRequests; }
+    uint64_t GetQueryEscFired() const { return m_queryEscFired; }
+    uint64_t GetQueryEscalations() const { return m_queryEscalations; }
+    uint64_t GetQueryEscSuppressed() const { return m_queryEscSuppressed; }
+    uint64_t GetQueryEscIgnored() const { return m_queryEscIgnored; }
+
   private:
     // NW-7. Appended last.
     bool m_uwbPending = false;
@@ -1211,6 +1232,16 @@ class CaTblPolicy
     uint64_t m_uwbAborted = 0;
     uint64_t m_uwbCoverageClears = 0;
     uint64_t m_uwbWaitCycles = 0;
+    // NW-4. Appended last.
+    bool m_queryEscArmed = false;
+    uint64_t m_queryEscRequests = 0;
+    uint64_t m_queryEscFired = 0;
+    uint64_t m_queryEscalations = 0;
+    uint64_t m_queryEscSuppressed = 0;
+    uint64_t m_queryEscIgnored = 0;
+    //! NW-4: one tier up, through NW-7's gate when it is on. Used by the coast path only;
+    //! the main path keeps its own escalation branch.
+    void QueryEscalateOneTier(CaTblDecision& d);
 };
 
 } // namespace ns3

@@ -1314,6 +1314,130 @@ TestQueryV2()
           "proxied " + std::to_string(c.proxied[1]));
 }
 
+// [11] NW-5. One arbiter (an anchor, id 10) and three requesters (ids 11-13), all in
+// range of each other. Requester 1 takes the slot; 2 and 3 queue; when the slot frees the
+// queue's argmax is granted. Each requester's outcome is recorded by its grant callback.
+struct ArbRun
+{
+    uint64_t aged = 0;
+    uint64_t queued = 0;
+    uint64_t outOfRange = 0;
+    int outcome[4] = {9, 9, 9, 9}; // last callback per requester: 1 grant, 2 queued, 0 deny
+    int queuedSeen[4] = {0, 0, 0, 0};
+    int deniedSeen[4] = {0, 0, 0, 0};
+};
+
+ArbRun
+RunArbiter(uint8_t deg2, uint8_t rem2, double t2, uint8_t deg3, uint8_t rem3, double t3,
+           bool evidenceFor3)
+{
+    ArbRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 4, 10); // ids 10..13 (0 would read as broadcast)
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(11);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(10 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+        if (i > 0)
+        {
+            m[i].SetUwbGrantCallback([&r, i](uint16_t, int o) {
+                r.outcome[i] = o;
+                if (o == 2)
+                {
+                    r.queuedSeen[i] = 1;
+                }
+                if (o == 0)
+                {
+                    r.deniedSeen[i] = 1;
+                }
+            });
+        }
+    }
+    m[0].NoteUwbEvidence(11, 0.0);
+    m[0].NoteUwbEvidence(12, 0.0);
+    if (evidenceFor3)
+    {
+        m[0].NoteUwbEvidence(13, 0.0);
+    }
+    // Evidence stays fresh for the run (it is renewed each second, as ranging would).
+    for (int k = 1; k < 30; ++k)
+    {
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(11),
+                            double(k));
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(12),
+                            double(k));
+        if (evidenceFor3)
+        {
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(13),
+                                double(k));
+        }
+        Simulator::Schedule(Seconds(k + 0.5), &CaTblMac::ArbitrationCycle, &m[0]);
+    }
+    auto ask = [&](int i, uint8_t deg, uint8_t rem, double at) {
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTerms, &m[i], deg, rem);
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTargetTier, &m[i],
+                            uint8_t(CA_TBL_TIER_UWB));
+        Simulator::Schedule(Seconds(at), &CaTblMac::Send, &m[i], CA_TBL_MSG_ESC_REQUEST,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    };
+    ask(1, 255, 255, 0.2);
+    ask(2, deg2, rem2, t2);
+    ask(3, deg3, rem3, t3);
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.aged = m[0].GetArbAgedGrants();
+    r.queued = m[0].GetArbQueued();
+    r.outOfRange = m[0].GetArbOutOfRange();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestArbitrationV2()
+{
+    std::cout << "\n[11] NW-5 arbitration as Network sect 5 specifies\n";
+    // Aging: 2 asks early with the lower degradation, 3 asks just before the slot frees
+    // with a higher one. Scored on the time waited, 2 has aged to the top; scored on time
+    // since last grant (C4, never granted = 1 for both), 3 would win.
+    const ArbRun a = RunArbiter(128, 255, 1.0, 153, 255, 9.8, true);
+    Report("aging: outcomes 1/2/3, queued, granted from the queue",
+           std::to_string(a.outcome[1]) + "/" + std::to_string(a.outcome[2]) + "/" +
+               std::to_string(a.outcome[3]) + ", " + std::to_string(a.queued) + ", " +
+               std::to_string(a.aged));
+    Check("a denied request stays queued, told its place, and aging lifts the one that waited",
+          a.queuedSeen[2] == 1 && a.queuedSeen[3] == 1 && a.outcome[2] == 1 && a.aged >= 1,
+          "outcome of 2: " + std::to_string(a.outcome[2]));
+    // Battery: same degradation, same moment; 3 has 10 % left, 2 has 90 %.
+    const ArbRun b = RunArbiter(128, 230, 2.0, 128, 26, 2.0, true);
+    Check("the inverse-remaining battery term orders two otherwise equal requests: the "
+          "nearly flat one is granted first",
+          b.outcome[3] == 1 && b.queuedSeen[2] == 1,
+          "outcomes 2/3: " + std::to_string(b.outcome[2]) + "/" + std::to_string(b.outcome[3]));
+    // Range: no evidence for 3, so it is refused, not queued. The refusal does not settle a
+    // broadcast request (another anchor may be in reach): MC-1 retries it, each retry is
+    // refused, and it ends when the retries run out (-1).
+    const ArbRun c = RunArbiter(128, 255, 1.0, 200, 255, 2.0, false);
+    Check("a request without the arbiter's own UWB-range evidence is refused, not queued, "
+          "and the refusal does not settle it: it times out",
+          c.outOfRange >= 2 && c.deniedSeen[3] == 0 && c.queuedSeen[3] == 0 && c.outcome[3] == -1,
+          "out of range " + std::to_string(c.outOfRange));
+}
+
 } // namespace
 
 int
@@ -1342,6 +1466,7 @@ main(int argc, char* argv[])
     TestTriggeredUpdates();
     TestReversePathHop();
     TestQueryV2();
+    TestArbitrationV2();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

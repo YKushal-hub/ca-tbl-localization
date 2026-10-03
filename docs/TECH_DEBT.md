@@ -1917,3 +1917,33 @@ form PCS is not bounded by 1: values of 1.96 appear in G50's regime, and 22 of 5
 carried 255. A requester can therefore tell "high" from "low" but not grade within the
 saturated range. This is K.8 (PCS uncalibrated) seen from the wire. `--pcsForm=calibrated`
 (DC-6) is where a bounded score comes from. Open, with CAL-02.
+
+### N.8 What `--arbitrationV2` costs and decides
+
+NW-5 (2026-10-03, G51) implements Network sect 5's arbiter. Measured in G51's regime (five
+subjects, four finders converging, URGENT queries every 30 s, `--grantGatedUwb`, seed 7,
+1 200 s):
+- **Every anchor that hears a UWB request it has no reach evidence for answers DENY.**
+  That is 2 872 out-of-range refusals in 1 200 s, all from gateways too far away for UWB,
+  as the plan specifies ("answers DENY with reason out-of-range"). Each is a frame on 2.4
+  GHz. Silence would cost nothing on the air; the plan chose an explicit answer. Open.
+- **An out-of-range refusal does not settle the request at the node.** It was first built
+  as final, and under NW-7's first-verdict rule a far gateway's DENY then cancelled
+  requests a nearby finder would have granted. Tag 0 confirmed 5 against 29 under C4
+  before this was changed. It is now non-final: MC-1's timeout retries the request, and
+  only exhausted retries end it.
+- **A request queued by two anchors.** A broadcast request can sit in several queues.
+  The first build read the second anchor's queued verdict as a drop: the subject cleared
+  its pending state, re-requested every cycle, and missed both grants from the queue.
+  Queued requests are now tracked per anchor, and dropped only when every anchor holding
+  one drops it. Two anchors can still grant the same request from their queues; the second
+  grant is ignored, its slot is held until it expires, and NW-6's gossip of the queue is
+  what would reconcile it.
+- **Most requests time out.** Tag 0: 138 requests, 8 confirmed, 129 timed out. The NW-4
+  hook escalates whenever an URGENT query arrives, and with no anchor in UWB reach no
+  arbiter with evidence answers. Under C4 every gateway granted, so the node believed it
+  held a slot nothing could serve. The evidence gate (off in G51's regime, on in the
+  preset) is what keeps the hook out of places without UWB.
+- OURS, stated in code and help: T_batt's normalisation (e = 0.05), the 10 s evidence
+  window, the 30 s queue lifetime, the 29.5 m 2.4 GHz proxy for UWB reach (this channel
+  model's UWB r50), URGENT = priority byte 1, and finders as arbiters.

@@ -1146,6 +1146,23 @@ bash scripts/query_v2_gate.sh "$WORK/g50" || fail G50
 bash scripts/query_v2_gate_selftest.sh "$WORK/g50" || fail G50
 finish G50
 
+# ---------------- G51: query-triggered escalation and arbitration as specified (NW-4 + NW-5)
+# No path led from a QUERY to escalation, and the C4 arbiter scored the battery spent, a
+# constant T_query, forgot denials, let only gateways arbitrate and took a 2.4 GHz request
+# as UWB reach. The five-subject regime with URGENT v2 queries, --grantGatedUwb and the
+# event log, 1 200 s, read by scripts/arbitration_v2_gate.py:
+#   - every score recomputed; every grant from the queue the argmax of its cycle;
+#   - UWB-reach evidence behind every grant and queueing, none behind a refusal;
+#   - grants from the queue, one committed at its subject; finders arbitrate;
+#   - URGENT queries latched, hook escalations, requests carrying is_query_triggered;
+#   - the NW-5 line recounted; the C4 control writes nothing; three refusals.
+#
+# Negative fixtures in scripts/arbitration_v2_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G51 query-triggered escalation and arbitration as specified (NW-4 + NW-5) ---\n'
+bash scripts/arbitration_v2_gate.sh "$WORK/g51" || fail G51
+bash scripts/arbitration_v2_gate_selftest.sh "$WORK/g51" || fail G51
+finish G51
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
