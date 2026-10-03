@@ -2105,6 +2105,14 @@ fix on any seed of the preset. Two structural reasons.
 The remedy, not built and waiting on the owner: fuse the active tier's 1-2 ranges with the
 floor's set (a flag, its own null control and gate). Open.
 
+*2026-10-03, GEO-01 stage 2 (report/GEO01_RESULTS.md §2, P4):* the same rule costs the
+subjects availability at sparse geometry. The sparse cases (Case A, two ranges) run on the
+active tier only. A subject that escalates to 2.4 GHz and finds 0-1 anchors there gets no
+fix, because the 868 MHz floor needs three ranges. On `static_868` the same subject stays
+on 868 MHz and fixes from two ranges (75 cycles against 0 for subject 3, N8_ring seed 1).
+So `static_868` beat `ca_tbl_full` on availability in every GEO-01 cell, by 0.03-0.06. Applying
+the sparse cases to the floor's set as well would be part of the same remedy.
+
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its six zeros
 
 P6 (2026-10-03, G24). `--specProfile` sets 68 flags. It differs from the plan's §3.1 table
