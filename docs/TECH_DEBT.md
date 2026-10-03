@@ -1947,3 +1947,29 @@ subjects, four finders converging, URGENT queries every 30 s, `--grantGatedUwb`,
 - OURS, stated in code and help: T_batt's normalisation (e = 0.05), the 10 s evidence
   window, the 30 s queue lifetime, the 29.5 m 2.4 GHz proxy for UWB reach (this channel
   model's UWB r50), URGENT = priority byte 1, and finders as arbiters.
+
+### N.9 Queue gossip is built and rarely needed in the five-subject regimes
+
+NW-6 (2026-10-03, G52) gossips the --arbitrationV2 queue and extends the lower-id
+tie-break to it. Two arbiters holding the same request is what it settles, and in this
+scenario that is rare. Fourteen probe runs varied seeds, slot holds (10, 30, 60 s), finder
+counts (4, 6, 8) and converging finders; queue items reached another arbiter in three of
+them, and one (seed 1, 1 800 s) yielded. Two reasons, both measured:
+- Without digests, finders never learn tag 0's entry and stand at their spawn points, so
+  no arbiter is in range of another. G52's own gossip log shows queue items reaching only
+  field nodes in such runs.
+- Five subjects walk apart. Two arbiters both have UWB-reach evidence for the same subject
+  and both hold slots only when subjects and finders cluster.
+
+So the mechanism's reachability is shown in the packet validator ([12]: a double grant
+and a double queue between two arbiters, settled by gossip frames). G52 shows the
+scenario wiring, and one justified yield. A clustered team -- the spec's "five-person
+search" -- would exercise it; no flag places the subjects together today.
+
+Also OURS, or a consequence of the rules:
+- The queue item layout (4 bytes: target, U byte as U/4 over 0..255, queued-for byte).
+- Finders gossip only over --meshLinks=all, because the gateway pair class places the
+  transmitter at a 15 m surveyed mast. They are unbilled like everything a finder does.
+- Finder ids (501+) are above every gateway's (101+), so under "the lower id defers" a
+  finder always keeps a contested request against a gateway. The rule is the spec's; the
+  id assignment makes the outcome systematic.

@@ -61,6 +61,10 @@ CaTblEventPayload(const CaTblHeader& h)
     if (t == CA_TBL_MSG_GRANT_GOSSIP)
     {
         o << ";grants=" << h.GetGrants().size();
+        if (!h.GetQueueItems().empty())
+        {
+            o << ";queue=" << h.GetQueueItems().size(); // NW-6
+        }
     }
     // MC-1. Non-default only under --handshakeFixes, so printed only there.
     if (t == CA_TBL_MSG_ESC_REQUEST && h.GetReqTargetTier() != 0xFF)
@@ -783,7 +787,17 @@ CaTblMac::ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos)
             }
         }
         LogArb(now, who, pre ? "preempt" : "grant", u, tDeg, rem, tBatt, tStale, qt, 0);
+        PublishQueue(now);
         return 1;
+    }
+    // NW-6: a request a higher-id anchor already queues or has granted is not queued here.
+    if (m_cfg.gossipQueue && m_grantCoord != nullptr &&
+        m_grantCoord->QueueYields(who, now, m_cfg.arbQueueMaxS))
+    {
+        ++m_queueYields;
+        ++m_arbDenials;
+        LogArb(now, who, "yield", u, tDeg, rem, tBatt, tStale, qt, 0);
+        return -1;
     }
     // Queued, or re-queued with fresh terms and its original request time (its age).
     bool found = false;
@@ -826,25 +840,62 @@ CaTblMac::ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos)
     *queuePos = static_cast<uint8_t>(std::min<uint32_t>(pos, 255));
     ++m_arbDenials;
     LogArb(now, who, "queue", u, tDeg, rem, tBatt, tStale, qt, pos);
+    PublishQueue(now);
     return 0;
 }
 
 void
 CaTblMac::ArbitrationCycle()
 {
-    if (!m_cfg.arbitrationV2 || m_arbQueue.empty())
+    if (!m_cfg.arbitrationV2)
     {
         return;
     }
+    if (m_arbQueue.empty())
+    {
+        if (m_cfg.gossipQueue && m_grantCoord != nullptr && !m_grantCoord->OwnQueue().empty())
+        {
+            PublishQueue(Simulator::Now().GetSeconds());
+        }
+        return;
+    }
     const double now = Simulator::Now().GetSeconds();
+    if (m_cfg.gossipQueue && m_grantCoord != nullptr && m_slotGrantedAtS >= 0.0)
+    {
+        // NW-6: a slot whose grant this anchor has yielded by gossip is free again.
+        m_grantCoord->Expire(now);
+        const std::vector<CaTblGrantRecord> own = m_grantCoord->OwnActiveGrants(now);
+        bool held = false;
+        for (size_t i = 0; i < own.size(); ++i)
+        {
+            held = held || own[i].targetId == m_slotHolder;
+        }
+        if (!held && now - m_slotGrantedAtS < m_cfg.arbSlotHoldS)
+        {
+            m_slotGrantedAtS = -1.0;
+        }
+    }
     // Drop what has waited too long, or whose requester this arbiter no longer has UWB
-    // evidence for, with a final denial (queue position 0).
+    // evidence for -- or (NW-6) that a higher-id anchor queues or has granted -- with a
+    // final denial (queue position 0).
     for (size_t k = 0; k < m_arbQueue.size();)
     {
         const ArbQueued& q = m_arbQueue[k];
         std::map<uint16_t, double>::const_iterator evd = m_uwbEvidence.find(q.who);
         const bool inRange =
             evd != m_uwbEvidence.end() && now - evd->second <= m_cfg.arbUwbEvidenceS;
+        const bool yields = m_cfg.gossipQueue && m_grantCoord != nullptr &&
+                            m_grantCoord->QueueYields(q.who, now, m_cfg.arbQueueMaxS);
+        if (yields)
+        {
+            m_nextQueuePos = 0;
+            PrepareReply(q.pid, true, false);
+            Send(CA_TBL_MSG_ESC_GRANT, static_cast<CaTblTier>(q.tier), 0, q.who);
+            ++m_queueYields;
+            LogArb(now, q.who, "yield", 0.0, q.tDeg, q.rem, 0.0, 0.0, q.qt, 0);
+            m_arbQueue.erase(m_arbQueue.begin() + static_cast<long>(k));
+            continue;
+        }
         if (now - q.tReq > m_cfg.arbQueueMaxS || !inRange)
         {
             m_nextQueuePos = 0;
@@ -861,6 +912,7 @@ CaTblMac::ArbitrationCycle()
         (m_slotGrantedAtS < 0.0) || ((now - m_slotGrantedAtS) >= m_cfg.arbSlotHoldS);
     if (!slotFree || m_arbQueue.empty())
     {
+        PublishQueue(now);
         return;
     }
     // "Denied requests remain queued, re-scored next cycle (aging prevents starvation)":
@@ -900,6 +952,41 @@ CaTblMac::ArbitrationCycle()
     m_nextQueuePos = 0;
     PrepareReply(w.pid, true, true);
     Send(CA_TBL_MSG_ESC_GRANT, static_cast<CaTblTier>(w.tier), 0, w.who);
+    PublishQueue(now);
+}
+
+uint32_t
+CaTblMac::GossipQueueBytes(const CaTblHeader& h) const
+{
+    // NW-6: the queue items a gossip carries, billed only under the flag that sends them.
+    return (m_cfg.gossipQueue && h.GetMsgType() == CA_TBL_MSG_GRANT_GOSSIP)
+               ? CA_TBL_QUEUE_ITEM_BYTES * static_cast<uint32_t>(h.GetQueueItems().size())
+               : 0u;
+}
+
+void
+CaTblMac::PublishQueue(double nowS)
+{
+    // NW-6: the coordinator is shared by an anchor's radios, so the radio that gossips
+    // (tier 1) states the queue this arbiter (2.4 GHz) holds.
+    if (!m_cfg.gossipQueue || m_grantCoord == nullptr)
+    {
+        return;
+    }
+    std::vector<CaTblQueueRecord> q;
+    for (size_t k = 0; k < m_arbQueue.size(); ++k)
+    {
+        const ArbQueued& e = m_arbQueue[k];
+        CaTblQueueRecord r;
+        r.anchorId = m_cfg.nodeId;
+        r.targetId = e.who;
+        const double u = ScoreV2(e.tDeg, e.rem, std::min(1.0, (nowS - e.tReq) / 10.0), e.qt,
+                                 nullptr);
+        r.uQ = static_cast<uint8_t>(std::min(255.0, std::max(0.0, u / 4.0 * 255.0 + 0.5)));
+        r.queuedSinceS = e.tReq;
+        q.push_back(r);
+    }
+    m_grantCoord->SetOwnQueue(q);
 }
 
 bool
@@ -1170,11 +1257,26 @@ CaTblMac::SendGrantGossip(CaTblTier tier)
     const double nowS = Simulator::Now().GetSeconds();
     m_grantCoord->Expire(nowS);
     const std::vector<CaTblGrantRecord> own = m_grantCoord->OwnActiveGrants(nowS);
-    if (own.empty())
+    // NW-6: the queue rides too, and a gossip with only a queue is still worth sending.
+    m_nextGossipQueue.clear();
+    if (m_cfg.gossipQueue)
+    {
+        const std::vector<CaTblQueueRecord>& q = m_grantCoord->OwnQueue();
+        for (size_t i = 0; i < q.size(); ++i)
+        {
+            CaTblQueueGossipItem it;
+            it.targetId = q[i].targetId;
+            it.uQ = q[i].uQ;
+            it.queuedSinceS = q[i].queuedSinceS;
+            m_nextGossipQueue.push_back(it);
+        }
+    }
+    if (own.empty() && m_nextGossipQueue.empty())
     {
         ++m_gossipSkippedEmpty;
         return;
     }
+    m_queueItemsSent += m_nextGossipQueue.size();
     m_nextGossip.clear();
     for (size_t i = 0; i < own.size(); ++i)
     {
@@ -1188,6 +1290,7 @@ CaTblMac::SendGrantGossip(CaTblTier tier)
     // stale list from riding any later frame, the same discipline as SetRequestTerms().
     Send(CA_TBL_MSG_GRANT_GOSSIP, tier, static_cast<uint32_t>(m_nextGossip.size()), 0);
     m_nextGossip.clear();
+    m_nextGossipQueue.clear();
 }
 
 void
@@ -1323,6 +1426,10 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
     else if (type == CA_TBL_MSG_GRANT_GOSSIP)
     {
         f.hdr.SetGrants(m_nextGossip);
+        if (m_cfg.gossipQueue)
+        {
+            f.hdr.SetQueueItems(m_nextGossipQueue); // NW-6
+        }
     }
     f.hdr.SetOriginId(m_cfg.nodeId);
     // NW-0: a one-hop DISCOVERY leaves with hop limit 0. A limit of 1 would still be
@@ -1436,7 +1543,7 @@ CaTblMac::AttemptCad(PendingFrame f)
     const uint32_t payload = CA_TBL_MAC_HEADER_BYTES +
                              CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
                              ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
-        RouteOverheadBytes(f.hdr.GetMsgType());
+        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1532,7 +1639,7 @@ CaTblMac::DoTransmit(PendingFrame f)
     const uint32_t payload =
         CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
         ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
-        RouteOverheadBytes(f.hdr.GetMsgType());
+        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1956,7 +2063,8 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
         const uint32_t gPayload =
             CA_TBL_MAC_HEADER_BYTES +
             CaTblPayloadBytes(CA_TBL_MSG_GRANT_GOSSIP,
-                              static_cast<uint32_t>(hdr.GetGrants().size()));
+                              static_cast<uint32_t>(hdr.GetGrants().size())) +
+            GossipQueueBytes(hdr);
         m_gossipRxAirtimeS += (gTier == CA_TBL_TIER_UWB)
                                   ? CaTblEnergyModel::UwbFrameTimeS(gPayload)
                                   : CaTblEnergyModel::LoRaTimeOnAirS(m_cfg.sf,
@@ -2005,6 +2113,22 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
             {
                 ++m_gossipItemsHeard; // new, uncontested: stored for later requests
             }
+        }
+        if (m_cfg.gossipQueue)
+        {
+            // NW-6: the sender's whole queue, replacing what it said before.
+            const std::vector<CaTblQueueGossipItem>& qi = hdr.GetQueueItems();
+            std::vector<CaTblQueueRecord> recs;
+            for (size_t k = 0; k < qi.size(); ++k)
+            {
+                CaTblQueueRecord r;
+                r.targetId = qi[k].targetId;
+                r.uQ = qi[k].uQ;
+                r.queuedSinceS = qi[k].queuedSinceS;
+                recs.push_back(r);
+            }
+            m_queueItemsHeard += recs.size();
+            m_grantCoord->NoteGossipedQueue(hdr.GetOriginId(), recs, nowS);
         }
     }
 

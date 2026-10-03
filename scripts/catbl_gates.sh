@@ -1163,6 +1163,21 @@ bash scripts/arbitration_v2_gate.sh "$WORK/g51" || fail G51
 bash scripts/arbitration_v2_gate_selftest.sh "$WORK/g51" || fail G51
 finish G51
 
+# ---------------- G52: anchors gossip their queue as well as their grants (NW-6)
+# GRANT_GOSSIP carried grants only, so two arbiters could hold the same request in their
+# queues and each grant it. --gossipQueue gossips the queue and extends the lower-id
+# tie-break to it; finders gossip over the mesh. G51's regime at seed 1, 1 800 s, with grant
+# gossip and mesh links, read by scripts/queue_gossip_gate.py:
+#   - queue items gossiped and heard by arbiters, finders among the senders;
+#   - every yield had a higher-id holder; a yielder never grants the request after;
+#   - the NW-6 line recounted; grants-only gossip carries no queue; a refusal.
+#
+# Negative fixtures in scripts/queue_gossip_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G52 anchors gossip their queue as well as their grants (NW-6) ---\n'
+bash scripts/queue_gossip_gate.sh "$WORK/g52" || fail G52
+bash scripts/queue_gossip_gate_selftest.sh "$WORK/g52" || fail G52
+finish G52
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

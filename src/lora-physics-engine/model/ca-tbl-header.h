@@ -354,6 +354,17 @@ struct CaTblGrantItem
 
 static const uint32_t CA_TBL_GRANT_ITEM_BYTES = 6;
 
+//! NW-6. One queued request riding a GRANT_GOSSIP: target(2) + U byte(1) + queued-for byte
+//! (1, seconds, saturating) = 4 bytes, the layout OURS.
+struct CaTblQueueGossipItem
+{
+    uint16_t targetId = 0;
+    uint8_t uQ = 0;
+    double queuedSinceS = 0.0;
+};
+
+static const uint32_t CA_TBL_QUEUE_ITEM_BYTES = 4;
+
 /** The uniform MAC header: packet_id(4) origin_id(2) hop_limit(1) msg_type(1) tier(1). */
 static const uint32_t CA_TBL_MAC_HEADER_BYTES = 9;
 
@@ -508,6 +519,10 @@ class CaTblHeader : public Header
      *  bills the 6 bytes per item, so writing them again would double-count airtime. */
     void SetGrants(const std::vector<CaTblGrantItem>& g) { m_grants = g; }
     const std::vector<CaTblGrantItem>& GetGrants() const { return m_grants; }
+    //! NW-6. The sender's arbitration queue, gossiped beside its grants. Carried, not
+    //! serialised; the MAC bills CA_TBL_QUEUE_ITEM_BYTES each under --gossipQueue.
+    void SetQueueItems(const std::vector<CaTblQueueGossipItem>& q) { m_queueItems = q; }
+    const std::vector<CaTblQueueGossipItem>& GetQueueItems() const { return m_queueItems; }
 
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
 
@@ -666,6 +681,7 @@ class CaTblHeader : public Header
     std::vector<uint8_t> m_queryManifests;
     uint8_t m_respManifest = 0;
     uint8_t m_reqQueryTriggered = 0; //!< NW-4, carried not serialised -- see above
+    std::vector<CaTblQueueGossipItem> m_queueItems; //!< NW-6, carried not serialised
 };
 
 } // namespace ns3

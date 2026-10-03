@@ -300,6 +300,13 @@ struct CaTblMacConfig
     //! NW-4. An URGENT v2 QUERY naming this node's own manifest latches TakeUrgentQuery(),
     //! and the ESC_REQUEST it leads to carries the query-triggered bit.
     bool queryTriggeredEscalation = false;
+    //! NW-6 (Network sect 6: anchors "periodically gossip their current Q (request queue)
+    //! and active grants"). With a grant coordinator and arbitrationV2: the gossip carries
+    //! the arbiter's queue (4 bytes an item, billed); a heard queue is stored; and the
+    //! tie-break extends to queues -- an arbiter drops (with a final denial) a queued
+    //! request that a higher-id anchor queues or has granted, and frees a slot whose grant
+    //! it has yielded. False keeps grants-only gossip.
+    bool gossipQueue = false;
 
     //! Network §4: answer a QUERY on behalf of a fresh table entry, not only
     //! when this node IS the target. The spec calls this the case that makes the
@@ -660,6 +667,10 @@ class CaTblMac
     uint64_t GetArbOutOfRange() const { return m_arbOutOfRange; }
     uint64_t GetArbExpired() const { return m_arbExpired; }
     uint64_t GetQueuedHeard() const { return m_queuedHeard; }
+    //! NW-6: queued requests given up to a higher-id anchor, and queue items heard.
+    uint64_t GetQueueYields() const { return m_queueYields; }
+    uint64_t GetQueueItemsHeard() const { return m_queueItemsHeard; }
+    uint64_t GetQueueItemsSent() const { return m_queueItemsSent; }
     //! NW-5: out-of-range refusals of this node's requests, which do not settle them.
     uint64_t GetOutOfRangeHeard() const { return m_outOfRangeHeard; }
     uint64_t GetArbPreemptions() const { return m_arbPreemptions; }
@@ -913,6 +924,13 @@ class CaTblMac
     uint64_t m_arbExpired = 0;
     uint64_t m_queuedHeard = 0;
     uint64_t m_outOfRangeHeard = 0;
+    // NW-6.
+    std::vector<CaTblQueueGossipItem> m_nextGossipQueue;
+    uint64_t m_queueYields = 0;
+    uint64_t m_queueItemsHeard = 0;
+    uint64_t m_queueItemsSent = 0;
+    void PublishQueue(double nowS);
+    uint32_t GossipQueueBytes(const CaTblHeader& h) const;
     double ScoreV2(double tDeg, double rem, double tStale, uint8_t qt, double* tBatt) const;
     int ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos);
     void LogArb(double tS, uint16_t who, const char* ev, double u, double tDeg, double rem,

@@ -196,6 +196,41 @@ main(int argc, char* argv[])
               "with no direction the inherited variance is applied isotropically, never dropped");
     }
 
+    // ---- NW-6: the queue gossips, and the tie-break extends to it -------------
+    {
+        CaTblGrantCoordinator low(101);
+        CaTblGrantCoordinator high(107);
+        CaTblQueueRecord q;
+        q.targetId = 2;
+        q.uQ = 100;
+        q.queuedSinceS = 5.0;
+        low.SetOwnQueue(std::vector<CaTblQueueRecord>(1, q));
+        high.SetOwnQueue(std::vector<CaTblQueueRecord>(1, q));
+        const uint32_t dLow = low.NoteGossipedQueue(107, high.OwnQueue(), 6.0);
+        const uint32_t dHigh = high.NoteGossipedQueue(101, low.OwnQueue(), 6.0);
+        Check(dLow == 1 && dHigh == 1 && low.DoubleQueued() == 1,
+              "a request both anchors queue is seen as double-queued by both");
+        Check(low.QueueYields(2, 6.5, 30.0) && !high.QueueYields(2, 6.5, 30.0),
+              "the lower id gives the queued request up, the higher keeps it");
+        Check(!low.QueueYields(3, 6.5, 30.0), "another target is not affected");
+        Check(!low.QueueYields(2, 40.0, 30.0), "a heard queue older than the bound stops counting");
+        // A later gossip without the item replaces the earlier one: the request is gone.
+        low.NoteGossipedQueue(107, std::vector<CaTblQueueRecord>(), 7.0);
+        Check(!low.QueueYields(2, 7.5, 30.0),
+              "a gossip states the whole queue, so an item it no longer carries stops counting");
+        // A higher-id anchor's active grant for the target also makes the lower yield.
+        CaTblGrantRecord g;
+        g.anchorId = 107;
+        g.targetId = 2;
+        g.startS = 7.0;
+        g.endS = 17.0;
+        low.NoteGossipedGrant(g);
+        Check(low.QueueYields(2, 8.0, 30.0) && !low.QueueYields(2, 20.0, 30.0),
+              "a higher id's live grant for the target also wins over a queued request here");
+        Check(low.NoteGossipedQueue(101, low.OwnQueue(), 8.0) == 0,
+              "an anchor's own queue echoed back is ignored");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

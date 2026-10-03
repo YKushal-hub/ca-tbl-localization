@@ -1327,12 +1327,17 @@ struct GrantGossip
 {
     GrantGossip(double periodS, double dtS, const std::string& logPath, const TierPhy* phy);
     void AttachAnchor(uint16_t id, CaTblTier tier, CaTblMac* mac, EnginePhyProvider& provider);
+    //! NW-6. A finder joins as an arbiter that gossips: its radios share a coordinator and
+    //! its tier-1 radio gossips. It carries no energy account (finders never have), and
+    //! its links to gateways are NW-0's mesh links, not the gateway-mast pair class.
+    void AttachFinder(uint16_t id, CaTblTier tier, CaTblMac* mac);
     void Cycle(double t, Ptr<UniformRandomVariable> rng);
     void Report(std::ostream& os, double durationS) const;
 
     double periodS;
     double dtS;
     double nextS;
+    double windowS = 10.0; //!< the slot hold it reports (--arbSlotHoldS)
     uint64_t rounds = 0;
     const TierPhy* phy;
     std::ofstream log;
@@ -1340,6 +1345,7 @@ struct GrantGossip
     std::map<uint16_t, CaTblGrantCoordinator*> byId;
     std::vector<CaTblMac*> all;   //!< every MAC of every gateway
     std::vector<CaTblMac*> tier1; //!< one per gateway: the radio the gossip rides
+    std::vector<CaTblMac*> finder1; //!< NW-6: one per finder, unbilled
     std::deque<CaTblEnergyModel> energy; //!< parallel to tier1
     std::vector<double> txChargedS;
     std::vector<double> rxChargedS;
@@ -1390,6 +1396,24 @@ GrantGossip::AttachAnchor(uint16_t id, CaTblTier tier, CaTblMac* mac, EnginePhyP
 }
 
 __attribute__((noinline)) void
+GrantGossip::AttachFinder(uint16_t id, CaTblTier tier, CaTblMac* mac)
+{
+    std::map<uint16_t, CaTblGrantCoordinator*>::iterator it = byId.find(id);
+    if (it == byId.end())
+    {
+        coords.emplace_back(id);
+        it = byId.insert(std::make_pair(id, &coords.back())).first;
+    }
+    mac->SetGrantCoordinator(it->second);
+    mac->SetGrantLog(&log);
+    all.push_back(mac);
+    if (tier == CA_TBL_TIER_868)
+    {
+        finder1.push_back(mac);
+    }
+}
+
+__attribute__((noinline)) void
 GrantGossip::Cycle(double t, Ptr<UniformRandomVariable> rng)
 {
     // Charge what went on air, and what arrived, during the slice that just ran.
@@ -1431,12 +1455,18 @@ GrantGossip::Cycle(double t, Ptr<UniformRandomVariable> rng)
                             tier1[i],
                             CA_TBL_TIER_868);
     }
+    for (size_t i = 0; i < finder1.size(); ++i)
+    {
+        Simulator::Schedule(Seconds(rng->GetValue(0.0, spread)),
+                            &CaTblMac::SendGrantGossip,
+                            finder1[i],
+                            CA_TBL_TIER_868);
+    }
 }
 
 __attribute__((noinline)) void
 GrantGossip::Report(std::ostream& os, double durationS) const
 {
-    const double windowS = CaTblMacConfig().arbSlotHoldS;
     os << "    L.1.4 grant tie-break: gossip every " << std::fixed << std::setprecision(1)
        << periodS << " s on tier 1, grant window " << windowS << " s, " << rounds
        << " rounds, " << tier1.size() << " gateways\n";
@@ -5376,6 +5406,10 @@ struct SpecOptions
     bool identityQueryUrgent = false;
     //! NW-5. --arbitrationV2: arbitration as Network sect 5 specifies.
     bool arbitrationV2 = false;
+    //! NW-6. --gossipQueue: anchors gossip their queue as well as their grants.
+    bool gossipQueue = false;
+    //! --arbSlotHoldS: how long an awarded UWB slot is held (CaTblMacConfig::arbSlotHoldS).
+    double arbSlotHoldS = 10.0;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6015,6 +6049,7 @@ RunArm(CaTblPolicyMode mode,
         gfn << traceDir << "/grant_verdicts_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
         gossip.reset(new GrantGossip(anchorGrantGossipS, dt, gfn.str(), phy));
+        gossip->windowS = spec.arbSlotHoldS;
     }
     // L.1.1. Declared before macs for the same reason: each relay's routing-tier MAC holds
     // a callback into it. Built below, once the relays have their ids; null unless
@@ -6079,10 +6114,12 @@ RunArm(CaTblPolicyMode mode,
             mc.queryV2 = spec.queryV2;
             mc.arbitrationV2 = spec.arbitrationV2;
             mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
+            mc.gossipQueue = spec.gossipQueue;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
             mc.uwbArbitration = uwbArbitration;
+            mc.arbSlotHoldS = spec.arbSlotHoldS;
             mc.sendHandshakeFrames = sendHandshakeFrames;
             mc.handshakeFixes = spec.handshakeFixes;
             mc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
@@ -6457,10 +6494,12 @@ RunArm(CaTblPolicyMode mode,
             fc.queryV2 = spec.queryV2;
             fc.arbitrationV2 = spec.arbitrationV2;
             fc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
+            fc.gossipQueue = spec.gossipQueue;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
             fc.uwbArbitration = uwbArbitration;
+            fc.arbSlotHoldS = spec.arbSlotHoldS;
             fc.sendHandshakeFrames = sendHandshakeFrames;
             fc.handshakeFixes = spec.handshakeFixes;
             fc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
@@ -6478,6 +6517,10 @@ RunArm(CaTblPolicyMode mode,
             // perfect-knowledge assumption this flag exists to remove.
             fm->PublishSelfEntry(fpos.x + goff.x, fpos.y + goff.y, finderPosVar,
                                  finderPosVar, 0.0, 0.0, 0.0, 0.0);
+            if (gossip && spec.gossipQueue && spec.meshLinks == "all")
+            {
+                gossip->AttachFinder(static_cast<uint16_t>(fid), tier, fm); // NW-6
+            }
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
             if (ti == 0)
@@ -10959,6 +11002,27 @@ RunArm(CaTblPolicyMode mode,
         grantLog->close(); // NW-7: before the digest, and before the MACs can call back
         grantLog.reset();
     }
+    if (spec.gossipQueue && gossip)
+    {
+        // NW-6. Queue items gossiped and heard, double-queued requests detected, and queued
+        // requests given up to a higher-id anchor.
+        uint64_t sent = 0, heard = 0, yields = 0, doubled = 0;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            sent += macs[m].GetQueueItemsSent();
+            heard += macs[m].GetQueueItemsHeard();
+            yields += macs[m].GetQueueYields();
+        }
+        for (std::map<uint16_t, CaTblGrantCoordinator*>::const_iterator gc = gossip->byId.begin();
+             gc != gossip->byId.end(); ++gc)
+        {
+            doubled += gc->second->DoubleQueued();
+        }
+        std::cout << "    NW-6 queue gossip (" << CaTblPolicyModeName(mode) << "): queue items sent "
+                  << sent << ", heard " << heard << ", double-queued " << doubled
+                  << ", queued requests yielded to a higher id " << yields << " ("
+                  << gossip->finder1.size() << " finders gossiping)\n";
+    }
     if (arbLog)
     {
         // NW-5. Unhooked and closed before the digest; then the arbiters' sums.
@@ -12272,6 +12336,26 @@ main(int argc, char* argv[])
                  "keeps the node waiting. Writes arb_<arm>_seed<N>.csv, digested, and one "
                  "NW-5 line. Needs --uwbArbitration and --handshakeFixes.",
                  spec.arbitrationV2);
+    cmd.AddValue("arbSlotHoldS",
+                 "Seconds an awarded UWB slot is held before an arbiter treats it as free "
+                 "(CaTblMacConfig::arbSlotHoldS). 10 (default) is the C4 harness constant "
+                 "every result so far used. Longer holds make requests contend for the slot "
+                 "-- queueing under --arbitrationV2, and its gossip under --gossipQueue -- "
+                 "which at 10 s is rare. Read only with --uwbArbitration.",
+                 spec.arbSlotHoldS);
+    cmd.AddValue("gossipQueue",
+                 "Anchors gossip their queue as well as their grants (Network sect 6: "
+                 "'anchors periodically gossip their current Q (request queue) and active "
+                 "grants'; docs/SPEC_CONFORMANCE_PLAN.md NW-6). FALSE by default: the gossip "
+                 "carries grants only. TRUE: it carries the --arbitrationV2 queue too (4 bytes "
+                 "an item, layout OURS, billed); a heard queue is stored, and the lower-id "
+                 "tie-break extends to queues -- an arbiter drops, with a final denial, a "
+                 "queued request a higher-id anchor queues or has granted, refuses to queue "
+                 "one, and frees a slot whose grant it has yielded. Under --meshLinks=all the "
+                 "finders gossip too (their links to gateways are the mesh's), unbilled like "
+                 "everything a finder does. One NW-6 line. Needs --anchorGrantGossipS > 0 and "
+                 "--arbitrationV2.",
+                 spec.gossipQueue);
     std::string identityQueryManifestsArg;
     cmd.AddValue("identityQueryManifests",
                  "Under --queryV2, the comma-separated manifest list each query asks for "
@@ -13952,10 +14036,17 @@ main(int argc, char* argv[])
                   << " needs a value >= 0 and, when > 0, --sendHandshakeFrames=true\n";
         return 1;
     }
-    if (anchorGrantGossipSArg >= CaTblMacConfig().arbSlotHoldS)
+    if (!(spec.arbSlotHoldS > 0.0) ||
+        (spec.arbSlotHoldS != CaTblMacConfig().arbSlotHoldS && !uwbArbitrationArg))
+    {
+        std::cerr << "FATAL: --arbSlotHoldS must be > 0, and is read only by the "
+                     "--uwbArbitration arbiter\n";
+        return 1;
+    }
+    if (anchorGrantGossipSArg >= spec.arbSlotHoldS)
     {
         std::cerr << "WARNING: --anchorGrantGossipS=" << anchorGrantGossipSArg
-                  << " is not below the " << CaTblMacConfig().arbSlotHoldS
+                  << " is not below the " << spec.arbSlotHoldS
                   << " s slot window; a double grant can expire before either anchor"
                   << " hears of it, and then the tie-break never fires\n";
     }
@@ -14217,6 +14308,13 @@ main(int argc, char* argv[])
             }
             spec.identityQueryManifests.push_back(static_cast<uint8_t>(v));
         }
+    }
+    // NW-6.
+    if (spec.gossipQueue && (!(anchorGrantGossipSArg > 0.0) || !spec.arbitrationV2))
+    {
+        std::cerr << "FATAL: --gossipQueue needs --anchorGrantGossipS > 0 and --arbitrationV2: "
+                     "there is no gossip to ride, or no queue to gossip\n";
+        return 1;
     }
     // NW-4 / NW-5.
     if (spec.queryTriggeredEscalation && (!spec.queryV2 || !spec.identityQueryUrgent))

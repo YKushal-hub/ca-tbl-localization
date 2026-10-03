@@ -1438,6 +1438,120 @@ TestArbitrationV2()
           "out of range " + std::to_string(c.outOfRange));
 }
 
+// [12] NW-6. Two arbiters (anchors 20 and 21, each with its grant coordinator) and two
+// requesters (22, 23), all in range. 22 asks first and both arbiters grant it (the double
+// grant L.1.4 settles by gossip); 23 asks while both slots are held, and both queue it.
+// The anchors then gossip. The lower id, 20, must give up its grant to 22 and its queued
+// 23, with a final denial; 23 stays queued at 21 and is granted from 21's queue.
+struct QgRun
+{
+    uint64_t yieldsLow = 0;
+    uint64_t agedLow = 0;
+    uint64_t agedHigh = 0;
+    uint64_t heardLow = 0;
+    int last23 = 9;
+    uint16_t grantedBy23 = 0;
+    int queued23 = 0;
+};
+
+QgRun
+RunQueueGossip(bool gossipQueue)
+{
+    QgRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 4, 20); // ids 20..23
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    CaTblGrantCoordinator c20(20), c21(21);
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(12);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(20 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i < 2) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        c.gossipQueue = gossipQueue;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[0].SetGrantCoordinator(&c20);
+    m[1].SetGrantCoordinator(&c21);
+    m[3].SetUwbGrantCallback([&r](uint16_t a, int o) {
+        r.last23 = o;
+        if (o == 2)
+        {
+            r.queued23 = 1;
+        }
+        if (o == 1)
+        {
+            r.grantedBy23 = a;
+        }
+    });
+    for (int k = 0; k < 40; ++k)
+    {
+        for (int a = 0; a < 2; ++a)
+        {
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[a], uint16_t(22),
+                                double(k));
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[a], uint16_t(23),
+                                double(k));
+            Simulator::Schedule(Seconds(k + 0.5), &CaTblMac::ArbitrationCycle, &m[a]);
+        }
+    }
+    auto ask = [&](int i, double at) {
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTerms, &m[i], uint8_t(128),
+                            uint8_t(255));
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTargetTier, &m[i],
+                            uint8_t(CA_TBL_TIER_UWB));
+        Simulator::Schedule(Seconds(at), &CaTblMac::Send, &m[i], CA_TBL_MSG_ESC_REQUEST,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    };
+    ask(2, 0.2);
+    ask(3, 1.2);
+    // Gossip from both, every 2 s, at offsets that do not collide.
+    for (int k = 2; k < 40; k += 2)
+    {
+        Simulator::Schedule(Seconds(k + 0.1), &CaTblMac::SendGrantGossip, &m[0], CA_TBL_TIER_868);
+        Simulator::Schedule(Seconds(k + 0.9), &CaTblMac::SendGrantGossip, &m[1], CA_TBL_TIER_868);
+    }
+    Simulator::Stop(Seconds(40.0));
+    Simulator::Run();
+    r.yieldsLow = m[0].GetQueueYields();
+    r.agedLow = m[0].GetArbAgedGrants();
+    r.agedHigh = m[1].GetArbAgedGrants();
+    r.heardLow = m[0].GetQueueItemsHeard();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestQueueGossip()
+{
+    std::cout << "\n[12] NW-6 anchors gossip their queue and the lower id gives it up\n";
+    const QgRun a = RunQueueGossip(true);
+    Report("with the queue gossiped: yields at 20, grants from the queue at 20/21, 23's grantor",
+           std::to_string(a.yieldsLow) + ", " + std::to_string(a.agedLow) + "/" +
+               std::to_string(a.agedHigh) + ", " + std::to_string(a.grantedBy23));
+    Check("the lower id hears the higher id's queue and gives the double-queued request up",
+          a.heardLow >= 1 && a.yieldsLow >= 1 && a.agedLow == 0,
+          "heard " + std::to_string(a.heardLow) + ", yields " + std::to_string(a.yieldsLow));
+    Check("the request stays queued at the higher id and is granted from its queue",
+          a.queued23 == 1 && a.last23 == 1 && a.grantedBy23 == 21 && a.agedHigh >= 1,
+          "23 granted by " + std::to_string(a.grantedBy23));
+    const QgRun b = RunQueueGossip(false);
+    Check("CONTROL: with grants-only gossip nothing is yielded from a queue",
+          b.yieldsLow == 0 && b.heardLow == 0,
+          "yields " + std::to_string(b.yieldsLow));
+}
+
 } // namespace
 
 int
@@ -1467,6 +1581,7 @@ main(int argc, char* argv[])
     TestReversePathHop();
     TestQueryV2();
     TestArbitrationV2();
+    TestQueueGossip();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)
