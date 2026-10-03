@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates G1-G13. Run after every code change.
+# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward).
+# Run after every code change.
 #
 # Every gate RUNS; failures are recorded and reported in the summary block at the end,
 # and the script exits 1 if any gate failed. It no longer stops at the first failure --
@@ -20,9 +21,9 @@
 #
 # G1 build / G2 determinism / G3 null ablation / G4 verifier / G5 verifier self-test.
 #
-# G3 is expected to start failing once Phase 5 makes `suspect` fire. Until then a
-# G3 failure means RNG contamination has returned. Export CATBL_SKIP_G3=1 to
-# demote it to a warning once fault injection lands.
+# G3 separates RNG contamination from the integrity check's treatment effect on causal
+# order (scripts/catbl_g3_ablation.py), so a firing `suspect` no longer turns it red; a
+# divergence that predates the first rejection still does.
 
 set -u
 # WITHOUT pipefail, `./ns3 run ... | tail -3 || fail` tests tail's exit status, not
