@@ -1,0 +1,1 @@
+--nGateways=8 --gwArcDeg=240 --gwArcCentreDeg=180
