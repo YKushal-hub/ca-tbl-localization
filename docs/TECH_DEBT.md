@@ -1616,6 +1616,12 @@ vanishes: 77.47 against 77.50 m on `default`, and 80.17 against 80.18 m on `sear
 accept on rank. That is a `src/` change with its own test. Until then, `CA_TBL_CAL_OK` is
 not evidence.
 
+*Fixed 2026-10-03:* the control is now fitted as c0 + c1 · term1. A new unit case reads
+NO_IMPROVEMENT where the old code read OK: an error of 4 · term1 + 5, with term 3 near
+0.92. On the old code that case fails (8 passed, 1 failed); on the new it passes (9 of 9).
+CAL-01's verdicts are untouched: its registered analysis is `scripts/cal01_loocv.py`,
+which never called this function.
+
 ### M.8 `analyse_pcs_forms.py` reads an undefined statistic as "indistinguishable"
 
 Under `gated`, PCS is constant on 99.98 % of fix cycles, so the Spearman correlation is NaN.
