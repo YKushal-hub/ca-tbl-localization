@@ -13693,6 +13693,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"sessionOverMesh", "true", "Transport 2: fed by delivered RESPONSEs"},
     {"batchSearch", "true", "Transport 5: batch search"},
     {"finderSessions", "true", "decision 8: finders search too"},
+    {"finderRequesterEscalation", "true", "decision 8 / Transport 4: a finder's session drives escalation too (TA-1b)"},
     {"identityQueryUrgent", "true", "Transport 4: the batch session is URGENT"},
     {"identityQueryManifests", "1,2,3,4,5", "Transport 5: the batch is the five subjects"},
     {"identityQueryPeriodS", "30", "Transport 2: the session's query period (OURS)"},
@@ -16762,7 +16763,14 @@ main(int argc, char* argv[])
         std::cerr << "WARNING: --caseD without --imuPredict: the single range constrains a "
                   << "constant-velocity prediction, not an IMU-propagated one\n";
     }
-    // TA-1b.
+    // TA-1b. Applied by the preset while the user turned a prerequisite off explicitly:
+    // unused, not refused (as the preset's routing weights and --subjectRelayChain).
+    if (spec.finderRequesterEscalation && specProfileOn &&
+        !explicitFlags.count("finderRequesterEscalation") &&
+        (!spec.finderSessions || !spec.requesterEscalation))
+    {
+        spec.finderRequesterEscalation = false;
+    }
     if (spec.finderRequesterEscalation && (!spec.finderSessions || !spec.requesterEscalation))
     {
         std::cerr << "FATAL: --finderRequesterEscalation needs --finderSessions (whose results "

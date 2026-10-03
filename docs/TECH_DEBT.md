@@ -2343,6 +2343,19 @@ population):* the preset sets it (83 settings).
   - Triggered updates. The large-correction trigger never fired for tag 0; subjects do not
     run it at all (N.3).
 
+*2026-10-04, `--finderRequesterEscalation` (decision 8, both requesters; TA-1b):* the preset
+sets it (85 settings). Probes at 900 s found granted finder requests in the endgame on every
+seed tried (1-3 a run), and none at 5 km, where all were unroutable.
+- In G24 the finders' requests have a population: 1 granted in the endgame, 0 with the flag
+  off.
+- **Requester escalations accepted is zero again.** The base station's 37 requests were all
+  unroutable. The finder's one grant reached its target while the target was on 868 MHz,
+  and the target refused it (`obo_refuse`, as the rule says). One event, one seed.
+- **The three zeros:** Case A fixes, triggered updates, requester escalations accepted.
+- A preset-applied `--finderRequesterEscalation` is unused, not refused, when
+  `--finderSessions` or `--requesterEscalation` is turned off explicitly. G24's
+  requesterEscalation efficacy run does exactly that.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
