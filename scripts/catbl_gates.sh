@@ -1283,7 +1283,9 @@ finish G58
 #   - a hop to a next hop on another tier is refused, never sent;
 #   - the measured tag and subjects deliver fixes, on two tiers;
 #   - every routed row's cost recomputed from the run's weights (and beta 0 drops a term);
-#   - router blocks recounted; the control (and its WARNING); two refusals.
+#   - router blocks recounted; the control (no subjects); three refusals, one of them the
+#     old breach, --fixRouting with subjects and without the flag (TECH_DEBT N.12, refused
+#     since 2026-10-03).
 #
 # Negative fixtures in scripts/subject_routing_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G59 every measured subject routes its own fixes on its own tier (NW-2) ---\n'
@@ -1316,7 +1318,8 @@ finish G60
 #   - the preset reproduces its own settings given as flags, byte for byte;
 #   - spec_profile.txt lists every setting, and an explicit flag is kept;
 #   - every mechanism has a non-zero population in its registered run (a zero is FAIL);
-#   - with each mechanism's flag off its population is 0; the --topology=1 refusal.
+#   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
+#     the preset with --fixRoutingSubjects=false refused (N.12).
 # FAIL BY FINDING today: five mechanisms have no population under the preset (TECH_DEBT N.15).
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).

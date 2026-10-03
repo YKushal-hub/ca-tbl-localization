@@ -6,8 +6,9 @@
 #
 # Every fixture is a copy of a REAL run set, outside the tree, with ONE thing changed, and
 # must fail the check it names. The one that matters most is N1: a subject that sent a
-# routed frame on a tier it did not range on that cycle -- the sect 6 breach the control
-# commits 671 times.
+# routed frame on a tier it did not range on that cycle -- the sect 6 breach the old
+# combination (--fixRouting with subjects, without the flag) committed 671 times before it
+# was refused (N12 below).
 set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
@@ -106,6 +107,8 @@ fresh; echo 0 > "$T/f/r_w.rc"
 check "N10 a route weight accepted without --fixRouting" 1 R
 fresh; echo 134 > "$T/f/w.rc"
 check "N11 a run the checks read did not exit 0" 1 RUNS
+fresh; echo 0 > "$T/f/r_breach.rc"; sed -i '/needs --fixRoutingSubjects/d' "$T/f/r_breach.log"
+check "N12 --fixRouting with subjects accepted without --fixRoutingSubjects" 1 R
 
 printf '  G59 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

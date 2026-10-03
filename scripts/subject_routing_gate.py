@@ -8,8 +8,10 @@ Runs read:
         rows carrying the confidence route's three sums; trace_* (tag 0's tier per cycle) and
         subjtrace_*_subj<id>.csv (each subject's); on.log, one router block per tier.
   w/    the same with --routeBeta=0 --routeSlack=2.
-  off/  without the flag (the control): one router on --relayTier, and its WARNING.
-  r_nosubj, r_w   refusals: the flag without subjects; a weight without --fixRouting.
+  off/  the control: --measuredSubjects=1, so --fixRouting routes the relays on --relayTier.
+  r_nosubj, r_w, r_breach   refusals: the flag without subjects; a weight without
+        --fixRouting; --fixRouting with subjects and without the flag (TECH_DEBT N.12: the
+        sect 6 breach, a warning until 2026-10-03).
 
 Checks (each prints "G59 ok|FAIL|MISSING <LABEL> ..."):
   RUNS     every run the checks read exited 0.
@@ -26,8 +28,8 @@ Checks (each prints "G59 ok|FAIL|MISSING <LABEL> ..."):
            drop (confVar > 0 on rows whose cost ignores it).
   COUNTS   each router block's originated / delivered by hops / forwarded / lost / off-tier
            counts are recounted from its file; participants sum to nodes x cycles.
-  CONTROL  without the flag: no tier files, no NW-2 line, and the WARNING is printed.
-  R        both refusals exit 1 with the reason.
+  CONTROL  without subjects: no tier files, one --relayTier file, no NW-2 line.
+  R        all three refusals exit 1 with the reason.
 """
 import csv
 import glob
@@ -226,17 +228,16 @@ def main():
         tf = glob.glob(os.path.join(d, "off", "fix_routing_*_tier*.csv"))
         plain = glob.glob(os.path.join(d, "off", "fix_routing_*_seed7.csv"))
         nw2 = offlog.count("NW-2 weights")
-        warn = "WARNING: --fixRouting with --measuredSubjects > 1" in offlog
-        report(not tf and len(plain) == 1 and nw2 == 0 and warn, "CONTROL",
-               f"without the flag: tier files {len(tf)}, one --relayTier file {len(plain) == 1}, NW-2 lines {nw2} (need 0), "
-               f"the WARNING {warn}")
+        report(not tf and len(plain) == 1 and nw2 == 0, "CONTROL",
+               f"without subjects: tier files {len(tf)}, one --relayTier file {len(plain) == 1}, NW-2 lines {nw2} (need 0)")
 
     rb = []
-    for n, reason in (("r_nosubj", "--fixRoutingSubjects needs"), ("r_w", "they need --fixRouting")):
+    for n, reason in (("r_nosubj", "--fixRoutingSubjects needs"), ("r_w", "they need --fixRouting"),
+                      ("r_breach", "--measuredSubjects > 1 needs --fixRoutingSubjects")):
         txt = read(os.path.join(d, n + ".log")) or ""
         if rc(d, n) != 1 or reason not in txt:
             rb.append((n, rc(d, n)))
-    report(not rb, "R", "both refusals exit 1 with the reason" if not rb else f"refusals not as expected: {rb}")
+    report(not rb, "R", "all three refusals exit 1 with the reason" if not rb else f"refusals not as expected: {rb}")
 
     print(f"  G59: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1

@@ -7,16 +7,19 @@ Every spec mechanism must have a NON-ZERO population in the run registered for i
 "firing plus input" rule, TECH_DEBT H.3/I.5). A zero is a FAIL, never a pass by absence.
 Runs: main (the preset), end (the endgame: 750 m box, finders converging), gasp (the
 last-gasp run); off_<flag> (the preset with that flag off); eq_preset / eq_flags (the preset
-against its own flags written out); r_topo (the refusal).
+against its own flags written out); r_topo and r_n12 (the refusals).
 
 Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
-  RUNS      every run exited 0 (r_topo excepted).
+  RUNS      every run exited 0 (the refusals r_* excepted).
   EQUIV     --specProfile gives byte-identical CSVs to its own settings given as flags.
   FILE      spec_profile.txt lists every setting; in end/ the explicit --boxHalf and
             --finderMode are recorded as kept, not overwritten.
   POP <m>   one line per mechanism: its population in its registered run is > 0.
   EFF <f>   one line per efficacy run: with flag <f> off, its mechanism's population is 0.
   R         the preset with --topology=1 exits 1 with the reason.
+  R12       the preset with --fixRoutingSubjects=false exits 1 with the reason: --fixRouting
+            with subjects and without it is refused (TECH_DEBT N.12, 2026-10-03), so the
+            routed-subjects mechanism is shown off by refusal, not by an efficacy run.
 """
 import csv
 import glob
@@ -120,7 +123,7 @@ MECH = [
     ("fixes at hop depth 1", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:(\d+)"), None),
     ("fixes at hop depth 2", "end", lambda d, n: num(log(d, n), r"fixes by depth of the fused set 0:\d+ 1:\d+ 2:(\d+)"), None),
     ("per-hop variance terms", "main", lambda d, n: num(log(d, n), r"a variance term on (\d+)"), "hopVarianceTerms"),
-    ("subjects' fixes routed", "main", routed_subjects, "fixRoutingSubjects"),
+    ("subjects' fixes routed", "main", routed_subjects, None),  # off: refused, R12
     ("v2 answers heard", "main", lambda d, n: num(log(d, n), r"answers heard by requesters (\d+)"), None),
     ("query-triggered escalations", "main", lambda d, n: num(log(d, n), r"NW-4 query-triggered escalation[^\n]*escalations (\d+)"), "queryTriggeredEscalation"),
     ("reverse-path hops", "main", lambda d, n: num(log(d, n), r"unicast hops (\d+)"), None),
@@ -144,7 +147,7 @@ def main():
         print(__doc__)
         return 2
     d = sys.argv[1]
-    runs = [os.path.basename(p)[:-3] for p in glob.glob(os.path.join(d, "*.rc")) if not p.endswith("r_topo.rc")]
+    runs = [os.path.basename(p)[:-3] for p in glob.glob(os.path.join(d, "*.rc")) if not os.path.basename(p).startswith("r_")]
     bad = [n for n in runs if rc(d, n) != 0]
     report(not bad and "main" in runs, "RUNS", f"{len(runs)} runs exited 0" if not bad else f"non-zero exit: {bad}")
 
@@ -190,6 +193,9 @@ def main():
 
     t = log(d, "r_topo")
     report(rc(d, "r_topo") == 1 and "--specProfile with --topology=1" in t, "R", f"r_topo: exit {rc(d, 'r_topo')} (need 1)")
+    t = log(d, "r_n12")
+    report(rc(d, "r_n12") == 1 and "--measuredSubjects > 1 needs --fixRoutingSubjects" in t, "R12",
+           f"r_n12 (the preset with --fixRoutingSubjects=false): exit {rc(d, 'r_n12')} (need 1)")
     print(f"  G24: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1
 

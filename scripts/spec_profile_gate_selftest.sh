@@ -68,6 +68,8 @@ fresh; echo 0 > "$T/f/r_topo.rc"
 check "N6 --specProfile accepted with --topology=1" R
 fresh; echo 134 > "$T/f/gasp.rc"
 check "N7 a run did not exit 0" RUNS
+fresh; echo 0 > "$T/f/r_n12.rc"; sed -i '/needs --fixRoutingSubjects/d' "$T/f/r_n12.log"
+check "N8 the preset accepted with --fixRoutingSubjects=false (N.12)" R12
 
 printf '  G24 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
