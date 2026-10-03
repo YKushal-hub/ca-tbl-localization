@@ -12,7 +12,7 @@ CaTblTableEntry::CaTblTableEntry()
     : nodeId(0), x(0.0), y(0.0), varX(0.0), varY(0.0), covXY(0.0), timestampS(0.0),
       seqNo(0), hopCount(0), sourceType(0), vx(0.0), vy(0.0), targetManifestId(0),
       valid(false), pcsQ(0), integrityFlag(0), batteryQ(0), degradationQ(0), uwbActive(false),
-      grantedBy(0)
+      grantedBy(0), tierSource(0xFF), fixHop(0)
 {
 }
 

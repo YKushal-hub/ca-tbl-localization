@@ -1192,6 +1192,21 @@ bash scripts/hop_provenance_gate.sh "$WORK/g53" || fail G53
 bash scripts/hop_provenance_gate_selftest.sh "$WORK/g53" || fail G53
 finish G53
 
+# ---------------- G54: the base station's session is fed by delivered RESPONSEs (TA-1a)
+# The session layer was opened by the measured tag for itself and fed its own EKF every
+# cycle. --sessionOverMesh opens the base station's session (requester 0) over what its
+# queries ask, fed only by RESPONSEs delivered to a gateway. G50's regime with
+# --sessionLayer, read by scripts/session_gate.py:
+#   - every result is a gateway delivery, once per answer, and every delivery is fed;
+#   - each RESULT is the delivered entry; the state chain holds and leaves SEARCHING on
+#     an answer; time-to-first-fix is the first delivered result; the control; refusals.
+#
+# Negative fixtures in scripts/session_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G54 the base station session is fed by delivered RESPONSEs (TA-1a) ---\n'
+bash scripts/session_gate.sh "$WORK/g54" || fail G54
+bash scripts/session_gate_selftest.sh "$WORK/g54" || fail G54
+finish G54
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

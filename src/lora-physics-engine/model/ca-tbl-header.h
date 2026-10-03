@@ -240,6 +240,10 @@ struct CaTblTableEntry
     uint8_t degradationQ;
     bool uwbActive;
     uint16_t grantedBy;
+    //! TA-1. The tier of the producer's last fix (0xFF: none yet) and that fix's
+    //! hop_count_at_fix (NW-1), so a RESULT built from a delivered entry carries them.
+    uint8_t tierSource;
+    uint8_t fixHop;
 
     CaTblTableEntry();
 };

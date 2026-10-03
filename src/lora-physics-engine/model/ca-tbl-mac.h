@@ -529,7 +529,8 @@ class CaTblMac
     void SendQueryV2(CaTblTier tier, const std::vector<uint8_t>& manifests, uint8_t priority);
     //! NW-9. The status the next PublishSelfEntry() stamps on this node's entry.
     void SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
-                       uint8_t degradationQ, bool uwbActive, uint16_t grantedBy);
+                       uint8_t degradationQ, bool uwbActive, uint16_t grantedBy,
+                       uint8_t tierSource = 0xFF, uint8_t fixHop = 0);
     //! NW-9. Every first copy of an answer that reaches this node as its requester.
     void SetResponseCallback(std::function<void(const CaTblHeader&)> cb) { m_respCb = cb; }
     //! NW-9. One row per decision on a v2 QUERY (answered, proxied, relayed with the
@@ -950,6 +951,8 @@ class CaTblMac
     uint8_t m_selfDegradationQ = 0;
     bool m_selfUwbActive = false;
     uint16_t m_selfGrantedBy = 0;
+    uint8_t m_selfTierSource = 0xFF; // TA-1
+    uint8_t m_selfFixHop = 0;
     uint64_t m_v2Answered = 0;
     uint64_t m_v2Proxied = 0;
     uint64_t m_v2Suppressed = 0;

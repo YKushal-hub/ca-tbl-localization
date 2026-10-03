@@ -117,6 +117,7 @@
 #include <numeric>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace ns3;
@@ -5422,6 +5423,10 @@ struct SpecOptions
     double arbSlotHoldS = 10.0;
     //! NW-1. --hopProvenance: the hop count of a fused set reaches Step() and the RESULT.
     bool hopProvenance = false;
+    //! TA-1a. --sessionOverMesh: the base station's session is fed by delivered RESPONSEs.
+    bool sessionOverMesh = false;
+    double sessionStalenessS = 120.0;
+    double sessionTimeoutS = 600.0;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6555,7 +6560,22 @@ RunArm(CaTblPolicyMode mode,
     // Application sect 4. A rescuer opens the search before anything runs, which is what
     // makes time-to-first-fix meaningful: the clock starts when the request was made,
     // not when the system happened to succeed.
-    if (sessionLayer)
+    if (sessionLayer && spec.sessionOverMesh)
+    {
+        // TA-1a. The base station (requester 0) searches for what its queries ask: the
+        // --identityQueryManifests list (a batch) or --identityQueryTarget alone.
+        sessions.SetStalenessBound(spec.sessionStalenessS);
+        sessions.SetSessionTimeout(spec.sessionTimeoutS);
+        const std::vector<uint8_t> targets =
+            spec.identityQueryManifests.empty()
+                ? std::vector<uint8_t>(1, static_cast<uint8_t>(identityQueryTarget))
+                : spec.identityQueryManifests;
+        sessionId = (targets.size() > 1)
+                        ? sessions.BatchSearch(targets, 0u, CA_TBL_PRIORITY_ROUTINE, 0.0)
+                        : sessions.SearchAndLocalize(targets[0], 0u, CA_TBL_PRIORITY_ROUTINE,
+                                                     0.0);
+    }
+    else if (sessionLayer)
     {
         // Manifest id 1 is the measured tag's, set at mc.targetManifestId above. The
         // requester id is the base station, which is not a simulated node -- nothing is
@@ -6956,6 +6976,20 @@ RunArm(CaTblPolicyMode mode,
     std::vector<double> v2Pcs(tags.size(), 0.0);
     std::vector<uint8_t> v2Suspect(tags.size(), 0);
     std::vector<uint16_t> v2GrantedBy(tags.size(), 0);
+    std::vector<uint8_t> v2FixTier(tags.size(), 0xFF); // TA-1: the last fix's tier
+    std::vector<uint8_t> v2FixHop(tags.size(), 0);     // TA-1: and its hop count
+    // TA-1a. The base station's session log and the answers it has already taken.
+    std::unique_ptr<std::ofstream> sessLog;
+    std::set<std::tuple<uint32_t, uint16_t, uint8_t>> baseSeen;
+    uint64_t baseResults = 0;
+    if (spec.sessionOverMesh)
+    {
+        std::ostringstream sfn;
+        sfn << traceDir << "/session_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sessLog.reset(new std::ofstream(sfn.str().c_str()));
+        *sessLog << "t,requesterId,sessionId,event,manifest,queryId,answererId,entryNode,"
+                    "tierSource,pcs,suspect,hopCountAtFix,stateBefore,stateAfter\n";
+    }
     if (spec.queryV2)
     {
         std::ostringstream rfn, qfn;
@@ -6964,14 +6998,18 @@ RunArm(CaTblPolicyMode mode,
         respLog.reset(new std::ofstream(rfn.str().c_str()));
         qv2Log.reset(new std::ofstream(qfn.str().c_str()));
         *respLog << "t,requesterId,tier,queryId,manifest,answererId,entryNode,entryT,x,y,seq,hop,"
-                    "pcsQ,integrity,batteryQ,degradationQ,uwbActive,grantedBy\n";
+                    "pcsQ,integrity,batteryQ,degradationQ,uwbActive,grantedBy,tierSource,fixHop\n";
         *qv2Log << "t,node,tier,queryId,what,manifest,left\n";
         for (size_t m = 0; m < macs.size(); ++m)
         {
             macs[m].SetQueryLog(qv2Log.get());
             const uint16_t rid = macs[m].GetNodeId();
             std::ofstream* out = respLog.get();
-            macs[m].SetResponseCallback([out, rid](const CaTblHeader& h) {
+            const bool atBase =
+                spec.sessionOverMesh && macs[m].GetIdentityClass() == CA_TBL_ID_ANCHOR;
+            macs[m].SetResponseCallback([out, rid, atBase, &sessions, &sessionId, &sessLog,
+                                         &baseSeen, &baseResults,
+                                         &renderCounts](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
                      << ',' << rid << ',' << static_cast<int>(h.GetTier()) << ','
@@ -6982,7 +7020,54 @@ RunArm(CaTblPolicyMode mode,
                      << static_cast<int>(e.pcsQ) << ',' << static_cast<int>(e.integrityFlag)
                      << ',' << static_cast<int>(e.batteryQ) << ','
                      << static_cast<int>(e.degradationQ) << ',' << (e.uwbActive ? 1 : 0) << ','
-                     << e.grantedBy << '\n';
+                     << e.grantedBy << ',' << static_cast<int>(e.tierSource) << ','
+                     << static_cast<int>(e.fixHop) << '\n';
+                // TA-1a. A RESPONSE delivered to ANY gateway reaches the base station over
+                // the backhaul (unbilled, as for the edge estimator), once per answer; the
+                // RESULT is built from the delivered entry, never from the policy.
+                if (!atBase || !h.HasSelfEntry() || !e.valid)
+                {
+                    return;
+                }
+                const std::tuple<uint32_t, uint16_t, uint8_t> key(
+                    h.GetRespQueryId(), h.GetRespAnswererId(), h.GetRespManifest());
+                if (!baseSeen.insert(key).second)
+                {
+                    return;
+                }
+                ++baseResults;
+                CaTblResult res;
+                res.targetManifestId = h.GetRespManifest();
+                res.x = e.x;
+                res.y = e.y;
+                res.varX = e.varX;
+                res.varY = e.varY;
+                res.covXY = e.covXY;
+                res.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
+                                     ? static_cast<CaTblTier>(e.tierSource)
+                                     : CA_TBL_TIER_868;
+                res.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                res.hopCountAtFix = e.fixHop;
+                res.suspect = (e.integrityFlag != 0);
+                res.timestampS = e.timestampS;
+                const double nowS = Simulator::Now().GetSeconds();
+                std::map<uint32_t, CaTblSession>::const_iterator si =
+                    sessions.Sessions().find(sessionId);
+                const CaTblSessionState before =
+                    (si != sessions.Sessions().end()) ? si->second.State() : CA_TBL_SESSION_CLOSED;
+                sessions.OnResult(res, nowS);
+                si = sessions.Sessions().find(sessionId);
+                const CaTblSessionState after =
+                    (si != sessions.Sessions().end()) ? si->second.State() : CA_TBL_SESSION_CLOSED;
+                ++renderCounts[CaTblRenderFor(res)];
+                *sessLog << std::fixed << std::setprecision(6) << nowS << ",0," << sessionId
+                         << ",result," << static_cast<int>(res.targetManifestId) << ','
+                         << h.GetRespQueryId() << ',' << h.GetRespAnswererId() << ','
+                         << e.nodeId << ',' << static_cast<int>(e.tierSource) << ','
+                         << std::setprecision(4) << res.pcs << ',' << (res.suspect ? 1 : 0)
+                         << ',' << static_cast<int>(res.hopCountAtFix) << ','
+                         << CaTblSessionStateName(before) << ',' << CaTblSessionStateName(after)
+                         << '\n';
             });
         }
     }
@@ -7576,7 +7661,8 @@ RunArm(CaTblPolicyMode mode,
                     nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
                                                CaTblQuantise(1.0 - batteryUsedFrac),
                                                CaTblQuantise(pcsDegradation), onUwb,
-                                               onUwb ? v2GrantedBy[0] : 0);
+                                               onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
+                                               v2FixHop[0]);
                 }
             }
         }
@@ -7633,7 +7719,7 @@ RunArm(CaTblPolicyMode mode,
                         CaTblQuantise(v2Pcs[pt]), v2Suspect[pt],
                         CaTblQuantise(1.0 - tags[pt].batteryUsedFrac),
                         CaTblQuantise(tags[pt].pcsDegradation), onUwb,
-                        onUwb ? v2GrantedBy[pt] : 0);
+                        onUwb ? v2GrantedBy[pt] : 0, v2FixTier[pt], v2FixHop[pt]);
                 }
                 peerMacs[pi][ti]->PublishSelfEntry(
                     tags[pt].policy.EstX(), tags[pt].policy.EstY(),
@@ -8427,6 +8513,10 @@ RunArm(CaTblPolicyMode mode,
                 ++sb.steps;
                 v2Pcs[pt] = ds.pcs; // NW-9
                 v2Suspect[pt] = ds.suspect ? 1 : 0;
+                if (ds.hadFix)
+                {
+                    v2FixTier[pt] = static_cast<uint8_t>(fixTierS); // TA-1
+                }
                 if (grantLog)
                 {
                     if (sb.policy.GetUwbCoverageClears() > covBeforeS)
@@ -9900,6 +9990,11 @@ RunArm(CaTblPolicyMode mode,
         }
         v2Pcs[0] = d.pcs; // NW-9
         v2Suspect[0] = d.suspect ? 1 : 0;
+        if (d.hadFix)
+        {
+            v2FixTier[0] = static_cast<uint8_t>(fixTier); // TA-1
+            v2FixHop[0] = static_cast<uint8_t>(std::min<uint32_t>(255u, hopCountAtFix));
+        }
         if (grantLog)
         {
             if (policy.GetUwbCoverageClears() > covBefore)
@@ -10254,8 +10349,31 @@ RunArm(CaTblPolicyMode mode,
 
         if (sessionLayer)
         {
-            sessions.Tick(t);
-            if (d.hadFix)
+            if (sessLog)
+            {
+                // TA-1a: a Tick can move the session (stale, timed out); recorded too.
+                std::map<uint32_t, CaTblSession>::const_iterator si =
+                    sessions.Sessions().find(sessionId);
+                const CaTblSessionState before = (si != sessions.Sessions().end())
+                                                     ? si->second.State()
+                                                     : CA_TBL_SESSION_CLOSED;
+                sessions.Tick(t);
+                si = sessions.Sessions().find(sessionId);
+                const CaTblSessionState after = (si != sessions.Sessions().end())
+                                                    ? si->second.State()
+                                                    : CA_TBL_SESSION_CLOSED;
+                if (after != before)
+                {
+                    *sessLog << std::fixed << std::setprecision(6) << t << ",0," << sessionId
+                             << ",tick,0,0,0,0,255,0,0,0," << CaTblSessionStateName(before)
+                             << ',' << CaTblSessionStateName(after) << '\n';
+                }
+            }
+            else
+            {
+                sessions.Tick(t);
+            }
+            if (d.hadFix && !spec.sessionOverMesh)
             {
                 CaTblResult res;
                 res.targetManifestId = 1u;
@@ -11048,6 +11166,29 @@ RunArm(CaTblPolicyMode mode,
     {
         grantLog->close(); // NW-7: before the digest, and before the MACs can call back
         grantLog.reset();
+    }
+    if (sessLog)
+    {
+        // TA-1a. Closed before the digest; then what the base station's session saw.
+        sessLog->close();
+        sessLog.reset();
+        std::map<uint32_t, CaTblSession>::const_iterator si = sessions.Sessions().find(sessionId);
+        std::ostringstream line;
+        line << "    TA-1 base-station session (" << CaTblPolicyModeName(mode)
+             << "): answers delivered " << baseResults << ", path "
+             << (si != sessions.Sessions().end() ? si->second.Path().c_str() : "none")
+             << "; first coarse/precise (s):";
+        if (si != sessions.Sessions().end())
+        {
+            const std::vector<uint8_t>& tg = si->second.Targets();
+            for (size_t k = 0; k < tg.size(); ++k)
+            {
+                line << " m" << static_cast<int>(tg[k]) << " " << std::fixed
+                     << std::setprecision(1) << si->second.TimeToCoarse(tg[k]) << "/"
+                     << si->second.TimeToPrecise(tg[k]);
+            }
+        }
+        std::cout << line.str() << "\n";
     }
     if (hopLog)
     {
@@ -12393,6 +12534,30 @@ main(int argc, char* argv[])
                  "keeps the node waiting. Writes arb_<arm>_seed<N>.csv, digested, and one "
                  "NW-5 line. Needs --uwbArbitration and --handshakeFixes.",
                  spec.arbitrationV2);
+    cmd.AddValue("sessionOverMesh",
+                 "The session layer becomes a real search (Transport sect 2: 'a rescuer's "
+                 "handheld/base station issues a search'; 'ON any RESPONSE received for this "
+                 "session: result = extract_position_and_provenance(RESPONSE)'; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md TA-1a). FALSE by default, which is every "
+                 "--sessionLayer result so far: the session is opened by the measured tag for "
+                 "itself and fed its own EKF estimate every cycle. TRUE: the BASE STATION "
+                 "(requester 0, behind the gateway backhaul) opens one session over what its "
+                 "identity queries ask (a batch under --identityQueryManifests), and is fed "
+                 "only by RESPONSEs delivered to any gateway -- once per answer -- with the "
+                 "RESULT built from the delivered entry: position, Sigma, the producer's fix "
+                 "tier and hop count, PCS (its byte, so saturating; TECH_DEBT N.7) and "
+                 "integrity verdict. Writes session_<arm>_seed<N>.csv (every result and every "
+                 "state change), digested, and one TA-1 line. Needs --sessionLayer and "
+                 "--queryV2. Finder sessions (TA-1b) are not built.",
+                 spec.sessionOverMesh);
+    cmd.AddValue("sessionStalenessS",
+                 "Under --sessionOverMesh, seconds without a result after which a session "
+                 "goes STALE (the session manager's default, 120).",
+                 spec.sessionStalenessS);
+    cmd.AddValue("sessionTimeoutS",
+                 "Under --sessionOverMesh, seconds after which a session with no result "
+                 "times out (the session manager's default, 600).",
+                 spec.sessionTimeoutS);
     cmd.AddValue("hopProvenance",
                  "The hop count of what a fix fused reaches the decision and the RESULT "
                  "(Physical sect 2.5 folds hop-decay into trace(Sigma); Transport sect 3's "
@@ -14379,6 +14544,20 @@ main(int argc, char* argv[])
             spec.identityQueryManifests.push_back(static_cast<uint8_t>(v));
         }
     }
+    // TA-1a.
+    if (spec.sessionOverMesh && (!sessionLayerArg || !spec.queryV2))
+    {
+        std::cerr << "FATAL: --sessionOverMesh needs --sessionLayer and --queryV2: there is no "
+                     "session, or no RESPONSE carries an entry\n";
+        return 1;
+    }
+    if ((spec.sessionStalenessS != 120.0 || spec.sessionTimeoutS != 600.0) &&
+        !spec.sessionOverMesh)
+    {
+        std::cerr << "FATAL: --sessionStalenessS and --sessionTimeoutS are read only under "
+                     "--sessionOverMesh\n";
+        return 1;
+    }
     // NW-1.
     if (spec.hopProvenance && !relayedRangingArg)
     {
@@ -15430,6 +15609,10 @@ main(int argc, char* argv[])
     if (spec.hopProvenance)
     {
         digestPatterns += " hops_*.csv";
+    }
+    if (spec.sessionOverMesh)
+    {
+        digestPatterns += " session_*.csv";
     }
     if (spec.queryV2)
     {
