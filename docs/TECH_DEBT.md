@@ -1793,6 +1793,16 @@ owner.
   - sparse_anchor 33, tdoa 33, session 32, netlayer 30;
   - routing 27, relay_admission 22, lifecycle 16, imu 13, loocv 9.
 
+*2026-10-03, CLOSED (the owner approved the edit):* `RULES.md`, `SETUP_NEW_MACHINE.md` and
+the header of `scripts/catbl_gates.sh` now carry these numbers, each dated with the commit it
+was counted at. Where a line number is cited, the grep that finds it is given as well, so
+the next drift can be re-read rather than trusted. Corrected with them:
+- G3 passes now (it separates RNG contamination from the treatment effect on causal order);
+- "G11b" is G11;
+- the reds are G4, G5, G6, G11 and G24.
+Line numbers will drift again with the next code change. That is expected and is not
+reopened as debt.
+
 # N. Found 2026-10-02 to 2026-10-03, while building the spec-conformance programme
 
 Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it says otherwise:
