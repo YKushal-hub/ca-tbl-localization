@@ -3403,6 +3403,7 @@ struct RelayChain
                 double budgetM2, uint32_t maxRelayDepth) const;
 
     std::vector<uint32_t> depth;          //!< hops between the estimate and infrastructure
+    bool hopProvenance = false;           //!< NW-1: a short relay's Step gets its fused depth
     std::vector<double> inheritedVarM2;   //!< projected variance that estimate leans on
     std::vector<double> upUx;             //!< direction of the upstream leg it came along
     std::vector<double> upUy;
@@ -3704,6 +3705,7 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             m.nlosPropagation = false;
             m.hiddenChannelActive = false;
             m.sigmaM = sigEff;
+            m.hopDepth = rr.hopDepth; // NW-1 (read only under --hopProvenance)
             meas.push_back(m);
             used.insert(rr.relayId);
             if (depth[c] + 1 > newDepth)
@@ -3719,7 +3721,15 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                 bestUy = rr.uy;
             }
         }
-        B.policy.Step(dt, meas, 0, static_cast<int32_t>(meas.size()),
+        uint32_t hopArg = 0; // NW-1: the deepest leg in the set it fuses
+        if (hopProvenance && meas.size() >= 3)
+        {
+            for (size_t k = 0; k < meas.size(); ++k)
+            {
+                hopArg = std::max<uint32_t>(hopArg, meas[k].hopDepth);
+            }
+        }
+        B.policy.Step(dt, meas, hopArg, static_cast<int32_t>(meas.size()),
                       static_cast<int32_t>(addressed[b] + tried), 0);
         ++B.steps;
         ++shortSteps;
@@ -5410,6 +5420,8 @@ struct SpecOptions
     bool gossipQueue = false;
     //! --arbSlotHoldS: how long an awarded UWB slot is held (CaTblMacConfig::arbSlotHoldS).
     double arbSlotHoldS = 10.0;
+    //! NW-1. --hopProvenance: the hop count of a fused set reaches Step() and the RESULT.
+    bool hopProvenance = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6378,6 +6390,7 @@ RunArm(CaTblPolicyMode mode,
         cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
             << ".csv";
         chain.reset(new RelayChain(tags.size(), cfn.str()));
+        chain->hopProvenance = spec.hopProvenance;
     }
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
     // cycle's instant and charged at its time, exactly as before.
@@ -6887,6 +6900,16 @@ RunArm(CaTblPolicyMode mode,
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
+    // NW-1. --hopProvenance: one row per tag-0 cycle with the depth of what it fused.
+    std::unique_ptr<std::ofstream> hopLog;
+    uint64_t hopFixesByDepth[4] = {0, 0, 0, 0};
+    if (spec.hopProvenance)
+    {
+        std::ostringstream hfn;
+        hfn << traceDir << "/hops_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        hopLog.reset(new std::ofstream(hfn.str().c_str()));
+        *hopLog << "t,nMeas,nRelayed,maxHop,usedFloor,hadFix,rejected,hopCountAtFix\n";
+    }
     // NW-5. --arbitrationV2: the arbiters (every gateway's and finder's 2.4 GHz radio, the
     // radio a UWB request arrives on), by node id for the range evidence the scenario
     // reports, and arb_<arm>_seed<N>.csv.
@@ -9845,12 +9868,36 @@ RunArm(CaTblPolicyMode mode,
             }
         }
         const uint64_t covBefore = policy.GetUwbCoverageClears(); // NW-7
+        // NW-1. The deepest leg in the set Step() fuses: relayed ranges carry their depth
+        // (C5, and the chain's composition), direct ones 0. The tier-1 floor's set is
+        // direct by construction.
+        uint32_t hopArg = 0;
+        uint32_t nRelayedLegs = 0;
+        if (spec.hopProvenance)
+        {
+            for (size_t k = 0; k < meas.size(); ++k)
+            {
+                hopArg = std::max<uint32_t>(hopArg, meas[k].hopDepth);
+                nRelayedLegs += (meas[k].hopDepth > 0) ? 1u : 0u;
+            }
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
-                                            0,
+                                            hopArg,
                                             static_cast<int32_t>(activeMeas.size()),
                                             static_cast<int32_t>(activeMeasAddressed),
                                             tierEvidenceMask);
+        // NW-1: a fix that fused the set carries its depth; anything else carries none.
+        const uint32_t hopCountAtFix =
+            (d.hadFix && !d.measurementRejected && meas.size() >= 3) ? hopArg : 0u;
+        if (hopLog)
+        {
+            *hopLog << std::fixed << std::setprecision(4) << t << ',' << meas.size() << ','
+                    << nRelayedLegs << ',' << hopArg << ',' << (usedFloor ? 1 : 0) << ','
+                    << (d.hadFix ? 1 : 0) << ',' << (d.measurementRejected ? 1 : 0) << ','
+                    << hopCountAtFix << '\n';
+            ++hopFixesByDepth[std::min<uint32_t>(3u, hopCountAtFix)];
+        }
         v2Pcs[0] = d.pcs; // NW-9
         v2Suspect[0] = d.suspect ? 1 : 0;
         if (grantLog)
@@ -10219,7 +10266,7 @@ RunArm(CaTblPolicyMode mode,
                 res.covXY = policy.Pxy();
                 res.tierSource = fixTier;
                 res.pcs = d.pcs;
-                res.hopCountAtFix = 0;
+                res.hopCountAtFix = spec.hopProvenance ? hopCountAtFix : 0u; // NW-1
                 res.suspect = d.suspect;
                 res.timestampS = t;
                 sessions.OnResult(res, t);
@@ -11001,6 +11048,16 @@ RunArm(CaTblPolicyMode mode,
     {
         grantLog->close(); // NW-7: before the digest, and before the MACs can call back
         grantLog.reset();
+    }
+    if (hopLog)
+    {
+        // NW-1. Closed before the digest.
+        hopLog->close();
+        hopLog.reset();
+        std::cout << "    NW-1 hop provenance (" << CaTblPolicyModeName(mode)
+                  << "): fixes by depth of the fused set 0:" << hopFixesByDepth[0] << " 1:"
+                  << hopFixesByDepth[1] << " 2:" << hopFixesByDepth[2] << " 3+:"
+                  << hopFixesByDepth[3] << "\n";
     }
     if (spec.gossipQueue && gossip)
     {
@@ -12336,6 +12393,19 @@ main(int argc, char* argv[])
                  "keeps the node waiting. Writes arb_<arm>_seed<N>.csv, digested, and one "
                  "NW-5 line. Needs --uwbArbitration and --handshakeFixes.",
                  spec.arbitrationV2);
+    cmd.AddValue("hopProvenance",
+                 "The hop count of what a fix fused reaches the decision and the RESULT "
+                 "(Physical sect 2.5 folds hop-decay into trace(Sigma); Transport sect 3's "
+                 "RESULT carries hop_count_at_fix; docs/SPEC_CONFORMANCE_PLAN.md NW-1). FALSE "
+                 "by default, which is every result so far: Step() is passed a literal 0 and "
+                 "the RESULT says 0. TRUE: the measured tag's Step() and every short relay's "
+                 "get the deepest leg of the set they fuse (relayed ranges carry their depth, "
+                 "direct ones 0), and a fix that fused it carries it as hop_count_at_fix. "
+                 "hopWeight stays 0 -- the spec's PCS has no hop term and hop enters through "
+                 "Sigma, which C5's admission already inflates -- so no decision moves; what "
+                 "moves is that the count is carried. Writes hops_<arm>_seed<N>.csv, "
+                 "digested, and one NW-1 line. Needs --relayedRanging.",
+                 spec.hopProvenance);
     cmd.AddValue("arbSlotHoldS",
                  "Seconds an awarded UWB slot is held before an arbiter treats it as free "
                  "(CaTblMacConfig::arbSlotHoldS). 10 (default) is the C4 harness constant "
@@ -14309,6 +14379,13 @@ main(int argc, char* argv[])
             spec.identityQueryManifests.push_back(static_cast<uint8_t>(v));
         }
     }
+    // NW-1.
+    if (spec.hopProvenance && !relayedRangingArg)
+    {
+        std::cerr << "FATAL: --hopProvenance needs --relayedRanging: without relays every "
+                     "range is direct and every count is 0\n";
+        return 1;
+    }
     // NW-6.
     if (spec.gossipQueue && (!(anchorGrantGossipSArg > 0.0) || !spec.arbitrationV2))
     {
@@ -15349,6 +15426,10 @@ main(int argc, char* argv[])
     if (spec.grantGatedUwb)
     {
         digestPatterns += " grants_*.csv";
+    }
+    if (spec.hopProvenance)
+    {
+        digestPatterns += " hops_*.csv";
     }
     if (spec.queryV2)
     {

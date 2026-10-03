@@ -1178,6 +1178,20 @@ bash scripts/queue_gossip_gate.sh "$WORK/g52" || fail G52
 bash scripts/queue_gossip_gate_selftest.sh "$WORK/g52" || fail G52
 finish G52
 
+# ---------------- G53: hop provenance reaches the decision and the RESULT (NW-1, steps 1-2)
+# The measured tag's Step() was passed a literal 0 and the RESULT said 0, though C5 knew each
+# relayed range's depth. --hopProvenance passes the fused set's deepest leg and carries it
+# as hop_count_at_fix (hopWeight stays 0). G17's relay-chain regime, static_2p4 and
+# ca_tbl_full, read by scripts/hop_provenance_gate.py:
+#   - every cycle's depth and relayed count recounted from relay_chain_*'s admitted tag legs;
+#   - fused fixes carry depths 1 and 2; the NW-1 line equals the log; the control; a refusal.
+#
+# Negative fixtures in scripts/hop_provenance_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G53 hop provenance reaches the decision and the RESULT (NW-1) ---\n'
+bash scripts/hop_provenance_gate.sh "$WORK/g53" || fail G53
+bash scripts/hop_provenance_gate_selftest.sh "$WORK/g53" || fail G53
+finish G53
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
