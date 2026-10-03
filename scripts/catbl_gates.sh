@@ -1311,6 +1311,22 @@ bash scripts/case_c_gate.sh "$WORK/g60" || fail G60
 bash scripts/case_c_gate_selftest.sh "$WORK/g60" || fail G60
 finish G60
 
+# ---------------- G61: the LR1121 radio basis (SY-2)
+# The energy model billed tiers 1 and 2 on an SX1262 and an SX1280; the spec puts both on one
+# Semtech LR1121. --radioBasis=lr1121 bills them from DS.LR1121.W.APP Rev 2.0 and changes
+# currents only. Pairs that differ only in the basis, read by scripts/radio_basis_gate.py:
+#   - the default configuration, six arms: every non-energy value identical, and every
+#     energy bucket the SX one times the current ratio (UWB unchanged);
+#   - five measured subjects: the same ratios on their rows;
+#   - G16's gossip regime: the gateways' gossip accounts at the ratios;
+#   - the SY-2 line, the preset setting the basis, a refusal.
+#
+# Negative fixtures in scripts/radio_basis_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G61 the LR1121 radio basis (SY-2) ---\n'
+bash scripts/radio_basis_gate.sh "$WORK/g61" || fail G61
+bash scripts/radio_basis_gate_selftest.sh "$WORK/g61" || fail G61
+finish G61
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and

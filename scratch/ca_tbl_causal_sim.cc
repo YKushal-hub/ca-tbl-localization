@@ -1282,6 +1282,22 @@ ArbBatteryTerm(bool remaining, double usedFrac)
     return remaining ? 1.0 - usedFrac : usedFrac;
 }
 
+// SY-2. --radioBasis=lr1121: every field-node and gateway-gossip energy account takes the
+// LR1121 profiles for 868 MHz and 2.4 GHz (UWB stays DW3000). A file-scope global, like
+// --terrainPerTierFreq's and --uwbNlosModel's: written once after cmd.Parse(), read where
+// an account is created.
+static bool g_radioBasisLr1121 = false;
+
+static void
+ApplyRadioBasis(CaTblEnergyModel& e)
+{
+    if (g_radioBasisLr1121)
+    {
+        e.SetProfile(CA_TBL_TIER_868, RadioPowerProfile::Lr1121_868());
+        e.SetProfile(CA_TBL_TIER_2P4, RadioPowerProfile::Lr1121_2p4());
+    }
+}
+
 /**
  * \brief L.1.4 / Network sect 6 -- anchors gossip the UWB slots they hold, and on an
  *        overlap for the same field node the LOWER node id defers.
@@ -1387,6 +1403,7 @@ GrantGossip::AttachAnchor(uint16_t id, CaTblTier tier, CaTblMac* mac, EnginePhyP
     {
         tier1.push_back(mac);
         energy.emplace_back();
+        ApplyRadioBasis(energy.back()); // SY-2
         energy.back().SetLoRaPhy(CA_TBL_TIER_868, phy[0].sf, phy[0].bandwidthHz, 1);
         txChargedS.push_back(0.0);
         rxChargedS.push_back(0.0);
@@ -5963,6 +5980,10 @@ RunArm(CaTblPolicyMode mode,
     // as it was: they bind the old names to tag 0's members. Without them this would
     // be a rename across roughly 750 lines, which is not a diff anyone can review.
     std::vector<CaTblTagState> tags(std::max<uint32_t>(1, nTags));
+    for (CaTblTagState& ts : tags)
+    {
+        ApplyRadioBasis(ts.energy); // SY-2: every field node carries the same radios
+    }
     tags[0].nodeId = 1;
     const uint32_t nodeId = tags[0].nodeId;
     CaTblEnergyModel& energy = tags[0].energy;
@@ -13014,9 +13035,8 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
 
 /**
  * P6. --specProfile: the spec preset (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1). Each row is a
- * flag the preset sets, the value, and the docx section or owner decision it serves. NOT
- * in it yet, and said so wherever the preset is reported: --radioBasis=lr1121 (SY-2, the
- * LR1121 datasheet). The geometry is GEO-01 stage 2's registered FALLBACK
+ * flag the preset sets, the value, and the docx section or owner decision it serves. The
+ * radio basis is the LR1121 since SY-2 (2026-10-03). The geometry is GEO-01 stage 2's registered FALLBACK
  * (report/GEO01_RESULTS.md): no candidate met the SAR criterion. The PCS is CAL-02's
  * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md). The routing
  * weights are CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision
@@ -13107,6 +13127,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"sessionPreciseOnGrant", "true", "Transport 2: LOCATED_PRECISE on a confirmed grant"},
     {"vizEvents", "true", "rule 13: events_ written and digested"},
     {"edgeUplinkRanges", "true", "final plan: the gateway edge server's uplink billed"},
+    {"radioBasis", "lr1121", "hardware: tiers 1 and 2 on one LR1121 (SY-2; DS.LR1121.W.APP Rev 2.0)"},
     {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
     {"nTags", "5", "decision 4: five field nodes"},
     {"boxHalf", "5000", "the spec's 5 km search area"},
@@ -13279,6 +13300,7 @@ main(int argc, char* argv[])
     bool pcsNlosClassifierArg = false;    // L.2.2, off: PCS term 3 reads the tag, as always
     double nlosScoreThresholdArg = 0.5;   // ours: the midpoint of every score's range
     std::string uwbNlosModelSpec = "legacy"; // M.2: resolved after cmd.Parse()
+    std::string radioBasisArg = "sx";        // SY-2: resolved after cmd.Parse()
     bool vizEventsArg = false;
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -13762,7 +13784,7 @@ main(int argc, char* argv[])
              "default: every run is as before. TRUE: each setting below is applied unless the "
              "same flag is given explicitly, which always wins; spec_profile.txt (digested) lists "
              "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
-             "Not yet in it: --radioBasis=lr1121 (SY-2). The geometry is GEO-01's registered "
+             "The geometry is GEO-01's registered "
              "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form; "
              "the routing weights are CAMP-SPEC's sweep pick (0,0,1,1), unused (not refused) "
              "when --fixRouting is turned off explicitly. --hopVarianceTerms is left out "
@@ -15048,6 +15070,21 @@ main(int argc, char* argv[])
                  "guesses, so mapping it onto a ground-level SAR link is OURS. Any other value is "
                  "FATAL.",
                  uwbNlosModelSpec);
+    cmd.AddValue("radioBasis",
+                 "The radio parts the energy model is billed against (docs/SPEC_CONFORMANCE_PLAN.md "
+                 "SY-2; the spec puts tiers 1 and 2 on one Semtech LR1121 die and tier 3 on a "
+                 "DW3000). SX (default) is every result so far: an SX1262 at 868 MHz and an SX1280 "
+                 "at 2.4 GHz. LR1121 bills both from DS.LR1121.W.APP Rev 2.0 (Dec 2023), Tables "
+                 "3-4..3-6, VBAT 3.3 V, DC-DC: TX 28 mA at +14 dBm (LP PA) and 26 mA at 2.4 GHz "
+                 "(the +13 dBm row for the scenario's 12.5 dBm, OURS); RX 7.8 and 7.5 mA "
+                 "(RxBoosted, as the SX1262 profile); CAD at the RX current (the datasheet gives "
+                 "none, OURS); idle 1.25 mA (STBY_RC); sleep 1.6 uA (RC-based RTC). UWB is "
+                 "unchanged, and every timing field is kept from the SX profiles, so only currents "
+                 "move: at defaults only energy columns change, while under --specProfile energy "
+                 "feeds the escalation request's battery term and so arbitration. Every field "
+                 "node's account and every gateway's gossip account take it; one SY-2 line. Any "
+                 "other value is FATAL.",
+                 radioBasisArg);
     cmd.AddValue("sf868",
                  "Tier-1 (868 MHz) spreading factor, SF7-SF12 (Physical 1.1: 'configurable "
                  "spreading factor'; docs/SPEC_CONFORMANCE_PLAN.md SY-3). Not given (0) is "
@@ -15435,8 +15472,8 @@ main(int argc, char* argv[])
         }
         sp << "# --specProfile (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1): what the preset set, and "
               "what the user gave explicitly instead\n"
-              "# not yet in the preset: --radioBasis=lr1121 (SY-2); the geometry is GEO-01 stage "
-              "2's registered fallback; the PCS is CAL-02's calibrated form\n";
+              "# the geometry is GEO-01 stage 2's registered fallback; the PCS is CAL-02's "
+              "calibrated form; the radio basis is the LR1121 (SY-2)\n";
         size_t kept = 0;
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
@@ -15453,11 +15490,30 @@ main(int argc, char* argv[])
         }
         std::cerr << "NOTE: --specProfile set " << (sizeof(kSpecProfile) / sizeof(kSpecProfile[0]) - kept)
                   << " spec settings (" << kept << " given explicitly and kept); "
-                  << outdir << "/spec_profile.txt lists them. Not yet in the preset: "
-                     "--radioBasis=lr1121 (SY-2).\n";
+                  << outdir << "/spec_profile.txt lists them.\n";
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+
+    // SY-2. --radioBasis is resolved here, before any energy account exists. The default
+    // prints nothing, so no output moves with it.
+    if (radioBasisArg == "lr1121")
+    {
+        g_radioBasisLr1121 = true;
+        const RadioPowerProfile a = RadioPowerProfile::Lr1121_868();
+        const RadioPowerProfile b = RadioPowerProfile::Lr1121_2p4();
+        std::cout << "SY-2 radio basis lr1121 (DS.LR1121.W.APP Rev 2.0, Tables 3-4..3-6): 868 MHz "
+                  << "tx " << a.txCurrentMa << " rx " << a.rxCurrentMa << " cad " << a.cadCurrentMa
+                  << " idle " << a.idleCurrentMa << " sleep " << a.sleepCurrentMa << " mA; 2.4 GHz tx "
+                  << b.txCurrentMa << " rx " << b.rxCurrentMa << " cad " << b.cadCurrentMa << " idle "
+                  << b.idleCurrentMa << " sleep " << b.sleepCurrentMa
+                  << " mA; UWB DW3000 unchanged; timing as the SX profiles\n";
+    }
+    else if (radioBasisArg != "sx")
+    {
+        std::cerr << "FATAL: --radioBasis must be sx or lr1121, got '" << radioBasisArg << "'\n";
+        return 1;
+    }
 
     // M.2. --uwbNlosModel is resolved here, before any engine config is built. Silent in
     // every case, so no output file, stdout or stderr line moves with the default.

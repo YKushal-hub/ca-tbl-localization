@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 202 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 203 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,39 +20,39 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 172 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 197 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 198 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 196 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 197 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 194 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 195 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 195 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 196 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
-- `--edgeUplinkRanges` (row 193 of §3, and its §1 row): added with the default `false`
+- `--edgeUplinkRanges` (row 194 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
-- `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 175–178 of §3, and their §1 row): added with the
+- `--sf868`, `--bw868`, `--sf2p4`, `--bw2p4` (rows 176–179 of §3, and their §1 row): added with the
   default 0, "not given" (SY-3). Every row after them moved down four.
-- `--injectTxPowerDropDb`, `--injectAntennaLossDb` (rows 183–184 of §3, and their §1 row): added
+- `--injectTxPowerDropDb`, `--injectAntennaLossDb` (rows 184–185 of §3, and their §1 row): added
   with the default `0` (SY-5). Every row after them moved down two.
 - `--gwLayout`, `--gwLayoutFrac`, `--gwClusterRadiusM`, `--gwStarArms`, `--gwStarSpacingM`,
   `--gwLayoutFile` (rows 116–121 of §3, and their §1 row): added with the defaults
   `legacy`, `0.9`, `300`, `3`, `1500` and empty (MS-2). Every row after them moved down six.
-- `--sparseInStep` (row 192 of §3, and its §1 row): added with the default `false`
+- `--sparseInStep` (row 193 of §3, and its §1 row): added with the default `false`
   (DC-11). Every row after it moved down one.
-- `--imuPredict` (row 191 of §3, and its §1 row): added with the default `false`
+- `--imuPredict` (row 192 of §3, and its §1 row): added with the default `false`
   (DC-1). Every row after it moved down one.
-- `--caseD` (row 190 of §3, and its §1 row): added with the default `false` (DC-4).
+- `--caseD` (row 191 of §3, and its §1 row): added with the default `false` (DC-4).
   Every row after it moved down one.
-- `--entryPrediction` (row 189 of §3, and its §1 row): added with the default `false`
+- `--entryPrediction` (row 190 of §3, and its §1 row): added with the default `false`
   (DC-13). Every row after it moved down one.
-- `--imuWitnessSource` (row 188 of §3, and its §1 row): added with an empty default,
+- `--imuWitnessSource` (row 189 of §3, and its §1 row): added with an empty default,
   which means `shs` (DC-9). Every row after it moved down one.
-- `--meshLinks` (row 187 of §3, and its §1 row): added with an empty default, which
+- `--meshLinks` (row 188 of §3, and its §1 row): added with an empty default, which
   means `star` (NW-0). Every row after it moved down one.
-- `--measuredSubjects` (row 185 of §3, and its §1 row): added with the default `1`
+- `--measuredSubjects` (row 186 of §3, and its §1 row): added with the default `1`
   (MS-1). Every row after it moved down one.
-- `--finderTasking` (row 186 of §3, and its §1 row): added with an empty default,
+- `--finderTasking` (row 187 of §3, and its §1 row): added with an empty default,
   which means `tag0` (MS-1). Every row after it moved down one.
 - `--reversePathHop` (row 31 of §3, and its §1 row): added with the default `false`
   (NW-8). Every row after it moved down one.
@@ -82,9 +82,11 @@ for each change.** Row numbers below are as of the latest regeneration:
   Every row after it moved down one.
 - `--specProfile` (row 47 of §3, and its §1 row): added with the default `false` (P6).
   Every row after it moved down one.
+- `--radioBasis` (row 175 of §3, and its §1 row): added with the default `sx` (SY-2).
+  Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-sixty names. Three flags changed meaning without changing their printed default, and §1
+sixty-one names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -180,7 +182,8 @@ precondition missing.
 | `--hopVarianceTerms` | bool | `false` | added 2026-10-03 | NW-1 step 3: every relay leg that reaches admission, on either leg of the chain, adds the von Neumann σ of its RSSI/SNR readings (window 8, three readings, keyed by initiator and relay) converted to range by the tier's nominal path-loss slope at the range (OURS: tiers 2 and 3 range by time of flight), σ_leg = sqrt(σ² + σ_var²); a leg the tier's NLOS score (2.4 GHz: ToF/RSSI excess against a pool of legs; UWB: the CIR leading-edge test) puts at or above `--nlosScoreThreshold` is multiplied by nlosSigmaInflation, as a direct NLOS link is; C5 composes σ_eff from σ_leg. relay_chain_* gains the leg's readings and terms; one NW-1 line per arm | Needs `--relayedRanging`, `--relayChain` and `--nlosClassifier`, else FATAL. On tag-to-tag legs the variance term dwarfs the raw σ (TECH_DEBT N.11). Not in `--specProfile` since 2026-10-03 (owner decision, TECH_DEBT N.11) |
 | `--fixRoutingSubjects`, `--routeAlpha`, `--routeBeta`, `--routeGamma`, `--routeSlack` | bool; double; double; double; uint | `false`; `1`; `1`; `1`; `1` | added 2026-10-03 | NW-2: `--fixRoutingSubjects` builds one router per tier, the measured tag included; each cycle a node learns gateway links, advertises, originates its ENTRY_PUSH and forwards only in the router of the tier it ranged on, so a routed frame is on the one tier its sender transmits on (sect 6); a relay that is not a subject stays on `--relayTier`; a route whose next hop has since moved tier is refused (counted). Writes `fix_routing_<arm>_seed<N>_tier<k>.csv` per tier with the confidence route's three sums, digested, and an NW-2 line per router. `--routeAlpha/--routeBeta/--routeGamma/--routeSlack` weight the confidence cost α·NLOS + β·RSSI_var + γ·jitter and its slack (OURS; the rows gain the three sums when one is changed). Since 2026-10-03 `--specProfile` sets (0, 0, 1, 1), CAMP-SPEC's registered sweep pick, by owner decision; a weight the preset applied is not refused when `--fixRouting` is turned off explicitly | `--fixRoutingSubjects` needs `--fixRouting` and `--measuredSubjects` > 1; the weights need `--fixRouting`, must be finite and ≥ 0, and slack ≤ 3, else FATAL. `--fixRouting` with subjects but without the flag routed them on `--relayTier` whatever they ranged on, and warned; since 2026-10-03 (owner decision) it is FATAL (TECH_DEBT N.12) |
 | `--caseCRelative` | bool | `false` | added 2026-10-03 | DC-3, Physical §2.4 Case C: a measured subject with no anchor range this cycle (active tier and floor) ranges each peer subject its active radio has heard, on that tier, billed there; the ranges ride its next entry at 3 bytes a range (OURS, billed as the extra airtime) and reach the base station when an answer to its query carries that entry to a gateway, within 10 s (OURS). Once a cycle's window closes the base station reconstructs each connected set of 3+ by classical MDS (missing pairs by shortest path, OURS) and a pair as its distance. Never fused into a filter. Writes `case_c_ranges_*` and `case_c_relative_*`, digested, and one DC-3 line | Needs `--measuredSubjects` > 1, `--meshLinks=all` and `--sessionOverMesh`, else FATAL. Peer ranges on 868 MHz are coarse, so the shapes are too (TECH_DEBT N.13) |
-| `--specProfile` | bool | `false` | added 2026-10-03 | P6, the spec preset (plan §3.1, owner decision 1): 78 settings across the Physical, decision-core, MAC, Network, Transport, System and Deployment groups, each applied unless the same flag is given explicitly (which always wins). Resolved before the parse: unset settings are put ahead of the user's arguments. `spec_profile.txt` (digested) lists what was set and what was kept, and a NOTE goes to stderr. The help lists every setting and the section it serves. Not yet in it: `--radioBasis=lr1121` (SY-2). The geometry, `--nGateways=8` (a ring), is GEO-01 stage 2's registered fallback: no candidate met the SAR criterion. The PCS is `--pcsForm=calibrated` with CAL-02's weights (0, 1.92, 1.08) and thresholds, adopted by its registered rule. `--sparseCaseA` is left out (FATAL with `--sparseInStep`, which replaces it); `--relayVarBudget=24336` and `--identityQueryPeriodS=30` are added (OURS) | FATAL with `--topology=1`. Five mechanisms have a zero population under it (G24, TECH_DEBT N.15) |
+| `--specProfile` | bool | `false` | added 2026-10-03 | P6, the spec preset (plan §3.1, owner decision 1): 82 settings (2026-10-03, after SY-2) across the Physical, decision-core, MAC, Network, Transport, System and Deployment groups, each applied unless the same flag is given explicitly (which always wins). Resolved before the parse: unset settings are put ahead of the user's arguments. `spec_profile.txt` (digested) lists what was set and what was kept, and a NOTE goes to stderr. The help lists every setting and the section it serves. The radio basis is `--radioBasis=lr1121` (SY-2). The geometry, `--nGateways=8` (a ring), is GEO-01 stage 2's registered fallback: no candidate met the SAR criterion. The PCS is `--pcsForm=calibrated` with CAL-02's weights (0, 1.92, 1.08) and thresholds, adopted by its registered rule. The routing weights are CAMP-SPEC's pick (0, 0, 1, 1), by owner decision. `--sparseCaseA` is left out (FATAL with `--sparseInStep`, which replaces it), and so is `--hopVarianceTerms` (owner decision, N.11); `--relayVarBudget=24336` and `--identityQueryPeriodS=30` are added (OURS) | FATAL with `--topology=1`. Four mechanisms have a zero population under it (G24, TECH_DEBT N.15) |
+| `--radioBasis` | string: `sx`, `lr1121` | `sx` | added 2026-10-03 | SY-2: the radio parts the energy model bills tiers 1 and 2 on. `sx` is the SX1262 (868 MHz) and SX1280 (2.4 GHz) of every result so far; `lr1121` bills both from the Semtech LR1121 datasheet, DS.LR1121.W.APP Rev 2.0, Tables 3-4..3-6: TX 28 / 26 mA, RX 7.8 / 7.5 mA (RxBoosted), CAD at the RX current (OURS), idle 1.25 mA (STBY_RC), sleep 1.6 µA. UWB stays DW3000, and no timing moves, so at defaults only energy columns change (G61). Every field node's account and the gateways' gossip accounts; one SY-2 line. In `--specProfile` | any other value is FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -382,31 +385,32 @@ prints it.
 | 172 | `--entryVelocity` | `false` |
 | 173 | `--integrityNlosFromScore` | `false` |
 | 174 | `--uwbNlosModel` | `legacy` |
-| 175 | `--sf868` | `0` |
-| 176 | `--bw868` | `0` |
-| 177 | `--sf2p4` | `0` |
-| 178 | `--bw2p4` | `0` |
-| 179 | `--relayTier` | `1` |
-| 180 | `--nTags` | `1` |
-| 181 | `--identityQueryPeriodS` | `0` |
-| 182 | `--identityQueryTarget` | `2` |
-| 183 | `--injectTxPowerDropDb` | `0` |
-| 184 | `--injectAntennaLossDb` | `0` |
-| 185 | `--measuredSubjects` | `1` |
-| 186 | `--finderTasking` | (empty) |
-| 187 | `--meshLinks` | (empty) |
-| 188 | `--imuWitnessSource` | (empty) |
-| 189 | `--entryPrediction` | `false` |
-| 190 | `--caseD` | `false` |
-| 191 | `--imuPredict` | `false` |
-| 192 | `--sparseInStep` | `false` |
-| 193 | `--edgeUplinkRanges` | `false` |
-| 194 | `--triggeredUpdates` | `false` |
-| 195 | `--triggeredUpdateK` | `1` |
-| 196 | `--handshakeFixes` | `false` |
-| 197 | `--queryTierBinding` | (empty) |
-| 198 | `--uwbArbitration` | `false` |
-| 199 | `--arbBatteryCapJ` | `1000` |
-| 200 | `--anchorGrantGossipS` | `0` |
-| 201 | `--suspectForcesEscalation` | `true` |
-| 202 | `--nlosSource` | `legacy` |
+| 175 | `--radioBasis` | `sx` |
+| 176 | `--sf868` | `0` |
+| 177 | `--bw868` | `0` |
+| 178 | `--sf2p4` | `0` |
+| 179 | `--bw2p4` | `0` |
+| 180 | `--relayTier` | `1` |
+| 181 | `--nTags` | `1` |
+| 182 | `--identityQueryPeriodS` | `0` |
+| 183 | `--identityQueryTarget` | `2` |
+| 184 | `--injectTxPowerDropDb` | `0` |
+| 185 | `--injectAntennaLossDb` | `0` |
+| 186 | `--measuredSubjects` | `1` |
+| 187 | `--finderTasking` | (empty) |
+| 188 | `--meshLinks` | (empty) |
+| 189 | `--imuWitnessSource` | (empty) |
+| 190 | `--entryPrediction` | `false` |
+| 191 | `--caseD` | `false` |
+| 192 | `--imuPredict` | `false` |
+| 193 | `--sparseInStep` | `false` |
+| 194 | `--edgeUplinkRanges` | `false` |
+| 195 | `--triggeredUpdates` | `false` |
+| 196 | `--triggeredUpdateK` | `1` |
+| 197 | `--handshakeFixes` | `false` |
+| 198 | `--queryTierBinding` | (empty) |
+| 199 | `--uwbArbitration` | `false` |
+| 200 | `--arbBatteryCapJ` | `1000` |
+| 201 | `--anchorGrantGossipS` | `0` |
+| 202 | `--suspectForcesEscalation` | `true` |
+| 203 | `--nlosSource` | `legacy` |
