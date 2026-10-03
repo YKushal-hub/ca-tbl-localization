@@ -3583,6 +3583,60 @@ struct RelayChain
     void Report(std::ostream& os, const std::vector<CaTblTagState>& tags,
                 double budgetM2, uint32_t maxRelayDepth) const;
 
+    //! --subjectRelayChain (N.15, 2026-10-03). A measured subject's own fix set: three or
+    //! more direct ranges re-ground it at depth 0 and make it a fix-holder this cycle.
+    void SubjectHolds(size_t pt);
+    //! What a subject's exchanges with the holders left: the depth it would carry, the
+    //! holder that set it, and the leg it inherits along.
+    struct SubjectPick
+    {
+        size_t used = 0;
+        size_t tried = 0;
+        uint32_t newDepth = 0;
+        uint32_t viaId = 0;
+        double bestProj = -1.0;
+        double bestUx = 0.0;
+        double bestUy = 0.0;
+    };
+    //! A subject short of three on its active tier ranges, on that tier, every node that
+    //! holds a fix this cycle and is awake on it (\p awake, a tier bitmask per tag);
+    //! admitted ranges are appended to \p meas. Charged to the subject's own account.
+    SubjectPick RangeForSubject(size_t b,
+                                std::vector<CaTblTagState>& tags,
+                                uint32_t nTags,
+                                CaTblTier tier,
+                                const std::vector<uint8_t>& awake,
+                                const TierPhy* phy,
+                                LoRaPhysicsEngine& e868,
+                                LoRa2p4PhysicsEngine& e2p4,
+                                LoRaUWBPhysicsEngine& eUwb,
+                                double t,
+                                double dt,
+                                Time now,
+                                uint32_t maxRelayDepth,
+                                double budgetM2,
+                                RelayRound* round,
+                                std::vector<CaTblRangeMeasurement>& meas);
+    //! The subject stepped on \p meas (three or more, relayed ones among them): it now
+    //! holds a fix at the depth the pick carried.
+    void SubjectFused(size_t b, const CaTblTagState& B, const SubjectPick& pk, CaTblTier tier,
+                      double t, uint32_t maxRelayDepth, double budgetM2);
+    void ReportSubjects(std::ostream& os) const;
+    uint64_t subjShort = 0;        //!< subjects short of three on both sets
+    uint64_t subjTier1 = 0;        //!< of which were on 868 MHz, where A1 admits nothing
+    uint64_t subjNoExchange = 0;   //!< of which could not reach three, so ranged no one
+    uint64_t subjExchanges = 0;    //!< exchanges made (and charged)
+    uint64_t subjLinked = 0;       //!< of which the engine delivered a range
+    uint64_t subjAdmitted = 0;     //!< subjects that admitted at least one
+    uint64_t subjFused = 0;        //!< of which reached three and fused
+    uint64_t subjFusedByDepth[4] = {0, 0, 0, 0};
+    uint64_t subjHeld = 0;         //!< subject-cycles re-grounded on direct ranges
+    std::vector<uint8_t> awake;    //!< per tag, the tiers awake this cycle (bit = tier)
+    void ClearAwake(size_t n)
+    {
+        awake.assign(n, 0);
+    }
+
     std::vector<uint32_t> depth;          //!< hops between the estimate and infrastructure
     bool hopProvenance = false;           //!< NW-1: a short relay's Step gets its fused depth
     LegTerms* legTerms = nullptr;         //!< NW-1 step 3: null unless --hopVarianceTerms
@@ -3971,6 +4025,232 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
                     B.policy.Pxx() + B.policy.Pyy(), inheritedVarM2[b], budgetM2);
         }
     }
+}
+
+__attribute__((noinline)) void
+RelayChain::SubjectHolds(size_t pt)
+{
+    fixThisCycle[pt] = 1;
+    depth[pt] = 0;
+    inheritedVarM2[pt] = 0.0;
+    upUx[pt] = 0.0;
+    upUy[pt] = 0.0;
+    ++subjHeld;
+}
+
+/**
+ * --subjectRelayChain. The short-relay exchange of RangeShortRelays, for a measured subject:
+ * the same physics call, the same composition of the holder's covariance with what it
+ * inherited, the same A1-A5 admission and the same pseudo-anchor. What differs, and why:
+ * - the tier is the subject's ACTIVE tier, not --relayTier: a subject escalates, and it
+ *   transmits on one tier a cycle (sect 6), which pays for the exchange;
+ * - a holder must be awake on that tier this cycle (its active tier, or 868 MHz while a
+ *   hybrid arm keeps the floor): a sleeping radio does not answer (NW-0's rule);
+ * - holders are the nodes stepped EARLIER this cycle with a fix: plain relays (they step
+ *   first) and lower-id subjects. Tag 0 steps after every subject, so it is never one.
+ * Kept separate from RangeShortRelays, which is unchanged, so no default path moves.
+ */
+__attribute__((noinline)) RelayChain::SubjectPick
+RelayChain::RangeForSubject(size_t b,
+                            std::vector<CaTblTagState>& tags,
+                            uint32_t nTags,
+                            CaTblTier tier,
+                            const std::vector<uint8_t>& awake,
+                            const TierPhy* phy,
+                            LoRaPhysicsEngine& e868,
+                            LoRa2p4PhysicsEngine& e2p4,
+                            LoRaUWBPhysicsEngine& eUwb,
+                            double t,
+                            double dt,
+                            Time now,
+                            uint32_t maxRelayDepth,
+                            double budgetM2,
+                            RelayRound* round,
+                            std::vector<CaTblRangeMeasurement>& meas)
+{
+    SubjectPick pk;
+    const int ti = static_cast<int>(tier);
+    const size_t n = std::min<size_t>(nTags, tags.size());
+    const uint8_t bit = static_cast<uint8_t>(1u << ti);
+    CaTblTagState& B = tags[b];
+    ++subjShort;
+    if (tier == CA_TBL_TIER_868)
+    {
+        // A1 refuses every relayed range on tier 1 (a correlated shadowing field), so an
+        // exchange on 868 MHz could buy nothing and is not made, as one that cannot reach
+        // three is not.
+        ++subjTier1;
+        return pk;
+    }
+    size_t reachable = 0;
+    for (size_t c = 1; c < n; ++c)
+    {
+        reachable += (c != b && fixThisCycle[c] && (awake[c] & bit)) ? 1 : 0;
+    }
+    if (meas.size() + reachable < 3)
+    {
+        ++subjNoExchange;
+        return pk;
+    }
+    std::set<uint16_t> used;
+    for (size_t c = 1; c < n; ++c)
+    {
+        if (c == b || !fixThisCycle[c] || !(awake[c] & bit))
+        {
+            continue;
+        }
+        const CaTblTagState& C = tags[c];
+        const double ddx = B.policy.EstX() - C.policy.EstX();
+        const double ddy = B.policy.EstY() - C.policy.EstY();
+        const double dist = std::sqrt(ddx * ddx + ddy * ddy);
+        bool got = false;
+        double r = 0.0;
+        double sigRaw = 0.0;
+        LegTerms::Obs obs; // NW-1 step 3
+        obs.tier = ti;
+        obs.txPowerDbm = phy[ti].txPowerDbm;
+        double atS = t;
+        const Time at = round ? round->NextChain(now, t, &atS) : now;
+        if (tier == CA_TBL_TIER_2P4)
+        {
+            PhysicsResult2p4 res = e2p4.ProcessTransmission(
+                B.nodeId, C.nodeId, B.pos, C.pos, phy[ti].txPowerDbm, phy[ti].sf,
+                phy[ti].bandwidthHz, 1, at);
+            got = res.packetReceived;
+            r = res.estimatedRangeM;
+            sigRaw = res.rangingSigmaM;
+            obs.rssiDbm = res.measuredRssiDbm;
+            obs.snrDb = res.snr_db;
+        }
+        else if (tier == CA_TBL_TIER_UWB)
+        {
+            PhysicsResultUWB res = eUwb.ProcessTransmission(
+                B.nodeId, C.nodeId, B.pos, C.pos, phy[ti].txPowerDbm, phy[ti].sf,
+                phy[ti].bandwidthHz, 1, at);
+            got = res.packetReceived;
+            r = res.estimatedRangeM;
+            sigRaw = res.rangingSigmaM;
+            obs.rssiDbm = res.measuredRssiDbm;
+            obs.snrDb = res.snr_db;
+            obs.truthNlos = res.isNLOS;
+            obs.kFactor = res.sampledKFactor;
+            obs.nlosDb = res.nlosDb;
+        }
+        else
+        {
+            PhysicsResult res = e868.ProcessTransmission(
+                B.nodeId, C.nodeId, B.pos, C.pos, phy[ti].txPowerDbm, phy[ti].sf,
+                phy[ti].bandwidthHz, 1, at);
+            got = res.packetReceived;
+            r = res.estimatedRangeM;
+            sigRaw = res.rangingSigmaM;
+        }
+        ++pk.tried;
+        ++subjExchanges;
+        // On the subject's own account, on the tier it is transmitting on this cycle.
+        B.energy.AccountRangingExchange(tier, 1, got ? 1 : 0, atS);
+        if (!got || !std::isfinite(r) || r <= 0.0 || dist <= 0.0)
+        {
+            continue;
+        }
+        ++subjLinked;
+        CaTblRelayedRange rr;
+        rr.relayId = static_cast<uint16_t>(C.nodeId);
+        rr.tier = tier;
+        rr.hopDepth = static_cast<uint8_t>(std::min<uint32_t>(255u, depth[c] + 1));
+        rr.maxRelayDepth = maxRelayDepth;
+        rr.relayVarBudgetM2 = budgetM2;
+        rr.sigmaRangeM = sigRaw;
+        rr.relayP[0][0] = C.policy.Pxx();
+        rr.relayP[0][1] = C.policy.Pxy();
+        rr.relayP[1][0] = C.policy.Pxy();
+        rr.relayP[1][1] = C.policy.Pyy();
+        rr.relayAgeS = 0.0; // C stepped earlier this cycle
+        rr.relayFixIntervalS = dt;
+        rr.ux = ddx / dist;
+        rr.uy = ddy / dist;
+        rr.distToRelayM = dist;
+        if (inheritedVarM2[c] > 0.0)
+        {
+            const double p[2][2] = {{C.policy.Pxx(), C.policy.Pxy()},
+                                    {C.policy.Pxy(), C.policy.Pyy()}};
+            if (!CaTblComposeRelayChain(p, inheritedVarM2[c], upUx[c], upUy[c], rr.relayP))
+            {
+                Record(t, B.nodeId, 0, rr, inheritedVarM2[c], -1, 0.0);
+                continue;
+            }
+        }
+        LegTerms::Out terms;
+        if (legTerms)
+        {
+            terms = legTerms->Apply(B.nodeId, C.nodeId, obs, r, sigRaw);
+            rr.sigmaRangeM = terms.sigmaLegM;
+        }
+        double sigEff = 0.0;
+        const CaTblRelayVerdict v = CaTblAdmitRelayedRange(rr, used, &sigEff);
+        Record(t, B.nodeId, 0, rr, inheritedVarM2[c], static_cast<int>(v),
+               (v == CA_TBL_RELAY_ADMIT) ? sigEff : 0.0, legTerms ? &terms : nullptr);
+        if (v != CA_TBL_RELAY_ADMIT)
+        {
+            continue;
+        }
+        CaTblRangeMeasurement m;
+        m.anchorX = C.policy.EstX();
+        m.anchorY = C.policy.EstY();
+        m.rangeM = r;
+        m.nlos = false;
+        m.nlosPropagation = false;
+        m.hiddenChannelActive = false;
+        m.sigmaM = sigEff;
+        m.hopDepth = rr.hopDepth;
+        m.anchorId = static_cast<uint16_t>(C.nodeId);
+        m.sourceKind = CaTblSourceKindOf(static_cast<uint16_t>(C.nodeId));
+        meas.push_back(m);
+        used.insert(rr.relayId);
+        if (depth[c] + 1 > pk.newDepth)
+        {
+            pk.newDepth = depth[c] + 1;
+            pk.viaId = C.nodeId;
+        }
+        const double proj = sigEff * sigEff - sigRaw * sigRaw;
+        if (proj > pk.bestProj)
+        {
+            pk.bestProj = proj;
+            pk.bestUx = rr.ux;
+            pk.bestUy = rr.uy;
+        }
+    }
+    pk.used = used.size();
+    if (pk.used > 0)
+    {
+        ++subjAdmitted;
+    }
+    return pk;
+}
+
+__attribute__((noinline)) void
+RelayChain::SubjectFused(size_t b, const CaTblTagState& B, const SubjectPick& pk, CaTblTier tier,
+                         double t, uint32_t maxRelayDepth, double budgetM2)
+{
+    fixThisCycle[b] = 1;
+    ++subjFused;
+    ++subjFusedByDepth[std::min<uint32_t>(3u, pk.newDepth)];
+    depth[b] = pk.newDepth;
+    inheritedVarM2[b] = std::max(0.0, pk.bestProj);
+    upUx[b] = pk.bestUx;
+    upUy[b] = pk.bestUy;
+    LogFuse(t, B.nodeId, pk.viaId, tier, pk.newDepth, maxRelayDepth,
+            B.policy.Pxx() + B.policy.Pyy(), inheritedVarM2[b], budgetM2);
+}
+
+__attribute__((noinline)) void
+RelayChain::ReportSubjects(std::ostream& os) const
+{
+    os << "    L.1.2 subject chain: subject-cycles held on direct ranges " << subjHeld
+       << ", short " << subjShort << " (on 868 MHz, where A1 admits nothing, " << subjTier1
+       << "; no exchange possible " << subjNoExchange << "), exchanges " << subjExchanges << " (ranged " << subjLinked << "), admitted "
+       << subjAdmitted << ", fused " << subjFused << " (at depth 1/2/3+ " << subjFusedByDepth[1]
+       << "/" << subjFusedByDepth[2] << "/" << subjFusedByDepth[3] << ")\n";
 }
 
 __attribute__((noinline)) void
@@ -5719,6 +5999,8 @@ struct SpecOptions
     double arbSlotHoldS = 10.0;
     //! NW-1. --hopProvenance: the hop count of a fused set reaches Step() and the RESULT.
     bool hopProvenance = false;
+    //! N.15. --subjectRelayChain: measured subjects take part in the L.1.2 relay chain.
+    bool subjectRelayChain = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
@@ -9028,6 +9310,17 @@ RunArm(CaTblPolicyMode mode,
                 subjRoundOwn.reset(new RelayRound(spec.measuredSubjects, false, FixRouter::kSlotS));
             }
             const RelayRound* sround = relayRound ? relayRound.get() : subjRoundOwn.get();
+            if (chain && spec.subjectRelayChain)
+            {
+                // N.15: who can answer a subject's chain exchange this cycle. A plain relay
+                // is a fixed-tier node on --relayTier; a subject sets its own below.
+                chain->ClearAwake(tags.size());
+                const uint32_t rtw = std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier);
+                for (size_t pr = spec.measuredSubjects; pr < tags.size() && pr < nTags; ++pr)
+                {
+                    chain->awake[pr] = static_cast<uint8_t>(1u << rtw);
+                }
+            }
             for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
             {
                 const size_t pi = pt - 1;
@@ -9190,7 +9483,36 @@ RunArm(CaTblPolicyMode mode,
                 }
                 const bool actSolved = actM.size() >= 3;
                 const bool usedFloorS = !actSolved && floorM.size() >= 3;
-                const std::vector<CaTblRangeMeasurement>& measS = usedFloorS ? floorM : actM;
+                // N.15 (--subjectRelayChain). Three or more direct ranges on either set
+                // make the subject a fix-holder at depth 0. Short of three on both, it
+                // ranges the holders awake on its active tier, and the relayed ranges join
+                // the active set ONLY when they complete three: the sparse cases never take
+                // a relayed range (OURS), and the floor's 868 MHz ranges are never mixed with
+                // another tier's (the fix selection's rule). Exchanges that leave it short
+                // are billed and their ranges discarded.
+                std::vector<CaTblRangeMeasurement> chainM;
+                RelayChain::SubjectPick chainPk;
+                bool chainUsed = false;
+                if (chain && spec.subjectRelayChain)
+                {
+                    chain->awake[pt] = static_cast<uint8_t>((1u << static_cast<int>(act)) |
+                                                            (floorOn ? 1u : 0u));
+                    if (actSolved || usedFloorS)
+                    {
+                        chain->SubjectHolds(pt);
+                    }
+                    else if (!(preempt && act == pendT))
+                    {
+                        chainM = actM;
+                        chainPk = chain->RangeForSubject(
+                            pt, tags, nTags, act, chain->awake, phy, engine868, engine2p4,
+                            engineUwb, t, dt, now, maxRelayDepth, relayVarBudgetM2,
+                            relayRound.get(), chainM);
+                        chainUsed = chainPk.used > 0 && chainM.size() >= 3;
+                    }
+                }
+                const std::vector<CaTblRangeMeasurement>& measS =
+                    chainUsed ? chainM : (usedFloorS ? floorM : actM);
                 const CaTblTier fixTierS = usedFloorS ? CA_TBL_TIER_868 : act;
                 if (ex.rk)
                 {
@@ -9219,8 +9541,21 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 const uint64_t covBeforeS = sb.policy.GetUwbCoverageClears(); // NW-7
-                CaTblDecision ds = sb.policy.Step(dt, measS, 0, static_cast<int32_t>(actM.size()),
-                                                  static_cast<int32_t>(addressedActive), maskS);
+                uint32_t hopS = 0; // NW-1, under --subjectRelayChain: the set's deepest leg
+                if (chainUsed && spec.hopProvenance)
+                {
+                    for (size_t k = 0; k < chainM.size(); ++k)
+                    {
+                        hopS = std::max<uint32_t>(hopS, chainM[k].hopDepth);
+                    }
+                }
+                CaTblDecision ds = sb.policy.Step(
+                    dt, measS, hopS, static_cast<int32_t>(chainUsed ? chainM.size() : actM.size()),
+                    static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (chainUsed)
+                {
+                    chain->SubjectFused(pt, sb, chainPk, act, t, maxRelayDepth, relayVarBudgetM2);
+                }
                 ++sb.steps;
                 v2Pcs[pt] = ds.pcs; // NW-9
                 v2Suspect[pt] = ds.suspect ? 1 : 0;
@@ -12884,6 +13219,10 @@ RunArm(CaTblPolicyMode mode,
     if (chain)
     {
         chain->Report(std::cout, tags, relayVarBudgetM2, maxRelayDepth);
+        if (spec.subjectRelayChain)
+        {
+            chain->ReportSubjects(std::cout);
+        }
     }
     if (legTerms)
     {
@@ -13734,6 +14073,24 @@ main(int argc, char* argv[])
                  "Under --sessionOverMesh, seconds after which a session with no result "
                  "times out (the session manager's default, 600).",
                  spec.sessionTimeoutS);
+    cmd.AddValue("subjectRelayChain",
+                 "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
+                 "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
+                 "another node, and stays at depth 0, so a range through it is depth 1 and depth "
+                 "2 cannot arise when every field node is a subject (G24's zero under the "
+                 "preset). TRUE: a subject with three or more direct ranges (active tier or "
+                 "floor) holds a fix at depth 0; one short of three on both ranges, on its active "
+                 "tier and billed there (never on 868 MHz, where A1 admits no relayed range), "
+                 "every node that holds a fix this cycle and is awake on "
+                 "that tier (plain relays, which step first, and lower-id subjects; tag 0 steps "
+                 "last and never is one), with the chain's composition and A1-A5 admission, and "
+                 "the admitted ranges join its active set only if they complete three (OURS: the "
+                 "sparse cases never take a relayed range, and the floor's ranges are not mixed "
+                 "with another tier's). Fused, it carries the deepest holder's depth + 1, and tag "
+                 "0's relayed range through it is one deeper. relay_chain_* gains the subjects' "
+                 "rows and fuses; one L.1.2 subject-chain line. Needs --relayChain and "
+                 "--measuredSubjects > 1.",
+                 spec.subjectRelayChain);
     cmd.AddValue("hopProvenance",
                  "The hop count of what a fix fused reaches the decision and the RESULT "
                  "(Physical sect 2.5 folds hop-decay into trace(Sigma); Transport sect 3's "
@@ -16009,6 +16366,13 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --sessionStalenessS and --sessionTimeoutS are read only under "
                      "--sessionOverMesh\n";
+        return 1;
+    }
+    // N.15.
+    if (spec.subjectRelayChain && (!relayChainArg || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectRelayChain needs --relayChain and --measuredSubjects > 1: "
+                     "it puts measured subjects in the relay chain\n";
         return 1;
     }
     // NW-1 step 3.
