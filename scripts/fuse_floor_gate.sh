@@ -8,7 +8,8 @@
 #   without one they go to a mktemp directory removed on exit.
 #
 # The preset's endgame (750 m box, finders converging: where a node reaches UWB with one or
-# two ranges and the floor solves), full arm, seed 7, 900 s: the flag on and off; the
+# two ranges and the floor solves), full arm, seed 7, 900 s: the flag on and off (given
+# explicitly both ways: the preset sets it since FUSE-01 adopted it); the
 # preset at 5 km with the flag on (where the floor itself is short); and a refusal.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -31,7 +32,7 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     echo $? > "$D/$n.rc"
 }
 run end $B $END --fuseFloorActive=true &
-run off $B $END &
+run off $B $END --fuseFloorActive=false &
 run main $B --fuseFloorActive=true &
 wait
 run r_nostep --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --fuseFloorActive=true
