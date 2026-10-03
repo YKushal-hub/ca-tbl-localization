@@ -5429,6 +5429,10 @@ struct SpecOptions
     double sessionTimeoutS = 600.0;
     //! TA-3. --sessionPreciseOnGrant: PRECISE is a confirmed grant in a delivered entry.
     bool sessionPreciseOnGrant = false;
+    //! TA-1b. --finderSessions: every finder runs its own search for its assigned subject.
+    bool finderSessions = false;
+    //! TA-1b. --finderCancelM: a finder this close to its target cancels its session.
+    double finderCancelM = 2.0;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -6985,14 +6989,66 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<std::ofstream> sessLog;
     std::set<std::tuple<uint32_t, uint16_t, uint8_t>> baseSeen;
     uint64_t baseResults = 0;
-    if (spec.sessionOverMesh)
+    // TA-1b. One session manager per finder (a rescuer's handheld), its session over the
+    // subject it is assigned -- round-robin, finder k for subject (k mod N) + 1, the rule
+    // --finderTasking uses (OURS) -- and what each has taken and when it was cancelled.
+    struct FinderSearch
+    {
+        CaTblSessionManager mgr;
+        uint32_t sid = 0;
+        uint8_t target = 0;
+        std::set<std::tuple<uint32_t, uint16_t, uint8_t>> seen;
+        uint64_t results = 0;
+        double cancelledAtS = -1.0;
+        double cancelledAtM = -1.0;
+    };
+    std::deque<FinderSearch> finderSearch; // deque: the callbacks hold pointers
+    if (spec.finderSessions)
+    {
+        for (size_t fi = 0; fi < finderMacAll.size(); ++fi)
+        {
+            finderSearch.emplace_back();
+            FinderSearch& fs = finderSearch.back();
+            fs.target = static_cast<uint8_t>(1 + fi % std::max<uint32_t>(1u, spec.measuredSubjects));
+            fs.mgr.SetStalenessBound(spec.sessionStalenessS);
+            fs.mgr.SetSessionTimeout(spec.sessionTimeoutS);
+            fs.mgr.SetPreciseOnGrant(spec.sessionPreciseOnGrant);
+            fs.sid = fs.mgr.SearchAndLocalize(fs.target, static_cast<uint16_t>(finderIds[fi]),
+                                              CA_TBL_PRIORITY_ROUTINE, 0.0);
+        }
+    }
+    // TA-1b. Each finder asks for its own target from its own tier-1 radio, on the identity
+    // query period. Kept apart from `queries`, whose drivers NW-3 reports.
+    std::deque<QueryDriver> finderQueries;
+    for (size_t fi = 0; fi < finderSearch.size(); ++fi)
+    {
+        QueryDriver qd;
+        qd.mac = finderMacAll[fi][CA_TBL_TIER_868];
+        qd.tier = CA_TBL_TIER_868;
+        qd.periodS = identityQueryPeriodS;
+        qd.jitterMaxS = identityQueryPeriodS * 0.25;
+        qd.untilS = durationS;
+        qd.manifestId = finderSearch[fi].target;
+        qd.rng = macRng;
+        qd.v2 = true;
+        qd.manifests = std::vector<uint8_t>(1, finderSearch[fi].target);
+        qd.priority = spec.identityQueryUrgent ? 1 : 0;
+        finderQueries.push_back(qd);
+    }
+    for (size_t q = 0; q < finderQueries.size(); ++q)
+    {
+        Simulator::Schedule(Seconds(macRng->GetValue(0.0, finderQueries[q].periodS)),
+                            &QueryDriver::Fire,
+                            &finderQueries[q]);
+    }
+    if (spec.sessionOverMesh) // TA-1b's finder rows ride the same log
     {
         std::ostringstream sfn;
         sfn << traceDir << "/session_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         sessLog.reset(new std::ofstream(sfn.str().c_str()));
         *sessLog << "t,requesterId,sessionId,event,manifest,queryId,answererId,entryNode,"
                     "tierSource,pcs,suspect,hopCountAtFix,stateBefore,stateAfter,uwbActive,"
-                    "grantedBy\n";
+                    "grantedBy,distM\n";
     }
     if (spec.queryV2)
     {
@@ -7011,8 +7067,19 @@ RunArm(CaTblPolicyMode mode,
             std::ofstream* out = respLog.get();
             const bool atBase =
                 spec.sessionOverMesh && macs[m].GetIdentityClass() == CA_TBL_ID_ANCHOR;
-            macs[m].SetResponseCallback([out, rid, atBase, &sessions, &sessionId, &sessLog,
-                                         &baseSeen, &baseResults,
+            FinderSearch* atFinder = nullptr; // TA-1b
+            if (spec.finderSessions && macs[m].GetIdentityClass() == CA_TBL_ID_RESCUER)
+            {
+                for (size_t fi = 0; fi < finderIds.size() && fi < finderSearch.size(); ++fi)
+                {
+                    if (finderIds[fi] == rid)
+                    {
+                        atFinder = &finderSearch[fi];
+                    }
+                }
+            }
+            macs[m].SetResponseCallback([out, rid, atBase, atFinder, &sessions, &sessionId,
+                                         &sessLog, &baseSeen, &baseResults,
                                          &renderCounts](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
@@ -7026,10 +7093,61 @@ RunArm(CaTblPolicyMode mode,
                      << static_cast<int>(e.degradationQ) << ',' << (e.uwbActive ? 1 : 0) << ','
                      << e.grantedBy << ',' << static_cast<int>(e.tierSource) << ','
                      << static_cast<int>(e.fixHop) << '\n';
+                if (!h.HasSelfEntry() || !e.valid)
+                {
+                    return;
+                }
+                // TA-1b. A finder's own session takes the answers that reached IT as the
+                // requester (its queries come back over the reverse path), once per answer.
+                if (atFinder != nullptr && h.GetRespRequesterId() == rid)
+                {
+                    const std::tuple<uint32_t, uint16_t, uint8_t> fkey(
+                        h.GetRespQueryId(), h.GetRespAnswererId(), h.GetRespManifest());
+                    if (atFinder->seen.insert(fkey).second)
+                    {
+                        ++atFinder->results;
+                        CaTblResult fr;
+                        fr.targetManifestId = h.GetRespManifest();
+                        fr.x = e.x;
+                        fr.y = e.y;
+                        fr.varX = e.varX;
+                        fr.varY = e.varY;
+                        fr.covXY = e.covXY;
+                        fr.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
+                                            ? static_cast<CaTblTier>(e.tierSource)
+                                            : CA_TBL_TIER_868;
+                        fr.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                        fr.hopCountAtFix = e.fixHop;
+                        fr.suspect = (e.integrityFlag != 0);
+                        fr.timestampS = e.timestampS;
+                        fr.uwbGranted = e.uwbActive && e.grantedBy != 0;
+                        const double nowF = Simulator::Now().GetSeconds();
+                        const CaTblSessionState fb =
+                            atFinder->mgr.Sessions().at(atFinder->sid).State();
+                        atFinder->mgr.OnResult(fr, nowF);
+                        const CaTblSessionState fa =
+                            atFinder->mgr.Sessions().at(atFinder->sid).State();
+                        if (sessLog)
+                        {
+                            *sessLog << std::fixed << std::setprecision(6) << nowF << ',' << rid
+                                     << ',' << atFinder->sid << ",result,"
+                                     << static_cast<int>(fr.targetManifestId) << ','
+                                     << h.GetRespQueryId() << ',' << h.GetRespAnswererId() << ','
+                                     << e.nodeId << ',' << static_cast<int>(e.tierSource) << ','
+                                     << std::setprecision(4) << fr.pcs << ','
+                                     << (fr.suspect ? 1 : 0) << ','
+                                     << static_cast<int>(fr.hopCountAtFix) << ','
+                                     << CaTblSessionStateName(fb) << ','
+                                     << CaTblSessionStateName(fa) << ','
+                                     << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy
+                                     << ",-1\n";
+                        }
+                    }
+                }
                 // TA-1a. A RESPONSE delivered to ANY gateway reaches the base station over
                 // the backhaul (unbilled, as for the edge estimator), once per answer; the
                 // RESULT is built from the delivered entry, never from the policy.
-                if (!atBase || !h.HasSelfEntry() || !e.valid)
+                if (!atBase)
                 {
                     return;
                 }
@@ -7072,7 +7190,7 @@ RunArm(CaTblPolicyMode mode,
                          << std::setprecision(4) << res.pcs << ',' << (res.suspect ? 1 : 0)
                          << ',' << static_cast<int>(res.hopCountAtFix) << ','
                          << CaTblSessionStateName(before) << ',' << CaTblSessionStateName(after)
-                         << ',' << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy << '\n';
+                         << ',' << (e.uwbActive ? 1 : 0) << ',' << e.grantedBy << ",-1\n";
             });
         }
     }
@@ -10371,12 +10489,43 @@ RunArm(CaTblPolicyMode mode,
                 {
                     *sessLog << std::fixed << std::setprecision(6) << t << ",0," << sessionId
                              << ",tick,0,0,0,0,255,0,0,0," << CaTblSessionStateName(before)
-                             << ',' << CaTblSessionStateName(after) << ",0,0\n";
+                             << ',' << CaTblSessionStateName(after) << ",0,0,-1\n";
                 }
             }
             else
             {
                 sessions.Tick(t);
+            }
+            for (size_t fi = 0; fi < finderSearch.size(); ++fi)
+            {
+                // TA-1b / TA-3: a finder's own session ages like the base station's, and is
+                // CANCELLED (closed) once the finder has physically reached its target --
+                // within --finderCancelM (2 m), true positions (OURS): Transport sect 2's
+                // explicit cancel.
+                FinderSearch& fs = finderSearch[fi];
+                const CaTblSessionState fb = fs.mgr.Sessions().at(fs.sid).State();
+                fs.mgr.Tick(t);
+                CaTblSessionState fa = fs.mgr.Sessions().at(fs.sid).State();
+                const uint32_t k = static_cast<uint32_t>(fs.target) - 1u;
+                const Vector tp = (k == 0) ? pos : ((k < tags.size()) ? tags[k].pos : pos);
+                const double dm = std::hypot(finderPos[fi].x - tp.x, finderPos[fi].y - tp.y);
+                const char* ev = "tick";
+                if (fs.cancelledAtS < 0.0 && fa != CA_TBL_SESSION_CLOSED && dm < spec.finderCancelM)
+                {
+                    fs.mgr.Close(fs.sid, t);
+                    fs.cancelledAtS = t;
+                    fs.cancelledAtM = dm;
+                    fa = fs.mgr.Sessions().at(fs.sid).State();
+                    ev = "cancel";
+                }
+                if (fa != fb && sessLog)
+                {
+                    *sessLog << std::fixed << std::setprecision(6) << t << ',' << finderIds[fi]
+                             << ',' << fs.sid << ',' << ev << ',' << static_cast<int>(fs.target)
+                             << ",0,0,0,255,0,0,0," << CaTblSessionStateName(fb) << ','
+                             << CaTblSessionStateName(fa) << ",0,0," << std::setprecision(4)
+                             << dm << '\n';
+                }
             }
             if (d.hadFix && !spec.sessionOverMesh)
             {
@@ -11207,6 +11356,20 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
         }
+        std::cout << line.str() << "\n";
+    }
+    for (size_t fi = 0; fi < finderSearch.size(); ++fi)
+    {
+        // TA-1b. One line per finder's own search.
+        const FinderSearch& fs = finderSearch[fi];
+        const CaTblSession& se = fs.mgr.Sessions().at(fs.sid);
+        std::ostringstream line;
+        line << "    TA-1b finder session (" << CaTblPolicyModeName(mode) << "): finder "
+             << finderIds[fi] << " target m" << static_cast<int>(fs.target) << ", answers "
+             << fs.results << ", path " << (se.Path().empty() ? "SEARCHING" : se.Path())
+             << ", first coarse/precise (s) " << std::fixed << std::setprecision(1)
+             << se.TimeToCoarse(fs.target) << "/" << se.TimeToPrecise(fs.target) << ", cancelled "
+             << fs.cancelledAtS;
         std::cout << line.str() << "\n";
     }
     if (hopLog)
@@ -12569,6 +12732,25 @@ main(int argc, char* argv[])
                  "state change), digested, and one TA-1 line. Needs --sessionLayer and "
                  "--queryV2. Finder sessions (TA-1b) are not built.",
                  spec.sessionOverMesh);
+    cmd.AddValue("finderSessions",
+                 "Every finder runs its own search (Transport sect 2: 'a rescuer's handheld "
+                 "... issues a search'; docs/SPEC_CONFORMANCE_PLAN.md TA-1b), beside the base "
+                 "station's (--sessionOverMesh). FALSE by default. TRUE: finder k opens a "
+                 "session for subject (k mod N) + 1 (N = --measuredSubjects; the rule OURS, "
+                 "as --finderTasking's), queries for it from its own tier-1 radio on the "
+                 "identity query period (URGENT under --identityQueryUrgent), and is fed only "
+                 "by the answers that reach it as the requester -- over the reverse path to a "
+                 "moving node. The session ages like the base station's and is CANCELLED "
+                 "once the finder is within --finderCancelM of its target (true positions, "
+                 "OURS): the spec's explicit cancel. Rows tagged with the finder id in session_*, and "
+                 "one TA-1b line per finder. Needs --sessionOverMesh and --nFinders > 0.",
+                 spec.finderSessions);
+    cmd.AddValue("finderCancelM",
+                 "Under --finderSessions, how close (m, true positions) a finder must come to "
+                 "its target to cancel its session as 'target physically reached'. 2 (default) "
+                 "is OURS. With finders standing off 8 m from the estimate it rarely fires; a "
+                 "larger value exercises the cancel.",
+                 spec.finderCancelM);
     cmd.AddValue("sessionPreciseOnGrant",
                  "Under --sessionOverMesh, the session becomes LOCATED_PRECISE on a confirmed "
                  "UWB grant (Transport sect 4: 'ON UWB grant confirmed: session.state = "
@@ -14577,6 +14759,17 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --sessionOverMesh needs --sessionLayer and --queryV2: there is no "
                      "session, or no RESPONSE carries an entry\n";
+        return 1;
+    }
+    if (spec.finderSessions && (!spec.sessionOverMesh || nFindersArg == 0))
+    {
+        std::cerr << "FATAL: --finderSessions needs --sessionOverMesh and --nFinders > 0\n";
+        return 1;
+    }
+    if (!(spec.finderCancelM > 0.0) || (spec.finderCancelM != 2.0 && !spec.finderSessions))
+    {
+        std::cerr << "FATAL: --finderCancelM must be > 0, and is read only under "
+                     "--finderSessions\n";
         return 1;
     }
     if (spec.sessionPreciseOnGrant && (!spec.sessionOverMesh || !spec.grantGatedUwb))
