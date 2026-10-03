@@ -2058,3 +2058,31 @@ plain relay, the confidence selector, seed 7, 600 s.
   868 MHz can hear 2.4 GHz beacons at all is the model's existing assumption, not NW-2's.
 - The row's pcs field stays 0, as neither metric reads it. The weights are exposed and
   untuned (OURS); the sweep is CAMP-SPEC's.
+
+### N.13 Case C shapes: what `--caseCRelative` decides, and how coarse they are
+
+DC-3 (2026-10-03, G60). Measured in G54's regime: five subjects in a 4 km box, five gateways
+on a 140-degree arc, finders, mesh links, the base station's batch queries every 30 s,
+seed 7, 900 s.
+- **0-anchor cycles are common and mostly on 868 MHz.** There were 736 node-cycles with no
+  anchor range, and a peer was heard on all but 11 of them. Peer exchanges numbered 2 159,
+  of which 1 759 returned a range. A node with no anchor has usually been demoted to
+  868 MHz, where ranging is RSSI inversion. Peer ranges there err by about 190 m (median;
+  90th percentile about 730 m) at separations of a few hundred metres.
+- **So the shapes are coarse.** The 13 shapes of three or more miss the true
+  configuration by about 360 m (median, after the best rotation and reflection), at a
+  median cohesion of about 1.4 km. MDS reproduces its input; the input is the problem.
+  G60 checks the reconstruction, not its accuracy, as the plan's verification asks.
+- **Most sets never reach the base station.** Gateway tables in this model never merge a
+  field node's entry; a gateway holds only its own. So a node's entry, and the peer
+  ranges riding it, reach the base station only in an answer to its query (TA-1a). With
+  answers every 30 s and a 10 s window (OURS), 14 sets arrived and 677 did not. A first
+  build looked in gateway tables and delivered nothing. A shorter query period, or a
+  window as long as the query period, would deliver more; both are choices, so they were
+  not made here.
+- **Missing pairs are completed by shortest path (OURS):** 34 completions over 13 shapes.
+  A completion overstates its distance whenever the path bends. Three members with one
+  completed pair come out collinear (lambda2 = 0).
+- **The carry is billed, not modelled.** "3 bytes a range" is billed as extra airtime on
+  the node's active tier when the ranges are taken, as if they rode an entry sent that
+  cycle. No frame grows.

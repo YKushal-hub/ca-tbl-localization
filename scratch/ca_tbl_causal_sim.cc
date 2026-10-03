@@ -5706,6 +5706,8 @@ struct SpecOptions
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
     bool fixRoutingSubjects = false;
+    //! DC-3. --caseCRelative: Case C's relative shape, assembled at the base station.
+    bool caseCRelative = false;
     //! NW-2. The confidence cost's weights and slack (CaTblRoutingWeights), OURS.
     double routeAlpha = 1.0;
     double routeBeta = 1.0;
@@ -7260,6 +7262,139 @@ RunArm(CaTblPolicyMode mode,
     }
     // NW-2. The tier each subject ranged on this cycle (the measured tag's is `active`).
     std::vector<int> subjCycleTier(tags.size(), -1);
+    // DC-3. --caseCRelative. Physical sect 2.4, Case C: a subject with no anchor range this
+    // cycle ranges the peer subjects its active radio has heard (the C5 path: a direct
+    // engine exchange, billed on the active tier, initiator pays). The ranges ride its
+    // next entry, 3 bytes a range (OURS, billed as the extra airtime), and reach the base
+    // station when a RESPONSE carrying that entry is delivered to a gateway (TA-1a),
+    // within kCaseCWindowS (OURS). Each
+    // cycle's delivered ranges are assembled there once its window closes: a connected
+    // set of 3+ gets its relative shape by classical MDS (missing pairs completed by
+    // shortest path, OURS, counted), a pair its distance. NEVER fused into a filter.
+    struct CaseCRange
+    {
+        uint32_t from = 0;
+        uint32_t to = 0;
+        double rangeM = 0.0;
+        double trueM = 0.0;
+        CaTblTier tier = CA_TBL_TIER_868;
+    };
+    struct CaseCPending
+    {
+        uint32_t node = 0;
+        double t = 0.0;
+        std::vector<CaseCRange> r;
+        std::map<uint32_t, Vector> truth; // member -> true position at t, for the log
+    };
+    static constexpr double kCaseCWindowS = 10.0;
+    std::deque<CaseCPending> caseCPending;
+    std::map<double, std::vector<CaseCPending>> caseCAtBase; // cycle t -> delivered sets
+    std::unique_ptr<std::ofstream> caseCRangeLog;
+    std::unique_ptr<std::ofstream> caseCShapeLog;
+    uint64_t caseCCycles = 0, caseCLonely = 0, caseCTried = 0, caseCGot = 0;
+    uint64_t caseCDelivered = 0, caseCDropped = 0, caseCPairs = 0, caseCShapes = 0;
+    uint64_t caseCCompleted = 0, caseCFused = 0;
+    double caseCCarryS = 0.0;
+    if (spec.caseCRelative)
+    {
+        std::ostringstream a;
+        std::ostringstream b;
+        a << traceDir << "/case_c_ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        b << traceDir << "/case_c_relative_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        caseCRangeLog.reset(new std::ofstream(a.str().c_str()));
+        caseCShapeLog.reset(new std::ofstream(b.str().c_str()));
+        *caseCRangeLog << "t,nodeId,peerId,tier,rangeM,trueM,deliveredAt\n";
+        *caseCShapeLog << "t,k,members,measuredPairs,completedPairs,cohesionM,stressM,offsets,truth\n";
+    }
+    auto caseCPeers = [&](size_t self, const Vector& selfPos, CaTblEnergyModel& en, CaTblMac* mac,
+                          CaTblTier tier, double tNow, Time at, double atSec) {
+        ++caseCCycles;
+        const uint32_t selfId = tags[self].nodeId;
+        std::vector<size_t> peers;
+        const std::vector<CaTblNeighbour> nb = mac->GetNeighbours(tier, tNow);
+        for (size_t k = 0; k < nb.size(); ++k)
+        {
+            for (size_t q = 0; q < spec.measuredSubjects && q < tags.size(); ++q)
+            {
+                if (q != self && tags[q].nodeId == nb[k].id)
+                {
+                    peers.push_back(q);
+                }
+            }
+        }
+        if (peers.empty())
+        {
+            ++caseCLonely;
+            return;
+        }
+        const int ti = static_cast<int>(tier);
+        CaseCPending p;
+        p.node = selfId;
+        p.t = tNow;
+        p.truth[selfId] = selfPos;
+        for (size_t i = 0; i < peers.size(); ++i)
+        {
+            const size_t q = peers[i];
+            const Vector& qp = (q == 0) ? pos : tags[q].pos;
+            const uint16_t qid = static_cast<uint16_t>(tags[q].nodeId);
+            bool got = false;
+            double rg = 0.0;
+            if (tier == CA_TBL_TIER_2P4)
+            {
+                PhysicsResult2p4 r = engine2p4.ProcessTransmission(
+                    static_cast<uint16_t>(selfId), qid, selfPos, qp, phy[ti].txPowerDbm, phy[ti].sf,
+                    phy[ti].bandwidthHz, 0, at);
+                got = r.packetReceived;
+                rg = r.estimatedRangeM;
+            }
+            else if (tier == CA_TBL_TIER_UWB)
+            {
+                PhysicsResultUWB r = engineUwb.ProcessTransmission(
+                    static_cast<uint16_t>(selfId), qid, selfPos, qp, phy[ti].txPowerDbm, phy[ti].sf,
+                    phy[ti].bandwidthHz, 0, at);
+                got = r.packetReceived;
+                rg = r.estimatedRangeM;
+            }
+            else
+            {
+                PhysicsResult r = engine868.ProcessTransmission(
+                    static_cast<uint16_t>(selfId), qid, selfPos, qp, phy[ti].txPowerDbm, phy[ti].sf,
+                    phy[ti].bandwidthHz, 0, at);
+                got = r.packetReceived;
+                rg = r.estimatedRangeM;
+            }
+            ++caseCTried;
+            if (got && std::isfinite(rg) && rg > 0.0)
+            {
+                CaseCRange cr;
+                cr.from = selfId;
+                cr.to = qid;
+                cr.rangeM = rg;
+                cr.trueM = CalculateDistance(selfPos, qp);
+                cr.tier = tier;
+                p.r.push_back(cr);
+                p.truth[qid] = qp;
+                ++caseCGot;
+            }
+        }
+        en.AccountRangingExchange(tier, static_cast<uint32_t>(peers.size()),
+                                  static_cast<uint32_t>(p.r.size()), atSec);
+        if (p.r.empty())
+        {
+            return;
+        }
+        // Carried on the next entry: the extra airtime of 3 bytes a range on this tier.
+        const uint32_t base = CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(CA_TBL_MSG_ENTRY_PUSH, 1);
+        const uint32_t more = base + 3u * static_cast<uint32_t>(p.r.size());
+        const double extra =
+            (tier == CA_TBL_TIER_UWB)
+                ? CaTblEnergyModel::UwbFrameTimeS(more) - CaTblEnergyModel::UwbFrameTimeS(base)
+                : CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, more, 1) -
+                      CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, base, 1);
+        en.AccountFrameTx(tier, atSec, extra);
+        caseCCarryS += extra;
+        caseCPending.push_back(p);
+    };
     // MS-1. Subjects range in their own slots of a round BEFORE tag 0's instant, as relays
     // do under --relaySlots (M.1): all at one instant, they collide in the engines'
     // interference model -- measured, tag 0's static_868 fixes fell 212 -> 2 at five
@@ -7335,6 +7470,7 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<std::ofstream> sessLog;
     std::set<std::tuple<uint32_t, uint16_t, uint8_t>> baseSeen;
     uint64_t baseResults = 0;
+    std::map<uint32_t, double> caseCBaseT; // DC-3: newest entry of each node the base holds
     // TA-2. The base station's own escalation requests: one row each in reqesc_*, at most
     // one per target per slot hold.
     std::unique_ptr<std::ofstream> reqLog;
@@ -7439,7 +7575,7 @@ RunArm(CaTblPolicyMode mode,
             }
             macs[m].SetResponseCallback([out, rid, atBase, atFinder, &sessions, &sessionId,
                                          &sessLog, &baseSeen, &baseResults, &renderCounts,
-                                         &spec, &reqLog, &reqLastS, &reqCounts, &arbMacById,
+                                         &caseCBaseT, &spec, &reqLog, &reqLastS, &reqCounts, &arbMacById,
                                          reqThreshold](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
@@ -7518,6 +7654,15 @@ RunArm(CaTblPolicyMode mode,
                     return;
                 }
                 ++baseResults;
+                {
+                    // DC-3: what the base station now holds of this node, and so of the peer
+                    // ranges that rode its entry.
+                    std::map<uint32_t, double>::iterator cb = caseCBaseT.find(e.nodeId);
+                    if (cb == caseCBaseT.end() || e.timestampS > cb->second)
+                    {
+                        caseCBaseT[e.nodeId] = e.timestampS;
+                    }
+                }
                 CaTblResult res;
                 res.targetManifestId = h.GetRespManifest();
                 res.x = e.x;
@@ -9016,6 +9161,12 @@ RunArm(CaTblPolicyMode mode,
                         ++ex.floorCycles;
                     }
                 }
+                if (spec.caseCRelative && actM.empty() && floorM.empty() &&
+                    !(preempt && act == pendT))
+                {
+                    caseCPeers(pt, sb.pos, sb.energy, peerMacs[pi][static_cast<size_t>(act)], act,
+                               t, atS, atSec); // DC-3: no anchor range this cycle
+                }
                 const bool actSolved = actM.size() >= 3;
                 const bool usedFloorS = !actSolved && floorM.size() >= 3;
                 const std::vector<CaTblRangeMeasurement>& measS = usedFloorS ? floorM : actM;
@@ -10003,6 +10154,12 @@ RunArm(CaTblPolicyMode mode,
             // a function whose answer is known is theatre; what matters is that the
             // cycle is CLASSIFIED as unlocalisable rather than silently coasting.
             ++caseSolved[3];
+        }
+        if (spec.caseCRelative && floorMeas.empty() &&
+            std::none_of(activeMeas.begin(), activeMeas.end(),
+                         [](const CaTblRangeMeasurement& m) { return m.anchorId >= 101; }))
+        {
+            caseCPeers(0, pos, energy, nodeMac[static_cast<int>(active)], active, t, now, t); // DC-3
         }
         if (sparseCaseA && activeMeas.size() == 2 && floorMeas.size() < 3)
         {
@@ -11579,6 +11736,173 @@ RunArm(CaTblPolicyMode mode,
                   << meas.size() << "\n";
         }
 
+        // DC-3. Ranges reach the base station on the measuring node's entry: once a RESPONSE
+        // delivered to a gateway (TA-1a) carried an entry of that node stamped after the
+        // cycle they were taken in. Gateway tables never merge a field node's entry in
+        // this model, so the answer to the base station's query is the only way there.
+        if (spec.caseCRelative)
+        {
+            for (std::deque<CaseCPending>::iterator it = caseCPending.begin();
+                 it != caseCPending.end();)
+            {
+                std::map<uint32_t, double>::const_iterator cb = caseCBaseT.find(it->node);
+                bool there = cb != caseCBaseT.end() && cb->second > it->t + 1e-6;
+                const bool late = (t - it->t) > kCaseCWindowS;
+                if (!late && !there)
+                {
+                    ++it;
+                    continue;
+                }
+                there = there && !late; // an answer after the window is too late for it
+                for (size_t k = 0; k < it->r.size(); ++k)
+                {
+                    *caseCRangeLog << std::fixed << std::setprecision(4) << it->t << ','
+                                   << it->r[k].from << ',' << it->r[k].to << ','
+                                   << static_cast<int>(it->r[k].tier) << ',' << std::setprecision(6)
+                                   << it->r[k].rangeM << ',' << it->r[k].trueM << ','
+                                   << std::setprecision(4) << (there ? t : -1.0) << '\n';
+                }
+                if (there)
+                {
+                    ++caseCDelivered;
+                    caseCAtBase[it->t].push_back(*it);
+                }
+                else
+                {
+                    ++caseCDropped;
+                }
+                it = caseCPending.erase(it);
+            }
+            // A cycle's window has closed: assemble what reached the base station for it.
+            for (std::map<double, std::vector<CaseCPending>>::iterator it = caseCAtBase.begin();
+                 it != caseCAtBase.end() && (t - it->first) > kCaseCWindowS;)
+            {
+                std::map<std::pair<uint32_t, uint32_t>, std::vector<double>> pr;
+                std::map<uint32_t, Vector> truth;
+                for (size_t a = 0; a < it->second.size(); ++a)
+                {
+                    const CaseCPending& cp = it->second[a];
+                    for (size_t k = 0; k < cp.r.size(); ++k)
+                    {
+                        const uint32_t u = std::min(cp.r[k].from, cp.r[k].to);
+                        const uint32_t v = std::max(cp.r[k].from, cp.r[k].to);
+                        pr[std::make_pair(u, v)].push_back(cp.r[k].rangeM);
+                    }
+                    for (std::map<uint32_t, Vector>::const_iterator tt = cp.truth.begin();
+                         tt != cp.truth.end(); ++tt)
+                    {
+                        truth[tt->first] = tt->second;
+                    }
+                }
+                // Connected sets over the measured pairs.
+                std::map<uint32_t, uint32_t> root;
+                std::function<uint32_t(uint32_t)> find = [&](uint32_t x) {
+                    while (root[x] != x)
+                    {
+                        x = root[x] = root[root[x]];
+                    }
+                    return x;
+                };
+                for (std::map<std::pair<uint32_t, uint32_t>, std::vector<double>>::const_iterator
+                         e = pr.begin();
+                     e != pr.end(); ++e)
+                {
+                    if (!root.count(e->first.first)) root[e->first.first] = e->first.first;
+                    if (!root.count(e->first.second)) root[e->first.second] = e->first.second;
+                    root[find(e->first.first)] = find(e->first.second);
+                }
+                std::map<uint32_t, std::vector<uint32_t>> sets;
+                for (std::map<uint32_t, uint32_t>::const_iterator r = root.begin(); r != root.end(); ++r)
+                {
+                    sets[find(r->first)].push_back(r->first);
+                }
+                for (std::map<uint32_t, std::vector<uint32_t>>::const_iterator st = sets.begin();
+                     st != sets.end(); ++st)
+                {
+                    const std::vector<uint32_t>& mem = st->second; // ascending ids
+                    const size_t kk = mem.size();
+                    const double inf = std::numeric_limits<double>::infinity();
+                    std::vector<std::vector<double>> dm(kk, std::vector<double>(kk, inf));
+                    size_t measured = 0;
+                    for (size_t i = 0; i < kk; ++i)
+                    {
+                        dm[i][i] = 0.0;
+                        for (size_t j = i + 1; j < kk; ++j)
+                        {
+                            std::map<std::pair<uint32_t, uint32_t>, std::vector<double>>::const_iterator
+                                e = pr.find(std::make_pair(mem[i], mem[j]));
+                            if (e != pr.end())
+                            {
+                                double m = 0.0;
+                                for (size_t q = 0; q < e->second.size(); ++q)
+                                {
+                                    m += e->second[q] / static_cast<double>(e->second.size());
+                                }
+                                dm[i][j] = dm[j][i] = m;
+                                ++measured;
+                            }
+                        }
+                    }
+                    size_t completed = 0;
+                    for (size_t i = 0; i < kk; ++i)
+                    {
+                        for (size_t j = i + 1; j < kk; ++j)
+                        {
+                            completed += std::isinf(dm[i][j]) ? 1 : 0;
+                        }
+                    }
+                    for (size_t m = 0; m < kk; ++m) // Floyd: a missing pair by shortest path
+                    {
+                        for (size_t i = 0; i < kk; ++i)
+                        {
+                            for (size_t j = 0; j < kk; ++j)
+                            {
+                                dm[i][j] = std::min(dm[i][j], dm[i][m] + dm[m][j]);
+                            }
+                        }
+                    }
+                    std::ostringstream ids;
+                    std::ostringstream off;
+                    std::ostringstream tru;
+                    for (size_t i = 0; i < kk; ++i)
+                    {
+                        ids << (i ? ";" : "") << mem[i];
+                        const Vector tv = truth.count(mem[i]) ? truth[mem[i]] : Vector(0, 0, 0);
+                        tru << (i ? ";" : "") << std::fixed << std::setprecision(3) << tv.x << ':' << tv.y;
+                    }
+                    double cohesion = 0.0;
+                    double stress = 0.0;
+                    if (kk >= 3)
+                    {
+                        const CaTblRelativeShape sh = CaTblRelativeShapeMds(dm);
+                        stress = sh.stressM;
+                        for (size_t i = 0; i < kk; ++i)
+                        {
+                            off << (i ? ";" : "") << std::fixed << std::setprecision(3)
+                                << (sh.ok ? sh.x[i] : 0.0) << ':' << (sh.ok ? sh.y[i] : 0.0);
+                            for (size_t j = i + 1; sh.ok && j < kk; ++j)
+                            {
+                                cohesion = std::max(cohesion, std::hypot(sh.x[i] - sh.x[j], sh.y[i] - sh.y[j]));
+                            }
+                        }
+                        ++caseCShapes;
+                        caseCCompleted += completed;
+                    }
+                    else
+                    {
+                        cohesion = dm[0][1]; // a pair: its distance, and nothing else
+                        off << "-";
+                        ++caseCPairs;
+                    }
+                    *caseCShapeLog << std::fixed << std::setprecision(4) << it->first << ',' << kk
+                                   << ',' << ids.str() << ',' << measured << ',' << completed << ','
+                                   << std::setprecision(6) << cohesion << ',' << stress << ','
+                                   << off.str() << ',' << tru.str() << '\n';
+                }
+                it = caseCAtBase.erase(it);
+            }
+        }
+
         // L.1.1. The relays' position fixes, routed. LAST in the cycle on purpose: every
         // frame takes its own slot after the cycle instant, so no ranging exchange of this
         // cycle can be evaluated after one of them.
@@ -12535,6 +12859,18 @@ RunArm(CaTblPolicyMode mode,
     {
         legTerms->Report(std::cout, CaTblPolicyModeName(mode));
     }
+    if (spec.caseCRelative)
+    {
+        std::cout << "  DC-3 Case C relative (" << CaTblPolicyModeName(mode)
+                  << "): 0-anchor node-cycles " << caseCCycles << " (no peer heard " << caseCLonely
+                  << "); peer exchanges " << caseCTried << ", ranged " << caseCGot
+                  << " (carried on entries, " << std::fixed << std::setprecision(6) << caseCCarryS
+                  << " s billed); reached the base station " << caseCDelivered << ", dropped "
+                  << caseCDropped << ", still pending " << caseCPending.size()
+                  << "; shapes: pairs " << caseCPairs << ", 3+ " << caseCShapes
+                  << " (completed pairs " << caseCCompleted << "); fused into a filter "
+                  << caseCFused << "\n";
+    }
     if (relayRound)
     {
         relayRound->Report(std::cout, dt);
@@ -13302,6 +13638,23 @@ main(int argc, char* argv[])
                  "confidence route's three sums, digested, and an NW-2 line per router. Needs "
                  "--fixRouting and --measuredSubjects > 1.",
                  spec.fixRoutingSubjects);
+    cmd.AddValue("caseCRelative",
+                 "Case C's relative shape (Physical sect 2.4: 0 anchors, 2+ peers -- "
+                 "relative-shape-only reconstruction, never an absolute position; "
+                 "docs/SPEC_CONFORMANCE_PLAN.md DC-3). FALSE by default: a 0-anchor cycle is "
+                 "counted as Case C and coasts. TRUE: a measured subject with no anchor range "
+                 "this cycle (active tier and floor) ranges each peer subject its active radio "
+                 "has heard, on that tier, billed there (initiator pays); the ranges ride its "
+                 "next entry at 3 bytes a range (OURS, billed as the extra airtime) and reach "
+                 "the base station when a RESPONSE carrying that entry is delivered to a gateway "
+                 "(--sessionOverMesh), within 10 s (OURS). "
+                 "Once a cycle's window closes the base station reconstructs each connected set "
+                 "of 3+ by classical MDS (missing pairs by shortest path, OURS, counted) and a "
+                 "pair as its distance. Nothing is fused into any filter. Writes "
+                 "case_c_ranges_<arm>_seed<N>.csv and case_c_relative_<arm>_seed<N>.csv, "
+                 "digested, and one DC-3 line. Needs --measuredSubjects > 1, --meshLinks=all and "
+                 "--sessionOverMesh.",
+                 spec.caseCRelative);
     cmd.AddValue("routeAlpha",
                  "Weight of the NLOS term in --fixRouting's confidence cost (Network sect 3, "
                  "path_cost = alpha*NLOS + beta*RSSI_var + gamma*jitter; NW-2). 1 is every result "
@@ -15131,6 +15484,15 @@ main(int argc, char* argv[])
                   << (relayedRangingArg ? "true" : "false") << ", " << nTagsArg << ")\n";
         return 1;
     }
+    // DC-3.
+    if (spec.caseCRelative &&
+        (spec.measuredSubjects < 2 || spec.meshLinks != "all" || !spec.sessionOverMesh))
+    {
+        std::cerr << "FATAL: --caseCRelative needs --measuredSubjects > 1, --meshLinks=all and "
+                     "--sessionOverMesh: peers must be subjects, a subject hears a peer only over "
+                     "mesh links, and its ranges reach the base station only in its answers\n";
+        return 1;
+    }
     // NW-2.
     if (spec.fixRoutingSubjects && (!fixRoutingArg || spec.measuredSubjects < 2))
     {
@@ -16421,6 +16783,10 @@ main(int argc, char* argv[])
     if (spec.hopProvenance)
     {
         digestPatterns += " hops_*.csv";
+    }
+    if (spec.caseCRelative)
+    {
+        digestPatterns += " case_c_*.csv"; // DC-3
     }
     if (spec.sessionOverMesh)
     {
