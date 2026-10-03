@@ -13016,7 +13016,8 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * P6. --specProfile: the spec preset (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1). Each row is a
  * flag the preset sets, the value, and the docx section or owner decision it serves. NOT
  * in it yet, and said so wherever the preset is reported: --radioBasis=lr1121 (SY-2, the
- * LR1121 datasheet), the calibrated PCS (CAL-02), and GEO-01's geometry (stage 2).
+ * LR1121 datasheet) and the calibrated PCS (CAL-02). The geometry is GEO-01 stage 2's
+ * registered FALLBACK (report/GEO01_RESULTS.md): no candidate met the SAR criterion.
  * --sparseCaseA, in the plan's table, is left out: --sparseInStep replaces it (FATAL
  * together). The UWB channel model stays legacy (P0's read-out).
  */
@@ -13090,6 +13091,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
     {"nTags", "5", "decision 4: five field nodes"},
     {"boxHalf", "5000", "the spec's 5 km search area"},
+    {"nGateways", "8", "GEO-01 stage 2: N8_ring, the registered FALLBACK (no geometry met A >= 0.95)"},
     {"nFinders", "4", "decision 6: four finders"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
@@ -13740,8 +13742,8 @@ main(int argc, char* argv[])
              "default: every run is as before. TRUE: each setting below is applied unless the "
              "same flag is given explicitly, which always wins; spec_profile.txt (digested) lists "
              "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
-             "Not yet in it: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), GEO-01's "
-             "geometry. Settings:";
+             "Not yet in it: --radioBasis=lr1121 (SY-2) and the calibrated PCS (CAL-02). The "
+             "geometry is GEO-01's registered fallback; no candidate met the criterion. Settings:";
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
             h << " --" << ss.name << "=" << ss.value << " (" << ss.why << ");";
@@ -15410,8 +15412,8 @@ main(int argc, char* argv[])
         }
         sp << "# --specProfile (docs/SPEC_CONFORMANCE_PLAN.md sect 3.1): what the preset set, and "
               "what the user gave explicitly instead\n"
-              "# not yet in the preset: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), "
-              "GEO-01's geometry (stage 2)\n";
+              "# not yet in the preset: --radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02); "
+              "the geometry is GEO-01 stage 2's registered fallback\n";
         size_t kept = 0;
         for (const CaTblSpecSetting& ss : kSpecProfile)
         {
@@ -15429,7 +15431,7 @@ main(int argc, char* argv[])
         std::cerr << "NOTE: --specProfile set " << (sizeof(kSpecProfile) / sizeof(kSpecProfile[0]) - kept)
                   << " spec settings (" << kept << " given explicitly and kept); "
                   << outdir << "/spec_profile.txt lists them. Not yet in the preset: "
-                     "--radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02), GEO-01's geometry.\n";
+                     "--radioBasis=lr1121 (SY-2), the calibrated PCS (CAL-02).\n";
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
