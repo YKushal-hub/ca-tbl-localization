@@ -1009,6 +1009,35 @@ CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
     return vis < 3;
 }
 
+void
+CaTblPolicy::RequestQueryEscalation()
+{
+    m_queryEscArmed = true;
+    ++m_queryEscRequests;
+}
+
+void
+CaTblPolicy::QueryEscalateOneTier(CaTblDecision& d)
+{
+    if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+    {
+        if (!m_uwbPending)
+        {
+            m_uwbPending = true;
+            ++m_uwbRequests;
+            d.escalated = true;
+            d.uwbPending = true;
+        }
+    }
+    else if (m_tier < CA_TBL_TIER_UWB)
+    {
+        m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
+        m_escalations++;
+        d.escalated = true;
+    }
+    m_deescalateCounter = 0;
+}
+
 bool
 CaTblPolicy::ConfirmUwbGrant()
 {
@@ -1091,6 +1120,15 @@ CaTblPolicy::Step(double dt,
     }
     d.activeTier = m_tier;
     d.nextTier = m_tier;
+    // NW-4: a static arm is single-band by definition and ignores a query's hook.
+    const bool hybridMode = (m_config.mode == CA_TBL_MODE_FULL ||
+                             m_config.mode == CA_TBL_MODE_NO_INTEGRITY ||
+                             m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD);
+    if (m_queryEscArmed && (!m_config.queryTriggeredEscalation || !hybridMode))
+    {
+        m_queryEscArmed = false;
+        ++m_queryEscIgnored;
+    }
 
     // A queued tier-1 TDoA fix belongs to THIS cycle and to no other, whatever the cycle
     // decides below (SetAuxPositionFix). Never queued, these three lines are inert.
@@ -1187,6 +1225,50 @@ CaTblPolicy::Step(double dt,
         d.estY = m_ekf.Y();
         d.traceSigma = m_ekf.TracePos();
         d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
+
+        // NW-4. The hook acts here too: an URGENT query is a reason to go up even on a
+        // cycle with no fix. The two evidence preconditions still apply, from the ranges
+        // this cycle did get; the IMU and corroboration witnesses need a fix and do not
+        // run on a coast. The dropout is not counted toward demotion on such a cycle.
+        if (m_queryEscArmed && m_tier < CA_TBL_TIER_UWB && !m_uwbPending)
+        {
+            ++m_queryEscFired;
+            d.queryTriggered = true;
+            d.wantedEscalation = true;
+            bool blocked = false;
+            if (m_tier == CA_TBL_TIER_2P4)
+            {
+                blocked = UwbEvidenceWouldBlock(d.traceSigma, meas);
+            }
+            else if (m_config.escalationRequiresEvidenceT2)
+            {
+                uint32_t nearT2 = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
+                {
+                    if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.t2PredictRadiusM)
+                    {
+                        ++nearT2;
+                    }
+                }
+                blocked = nearT2 < m_config.t2PredictMinAnchors;
+            }
+            if (blocked)
+            {
+                ++m_queryEscSuppressed;
+                m_queryEscArmed = false;
+            }
+            else
+            {
+                QueryEscalateOneTier(d);
+                ++m_queryEscalations;
+                if (m_tier == CA_TBL_TIER_UWB || m_uwbPending)
+                {
+                    m_queryEscArmed = false;
+                }
+            }
+            d.nextTier = m_tier;
+            return d;
+        }
 
         // A dropout is evidence the current tier is not delivering. Count it
         // toward de-escalation so a node cannot get stranded on a tier whose
@@ -1638,6 +1720,15 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // NW-4: an URGENT query forces the decision, whatever the PCS; the suppress-only
+    // preconditions below still apply to it.
+    const bool queryHook = m_queryEscArmed && dynamic && m_tier < CA_TBL_TIER_UWB && !m_uwbPending;
+    if (queryHook)
+    {
+        wantEscalate = true;
+        d.queryTriggered = true;
+        ++m_queryEscFired;
+    }
     d.wantedEscalation = wantEscalate; // DC-4: before any precondition suppresses it
     // ------------------------------------------ availability precondition (B.2+) --
     // Escalate only into a tier there are grounds to believe can deliver. Applied
@@ -1829,7 +1920,7 @@ CaTblPolicy::Step(double dt,
     }
     // DC-4: a Case D cycle has a live covariance and is not a blind cycle, so it takes the
     // normal escalation decision below and does not count toward demotion.
-    if (dynamic && !activeDelivered && !caseD)
+    if (dynamic && !activeDelivered && !caseD && !(queryHook && wantEscalate))
     {
         // A fix was obtained, but NOT from the active tier -- the caller fell back to
         // the tier-1 floor. That is direct evidence the active tier has no coverage
@@ -1941,6 +2032,24 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    if (queryHook)
+    {
+        // NW-4: an escalation made under the hook is counted; on UWB, or once UWB is asked
+        // for, the hook has done its job. Suppressed by a precondition, it disarms.
+        if (d.escalated)
+        {
+            ++m_queryEscalations;
+            if (m_tier == CA_TBL_TIER_UWB || m_uwbPending)
+            {
+                m_queryEscArmed = false;
+            }
+        }
+        else if (!wantEscalate)
+        {
+            ++m_queryEscSuppressed;
+            m_queryEscArmed = false;
+        }
+    }
     d.nextTier = m_tier;
     // Remember where the filter was, so the next cycle can ask whether it moved the
     // way the body did. Recorded on EVERY cycle including refused ones: the comparison

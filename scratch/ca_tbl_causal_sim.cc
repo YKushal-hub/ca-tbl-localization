@@ -1145,12 +1145,13 @@ struct QueryDriver
     //! NW-9 (--queryV2): send the spec's QUERY, for this list, at ROUTINE priority.
     bool v2 = false;
     std::vector<uint8_t> manifests;
+    uint8_t priority = 0; //!< NW-4: 1 = URGENT
 
     void Fire()
     {
         if (v2)
         {
-            mac->SendQueryV2(tier, manifests, 0);
+            mac->SendQueryV2(tier, manifests, priority);
         }
         else
         {
@@ -1270,6 +1271,14 @@ static double
 CaTblBatteryUsedFrac(double totalJ, double capJ)
 {
     return (capJ > 0.0) ? std::min(1.0, totalJ / capJ) : 0.0;
+}
+
+//! NW-5. The battery term a request carries: the fraction SPENT by default (C4), the
+//! fraction REMAINING under --arbitrationV2 (Network sect 5's 1/battery_remaining).
+static double
+ArbBatteryTerm(bool remaining, double usedFrac)
+{
+    return remaining ? 1.0 - usedFrac : usedFrac;
 }
 
 /**
@@ -5362,6 +5371,11 @@ struct SpecOptions
     bool queryV2 = false;
     //! NW-9. --identityQueryManifests: the list a v2 query asks for (empty = the target).
     std::vector<uint8_t> identityQueryManifests;
+    //! NW-4. --queryTriggeredEscalation, and --identityQueryUrgent (queries sent URGENT).
+    bool queryTriggeredEscalation = false;
+    bool identityQueryUrgent = false;
+    //! NW-5. --arbitrationV2: arbitration as Network sect 5 specifies.
+    bool arbitrationV2 = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -5753,6 +5767,10 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.grantGatedUwb = true; // NW-7
     }
+    if (spec.queryTriggeredEscalation)
+    {
+        pcfg.queryTriggeredEscalation = true; // NW-4
+    }
     pcfg.escalationRequiresEvidence = escalationRequiresEvidence;
     pcfg.escalationRequiresEvidenceT2 = escalationRequiresEvidenceT2;
     pcfg.t2PredictRadiusM = t2PredictRadiusM;
@@ -6018,6 +6036,8 @@ RunArm(CaTblPolicyMode mode,
         mc.reversePath = reversePath;
         mc.reversePathHop = spec.reversePathHop;
         mc.queryV2 = spec.queryV2;
+        mc.arbitrationV2 = spec.arbitrationV2;
+        mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
         mc.nodeId = static_cast<uint16_t>(nodeId);
         mc.identityClass = CA_TBL_ID_TARGET;
         // C3. The measured tag is manifest 1; peers are 2, 3, ... Nothing read
@@ -6057,6 +6077,8 @@ RunArm(CaTblPolicyMode mode,
             mc.reversePath = reversePath;
             mc.reversePathHop = spec.reversePathHop;
             mc.queryV2 = spec.queryV2;
+            mc.arbitrationV2 = spec.arbitrationV2;
+            mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             mc.nodeId = aid;
             mc.identityClass = CA_TBL_ID_ANCHOR;
             // C4. Only anchors arbitrate -- a target has no slot to award.
@@ -6153,6 +6175,8 @@ RunArm(CaTblPolicyMode mode,
             pmc.reversePath = reversePath;
             pmc.reversePathHop = spec.reversePathHop;
             pmc.queryV2 = spec.queryV2;
+            pmc.arbitrationV2 = spec.arbitrationV2;
+            pmc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             pmc.nodeId = static_cast<uint16_t>(pid);
             pmc.identityClass = CA_TBL_ID_TARGET;
             // THE POINT OF THE PEER. A distinct manifest id is what makes an
@@ -6238,6 +6262,7 @@ RunArm(CaTblPolicyMode mode,
                     qd.manifests = spec.identityQueryManifests.empty()
                                        ? std::vector<uint8_t>(1, qd.manifestId)
                                        : spec.identityQueryManifests;
+                    qd.priority = spec.identityQueryUrgent ? 1 : 0;
                 }
                 queries.push_back(qd);
                 break;
@@ -6430,6 +6455,8 @@ RunArm(CaTblPolicyMode mode,
             fc.reversePath = reversePath;
             fc.reversePathHop = spec.reversePathHop;
             fc.queryV2 = spec.queryV2;
+            fc.arbitrationV2 = spec.arbitrationV2;
+            fc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             fc.nodeId = static_cast<uint16_t>(fid);
             fc.identityClass = CA_TBL_ID_RESCUER;
             fc.isAccessPoint = false;
@@ -6817,6 +6844,44 @@ RunArm(CaTblPolicyMode mode,
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
+    // NW-5. --arbitrationV2: the arbiters (every gateway's and finder's 2.4 GHz radio, the
+    // radio a UWB request arrives on), by node id for the range evidence the scenario
+    // reports, and arb_<arm>_seed<N>.csv.
+    std::map<uint16_t, CaTblMac*> arbMacById;
+    std::unique_ptr<std::ofstream> arbLog;
+    std::vector<uint8_t> pendQT(tags.size(), 0); // NW-4: a deferred request's bit
+    if (spec.arbitrationV2)
+    {
+        std::ostringstream afn;
+        afn << traceDir << "/arb_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        arbLog.reset(new std::ofstream(afn.str().c_str()));
+        *arbLog << "t,arbiter,requester,event,u,tDeg,rem,tBatt,tStale,qt,queuePos,evidenceAgeS\n";
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            const CaTblIdentityClass ic = macs[m].GetIdentityClass();
+            if (macs[m].GetChannel() == &chan[CA_TBL_TIER_2P4] &&
+                (ic == CA_TBL_ID_ANCHOR || ic == CA_TBL_ID_RESCUER))
+            {
+                arbMacById[macs[m].GetNodeId()] = &macs[m];
+                macs[m].SetArbLog(arbLog.get());
+            }
+        }
+    }
+    auto noteUwbEvidence = [&](uint16_t anchorId, uint32_t who, CaTblTier tier, double rangeM,
+                               double tS) {
+        // NW-5: a UWB exchange, or a 2.4 GHz range under the UWB r50, is evidence for the
+        // ranged anchor that this node is within its UWB reach.
+        if (arbMacById.empty() ||
+            !(tier == CA_TBL_TIER_UWB || (tier == CA_TBL_TIER_2P4 && rangeM < 29.5)))
+        {
+            return;
+        }
+        std::map<uint16_t, CaTblMac*>::iterator am = arbMacById.find(anchorId);
+        if (am != arbMacById.end())
+        {
+            am->second->NoteUwbEvidence(static_cast<uint16_t>(who), tS);
+        }
+    };
     // NW-9. --queryV2: every answer a requester receives (responses_*), every decision a
     // node takes on a v2 QUERY (queryv2_*), and each tag's last PCS / integrity verdict /
     // granting anchor, which its published entry carries.
@@ -7186,7 +7251,11 @@ RunArm(CaTblPolicyMode mode,
             mm->SetUwbGrantCallback([mm, po, sid, tagIdx, &grantNote, &v2GrantedBy](uint16_t anchor,
                                                                                 int outcome) {
                 const double nowS = Simulator::Now().GetSeconds();
-                if (outcome > 0)
+                if (outcome == 2)
+                {
+                    grantNote(nowS, sid, "queued", anchor); // NW-5: still waiting
+                }
+                else if (outcome == 1)
                 {
                     const bool took = po->ConfirmUwbGrant();
                     if (took)
@@ -8080,6 +8149,12 @@ RunArm(CaTblPolicyMode mode,
             }
         }
 
+        // NW-5. Each arbiter re-scores its queue and gives a free slot to the argmax.
+        for (std::map<uint16_t, CaTblMac*>::iterator am = arbMacById.begin();
+             am != arbMacById.end(); ++am)
+        {
+            am->second->ArbitrationCycle();
+        }
         if (subj)
         {
             // MS-1. SUBJECTS 2..N, each through the core of tag 0's cycle, on its own
@@ -8189,6 +8264,7 @@ RunArm(CaTblPolicyMode mode,
                             m.anchorId = aid;
                             m.sourceKind = CaTblSourceKindOf(aid);
                             m.fromFloor = (tier != act);
+                            noteUwbEvidence(aid, sb.nodeId, tier, range, t); // NW-5
                             out.push_back(m);
                         }
                     }
@@ -8200,24 +8276,29 @@ RunArm(CaTblPolicyMode mode,
                 // cycle's ranging on its tier, as tag 0's does (arbitrateDutyBudget).
                 const bool preempt = sb.pendingHandshake && arbitrateDutyBudget;
                 const CaTblTier pendT = sb.pendingHandshakeTier;
+                bool sQT = false; // NW-4: whether the request about to go follows a query
                 auto sendRequest = [&](CaTblTier on, double atT) {
                     sb.energy.AccountEscalationHandshake(on, atT);
                     if (sendHandshakeFrames)
                     {
                         CaTblMac* mm = peerMacs[pi][static_cast<size_t>(on)];
-                        mm->SetRequestTerms(CaTblQuantise(sb.pcsDegradation),
-                                            CaTblQuantise(CaTblBatteryUsedFrac(
-                                                sb.energy.GetTotalJ(), arbBatteryCapJ)));
+                        mm->SetRequestTerms(
+                            CaTblQuantise(sb.pcsDegradation),
+                            CaTblQuantise(ArbBatteryTerm(
+                                spec.arbitrationV2,
+                                CaTblBatteryUsedFrac(sb.energy.GetTotalJ(), arbBatteryCapJ))));
                         if (spec.handshakeFixes)
                         {
                             mm->SetRequestTargetTier(CA_TBL_TIER_UWB);
                         }
+                        mm->SetRequestQueryTriggered(sQT);
                         mm->Send(CA_TBL_MSG_ESC_REQUEST, on, 0, 0);
                         ++ex.requests;
                     }
                 };
                 if (preempt)
                 {
+                    sQT = pendQT[pt] != 0;
                     sendRequest(pendT, atSec);
                     ++sb.handshakePreemptions;
                     sb.pendingHandshake = false;
@@ -8264,6 +8345,16 @@ RunArm(CaTblPolicyMode mode,
                         maskS |= (1u << k);
                     }
                 }
+                if (spec.queryTriggeredEscalation)
+                {
+                    for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                    {
+                        if (peerMacs[pi][static_cast<size_t>(ti)]->TakeUrgentQuery())
+                        {
+                            sb.policy.RequestQueryEscalation(); // NW-4
+                        }
+                    }
+                }
                 const uint64_t covBeforeS = sb.policy.GetUwbCoverageClears(); // NW-7
                 CaTblDecision ds = sb.policy.Step(dt, measS, 0, static_cast<int32_t>(actM.size()),
                                                   static_cast<int32_t>(addressedActive), maskS);
@@ -8297,6 +8388,7 @@ RunArm(CaTblPolicyMode mode,
                         ? (ds.escalated && (ds.nextTier == CA_TBL_TIER_UWB || ds.uwbPending))
                         : (ds.escalated || ds.deescalated))
                 {
+                    sQT = ds.queryTriggered;
                     if (sb.energy.CanTransmit(act, t))
                     {
                         sendRequest(act, t);
@@ -8320,6 +8412,7 @@ RunArm(CaTblPolicyMode mode,
                                 // next cycle's ranging on this (capped) tier.
                                 sb.pendingHandshake = true;
                                 sb.pendingHandshakeTier = act;
+                                pendQT[pt] = ds.queryTriggered ? 1 : 0;
                             }
                             else
                             {
@@ -8970,6 +9063,7 @@ RunArm(CaTblPolicyMode mode,
                     m.anchorId = anchorId;
                     m.sourceKind = CaTblSourceKindOf(anchorId);
                     m.fromFloor = (tier != active);
+                    noteUwbEvidence(anchorId, nodeId, tier, range, t); // NW-5
                     out.push_back(m);
                 }
             }
@@ -9101,9 +9195,12 @@ RunArm(CaTblPolicyMode mode,
                     // flag a pending handshake exists only for an escalation into UWB.
                     nodeMac[pendingHandshakeTier]->SetRequestTerms(
                         CaTblQuantise(pcsDegradation),
-                        CaTblQuantise(CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                        CaTblQuantise(ArbBatteryTerm(
+                            spec.arbitrationV2,
+                            CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ))));
                     nodeMac[pendingHandshakeTier]->SetRequestTargetTier(CA_TBL_TIER_UWB);
                 }
+                nodeMac[pendingHandshakeTier]->SetRequestQueryTriggered(pendQT[0] != 0); // NW-4
                 nodeMac[pendingHandshakeTier]->Send(
                     CA_TBL_MSG_ESC_REQUEST, pendingHandshakeTier, 0, 0);
                 ++tag0RequestFrames;
@@ -9693,6 +9790,17 @@ RunArm(CaTblPolicyMode mode,
             trig->preVy = policy.EstVy();
             trig->preTraceP = policy.Pxx() + policy.Pyy();
         }
+        if (spec.queryTriggeredEscalation)
+        {
+            // NW-4: an URGENT query that named tag 0 arms the policy's hook.
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr && nodeMac[ti]->TakeUrgentQuery())
+                {
+                    policy.RequestQueryEscalation();
+                }
+            }
+        }
         const uint64_t covBefore = policy.GetUwbCoverageClears(); // NW-7
         CaTblDecision d = policy.Step(dt,
                                             meas,
@@ -10172,9 +10280,11 @@ RunArm(CaTblPolicyMode mode,
                         // end-of-cycle update that refreshes them runs after this send.
                         nodeMac[active]->SetRequestTerms(
                             CaTblQuantise(CaTblDegradationWith(pcsHist, d.pcs, pcsDegradation)),
-                            CaTblQuantise(
-                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                            CaTblQuantise(ArbBatteryTerm(
+                                spec.arbitrationV2,
+                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ))));
                         nodeMac[active]->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                        nodeMac[active]->SetRequestQueryTriggered(d.queryTriggered); // NW-4
                     }
                     else
                     {
@@ -10217,9 +10327,11 @@ RunArm(CaTblPolicyMode mode,
                         // end-of-cycle update that refreshes them runs after this send.
                         nodeMac[active]->SetRequestTerms(
                             CaTblQuantise(CaTblDegradationWith(pcsHist, d.pcs, pcsDegradation)),
-                            CaTblQuantise(
-                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ)));
+                            CaTblQuantise(ArbBatteryTerm(
+                                spec.arbitrationV2,
+                                CaTblBatteryUsedFrac(energy.GetTotalJ(), arbBatteryCapJ))));
                         nodeMac[active]->SetRequestTargetTier(CA_TBL_TIER_UWB);
+                        nodeMac[active]->SetRequestQueryTriggered(d.queryTriggered); // NW-4
                     }
                     else
                     {
@@ -10286,6 +10398,7 @@ RunArm(CaTblPolicyMode mode,
                         // loses its tier-1 measurements.
                         pendingHandshake = true;
                         pendingHandshakeTier = active;
+                        pendQT[0] = d.queryTriggered ? 1 : 0; // NW-4
                         // DO NOT abort the tier change -- it commits.
                         // d.escalated stays true, d.nextTier stays as Step() set it.
                         ++handshakeDeferrals;
@@ -10845,6 +10958,55 @@ RunArm(CaTblPolicyMode mode,
     {
         grantLog->close(); // NW-7: before the digest, and before the MACs can call back
         grantLog.reset();
+    }
+    if (arbLog)
+    {
+        // NW-5. Unhooked and closed before the digest; then the arbiters' sums.
+        uint64_t g = 0, pre = 0, aged = 0, q = 0, oor = 0, ex = 0, gFinder = 0;
+        for (std::map<uint16_t, CaTblMac*>::iterator am = arbMacById.begin();
+             am != arbMacById.end(); ++am)
+        {
+            am->second->SetArbLog(nullptr);
+            g += am->second->GetArbGrants();
+            pre += am->second->GetArbPreemptions();
+            aged += am->second->GetArbAgedGrants();
+            q += am->second->GetArbQueued();
+            oor += am->second->GetArbOutOfRange();
+            ex += am->second->GetArbExpired();
+            if (am->first >= 501)
+            {
+                gFinder += am->second->GetArbGrants();
+            }
+        }
+        arbLog->close();
+        arbLog.reset();
+        std::cout << "    NW-5 arbitration (" << CaTblPolicyModeName(mode) << "): grants " << g
+                  << " (by finders " << gFinder << "), pre-emptions " << pre
+                  << ", from the queue " << aged << ", queued " << q << ", out of range " << oor
+                  << ", dropped from the queue " << ex << "\n";
+    }
+    if (spec.queryTriggeredEscalation)
+    {
+        // NW-4. URGENT queries latched by every MAC; the hook's counts, tag 0 and subjects.
+        uint64_t latched = 0;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            latched += macs[m].GetUrgentQueries();
+        }
+        uint64_t a[5] = {0, 0, 0, 0, 0};
+        for (uint32_t pt = 0; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            const CaTblPolicy& po = tags[pt].policy;
+            a[0] += po.GetQueryEscRequests();
+            a[1] += po.GetQueryEscFired();
+            a[2] += po.GetQueryEscalations();
+            a[3] += po.GetQueryEscSuppressed();
+            a[4] += po.GetQueryEscIgnored();
+        }
+        std::cout << "    NW-4 query-triggered escalation (" << CaTblPolicyModeName(mode)
+                  << "): URGENT queries latched " << latched << "; hook armed " << a[0]
+                  << ", fired " << a[1] << ", escalations " << a[2] << ", suppressed " << a[3]
+                  << ", ignored " << a[4] << "\n";
     }
     if (spec.queryV2)
     {
@@ -12074,6 +12236,42 @@ main(int argc, char* argv[])
                  "decision on a query), digested, and one NW-9 line. Needs "
                  "--identityQueryPeriodS > 0.",
                  spec.queryV2);
+    cmd.AddValue("queryTriggeredEscalation",
+                 "An URGENT query for a node's own manifest escalates it toward UWB whatever "
+                 "its PCS (Network sect 4: 'a QUERY match with priority == URGENT can itself "
+                 "trigger UWB tier escalation ... bypassing the normal PCS threshold-crossing "
+                 "trigger'; docs/SPEC_CONFORMANCE_PLAN.md NW-4). FALSE by default, which is "
+                 "every result so far: no path from a QUERY to escalation. TRUE: the MAC "
+                 "latches the query, the policy forces the escalation decision one tier per "
+                 "cycle until UWB is reached or asked for -- before the coast and the blind "
+                 "demotion that precede the decision -- while the suppress-only "
+                 "preconditions still apply and a suppression is counted; the ESC_REQUEST "
+                 "carries is_query_triggered, which the --arbitrationV2 arbiter scores. Static "
+                 "arms ignore it. One NW-4 line. Needs --queryV2 and, until the session "
+                 "requester (TA-2) issues URGENT queries, --identityQueryUrgent.",
+                 spec.queryTriggeredEscalation);
+    cmd.AddValue("identityQueryUrgent",
+                 "Under --queryV2, send the identity queries at URGENT priority (1) instead of "
+                 "ROUTINE (0). The byte mapping is OURS. FALSE by default.",
+                 spec.identityQueryUrgent);
+    cmd.AddValue("arbitrationV2",
+                 "UWB arbitration as Network sect 5 specifies (docs/SPEC_CONFORMANCE_PLAN.md "
+                 "NW-5). FALSE by default, which keeps the C4 arbiter: T_batt is the fraction "
+                 "SPENT, T_query is the access category (a constant), a denied request is "
+                 "forgotten, only gateways arbitrate, and hearing a 2.4 GHz request counts as "
+                 "UWB reach. TRUE: the request carries the battery REMAINING, scored "
+                 "min(1/max(rem, 0.05), 20) x 0.05 (the 0.05 is OURS); T_query is the "
+                 "request's query-triggered bit (NW-4); an arbiter considers a request only "
+                 "with its own evidence of UWB reach -- a UWB exchange, or a 2.4 GHz range "
+                 "under 29.5 m, within 10 s (OURS) -- else denies it with queue position 0; a "
+                 "request that cannot have the slot is queued and told its position, and each "
+                 "cycle a free slot goes to the queue's argmax, staleness aging by the time "
+                 "waited; an entry older than 30 s (OURS) or out of range is dropped with a "
+                 "final denial; finders arbitrate their own UWB radio too (our mapping of the "
+                 "spec's vehicle-mounted anchors). Under --grantGatedUwb a queued request "
+                 "keeps the node waiting. Writes arb_<arm>_seed<N>.csv, digested, and one "
+                 "NW-5 line. Needs --uwbArbitration and --handshakeFixes.",
+                 spec.arbitrationV2);
     std::string identityQueryManifestsArg;
     cmd.AddValue("identityQueryManifests",
                  "Under --queryV2, the comma-separated manifest list each query asks for "
@@ -14020,6 +14218,26 @@ main(int argc, char* argv[])
             spec.identityQueryManifests.push_back(static_cast<uint8_t>(v));
         }
     }
+    // NW-4 / NW-5.
+    if (spec.queryTriggeredEscalation && (!spec.queryV2 || !spec.identityQueryUrgent))
+    {
+        std::cerr << "FATAL: --queryTriggeredEscalation needs --queryV2 and "
+                     "--identityQueryUrgent: only a v2 QUERY carries a priority, and nothing "
+                     "else sends an URGENT one yet\n";
+        return 1;
+    }
+    if (spec.identityQueryUrgent && !spec.queryV2)
+    {
+        std::cerr << "FATAL: --identityQueryUrgent needs --queryV2\n";
+        return 1;
+    }
+    if (spec.arbitrationV2 && (!uwbArbitrationArg || !spec.handshakeFixes))
+    {
+        std::cerr << "FATAL: --arbitrationV2 needs --uwbArbitration=true and "
+                     "--handshakeFixes=true: it is an arbiter, and its denials and queue "
+                     "positions ride MC-1's verdict\n";
+        return 1;
+    }
     if (spec.queryV2 && !(identityQueryPeriodSArg > 0.0))
     {
         std::cerr << "FATAL: --queryV2 needs --identityQueryPeriodS > 0: no query is sent\n";
@@ -15037,6 +15255,10 @@ main(int argc, char* argv[])
     if (spec.queryV2)
     {
         digestPatterns += " responses_*.csv queryv2_*.csv";
+    }
+    if (spec.arbitrationV2)
+    {
+        digestPatterns += " arb_*.csv";
     }
     if (queryProxyArg)
     {

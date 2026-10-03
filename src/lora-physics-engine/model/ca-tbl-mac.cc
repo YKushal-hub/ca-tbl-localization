@@ -67,6 +67,10 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";target=" << static_cast<int>(h.GetReqTargetTier());
     }
+    if (h.GetReqQueryTriggered() != 0)
+    {
+        o << ";qt=1"; // NW-4
+    }
     if (h.GetAckedPacketId() != 0)
     {
         o << ";acks=" << h.GetAckedPacketId();
@@ -697,6 +701,215 @@ CaTblMac::ArbitrateRequest(const CaTblHeader& hdr)
     return false;
 }
 
+double
+CaTblMac::ScoreV2(double tDeg, double rem, double tStale, uint8_t qt, double* tBatt) const
+{
+    // NW-5. U(r) = l1*T_deg + l2*T_batt + l3*T_stale + l4*T_query, Network sect 5, with
+    // T_batt the spec's 1/battery_remaining normalised: min(1/max(rem, e), 1/e) * e lies in
+    // [e, 1] and is 1 for a battery at or under e (OURS, e = arbBattEps).
+    const double e = m_cfg.arbBattEps;
+    const double tb = std::min(1.0 / std::max(rem, e), 1.0 / e) * e;
+    if (tBatt != nullptr)
+    {
+        *tBatt = tb;
+    }
+    return m_cfg.arbLambdaDeg * tDeg + m_cfg.arbLambdaBatt * tb + m_cfg.arbLambdaStale * tStale +
+           m_cfg.arbLambdaQuery * static_cast<double>(qt);
+}
+
+void
+CaTblMac::LogArb(double tS, uint16_t who, const char* ev, double u, double tDeg, double rem,
+                 double tBatt, double tStale, uint8_t qt, uint32_t queuePos)
+{
+    if (m_arbLog == nullptr)
+    {
+        return;
+    }
+    std::map<uint16_t, double>::const_iterator ev2 = m_uwbEvidence.find(who);
+    *m_arbLog << std::fixed << std::setprecision(6) << tS << ',' << m_cfg.nodeId << ',' << who
+              << ',' << ev << ',' << u << ',' << tDeg << ',' << rem << ',' << tBatt << ','
+              << tStale << ',' << static_cast<int>(qt) << ',' << queuePos << ','
+              << (ev2 == m_uwbEvidence.end() ? -1.0 : tS - ev2->second) << '\n';
+}
+
+int
+CaTblMac::ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos)
+{
+    const double now = Simulator::Now().GetSeconds();
+    const uint16_t who = hdr.GetOriginId();
+    *queuePos = 0;
+    const double tDeg = static_cast<double>(hdr.GetReqDegradation()) / 255.0;
+    const double rem = static_cast<double>(hdr.GetReqBattery()) / 255.0; // REMAINING under V2
+    const uint8_t qt = hdr.GetReqQueryTriggered();
+    std::map<uint16_t, double>::const_iterator evd = m_uwbEvidence.find(who);
+    if (evd == m_uwbEvidence.end() || now - evd->second > m_cfg.arbUwbEvidenceS)
+    {
+        // Hearing the request proves nothing about UWB reach: it came on 2.4 GHz.
+        ++m_arbOutOfRange;
+        ++m_arbDenials;
+        LogArb(now, who, "out_of_range", 0.0, tDeg, rem, 0.0, 0.0, qt, 0);
+        return -1;
+    }
+    double dtS = m_cfg.arbSlotHoldS;
+    std::map<uint16_t, double>::const_iterator it = m_lastGrantAtS.find(who);
+    if (it != m_lastGrantAtS.end())
+    {
+        dtS = now - it->second;
+    }
+    const double tStale = std::min(1.0, dtS / 10.0);
+    double tBatt = 0.0;
+    const double u = ScoreV2(tDeg, rem, tStale, qt, &tBatt);
+    const bool slotFree = (m_slotGrantedAtS < 0.0) ||
+                          ((now - m_slotGrantedAtS) >= m_cfg.arbSlotHoldS) || (m_slotHolder == who);
+    if (slotFree || u > m_slotHolderScore)
+    {
+        const bool pre = !slotFree;
+        m_slotHolder = who;
+        m_slotGrantedAtS = now;
+        m_slotHolderScore = u;
+        m_lastGrantAtS[who] = now;
+        ++m_arbGrants;
+        if (pre)
+        {
+            ++m_arbPreemptions;
+        }
+        ++m_grantsByTarget[who];
+        for (size_t k = 0; k < m_arbQueue.size(); ++k)
+        {
+            if (m_arbQueue[k].who == who)
+            {
+                m_arbQueue.erase(m_arbQueue.begin() + static_cast<long>(k));
+                break;
+            }
+        }
+        LogArb(now, who, pre ? "preempt" : "grant", u, tDeg, rem, tBatt, tStale, qt, 0);
+        return 1;
+    }
+    // Queued, or re-queued with fresh terms and its original request time (its age).
+    bool found = false;
+    for (size_t k = 0; k < m_arbQueue.size(); ++k)
+    {
+        if (m_arbQueue[k].who == who)
+        {
+            m_arbQueue[k].pid = hdr.GetPacketId();
+            m_arbQueue[k].tier = hdr.GetTier();
+            m_arbQueue[k].tDeg = tDeg;
+            m_arbQueue[k].rem = rem;
+            m_arbQueue[k].qt = qt;
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+    {
+        ArbQueued q;
+        q.who = who;
+        q.pid = hdr.GetPacketId();
+        q.tier = hdr.GetTier();
+        q.tReq = now;
+        q.tDeg = tDeg;
+        q.rem = rem;
+        q.qt = qt;
+        m_arbQueue.push_back(q);
+        ++m_arbQueuedN;
+    }
+    uint32_t pos = 1;
+    for (size_t k = 0; k < m_arbQueue.size(); ++k)
+    {
+        const ArbQueued& o = m_arbQueue[k];
+        if (o.who != who &&
+            ScoreV2(o.tDeg, o.rem, std::min(1.0, (now - o.tReq) / 10.0), o.qt, nullptr) > u)
+        {
+            ++pos;
+        }
+    }
+    *queuePos = static_cast<uint8_t>(std::min<uint32_t>(pos, 255));
+    ++m_arbDenials;
+    LogArb(now, who, "queue", u, tDeg, rem, tBatt, tStale, qt, pos);
+    return 0;
+}
+
+void
+CaTblMac::ArbitrationCycle()
+{
+    if (!m_cfg.arbitrationV2 || m_arbQueue.empty())
+    {
+        return;
+    }
+    const double now = Simulator::Now().GetSeconds();
+    // Drop what has waited too long, or whose requester this arbiter no longer has UWB
+    // evidence for, with a final denial (queue position 0).
+    for (size_t k = 0; k < m_arbQueue.size();)
+    {
+        const ArbQueued& q = m_arbQueue[k];
+        std::map<uint16_t, double>::const_iterator evd = m_uwbEvidence.find(q.who);
+        const bool inRange =
+            evd != m_uwbEvidence.end() && now - evd->second <= m_cfg.arbUwbEvidenceS;
+        if (now - q.tReq > m_cfg.arbQueueMaxS || !inRange)
+        {
+            m_nextQueuePos = 0;
+            PrepareReply(q.pid, true, false);
+            Send(CA_TBL_MSG_ESC_GRANT, static_cast<CaTblTier>(q.tier), 0, q.who);
+            ++m_arbExpired;
+            LogArb(now, q.who, "expire", 0.0, q.tDeg, q.rem, 0.0, 0.0, q.qt, 0);
+            m_arbQueue.erase(m_arbQueue.begin() + static_cast<long>(k));
+            continue;
+        }
+        ++k;
+    }
+    const bool slotFree =
+        (m_slotGrantedAtS < 0.0) || ((now - m_slotGrantedAtS) >= m_cfg.arbSlotHoldS);
+    if (!slotFree || m_arbQueue.empty())
+    {
+        return;
+    }
+    // "Denied requests remain queued, re-scored next cycle (aging prevents starvation)":
+    // staleness here is the time each has waited.
+    size_t best = 0;
+    double bestU = -1.0;
+    for (size_t k = 0; k < m_arbQueue.size(); ++k)
+    {
+        const ArbQueued& q = m_arbQueue[k];
+        const double tStale = std::min(1.0, (now - q.tReq) / 10.0);
+        double tBatt = 0.0;
+        const double u = ScoreV2(q.tDeg, q.rem, tStale, q.qt, &tBatt);
+        LogArb(now, q.who, "score", u, q.tDeg, q.rem, tBatt, tStale, q.qt, 0);
+        if (u > bestU || (u == bestU && q.tReq < m_arbQueue[best].tReq))
+        {
+            best = k;
+            bestU = u;
+        }
+    }
+    const ArbQueued w = m_arbQueue[best];
+    m_arbQueue.erase(m_arbQueue.begin() + static_cast<long>(best));
+    m_slotHolder = w.who;
+    m_slotGrantedAtS = now;
+    m_slotHolderScore = bestU;
+    m_lastGrantAtS[w.who] = now;
+    ++m_arbGrants;
+    ++m_arbAgedGrants;
+    ++m_grantsByTarget[w.who];
+    if (m_grantCoord != nullptr)
+    {
+        m_grantCoord->NoteOwnGrant(w.who, now, now + m_cfg.arbSlotHoldS);
+    }
+    double tBatt = 0.0;
+    ScoreV2(w.tDeg, w.rem, std::min(1.0, (now - w.tReq) / 10.0), w.qt, &tBatt);
+    LogArb(now, w.who, "aged_grant", bestU, w.tDeg, w.rem, tBatt,
+           std::min(1.0, (now - w.tReq) / 10.0), w.qt, 0);
+    m_nextQueuePos = 0;
+    PrepareReply(w.pid, true, true);
+    Send(CA_TBL_MSG_ESC_GRANT, static_cast<CaTblTier>(w.tier), 0, w.who);
+}
+
+bool
+CaTblMac::TakeUrgentQuery()
+{
+    const bool was = m_urgentQueryPending;
+    m_urgentQueryPending = false;
+    return was;
+}
+
 void
 CaTblMac::SendQuery(CaTblTier tier, uint8_t manifestId)
 {
@@ -1052,6 +1265,8 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         m_nextForceFlood = false;
         m_nextHasRespEntry = false; // NW-9
         m_nextRespManifest = 0;
+        m_nextReqQT = 0; // NW-4 / NW-5
+        m_nextQueuePos = 0;
         if (m_cfg.handshakeFixes)
         {
             // MC-1: what this frame would have answered must not ride a later one.
@@ -1163,13 +1378,19 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         f.hdr.SetAckedPacketId(m_nextAckedPacketId);
         if (m_nextHasVerdict)
         {
-            f.hdr.SetGrantVerdict(m_nextGranted, 0);
+            f.hdr.SetGrantVerdict(m_nextGranted, m_nextQueuePos); // NW-5: 0 outside V2
         }
         m_nextReqTargetTier = 0xFF;
         m_nextAckedPacketId = 0;
         m_nextHasVerdict = false;
         m_nextGranted = true;
     }
+    m_nextQueuePos = 0;
+    if (type == CA_TBL_MSG_ESC_REQUEST && m_cfg.queryTriggeredEscalation)
+    {
+        f.hdr.SetReqQueryTriggered(m_nextReqQT); // NW-4
+    }
+    m_nextReqQT = 0;
     f.tier = tier;
     f.nEntries = nEntries;
     f.destId = destId;
@@ -1603,6 +1824,12 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
                 if (m_cfg.identityClass == CA_TBL_ID_TARGET && m == m_cfg.targetManifestId)
                 {
                     ownListed = true;
+                    // NW-4. Priority 1 is URGENT (0 ROUTINE; the byte mapping is OURS).
+                    if (m_cfg.queryTriggeredEscalation && hdr.GetQueryPriority() >= 1)
+                    {
+                        m_urgentQueryPending = true;
+                        ++m_urgentQueries;
+                    }
                     if (self != m_table.end() && self->second.valid)
                     {
                         e = self->second;
@@ -1785,7 +2012,8 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
     {
         const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());
         if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
-            m_cfg.identityClass == CA_TBL_ID_ANCHOR)
+            (m_cfg.identityClass == CA_TBL_ID_ANCHOR ||
+             (m_cfg.arbitrationV2 && m_cfg.identityClass == CA_TBL_ID_RESCUER)))
         {
             // L.1.4 / Network sect 6. With a coordinator attached, the cross-anchor
             // tie-break runs FIRST: if a higher-id anchor is known to hold an overlapping
@@ -1809,7 +2037,17 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
             else
             {
                 bool granted = false;
-                if (!m_cfg.uwbArbitration)
+                if (m_cfg.arbitrationV2)
+                {
+                    // NW-5: grant, or queue with a position, or refuse out of range.
+                    uint8_t qpos = 0;
+                    const int v = ArbitrateV2(hdr, &qpos);
+                    granted = (v == 1);
+                    m_nextQueuePos = granted ? 0 : qpos;
+                    PrepareReply(hdr.GetPacketId(), true, granted);
+                    Send(CA_TBL_MSG_ESC_GRANT, rxTier, 0, hdr.GetOriginId());
+                }
+                else if (!m_cfg.uwbArbitration)
                 {
                     // C1 behaviour: grant whoever asked, and let CAD and the duty
                     // governor decide whether it lands.
@@ -1940,11 +2178,58 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
                     m_uwbGrantCb(hdr.GetOriginId(), 1); // NW-7: only the answer to ours
                 }
             }
+            else if (m_cfg.arbitrationV2 && m_queuedReqs.erase(hdr.GetAckedPacketId()) != 0)
+            {
+                // NW-5: the slot a queue gave us, cycles after we asked.
+                ++m_hsRequestsAnswered;
+                if (m_uwbGrantCb)
+                {
+                    m_uwbGrantCb(hdr.GetOriginId(), 1);
+                }
+            }
         }
         else
         {
             ++m_hsDeniesHeard;
-            if (m_uwbGrantCb && m_awaitingAck.count(hdr.GetAckedPacketId()) != 0)
+            const uint32_t acked = hdr.GetAckedPacketId();
+            std::map<uint32_t, std::set<uint16_t>>::iterator qr = m_queuedReqs.find(acked);
+            if (m_cfg.arbitrationV2 && hdr.GetQueuePos() > 0 &&
+                (m_awaitingAck.count(acked) != 0 || qr != m_queuedReqs.end()))
+            {
+                // NW-5: queued, not refused. The anchor holds the request, so it is not
+                // retried; the eventual GRANT will name it. A broadcast request can sit in
+                // several anchors' queues: each is remembered, and only the first is news.
+                const bool first = (m_awaitingAck.erase(acked) != 0);
+                m_queuedReqs[acked].insert(hdr.GetOriginId());
+                ++m_queuedHeard;
+                if (first && m_uwbGrantCb)
+                {
+                    m_uwbGrantCb(hdr.GetOriginId(), 2);
+                }
+            }
+            else if (m_cfg.arbitrationV2 && qr != m_queuedReqs.end())
+            {
+                // NW-5: dropped from the queue of an anchor that held it (expired, or out
+                // of range) -- final only when no other anchor still holds it. A refusal
+                // from an anchor that never queued it is the out-of-range kind: ignored.
+                if (qr->second.erase(hdr.GetOriginId()) != 0 && qr->second.empty())
+                {
+                    m_queuedReqs.erase(qr);
+                    if (m_uwbGrantCb)
+                    {
+                        m_uwbGrantCb(hdr.GetOriginId(), 0);
+                    }
+                }
+            }
+            else if (m_cfg.arbitrationV2 && m_awaitingAck.count(acked) != 0)
+            {
+                // NW-5: refused out of range by THIS anchor. The request was broadcast and
+                // another anchor may have the requester in reach, so the refusal does not
+                // settle it: it stays pending, MC-1's timeout retries it, and only running
+                // out of retries ends it.
+                ++m_outOfRangeHeard;
+            }
+            else if (m_uwbGrantCb && m_awaitingAck.count(acked) != 0)
             {
                 m_uwbGrantCb(hdr.GetOriginId(), 0); // NW-7
             }

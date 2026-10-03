@@ -54,6 +54,7 @@
 #include <functional>
 #include <ostream>
 #include <map>
+#include <set>
 #include <tuple>
 #include <string>
 #include <vector>
@@ -279,6 +280,26 @@ struct CaTblMacConfig
     double arbLambdaQuery = 1.0;
     //! Seconds after which a held UWB slot is considered free again.
     double arbSlotHoldS = 10.0;
+    //! NW-5 (Network sect 5), with uwbArbitration and handshakeFixes. A request carries the
+    //! battery REMAINING and T_batt = min(1/max(rem, e), 1/e) * e, in [e, 1] (e =
+    //! arbBattEps, OURS); T_query is the request's query-triggered bit (NW-4). A request is
+    //! considered only with this arbiter's OWN evidence that the requester is in its UWB
+    //! range -- a UWB exchange, or a 2.4 GHz range under arbUwbRangeM, within
+    //! arbUwbEvidenceS (the scenario reports both) -- else it is denied with queue position
+    //! 0. A request that cannot have the slot is QUEUED and told its position; each cycle
+    //! (ArbitrationCycle) a free slot goes to the queue's argmax, staleness aging by the
+    //! time waited; a queued request older than arbQueueMaxS, or out of range, is dropped
+    //! with a final denial. Finders (RESCUER) arbitrate their own UWB radio too: in this
+    //! topology a finder is the mobile anchor the spec's "anchors (fixed or vehicle-mounted)"
+    //! covers -- our mapping. False keeps the C4 arbiter.
+    bool arbitrationV2 = false;
+    double arbBattEps = 0.05;      //!< OURS
+    double arbUwbEvidenceS = 10.0; //!< OURS
+    double arbUwbRangeM = 29.5;    //!< the UWB r50 of this channel model
+    double arbQueueMaxS = 30.0;    //!< OURS
+    //! NW-4. An URGENT v2 QUERY naming this node's own manifest latches TakeUrgentQuery(),
+    //! and the ESC_REQUEST it leads to carries the query-triggered bit.
+    bool queryTriggeredEscalation = false;
 
     //! Network §4: answer a QUERY on behalf of a fresh table entry, not only
     //! when this node IS the target. The spec calls this the case that makes the
@@ -622,6 +643,25 @@ class CaTblMac
     //! C4. Grants, arbitration denials, and pre-emptions of a held slot.
     uint64_t GetArbGrants() const { return m_arbGrants; }
     uint64_t GetArbDenials() const { return m_arbDenials; }
+    //! NW-4. True once per URGENT query that named this node since the last call.
+    bool TakeUrgentQuery();
+    uint64_t GetUrgentQueries() const { return m_urgentQueries; }
+    //! NW-4. The next ESC_REQUEST says whether it follows an URGENT query.
+    void SetRequestQueryTriggered(bool q) { m_nextReqQT = q ? 1 : 0; }
+    //! NW-5. Evidence, at this arbiter, that \p nodeId is within its UWB range now.
+    void NoteUwbEvidence(uint16_t nodeId, double tS) { m_uwbEvidence[nodeId] = tS; }
+    //! NW-5. Re-score the queue and grant a free slot to its argmax; drop expired entries.
+    void ArbitrationCycle();
+    //! NW-5. One row per arbitration event (grant, preempt, queue, aged grant, out of
+    //! range, expire) and per queued candidate scored at a cycle grant. Null = no log.
+    void SetArbLog(std::ostream* os) { m_arbLog = os; }
+    uint64_t GetArbQueued() const { return m_arbQueuedN; }
+    uint64_t GetArbAgedGrants() const { return m_arbAgedGrants; }
+    uint64_t GetArbOutOfRange() const { return m_arbOutOfRange; }
+    uint64_t GetArbExpired() const { return m_arbExpired; }
+    uint64_t GetQueuedHeard() const { return m_queuedHeard; }
+    //! NW-5: out-of-range refusals of this node's requests, which do not settle them.
+    uint64_t GetOutOfRangeHeard() const { return m_outOfRangeHeard; }
     uint64_t GetArbPreemptions() const { return m_arbPreemptions; }
     //! Per-target grant counts, so a fairness delta is measurable rather than
     //! asserted. Keyed by originating node id.
@@ -847,6 +887,36 @@ class CaTblMac
     bool RpFirstCopy(uint32_t queryId, uint16_t answererId, uint8_t manifest, double nowS);
     // NW-7.
     std::function<void(uint16_t, int)> m_uwbGrantCb;
+    // NW-4 / NW-5.
+    bool m_urgentQueryPending = false;
+    uint64_t m_urgentQueries = 0;
+    uint8_t m_nextReqQT = 0;
+    uint8_t m_nextQueuePos = 0;
+    struct ArbQueued
+    {
+        uint16_t who;
+        uint32_t pid;
+        uint8_t tier;
+        double tReq;
+        double tDeg;
+        double rem;
+        uint8_t qt;
+    };
+    std::vector<ArbQueued> m_arbQueue;
+    std::map<uint16_t, double> m_uwbEvidence;
+    //! Requester side: my queued request -> the anchors holding it in their queue.
+    std::map<uint32_t, std::set<uint16_t>> m_queuedReqs;
+    std::ostream* m_arbLog = nullptr;
+    uint64_t m_arbQueuedN = 0;
+    uint64_t m_arbAgedGrants = 0;
+    uint64_t m_arbOutOfRange = 0;
+    uint64_t m_arbExpired = 0;
+    uint64_t m_queuedHeard = 0;
+    uint64_t m_outOfRangeHeard = 0;
+    double ScoreV2(double tDeg, double rem, double tStale, uint8_t qt, double* tBatt) const;
+    int ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos);
+    void LogArb(double tS, uint16_t who, const char* ev, double u, double tDeg, double rem,
+                double tBatt, double tStale, uint8_t qt, uint32_t queuePos);
     // NW-9.
     std::function<void(const CaTblHeader&)> m_respCb;
     std::ostream* m_queryLog = nullptr;

@@ -388,6 +388,72 @@ main(int argc, char* argv[])
               "healthy branch is reached");
     }
 
+    std::cout << "--- NW-4: an URGENT query forces the escalation, whatever the PCS\n";
+    {
+        const Pt at = {400, 300};
+        CaTblPolicyConfig q;
+        q.mode = CA_TBL_MODE_FULL;
+        q.escalationRequiresEvidence = false;
+        q.escalationRequiresEvidenceT2 = false;
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            q.pcsThresholdUp[k] = -1e9; // the PCS never asks for an escalation
+            q.pcsThresholdDown[k] = 2e9;
+        }
+        q.queryTriggeredEscalation = true;
+        CaTblPolicy p;
+        p.Configure(q);
+        p.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        const CaTblDecision n0 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        p.RequestQueryEscalation();
+        const CaTblDecision h1 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision h2 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision h3 = p.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(!n0.escalated && h1.escalated && h1.queryTriggered && h2.escalated &&
+                  h2.nextTier == CA_TBL_TIER_UWB && !h3.escalated && !h3.queryTriggered &&
+                  !p.IsQueryEscalationArmed() && p.GetQueryEscalations() == 2,
+              "with no PCS trigger, the hook steps the node up one tier a cycle to UWB, then "
+              "disarms");
+
+        CaTblPolicyConfig qs = q;
+        qs.mode = CA_TBL_MODE_STATIC_2P4;
+        CaTblPolicy s2;
+        s2.Configure(qs);
+        s2.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        s2.RequestQueryEscalation();
+        const CaTblDecision st = s2.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(!st.escalated && s2.GetQueryEscIgnored() == 1 && s2.GetActiveTier() == CA_TBL_TIER_2P4,
+              "a static arm ignores it, counted");
+
+        // The evidence gate still suppresses it: no neighbour within the UWB radius.
+        CaTblPolicyConfig qe = q;
+        qe.escalationRequiresEvidence = true;
+        qe.uwbEvidenceFromNeighbours = true;
+        CaTblPolicy e;
+        e.Configure(qe);
+        e.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        e.RequestQueryEscalation();
+        e.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u); // 868 -> 2.4 (not gated)
+        const CaTblDecision e2 = e.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        Check(!e2.escalated && e2.queryTriggered && e.GetQueryEscSuppressed() == 1 &&
+                  !e.IsQueryEscalationArmed() && e.GetActiveTier() == CA_TBL_TIER_2P4,
+              "the evidence gate still suppresses the step into UWB, and the suppression is "
+              "counted (fired, not escalated)");
+
+        // The coast: no ranges at all this cycle, and the hook still acts -- and the
+        // dropout does not count toward demotion.
+        CaTblPolicyConfig qc = q;
+        qc.nDeescalate = 1;
+        CaTblPolicy c;
+        c.Configure(qc);
+        c.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        c.RequestQueryEscalation();
+        const CaTblDecision c1 = c.Step(1.0, std::vector<CaTblRangeMeasurement>(), 0, 0, 0, 7u);
+        Check(c1.escalated && c1.queryTriggered && !c1.deescalated &&
+                  c.GetActiveTier() == CA_TBL_TIER_2P4,
+              "it acts on a cycle with no fix too, before the coast's demotion count");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }
