@@ -4,8 +4,8 @@
 # usage: bash scripts/spec_profile_gate_selftest.sh [<dir written by spec_profile_gate.sh>]
 #   Without a directory it makes its own real run set first (about 2 min).
 #
-# G24 FAILS on the real run set today: five mechanisms have a zero population under the
-# preset (TECH_DEBT N.15). So P0 asserts that those five are the ONLY failures, and each
+# G24 FAILS on the real run set today: two mechanisms have a zero population under the
+# preset (TECH_DEBT N.15). So P0 asserts that those two are the ONLY failures, and each
 # fixture -- a copy of the real set with one thing changed -- must add a FAIL of the check
 # it names. The flag-efficacy half of G24 (the preset with one flag off, per mechanism) is
 # made of real runs and needs no fixture: each EFF line already shows the mechanism off.
@@ -22,7 +22,7 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (Case A fixes|Case B fixes|triggered updates|UWB-delivered fixes|requester escalations accepted)'
+KNOWN='POP (Case A fixes|triggered updates)'
 
 pass=0
 fail=0
@@ -37,7 +37,7 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
         other=$(grep -E "G24 (FAIL|MISSING)" "$T/out.txt" | grep -vE "$KNOWN" | wc -l)
         local known
         known=$(grep -E "G24 FAIL" "$T/out.txt" | grep -cE "$KNOWN")
-        [ "$rc" -eq 1 ] && [ "$other" -eq 0 ] && [ "$known" -eq 5 ] && ok=1
+        [ "$rc" -eq 1 ] && [ "$other" -eq 0 ] && [ "$known" -eq 2 ] && ok=1
     else
         grep -Eq "G24 (FAIL|MISSING) +$2" "$T/out.txt" && [ "$rc" -eq 1 ] && ok=1
     fi
@@ -53,7 +53,7 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
 }
 
 fresh
-check "P0 the real run set fails only on its five zero populations" -
+check "P0 the real run set fails only on its two zero populations" -
 fresh; f=$(ls "$T"/f/eq_flags/trace_*.csv | head -1); sed -i '2s/,/,9/' "$f"
 check "N1 the preset and its flags written out disagree" EQUIV
 fresh; sed -i '/^boxHalf: explicit/d' "$T/f/end/spec_profile.txt"

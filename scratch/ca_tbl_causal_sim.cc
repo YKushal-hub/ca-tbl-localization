@@ -13479,7 +13479,9 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * flag the preset sets, the value, and the docx section or owner decision it serves. The
  * radio basis is the LR1121 since SY-2 (2026-10-03). The geometry is GEO-01 stage 2's registered FALLBACK
  * (report/GEO01_RESULTS.md): no candidate met the SAR criterion. The PCS is CAL-02's
- * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md). The routing
+ * calibrated form, adopted by its registered rule (report/CAL02_RESULTS.md). The fix set
+ * fuses a short active tier with the floor (--fuseFloorActive, N.14), adopted by FUSE-01's
+ * registered rule (report/FUSE01_RESULTS.md). The routing
  * weights are CAMP-SPEC's registered sweep pick (0,0,1,1), adopted by owner decision
  * 2026-10-03 (report/CAMP_SPEC_RESULTS.md sect 3); a weight the preset applied is not
  * refused when --fixRouting is turned off explicitly, it is simply unused.
@@ -13504,6 +13506,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"terrainPerTierFreq", "true", "physics fix D-4: per-tier terrain wavelength"},
     {"imuPredict", "true", "Physical 2.2: IMU-driven prediction"},
     {"sparseInStep", "true", "Physical 2.4: sparse cases solved inside Step()"},
+    {"fuseFloorActive", "true", "N.14: the active tier fused with the floor; FUSE-01 (report/FUSE01_RESULTS.md), adopted by its registered rule"},
     {"caseD", "true", "Physical 2.4 Case D: one range plus the IMU"},
     {"caseCRelative", "true", "Physical 2.4 Case C: relative shape at the base station"},
     {"suspectRecovery", "downweight", "Physical 2.6: a SUSPECT fix is downweighted"},
@@ -14264,6 +14267,7 @@ main(int argc, char* argv[])
              "what was set and what was kept, and a NOTE goes to stderr. FATAL with --topology=1. "
              "The geometry is GEO-01's registered "
              "fallback (no candidate met the criterion); the PCS is CAL-02's calibrated form; "
+             "a short active tier is fused with the floor (--fuseFloorActive, FUSE-01); "
              "the routing weights are CAMP-SPEC's sweep pick (0,0,1,1), unused (not refused) "
              "when --fixRouting is turned off explicitly, as --subjectRelayChain is when "
              "--relayChain is. --hopVarianceTerms is left out "

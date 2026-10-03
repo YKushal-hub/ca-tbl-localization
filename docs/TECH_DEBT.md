@@ -1822,7 +1822,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
-| N.14 | a UWB range never improves a fix the floor can make | remedy built behind `--fuseFloorActive` (2026-10-04); adoption by FUSE-01 |
+| N.14 | a UWB range never improves a fix the floor can make | CLOSED 2026-10-04: `--fuseFloorActive`, adopted into the preset by FUSE-01's registered rule |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
@@ -2205,6 +2205,15 @@ In G63's preset runs (seed 7, 900 s):
 
 Whether the preset takes it is FUSE-01's registered rule, not this entry.
 
+*2026-10-04, FUSE-01 (report/FUSE01_RESULTS.md):* it does.
+- **Availability:** +0.118 at 5 km and +0.127 in the endgame. `ca_tbl_full` is now above
+  `static_868` at 5 km.
+- **UWB-delivered fixes:** on 20 of 20 endgame seeds, 552 of them. 538 are fused sets,
+  labelled UWB by this flag's rule.
+- **The cost:** tag 0's endgame CEP95 is 8 % worse on average (interval to +18 %, P4 failed),
+  and subjects spend more energy on UWB.
+- The registered rule adopted it, and the preset sets it since then. CLOSED.
+
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
 P6 (2026-10-03, G24). `--specProfile` sets 68 flags. It differs from the plan's §3.1 table
@@ -2307,6 +2316,17 @@ population):* the preset sets it (83 settings).
   moved, and with it these one-event populations (rule 8).
 - **The five zeros:** Case A, Case B, triggered updates, UWB-delivered fixes, requester
   escalations accepted.
+
+*2026-10-04, `--fuseFloorActive` (FUSE-01's registered rule, N.14):* the preset sets it
+(84 settings). It reproduces FUSE-01's `main_on` and `end_on` seed-1 cells byte for byte
+(72 files each).
+- **Three zeros are filled:** UWB-delivered fixes (19 in the endgame, 0 with the flag off;
+  most are fused sets, N.14), requester escalations accepted, and Case B (1).
+- **Two zeros remain, both tag 0's at 5 km:**
+  - Case A fixes. Tag 0's census reads `d.fixKind`, and in G24's seed tag 0 never solved a
+    two-gateway set.
+  - Triggered updates. The large-correction trigger never fired for tag 0; subjects do not
+    run it at all (N.3).
 
 ### N.16 At 5 km the covariance trace ranks error backwards
 
