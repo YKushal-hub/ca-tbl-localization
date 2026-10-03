@@ -148,6 +148,7 @@ MECH = [
     ("finder requests granted", "end", lambda d, n: num(log(d, n), r"TA-1b finder requester escalation \(\S+\): [^\n]*granted (\d+)"), "finderRequesterEscalation"),
     ("sessions reaching PRECISE", "end", lambda d, n: precise(log(d, n)), None),
     ("edge uplink records", "main", lambda d, n: num(log(d, n), r"SY-1 edge uplink: 2.4 GHz frames \d+ records (\d+)"), "edgeUplinkRanges"),
+    ("subjects' uplink records", "main", lambda d, n: num(log(d, n), r"subject \d+ 2\.4 GHz frames \d+ records (\d+)"), "subjectEdgeUplink"),
 ]
 
 

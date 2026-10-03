@@ -61,6 +61,7 @@ tableFuseCI --tableFuseCI=false
 queryTriggeredEscalation --queryTriggeredEscalation=false
 requesterEscalation --requesterEscalation=false --boxHalf=750 --finderMode=1
 edgeUplinkRanges --edgeUplinkRanges=false
+subjectEdgeUplink --subjectEdgeUplink=false
 subjectRelayChain --subjectRelayChain=false --boxHalf=750 --finderMode=1
 fuseFloorActive --fuseFloorActive=false --boxHalf=750 --finderMode=1
 finderRequesterEscalation --finderRequesterEscalation=false --boxHalf=750 --finderMode=1
