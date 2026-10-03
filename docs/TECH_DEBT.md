@@ -1826,6 +1826,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
+| N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -1894,6 +1895,10 @@ arbitration, seed 7, 600 s):
 Turning subjects on changes the number of engine evaluations, so every tag-0 magnitude moves
 with it (rule 8): at five subjects tag 0's static_868 fixes are 225, not 212. Only
 control-flow claims compare across N.
+
+*2026-10-04:* the relay chain is open to subjects behind `--subjectRelayChain` (G62, N.18).
+That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
+remain, and so does the list of what tag 0 has and subjects do not.
 
 ### N.4 A finder tasked to a subject it never hears stands still
 
@@ -2321,4 +2326,36 @@ kept outside the repository in `~/catbl_work/datasheets/`. The choices:
   of each tier, not rx, CAD or idle. So a subject's energy can be checked only through
   those buckets and the tier totals. Recorded, not changed: adding columns would change the
   file every subject run writes.
+
+### N.18 What `--subjectRelayChain` decides that the plan does not
+
+2026-10-04, G62; the owner's decision of 2026-10-03 to build it behind a flag. Measured
+subjects stepped through the MS-1 pipeline (N.3) and never ranged another node, so their
+depth stayed 0. A range through a subject was then depth 1, and with every field node a
+subject depth 2 could not arise (G24's zero). The flag runs L.1.2's short-relay exchange for
+subjects. The choices, each OURS:
+- **The tier is the subject's active tier,** not `--relayTier`. A subject escalates, and it
+  transmits on one tier a cycle (sect 6), which pays for the exchange.
+- **Never on 868 MHz.** A1 refuses every relayed range on tier 1, so a subject on 868 MHz
+  makes no exchange. A first build did make them, and all 21 in G62's hybrid run were
+  refused and billed.
+- **A holder must be awake on that tier:** its active tier, or 868 MHz while a hybrid arm
+  keeps the floor. A sleeping radio does not answer (NW-0's rule).
+- **Holders are nodes stepped earlier in the cycle with a fix:** plain relays and lower-id
+  subjects. Tag 0 steps after every subject, so it is never one.
+- **Relayed ranges only complete a full set.** They join the active set only if it then
+  has three or more. The sparse cases never take one, and the floor's 868 MHz ranges are
+  never mixed with them (the fix selection's rule; N.14's flag changes that).
+- **Depth is carried across cycles,** as L.1.2's is. A subject re-grounds only on three
+  direct ranges.
+
+**Measured.**
+- G62's regime (static_2p4, 200 m box, four subjects, 600 s): 4 subject fuses at depth 1,
+  and 16 of tag 0's fixes at depth 2.
+- In the hybrid arm of the same regime, no exchange. On 2.4 GHz the floor solves, so the
+  subject holds a fix; on 868 MHz A1 admits nothing (554 short subject-cycles).
+- Under the preset (900 s, seeds 7, 1 and 2):
+  - at 5 km, no admitted exchange: subjects are kilometres apart;
+  - in the endgame, subjects fused through the chain 39-67 times a run, and tag 0 had 50,
+    137 and 183 fixes at depth 2.
 

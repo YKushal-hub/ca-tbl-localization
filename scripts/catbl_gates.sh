@@ -1327,6 +1327,22 @@ bash scripts/radio_basis_gate.sh "$WORK/g61" || fail G61
 bash scripts/radio_basis_gate_selftest.sh "$WORK/g61" || fail G61
 finish G61
 
+# ---------------- G62: measured subjects in the relay chain (TECH_DEBT N.3, N.15)
+# Measured subjects stepped through the MS-1 pipeline and never ranged another node, so a
+# range through a subject was depth 1 and depth 2 could not arise when every field node is a
+# subject. --subjectRelayChain puts them in L.1.2's chain. G17's regime with four subjects,
+# read by scripts/subject_chain_gate.py:
+#   - subjects range holders and fuse; tag 0 reaches depth 2 through a subject;
+#   - A2 and sigma honest; every depth >= 2 earned by an earlier fuse (G17's rules);
+#   - holders are lower-id subjects, awake on the subject's own tier; no exchange on 868;
+#   - the subject-chain line recounted; the control; two refusals.
+#
+# Negative fixtures in scripts/subject_chain_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G62 measured subjects in the relay chain (N.3, N.15) ---\n'
+bash scripts/subject_chain_gate.sh "$WORK/g62" || fail G62
+bash scripts/subject_chain_gate_selftest.sh "$WORK/g62" || fail G62
+finish G62
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
