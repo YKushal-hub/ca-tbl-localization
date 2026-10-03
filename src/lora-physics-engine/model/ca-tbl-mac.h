@@ -659,6 +659,13 @@ class CaTblMac
     void SetRequestQueryTriggered(bool q) { m_nextReqQT = q ? 1 : 0; }
     //! NW-5. Evidence, at this arbiter, that \p nodeId is within its UWB range now.
     void NoteUwbEvidence(uint16_t nodeId, double tS) { m_uwbEvidence[nodeId] = tS; }
+    //! TA-1b. Whether this arbiter holds that evidence for \p nodeId at \p nowS, by the
+    //! window ArbitrateV2 applies (arbUwbEvidenceS). A read: nothing is sent or logged.
+    bool HasUwbEvidence(uint16_t nodeId, double nowS) const
+    {
+        std::map<uint16_t, double>::const_iterator it = m_uwbEvidence.find(nodeId);
+        return it != m_uwbEvidence.end() && nowS - it->second <= m_cfg.arbUwbEvidenceS;
+    }
     //! NW-5. Re-score the queue and grant a free slot to its argmax; drop expired entries.
     void ArbitrationCycle();
     /**

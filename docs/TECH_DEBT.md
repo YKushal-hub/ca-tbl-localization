@@ -2054,6 +2054,17 @@ neighbour set. Measured in G57's regime (G47's converging finders, five subjects
   what would make the comparison mean something.
 - **Only the base station asks.** TA-1b's finder sessions do not submit requests; that is
   not built. Open.
+  - *2026-10-04:* built, `--finderRequesterEscalation` (G64). A finder's session asks on the
+    base station's rule. A finder is itself a UWB arbiter (NW-5), so when it holds reach
+    evidence of the target it scores the request in its own queue, and no frame is needed.
+    Otherwise it asks at the arbiter the target's entry names, as TA-2 does, and with none
+    the request is unroutable. In G64's regime: 113 requests, 2 own, 3 named, 108
+    unroutable; all 5 sent were granted.
+  - The OURS choice: the "own queue first" route. The plan said "its own arbiter when it
+    holds UWB, else the nearest gateway's via the mesh", and the plan's review had already
+    ruled out the nearest gateway for TA-2.
+  - The named route stays instant and unbilled, as below. The TA-2 line's "at the targets
+    accepted" counts every on-behalf grant a target took, finders' included.
 - At the target, an on-behalf grant confirms a pending request of the node's own.
   Otherwise it is the node's escalation 2.4 GHz -> UWB on a hybrid arm, effective the next
   cycle. It is refused on 868 MHz (never a jump to UWB) and on a static arm. Both outcomes
