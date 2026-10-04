@@ -6022,6 +6022,8 @@ struct SpecOptions
     bool finderPseudoAnchorStrict = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
+    //! N.6. --halfDuplex: 0 off, 1 count only, 2 enforce.
+    uint32_t halfDuplex = 0;
     //! N.20. --deadBatteryNoDraw: a node whose battery has run out is not billed for
     //! listening or sleeping.
     bool deadBatteryNoDraw = false;
@@ -6761,6 +6763,7 @@ RunArm(CaTblPolicyMode mode,
         mc.reversePathHop = spec.reversePathHop;
         mc.queryV2 = spec.queryV2;
         mc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
+        mc.halfDuplex = static_cast<uint8_t>(spec.halfDuplex); // N.6
         mc.arbitrationV2 = spec.arbitrationV2;
         mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
         mc.nodeId = static_cast<uint16_t>(nodeId);
@@ -6803,6 +6806,7 @@ RunArm(CaTblPolicyMode mode,
             mc.reversePathHop = spec.reversePathHop;
             mc.queryV2 = spec.queryV2;
             mc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
+            mc.halfDuplex = static_cast<uint8_t>(spec.halfDuplex); // N.6
             mc.arbitrationV2 = spec.arbitrationV2;
             mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             mc.gossipQueue = spec.gossipQueue;
@@ -6904,6 +6908,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.reversePathHop = spec.reversePathHop;
             pmc.queryV2 = spec.queryV2;
             pmc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
+            pmc.halfDuplex = static_cast<uint8_t>(spec.halfDuplex); // N.6
             pmc.arbitrationV2 = spec.arbitrationV2;
             pmc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             pmc.nodeId = static_cast<uint16_t>(pid);
@@ -7240,6 +7245,7 @@ RunArm(CaTblPolicyMode mode,
             fc.reversePathHop = spec.reversePathHop;
             fc.queryV2 = spec.queryV2;
             fc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
+            fc.halfDuplex = static_cast<uint8_t>(spec.halfDuplex); // N.6
             fc.arbitrationV2 = spec.arbitrationV2;
             fc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             fc.gossipQueue = spec.gossipQueue;
@@ -13525,6 +13531,21 @@ RunArm(CaTblPolicyMode mode,
                       << deadNoDrawS << "; tag 0 escalation handshakes unbilled " << deadNoDrawHs
                       << "\n";
         }
+        if (spec.halfDuplex != 0)
+        {
+            // N.6. Summed over every radio of every node.
+            uint64_t ov = 0, dfr = 0, deaf = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                ov += macs[i].GetSelfOverlapTx();
+                dfr += macs[i].GetHalfDuplexDeferred();
+                deaf += macs[i].GetDeafRx();
+            }
+            std::cout << "    N.6 half-duplex (" << (spec.halfDuplex == 1 ? "count" : "enforce")
+                      << ", " << CaTblPolicyModeName(mode) << "): frames due over the radio's own "
+                      << ov << ", sent back to CAD " << dfr << ", receptions while transmitting "
+                      << deaf << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
+        }
         if (spec.silenceStopsRelay)
         {
             // N.1. Other nodes' frames the silenced radios refused at CAD.
@@ -16341,6 +16362,20 @@ main(int argc, char* argv[])
                  "> 0 and --silenceStopsRelay (a dead radio that relayed while drawing nothing "
                  "would be billed for transmitting and not for the reception that fed it).",
                  spec.deadBatteryNoDraw);
+    cmd.AddValue("halfDuplex",
+                 "Make every radio half-duplex (TECH_DEBT N.6). 0 (default): unchanged -- a "
+                 "radio's CAD never sees its own frame (CaTblChannel::IsBusy skips the "
+                 "observer's transmissions), so a MAC with two frames queued can start the "
+                 "second while the first is on air, the two then collide at every receiver, and "
+                 "a radio receives other nodes' frames while transmitting. 1: COUNT ONLY -- "
+                 "each case is counted and nothing else changes, so every output is "
+                 "byte-identical to 0. 2: ENFORCE -- a frame whose turn comes while the radio's "
+                 "own frame is on air goes back to CAD when it ends (a fresh CAD, billed), and a "
+                 "frame that overlaps any of the receiving radio's own transmission is not "
+                 "received (an events_ row with outcome halfduplex). Per radio: a node's three "
+                 "radios are separate (the LR1121 serves tiers 1 and 2 from one chip; that is "
+                 "not modelled). One N.6 line. Any other value is FATAL.",
+                 spec.halfDuplex);
     cmd.AddValue("silenceStopsRelay",
                  "A silenced radio relays no other node's frame (TECH_DEBT N.1). FALSE by "
                  "default: a radio silenced by a spent battery (--batteryDepleteJ, "
@@ -16980,6 +17015,12 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --deadBatteryNoDraw needs --batteryDepleteJ > 0 (nothing dies "
                      "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
+        return 1;
+    }
+    // N.6.
+    if (spec.halfDuplex > 2)
+    {
+        std::cerr << "FATAL: --halfDuplex is 0 (off), 1 (count only) or 2 (enforce)\n";
         return 1;
     }
     // N.1. Nothing is ever silenced without one of the two faults.

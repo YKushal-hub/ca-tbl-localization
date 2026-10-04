@@ -1595,6 +1595,114 @@ TestSilentRelay()
               ", refused " + std::to_string(on.refused));
 }
 
+// [14] N.6. Two nodes in range. (a) Node 1 queues two DISCOVERY frames at one instant:
+// both pass CAD, since a radio's CAD never sees its own frame, and overlap on air.
+// (b) Nodes 1 and 2 each send one frame at one instant: each transmits while the other's
+// frame arrives.
+struct HdRun
+{
+    uint64_t heardAt2 = 0;     // (a) DISCOVERY frames node 2 received from node 1
+    uint64_t selfOverlap = 0;  // (a) node 1's frames due while its own was on air
+    uint64_t deferred = 0;     // (a) of those, sent back to CAD
+    uint64_t rxWhileTx = 0;    // (b) receptions at 1 and 2 of the other's frame
+    uint64_t deaf = 0;         // (b) receptions that overlapped the receiver's own frame
+};
+
+void
+SendTwo(CaTblMac* m)
+{
+    m->Send(CA_TBL_MSG_DISCOVERY, CA_TBL_TIER_868, 0, 0);
+    m->Send(CA_TBL_MSG_DISCOVERY, CA_TBL_TIER_868, 0, 0);
+}
+
+HdRun
+RunHalfDuplex(uint8_t mode)
+{
+    HdRun r;
+    for (int part = 0; part < 2; ++part)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel channel;
+        channel.SetPhyProvider(&phy);
+        CaTblMac m[2];
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(14);
+        for (int i = 0; i < 2; ++i)
+        {
+            CaTblMacConfig c;
+            c.nodeId = static_cast<uint16_t>(1 + i);
+            c.sf = 7;
+            c.bandwidthHz = 125e3;
+            c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+            c.defaultHopLimit = 1;  // no rebroadcast
+            c.halfDuplex = mode;
+            m[i].Configure(c);
+            m[i].SetRng(rng);
+            channel.Register(&m[i]);
+        }
+        if (part == 0)
+        {
+            Simulator::Schedule(Seconds(1.0), &SendTwo, &m[0]);
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0], CA_TBL_MSG_DISCOVERY,
+                                CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[1], CA_TBL_MSG_DISCOVERY,
+                                CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        if (part == 0)
+        {
+            r.heardAt2 = m[1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+            r.selfOverlap = m[0].GetSelfOverlapTx();
+            r.deferred = m[0].GetHalfDuplexDeferred();
+        }
+        else
+        {
+            r.rxWhileTx = m[0].GetCounters(CA_TBL_MSG_DISCOVERY).received +
+                          m[1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+            r.deaf = m[0].GetDeafRx() + m[1].GetDeafRx();
+        }
+        Simulator::Destroy();
+    }
+    return r;
+}
+
+void
+TestHalfDuplex()
+{
+    std::cout << "\n[14] N.6 a radio is half-duplex (CaTblChannel::IsBusy)\n";
+    const HdRun a = RunHalfDuplex(0);
+    const HdRun b = RunHalfDuplex(1);
+    const HdRun c = RunHalfDuplex(2);
+    Report("mode 0/1/2: (a) heard at 2, self-overlaps, deferred; (b) received, deaf",
+           std::to_string(a.heardAt2) + "," + std::to_string(a.selfOverlap) + "," +
+               std::to_string(a.deferred) + "," + std::to_string(a.rxWhileTx) + "," +
+               std::to_string(a.deaf) + " / " + std::to_string(b.heardAt2) + "," +
+               std::to_string(b.selfOverlap) + "," + std::to_string(b.deferred) + "," +
+               std::to_string(b.rxWhileTx) + "," + std::to_string(b.deaf) + " / " +
+               std::to_string(c.heardAt2) + "," + std::to_string(c.selfOverlap) + "," +
+               std::to_string(c.deferred) + "," + std::to_string(c.rxWhileTx) + "," +
+               std::to_string(c.deaf));
+    // Of the two overlapping frames only the earlier-ending is lost: the channel erases a
+    // completed frame, so the later one never sees it (TECH_DEBT N.22).
+    Check("by default a radio's two frames overlap and one is lost, and a transmitting "
+          "radio still receives (the N.6 defect, kept)",
+          a.heardAt2 == 1 && a.rxWhileTx == 2,
+          "heard " + std::to_string(a.heardAt2) + ", received while transmitting " +
+              std::to_string(a.rxWhileTx));
+    Check("count-only mode changes nothing and counts both cases",
+          b.heardAt2 == a.heardAt2 && b.rxWhileTx == a.rxWhileTx && b.selfOverlap == 1 &&
+              b.deferred == 0 && b.deaf == 2,
+          "self-overlaps " + std::to_string(b.selfOverlap) + ", deaf " + std::to_string(b.deaf));
+    Check("enforced: the second frame waits and both are heard; no reception while transmitting",
+          c.heardAt2 == 2 && c.deferred == 1 && c.rxWhileTx == 0 && c.deaf == 2,
+          "heard " + std::to_string(c.heardAt2) + ", deferred " + std::to_string(c.deferred) +
+              ", received while transmitting " + std::to_string(c.rxWhileTx));
+}
+
 void
 TestQueueGossip()
 {
@@ -1646,6 +1754,7 @@ main(int argc, char* argv[])
     TestArbitrationV2();
     TestQueueGossip();
     TestSilentRelay();
+    TestHalfDuplex();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

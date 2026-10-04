@@ -1855,7 +1855,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | open (MS-1's deviation) |
 | N.4 | a finder tasked to a subject it never hears stands still | open |
 | N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
-| N.6 | a radio can put two frames on the air at once | open |
+| N.6 | a radio can put two frames on the air at once | flag (G74); default unchanged |
 | N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
 | N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
 | N.9 | queue gossip is built and rarely needed | recorded |
@@ -1871,6 +1871,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.19 | G24 reads one seed, and several of its populations are one or two events | FIXED 2026-10-04: G24 reads three seeds |
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
+| N.22 | of two colliding frames only the earlier-ending is lost | open (engineering; found 2026-10-04) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2039,6 +2040,24 @@ target answering a legacy QUERY still rebroadcast it), as has any node whose ACK
 relay overlaps its own frame. How often it happens in the scenario is not measured. A fix
 changes every run's channel and so every result (rule 8): it would be a default-off flag
 with its own null control, not a bug fix. Open.
+
+*2026-10-04, `--halfDuplex` (G74).* A per-radio mode, 0 by default.
+- **1, count only.** Every place a half-duplex radio would have waited, or been deaf, is
+  counted, and nothing else moves: every output is byte-identical to 0.
+- **2, enforce.** A frame whose turn comes while the radio's own frame is on air goes back
+  to CAD when that frame ends (a fresh CAD, billed). A frame that overlaps any of the
+  receiving radio's own transmission is not received; it is written to events_ with
+  outcome halfduplex.
+- Deafness is read from the radio's own recent transmissions, not from the channel's
+  in-flight list, which misses a frame that already completed (N.22).
+- *Measured,* G74 (seed 7, 900 s, defaults):
+  - count only: 56 frames came due over the radio's own frame, and 75 receptions happened
+    while the receiver was transmitting;
+  - enforced: 79 frames sent back to CAD, and 93 receptions lost.
+  So the defect is present at defaults, at tens of events a run.
+- A unit case (packet_validator [14], three checks) shows all three modes.
+- Per radio. The LR1121 serves tiers 1 and 2 from one chip, which is not modelled.
+- Default unchanged.
 
 ### N.7 PCS does not fit the byte a table entry and a beacon give it
 
@@ -2727,3 +2746,23 @@ with the flag against without it:
 These are probe numbers, not results. Preset results measured before this (GEO-01 stage 2,
 CAL-02, CAMP-SPEC, FUSE-01 and FUSE-01b) carry tag 0's half of the oracle.
 
+### N.22 Of two colliding frames, only the one that ends first is lost
+
+Found 2026-10-04 building N.6's unit case. `CaTblChannel::CompleteTransmission()` judges a
+finishing frame against everything still in `m_inFlight` that overlapped it, then erases
+the frame. So when two frames overlap at comparable power:
+- the one that ends first sees the other, and is lost;
+- the one that ends later no longer sees the first, and is delivered.
+
+A real receiver loses both, unless one captures. In the unit case, node 1's two DISCOVERY
+frames overlapped on air, and node 2 heard one of them. Every collision in the simulator is
+therefore half as destructive as the capture rule says.
+- `IsBusy()` and `PruneExpired()` are unaffected: they ask what is on air now.
+- *Effect.* Every result's collision and delivery counts. The frames delivered here would
+  have been lost. How many per run is not measured.
+- *Fix,* not built: keep a completed frame until every frame that overlapped it has been
+  judged. That changes every run's channel, so it needs a default-off flag and a null
+  control (rule 8), and a campaign to say what moves. `--halfDuplex` already reads
+  deafness from the radio's own history to step around it.
+
+Open (engineering).

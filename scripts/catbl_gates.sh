@@ -1512,6 +1512,21 @@ bash scripts/viz_digest_gate.sh "$WORK/g73" || fail G73
 bash scripts/viz_digest_gate_selftest.sh "$WORK/g73" || fail G73
 finish G73
 
+# ---------------- G74: every radio half-duplex (N.6)
+# CaTblChannel::IsBusy skips the observer's own frames, so a radio could start a second
+# frame while its first was on air, and received while transmitting. --halfDuplex=1 counts
+# both and changes nothing; =2 sends the frame back to CAD and drops the reception. Seed 7,
+# 900 s, defaults, read by scripts/half_duplex_gate.py:
+#   - count-only identical to off, and the defect present at defaults;
+#   - enforced: every such frame deferred, every deaf reception an events_ row;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/half_duplex_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G74 every radio half-duplex (N.6) ---\n'
+bash scripts/half_duplex_gate.sh "$WORK/g74" || fail G74
+bash scripts/half_duplex_gate_selftest.sh "$WORK/g74" || fail G74
+finish G74
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
