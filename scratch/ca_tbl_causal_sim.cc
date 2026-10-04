@@ -5558,9 +5558,12 @@ struct NlosScoring
                 const LoRa2p4PhysicsConfig& c2p4,
                 const LoRaUWBPhysicsConfig& cUwb,
                 const std::string& linkPath,
-                const std::string& summaryPath)
-        : thr(threshold),
-          cir(static_cast<int64_t>(seed) * 7919 + 1400053, CaTblCirConfig()),
+                const std::string& summaryPath,
+                int64_t streamOffset = 0,
+                const std::string& reportLabel = "")
+        : label(reportLabel),
+          thr(threshold),
+          cir(static_cast<int64_t>(seed) * 7919 + 1400053 + streamOffset, CaTblCirConfig()),
           var868(kVarWindow, kVarMinReadings),
           ref868(kRefPool, kRefMinPool),
           ref2p4(kRefPool, kRefMinPool),
@@ -5714,7 +5717,8 @@ struct NlosScoring
              "lostNlos,meanScoreLos,meanScoreNlos,fixCycles,termCycles,fedCycles,distinct,"
              "changes,interior,min,max,mean,differsFromTag\n";
         std::ostringstream o;
-        o << "    NLOS classifier (threshold " << thr << "; truth = the engine's isNLOS):\n";
+        o << "    NLOS classifier" << label << " (threshold " << thr
+          << "; truth = the engine's isNLOS):\n";
         for (int k = 0; k < 3; ++k)
         {
             const double mLos = nScored[k][0] ? scoreSum[k][0] / nScored[k][0] : -1.0;
@@ -5735,7 +5739,7 @@ struct NlosScoring
         s << "pcs,,,,,,,,,,,,,," << pcsFixCycles << "," << pcsTermCycles << "," << pcsFedCycles
           << "," << pcsDistinct.size() << "," << pcsChanges << "," << pcsInterior << "," << lo
           << "," << hi << "," << mean << "," << pcsDiffersFromTag << "\n";
-        o << "    NLOS PCS term 3 = mean(1 - NLOS_score): fix cycles " << pcsFixCycles
+        o << "    NLOS PCS term 3" << label << " = mean(1 - NLOS_score): fix cycles " << pcsFixCycles
           << ", with a scored link " << pcsTermCycles << ", fed to PCS " << pcsFedCycles
           << "; distinct values " << pcsDistinct.size() << ", changes " << pcsChanges
           << ", strictly inside (0,1) " << pcsInterior << ", range [" << lo << ", " << hi
@@ -5748,6 +5752,7 @@ struct NlosScoring
         os << o.str();
     }
 
+    std::string label; //!< "" for tag 0; " (subject N)" under --subjectNlosClassifier
     double thr;
     CaTblCirSynth cir;
     CaTblLinkVariability var868;
@@ -6027,6 +6032,8 @@ struct SpecOptions
     bool finderPseudoAnchorStrict = false;
     //! Row 55 / MS-1 step 2. --subjectTier1Tdoa: each subject runs its own tier-1 TDoA.
     bool subjectTier1Tdoa = false;
+    //! Row 55 / MS-1 step 2. --subjectNlosClassifier: each subject scores its own links.
+    bool subjectNlosClassifier = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
     //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
@@ -7650,6 +7657,7 @@ RunArm(CaTblPolicyMode mode,
         std::unique_ptr<std::ofstream> trace;
         std::unique_ptr<CaTblImuDeadReckoner> rk;
         std::unique_ptr<Tier1Tdoa> tdoa; // --subjectTier1Tdoa
+        std::unique_ptr<NlosScoring> nlos; // --subjectNlosClassifier
         double prevX = 0.0;
         double prevY = 0.0;
         uint64_t requests = 0;
@@ -8582,6 +8590,23 @@ RunArm(CaTblPolicyMode mode,
                                             sb.energy.GetTier1ChargeReplies(),
                                             sb.energy.GetEdgeServer(), tfn.str(),
                                             97 * static_cast<int64_t>(pt), lab.str()));
+            }
+            if (spec.subjectNlosClassifier)
+            {
+                // Row 55. Tag 0's classifier, its own instance: its own detector windows and
+                // reference pools (what this node's receivers have read), its own CIR stream
+                // (tag 0's constant + 97 per subject).
+                std::ostringstream lfn;
+                std::ostringstream sfn2;
+                lfn << traceDir << "/subjnlos_links_" << CaTblPolicyModeName(mode) << "_seed"
+                    << seed << "_subj" << sb.nodeId << ".csv";
+                sfn2 << traceDir << "/subjnlos_summary_" << CaTblPolicyModeName(mode) << "_seed"
+                     << seed << "_subj" << sb.nodeId << ".csv";
+                std::ostringstream lab;
+                lab << " (subject " << sb.nodeId << ")";
+                ex.nlos.reset(new NlosScoring(seed, nlosScoreThreshold, engine2p4.GetConfig(),
+                                              engineUwb.GetConfig(), lfn.str(), sfn2.str(),
+                                              97 * static_cast<int64_t>(pt), lab.str()));
             }
             ex.prevX = sb.pos.x;
             ex.prevY = sb.pos.y;
@@ -9620,6 +9645,7 @@ RunArm(CaTblPolicyMode mode,
                         bool rcv = false;
                         double range = 0.0, sigma = 0.0;
                         bool nlosP = false, hid = false, nlosF = false;
+                        double nlosScoreS = -1.0; // row 55: unscored unless the subject scores
                         if (tier == CA_TBL_TIER_868)
                         {
                             PhysicsResult r = engine868.ProcessTransmission(
@@ -9639,6 +9665,18 @@ RunArm(CaTblPolicyMode mode,
                                 ex.tdoa->Stamp(aid, ap, sb.pos, atSec, r.finalSNRDb, r.isNLOS,
                                                r.delaySpreadNs, nlosF);
                             }
+                            if (ex.nlos) // row 55: tag 0's test, the subject's own detector
+                            {
+                                if (rcv && std::isfinite(range) && range > 0.0)
+                                {
+                                    nlosScoreS = ex.nlos->Score868(aid, atSec, cycleIndex,
+                                                                   CalculateDistance(sb.pos, ap), r);
+                                }
+                                else
+                                {
+                                    ex.nlos->NoteLost(0, r.isNLOS);
+                                }
+                            }
                         }
                         else if (tier == CA_TBL_TIER_2P4)
                         {
@@ -9652,6 +9690,19 @@ RunArm(CaTblPolicyMode mode,
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
                                                   r.hiddenChannelState);
+                            if (ex.nlos)
+                            {
+                                if (rcv && std::isfinite(range) && range > 0.0)
+                                {
+                                    nlosScoreS = ex.nlos->Score2p4(aid, atSec, cycleIndex,
+                                                                   CalculateDistance(sb.pos, ap),
+                                                                   range, phy[ti].txPowerDbm, r);
+                                }
+                                else
+                                {
+                                    ex.nlos->NoteLost(1, r.isNLOS);
+                                }
+                            }
                         }
                         else
                         {
@@ -9665,6 +9716,18 @@ RunArm(CaTblPolicyMode mode,
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
                                                   r.hiddenChannelState);
+                            if (ex.nlos)
+                            {
+                                if (rcv && std::isfinite(range) && range > 0.0)
+                                {
+                                    nlosScoreS = ex.nlos->ScoreUwb(aid, atSec, cycleIndex,
+                                                                   CalculateDistance(sb.pos, ap), r);
+                                }
+                                else
+                                {
+                                    ex.nlos->NoteLost(2, r.isNLOS);
+                                }
+                            }
                         }
                         if (rcv && std::isfinite(range) && range > 0.0)
                         {
@@ -9760,6 +9823,7 @@ RunArm(CaTblPolicyMode mode,
                             }
                             m.rangeM = range;
                             m.nlos = nlosF;
+                            m.nlosScore = nlosScoreS; // row 55: -1 unless scored
                             m.nlosPropagation = nlosP;
                             m.hiddenChannelActive = hid;
                             m.sigmaM = sigma;
@@ -9963,6 +10027,10 @@ RunArm(CaTblPolicyMode mode,
                 {
                     ex.tdoa->EndCycle(t, cycleIndex, sb.pos, sb.policy.AuxFusedLast(),
                                       ds.measurementRejected, ds.estX, ds.estY);
+                }
+                if (ex.nlos)
+                {
+                    ex.nlos->NoteStep(ds); // row 55: the PCS term this subject produced
                 }
                 if (chainUsed)
                 {
@@ -13995,6 +14063,17 @@ RunArm(CaTblPolicyMode mode,
     if (nlosScorer)
     {
         nlosScorer->Report(std::cout);
+        if (subj && spec.subjectNlosClassifier)
+        {
+            // Row 55. Each subject's classifier, after tag 0's.
+            for (size_t k = 0; k < subj->extra.size(); ++k)
+            {
+                if (subj->extra[k].nlos)
+                {
+                    subj->extra[k].nlos->Report(std::cout);
+                }
+            }
+        }
     }
     res.handshakeDeferrals = handshakeDeferrals;
     res.handshakeDeferralDelayS = handshakeDeferralDelayS;
@@ -16457,6 +16536,19 @@ main(int argc, char* argv[])
                  "> 0 and --silenceStopsRelay (a dead radio that relayed while drawing nothing "
                  "would be billed for transmitting and not for the reception that fed it).",
                  spec.deadBatteryNoDraw);
+    cmd.AddValue("subjectNlosClassifier",
+                 "Each measured subject scores its own links (Physical 1.3 / 2.5; register row 55, "
+                 "MS-1 step 2). FALSE by default: under --nlosClassifier only tag 0's links get the "
+                 "tier-specific NLOS_score, so a subject's PCS term 3 (--pcsNlosClassifier) and "
+                 "integrity eligibility (--integrityNlosFromScore) have no scored link to read, and "
+                 "a start-up WARNING says so. TRUE: each subject gets its own instance of tag 0's "
+                 "classifier -- its own 868 MHz variability windows, 2.4 GHz reference pool and "
+                 "UWB CIR stream (tag 0's constant + 97 x the subject index) -- scoring exactly the "
+                 "links its ranging decodes, and its policy reads the scores as tag 0's does. Writes "
+                 "subjnlos_links_/subjnlos_summary_<arm>_seed<N>_subj<id>.csv (digested) and the "
+                 "classifier's lines per subject, after tag 0's. Needs --nlosClassifier and "
+                 "--measuredSubjects > 1.",
+                 spec.subjectNlosClassifier);
     cmd.AddValue("subjectTier1Tdoa",
                  "Each measured subject runs tier-1 TDoA (Physical 1.1; register row 55, MS-1 "
                  "step 2). FALSE by default: under --tier1Tdoa only tag 0's 868 MHz broadcast is "
@@ -17132,6 +17224,12 @@ main(int argc, char* argv[])
         return 1;
     }
     // Row 55.
+    if (spec.subjectNlosClassifier && (!nlosClassifierArg || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectNlosClassifier needs --nlosClassifier and "
+                     "--measuredSubjects > 1: it gives subjects tag 0's classifier\n";
+        return 1;
+    }
     if (spec.subjectTier1Tdoa && (!tier1TdoaArg || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectTier1Tdoa needs --tier1Tdoa and --measuredSubjects > 1: "
@@ -17225,7 +17323,7 @@ main(int argc, char* argv[])
         {
             only.push_back("--tier1Tdoa");
         }
-        if (nlosClassifierArg)
+        if (nlosClassifierArg && !spec.subjectNlosClassifier)
         {
             only.push_back("--nlosClassifier");
         }
@@ -18456,6 +18554,10 @@ main(int argc, char* argv[])
     if (spec.subjectTier1Tdoa)
     {
         digestPatterns += " subjtdoa_*.csv"; // row 55
+    }
+    if (spec.subjectNlosClassifier)
+    {
+        digestPatterns += " subjnlos_*.csv"; // row 55
     }
     if (spec.sparseInStep)
     {
