@@ -1695,6 +1695,19 @@ bash scripts/airtime_gate.sh "$WORK/g86" || fail G86
 bash scripts/airtime_gate_selftest.sh "$WORK/g86" || fail G86
 finish G86
 
+# ---------------- G87: the Poucet-style fusion arm (the spec's comparison table)
+# The spec compares the system with fixed-threshold switching, Poucet-style fusion and
+# single-hop confidence. --arms=poucet_fusion ranges all three tiers every cycle and fuses
+# them, never switching, every radio billed. The preset's endgame, read by
+# scripts/poucet_arm_gate.py: the arm moves no other arm and stays out of --arms=all; it
+# never escalates; every radio is awake and billed; its labels name tiers it could range.
+#
+# Negative fixtures in scripts/poucet_arm_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G87 the Poucet-style fusion arm ---\n'
+bash scripts/poucet_arm_gate.sh "$WORK/g87" || fail G87
+bash scripts/poucet_arm_gate_selftest.sh "$WORK/g87" || fail G87
+finish G87
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
