@@ -1880,7 +1880,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
 | N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
 | N.9 | queue gossip is built and rarely needed | recorded |
-| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS) |
+| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS); the instant delivery: flag (G81), default unchanged |
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
@@ -2230,6 +2230,42 @@ neighbour set. Measured in G57's regime (G47's converging finders, five subjects
   Otherwise it is the node's escalation 2.4 GHz -> UWB on a hybrid arm, effective the next
   cycle. It is refused on 868 MHz (never a jump to UWB) and on a static arm. Both outcomes
   are counted. In G57 none were refused.
+
+*2026-10-04, `--requestOverMesh` (G81; register row 52).* The request no longer reaches a
+finder arbiter instantly and unbilled. It travels as an on-behalf ESC_REQUEST on 2.4 GHz, the
+radio arbiters take requests on.
+- **The base station's request.** A gateway arbiter is still reached over backhaul, as before:
+  the base station and the gateways are wired. A finder arbiter is reached over the air, from
+  the gateway that heard that finder most recently in its one-hop neighbour table (ties: the
+  lower id). With no gateway that hears it, the request is `unheard` and not sent.
+- **A finder's named request** leaves the finder's own 2.4 GHz radio, to an arbiter it hears.
+  The own-queue route needs no frame and is unchanged.
+- **The frame.** It is billed to its sender. It can be lost on the channel or collide. Its
+  carried `ReqSubject` names the subject, which the request's billed `requester_id(2)` already
+  sizes, so the airtime is that of any ESC_REQUEST. The arbiter acts on it only on reception,
+  where it is scored exactly as `SubmitRequestOnBehalf` scores a request handed to it, and the
+  GRANT goes to the subject marked on-behalf. The arbiter answers the carrier with a bare ACK.
+  A lost ACK makes the carrier retry, and the arbiter re-scores the retry. A carrier whose
+  retries run out does not report it to its own grant callback, because the request was not
+  its own.
+- One hop, never relayed. OURS: the spec's `submit_to_nearest_anchor` does not say how the
+  request crosses the network, and routing a frame to a named node is NW-2's.
+- *Measured,* G81 (G64's regime, seed 7, 1 200 s):
+  - by default: 6 requests reached the carriage step. 1 was carried (finder 503 to arbiter
+    504), and 5 were unheard. The carried request was delivered 3 times, and each delivery
+    was granted. After the first and the third, the arbiter's ACK collided at the carrier
+    with the arbiter's own GRANT, which left the same radio at the same instant (N.6). After
+    the second, no ACK reached the carrier, and events_ records none; why is not established.
+    The carrier retried twice, and the arbiter re-scored each retry.
+  - with `--halfDuplex=2`: 4 requests, 1 carried (gateway 105 to finder 501, for the base
+    station), 1 delivery, 1 grant, and no retry.
+  - Across seeds 1, 2, 3, 8 and 9 (unregistered probe), 0 to 2 requests a run were carried,
+    and 2 to 6 were unheard. **Most requests to a named arbiter find no carrier that hears it.**
+    The instant delivery hid that.
+- A unit case (packet_validator [15], four checks) shows: the frame is billed, scored on
+  reception and granted on-behalf; with half-duplex enforced, nothing is retried; by default,
+  the N.6 retry; and a request to an arbiter out of reach is never scored.
+- Default unchanged. Not in the preset: that is a separate step (P6), as for every flag.
 
 ### N.11 Per-hop variance swamps a relayed leg's sigma
 

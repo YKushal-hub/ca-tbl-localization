@@ -1703,6 +1703,108 @@ TestHalfDuplex()
               ", received while transmitting " + std::to_string(c.rxWhileTx));
 }
 
+// [15] N.10. A three-node line 10-11-12: gateway 10 carries a requester's escalation request
+// for target 12 to arbiter 11 (a finder: a rescuer under arbitration v2, holding UWB-reach
+// evidence of 12). (c) The same carrier asks for an arbiter it cannot reach (12).
+struct OboRun
+{
+    uint64_t carrierSent = 0;    // ESC_REQUEST frames the carrier put on air, retries included
+    uint64_t carrierRetx = 0;
+    double carrierAirtimeS = 0.0;
+    uint64_t heard = 0;          // carried requests the arbiter received
+    uint64_t granted = 0;
+    int subjectSaw = 9;          // the target's grant callback: 3 = granted on its behalf
+    int carrierCb = 9;           // the carrier's own grant callback: never, for a carried request
+};
+
+OboRun
+RunOboCarry(uint8_t hdMode, uint16_t arbiter)
+{
+    OboRun r;
+    StubPhy phy(StubPhy::LINE, 3, 10);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(15);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(10 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR
+                                   : ((i == 1) ? CA_TBL_ID_RESCUER : CA_TBL_ID_TARGET);
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        c.halfDuplex = hdMode;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[0].SetUwbGrantCallback([&r](uint16_t, int o) { r.carrierCb = o; });
+    m[2].SetUwbGrantCallback([&r](uint16_t, int o) { r.subjectSaw = o; });
+    for (int k = 0; k < 30; ++k)
+    {
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[1], uint16_t(12),
+                            double(k));
+    }
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendRequestOnBehalf, &m[0], arbiter,
+                        uint16_t(12), uint8_t(200), uint8_t(250), uint8_t(1), CA_TBL_TIER_868);
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    const CaTblMsgCounters& cc = m[0].GetCounters(CA_TBL_MSG_ESC_REQUEST);
+    r.carrierSent = cc.sent;
+    r.carrierRetx = cc.retransmissions;
+    r.carrierAirtimeS = cc.airtimeS;
+    r.heard = m[1].GetOboFramesHeard();
+    r.granted = m[1].GetOboFramesVerdict(0);
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestOboCarry()
+{
+    std::cout << "\n[15] N.10 a requester's request travels as a frame (Transport sect 4)\n";
+    const OboRun a = RunOboCarry(0, 11);
+    const OboRun b = RunOboCarry(2, 11);
+    const OboRun c = RunOboCarry(2, 12);
+    Report("half-duplex 0 / 2 / unreachable: sent, retx, heard, granted, subject cb, carrier cb",
+           std::to_string(a.carrierSent) + "," + std::to_string(a.carrierRetx) + "," +
+               std::to_string(a.heard) + "," + std::to_string(a.granted) + "," +
+               std::to_string(a.subjectSaw) + "," + std::to_string(a.carrierCb) + " / " +
+               std::to_string(b.carrierSent) + "," + std::to_string(b.carrierRetx) + "," +
+               std::to_string(b.heard) + "," + std::to_string(b.granted) + "," +
+               std::to_string(b.subjectSaw) + "," + std::to_string(b.carrierCb) + " / " +
+               std::to_string(c.carrierSent) + "," + std::to_string(c.carrierRetx) + "," +
+               std::to_string(c.heard) + "," + std::to_string(c.granted) + "," +
+               std::to_string(c.subjectSaw) + "," + std::to_string(c.carrierCb));
+    Check("the carried request is a billed frame, scored on reception, and its GRANT reaches "
+          "the subject marked on-behalf",
+          b.carrierSent >= 1 && b.carrierAirtimeS > 0.0 && b.heard == 1 && b.granted == 1 &&
+              b.subjectSaw == 3,
+          "sent " + std::to_string(b.carrierSent) + ", heard " + std::to_string(b.heard) +
+              ", subject cb " + std::to_string(b.subjectSaw));
+    Check("enforced half-duplex: the arbiter's ACK settles the carrier, nothing is retried",
+          b.carrierRetx == 0 && b.carrierCb == 9,
+          "retx " + std::to_string(b.carrierRetx));
+    // N.6: the arbiter's ACK and its GRANT leave one radio at once, and the GRANT destroys
+    // the ACK at the carrier; the carrier retries and the arbiter scores the retry again.
+    Check("by default the arbiter's own GRANT destroys its ACK (N.6) and the request is "
+          "retried and re-scored",
+          a.carrierRetx >= 1 && a.heard == 1 + a.carrierRetx && a.subjectSaw == 3,
+          "retx " + std::to_string(a.carrierRetx) + ", heard " + std::to_string(a.heard));
+    Check("a request to an arbiter out of reach is retried, never scored, and never reported "
+          "to the carrier as its own",
+          c.carrierRetx >= 1 && c.heard == 0 && c.subjectSaw == 9 && c.carrierCb == 9,
+          "retx " + std::to_string(c.carrierRetx) + ", carrier cb " +
+              std::to_string(c.carrierCb));
+}
+
 void
 TestQueueGossip()
 {
@@ -1755,6 +1857,7 @@ main(int argc, char* argv[])
     TestQueueGossip();
     TestSilentRelay();
     TestHalfDuplex();
+    TestOboCarry();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

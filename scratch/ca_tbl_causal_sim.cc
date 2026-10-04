@@ -6115,6 +6115,8 @@ struct SpecOptions
     double finderCancelM = 2.0;
     //! TA-2. --requesterEscalation: the base station asks for UWB on a target's behalf.
     bool requesterEscalation = false;
+    //! N.10. --requestOverMesh: a requester's request reaches a finder arbiter as a frame.
+    bool requestOverMesh = false;
     //! MS-1. --measuredSubjects: field nodes localised by the full pipeline (1 = tag 0).
     uint32_t measuredSubjects = 1;
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
@@ -7942,6 +7944,61 @@ RunArm(CaTblPolicyMode mode,
         finderReqLog.reset(new std::ofstream(ffn.str().c_str()));
         *finderReqLog << "t,finderId,target,manifest,pcs,threshold,route,arbiter,entryT,qt,outcome\n";
     }
+    // N.10. --requestOverMesh: a requester's escalation request travels as a frame. Every
+    // carriage (or failure to find a carrier) is a row of reqcarry_*; the verdicts are
+    // counted at the arbiters' MACs, on reception.
+    std::unique_ptr<std::ofstream> carryLog;
+    uint64_t carryCounts[2] = {0, 0}; // carried, unheard
+    if (spec.requestOverMesh)
+    {
+        std::ostringstream cfn;
+        cfn << traceDir << "/reqcarry_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        carryLog.reset(new std::ofstream(cfn.str().c_str()));
+        *carryLog << "t,requester,subject,arbiter,carrier,heardAgeS,outcome\n";
+    }
+    // N.10. Hand a request for \p subject to \p arbiter as an on-behalf ESC_REQUEST on the
+    // 2.4 GHz radio, the radio arbiters take requests on. \p from is the requester's own radio
+    // (a finder's); null means the base station, whose request reaches every gateway over
+    // backhaul, so the carrier is the gateway that heard the arbiter most recently (ties: the
+    // lower id). Either way the carrier must hold the arbiter in its one-hop neighbour table,
+    // or the request is "unheard" and not sent. One hop, never relayed: OURS.
+    auto carryRequest = [&](uint16_t requester, CaTblMac* from, uint16_t subject,
+                            uint16_t arbiter, uint8_t degQ, uint8_t battQ, uint8_t qt,
+                            double nowS) -> const char* {
+        CaTblMac* carrier = nullptr;
+        double heardS = -1.0;
+        for (std::map<uint16_t, CaTblMac*>::const_iterator c = arbMacById.begin();
+             c != arbMacById.end(); ++c)
+        {
+            const bool eligible = (from != nullptr)
+                                      ? (c->second == from)
+                                      : (c->second->GetIdentityClass() == CA_TBL_ID_ANCHOR);
+            if (!eligible || c->first == arbiter)
+            {
+                continue;
+            }
+            const std::vector<CaTblNeighbour> nb = c->second->GetNeighbours(CA_TBL_TIER_2P4, nowS);
+            for (size_t k = 0; k < nb.size(); ++k)
+            {
+                if (nb[k].id == arbiter && nb[k].lastHeardS > heardS)
+                {
+                    carrier = c->second;
+                    heardS = nb[k].lastHeardS;
+                }
+            }
+        }
+        const char* outcome = (carrier != nullptr) ? "carried" : "unheard";
+        ++carryCounts[(carrier != nullptr) ? 0 : 1];
+        if (carrier != nullptr)
+        {
+            carrier->SendRequestOnBehalf(arbiter, subject, degQ, battQ, qt, CA_TBL_TIER_2P4);
+        }
+        *carryLog << std::fixed << std::setprecision(6) << nowS << ',' << requester << ','
+                  << subject << ',' << arbiter << ','
+                  << ((carrier != nullptr) ? carrier->GetNodeId() : 0) << ','
+                  << ((carrier != nullptr) ? nowS - heardS : -1.0) << ',' << outcome << '\n';
+        return outcome;
+    };
     std::deque<FinderSearch> finderSearch; // deque: the callbacks hold pointers
     if (spec.finderSessions)
     {
@@ -8021,7 +8078,7 @@ RunArm(CaTblPolicyMode mode,
             macs[m].SetResponseCallback([out, rid, atBase, atFinder, &sessions, &sessionId,
                                          &sessLog, &baseSeen, &baseResults, &renderCounts,
                                          &caseCBaseT, &spec, &reqLog, &reqLastS, &reqCounts, &arbMacById,
-                                         &finderReqLog, &finderReq,
+                                         &finderReqLog, &finderReq, &carryRequest,
                                          reqThreshold](const CaTblHeader& h) {
                 const CaTblTableEntry& e = h.GetSelfEntry();
                 *out << std::fixed << std::setprecision(6) << Simulator::Now().GetSeconds()
@@ -8090,7 +8147,8 @@ RunArm(CaTblPolicyMode mode,
                         // holding reach evidence of the target, it scores the request in its
                         // own queue, no frame needed ("own"). Otherwise the request goes to the
                         // arbiter the target's entry names, as TA-2's does ("named"; instant and
-                        // unbilled, N.10), and with none it is unroutable and not sent. OURS.
+                        // unbilled, N.10, unless --requestOverMesh sends it from the finder's
+                        // own radio), and with none it is unroutable and not sent. OURS.
                         if (spec.finderRequesterEscalation && !fr.suspect && !e.uwbActive &&
                             fr.pcs < reqThreshold)
                         {
@@ -8131,7 +8189,15 @@ RunArm(CaTblPolicyMode mode,
                                 }
                                 const uint8_t fqt = (spec.identityQueryUrgent && !e.uwbActive) ? 1 : 0;
                                 const char* outcome = "unroutable";
-                                if (best != nullptr)
+                                if (best != nullptr && spec.requestOverMesh &&
+                                    std::string(route) == "named" && own != arbMacById.end())
+                                {
+                                    // N.10: the named request leaves the finder's own radio.
+                                    outcome = carryRequest(static_cast<uint16_t>(rid),
+                                                           own->second, e.nodeId, bestId,
+                                                           e.degradationQ, e.batteryQ, fqt, nowF);
+                                }
+                                else if (best != nullptr)
                                 {
                                     const int v = best->SubmitRequestOnBehalf(
                                         e.nodeId, e.degradationQ, e.batteryQ, fqt, CA_TBL_TIER_2P4);
@@ -8211,7 +8277,8 @@ RunArm(CaTblPolicyMode mode,
                 // topology offers UWB only to something beside it. The target's entry names
                 // the arbiter it last had reach evidence with (within 10 s of publishing);
                 // with none, the request is unroutable and not sent. Delivered to that
-                // arbiter over backhaul and mesh, modelled as instant and unbilled (OURS).
+                // arbiter over backhaul and mesh, modelled as instant and unbilled (OURS),
+                // unless --requestOverMesh carries it to a finder arbiter as a frame (N.10).
                 // At most one per target per slot hold.
                 if (!spec.requesterEscalation || res.suspect || e.uwbActive ||
                     !(res.pcs < reqThreshold))
@@ -8233,7 +8300,15 @@ RunArm(CaTblPolicyMode mode,
                 }
                 const uint8_t qt = (spec.identityQueryUrgent && !e.uwbActive) ? 1 : 0;
                 const char* outcome = "unroutable";
-                if (best != nullptr)
+                if (best != nullptr && spec.requestOverMesh &&
+                    best->GetIdentityClass() != CA_TBL_ID_ANCHOR)
+                {
+                    // N.10: a finder arbiter is reached over the air, from a gateway that
+                    // hears it; a gateway arbiter is on the backhaul, as before.
+                    outcome = carryRequest(0, nullptr, e.nodeId, bestId, e.degradationQ,
+                                           e.batteryQ, qt, nowS);
+                }
+                else if (best != nullptr)
                 {
                     const int v = best->SubmitRequestOnBehalf(e.nodeId, e.degradationQ, e.batteryQ,
                                                               qt, CA_TBL_TIER_2P4);
@@ -13284,6 +13359,27 @@ RunArm(CaTblPolicyMode mode,
                   << ", unroutable " << finderReq[2] << "; granted " << finderReq[3]
                   << ", queued " << finderReq[4] << ", refused " << finderReq[5] << "\n";
     }
+    if (carryLog)
+    {
+        // N.10. Closed before the digest; what was carried, and what the arbiters heard.
+        carryLog->close();
+        carryLog.reset();
+        uint64_t sent = 0, heard = 0, vd[3] = {0, 0, 0};
+        for (std::map<uint16_t, CaTblMac*>::const_iterator c = arbMacById.begin();
+             c != arbMacById.end(); ++c)
+        {
+            sent += c->second->GetOboFramesSent();
+            heard += c->second->GetOboFramesHeard();
+            for (int k = 0; k < 3; ++k)
+            {
+                vd[k] += c->second->GetOboFramesVerdict(k);
+            }
+        }
+        std::cout << "    N.10 request over mesh (" << CaTblPolicyModeName(mode) << "): carried "
+                  << carryCounts[0] << ", unheard " << carryCounts[1] << "; frames sent " << sent
+                  << ", heard at arbiters " << heard << ": granted " << vd[0] << ", queued "
+                  << vd[1] << ", refused " << vd[2] << "\n";
+    }
     if (reqLog)
     {
         // TA-2. Closed before the digest; what was asked and what the targets did.
@@ -15051,6 +15147,20 @@ main(int argc, char* argv[])
                  "and not sent (OURS). Writes finderreq_<arm>_seed<N>.csv (digested) and one TA-1b "
                  "line. Needs --finderSessions and --requesterEscalation.",
                  spec.finderRequesterEscalation);
+    cmd.AddValue("requestOverMesh",
+                 "A requester's escalation request reaches its arbiter over the air (Transport "
+                 "sect 4, submit_to_nearest_anchor; register row 52; TECH_DEBT N.10). FALSE by "
+                 "default: the request is handed to the arbiter's MAC instantly and unbilled, "
+                 "which no frame could do when the arbiter is a moving finder. TRUE: when the base "
+                 "station's arbiter is a finder, the gateway that heard that finder most recently "
+                 "on 2.4 GHz sends it an on-behalf ESC_REQUEST (a gateway arbiter is still reached "
+                 "over backhaul); a finder's 'named' request leaves its own 2.4 GHz radio, to an "
+                 "arbiter it hears. The frame is billed to its sender, can be lost or collide, is "
+                 "ACKed and retried like any request, and is scored only when the arbiter receives "
+                 "it. With no carrier that hears the arbiter, the request is 'unheard' and not "
+                 "sent. One hop, never relayed (OURS). Writes reqcarry_<arm>_seed<N>.csv, "
+                 "digested, and one N.10 line. Needs --requesterEscalation.",
+                 spec.requestOverMesh);
     cmd.AddValue("fuseFloorActive",
                  "Fuse an active tier short of three with the 868 MHz floor (TECH_DEBT N.14; owner "
                  "decision 2026-10-03: built behind a flag, adopted only by a registered campaign). "
@@ -17802,6 +17912,12 @@ main(int argc, char* argv[])
     {
         spec.finderRequesterEscalation = false;
     }
+    if (spec.requestOverMesh && !spec.requesterEscalation)
+    {
+        std::cerr << "FATAL: --requestOverMesh needs --requesterEscalation: there is no "
+                     "requester's request to carry\n";
+        return 1;
+    }
     if (spec.finderRequesterEscalation && (!spec.finderSessions || !spec.requesterEscalation))
     {
         std::cerr << "FATAL: --finderRequesterEscalation needs --finderSessions (whose results "
@@ -18863,6 +18979,10 @@ main(int argc, char* argv[])
     if (spec.finderRequesterEscalation)
     {
         digestPatterns += " finderreq_*.csv"; // TA-1b
+    }
+    if (spec.requestOverMesh)
+    {
+        digestPatterns += " reqcarry_*.csv"; // N.10
     }
     if (queryProxyArg)
     {
