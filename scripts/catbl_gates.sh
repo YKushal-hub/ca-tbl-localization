@@ -1683,7 +1683,8 @@ finish G84
 #     all three is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
-# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15).
+# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15):
+# UWB-delivered fixes, and carried requests heard at arbiters (since the channel-fidelity flags).
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'

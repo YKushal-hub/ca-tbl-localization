@@ -22,7 +22,7 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (grant tie-break verdicts|UWB-delivered fixes)'
+KNOWN='POP (UWB-delivered fixes|carried requests heard at arbiters)'
 
 pass=0
 fail=0

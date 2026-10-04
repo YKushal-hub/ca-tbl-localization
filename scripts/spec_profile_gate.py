@@ -150,6 +150,10 @@ MECH = [
     ("base-station answers", "main", lambda d, n: num(log(d, n), r"TA-1 base-station session \(\S+\): answers delivered (\d+)"), None),
     ("finder-session answers", "main", lambda d, n: num(log(d, n), r"TA-1b finder session \(\S+\): finder \d+ target m\d+, answers (\d+)"), None),
     ("requester escalations accepted", "end", lambda d, n: num(log(d, n), r"TA-2 requester escalation[^\n]*at the targets accepted (\d+)"), "requesterEscalation"),
+    # Channel fidelity (owner call, DESIGN_DECISIONS 9).
+    ("half-duplex deferrals", "main", lambda d, n: num(log(d, n), r"N\.6 half-duplex \(enforce, \S+\): [^\n]*sent back to CAD (\d+)"), "halfDuplex"),
+    ("receptions lost to the other band", "main", lambda d, n: num(log(d, n), r"N\.6 chip \(\S+\): [^\n]*receptions while the other band transmitted (\d+)"), "halfDuplexChip"),
+    ("collisions against a completed frame", "main", lambda d, n: num(log(d, n), r"N\.22 both colliding frames judged \(\S+\): [^\n]*against a completed frame (\d+)"), "collisionBothLost"),
     ("carried requests heard at arbiters", "end", lambda d, n: num(log(d, n), r"N\.10 request over mesh \(\S+\): [^\n]*heard at arbiters (\d+)"), "requestOverMesh"),
     ("finder requests granted", "end", lambda d, n: num(log(d, n), r"TA-1b finder requester escalation \(\S+\): [^\n]*granted (\d+)"), "finderRequesterEscalation"),
     ("subjects' finder ranges on reports", "end", lambda d, n: num(log(d, n), r"N\.21 finder pseudo-anchors \(subjects, \S+\): [^\n]*reported positions used (\d+)"), "subjectFinderPseudoAnchor"),
