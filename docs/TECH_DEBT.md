@@ -1915,6 +1915,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
 | N.22 | of two colliding frames only the earlier-ending is lost | flag (G83); default unchanged; adopting it is a campaign decision |
+| N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -3027,3 +3028,26 @@ and after the in-flight ones. A loss to a completed frame is an events_ row with
   to the completed frame.
 - Default unchanged. Whether every result is re-run with both frames judged is the
   campaign decision this entry already named.
+
+### N.23 The digest exchange may cost more airtime than the full pushes it replaces
+
+Found 2026-10-04 building `--reportAirtime` (G86). MAC sect 2 justifies the digest as the
+airtime saver at high SF: a summary, then a targeted push, instead of the whole table. The
+report adds, for every DIGEST transmitted, the airtime of pushing the sender's whole valid
+table instead (a counterfactual from the MAC's own ToA function).
+- In G86's run (the preset, seed 7, 900 s, single seed: an observation, not a result), at
+  868 MHz the digests took 14.2 s and the entry pushes 42.9 s, against a full-push
+  counterfactual of 33.0 s. At 2.4 GHz: 0.80 s and 1.05 s against 2.38 s.
+- Not established: how much of the 42.9 s answers digests. ENTRY_PUSH also carries eager
+  pushes, and a full push per digest is not the only counterfactual a protocol without
+  digests would use.
+- The final campaign reports it over 20 seeds. If it holds, the spec's airtime claim for the
+  digest does not hold in this model at the preset's table sizes, and that is reported, not
+  tuned away.
+
+The same report reads reverse-path routing against flooding: the preset with
+`--reversePath=false` floods its responses (a preset-applied `--reversePathHop` is unused
+there, not refused). In G86's run: 254 responses unicast against 172 flooded, 59.5 s of
+RESPONSE airtime against 40.9 s. Single seed, and the two runs answer different numbers of
+queries; the final campaign pairs them over 20 seeds.
+

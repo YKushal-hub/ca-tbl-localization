@@ -1490,6 +1490,14 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         }
         f.hdr.SetDigest(d);
         f.nEntries = static_cast<uint32_t>(d.empty() ? 1 : d.size());
+        // MAC sect 2: what pushing the whole table instead would have cost.
+        uint32_t nValid = 0;
+        for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+             it != m_table.end(); ++it)
+        {
+            nValid += it->second.valid ? 1 : 0;
+        }
+        f.cfFullPushS = (nValid > 0) ? FrameAirtimeS(CA_TBL_MSG_ENTRY_PUSH, tier, nValid) : 0.0;
     }
     else if (type == CA_TBL_MSG_GRANT_GOSSIP)
     {
@@ -1773,6 +1781,10 @@ CaTblMac::DoTransmit(PendingFrame f)
         ++m_recedingSent; // M.9: the only own TRIGGERED_UPDATE without an MC-2 reason
     }
     c.airtimeS += toa.GetSeconds();
+    if (f.hdr.GetMsgType() == CA_TBL_MSG_DIGEST && f.hdr.GetOriginId() == m_cfg.nodeId)
+    {
+        m_digestFullPushCfS += f.cfFullPushS; // MAC sect 2, report only
+    }
     if (f.hdr.GetOriginId() != m_cfg.nodeId)
     {
         ++c.rebroadcast;

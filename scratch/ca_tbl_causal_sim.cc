@@ -6046,6 +6046,8 @@ struct SpecOptions
     bool silenceStopsRelay = false;
     //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
     bool reportRecedingPushes = false;
+    //! MAC sect 2. --reportAirtime: airtime per tier and message type, and the digest's saving.
+    bool reportAirtime = false;
     //! N.22. --collisionBothLost: a later-ending frame is judged against completed ones.
     bool collisionBothLost = false;
     //! N.6. --halfDuplex: 0 off, 1 count only, 2 enforce.
@@ -13978,6 +13980,61 @@ RunArm(CaTblPolicyMode mode,
                       << ", receptions while the other band transmitted " << cdeaf
                       << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
         }
+        if (spec.reportAirtime)
+        {
+            // MAC sect 2. Every MAC's own counters, per tier and message type, beside the
+            // channel's count of the frames it carried: two tallies of one quantity. The
+            // FULL_PUSH_CF row is what pushing the whole table instead of each transmitted
+            // DIGEST would have cost (report only).
+            std::ostringstream afn;
+            afn << traceDir << "/airtime_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                << ".csv";
+            std::ofstream af(afn.str().c_str());
+            af << "tier,msgType,framesSent,rebroadcasts,airtimeS\n";
+            std::ostringstream line;
+            line << "    AIRTIME (" << CaTblPolicyModeName(mode) << "):";
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                uint64_t framesT = 0;
+                double cf = 0.0, digS = 0.0, pushS = 0.0, respS = 0.0;
+                for (uint8_t mt = CA_TBL_MSG_DISCOVERY; mt <= CA_TBL_MSG_GRANT_GOSSIP; ++mt)
+                {
+                    uint64_t sent = 0, rb = 0;
+                    double air = 0.0;
+                    for (size_t i = 0; i < macs.size(); ++i)
+                    {
+                        if (macs[i].GetChannel() != &chan[ti])
+                        {
+                            continue;
+                        }
+                        const CaTblMsgCounters& c =
+                            macs[i].GetCounters(static_cast<CaTblMsgType>(mt));
+                        sent += c.sent;
+                        rb += c.rebroadcast;
+                        air += c.airtimeS;
+                    }
+                    framesT += sent;
+                    digS += (mt == CA_TBL_MSG_DIGEST) ? air : 0.0;
+                    pushS += (mt == CA_TBL_MSG_ENTRY_PUSH) ? air : 0.0;
+                    respS += (mt == CA_TBL_MSG_RESPONSE) ? air : 0.0;
+                    af << ti << ',' << CaTblMsgTypeName(static_cast<CaTblMsgType>(mt)) << ','
+                       << sent << ',' << rb << ',' << std::setprecision(9) << air << '\n';
+                }
+                for (size_t i = 0; i < macs.size(); ++i)
+                {
+                    if (macs[i].GetChannel() == &chan[ti])
+                    {
+                        cf += macs[i].GetDigestFullPushCfS();
+                    }
+                }
+                af << ti << ",FULL_PUSH_CF,0,0," << std::setprecision(9) << cf << '\n';
+                line << " tier " << ti << " frames " << framesT << " (channel "
+                     << chan[ti].GetTotalTransmissions() << "), digest " << std::setprecision(6)
+                     << digS << " s + entry push " << pushS << " s against full push " << cf
+                     << " s, response " << respS << " s;";
+            }
+            std::cout << line.str() << "\n";
+        }
         if (spec.collisionBothLost)
         {
             // N.22. Summed over the three channels.
@@ -16974,6 +17031,19 @@ main(int argc, char* argv[])
                  "radios are separate unless --halfDuplexChip makes the 868 MHz and 2.4 GHz ones "
                  "one LR1121. One N.6 line. Any other value is FATAL.",
                  spec.halfDuplex);
+    cmd.AddValue("reportAirtime",
+                 "Report airtime per tier and message type (MAC sect 2: the spec asks for the "
+                 "airtime the digest saves against full pushes, and Transport sect 7 for what "
+                 "reverse-path routing saves against flooding, as numbers). FALSE by default. "
+                 "TRUE: airtime_<arm>_seed<N>.csv (digested) sums every MAC's own counters -- "
+                 "frames sent, of them relays, airtime -- per tier and type, and a FULL_PUSH_CF "
+                 "row per tier: for each DIGEST transmitted, the airtime an ENTRY_PUSH carrying "
+                 "the sender's whole valid table would have taken (a counterfactual, computed "
+                 "from the MAC's own ToA function). One AIRTIME line, with the channel's own "
+                 "frame count per tier beside the MACs'. Nothing else changes. Flooding against "
+                 "reverse path is a paired run with --reversePath=false, read from the RESPONSE "
+                 "rows.",
+                 spec.reportAirtime);
     cmd.AddValue("collisionBothLost",
                  "Of two frames that overlap at a receiver, judge BOTH by the capture rule "
                  "(TECH_DEBT N.22). FALSE by default: the channel erases a frame when it "
@@ -18019,7 +18089,14 @@ main(int argc, char* argv[])
                      "GRANT carry its verdict and name the request it answers\n";
         return 1;
     }
-    // NW-8.
+    // NW-8. Applied by the preset while the user turned a prerequisite off explicitly:
+    // unused, not refused (as the preset's other dependent settings). This is what lets the
+    // preset run with --reversePath=false, the flooding counterpart --reportAirtime reads.
+    if (spec.reversePathHop && specProfileOn && !explicitFlags.count("reversePathHop") &&
+        (!reversePathArg || !(identityQueryPeriodSArg > 0.0)))
+    {
+        spec.reversePathHop = false;
+    }
     if (spec.reversePathHop && (!reversePathArg || !(identityQueryPeriodSArg > 0.0)))
     {
         std::cerr << "FATAL: --reversePathHop needs --reversePath=true and "
@@ -19164,6 +19241,10 @@ main(int argc, char* argv[])
     if (spec.requestOverMesh)
     {
         digestPatterns += " reqcarry_*.csv"; // N.10
+    }
+    if (spec.reportAirtime)
+    {
+        digestPatterns += " airtime_*.csv"; // MAC sect 2
     }
     if (queryProxyArg)
     {
