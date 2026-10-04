@@ -14590,6 +14590,9 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"edgeUplinkRanges", "true", "final plan: the gateway edge server's uplink billed"},
     {"subjectEdgeUplink", "true", "final plan / decision 4: every subject's uplink billed too (row 55)"},
     {"radioBasis", "lr1121", "hardware: tiers 1 and 2 on one LR1121 (SY-2; DS.LR1121.W.APP Rev 2.0)"},
+    {"halfDuplex", "2", "hardware: a LoRa transceiver cannot transmit and receive at once (N.6; owner call, DESIGN_DECISIONS 9)"},
+    {"halfDuplexChip", "true", "hardware: 868 MHz and 2.4 GHz share the LR1121 die (Physical 1.1-1.2; N.6)"},
+    {"collisionBothLost", "true", "MAC 3, 6: the capture rule judges both colliding frames (N.22)"},
     {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
     {"nTags", "5", "decision 4: five field nodes"},
     {"boxHalf", "5000", "the spec's 5 km search area"},
@@ -17674,6 +17677,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // N.6.
+    // N.6, per chip. Applied by the preset while the user turned a prerequisite off
+    // explicitly: unused, not refused (as the preset's other dependent settings).
+    if (spec.halfDuplexChip && specProfileOn && !explicitFlags.count("halfDuplexChip") &&
+        (spec.halfDuplex == 0 || radioBasisArg != "lr1121"))
+    {
+        spec.halfDuplexChip = false;
+    }
     if (spec.halfDuplexChip && (spec.halfDuplex == 0 || radioBasisArg != "lr1121"))
     {
         std::cerr << "FATAL: --halfDuplexChip needs --halfDuplex 1 or 2 (the rules it extends) "

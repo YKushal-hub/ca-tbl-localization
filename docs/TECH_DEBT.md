@@ -2696,6 +2696,24 @@ requester's request reaches a finder arbiter without a frame under `--specProfil
 - A preset-applied value is unused, not refused, when `--requesterEscalation` is turned off
   explicitly.
 
+*2026-10-04, channel fidelity (96 settings; owner call delegated, DESIGN_DECISIONS §9):* the
+preset sets `--halfDuplex=2`, `--halfDuplexChip=true` and `--collisionBothLost=true`. The
+spec puts 868 MHz and 2.4 GHz on one LR1121 die, a LoRa transceiver is half-duplex, and the
+capture rule applies to both frames of a collision.
+- **Three new populations** at 5 km, seeds 7/8/9, each with its efficacy run:
+  - frames sent back to CAD 267+303+197;
+  - receptions lost to the other band 246+257+176;
+  - collisions against a completed frame 50+56+39.
+- **The two zeros changed with the channel.** Grant tie-break verdicts are back (1+0+1).
+  Carried requests heard at arbiters fell to 0+0+0 (5+0+4 before): every named request in
+  the endgame found no carrier that hears its arbiter (3 and 5 unheard in seeds 7 and 8).
+  The zeros: UWB-delivered fixes and carried requests heard at arbiters. Both populations
+  are single digits, the case N.19 describes.
+- Every preset number measured before this is superseded by the final campaign
+  (DESIGN_DECISIONS §9).
+- A preset-applied `--halfDuplexChip` is unused, not refused, when `--halfDuplex=0` or
+  `--radioBasis=sx` is given explicitly.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
