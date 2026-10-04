@@ -1838,7 +1838,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
-| N.14 | a UWB range never improves a fix the floor can make | CLOSED 2026-10-04: `--fuseFloorActive`, adopted into the preset by FUSE-01's registered rule |
+| N.14 | a UWB range never improves a fix the floor can make | REOPENED 2026-10-04: FUSE-01b (oracle closed) fails the registered accuracy bound; the preset drops the flag; for the owner |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
@@ -2260,6 +2260,19 @@ Whether the preset takes it is FUSE-01's registered rule, not this entry.
 - **The cost:** tag 0's endgame CEP95 is 8 % worse on average (interval to +18 %, P4 failed),
   and subjects spend more energy on UWB.
 - The registered rule adopted it, and the preset sets it since then. CLOSED.
+
+*2026-10-04, REOPENED by FUSE-01b (report/FUSE01B_RESULTS.md).* FUSE-01 ran on a preset in
+which subjects ranged finders at their true positions (N.21). Re-measured with that closed:
+- availability still rises (+0.116 at 5 km, +0.120 in the endgame);
+- `ca_tbl_full` with the fuse is still above `static_868` at 5 km (+0.036);
+- UWB-delivered fixes come on all 20 endgame seeds;
+- but tag 0's endgame CEP95 is 13.7 % worse on average, over the registered +10 % bound.
+
+So the registered rule does not adopt it, and the preset drops it. The remedy works on
+availability and fails on endgame accuracy. Two calls are open, both for the owner:
+- adopt it anyway;
+- try a narrower variant: fuse only when the floor is short. That is the 5 km gain, and
+  the 5 km CEP change was +2.6 %.
 
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
