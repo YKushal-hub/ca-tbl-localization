@@ -140,6 +140,12 @@ At `boxHalf=2000`, before the spec scale was tested:
 These are single-seed figures from the legacy runs, kept as the record of why the grid and
 the ridge were ruled out, not as results.
 
+**2026-10-04: the preset takes the spec's three gateways** (owner call delegated, §9):
+`--nGateways=3 --gwLayout=star`, GEO-01 stage 2's best N = 3 layout (availability 0.245,
+against N8_ring's 0.329). N8_ring was a fallback for a criterion of ours that no geometry
+met; the spec's deployment is three gateways at 5 km. N8_ring stays reachable as a
+sensitivity geometry.
+
 ## 6. Facilities remain, as places rather than infrastructure
 
 **Decision.** The four facility sites still exist and the lost node still dwells at them,
