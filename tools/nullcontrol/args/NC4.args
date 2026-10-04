@@ -1,0 +1,1 @@
+--arms=static_2p4 --seed=7 --duration=600 --trace=true --boxHalf=200 --nTags=4 --relayedRanging=true --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336
