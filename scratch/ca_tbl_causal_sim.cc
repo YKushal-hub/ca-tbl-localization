@@ -6020,6 +6020,8 @@ struct SpecOptions
     bool subjectFinderPseudoAnchor = false;
     //! N.21. --finderPseudoAnchorStrict: no finder range ever uses the true position.
     bool finderPseudoAnchorStrict = false;
+    //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
+    bool silenceStopsRelay = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -6755,6 +6757,7 @@ RunArm(CaTblPolicyMode mode,
         mc.reversePath = reversePath;
         mc.reversePathHop = spec.reversePathHop;
         mc.queryV2 = spec.queryV2;
+        mc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
         mc.arbitrationV2 = spec.arbitrationV2;
         mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
         mc.nodeId = static_cast<uint16_t>(nodeId);
@@ -6796,6 +6799,7 @@ RunArm(CaTblPolicyMode mode,
             mc.reversePath = reversePath;
             mc.reversePathHop = spec.reversePathHop;
             mc.queryV2 = spec.queryV2;
+            mc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
             mc.arbitrationV2 = spec.arbitrationV2;
             mc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             mc.gossipQueue = spec.gossipQueue;
@@ -6896,6 +6900,7 @@ RunArm(CaTblPolicyMode mode,
             pmc.reversePath = reversePath;
             pmc.reversePathHop = spec.reversePathHop;
             pmc.queryV2 = spec.queryV2;
+            pmc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
             pmc.arbitrationV2 = spec.arbitrationV2;
             pmc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             pmc.nodeId = static_cast<uint16_t>(pid);
@@ -7231,6 +7236,7 @@ RunArm(CaTblPolicyMode mode,
             fc.reversePath = reversePath;
             fc.reversePathHop = spec.reversePathHop;
             fc.queryV2 = spec.queryV2;
+            fc.silenceStopsRelay = spec.silenceStopsRelay; // N.1
             fc.arbitrationV2 = spec.arbitrationV2;
             fc.queryTriggeredEscalation = spec.queryTriggeredEscalation;
             fc.gossipQueue = spec.gossipQueue;
@@ -13473,6 +13479,17 @@ RunArm(CaTblPolicyMode mode,
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
         }
+        if (spec.silenceStopsRelay)
+        {
+            // N.1. Other nodes' frames the silenced radios refused at CAD.
+            uint64_t refusedRelays = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                refusedRelays += macs[i].GetSilentRelayRefused();
+            }
+            std::cout << "    N.1 silenced radios (" << CaTblPolicyModeName(mode)
+                      << "): relays refused " << refusedRelays << "\n";
+        }
         if (spec.subjectBatteryDeplete)
         {
             // N.3 / row 55. One line per subject whose budget ran out.
@@ -16255,6 +16272,17 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("silenceStopsRelay",
+                 "A silenced radio relays no other node's frame (TECH_DEBT N.1). FALSE by "
+                 "default: a radio silenced by a spent battery (--batteryDepleteJ, "
+                 "--subjectBatteryDeplete) or by --injectSilentId stops its own frames, since "
+                 "SetSilent() gates Send(), but goes on relaying other nodes' floods and any "
+                 "relay it had queued, so every such run overstates how much of the mesh the "
+                 "fault removes. TRUE: the MAC refuses, at CAD, every frame another node "
+                 "originated while the radio is silenced, and counts it; the node's own frames "
+                 "are untouched, so a frame queued before the silence (MC-2's last gasp) still "
+                 "leaves. One N.1 line. Needs --batteryDepleteJ > 0 or --injectSilentId.",
+                 spec.silenceStopsRelay);
     cmd.AddValue("finderPseudoAnchorStrict",
                  "No finder range uses the finder's true position (TECH_DEBT N.21). FALSE by "
                  "default: under --finderPseudoAnchor tag 0 replaces a finder's true position with "
@@ -16878,6 +16906,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // N.1. Nothing is ever silenced without one of the two faults.
+    if (spec.silenceStopsRelay && !(batteryDepleteJArg > 0.0) && injectSilentIdArg == 0)
+    {
+        std::cerr << "FATAL: --silenceStopsRelay needs --batteryDepleteJ > 0 or "
+                     "--injectSilentId: without them no radio is ever silenced\n";
+        return 1;
+    }
     // N.21 strict. Applied by the preset while the user turned --finderPseudoAnchor off
     // explicitly: unused, not refused (as the preset's other dependent settings).
     if (spec.finderPseudoAnchorStrict && specProfileOn &&

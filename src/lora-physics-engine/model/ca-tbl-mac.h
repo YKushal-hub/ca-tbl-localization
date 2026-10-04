@@ -331,6 +331,13 @@ struct CaTblMacConfig
     //! miss FLOOD the RESPONSE. Without it, reversePath caches the originator and both
     //! branches send the same one-hop frame (the pre-NW-8 behaviour, kept).
     bool reversePathHop = false;
+    //! TECH_DEBT N.1. SetSilent(true) gates Send() only, so a silenced radio went on relaying
+    //! other nodes' floods (MaybeRebroadcast) and any relay already queued (its CAD retries,
+    //! its repeats). True: AttemptCad() refuses a frame another node originated while the
+    //! radio is silenced, and counts it. The node's own frames are untouched, so a frame it
+    //! queued before the silence -- MC-2's last gasp -- still leaves. False keeps the old
+    //! behaviour.
+    bool silenceStopsRelay = false;
     //! NW-9. QUERY and RESPONSE carry what the spec says. A QUERY carries its query id,
     //! manifest list, requester and priority; a node answers EVERY listed manifest it can
     //! (as the target, or by proxy from a fresh entry), with a RESPONSE carrying the
@@ -489,6 +496,8 @@ class CaTblMac
     bool IsSilent() const { return m_silent; }
     //! Frames this MAC declined to transmit while silenced.
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
+    //! N.1. Other nodes' frames refused at CAD while silenced (silenceStopsRelay only).
+    uint64_t GetSilentRelayRefused() const { return m_silentRelayRefused; }
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
     //! The channel this MAC is registered on, i.e. which radio it is. Read by the
@@ -1010,6 +1019,8 @@ class CaTblMac
     // NW-0.
     bool m_asleep = false;
     uint64_t m_asleepRefused = 0;
+    // N.1.
+    uint64_t m_silentRelayRefused = 0;
     double m_rebroadcastAirS = 0.0;
     uint64_t m_rebroadcastFrames = 0;
 };

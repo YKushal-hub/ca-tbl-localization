@@ -1587,6 +1587,13 @@ CaTblMac::AttemptCad(PendingFrame f)
     {
         return; // NW-0: a relay queued before the radio fell asleep does not leave
     }
+    if (m_cfg.silenceStopsRelay && m_silent && f.hdr.GetOriginId() != m_cfg.nodeId)
+    {
+        // N.1: a silenced radio relays nothing, new or already queued; its own frames
+        // (the last gasp) are Send()'s business and are not refused here.
+        ++m_silentRelayRefused;
+        return;
+    }
     if (m_channel == nullptr)
     {
         return;
