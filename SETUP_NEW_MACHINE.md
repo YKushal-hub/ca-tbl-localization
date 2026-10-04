@@ -201,3 +201,18 @@ URL (`51e1d3c6…`); **that one does not exist.**
 **Check `git log` before trusting any status document.** Two prior handoffs were stale on
 handover: v14's priority-1 item was already built, and a two-phase finder search was
 written before discovering `finderMode=2` already was one, better.
+
+---
+
+## 9. A cloud container (added 2026-10-04)
+
+The tree was continued once in a fresh cloud container (Ubuntu 24.04, 4 cores). The
+differences from §1-§6:
+
+- **gcc-11 is in the archive.** `apt-get install -y gcc-11 g++-11` gives 11.5.0 with no PPA.
+  The default compiler there is gcc-13. Build with `CC=gcc-11 CXX=g++-11` as everywhere.
+- **The clone was shallow.** G13 then reports sidecar SHAs as unresolved (3 on 2026-10-04)
+  because the commits are not in the clone. Run `git fetch --unshallow origin` before the
+  first suite.
+- **Set the git identity to the owner's before the first commit.** The container's default
+  identity named an assistant. G12 rejects that, and `RULES.md` §2 forbids it.
