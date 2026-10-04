@@ -12,6 +12,9 @@
 #   end    the endgame: --boxHalf=750 --finderMode=1, finders converging (the owner's
 #          2026-10-03 decision after MS-3: UWB is evaluated where finders reach subjects);
 #   gasp   --batteryDepleteJ=2, the only way the last-gasp population exists.
+# main and end run again at seeds 8 and 9 (main_s8, main_s9, end_s8, end_s9): a population
+# is read over the three seeds, so a mechanism of one or two events a run is not called
+# zero on one seed's channel (TECH_DEBT N.19).
 # Then the preset with one mechanism's flag forced off, per mechanism (flag efficacy), the
 # preset against its own flags written out (equivalence, 300 s), and two refusals. The
 # preset with --fixRoutingSubjects=false is one of them since 2026-10-03: --fixRouting
@@ -43,6 +46,10 @@ lim() {  # keep at most $J runs going
 }
 lim; run main $B &
 lim; run end $B $END &
+for s in 8 9; do
+    lim; run "main_s$s" ${B/--seed=7/--seed=$s} &
+    lim; run "end_s$s" ${B/--seed=7/--seed=$s} $END &
+done
 lim; run gasp $B --batteryDepleteJ=2 &
 # flag efficacy: name, extra args (the config the mechanism is read in)
 while read -r name args; do

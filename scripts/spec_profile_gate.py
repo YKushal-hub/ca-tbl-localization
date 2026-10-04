@@ -3,11 +3,12 @@
 
 usage: spec_profile_gate.py <dir written by scripts/spec_profile_gate.sh>
 
-Every spec mechanism must have a NON-ZERO population in the run registered for it (the
+Every spec mechanism must have a NON-ZERO population in the runs registered for it (the
 "firing plus input" rule, TECH_DEBT H.3/I.5). A zero is a FAIL, never a pass by absence.
-Runs: main (the preset), end (the endgame: 750 m box, finders converging), gasp (the
-last-gasp run); off_<flag> (the preset with that flag off); eq_preset / eq_flags (the preset
-against its own flags written out); r_topo and r_n12 (the refusals).
+Runs: main (the preset), end (the endgame: 750 m box, finders converging), each also at
+seeds 8 and 9 (main_s8, main_s9, end_s8, end_s9), gasp (the last-gasp run); off_<flag>
+(the preset with that flag off, seed 7); eq_preset / eq_flags (the preset against its own
+flags written out); r_topo and r_n12 (the refusals).
 
 Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
   RUNS      every run exited 0 (the refusals r_* excepted). x_froff, the preset with routing
@@ -21,7 +22,11 @@ Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
   NOHV      --hopVarianceTerms is not in the preset (owner decision 2026-10-03, TECH_DEBT
             N.11): spec_profile.txt does not set it, and no NW-1 hop-variance line is printed
             in main/ or end/.
-  POP <m>   one line per mechanism: its population in its registered run is > 0.
+  POP <m>   one line per mechanism: its population, summed over the three seeds of its
+            registered configuration (gasp: one run), is > 0. A mechanism of one or two
+            events a run used to flip between zero and non-zero with the channel on a
+            single seed (TECH_DEBT N.19); it is now zero only when it is zero in all three.
+            MISSING only when no seed prints its evidence line.
   EFF <f>   one line per efficacy run: with flag <f> off, its mechanism's population is 0.
   R         the preset with --topology=1 exits 1 with the reason.
   R12       the preset with --fixRoutingSubjects=false exits 1 with the reason: --fixRouting
@@ -196,12 +201,16 @@ def main():
 
     zero = []
     for name, run, reader, flag in MECH:
-        v = reader(d, run)
-        if v is None:
-            missing(f"POP {name}", f"no evidence line in {run}")
+        seeds = [run] + ([f"{run}_s8", f"{run}_s9"] if run in ("main", "end") else [])
+        vals = [reader(d, s) for s in seeds]
+        if all(x is None for x in vals):
+            missing(f"POP {name}", f"no evidence line in {seeds}")
             zero.append(name)
             continue
-        report(v > 0, f"POP {name}", f"{run}: {int(v)}" + ("" if v > 0 else " (need > 0)"))
+        v = sum(x or 0 for x in vals)
+        per = "+".join(str(int(x or 0)) for x in vals)
+        report(v > 0, f"POP {name}", f"{run}: {int(v)}" + (f" (seeds 7/8/9: {per})" if len(vals) > 1 else "")
+               + ("" if v > 0 else " (need > 0)"))
         if v <= 0:
             zero.append(name)
         if flag:

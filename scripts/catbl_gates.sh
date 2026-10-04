@@ -1486,15 +1486,17 @@ finish G71
 
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
-# endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
-# the last-gasp run, and the preset with one flag off per mechanism, read by
+# endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
+# at seeds 7, 8 and 9 (TECH_DEBT N.19), the last-gasp run, and the preset with one flag off
+# per mechanism, read by
 # scripts/spec_profile_gate.py:
 #   - the preset reproduces its own settings given as flags, byte for byte;
 #   - spec_profile.txt lists every setting, and an explicit flag is kept;
 #   - every router runs the preset's routing weights, CAMP-SPEC's pick (0,0,1,1), and
 #     the preset with routing turned off explicitly still runs;
 #   - --hopVarianceTerms is not in the preset (owner decision, N.11);
-#   - every mechanism has a non-zero population in its registered run (a zero is FAIL);
+#   - every mechanism has a non-zero population summed over its three seeds (a zero in
+#     all three is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
 # FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15).

@@ -27,6 +27,18 @@ KNOWN='POP (triggered updates|UWB-delivered fixes)'
 pass=0
 fail=0
 fresh() { rm -rf "$T/f"; cp -r "$REAL" "$T/f"; }
+check_pop_ok() {  # check_pop_ok <name> <label that must stay ok>
+    python3 "$GATE" "$T/f" > "$T/out.txt" 2>&1
+    if grep -Eq "G24 ok +$2 " "$T/out.txt"; then
+        printf '  G24 ok    %-66s\n' "$1"
+        grep -m1 -E "G24 ok +$2 " "$T/out.txt" | sed 's/^ */            /' | cut -c1-200
+        pass=$((pass + 1))
+    else
+        printf '  G24 FAIL  %-66s %s is not ok\n' "$1" "$2"
+        grep -E "$2" "$T/out.txt" | sed 's/^ */            /' | head -3
+        fail=$((fail + 1))
+    fi
+}
 check() {  # check <name> <label that must FAIL, or - for the baseline>
     python3 "$GATE" "$T/f" > "$T/out.txt" 2>&1
     local rc=$?
@@ -58,10 +70,14 @@ fresh; f=$(ls "$T"/f/eq_flags/trace_*.csv | head -1); sed -i '2s/,/,9/' "$f"
 check "N1 the preset and its flags written out disagree" EQUIV
 fresh; sed -i '/^boxHalf: explicit/d' "$T/f/end/spec_profile.txt"
 check "N2 an explicit flag not recorded as kept" FILE
-fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main.log"
-check "N3 a mechanism with no population (TDoA)" "POP tier-1 TDoA solves"
-fresh; sed -i -E '/TABLE CI:/d' "$T/f/main.log"
-check "N4 a mechanism whose evidence line is missing" "POP CI table fuses"
+fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main.log" "$T/f/main_s8.log" "$T/f/main_s9.log"
+check "N3 a mechanism with no population in any of the three seeds (TDoA)" "POP tier-1 TDoA solves"
+fresh; sed -i -E '/TABLE CI:/d' "$T/f/main.log" "$T/f/main_s8.log" "$T/f/main_s9.log"
+check "N4 a mechanism whose evidence line is missing in every seed" "POP CI table fuses"
+fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main.log" "$T/f/main_s8.log"
+check_pop_ok "P1 a population present in one seed only is not a zero (N.19)" "POP tier-1 TDoA solves"
+fresh; rm -rf "$T/f/end_s9" "$T/f/end_s9.log"; echo 134 > "$T/f/end_s9.rc"
+check "N12 an extra seed's run did not exit 0" RUNS
 fresh; printf '  DC-4 Case D: cycles 5, updates applied 5, refused by NIS 0\n' >> "$T/f/off_caseD.log"
 check "N5 a mechanism still firing with its flag off" "EFF caseD"
 fresh; echo 0 > "$T/f/r_topo.rc"
