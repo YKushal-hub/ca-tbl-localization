@@ -1116,6 +1116,17 @@ class CaTblChannel
      *  events, itemised, so an animation can show them. */
     void SetEventLog(std::ostream* os) { m_eventLog = os; }
     void SetCaptureThresholdDb(double db) { m_captureThresholdDb = db; }
+    /**
+     * \brief N.22. Judge a finishing frame against frames that already completed too.
+     *
+     * Off (the default), a completed frame is erased, so of two overlapping frames only the
+     * one that ends first sees the other and is lost. On, a completed frame is kept until no
+     * frame still on air started before it ended, and a later-ending frame that overlapped it
+     * is judged against it by the same capture rule. Such a loss is logged as
+     * "collision_late" and counted.
+     */
+    void SetCollisionBothLost(bool on) { m_collisionBothLost = on; }
+    uint64_t GetLateCollisions() const { return m_lateCollisions; }
     double GetCaptureThresholdDb() const { return m_captureThresholdDb; }
 
     void Register(CaTblMac* mac);
@@ -1165,6 +1176,9 @@ class CaTblChannel
     std::ostream* m_eventLog = nullptr;
     std::map<uint16_t, CaTblMac*> m_nodes;
     std::vector<InFlight> m_inFlight;
+    std::vector<InFlight> m_done; //!< N.22: completed frames still overlapping one on air
+    bool m_collisionBothLost = false;
+    uint64_t m_lateCollisions = 0;
     double m_captureThresholdDb;
     uint64_t m_txnCounter;
     uint64_t m_totalTx;

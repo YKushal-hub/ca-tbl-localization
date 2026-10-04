@@ -1805,6 +1805,73 @@ TestOboCarry()
               std::to_string(c.carrierCb));
 }
 
+// [16] N.22. Three nodes in range. Nodes 1 and 2 each send one DISCOVERY at one instant, so
+// the two frames overlap at node 3 at equal power, where neither can capture.
+struct BothLostRun
+{
+    uint64_t heardAt3 = 0;
+    uint64_t collisions = 0;
+    uint64_t late = 0;
+};
+
+BothLostRun
+RunBothLost(bool on)
+{
+    BothLostRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    channel.SetCollisionBothLost(on);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(16);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.defaultHopLimit = 1;
+        c.discoveryOneHop = true; // DISCOVERY leaves with hop limit 0: never relayed
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    for (int i = 0; i < 2; ++i)
+    {
+        Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[i], CA_TBL_MSG_DISCOVERY,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    }
+    Simulator::Stop(Seconds(20.0));
+    Simulator::Run();
+    r.heardAt3 = m[2].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+    r.collisions = channel.GetTotalCollisions();
+    r.late = channel.GetLateCollisions();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestBothLost()
+{
+    std::cout << "\n[16] N.22 both colliding frames are judged (CaTblChannel)\n";
+    const BothLostRun a = RunBothLost(false);
+    const BothLostRun b = RunBothLost(true);
+    Report("off / on: heard at node 3, collisions, of them against a completed frame",
+           std::to_string(a.heardAt3) + "," + std::to_string(a.collisions) + "," +
+               std::to_string(a.late) + " / " + std::to_string(b.heardAt3) + "," +
+               std::to_string(b.collisions) + "," + std::to_string(b.late));
+    Check("by default only the earlier-ending frame is lost and the later one is delivered "
+          "(the N.22 defect, kept)",
+          a.heardAt3 == 1 && a.collisions == 1 && a.late == 0,
+          "heard " + std::to_string(a.heardAt3) + ", collisions " + std::to_string(a.collisions));
+    Check("collisionBothLost: both frames are lost, the later one to the completed frame",
+          b.heardAt3 == 0 && b.collisions == 2 && b.late == 1,
+          "heard " + std::to_string(b.heardAt3) + ", collisions " + std::to_string(b.collisions) +
+              ", late " + std::to_string(b.late));
+}
+
 void
 TestQueueGossip()
 {
@@ -1858,6 +1925,7 @@ main(int argc, char* argv[])
     TestSilentRelay();
     TestHalfDuplex();
     TestOboCarry();
+    TestBothLost();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

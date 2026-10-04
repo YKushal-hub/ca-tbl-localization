@@ -1639,6 +1639,21 @@ bash scripts/build_stamp_gate.sh "$WORK/g82" || fail G82
 bash scripts/build_stamp_gate_selftest.sh "$WORK/g82" || fail G82
 finish G82
 
+# ---------------- G83: both colliding frames are judged (N.22)
+# The channel erased a frame when it completed, so of two overlapping frames only the one
+# ending first was lost. --collisionBothLost keeps a completed frame while a frame on air
+# overlaps it, and judges the later one against it. G74's regime, read by
+# scripts/both_lost_gate.py:
+#   - late losses occur, each an events_ row, and the N.22 line equals the rows;
+#   - each names a frame that ended before it, within 5 s, sent by anyone but the receiver;
+#   - the control. No magnitude compared across the flag (rule 8).
+#
+# Negative fixtures in scripts/both_lost_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G83 both colliding frames are judged (N.22) ---\n'
+bash scripts/both_lost_gate.sh "$WORK/g83" || fail G83
+bash scripts/both_lost_gate_selftest.sh "$WORK/g83" || fail G83
+finish G83
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each

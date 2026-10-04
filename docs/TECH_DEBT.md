@@ -1914,7 +1914,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.19 | G24 reads one seed, and several of its populations are one or two events | FIXED 2026-10-04: G24 reads three seeds |
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
-| N.22 | of two colliding frames only the earlier-ending is lost | open (engineering; found 2026-10-04) |
+| N.22 | of two colliding frames only the earlier-ending is lost | flag (G83); default unchanged; adopting it is a campaign decision |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2905,3 +2905,21 @@ therefore half as destructive as the capture rule says.
   deafness from the radio's own history to step around it.
 
 Open (engineering).
+
+*2026-10-04, `--collisionBothLost` (G83).* `CaTblChannel::SetCollisionBothLost`: a completed
+frame is kept in a second list until no frame still on air started before it ended. A
+finishing frame is then judged against those completed frames too, by the same capture rule
+and after the in-flight ones. A loss to a completed frame is an events_ row with outcome
+`collision_late`, and its payload ends `;by=<sender>:<packet id>`.
+- *Measured,* G83 (seed 7, 900 s, defaults): 1 340 collisions, 492 of them late. So 492
+  receptions that the default channel delivers are lost under the capture rule applied to
+  both frames. 54 of the 492 were lost to the same sender's earlier frame (N.6's
+  self-overlap). 393 were lost to another sender's copy of the same packet: two relays of
+  one flooded frame. The other 45 were lost to a different packet.
+- No magnitude compares across the flag. It changes which frames reach every receiver,
+  and so every later draw (rule 8). The 492 is a count within one flag-on run.
+- A unit case (packet_validator [16], two checks): two equal-power frames overlap at a
+  third node. By default one is heard; with the flag, neither is, and the later one is lost
+  to the completed frame.
+- Default unchanged. Whether every result is re-run with both frames judged is the
+  campaign decision this entry already named.

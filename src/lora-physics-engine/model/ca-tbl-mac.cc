@@ -2767,6 +2767,20 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
             overlapping.push_back(o);
         }
     }
+    // N.22. Frames that completed while this one was on air. Judged after the in-flight
+    // ones, so a loss to one of them is a loss the default channel would have delivered.
+    const size_t nLive = overlapping.size();
+    if (m_collisionBothLost)
+    {
+        for (size_t i = 0; i < m_done.size(); ++i)
+        {
+            const InFlight& o = m_done[i];
+            if (o.tier == me.tier && o.start < me.end && me.start < o.end)
+            {
+                overlapping.push_back(o);
+            }
+        }
+    }
 
     for (std::map<uint16_t, CaTblMac*>::iterator it = m_nodes.begin(); it != m_nodes.end(); ++it)
     {
@@ -2821,6 +2835,9 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
 
         // Capture arbitration against our own concurrent transmitters.
         bool lost = false;
+        bool late = false; // N.22: lost to a frame that had already completed
+        uint16_t lateBy = 0;
+        uint32_t lateByPkt = 0;
         bool captured = false;
         for (size_t k = 0; k < overlapping.size(); ++k)
         {
@@ -2842,6 +2859,9 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
             else
             {
                 lost = true;
+                late = (k >= nLive);
+                lateBy = o.txId;
+                lateByPkt = o.hdr.GetPacketId();
                 break;
             }
         }
@@ -2849,13 +2869,24 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         if (lost)
         {
             ++m_totalCollisions;
+            if (late)
+            {
+                ++m_lateCollisions;
+            }
             if (m_eventLog != nullptr)
             {
                 *m_eventLog << Simulator::Now().GetSeconds() << ',' << static_cast<int>(me.tier)
                             << ',' << me.txId << ',' << rxId << ','
-                            << CaTblMsgTypeName(me.hdr.GetMsgType()) << ",collision,"
+                            << CaTblMsgTypeName(me.hdr.GetMsgType())
+                            << (late ? ",collision_late," : ",collision,")
                             << mine.rxPowerDbm << ','
-                            << CaTblEventPayload(me.hdr) << '\n';
+                            << CaTblEventPayload(me.hdr);
+                if (late)
+                {
+                    // N.22: the completed frame's sender and packet id.
+                    *m_eventLog << ";by=" << lateBy << ':' << lateByPkt;
+                }
+                *m_eventLog << '\n';
             }
             rx->NoteCollisionLoss(me.hdr.GetMsgType());
             continue;
@@ -2886,6 +2917,26 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
             m_inFlight.erase(m_inFlight.begin() + static_cast<long>(i));
             break;
         }
+    }
+    if (m_collisionBothLost)
+    {
+        // N.22. Keep it while a frame still on air started before it ended; drop every
+        // completed frame no frame on air overlaps any more.
+        m_done.push_back(me);
+        std::vector<InFlight> keep;
+        for (size_t i = 0; i < m_done.size(); ++i)
+        {
+            bool needed = false;
+            for (size_t j = 0; j < m_inFlight.size() && !needed; ++j)
+            {
+                needed = (m_inFlight[j].start < m_done[i].end);
+            }
+            if (needed)
+            {
+                keep.push_back(m_done[i]);
+            }
+        }
+        m_done.swap(keep);
     }
 }
 
