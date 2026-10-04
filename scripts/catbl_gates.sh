@@ -1390,6 +1390,21 @@ bash scripts/subject_uplink_gate.sh "$WORK/g65" || fail G65
 bash scripts/subject_uplink_gate_selftest.sh "$WORK/g65" || fail G65
 finish G65
 
+# ---------------- G66: subjects send MC-2's large correction (N.3, row 55)
+# --triggeredUpdates sent tag 0's large corrections only. --subjectTriggeredUpdates sends the
+# subjects' too. G34's regime with five subjects at --triggeredUpdateK=0.5 (at k = 1 no
+# subject correction exceeds one prior sigma at the seeds tried), read by
+# scripts/subject_trig_gate.py:
+#   - every row consistent with the subject's own trace (estimate, threshold, tier);
+#   - every subject reason=1 frame within 2 s of one of its triggers; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/subject_trig_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G66 subjects send the large correction (MC-2, N.3) ---\n'
+bash scripts/subject_trig_gate.sh "$WORK/g66" || fail G66
+bash scripts/subject_trig_gate_selftest.sh "$WORK/g66" || fail G66
+finish G66
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and

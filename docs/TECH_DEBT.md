@@ -1918,6 +1918,14 @@ control-flow claims compare across N.
 *2026-10-04:* `--subjectEdgeUplink` (G65) bills the subjects' tier-2/3 range uplink as
 `--edgeUplinkRanges` bills tag 0's. With it on, the start-up WARNING no longer lists
 `--edgeUplinkRanges`.
+
+*2026-10-04:* `--subjectTriggeredUpdates` (G66) sends the subjects' MC-2 large corrections.
+There is no last gasp, because subjects have no battery depletion; that stays on the list.
+- A measured fact: at the default k = 1 no subject's correction exceeded one prior sigma at
+  seeds 1, 2, 3 or 7 (900 s, five subjects). The largest was 0.88 sigma, while tag 0 fired
+  0-11 times. G66 exercises the path at k = 0.5, where subjects fired 8 times.
+- Why subjects correct by less than tag 0 is not established. They range only on their
+  active tier and floor, and have no TDoA or SHS.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
