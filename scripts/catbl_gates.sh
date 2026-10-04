@@ -1419,6 +1419,23 @@ bash scripts/subject_battery_gate.sh "$WORK/g67" || fail G67
 bash scripts/subject_battery_gate_selftest.sh "$WORK/g67" || fail G67
 finish G67
 
+# ---------------- G68: a subject's finder range uses the finder's report (N.21)
+# Subjects 2..N ranged a finder against its TRUE position, with the engine's sigma. They never
+# held a finder entry, because only tag 0 asked the finders' digest question. Under
+# --subjectFinderPseudoAnchor a subject asks it too, uses the freshest entry it holds
+# (carried forward, its covariance projected into sigma), and drops a finder range it holds
+# no entry for. G57's converging regime with entry prediction, read by
+# scripts/subject_pseudo_gate.py:
+#   - subjects asked and used reported positions; each carried forward as DC-13 says;
+#   - sigma within its bounds; the positions are not the truth; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/subject_pseudo_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G68 a subject finder range uses the finder report (N.21) ---\n'
+bash scripts/subject_pseudo_gate.sh "$WORK/g68" || fail G68
+bash scripts/subject_pseudo_gate_selftest.sh "$WORK/g68" || fail G68
+finish G68
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
