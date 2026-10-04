@@ -2393,6 +2393,19 @@ seed tried (1-3 a run), and none at 5 km, where all were unroutable.
 0 with the flag off. A preset-applied value is unused, not refused, when
 `--edgeUplinkRanges` is turned off explicitly. The same three zeros.
 
+*2026-10-04, `--subjectFinderPseudoAnchor` (N.21; MS-1's "finders as pseudo-anchors" for the
+subjects too):* the preset sets it (87 settings). No node in the spec configuration now
+ranges a finder at its true position, except tag 0 when it holds no entry (N.21, open).
+- In G24: subjects' finder ranges on reported positions 2 353 in the endgame, 0 with the
+  flag off.
+- Tag 0 holds 2.3 finder entries a cycle at 5 km, against 1.9 before (the subjects'
+  staggered questions bring more answers).
+- **Two zeros remain:** triggered updates, and grant tie-break verdicts (0 again; 1 before).
+  Case A fixes (1) and requester escalations accepted (1) are back. These are the
+  single-seed flips N.19 describes.
+- Subject results measured before this (GEO-01, CAL-02, CAMP-SPEC, FUSE-01) carry the
+  oracle. FUSE-01b re-measures FUSE-01 without it.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
