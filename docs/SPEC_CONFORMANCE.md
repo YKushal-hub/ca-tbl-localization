@@ -32,7 +32,7 @@ The **plan** column names the item of `docs/SPEC_CONFORMANCE_PLAN.md` that close
 |---|---|---|---|---|
 | 1 | Tier-1 868 MHz LoRa CSS link (Phys 1.1) | CONFORMANT | `LoRaPhysicsEngine`; r80 1515 m at the default SF7/125 kHz. SF and BW are configurable since 2026-10-02 (SY-3, G36): `--sf868` SF7-SF12, `--bw868` 125/250/500 kHz, and the tier-2 pair `--sf2p4`/`--bw2p4`. A non-default bandwidth shifts the engine's sensitivity table by 10 log10(BW/BW0), read back per arm | ~~SY-3~~ done |
 | 2 | Tier-1 RSSI log-distance ranging (Phys 1.1) | CONFORMANT | `lora-ranging-submodule.cc` | — |
-| 3 | Tier-1 TDoA, Chan/Taylor, combined with RSSI (Phys 1.1) | OPT-IN | `--tier1Tdoa`, `7377ed0`; J.2 item 4 (σ) is not done | PH-1 |
+| 3 | Tier-1 TDoA, Chan/Taylor, combined with RSSI (Phys 1.1) | OPT-IN | `--tier1Tdoa`, `7377ed0`; J.2 item 4 (σ) measured by TDOA-01 (2026-10-04, report/TDOA01_RESULTS.md): the CRLB covariance holds the error in its bulk (95 %-ellipse coverage 0.94 at 5 km, 0.915 in the endgame), with a heavy tail; with three gateways the closed form never refused (0 of 370) | ~~PH-1 (preset, TDOA-01)~~ done; default: owner (J.2) |
 | 4 | Tier-2 symmetric two-way ToF (Phys 1.2) | CONFORMANT | `LoRa2p4PhysicsEngine`, floor 3.0 m (Zhou et al.) | — |
 | 5 | Tier-3 UWB three-message TWR (Phys 1.3) | CONFORMANT | `LoRaUWBPhysicsEngine`, floor 0.10 m (Benouakta et al.) | — |
 | 6 | UWB CIR leading-edge NLOS score (Phys 1.3) | PARTIAL | `--nlosClassifier` (`86e43f2`); the UWB matrix is empty under legacy physics (M.2). The registered 802.15.4a model (`--uwbNlosModel=ieee802154a`, `57225b8`) **does not** fill it: P1 FALSIFIED (`report/UWB_NLOS_RESULTS.md`) | PH-2 |

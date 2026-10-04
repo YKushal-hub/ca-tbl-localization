@@ -698,6 +698,22 @@ way, and correct `ch09 §9.3` — which is a documentation change, not an engine
 The DIVERGENT row already says the code and the spec disagree here; this decides which
 one moves.
 
+*2026-10-04, item 4 measured (TDOA-01, report/TDOA01_RESULTS.md; registered `5b839d0`).*
+Over 22 880 TDoA solves for tag 0 under the preset, the CRLB-based covariance holds the
+error in its bulk:
+- 95 %-ellipse coverage 0.941 at 5 km with eight gateways, 0.930 with three, and 0.915 in
+  the endgame;
+- median NEES 1.35-1.46, against χ²₂'s 1.39.
+
+It is overconfident in the tail: mean NEES 2-4, and up to 2.5 % of solves beyond χ²₂'s
+0.999 point. That is the missing threshold effect this item named.
+
+With three gateways the exactly-3 closed form never refused (0 of 370). The limit there is
+that all three rarely stamp at once: 15 344 attempts were TOO_FEW.
+
+The default and the J.2 decision stay the owner's. An outlier treatment for the tail would
+be its own flag.
+
 ---
 
 # Addendum — 2026-09-08 (second), the propagation session
