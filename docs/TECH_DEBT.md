@@ -1597,6 +1597,17 @@ hashed the binary before every launch. *Mitigation until fixed:* launch only fro
 that built the binary. *Fix:* stamp the build's commit into the binary at build time. That
 is its own change, with its own null control, because it changes `run_id.txt`.
 
+*2026-10-04, `--stampBinaryHash` (G76), the cheap half.* `run_id.txt` gains one line after
+`source`: `binary sha256 <hash> <path>`, read from `/proc/self/exe`. It names the binary
+itself, whatever the working directory, so a run from another clone (or from outside any
+tree, where `source` reads `unknown`) can be matched to a built binary by its hash.
+- G76 launches from outside the repository. With the flag, the line carries the binary's
+  hash and path; a byte copy elsewhere gets the same hash at its own path. Outputs are
+  identical with and without the flag.
+- Not done: the build-time commit stamp. The hash identifies a binary; it does not say
+  which commit built it. That needs the build to record HEAD (ns-3's
+  `--enable-build-version`, or a generated header), which is a build-system change.
+
 ### M.4 Output files the sidecar does not digest
 
 `CLAUDE.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)
