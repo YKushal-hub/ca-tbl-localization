@@ -2438,6 +2438,16 @@ the flag (86 settings). It stays a flag, and N.14 is reopened for the owner.
 - Removing the fuse changes what is transmitted, so G24's other counts moved too. Under rule
   8 only the control-flow claims above are drawn from them.
 
+*2026-10-04, `--finderPseudoAnchorStrict` (N.21, tag 0's half):* the preset sets it (87
+settings).
+- In G24: tag 0's finder ranges dropped, 221 in the endgame, 0 with the flag off.
+- **Two zeros remain:** triggered updates and UWB-delivered fixes.
+- Case A fixes (4), finder requests granted (3) and sessions reaching PRECISE (4) are back,
+  the single-seed flips N.19 describes. The channel moved with the flag, so these are not
+  the flag's effect.
+- A preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off
+  explicitly.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -2628,4 +2638,18 @@ the truth; the same fallback applies to subjects.
   only be the oracle.
 - By default nothing moves (NC1-NC9). Every `--finderPseudoAnchor` result measured without
   the flag carries the leak for tag 0's finder ranges.
+
+*2026-10-04, in the preset:* `--specProfile` sets `--finderPseudoAnchorStrict` (87
+settings), so no node in the spec configuration ranges a finder at its true position. An
+unregistered probe of the preset (seeds 1-5, 1 800 s, `ca_tbl_full`, tag 0's own trace),
+with the flag against without it:
+- 5 km: tag 0 dropped 321-1 131 finder ranges a run. Its availability fell by 0.055 on
+  average (from 0.919-0.978 without the flag), and its CEP95 tightened by 9 % on average.
+- Endgame: 127-603 dropped a run; availability unchanged (+0.000), CEP95 +3 %.
+- Tag 0 held 2.0-3.9 finder entries a cycle either way. G24's single seed (seed 7, 900 s,
+  5 km) read 0.8 against 2.5 and 232 fixes against 334. Seeds 1-5 do not repeat that, so
+  it is one seed's channel (rule 8).
+
+These are probe numbers, not results. Preset results measured before this (GEO-01 stage 2,
+CAL-02, CAMP-SPEC, FUSE-01 and FUSE-01b) carry tag 0's half of the oracle.
 
