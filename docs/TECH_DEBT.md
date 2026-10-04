@@ -1845,7 +1845,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
 | N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | open (engineering) |
-| N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: open |
+| N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2607,4 +2607,25 @@ then held 2.3 a cycle, and the subjects used 884 reported positions and dropped 
 **Also seen:** the digest question, tag 0's and now the subjects', is unbilled: the MACs
 carry no energy model (`SetEnergyModel` unset, the 2026-09-27 note), so no MAC-originated
 frame is billed. Recorded, not changed.
+
+*2026-10-04, tag 0's half: `--finderPseudoAnchorStrict` (G69).* Under `--finderPseudoAnchor`,
+a range tag 0 holds no entry for is dropped (received and billed, not used), as the subjects'
+are. Where the report's variance cannot be projected, the report is used uninflated, never
+the truth; the same fallback applies to subjects.
+- **How large the leak was.** In G69's regime (G68's, with 2 m of finder GNSS error), 487 of
+  tag 0's 1 459 finder ranges in 900 s had no entry behind them. By default each of those
+  used the truth.
+- **The uninflated fallback is defensive.** uᵀPu is negative only for a covariance that is
+  not positive semi-definite, and a finder entry's is diagonal (the GNSS variance plus the
+  age term). The direction is undefined only when tag 0's estimate is within a micrometre
+  of the report. It had no population in G69 (0 for tag 0, 0 for subjects), and none is
+  expected.
+- **A report can equal the truth.** At the default `--finderPosSigma=0` a finder reports
+  its position exactly, so a report from a finder that has not moved since is the truth to
+  the last digit. In G69's first run, 844 of 858 such rows came from a finder standing
+  still. That is the flattering GNSS default the flag's help already names, not this leak.
+  G69 therefore runs with `--finderPosSigma=2.0`, where a used position at the truth can
+  only be the oracle.
+- By default nothing moves (NC1-NC9). Every `--finderPseudoAnchor` result measured without
+  the flag carries the leak for tag 0's finder ranges.
 

@@ -6018,6 +6018,8 @@ struct SpecOptions
     bool subjectBatteryDeplete = false;
     //! N.21. --subjectFinderPseudoAnchor: a subject's finder range uses the finder's report.
     bool subjectFinderPseudoAnchor = false;
+    //! N.21. --finderPseudoAnchorStrict: no finder range ever uses the true position.
+    bool finderPseudoAnchorStrict = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -8369,6 +8371,16 @@ RunArm(CaTblPolicyMode mode,
     // N.21. --subjectFinderPseudoAnchor: one row per subject range to a finder, null without.
     std::unique_ptr<std::ofstream> pseudoS;
     uint64_t pseudoSubs = 0, pseudoNoEntry = 0, pseudoDigests = 0;
+    // N.21 strict: tag 0's finder ranges, one row each, null without --finderPseudoAnchorStrict.
+    std::unique_ptr<std::ofstream> strictLog;
+    uint64_t strictReport = 0, strictDropped = 0, strictNoInflate = 0, strictNoInflateS = 0;
+    if (spec.finderPseudoAnchorStrict)
+    {
+        std::ostringstream sfn2;
+        sfn2 << traceDir << "/pseudo_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        strictLog.reset(new std::ofstream(sfn2.str().c_str()));
+        *strictLog << "t,finderId,kind,usedX,usedY,trueX,trueY\n";
+    }
     if (spec.subjectFinderPseudoAnchor)
     {
         std::ostringstream pfn;
@@ -9656,12 +9668,24 @@ RunArm(CaTblPolicyMode mode,
                                     const double ux = sb.policy.EstX() - px;
                                     const double uy = sb.policy.EstY() - py;
                                     const double un = std::sqrt(ux * ux + uy * uy);
+                                    if (un <= 1e-6 && spec.finderPseudoAnchorStrict)
+                                    {
+                                        m.anchorX = px; // N.21 strict: the report, uninflated
+                                        m.anchorY = py;
+                                        ++strictNoInflateS;
+                                    }
                                     if (un > 1e-6)
                                     {
                                         const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
                                                                   {fe.covXY, fe.varY + ageVar}};
                                         const double proj =
                                             CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                        if (proj < 0.0 && spec.finderPseudoAnchorStrict)
+                                        {
+                                            m.anchorX = px; // N.21 strict: the report, uninflated
+                                            m.anchorY = py;
+                                            ++strictNoInflateS;
+                                        }
                                         if (proj >= 0.0)
                                         {
                                             const double s0 = sigma;
@@ -10290,6 +10314,7 @@ RunArm(CaTblPolicyMode mode,
         // expensive rather than merely useless.
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            size_t droppedT = 0; // N.21 strict: finder replies whose position tag 0 lacks
             // A DEAD BATTERY STOPS THE RANGING, NOT JUST THE CHATTER.
             //
             // SetSilent() suppresses MAC frames -- beacons, digests, handshakes -- and
@@ -10556,10 +10581,16 @@ RunArm(CaTblPolicyMode mode,
                     //
                     // The physics above is untouched: the radio link is physical and
                     // does not care what anyone believes about where they are.
+                    bool dropT = false;   // N.21 strict: no entry held, so not used
+                    bool subbedT = false; // N.21 strict: the report replaced the truth
                     if (finderPseudoAnchor && anchorId >= 501)
                     {
                         CaTblTableEntry fe;
-                        if (freshestEntry(anchorId, fe))
+                        if (!freshestEntry(anchorId, fe))
+                        {
+                            dropT = spec.finderPseudoAnchorStrict;
+                        }
+                        else
                         {
                             // DC-13. Under --entryPrediction the entry is first carried
                             // forward to now: position + velocity x age (DC-10's velocity),
@@ -10642,7 +10673,33 @@ RunArm(CaTblPolicyMode mode,
                                     relayedVarThisCycle += inflated * inflated;
                                     sigmaM = inflated;
                                     ++pseudoAnchorSubs;
+                                    subbedT = true;
                                 }
+                            }
+                            // N.21 strict: where the variance could not be projected (the
+                            // estimate on the report itself), the report is still the
+                            // position, uninflated -- never the truth.
+                            if (spec.finderPseudoAnchorStrict && !subbedT)
+                            {
+                                m.anchorX = fe.x;
+                                m.anchorY = fe.y;
+                                ++strictNoInflate;
+                            }
+                        }
+                        if (strictLog)
+                        {
+                            *strictLog << std::fixed << std::setprecision(4) << t << ',' << anchorId
+                                       << ',' << (dropT ? "dropped" : (subbedT ? "report" : "report_noinflate"))
+                                       << ',' << (dropT ? anchorPos.x : m.anchorX) << ','
+                                       << (dropT ? anchorPos.y : m.anchorY) << ',' << anchorPos.x << ','
+                                       << anchorPos.y << '\n';
+                            if (dropT)
+                            {
+                                ++strictDropped;
+                            }
+                            else if (subbedT)
+                            {
+                                ++strictReport;
                             }
                         }
                     }
@@ -10658,7 +10715,14 @@ RunArm(CaTblPolicyMode mode,
                     m.sourceKind = CaTblSourceKindOf(anchorId);
                     m.fromFloor = (tier != active);
                     noteUwbEvidence(anchorId, nodeId, tier, range, t); // NW-5
-                    out.push_back(m);
+                    if (dropT)
+                    {
+                        ++droppedT; // received and billed, not used
+                    }
+                    else
+                    {
+                        out.push_back(m);
+                    }
                 }
             }
 
@@ -10668,7 +10732,7 @@ RunArm(CaTblPolicyMode mode,
             // finite rather than clairvoyant.
             energy.AccountRangingExchange(tier,
                                           static_cast<uint32_t>(nb.size()),
-                                          static_cast<uint32_t>(out.size()),
+                                          static_cast<uint32_t>(out.size() + droppedT),
                                           t);
             // SY-1 (TECH_DEBT L.2.3). With the estimator on the gateways, a tier-2 or
             // tier-3 range has to REACH them, and nothing billed that. Tiers 2 and 3 range
@@ -13270,6 +13334,16 @@ RunArm(CaTblPolicyMode mode,
                   << " (heard " << heardLarge << "), last gasp " << trig->nGasp << " (heard "
                   << heardGasp << "); frames billed " << (trig->billedLarge + trig->billedGasp)
                   << ", transmitted " << sentFrames << "\n";
+    }
+    if (strictLog)
+    {
+        // N.21 strict. Closed before the digest.
+        strictLog->close();
+        strictLog.reset();
+        std::cout << "    N.21 strict pseudo-anchors (" << CaTblPolicyModeName(mode)
+                  << "): tag 0 finder ranges on reports " << strictReport << ", dropped for want of a "
+                  << "position " << strictDropped << ", reports used uninflated " << strictNoInflate
+                  << "; subjects' reports used uninflated " << strictNoInflateS << "\n";
     }
     if (pseudoS)
     {
@@ -16180,6 +16254,17 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("finderPseudoAnchorStrict",
+                 "No finder range uses the finder's true position (TECH_DEBT N.21). FALSE by "
+                 "default: under --finderPseudoAnchor tag 0 replaces a finder's true position with "
+                 "its report when it holds an entry, and keeps the truth when it holds none, or "
+                 "when the report's variance cannot be projected. TRUE: a finder range tag 0 holds "
+                 "no entry for is dropped (received and billed, not used), and where the variance "
+                 "cannot be projected the report is used uninflated; the same uninflated fallback "
+                 "for subjects under --subjectFinderPseudoAnchor. Writes pseudo_<arm>_seed<N>.csv "
+                 "(tag 0's finder ranges, digested) and one N.21 strict line. Needs "
+                 "--finderPseudoAnchor.",
+                 spec.finderPseudoAnchorStrict);
     cmd.AddValue("subjectFinderPseudoAnchor",
                  "A subject's range to a finder uses the finder's REPORTED position, as tag 0's does "
                  "under --finderPseudoAnchor (TECH_DEBT N.21). FALSE by default: subjects 2..N range "
@@ -16792,6 +16877,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // N.21 strict.
+    if (spec.finderPseudoAnchorStrict && !finderPseudoAnchorArg)
+    {
+        std::cerr << "FATAL: --finderPseudoAnchorStrict needs --finderPseudoAnchor: it removes "
+                     "the true-position fallback of the pseudo-anchor substitution\n";
+        return 1;
+    }
     // N.21. Applied by the preset while the user turned a prerequisite off explicitly:
     // unused, not refused (as the preset's other dependent settings).
     if (spec.subjectFinderPseudoAnchor && specProfileOn &&
@@ -18042,6 +18134,10 @@ main(int argc, char* argv[])
     if (spec.subjectFinderPseudoAnchor)
     {
         digestPatterns += " subjpseudo_*.csv"; // N.21
+    }
+    if (spec.finderPseudoAnchorStrict)
+    {
+        digestPatterns += " pseudo_*.csv"; // N.21 strict
     }
     if (spec.sparseInStep)
     {

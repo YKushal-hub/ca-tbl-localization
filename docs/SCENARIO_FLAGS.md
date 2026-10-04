@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 210 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 211 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 175 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 205 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 206 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 204 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 205 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 202 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 203 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 203 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 204 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 198 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,15 +92,17 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 197 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectTriggeredUpdates` (row 201 of §3, and its §1 row): added with the default `false`
+- `--subjectTriggeredUpdates` (row 202 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectBatteryDeplete` (row 200 of §3, and its §1 row): added with the default `false`
+- `--subjectBatteryDeplete` (row 201 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectFinderPseudoAnchor` (row 199 of §3, and its §1 row): added with the default `false`
+- `--subjectFinderPseudoAnchor` (row 200 of §3, and its §1 row): added with the default `false`
+  (N.21). Every row after it moved down one.
+- `--finderPseudoAnchorStrict` (row 199 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-sixty-eight names. Three flags changed meaning without changing their printed default, and §1
+sixty-nine names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -205,6 +207,7 @@ precondition missing.
 | `--subjectTriggeredUpdates` | bool | `false` | added 2026-10-04 | Row 55 / N.3: subjects 2..N send MC-2's LARGE CORRECTION as tag 0 does: the corrected entry published and pushed as a TRIGGERED_UPDATE on the tier the subject transmitted on, three repeats, billed to it. No last gasp (subjects have no battery depletion). Writes `subjtriggered_<arm>_seed<N>.csv` (digested) and one MC-2 subjects line (G66) | needs `--triggeredUpdates` and `--measuredSubjects` > 1, else FATAL |
 | `--subjectBatteryDeplete` | bool | `false` | added 2026-10-04 | Row 55 / N.3: subjects 2..N run `--batteryDepleteJ`'s fault as tag 0 does: at the crossing their radios fall silent, after one unrepeated last gasp under `--subjectTriggeredUpdates`; then no exchange, request or peer range. A silent radio still forwards floods (N.1), and listen and sleep are still billed (N.20). One FAULT line per subject (G67) | needs `--batteryDepleteJ` > 0 and `--measuredSubjects` > 1, else FATAL |
 | `--subjectFinderPseudoAnchor` | bool | `false` | added 2026-10-04 | N.21: a subject's range to a finder uses the finder's REPORTED position (the freshest entry its radios hold, carried forward under `--entryPrediction`, its covariance projected into sigma), as tag 0's does under `--finderPseudoAnchor`; with no entry held the range is dropped (received and billed, not used); under `--bidirectionalDigest` the subject asks the finders' digest question on its active tier, subject k of N at (0.5 + k/(2N)) of the finder digest period (OURS; unbilled, as tag 0's). By default subjects range finders against their TRUE positions. Writes `subjpseudo_<arm>_seed<N>.csv` (digested) and one N.21 line (G68). In `--specProfile` since 2026-10-04; a preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off explicitly | needs `--finderPseudoAnchor` and `--measuredSubjects` > 1, else FATAL |
+| `--finderPseudoAnchorStrict` | bool | `false` | added 2026-10-04 | N.21, tag 0's half: under `--finderPseudoAnchor` no finder range uses the finder's true position. By default tag 0 keeps the truth when it holds no entry for the finder, or when the report's variance cannot be projected; with the flag, a range tag 0 holds no entry for is dropped (received and billed, not used), and where the variance cannot be projected the report is used uninflated (the same fallback for subjects under `--subjectFinderPseudoAnchor`; defensive, no population in G69). Writes `pseudo_<arm>_seed<N>.csv` (tag 0's finder ranges, digested) and one N.21 strict line (G69) | needs `--finderPseudoAnchor`, else FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -430,15 +433,16 @@ prints it.
 | 196 | `--sparseInStep` | `false` |
 | 197 | `--subjectEdgeUplink` | `false` |
 | 198 | `--edgeUplinkRanges` | `false` |
-| 199 | `--subjectFinderPseudoAnchor` | `false` |
-| 200 | `--subjectBatteryDeplete` | `false` |
-| 201 | `--subjectTriggeredUpdates` | `false` |
-| 202 | `--triggeredUpdates` | `false` |
-| 203 | `--triggeredUpdateK` | `1` |
-| 204 | `--handshakeFixes` | `false` |
-| 205 | `--queryTierBinding` | (empty) |
-| 206 | `--uwbArbitration` | `false` |
-| 207 | `--arbBatteryCapJ` | `1000` |
-| 208 | `--anchorGrantGossipS` | `0` |
-| 209 | `--suspectForcesEscalation` | `true` |
-| 210 | `--nlosSource` | `legacy` |
+| 199 | `--finderPseudoAnchorStrict` | `false` |
+| 200 | `--subjectFinderPseudoAnchor` | `false` |
+| 201 | `--subjectBatteryDeplete` | `false` |
+| 202 | `--subjectTriggeredUpdates` | `false` |
+| 203 | `--triggeredUpdates` | `false` |
+| 204 | `--triggeredUpdateK` | `1` |
+| 205 | `--handshakeFixes` | `false` |
+| 206 | `--queryTierBinding` | (empty) |
+| 207 | `--uwbArbitration` | `false` |
+| 208 | `--arbBatteryCapJ` | `1000` |
+| 209 | `--anchorGrantGossipS` | `0` |
+| 210 | `--suspectForcesEscalation` | `true` |
+| 211 | `--nlosSource` | `legacy` |
