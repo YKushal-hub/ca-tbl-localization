@@ -1916,6 +1916,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
 | N.22 | of two colliding frames only the earlier-ending is lost | flag (G83); default unchanged; adopting it is a campaign decision |
 | N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
+| N.24 | what the `poucet_fusion` comparator decides that the spec does not | recorded (OURS) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -3050,4 +3051,25 @@ The same report reads reverse-path routing against flooding: the preset with
 there, not refused). In G86's run: 254 responses unicast against 172 flooded, 59.5 s of
 RESPONSE airtime against 40.9 s. Single seed, and the two runs answer different numbers of
 queries; the final campaign pairs them over 20 seeds.
+
+### N.24 What the `poucet_fusion` comparator decides that the spec does not
+
+Built 2026-10-04 (G87). The spec's comparison table puts the system against "Poucet-style
+fusion" (Vey et al., IPIN 2021: every radio on, a multi-input fusion). `--arms=poucet_fusion`
+is that baseline. Its choices, each OURS:
+- **All three tiers ranged every cycle, their ranges fused in one solve.** Each range keeps
+  its own tier's sigma, which `rangeTier` sets. Poucet fuses positions from GPS, LoRa and UWB
+  with its own filter; this arm uses ours, so it isolates "always on and fused" from "a
+  different filter".
+- **No switching:** the policy's tier stays 868 MHz, it never escalates, and there is no
+  integrity check on a switch, because there is no switch.
+- **Every radio awake and billed** (listen, CAD and ranging on all three). The arm breaks
+  `RULES.md` §6's invariant on purpose: one tier per cycle is what the system claims to
+  save, and this arm is the cost it is compared against.
+- **The trace labels a fix with the most precise tier among its ranges** (UWB, else
+  2.4 GHz, else 868 MHz), as `--fuseFloorActive` does.
+- **By name only:** `--arms=all` is unchanged, so no default run moves.
+- *Measured,* G87 (the preset's endgame, seed 7, 900 s; single seed, not a result): tag 0
+  CEP50 / CEP95 2.98 / 7.47 m against `ca_tbl_full`'s 3.62 / 8.84 m, at 209.7 J against
+  10.9 J, of which 203.5 J is UWB.
 

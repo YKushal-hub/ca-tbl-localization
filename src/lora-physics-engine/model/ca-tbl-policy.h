@@ -134,7 +134,12 @@ enum CaTblPolicyMode
     CA_TBL_MODE_FIXED_THRESHOLD,   //!< escalate on raw position variance -- the literature baseline
     CA_TBL_MODE_STATIC_868,        //!< never escalate
     CA_TBL_MODE_STATIC_2P4,        //!< pinned to tier 2
-    CA_TBL_MODE_STATIC_UWB         //!< always-on UWB -- the accuracy ceiling / energy floor
+    CA_TBL_MODE_STATIC_UWB,        //!< always-on UWB -- the accuracy ceiling / energy floor
+    //! Poucet-style multi-input fusion (Vey et al., IPIN 2021): every radio on, every
+    //! cycle's ranges from all three tiers fused, no switching. The spec's comparison-table
+    //! baseline. Never escalates; its tier stays 868 MHz in the policy. Selectable only by
+    //! name (--arms=poucet_fusion), so --arms=all is unchanged.
+    CA_TBL_MODE_FUSE_ALL
 };
 
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);

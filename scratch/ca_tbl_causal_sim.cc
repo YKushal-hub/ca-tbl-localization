@@ -8423,7 +8423,7 @@ RunArm(CaTblPolicyMode mode,
         {
             if (nodeMac[ti] != nullptr)
             {
-                nodeMac[ti]->SetAsleep(!(ti == static_cast<int>(t0) ||
+                nodeMac[ti]->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL || ti == static_cast<int>(t0) ||
                                          (hybrid0 && t0 != CA_TBL_TIER_868 &&
                                           ti == CA_TBL_TIER_868)));
             }
@@ -10058,9 +10058,20 @@ RunArm(CaTblPolicyMode mode,
                     sb.pendingHandshake = false;
                 }
                 std::vector<CaTblRangeMeasurement> actM;
+                size_t fuseAllS[CA_TBL_TIER_COUNT] = {0, 0, 0}; // poucet_fusion
                 if (preempt && act == pendT)
                 {
                     sb.energy.AccountCad(act);
+                }
+                else if (mode == CA_TBL_MODE_FUSE_ALL)
+                {
+                    for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                    {
+                        const std::vector<CaTblRangeMeasurement> m =
+                            rangeS(static_cast<CaTblTier>(k));
+                        fuseAllS[k] = m.size();
+                        actM.insert(actM.end(), m.begin(), m.end());
+                    }
                 }
                 else
                 {
@@ -10110,8 +10121,10 @@ RunArm(CaTblPolicyMode mode,
                 bool chainUsed = false;
                 if (chain && spec.subjectRelayChain)
                 {
-                    chain->awake[pt] = static_cast<uint8_t>((1u << static_cast<int>(act)) |
-                                                            (floorOn ? 1u : 0u));
+                    chain->awake[pt] = static_cast<uint8_t>(
+                        (mode == CA_TBL_MODE_FUSE_ALL) ? 7u
+                                                       : ((1u << static_cast<int>(act)) |
+                                                          (floorOn ? 1u : 0u)));
                     if (actSolved || usedFloorS || (fuseS && fusedS.size() >= 3))
                     {
                         chain->SubjectHolds(pt);
@@ -10129,8 +10142,13 @@ RunArm(CaTblPolicyMode mode,
                 const std::vector<CaTblRangeMeasurement>& measS =
                     chainUsed ? chainM : (fuseS ? fusedS : (usedFloorS ? floorM : actM));
                 const CaTblTier fixTierS =
-                    (fuseS && !chainUsed) ? (actM.empty() ? CA_TBL_TIER_868 : act)
-                                          : (usedFloorS ? CA_TBL_TIER_868 : act);
+                    (mode == CA_TBL_MODE_FUSE_ALL && !chainUsed)
+                        ? (fuseAllS[CA_TBL_TIER_UWB] > 0
+                               ? CA_TBL_TIER_UWB
+                               : (fuseAllS[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4
+                                                                : CA_TBL_TIER_868))
+                    : (fuseS && !chainUsed) ? (actM.empty() ? CA_TBL_TIER_868 : act)
+                                            : (usedFloorS ? CA_TBL_TIER_868 : act);
                 double uxW = 0.0, uyW = 0.0; // row 55: this cycle's IMU displacement
                 if (ex.rk)
                 {
@@ -10450,7 +10468,8 @@ RunArm(CaTblPolicyMode mode,
                 {
                     const CaTblTier tr = static_cast<CaTblTier>(k);
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
-                    const bool awake = (tr == act) || (floorOn && tr == CA_TBL_TIER_868);
+                    const bool awake = (mode == CA_TBL_MODE_FUSE_ALL) || (tr == act) ||
+                                       (floorOn && tr == CA_TBL_TIER_868);
                     if (mesh)
                     {
                         const double air = mm->GetRebroadcastAirtimeS();
@@ -10500,7 +10519,8 @@ RunArm(CaTblPolicyMode mode,
                     if (mesh)
                     {
                         const bool floorNext = hybridS && ds.nextTier != CA_TBL_TIER_868;
-                        mm->SetAsleep(!(k == static_cast<int>(ds.nextTier) ||
+                        mm->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL ||
+                                        k == static_cast<int>(ds.nextTier) ||
                                         (floorNext && k == CA_TBL_TIER_868)));
                     }
                 }
@@ -11184,6 +11204,7 @@ RunArm(CaTblPolicyMode mode,
         // ordering falls out of the policy's own premise.
         std::vector<CaTblRangeMeasurement> activeMeas;
         std::vector<CaTblRangeMeasurement> floorMeas;
+        size_t fuseAllN[CA_TBL_TIER_COUNT] = {0, 0, 0}; // poucet_fusion: ranges per tier
         // RESET BEFORE THE FIRST CONTRIBUTOR, not between two of them.
         //
         // This accumulator has two sources: the pseudo-anchor substitution inside
@@ -11292,6 +11313,18 @@ RunArm(CaTblPolicyMode mode,
                 {
                     energy.AccountCad(CA_TBL_TIER_868);
                 }
+            }
+        }
+        else if (mode == CA_TBL_MODE_FUSE_ALL)
+        {
+            // Poucet-style fusion: every tier ranged, every cycle, into one set.
+            pendingHandshake = false;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                const std::vector<CaTblRangeMeasurement> m =
+                    rangeTier(static_cast<CaTblTier>(ti));
+                fuseAllN[ti] = m.size();
+                activeMeas.insert(activeMeas.end(), m.begin(), m.end());
             }
         }
         else
@@ -11722,8 +11755,12 @@ RunArm(CaTblPolicyMode mode,
         const std::vector<CaTblRangeMeasurement>& meas =
             fuseFA ? fusedFA : (usedFloor ? floorMeas : activeMeas);
         const CaTblTier fixTier =
-            fuseFA ? (activeMeas.empty() ? CA_TBL_TIER_868 : active)
-                   : (usedFloor ? CA_TBL_TIER_868 : active);
+            (mode == CA_TBL_MODE_FUSE_ALL)
+                ? (fuseAllN[CA_TBL_TIER_UWB] > 0
+                       ? CA_TBL_TIER_UWB
+                       : (fuseAllN[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4 : CA_TBL_TIER_868))
+                : (fuseFA ? (activeMeas.empty() ? CA_TBL_TIER_868 : active)
+                          : (usedFloor ? CA_TBL_TIER_868 : active));
 
         // --tier1Tdoa: the gateways in this tier-1 fix set stamped the same broadcast.
         // Solved here and queued, so Step() fuses it beside the ranges it came with.
@@ -11972,7 +12009,8 @@ RunArm(CaTblPolicyMode mode,
             {
                 if (nodeMac[ti] != nullptr)
                 {
-                    nodeMac[ti]->SetAsleep(!(ti == static_cast<int>(d.nextTier) ||
+                    nodeMac[ti]->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL ||
+                                             ti == static_cast<int>(d.nextTier) ||
                                              (floorNext && ti == CA_TBL_TIER_868)));
                 }
             }
@@ -12650,7 +12688,8 @@ RunArm(CaTblPolicyMode mode,
         for (int tierIdx = 0; tierIdx < CA_TBL_TIER_COUNT; ++tierIdx)
         {
             const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
-            const bool wasAwake = (tr == active) || (runFloor && tr == CA_TBL_TIER_868);
+            const bool wasAwake = (mode == CA_TBL_MODE_FUSE_ALL) || (tr == active) ||
+                                  (runFloor && tr == CA_TBL_TIER_868);
             if (mesh && nodeMac[tierIdx] != nullptr)
             {
                 // NW-0. Under mesh links the node relays others' floods on its awake radios;
@@ -15673,7 +15712,9 @@ main(int argc, char* argv[])
                  "arm's channel realisation does not depend on which arms ran "
                  "before it; a filtered run's row is byte-identical to the full "
                  "run's. Exists for the operating-point sweep, where four of the "
-                 "six arms are pure runtime.",
+                 "six arms are pure runtime. 'poucet_fusion' (by name only, not in 'all'): "
+                 "the spec's Poucet-style comparator -- every radio on, each cycle's ranges "
+                 "from all three tiers fused, no switching, every tier billed.",
                  armsArg);
     cmd.AddValue("injectRangeBias",
                  "S7-lite: metres of COMMON-MODE range bias added to every tier-2 "
@@ -18771,6 +18812,11 @@ main(int argc, char* argv[])
                     found = true;
                     break;
                 }
+            }
+            if (!found && name == CaTblPolicyModeName(CA_TBL_MODE_FUSE_ALL))
+            {
+                arms.push_back(CA_TBL_MODE_FUSE_ALL); // by name only: 'all' is unchanged
+                found = true;
             }
             if (!found && !name.empty())
             {

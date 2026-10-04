@@ -25,6 +25,8 @@ CaTblPolicyModeName(CaTblPolicyMode mode)
         return "static_2p4";
     case CA_TBL_MODE_STATIC_UWB:
         return "static_uwb";
+    case CA_TBL_MODE_FUSE_ALL:
+        return "poucet_fusion";
     default:
         return "unknown";
     }
