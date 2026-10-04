@@ -49,6 +49,18 @@ struct CaTblGrantRecord
     bool OverlapsInTime(double s, double e) const { return startS < e && s < endS; }
 };
 
+//! NW-6. A request an anchor holds in its arbitration queue (NW-5), as gossiped:
+//! Network sect 6 has anchors "periodically gossip their current Q (request queue) and
+//! active grants".
+struct CaTblQueueRecord
+{
+    uint16_t anchorId = 0;    //!< whose queue
+    uint16_t targetId = 0;    //!< which field node is waiting
+    uint8_t uQ = 0;           //!< its U(r) score, quantised (OURS: U/4 over 0..255)
+    double queuedSinceS = 0.0;
+    double heardAtS = 0.0;    //!< receiver side: when this copy arrived
+};
+
 //! Why a grant was allowed or refused, so the demo can show the reason and not just
 //! the outcome.
 enum CaTblGrantVerdict : uint8_t
@@ -75,8 +87,42 @@ class CaTblGrantCoordinator
     //! Record a grant issued by this anchor.
     void NoteOwnGrant(uint16_t targetId, double startS, double endS);
 
-    //! Record a grant heard from another anchor's gossip.
-    void NoteGossipedGrant(const CaTblGrantRecord& g);
+    //! Record a grant heard from another anchor's gossip. Returns false, and stores
+    //! nothing, for our own grant echoed back or for a record already held -- periodic
+    //! gossip repeats itself, and a list that grew per repetition would make the
+    //! tie-break's cost depend on how often a neighbour talks.
+    bool NoteGossipedGrant(const CaTblGrantRecord& g);
+
+    /**
+     * \brief Apply the tie-break to a grant just heard by gossip, against grants this
+     *        anchor ALREADY holds.
+     *
+     * Evaluate() answers "may I grant?" BEFORE granting. It cannot resolve the case that
+     * actually occurs first: two anchors hear the same ESC_REQUEST in the same instant,
+     * neither yet knows of the other, and both grant. That double grant is only
+     * discoverable afterwards, when gossip arrives -- the bound the file comment states.
+     * This is the same rule applied at that moment: if the heard grant overlaps one of
+     * ours for the same target, the LOWER id defers. Deferring here means yielding: our
+     * overlapping grant is dropped, so it is no longer gossiped and no longer counts as
+     * held. The higher id keeps its grant and reports WIN.
+     *
+     * Both anchors hear each other's gossip and apply this independently, so they reach
+     * OPPOSITE verdicts on the same target without exchanging anything further -- which
+     * is the property the spec asks for, reached without a consensus round.
+     *
+     * Returns CA_TBL_GRANT_OK when there is nothing to contest (no overlapping grant of
+     * ours, a different target, our own echo, or a record already reconciled when first
+     * heard). The heard grant is stored either way, so a LATER request from that target
+     * is refused by Evaluate() for as long as the heard window lasts.
+     */
+    CaTblGrantVerdict Reconcile(const CaTblGrantRecord& heard);
+
+    //! Grants this anchor issued that have not ended by \p nowS -- what it gossips.
+    std::vector<CaTblGrantRecord> OwnActiveGrants(double nowS) const;
+
+    //! The other anchor in the most recent contest Evaluate() or Reconcile() resolved:
+    //! the higher id it deferred to, or the lower id it won against. 0 before any.
+    uint16_t LastConflictAnchor() const { return m_lastConflict; }
 
     //! Drop everything that ended before \p nowS.
     void Expire(double nowS);
@@ -107,11 +153,31 @@ class CaTblGrantCoordinator
     uint64_t Wins() const { return m_wins; }
     uint64_t Defers() const { return m_defers; }
 
+    /** \brief NW-6. The queue the arbiter holds now (set by the arbiter, read by the
+     *  radio that gossips -- the coordinator is shared by an anchor's radios). */
+    void SetOwnQueue(const std::vector<CaTblQueueRecord>& q) { m_ownQueue = q; }
+    const std::vector<CaTblQueueRecord>& OwnQueue() const { return m_ownQueue; }
+    /** \brief NW-6. Queue items heard from another anchor's gossip, replacing what that
+     *  anchor said before. Returns how many name a target this anchor also queues: the
+     *  double-queued requests the tie-break then settles. */
+    uint32_t NoteGossipedQueue(uint16_t fromAnchor, const std::vector<CaTblQueueRecord>& items,
+                               double nowS);
+    /** \brief NW-6. Should this anchor give up its queued request from \p targetId? The
+     *  tie-break, extended to queues: yes when a HIGHER-id anchor is heard to queue it, or
+     *  holds an active grant for it. Heard queue items older than \p maxAgeS are ignored. */
+    bool QueueYields(uint16_t targetId, double nowS, double maxAgeS) const;
+    uint64_t DoubleQueued() const { return m_doubleQueued; }
+
   private:
     uint16_t m_selfId;
     std::vector<CaTblGrantRecord> m_grants;
     mutable uint64_t m_wins = 0;
     mutable uint64_t m_defers = 0;
+    mutable uint16_t m_lastConflict = 0;
+    // NW-6.
+    std::vector<CaTblQueueRecord> m_ownQueue;
+    std::vector<CaTblQueueRecord> m_heardQueue;
+    uint64_t m_doubleQueued = 0;
 };
 
 } // namespace ns3

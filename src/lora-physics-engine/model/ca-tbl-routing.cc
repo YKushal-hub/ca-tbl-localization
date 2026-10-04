@@ -100,9 +100,55 @@ bool
 CaTblRoutingTable::SelectRoute(uint16_t dest,
                                CaTblRouteMetric metric,
                                CaTblTrafficClass traffic,
-                               CaTblRoute& out) const
+                               CaTblRoute& out,
+                               CaTblRoute* etxOut) const
 {
-    const std::vector<CaTblRoute> cand = RoutesTo(dest);
+    std::vector<CaTblRoute> cand;
+    size_t chosen = 0;
+    size_t bestEtx = 0;
+    if (!Choose(dest, metric, traffic, cand, chosen, bestEtx))
+    {
+        return false;
+    }
+    ++m_selections;
+    if (cand[chosen].nextHopId != cand[bestEtx].nextHopId)
+    {
+        ++m_divergences;
+    }
+    out = cand[chosen];
+    if (etxOut != nullptr)
+    {
+        *etxOut = cand[bestEtx];
+    }
+    return true;
+}
+
+bool
+CaTblRoutingTable::PeekRoute(uint16_t dest,
+                             CaTblRouteMetric metric,
+                             CaTblTrafficClass traffic,
+                             CaTblRoute& out) const
+{
+    std::vector<CaTblRoute> cand;
+    size_t chosen = 0;
+    size_t bestEtx = 0;
+    if (!Choose(dest, metric, traffic, cand, chosen, bestEtx))
+    {
+        return false;
+    }
+    out = cand[chosen];
+    return true;
+}
+
+bool
+CaTblRoutingTable::Choose(uint16_t dest,
+                          CaTblRouteMetric metric,
+                          CaTblTrafficClass traffic,
+                          std::vector<CaTblRoute>& cand,
+                          size_t& chosen,
+                          size_t& bestEtx) const
+{
+    cand = RoutesTo(dest);
     if (cand.empty())
     {
         return false;
@@ -118,7 +164,7 @@ CaTblRoutingTable::SelectRoute(uint16_t dest,
     // ETX's own choice, always computed: it is both the baseline answer and the reference
     // the divergence counter needs. Without it "the confidence metric is enabled" and
     // "the confidence metric changed something" are indistinguishable.
-    size_t bestEtx = 0;
+    bestEtx = 0;
     double bestEtxCost = std::numeric_limits<double>::infinity();
     uint8_t minHops = 255;
     for (size_t i = 0; i < cand.size(); ++i)
@@ -132,7 +178,7 @@ CaTblRoutingTable::SelectRoute(uint16_t dest,
         minHops = std::min(minHops, cand[i].hopCount);
     }
 
-    size_t chosen = bestEtx;
+    chosen = bestEtx;
     if (effective == CA_TBL_ROUTE_CONFIDENCE)
     {
         // SLACK BOUNDS THE SEARCH, AND THE BOUND IS LOAD-BEARING. Unbounded, the router
@@ -165,13 +211,6 @@ CaTblRoutingTable::SelectRoute(uint16_t dest,
             chosen = bestEtx;
         }
     }
-
-    ++m_selections;
-    if (cand[chosen].nextHopId != cand[bestEtx].nextHopId)
-    {
-        ++m_divergences;
-    }
-    out = cand[chosen];
     return true;
 }
 

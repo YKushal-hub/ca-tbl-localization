@@ -1,0 +1,11 @@
+1144d59633e199f1
+build Sep 29 2026 11:10:16 | /home/nethi/projects/ca-tbl-localization/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full,static_868 --duration=1800 --trace=true --pcsForm=weighted --nlosClassifier=true --pcsNlosClassifier=true --boxHalf=2000 --nGateways=5 --gwArcDeg=140 --gwArcCentreDeg=180 --nFinders=4 --finderPseudoAnchor=true --finderMode=2 --finderDispersal=1.0 --sendHandshakeFrames=true --finderDigestPeriodS=20 --seed=12 --outdir=/home/nethi/projects/ca-tbl-localization/results/cal01_loocv_20260928/searcher/seed_12
+source c019c0a dirty 0 profile optimized
+digest sha256
+0f9492f065ee2ab7f26f653cf9793f1538b76a6a0186702c06d9b88c74609df8  arm_summary.csv
+7c478f2df9a2f09cebc2c562536a2c8d5e0df002822f60e43b43019cb3e29963  nlos_links_ca_tbl_full_seed12.csv
+d30ddbfc541f5066a8f3834aee13fdee27364abac921d893e5f4b663e98afdc0  nlos_links_static_868_seed12.csv
+50a125914615bcb75932d35f22fc70b8468838c7482e5325c22e2d7b6ce5b459  nlos_summary_ca_tbl_full_seed12.csv
+279c7650e12693e4842116a638d12f2262d0f61e85136fd30633df7a421acbc2  nlos_summary_static_868_seed12.csv
+e1f0c4008b40228d4ff398ea5b8ec180cf0da65d87a670eac9706ca03f250402  trace_ca_tbl_full_seed12.csv
+64e41d08a59ea657fb969ad321668397fbbc6201babc7f2ca24f0ed5d054921b  trace_static_868_seed12.csv

@@ -11,7 +11,8 @@ namespace ns3
 CaTblTableEntry::CaTblTableEntry()
     : nodeId(0), x(0.0), y(0.0), varX(0.0), varY(0.0), covXY(0.0), timestampS(0.0),
       seqNo(0), hopCount(0), sourceType(0), vx(0.0), vy(0.0), targetManifestId(0),
-      valid(false)
+      valid(false), pcsQ(0), integrityFlag(0), batteryQ(0), degradationQ(0), uwbActive(false),
+      grantedBy(0), tierSource(0xFF), fixHop(0), reachArbiter(0)
 {
 }
 
@@ -56,6 +57,8 @@ CaTblMsgTypeName(CaTblMsgType t)
         return "RESPONSE";
     case CA_TBL_MSG_ACK:
         return "ACK";
+    case CA_TBL_MSG_GRANT_GOSSIP:
+        return "GRANT_GOSSIP";
     default:
         return "UNKNOWN";
     }
@@ -145,6 +148,13 @@ CaTblAccessCategoryFor(CaTblMsgType t)
     case CA_TBL_MSG_DISCOVERY:
         return CA_TBL_AC_LOW;
 
+    case CA_TBL_MSG_GRANT_GOSSIP:
+        // Network sect 6 says "low priority CW" in so many words. It is also the right
+        // side to err on: a gossip that loses the channel to a field node's frame costs
+        // one gossip interval of staleness, and a field node's frame that loses to a
+        // gossip costs a measurement.
+        return CA_TBL_AC_LOW;
+
     default:
         return CA_TBL_AC_NORMAL;
     }
@@ -193,6 +203,8 @@ CaTblAckPolicyFor(CaTblMsgType t)
         return CA_TBL_ACK_EXPLICIT; // §3.4: own-entry response is ACKed, highest priority
     case CA_TBL_MSG_ACK:
         return CA_TBL_ACK_NONE; // do not ACK an ACK
+    case CA_TBL_MSG_GRANT_GOSSIP:
+        return CA_TBL_ACK_NONE; // periodic; the next gossip supersedes a lost one
     default:
         return CA_TBL_ACK_NONE;
     }
@@ -218,6 +230,11 @@ CaTblIsFlooded(CaTblMsgType t)
     case CA_TBL_MSG_ESC_GRANT:
     case CA_TBL_MSG_RESPONSE:
     case CA_TBL_MSG_ACK:
+        return false;
+
+    // Network sect 6 addresses NEIGHBOURING anchors. Flooding it would let a grant
+    // constrain an anchor too far away to ever contend for the same field node.
+    case CA_TBL_MSG_GRANT_GOSSIP:
         return false;
 
     default:
@@ -280,6 +297,17 @@ CaTblPayloadBytes(CaTblMsgType t, uint32_t nEntries)
     case CA_TBL_MSG_ACK:
         // acked packet_id(4)
         return 4;
+
+    case CA_TBL_MSG_GRANT_GOSSIP:
+        // n_grants(1) + n x (target_id(2) + slot_start_ms(2) + slot_len_ms(2)). The spec
+        // also names the request queue Q; CaTblMac holds no queue, so there is no Q to send
+        // and no byte is billed for one. What happens to a request it does not grant
+        // depends on --handshakeFixes (MC-1). By default the anchor has already ACKed the
+        // request before arbitrating, so the requester's pending copy is cleared and a
+        // denied request is NEVER retried -- this comment said it was until 2026-10-02.
+        // Under the flag the anchor answers with a GRANT saying denied and no ACK, so the
+        // requester's ACK timeout retransmits and the anchor scores the retry afresh.
+        return 1 + nEntries * CA_TBL_GRANT_ITEM_BYTES;
 
     default:
         return 0;

@@ -48,6 +48,30 @@ namespace ns3
 {
 
 /** One anchor's range observation for a single cycle. */
+/**
+ * \brief DC-11. What a range is TO, for the cases that depend on it (Physical 2.4: Case A
+ * needs two surveyed gateways; Case B one gateway and a peer). UNSTATED is every
+ * measurement built before DC-11 and every one a caller does not label.
+ */
+enum CaTblSourceKind : uint8_t
+{
+    CA_TBL_SRC_UNSTATED = 0,
+    CA_TBL_SRC_SURVEYED_GATEWAY = 1,
+    CA_TBL_SRC_FINDER = 2,
+    CA_TBL_SRC_RELAY = 3,
+    CA_TBL_SRC_PEER = 4
+};
+
+/** DC-11. Which kind of fix a cycle produced. NONE: coasted. */
+enum CaTblFixKind : uint8_t
+{
+    CA_TBL_FIX_NONE = 0,
+    CA_TBL_FIX_FULL = 1,
+    CA_TBL_FIX_CASE_A = 2,
+    CA_TBL_FIX_CASE_B = 3,
+    CA_TBL_FIX_CASE_D = 4
+};
+
 struct CaTblRangeMeasurement
 {
     double anchorX;
@@ -82,6 +106,22 @@ struct CaTblRangeMeasurement
     //! submits ranges whose sigmas span four orders of magnitude, so a single
     //! tier-keyed constant cannot weight them.
     double sigmaM;
+    //! The tier-specific NLOS_score of Physical sect 1.3 / 2.5, in [0,1], from
+    //! ca-tbl-nlos-classifier.h; -1 when no classifier scored this link (the default,
+    //! and always the case without --nlosClassifier). Read ONLY by the PCS NLOS term,
+    //! and only under CaTblPolicyConfig::pcsNlosFromScore. R, the integrity check's
+    //! all-LOS condition and every count above still key off the boolean `nlos`.
+    double nlosScore;
+
+    //! DC-11 -- the ONE extension of this struct the plan allows (sect 0 rule 14: every
+    //! later item reads these rather than re-extending it, because each layout change
+    //! risks the 1-ulp drift of TECH_DEBT 4.1). Who the range is to, how many hops it
+    //! came, and whether it is the tier-1 floor's set. The defaults describe every
+    //! measurement built before DC-11.
+    uint8_t sourceKind = CA_TBL_SRC_UNSTATED;
+    uint16_t anchorId = 0;
+    uint8_t hopDepth = 0;
+    bool fromFloor = false;
 
     CaTblRangeMeasurement();
 };
@@ -184,10 +224,18 @@ enum CaTblPcsForm
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */
 /** Response policy when the integrity gate rejects a fix.
  *
- * MEASURED, and this enum exists because the default was never designed. At
- * ca-tbl-policy.cc:913 a suspect fix calls RevertToPrior() and skips the update.
- * RevertToPrior restores the PRE-UPDATE covariance every cycle, so P does not even
- * grow across a rejection run -- the filter is not coasting, it is stuck. The gate's
+ * MEASURED, and this enum exists because the default was never designed. A suspect
+ * fix calls RevertToPrior() and skips the update (ca-tbl-policy.cc, the suspect branch
+ * of Step()).
+ *
+ * CORRECTION 2026-09-30 (docs/SPEC_CONFORMANCE_PLAN.md sect 1.H item 1). This comment
+ * used to say that RevertToPrior "restores the PRE-UPDATE covariance every cycle, so P
+ * does not even grow across a rejection run -- the filter is not coasting, it is
+ * stuck". Read against the code order that is wrong: RevertToPrior() runs before any
+ * Update() of that cycle, when m_x / m_P already equal the post-Predict prior, so it is
+ * a no-op and a rejected cycle is a plain coast -- P grows by Q each cycle. The lock-out
+ * measured below is real; the mechanism given for it was not. It is the prior, not a
+ * frozen covariance, that the gate keeps rejecting against. The gate's
  * reference is the prior, so once the prior is wrong every honest measurement
  * disagrees with it and the gate keeps firing:
  *
@@ -204,7 +252,22 @@ enum CaTblSuspectRecovery
     CA_TBL_RECOVERY_NONE = 0, //!< RevertToPrior only. The pre-existing behaviour.
     CA_TBL_RECOVERY_INFLATE,  //!< Scale P on rejection so the gate widens next cycle.
     CA_TBL_RECOVERY_BOUNDED,  //!< Force-accept after N consecutive rejections.
-    CA_TBL_RECOVERY_REINIT    //!< Discard the prior; reinitialise from the raw fix.
+    CA_TBL_RECOVERY_REINIT,   //!< Discard the prior; reinitialise from the raw fix.
+    /**
+     * DC-7 (docs/SPEC_CONFORMANCE_PLAN.md): the spec's response, Physical 2.6 -- flag the
+     * fix SUSPECT, do not let it alone justify a de-escalation, and "downweight in PCS
+     * regardless of raw trace(Sigma)". The fix is ACCEPTED, not rejected: it is fused
+     * with R x suspectInflateFactor (the TDoA half too), and the cycle's PCS is scaled by
+     * suspectPcsFactor -- or, on v2's log scale, where a score can be negative and
+     * scaling would raise it, lowered by log10(1/suspectPcsFactor). d.suspect stays
+     * true, so the healthy-demotion count still refuses the cycle, and
+     * suspectForcesEscalation still applies if left on.
+     *
+     * Why inflated and not full R: a persistent fault fused at full weight is absorbed
+     * into the prior within a cycle, after which the check has nothing left to disagree
+     * with. Inflating is OURS; the factor reuses INFLATE's 4.0.
+     */
+    CA_TBL_RECOVERY_DOWNWEIGHT
 };
 
 struct CaTblPolicyConfig
@@ -226,6 +289,15 @@ struct CaTblPolicyConfig
     //! which the uncertainty term has saturated hard enough that the rest of the
     //! score should not be allowed to speak for it.
     double pcsGateFloor;
+    //! PCS term 3 from the classifier (TECH_DEBT L.2.2, K.8). FALSE by default, and false
+    //! reproduces every prior result. True: term 3 becomes the spec's (1 - NLOS_score),
+    //! averaged over the links this cycle that carry a score (nlosScore >= 0), instead of
+    //! the fraction of links the boolean tag calls LOS. With no scored link in the set it
+    //! falls back to that fraction. Only the TERM changes: the LEGACY/WEIGHTED/GATED sums,
+    //! their weights and thresholds are untouched, so the saturation defect (term2 + term3
+    //! can reach 2.0 against 1.55) is exactly as it was. CA_TBL_PCS_V2 has no NLOS term,
+    //! so the flag has nothing to feed there and the scenario refuses that combination.
+    bool pcsNlosFromScore;
     //! Demote on the FIRST cycle where the active tier addressed zero anchors. A
     //! cycle with no anchors addressed is categorically different from one whose
     //! anchors failed to answer: it means the tier has nothing there at all, after a
@@ -458,6 +530,58 @@ struct CaTblPolicyConfig
 
     bool instantEscalate; //!< if true, a new tier takes effect the same cycle
 
+    //! DOWNWEIGHT (DC-7): what a suspect cycle's PCS is multiplied by, in (0, 1]. 0.5 is
+    //! OURS, not calibrated: "downweight" with no magnitude given, halved. Appended
+    //! last so every existing member keeps its offset.
+    double suspectPcsFactor = 0.5;
+    //! DC-8 (docs/SPEC_CONFORMANCE_PLAN.md): the integrity check's eligibility read from
+    //! the classifier -- the spec's "NLOS_score is LOW" (Physical 2.6) -- instead of
+    //! "every link tagged LOS". Eligible when the mean NLOS_score over the fix set's
+    //! scored links is below integrityNlosScoreThreshold; a set with no scored link falls
+    //! back to the tag. False by default, which reproduces every prior result: under the
+    //! default tag, which fires on 75-78% of links (K.8), an all-LOS fix set is so rare
+    //! that the check had 0-9 eligible cycles a run (TECH_DEBT I.1).
+    bool integrityNlosFromScore = false;
+    //! The scenario passes --nlosScoreThreshold (0.5, OURS): the cut at which the
+    //! confusion matrix calls a link NLOS, so "LOW" means what a verdict of LOS means.
+    double integrityNlosScoreThreshold = 0.5;
+    //! DC-11. Solve a two-range cycle inside Step(), after the prediction, against the
+    //! PROPAGATED prior (Physical 2.4), instead of in the scenario before Step() against
+    //! the previous posterior. Case A when both ranges are to surveyed gateways, Case B
+    //! otherwise. A solved cycle is a fix (fixKind CASE_A/B) and does not count toward
+    //! demotion; the two ranges are fused once, as a position, and never also as ranges.
+    //! False reproduces every prior result.
+    bool sparseInStep = false;
+    //! The Case A/B acceptance margin in Mahalanobis units (--sparseCaseAMargin).
+    double sparseMarginM = 1.0;
+    //! DC-4. Case D (Physical 2.4D): a set of exactly ONE range is applied as a scalar
+    //! measurement on the propagated state, when its innovation passes NIS <= 6.63 (chi^2,
+    //! 1 dof, 0.99 -- a distributional constant). The cycle is not a position fix (hadFix
+    //! false, fixKind CASE_D) but its covariance is live: PCS is computed from it and the
+    //! normal escalation decision runs, and it does not count toward demotion -- that last
+    //! is OURS. Requires sparseInStep. False reproduces every prior result.
+    bool caseD = false;
+    //! NW-7 (MAC sect 8; Transport sect 4 "ON UWB grant confirmed"). An escalation INTO
+    //! UWB is recorded as pending and commits only when the caller confirms a delivered
+    //! grant (ConfirmUwbGrant), at the next cycle. While pending the tier is frozen: no
+    //! further escalation and no healthy demotion; a coverage-loss demotion still runs and
+    //! cancels the request, so a grant can never jump a node 868 -> UWB. 868 -> 2.4 is
+    //! unchanged. False reproduces every prior result.
+    bool grantGatedUwb = false;
+    //! NW-4 (Network sect 4: "a QUERY match with priority == URGENT can itself trigger UWB
+    //! tier escalation for that specific target, bypassing the normal PCS threshold-crossing
+    //! trigger"). RequestQueryEscalation() arms a hook that forces the escalation decision,
+    //! one tier per cycle, until the node is on UWB (or has asked for it), whatever the PCS.
+    //! The suppress-only preconditions still apply, and a suppression disarms it and is
+    //! counted. It acts before the fewer-than-three-ranges coast and the blind demotion,
+    //! which both precede the escalation decision. Static arms ignore it. False reproduces
+    //! every prior result.
+    bool queryTriggeredEscalation = false;
+    //! DC-9. Count the IMU witness's evaluations, refusals, and refusals the evidence gate
+    //! would ALSO have suppressed (absorbed), so an absorbed refusal is reported as
+    //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
+    bool witnessCounts = false;
+
     /**
      * \brief Apply the pre-registered v2 thresholds.
      *
@@ -539,6 +663,60 @@ struct CaTblDecision
     //! Neighbours ranged inside t2PredictRadiusM this cycle, or -1 when the
     //! tier-2 predicate did not run. The counterpart of predictedVisUwb.
     int32_t predictedVis2p4;
+    //! Links in this cycle's set that carried a classifier NLOS_score (nlosScore >= 0).
+    uint32_t nNlosScored;
+    //! mean(1 - NLOS_score) over those links: the spec's PCS term 3. Computed on every
+    //! fix cycle that has a scored link, whether or not it is fed to PCS, so the term can
+    //! be observed before it is allowed to decide anything; -1 when no link was scored.
+    double nlosScoreTerm;
+    //! Whether nlosScoreTerm replaced the tag's LOS fraction inside ComputePcs this cycle.
+    bool nlosScoreFed;
+    //! DC-8. What the integrity check's eligibility was read from on a cycle it evaluated
+    //! under integrityNlosFromScore: 1 = the mean NLOS_score, 2 = no link was scored, so
+    //! the tag. 0 = not evaluated, or the flag is off. Appended last, like the rest.
+    uint8_t integrityBasis = 0;
+    //! The mean NLOS_score it read (basis 1); -1 otherwise.
+    double integrityMeanScore = -1.0;
+    //! Whether an evaluated fix was eligible to be called SUSPECT, by whichever basis.
+    bool integrityEligible = false;
+    //! DC-11. Which kind of fix this cycle produced (CaTblFixKind); NONE on a coast. Set
+    //! only under sparseInStep, so every earlier run leaves it NONE.
+    uint8_t fixKind = CA_TBL_FIX_NONE;
+    //! DC-11. 255: Step() did not try a sparse solve; otherwise the CaTblSparseVerdict.
+    uint8_t sparseVerdict = 255;
+    //! DC-11. The propagated prior the sparse solve chose against, its result, the
+    //! variance it was fused with, and how many range updates and position fuses the
+    //! cycle made.
+    double sparsePriorX = 0.0;
+    double sparsePriorY = 0.0;
+    double sparseX = 0.0;
+    double sparseY = 0.0;
+    double sparseVarM2 = 0.0;
+    uint32_t rangeUpdates = 0;
+    uint32_t positionFuses = 0;
+    //! DC-1. Whether this cycle's prediction used the IMU control.
+    bool imuPredicted = false;
+    //! DC-2. On a sparse solve: the prior it chose against. 0 the constant-velocity
+    //! prediction (Case B's prior-based choice, a deviation from the spec); 1 the
+    //! IMU-propagated one, last posterior + u_k with P + Q_u (the spec's IMU heading).
+    uint8_t sparsePriorSource = 0;
+    //! DC-4. On a Case D cycle: the range's NIS against the propagated state, and whether
+    //! the update went in (NIS <= 6.63). -1 / false otherwise.
+    double caseDNis = -1.0;
+    bool caseDApplied = false;
+    //! NW-7. This cycle asked for UWB and the change waits for a grant: escalated is true,
+    //! nextTier is still the current tier.
+    bool uwbPending = false;
+    //! NW-4. This cycle's escalation decision was forced by an URGENT query.
+    bool queryTriggered = false;
+    //! DC-4. Whether the confidence model wanted to escalate this cycle (before any
+    //! precondition suppressed it) -- observable on every cycle that reaches the decision.
+    bool wantedEscalation = false;
+    //! DC-9. Whether the IMU witness was evaluated this cycle, refused the escalation, and
+    //! whether the evidence gate would have refused it anyway (absorbed).
+    bool witnessEvaluated = false;
+    bool witnessRefused = false;
+    bool witnessAbsorbed = false;
 
     CaTblDecision();
 };
@@ -560,6 +738,23 @@ class CaTblEkf
 
     /** Constant-velocity prediction. Stores the prior for the integrity test. */
     void Predict(double dt);
+
+    /**
+     * \brief DC-1. The prediction driven by a dead-reckoned displacement u (synthetic IMU).
+     *
+     * Position += u; velocity := u / dt, because velocity is now the IMU's; the position
+     * block gains the control's covariance Qu (xx, xy, yy), P_pv := Qu / dt and
+     * P_vv := Qu / dt^2 -- the old velocity correlations are discarded with the old
+     * velocity. The prior is snapshotted exactly as Predict() does, so the integrity
+     * check compares against this prior and not a stale one.
+     *
+     * RECORDED DEVIATION: overwriting the velocity with u/dt is a displacement-driven
+     * pedestrian-dead-reckoning prediction, not a literal F x + B u with the constant-
+     * velocity F. The docx's u_k is an "acceleration/heading correction", which this
+     * subsumes. Predict() is untouched.
+     */
+    void PredictWithControl(double dt, double ux, double uy, double quxx, double quxy,
+                            double quyy);
 
     /** Sequential scalar update with per-measurement variance. */
     void Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
@@ -584,6 +779,21 @@ class CaTblEkf
      *  that reference, the gate would be validating the radio against the
      *  inertial engine instead of against the filter's own prediction. */
     void FusePosition(double zx, double zy, double varM2);
+
+    /** Fuse an absolute POSITION observation with a FULL 2x2 covariance R.
+     *
+     *  FusePosition() takes an isotropic variance, which is right for a source whose
+     *  error has no direction (dead reckoning). A multilateration fix is not such a
+     *  source: its covariance is (J' Q^-1 J)^-1 and is elongated along whatever
+     *  direction the anchor geometry resolves worst. Rounding it to its trace would
+     *  over-trust that direction and under-trust the other, so this is the joint 2x2
+     *  update with R as given: S = P_pos + R, K = P H' S^-1, P <- P - K H P.
+     *
+     *  Refuses -- returns false and changes nothing -- when R is not positive definite
+     *  or S is singular: a covariance that claims certainty in some direction is a
+     *  defect upstream, not information. Like FusePosition(), it leaves the stored
+     *  prior alone, so the integrity gate's reference is still the prediction. */
+    bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
 
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
@@ -697,6 +907,10 @@ class CaTblPolicy
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
     double EstX() const { return m_ekf.X(); }
     double EstY() const { return m_ekf.Y(); }
+    //! DC-10. The filter's velocity estimate, m/s: what a table entry's velocity
+    //! fields carry under --entryVelocity (Physical 2.1).
+    double EstVx() const { return m_ekf.Vx(); }
+    double EstVy() const { return m_ekf.Vy(); }
     /** Fuse an absolute position observation into the filter -- the door the
      *  inertial engine needs, since every other measurement path takes a range.
      *  The caller owns the error model: this takes the variance it is given and
@@ -710,6 +924,52 @@ class CaTblPolicy
     double Pxx() const { return m_ekf.Pxx(); }
     double Pxy() const { return m_ekf.Pxy(); }
     double Pyy() const { return m_ekf.Pyy(); }
+
+    /** Queue one absolute position observation with its full covariance for the NEXT
+     *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast
+     *  whose RSSI ranges Step() receives.
+     *
+     *  WHY INSIDE Step() AND NOT BEFORE OR AFTER IT. Before, it would be fused into the
+     *  previous cycle's posterior ahead of Predict(). After, this cycle's trace(P) and
+     *  PCS -- what the escalation decision reads -- would not contain it. Step() fuses it
+     *  straight after the range update, so the filter, the confidence score and the
+     *  decision all see the COMBINED tier-1 fix.
+     *
+     *  IT FOLLOWS THE CYCLE'S VERDICT. The two observables come from one broadcast, so
+     *  a cycle the Switching-Point Integrity Check rejects (reverted to the prior, or
+     *  reinitialised from the raw RSSI fix) fuses neither, and a cycle it force-accepts
+     *  (the BOUNDED recovery) fuses both. A no-fix cycle fuses nothing. Our choice, not
+     *  cited: the check is not run on the TDoA fix itself.
+     *
+     *  Consumed by exactly one Step() whatever it decides, so a queued fix never outlives
+     *  the cycle it was measured in. Never called, it changes nothing. */
+    /** DC-1. Queue this cycle's IMU control for the next Step(), which then predicts with
+     *  PredictWithControl() instead of Predict(). Consumed by that Step(), like the aux
+     *  fix. Never queued, Step() is exactly as before. */
+    void SetImuControl(double ux, double uy, double quxx, double quxy, double quyy)
+    {
+        m_imuPending = true;
+        m_imu[0] = ux;
+        m_imu[1] = uy;
+        m_imu[2] = quxx;
+        m_imu[3] = quxy;
+        m_imu[4] = quyy;
+    }
+
+    void SetAuxPositionFix(double zx, double zy, double rxx, double rxy, double ryy)
+    {
+        m_auxPending = true;
+        m_aux[0] = zx;
+        m_aux[1] = zy;
+        m_aux[2] = rxx;
+        m_aux[3] = rxy;
+        m_aux[4] = ryy;
+    }
+
+    //! Whether the last Step() fused a queued position observation.
+    bool AuxFusedLast() const { return m_auxFusedLast; }
+    //! Queued position observations fused, over the policy's life.
+    uint64_t GetAuxFusedCount() const { return m_auxFused; }
 
     /**
      * \brief Advance one cycle.
@@ -799,6 +1059,15 @@ class CaTblPolicy
     uint64_t GetEvidenceBlockedT2() const { return m_evidenceBlockedT2; }
     uint64_t GetDeescalationCount() const { return m_deescalations; }
     uint64_t GetSuspectCount() const { return m_suspects; }
+    //! DOWNWEIGHT (DC-7): suspect fixes accepted at inflated R with PCS downweighted.
+    //! A subset of GetSuspectCount(); zero under every other recovery policy.
+    uint64_t GetDownweightedFixes() const { return m_downweightedFixes; }
+    //! DC-8. Evaluated fix cycles whose eligibility was read from the mean NLOS_score, by
+    //! verdict, and those with no scored link, which fell back to the tag. All zero
+    //! unless integrityNlosFromScore.
+    uint64_t GetIntegrityScoreEligible() const { return m_integrityScoreEligible; }
+    uint64_t GetIntegrityScoreIneligible() const { return m_integrityScoreIneligible; }
+    uint64_t GetIntegrityTagFallback() const { return m_integrityTagFallback; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
     /** Per-tier count of cycles spent with that tier active. */
@@ -842,12 +1111,21 @@ class CaTblPolicy
     //! Bounded multiplicative provenance penalty; identity unless form 1 is set.
     double ApplyProvenance(double pcs) const;
 
+    //! Fuse the queued TDoA position (SetAuxPositionFix) and count it if it went in.
+    void FuseAux();
+    //! FuseAux with the queued covariance scaled by \p rScale (DOWNWEIGHT, DC-7). A
+    //! separate function so FuseAux itself is untouched.
+    void FuseAuxInflated(double rScale);
+
+    //! \p losTermOverride >= 0 replaces term 3 (nLos / nTotal) and nothing else; the
+    //! default -1 leaves every form exactly as it was.
     double ComputePcs(double traceSigma,
                       double gdop,
                       uint32_t nLos,
                       uint32_t nTotal,
                       uint32_t hopCount,
-                      double sigmaGeoM) const;
+                      double sigmaGeoM,
+                      double losTermOverride = -1.0) const;
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
@@ -876,6 +1154,103 @@ class CaTblPolicy
     uint64_t m_suspects;
     uint64_t m_noFixCycles;
     uint64_t m_tierCycles[CA_TBL_TIER_COUNT];
+
+    // Tier-1 TDoA hand-off (SetAuxPositionFix). Appended last so every existing member
+    // keeps its offset.
+    bool m_auxPending = false;
+    bool m_auxFusedLast = false;
+    double m_aux[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    uint64_t m_auxFused = 0;
+    // DC-7. Appended last for the same reason.
+    uint64_t m_downweightedFixes = 0;
+    // DC-8.
+    uint64_t m_integrityScoreEligible = 0;
+    uint64_t m_integrityScoreIneligible = 0;
+    uint64_t m_integrityTagFallback = 0;
+    // DC-4. Appended last.
+    uint64_t m_caseDCycles = 0;
+    uint64_t m_caseDRefused = 0;
+
+    // DC-9.
+    uint64_t m_witnessEvals = 0;
+    uint64_t m_witnessAbsorbed = 0;
+    //! DC-9. Would the evidence gate's UWB branch refuse an escalation from this state?
+    //! The same tests as Step()'s, with no side effect.
+    bool UwbEvidenceWouldBlock(double traceSigma,
+                               const std::vector<CaTblRangeMeasurement>& meas) const;
+
+  public:
+    uint64_t GetWitnessEvaluations() const { return m_witnessEvals; }
+    uint64_t GetWitnessAbsorbed() const { return m_witnessAbsorbed; }
+    uint64_t GetCaseDCycles() const { return m_caseDCycles; }
+    uint64_t GetCaseDRefused() const { return m_caseDRefused; }
+
+  private:
+    // DC-1. Appended last.
+    bool m_imuPending = false;
+    double m_imu[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+
+  public:
+    /**
+     * \brief NW-7. A delivered grant for the pending UWB request: the tier becomes UWB,
+     * effective at the next Step(), and the escalation is counted. False -- and nothing
+     * changes -- when no request is pending or the node has since been demoted below 2.4
+     * GHz (counted as late).
+     */
+    bool ConfirmUwbGrant();
+    /** \brief NW-7. The pending request was denied (timeout false) or its retries ran
+     *  out (timeout true): it is dropped and the node stays on 2.4 GHz. */
+    bool ClearUwbPending(bool timeout);
+    /** \brief TA-2. A grant a requester obtained for this node: taken as a confirmed
+     *  grant when a request is pending, as an escalation 2.4 GHz -> UWB on a hybrid arm
+     *  otherwise (next cycle), and refused anywhere else -- it never jumps 868 -> UWB. */
+    bool AcceptGrantOnBehalf();
+    uint64_t GetOboAccepted() const { return m_oboAccepted; }
+    uint64_t GetOboRefused() const { return m_oboRefused; }
+    bool IsUwbPending() const { return m_uwbPending; }
+    uint64_t GetUwbRequests() const { return m_uwbRequests; }
+    uint64_t GetUwbConfirmed() const { return m_uwbConfirmed; }
+    uint64_t GetUwbDenied() const { return m_uwbDenied; }
+    uint64_t GetUwbTimeouts() const { return m_uwbTimeouts; }
+    uint64_t GetUwbLate() const { return m_uwbLate; }
+    uint64_t GetUwbAborted() const { return m_uwbAborted; }
+    uint64_t GetUwbCoverageClears() const { return m_uwbCoverageClears; }
+    uint64_t GetUwbWaitCycles() const { return m_uwbWaitCycles; }
+
+    /** \brief NW-4. An URGENT query named this node: force the escalation decision from the
+     *  next Step() on, until UWB is reached or requested, or a precondition suppresses it. */
+    void RequestQueryEscalation();
+    bool IsQueryEscalationArmed() const { return m_queryEscArmed; }
+    uint64_t GetQueryEscRequests() const { return m_queryEscRequests; }
+    uint64_t GetQueryEscFired() const { return m_queryEscFired; }
+    uint64_t GetQueryEscalations() const { return m_queryEscalations; }
+    uint64_t GetQueryEscSuppressed() const { return m_queryEscSuppressed; }
+    uint64_t GetQueryEscIgnored() const { return m_queryEscIgnored; }
+
+  private:
+    // NW-7. Appended last.
+    bool m_uwbPending = false;
+    uint64_t m_uwbRequests = 0;
+    uint64_t m_uwbConfirmed = 0;
+    uint64_t m_uwbDenied = 0;
+    uint64_t m_uwbTimeouts = 0;
+    uint64_t m_uwbLate = 0;
+    uint64_t m_uwbAborted = 0;
+    uint64_t m_uwbCoverageClears = 0;
+    uint64_t m_uwbWaitCycles = 0;
+    // NW-4. Appended last.
+    bool m_queryEscArmed = false;
+    uint64_t m_queryEscRequests = 0;
+    uint64_t m_queryEscFired = 0;
+    uint64_t m_queryEscalations = 0;
+    uint64_t m_queryEscSuppressed = 0;
+    uint64_t m_queryEscIgnored = 0;
+    // TA-2. Appended last.
+    uint64_t m_oboAccepted = 0;
+    uint64_t m_oboRefused = 0;
+    //! NW-4: one tier up, through NW-7's gate when it is on. Used by the coast path only;
+    //! the main path keeps its own escalation branch.
+    void QueryEscalateOneTier(CaTblDecision& d);
 };
 
 } // namespace ns3

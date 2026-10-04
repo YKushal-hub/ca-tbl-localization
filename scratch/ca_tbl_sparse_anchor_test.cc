@@ -11,9 +11,11 @@
  * good manners.
  */
 
+#include "ns3/ca-tbl-policy.h"
 #include "ns3/ca-tbl-sparse-anchor.h"
 #include "ns3/core-module.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -132,6 +134,262 @@ main(int argc, char* argv[])
                                                   0.0, 1.0, 100.0, 0.0, 100.0, 5.0);
         Check(loose.verdict == CA_TBL_SPARSE_OK && tight.verdict == CA_TBL_SPARSE_AMBIGUOUS,
               "the same geometry is accepted at a loose margin and refused at a tight one");
+    }
+
+    // --- DC-11: Cases A/B inside CaTblPolicy::Step(), after the prediction ------
+    {
+        // Two gateways 1000 m apart, the node at (500, 300); the mirror root is (500, -300).
+        auto two = [](uint8_t k0, uint8_t k1) {
+            std::vector<CaTblRangeMeasurement> m(2);
+            const double gx[2] = {0.0, 1000.0};
+            const uint8_t kind[2] = {k0, k1};
+            for (int i = 0; i < 2; ++i)
+            {
+                m[i].anchorX = gx[i];
+                m[i].anchorY = 0.0;
+                m[i].rangeM = std::hypot(500.0 - gx[i], 300.0);
+                m[i].sigmaM = 5.0;
+                m[i].sourceKind = kind[i];
+                m[i].anchorId = static_cast<uint16_t>(101 + i);
+            }
+            return m;
+        };
+        auto run = [&](bool inStep, double priorY, uint8_t k0, uint8_t k1, uint64_t* noFix,
+                       double* ex, double* ey) {
+            CaTblPolicyConfig cfg;
+            cfg.sparseInStep = inStep;
+            cfg.sparseMarginM = 1.0;
+            CaTblPolicy p;
+            p.Configure(cfg);
+            p.Initialize(500.0, priorY, 60.0, 0.0);
+            CaTblDecision d = p.Step(1.0, two(k0, k1), 0, 2, 2, 7u);
+            *noFix = p.GetNoFixCount();
+            *ex = p.EstX();
+            *ey = p.EstY();
+            return d;
+        };
+        const uint8_t GW = CA_TBL_SRC_SURVEYED_GATEWAY;
+        uint64_t nf = 0;
+        double ex = 0.0, ey = 0.0;
+
+        CaTblDecision off = run(false, 250.0, GW, GW, &nf, &ex, &ey);
+        Check(!off.hadFix && off.fixKind == CA_TBL_FIX_NONE && off.sparseVerdict == 255 &&
+                  nf == 1 && ex == 500.0 && ey == 250.0,
+              "DC-11 off: two ranges coast and count as a no-fix, as before");
+
+        CaTblDecision a = run(true, 250.0, GW, GW, &nf, &ex, &ey);
+        Check(a.hadFix && a.fixKind == CA_TBL_FIX_CASE_A && a.sparseVerdict == CA_TBL_SPARSE_OK &&
+                  nf == 0,
+              "DC-11: two surveyed gateways solve as Case A and are a fix, not a no-fix");
+        Check(a.positionFuses == 1 && a.rangeUpdates == 0,
+              "DC-11: the pair is fused once as a position and never also as ranges");
+        Check(std::fabs(a.sparseX - 500.0) < 1e-6 && std::fabs(a.sparseY - 300.0) < 1e-6 &&
+                  a.sparsePriorX == 500.0 && a.sparsePriorY == 250.0 && ey > 250.0 && ey < 300.0,
+              "DC-11: the propagated prior chose the true root, and the estimate moved toward it");
+
+        CaTblDecision b = run(true, 250.0, GW, CA_TBL_SRC_FINDER, &nf, &ex, &ey);
+        Check(b.fixKind == CA_TBL_FIX_CASE_B,
+              "DC-11: a gateway and a finder solve as Case B -- provenance decides");
+        CaTblDecision u = run(true, 250.0, CA_TBL_SRC_UNSTATED, CA_TBL_SRC_UNSTATED, &nf, &ex, &ey);
+        Check(u.fixKind == CA_TBL_FIX_CASE_B,
+              "DC-11: unlabelled ranges are never taken for surveyed gateways");
+
+        CaTblDecision amb = run(true, 0.0, GW, GW, &nf, &ex, &ey);
+        Check(amb.sparseVerdict == CA_TBL_SPARSE_AMBIGUOUS && !amb.hadFix &&
+                  amb.fixKind == CA_TBL_FIX_NONE && nf == 1 && amb.positionFuses == 0,
+              "DC-11: a prior equidistant from both roots refuses, and the cycle coasts");
+
+        // Three ranges take the ordinary path: FULL, range updates, no sparse attempt.
+        CaTblPolicyConfig cfg;
+        cfg.sparseInStep = true;
+        CaTblPolicy p;
+        p.Configure(cfg);
+        p.Initialize(500.0, 250.0, 60.0, 0.0);
+        std::vector<CaTblRangeMeasurement> m3 = two(GW, GW);
+        CaTblRangeMeasurement third = m3[0];
+        third.anchorX = 500.0;
+        third.anchorY = 1000.0;
+        third.rangeM = 700.0;
+        m3.push_back(third);
+        CaTblDecision full = p.Step(1.0, m3, 0, 3, 3, 7u);
+        Check(full.fixKind == CA_TBL_FIX_FULL && full.sparseVerdict == 255 &&
+                  full.rangeUpdates >= 1 && full.positionFuses == 0,
+              "DC-11: three ranges take the ordinary update path");
+    }
+
+    // --- DC-2: Case B against the IMU-propagated prior -----------------------------------
+    {
+        // A gateway at (0, 0) and a finder at (1000, 0); the node is truly at (500, 300), the
+        // mirror root at (500, -300). The previous estimate is (500, -50), still. The walker
+        // went 150 m north: the constant-velocity prior stays at (500, -50) and picks the
+        // wrong root; the IMU, which saw the 150 m, carries the prior to (500, 100).
+        std::vector<CaTblRangeMeasurement> m(2);
+        const double gx[2] = {0.0, 1000.0};
+        const uint8_t kind[2] = {CA_TBL_SRC_SURVEYED_GATEWAY, CA_TBL_SRC_FINDER};
+        for (int i = 0; i < 2; ++i)
+        {
+            m[i].anchorX = gx[i];
+            m[i].anchorY = 0.0;
+            m[i].rangeM = std::hypot(500.0 - gx[i], 300.0);
+            m[i].sigmaM = 5.0;
+            m[i].sourceKind = kind[i];
+        }
+        CaTblPolicyConfig cfg;
+        cfg.sparseInStep = true;
+        CaTblPolicy cv, imu;
+        cv.Configure(cfg);
+        imu.Configure(cfg);
+        cv.Initialize(500.0, -50.0, 60.0, 0.0);
+        imu.Initialize(500.0, -50.0, 60.0, 0.0);
+        imu.SetImuControl(0.0, 150.0, 25.0, 0.0, 25.0);
+        CaTblDecision dc = cv.Step(1.0, m, 0, 2, 2, 7u);
+        CaTblDecision di = imu.Step(1.0, m, 0, 2, 2, 7u);
+        Check(dc.fixKind == CA_TBL_FIX_CASE_B && dc.sparsePriorSource == 0 &&
+                  std::fabs(dc.sparseY + 300.0) < 1e-6,
+              "DC-2: the constant-velocity prior picks the mirror root (labelled CV)");
+        Check(di.fixKind == CA_TBL_FIX_CASE_B && di.sparsePriorSource == 1 &&
+                  std::fabs(di.sparseY - 300.0) < 1e-6 && di.sparsePriorY == 100.0,
+              "DC-2: the IMU-propagated prior picks the true root (labelled IMU)");
+    }
+
+    // --- DC-4: Case D, one range on the propagated state --------------------------------
+    {
+        // One gateway due east of the prior at 300 m; the node is truly at 310 m.
+        auto one = [](double range) {
+            std::vector<CaTblRangeMeasurement> m(1);
+            m[0].anchorX = 300.0;
+            m[0].anchorY = 0.0;
+            m[0].rangeM = range;
+            m[0].sigmaM = 5.0;
+            m[0].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+            return m;
+        };
+        auto mk = [](bool caseD, CaTblPolicy& p) {
+            CaTblPolicyConfig cfg;
+            cfg.sparseInStep = true;
+            cfg.caseD = caseD;
+            cfg.nDeescalate = 1;
+            cfg.mode = CA_TBL_MODE_FULL;
+            p.Configure(cfg);
+            p.Initialize(0.0, 0.0, 50.0, 0.0);
+            // Start on 2.4 GHz, so a demotion is possible and its absence means something.
+            p.AbortTierChange(CA_TBL_TIER_2P4);
+        };
+        CaTblPolicy off, on, wild;
+        mk(false, off);
+        mk(true, on);
+        mk(true, wild);
+        const double pyy0 = 2500.0;
+        CaTblDecision d0 = off.Step(1.0, one(310.0), 0, 1, 1, 7u);
+        CaTblDecision d1 = on.Step(1.0, one(310.0), 0, 1, 1, 7u);
+        CaTblDecision d2 = wild.Step(1.0, one(5000.0), 0, 1, 1, 7u);
+        Check(d0.fixKind == CA_TBL_FIX_NONE && d0.caseDNis < 0.0 && !d0.caseDApplied,
+              "DC-4 off: a single range is discarded, as before");
+        Check(d1.fixKind == CA_TBL_FIX_CASE_D && !d1.hadFix && d1.caseDApplied &&
+                  d1.rangeUpdates == 1,
+              "DC-4: one plausible range is applied as a scalar update; not a position fix");
+        // The range runs along x, so only Pxx shrinks; Pyy keeps the prediction's value.
+        Check(on.Pxx() < off.Pxx() && std::fabs(on.Pyy() - off.Pyy()) < 1e-9 && on.Pyy() > pyy0,
+              "DC-4: the update shrinks P only along the range direction");
+        Check(d2.fixKind == CA_TBL_FIX_CASE_D && !d2.caseDApplied && d2.caseDNis > 6.63 &&
+                  wild.GetCaseDRefused() == 1 && wild.Pxx() == off.Pxx(),
+              "DC-4: a wild range fails NIS <= 6.63 and is refused, P untouched");
+        Check(d0.deescalated,
+              "DC-4 off: the discarded single range counts toward demotion (nDeescalate 1)");
+        // Its PCS is low (one range leaves P wide), so the confidence model wants to
+        // escalate, and it may: the cycle went on up to UWB or stayed, never down.
+        Check(d1.pcs > 0.0 && d1.wantedEscalation && !d1.deescalated &&
+                  d1.nextTier != CA_TBL_TIER_868,
+              "DC-4: the Case D cycle reaches the decision (PCS computed) and is not demoted");
+    }
+
+    std::cout << "--- DC-3: Case C's relative shape (classical MDS)\n";
+    {
+        // Pairwise distances of a configuration, and the rigid misfit of a shape to it
+        // (best rotation, with and without a reflection, both centred).
+        auto dist = [](const std::vector<double>& x, const std::vector<double>& y) {
+            std::vector<std::vector<double>> d(x.size(), std::vector<double>(x.size(), 0.0));
+            for (size_t i = 0; i < x.size(); ++i)
+            {
+                for (size_t j = 0; j < x.size(); ++j)
+                {
+                    d[i][j] = std::hypot(x[i] - x[j], y[i] - y[j]);
+                }
+            }
+            return d;
+        };
+        auto misfit = [](const CaTblRelativeShape& s, std::vector<double> tx, std::vector<double> ty) {
+            const size_t k = tx.size();
+            double mx = 0.0, my = 0.0;
+            for (size_t i = 0; i < k; ++i)
+            {
+                mx += tx[i] / k;
+                my += ty[i] / k;
+            }
+            double best = 1e300;
+            for (int refl = 0; refl < 2; ++refl)
+            {
+                double h00 = 0.0, h01 = 0.0, h10 = 0.0, h11 = 0.0;
+                for (size_t i = 0; i < k; ++i)
+                {
+                    const double sx = s.x[i];
+                    const double sy = refl ? -s.y[i] : s.y[i];
+                    h00 += sx * (tx[i] - mx);
+                    h01 += sx * (ty[i] - my);
+                    h10 += sy * (tx[i] - mx);
+                    h11 += sy * (ty[i] - my);
+                }
+                const double th = std::atan2(h01 - h10, h00 + h11);
+                double e = 0.0;
+                for (size_t i = 0; i < k; ++i)
+                {
+                    const double sx = s.x[i];
+                    const double sy = refl ? -s.y[i] : s.y[i];
+                    const double rx = std::cos(th) * sx - std::sin(th) * sy;
+                    const double ry = std::sin(th) * sx + std::cos(th) * sy;
+                    e += std::pow(rx - (tx[i] - mx), 2) + std::pow(ry - (ty[i] - my), 2);
+                }
+                best = std::min(best, std::sqrt(e / k));
+            }
+            return best;
+        };
+        const std::vector<double> qx = {0.0, 10.0, 10.0, 0.0, 4.0};
+        const std::vector<double> qy = {0.0, 0.0, 10.0, 10.0, 7.0};
+        const CaTblRelativeShape q = CaTblRelativeShapeMds(dist(qx, qy));
+        Check(q.ok && q.stressM < 1e-9 && misfit(q, qx, qy) < 1e-9,
+              "DC-3: five points recovered exactly, up to a rotation, translation, reflection");
+        double cx = 0.0, cy = 0.0;
+        for (size_t i = 0; i < q.x.size(); ++i)
+        {
+            cx += q.x[i];
+            cy += q.y[i];
+        }
+        Check(std::fabs(cx) < 1e-9 && std::fabs(cy) < 1e-9, "DC-3: the shape is centred");
+        const std::vector<double> tx = {0.0, 3.0, 0.0};
+        const std::vector<double> ty = {0.0, 0.0, 4.0};
+        const CaTblRelativeShape tr = CaTblRelativeShapeMds(dist(tx, ty));
+        Check(tr.ok && misfit(tr, tx, ty) < 1e-9 && tr.lambda2 > 0.0,
+              "DC-3: a 3-4-5 triangle, the smallest set it accepts");
+        std::vector<std::vector<double>> noisy = dist(qx, qy);
+        noisy[0][1] += 0.5;
+        noisy[1][0] += 0.5;
+        noisy[2][4] -= 0.4;
+        noisy[4][2] -= 0.4;
+        const CaTblRelativeShape nq = CaTblRelativeShapeMds(noisy);
+        Check(nq.ok && nq.stressM > 0.0 && nq.stressM < 0.5 && misfit(nq, qx, qy) < 0.5,
+              "DC-3: noisy distances give a nearby shape, and a non-zero stress says so");
+        const std::vector<double> lx = {0.0, 5.0, 12.0};
+        const std::vector<double> ly = {0.0, 0.0, 0.0};
+        const CaTblRelativeShape ln = CaTblRelativeShapeMds(dist(lx, ly));
+        Check(ln.ok && ln.lambda2 < 1e-9 && ln.stressM < 1e-9,
+              "DC-3: three collinear members: the second eigenvalue is 0, distances still met");
+        std::vector<std::vector<double>> two = {{0.0, 7.0}, {7.0, 0.0}};
+        std::vector<std::vector<double>> bad = dist(tx, ty);
+        bad[1][2] = -1.0;
+        Check(!CaTblRelativeShapeMds(two).ok && !CaTblRelativeShapeMds(bad).ok &&
+                  CaTblSolveCaseC().solvedBy == CA_TBL_CASE_NONE,
+              "DC-3: below three members, or a negative distance, refused; the absolute "
+              "Case C solve still refuses");
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";

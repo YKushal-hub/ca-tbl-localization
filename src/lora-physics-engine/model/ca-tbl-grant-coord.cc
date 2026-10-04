@@ -1,5 +1,7 @@
 #include "ca-tbl-grant-coord.h"
 
+#include <algorithm>
+
 namespace ns3
 {
 
@@ -19,7 +21,7 @@ CaTblGrantCoordinator::NoteOwnGrant(uint16_t targetId, double startS, double end
     m_grants.push_back(g);
 }
 
-void
+bool
 CaTblGrantCoordinator::NoteGossipedGrant(const CaTblGrantRecord& g)
 {
     // A gossiped copy of our own grant is not new information. Without this an anchor
@@ -27,9 +29,148 @@ CaTblGrantCoordinator::NoteGossipedGrant(const CaTblGrantRecord& g)
     // defer to nobody.
     if (g.anchorId == m_selfId)
     {
-        return;
+        return false;
+    }
+    for (size_t i = 0; i < m_grants.size(); ++i)
+    {
+        const CaTblGrantRecord& h = m_grants[i];
+        if (h.anchorId == g.anchorId && h.targetId == g.targetId && h.startS == g.startS &&
+            h.endS == g.endS)
+        {
+            return false;
+        }
     }
     m_grants.push_back(g);
+    return true;
+}
+
+CaTblGrantVerdict
+CaTblGrantCoordinator::Reconcile(const CaTblGrantRecord& heard)
+{
+    // Only NEW information is reconciled. A repeat of a record already held was
+    // settled when it first arrived; counting it again would inflate the contest
+    // counters by however often the neighbour happens to gossip.
+    if (!NoteGossipedGrant(heard))
+    {
+        return CA_TBL_GRANT_OK;
+    }
+
+    bool contested = false;
+    for (size_t i = 0; i < m_grants.size(); ++i)
+    {
+        const CaTblGrantRecord& g = m_grants[i];
+        if (g.anchorId == m_selfId && g.targetId == heard.targetId &&
+            g.OverlapsInTime(heard.startS, heard.endS))
+        {
+            contested = true;
+            break;
+        }
+    }
+    if (!contested)
+    {
+        return CA_TBL_GRANT_OK;
+    }
+
+    m_lastConflict = heard.anchorId;
+    if (heard.anchorId > m_selfId)
+    {
+        // THE RULE, unchanged from Evaluate(): the lower id defers. Our overlapping
+        // grants for this target are dropped -- yielded -- so we stop gossiping them and
+        // stop treating the slot as ours.
+        std::vector<CaTblGrantRecord> keep;
+        keep.reserve(m_grants.size());
+        for (size_t i = 0; i < m_grants.size(); ++i)
+        {
+            const CaTblGrantRecord& g = m_grants[i];
+            if (g.anchorId == m_selfId && g.targetId == heard.targetId &&
+                g.OverlapsInTime(heard.startS, heard.endS))
+            {
+                continue;
+            }
+            keep.push_back(g);
+        }
+        m_grants.swap(keep);
+        ++m_defers;
+        return CA_TBL_GRANT_DEFER_LOWER_ID;
+    }
+    ++m_wins;
+    return CA_TBL_GRANT_WIN_HIGHER_ID;
+}
+
+std::vector<CaTblGrantRecord>
+CaTblGrantCoordinator::OwnActiveGrants(double nowS) const
+{
+    std::vector<CaTblGrantRecord> out;
+    for (size_t i = 0; i < m_grants.size(); ++i)
+    {
+        if (m_grants[i].anchorId == m_selfId && m_grants[i].endS > nowS)
+        {
+            out.push_back(m_grants[i]);
+        }
+    }
+    return out;
+}
+
+uint32_t
+CaTblGrantCoordinator::NoteGossipedQueue(uint16_t fromAnchor,
+                                         const std::vector<CaTblQueueRecord>& items,
+                                         double nowS)
+{
+    if (fromAnchor == m_selfId)
+    {
+        return 0;
+    }
+    // A gossip states the sender's WHOLE queue, so it replaces what that anchor said
+    // before: a request it has since granted or dropped must stop counting.
+    std::vector<CaTblQueueRecord> keep;
+    for (size_t i = 0; i < m_heardQueue.size(); ++i)
+    {
+        if (m_heardQueue[i].anchorId != fromAnchor)
+        {
+            keep.push_back(m_heardQueue[i]);
+        }
+    }
+    uint32_t doubled = 0;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        CaTblQueueRecord q = items[i];
+        q.anchorId = fromAnchor;
+        q.heardAtS = nowS;
+        keep.push_back(q);
+        for (size_t k = 0; k < m_ownQueue.size(); ++k)
+        {
+            if (m_ownQueue[k].targetId == q.targetId)
+            {
+                ++doubled;
+                break;
+            }
+        }
+    }
+    m_heardQueue.swap(keep);
+    m_doubleQueued += doubled;
+    return doubled;
+}
+
+bool
+CaTblGrantCoordinator::QueueYields(uint16_t targetId, double nowS, double maxAgeS) const
+{
+    for (size_t i = 0; i < m_heardQueue.size(); ++i)
+    {
+        const CaTblQueueRecord& q = m_heardQueue[i];
+        if (q.targetId == targetId && q.anchorId > m_selfId && nowS - q.heardAtS <= maxAgeS)
+        {
+            return true;
+        }
+    }
+    for (size_t i = 0; i < m_grants.size(); ++i)
+    {
+        const CaTblGrantRecord& g = m_grants[i];
+        if (g.targetId == targetId && g.anchorId > m_selfId && g.endS > nowS)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void
@@ -52,6 +193,8 @@ CaTblGrantCoordinator::Evaluate(uint16_t targetId, double startS, double endS) c
 {
     bool conflictWithLower = false;
     bool conflictWithHigher = false;
+    uint16_t higherId = 0;
+    uint16_t lowerId = 0;
 
     for (size_t i = 0; i < m_grants.size(); ++i)
     {
@@ -69,10 +212,12 @@ CaTblGrantCoordinator::Evaluate(uint16_t targetId, double startS, double endS) c
         if (g.anchorId < m_selfId)
         {
             conflictWithLower = true;
+            lowerId = g.anchorId;
         }
         else
         {
             conflictWithHigher = true;
+            higherId = std::max(higherId, g.anchorId);
         }
     }
 
@@ -87,11 +232,13 @@ CaTblGrantCoordinator::Evaluate(uint16_t targetId, double startS, double endS) c
     if (conflictWithHigher)
     {
         ++m_defers;
+        m_lastConflict = higherId;
         return CA_TBL_GRANT_DEFER_LOWER_ID;
     }
     if (conflictWithLower)
     {
         ++m_wins;
+        m_lastConflict = lowerId;
         return CA_TBL_GRANT_WIN_HIGHER_ID;
     }
     return CA_TBL_GRANT_OK;

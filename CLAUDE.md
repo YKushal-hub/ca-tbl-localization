@@ -125,7 +125,7 @@ produces a wrong result that looks right.
   invocation. `scripts/publication_ready.sh` asserts 0 tracked and has caught 12 before.
 - **Do not track `CA_TBL_HANDOFF_v*.md` or `SESSION_CHANGELOG.md`.** Gate G8 asserts they stay
   untracked and has a negative fixture.
-- **Do not set `hopWeight > 0`** (`ca-tbl-policy.cc:83`) until relayed measurements actually
+- **Do not set `hopWeight > 0`** (`ca-tbl-policy.cc:103`) until relayed measurements actually
   exist. The poll set is one-hop by construction, so `hopCount` is structurally always 0.
   A non-zero weight on it changes nothing; applied to an admitted-but-unreachable peer it
   degrades the score for an **energy** defect rather than a **provenance** one — a wrong result
@@ -162,16 +162,24 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # G1-G11; runs ALL gates and reports a summary
+bash scripts/catbl_gates.sh          # 58 gates; runs ALL of them and reports a summary (~25 min)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
-python3 scratch/python_handoff/verify_causal_sim.py results/causal   # 141 checks / 161 gates
+python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**G3 currently fails by design.** The integrity check fires once at seed 7, so byte-identity
-between the ablation arms is no longer available. The divergence begins at the firing cycle and
-not before — that is the treatment effect, not RNG contamination. A red G3 is not a broken build.
+**The suite's expected reds** (counted at `c79fffd`, 2026-10-03; recount with
+`grep -c '^finish ' scripts/catbl_gates.sh`). Of 58 gates, five are red, and none is a broken
+build:
+- **G4, G5:** red since the environment split (`docs/TECH_DEBT.md` K.6). True findings.
+- **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
+  `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
+- **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
+- **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT
+  N.15); it passes when they are exercised or the owner accepts them.
 
-**G11b is permanently red.** Terrain is transcription-only and was not rescoped.
+**G3 passes.** It used to fail once the integrity check fired at seed 7. It now separates
+RNG contamination from the treatment effect on causal order (`scripts/catbl_g3_ablation.py`),
+so a divergence that begins at the firing cycle passes and one that predates it fails.
 
 Fresh-clone reproduction of `results/baseline_v7/arm_summary.csv` is byte-for-byte **using the
 flags recorded in that baseline's own sidecar**. Default flags do *not* reproduce it — that is a
@@ -183,12 +191,13 @@ flag-set difference, not a reproduction failure.
 
 Every new mechanism follows this or it is not mergeable.
 
-1. **Default-off CLI flag**, registered with `cmd.AddValue` in the block at
-   `scratch/ca_tbl_causal_sim.cc:3178-3450`. Write the help text as an argument, not a label —
+1. **Default-off CLI flag**, registered with `cmd.AddValue` in the block in `main()` of
+   `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it with
+   `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`). Write the help text as an argument, not a label —
    the existing flags explain *why* the default is what it is, and that is the house style.
 2. **Null-control test:** with the flag off, output is byte-identical to the pre-change binary.
    Diff `arm_summary.csv` and every trace. This is not optional — arms consume the shared RNG
-   stream at their own rate (`macRng`, seeded at `:1932`), so any added transmission perturbs
+   stream at their own rate (`macRng`, seeded at `:6275`), so any added transmission perturbs
    every arm and no before/after result is comparable without it.
 3. **Pre-registration** committed before the first measurement run (rule 13).
 4. **A gate, with its negative fixture** (rule 6).
@@ -264,10 +273,10 @@ src/lora-physics-engine/model/
   lora-uwb-physics-engine.*   UWB        | submodules/               ~35 per engine
 scratch/
   ca_tbl_causal_sim.cc        the scenario: geometry, mobility, arms, sweeps, CLI flags
-  ca_tbl_packet_validator.cc  MAC unit suite (38/38)
+  ca_tbl_packet_validator.cc  MAC unit suite (62 checks; one of twelve suites, 356 checks)
   python_handoff/verify_causal_sim.py    the invariant gate
 scripts/
-  catbl_gates.sh              G1-G11 regression gates
+  catbl_gates.sh              the regression gates (58 at `c79fffd`)
   publication_ready.sh        manifest assertions; parses EXCLUDED.md as its source of truth
 report/
   PCS_REDESIGN_RESULTS.md     working evidence chain, Parts 0-8, with corrections registers
@@ -307,7 +316,8 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `--injectBiasFraction` exist and 162 results directories use them.
 
 **Before treating any "not implemented" note as current, check two things:** the
-`cmd.AddValue` block at `scratch/ca_tbl_causal_sim.cc:3178-3450`, and
+`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it
+with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`), and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
 
@@ -320,7 +330,7 @@ The **current** topology is stated in three places and nowhere else:
 
 1. this file, the topology block at the top;
 2. `Architecture.md` §3 — the design as built;
-3. `BuildDeployment()` in `scratch/ca_tbl_causal_sim.cc:177` — **the ground truth.**
+3. `BuildDeployment()` in `scratch/ca_tbl_causal_sim.cc:197` — **the ground truth.**
 
 `report/*.md` and `docs/archive/*` were deliberately **not** rewritten. They are dated records
 of what was measured under the deployment that was in force at the time, and editing them to

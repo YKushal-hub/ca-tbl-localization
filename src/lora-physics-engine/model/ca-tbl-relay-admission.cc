@@ -63,18 +63,10 @@ CaTblAdmitRelayedRange(const CaTblRelayedRange& m,
     // doing so, because that is what decides whether it is worth fusing.
     //
     // Depth 0 is still refused: that is a direct measurement, not a relayed one,
-    // and admitting it here would double-count it.
-    if (m.hopDepth < 1 || m.hopDepth > m.maxRelayDepth)
+    // and admitting it here would double-count it. Both halves live in CaTblRelayA2().
+    if (CaTblRelayA2(m) != CA_TBL_RELAY_A2_PASS)
     {
         return CA_TBL_RELAY_REJECT_DEPTH;
-    }
-    if (m.relayVarBudgetM2 > 0.0)
-    {
-        const double carried = m.relayP[0][0] + m.relayP[1][1];
-        if (carried > m.relayVarBudgetM2)
-        {
-            return CA_TBL_RELAY_REJECT_DEPTH;
-        }
     }
 
     // A3. The linearisation fails when the relay is close relative to its own
@@ -122,6 +114,40 @@ CaTblAdmitRelayedRange(const CaTblRelayedRange& m,
         *sigmaEffMOut = std::sqrt(m.sigmaRangeM * m.sigmaRangeM + proj);
     }
     return CA_TBL_RELAY_ADMIT;
+}
+
+CaTblRelayA2Reason
+CaTblRelayA2(const CaTblRelayedRange& m)
+{
+    if (m.hopDepth < 1 || m.hopDepth > m.maxRelayDepth)
+    {
+        return CA_TBL_RELAY_A2_CEILING;
+    }
+    if (m.relayVarBudgetM2 > 0.0)
+    {
+        const double carried = m.relayP[0][0] + m.relayP[1][1];
+        if (carried > m.relayVarBudgetM2)
+        {
+            return CA_TBL_RELAY_A2_BUDGET;
+        }
+    }
+    return CA_TBL_RELAY_A2_PASS;
+}
+
+const char*
+CaTblRelayA2ReasonName(CaTblRelayA2Reason r)
+{
+    switch (r)
+    {
+    case CA_TBL_RELAY_A2_PASS:
+        return "pass";
+    case CA_TBL_RELAY_A2_CEILING:
+        return "ceiling";
+    case CA_TBL_RELAY_A2_BUDGET:
+        return "budget";
+    default:
+        return "unknown";
+    }
 }
 
 const char*

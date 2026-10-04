@@ -115,6 +115,15 @@ flowchart TB
     POL --> TR["trace_arm_seedN.csv"]
 ```
 
+**Where `CaTblPolicy` runs.** The diagram draws it inside the tag because that is where the
+scenario evaluates it. Since 2026-09-29 it is *modelled* on the gateway network by default,
+as ch10 §10.1 specifies (`--gatewayEdgeServer`, default true). The tag broadcasts, the
+gateways measure and report over the backhaul, and the fix comes back in one downlink per
+fix; that is what the tag is billed, with no per-gateway reply. The filter's inputs and
+arithmetic are the same either way, so at defaults only energy differs from node-side
+estimation, which stays reachable as `--gatewayEdgeServer=false`. Getting a tier-2 or
+tier-3 range to the gateway's estimator is not billed (`docs/TECH_DEBT.md` L.2.3).
+
 ### 2.4 Software module map
 
 | Module                   | Path                                                    | Responsibility                            |

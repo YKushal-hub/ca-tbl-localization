@@ -90,6 +90,13 @@ struct RadioPowerProfile
     /** DW3000-class UWB transceiver. Note rxCurrentMa > txCurrentMa -- this is
      *  real, and it is why "listen for the reply" dominates a TWR exchange. */
     static RadioPowerProfile Dw3000_Uwb();
+    /** SY-2. Semtech LR1121, sub-GHz path (868 MHz), TX at 14 dBm on the LP PA. The
+     *  spec's tiers 1 and 2 share this one die. Currents from DS.LR1121.W.APP Rev 2.0;
+     *  timing kept from Sx1262_868() (see the .cc). */
+    static RadioPowerProfile Lr1121_868();
+    /** SY-2. Semtech LR1121, 2.4 GHz path, TX on the HF PA. Currents from
+     *  DS.LR1121.W.APP Rev 2.0; timing kept from Sx1280_2p4() (see the .cc). */
+    static RadioPowerProfile Lr1121_2p4();
 };
 
 /**
@@ -328,6 +335,30 @@ class CaTblEnergyModel
      * of magnitude on the tier where it matters most.
      */
     void AccountListen(CaTblTier tier, double seconds);
+
+    /**
+     * \brief Charge \p airtimeS of transmission at the TX current, as \p frames frames.
+     *
+     * For traffic whose airtime the MAC has ALREADY measured -- CaTblMsgCounters::airtimeS
+     * counts only frames that actually went on air, after the duty governor and CAD had
+     * their say. Re-deriving it here from a payload size would be a second source of
+     * truth for the same number, and would charge frames the governor refused. Used for
+     * the anchor grant gossip (Network sect 6); nothing on the field node's path calls it.
+     */
+    void AccountTx(CaTblTier tier, double airtimeS, uint64_t frames);
+
+    /**
+     * \brief Charge ONE frame of \p airtimeS starting at \p txStartS, and arm the
+     *        duty-cycle governor from that start.
+     *
+     * AccountTx() charges airtime and leaves the governor alone, which is right for
+     * traffic the MAC already governed and wrong for a frame decided outside the MAC:
+     * charged but not armed, it would spend the WPC Table-II budget without the next
+     * CanTransmit() knowing. Used for routed position fixes (Network sect 3, L.1.1),
+     * whose caller checks CanTransmit()/GetNextAllowedTxS() first and passes the instant
+     * the frame actually starts, so the off-time runs from when the channel was taken.
+     */
+    void AccountFrameTx(CaTblTier tier, double txStartS, double airtimeS);
 
     // ------------------------------------------------------------- readout ---
 
