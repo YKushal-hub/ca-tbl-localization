@@ -1843,7 +1843,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
-| N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
+| N.19 | G24 reads one seed, and several of its populations are one or two events | FIXED 2026-10-04: G24 reads three seeds |
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
 
@@ -2570,6 +2570,21 @@ A remedy, not built: read populations over three seeds and call a mechanism zero
 all three are. That is about three more preset runs per configuration, roughly two minutes
 of suite time. It changes what G24 asserts, so it is its own commit with its own selftest.
 Open (engineering, no owner decision).
+
+*2026-10-04, FIXED (gate change only).* G24 runs main and end again at seeds 8 and 9. A
+population is the sum over the three seeds, MISSING only when no seed prints its evidence
+line. The efficacy runs stay at seed 7: with a flag off, its population is 0 by control
+flow, not by chance. G24 went from about 2 to 2.6 minutes. On the first run:
+- **The rare populations split across seeds:**
+  - Case A fixes 4+0+1;
+  - arbitration pre-emptions 2+0+2;
+  - queue gossip items 2+0+4;
+  - grant tie-break verdicts 1+1+0.
+  Seed 8 alone would have called the first three zero, and seed 9 the fourth.
+- **The two zeros are zero on all three seeds:** triggered updates (0+0+0 at 5 km) and
+  UWB-delivered fixes (0+0+0 in the endgame). They are not this entry's noise.
+- The self-test has two new fixtures: P1 (a population present on one seed is not a zero)
+  and N12 (an extra seed's run failing). N3 and N4 now zero every seed.
 
 ### N.20 A node whose battery has run out is still billed for listening and sleeping
 
