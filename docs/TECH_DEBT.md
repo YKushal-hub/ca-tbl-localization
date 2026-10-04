@@ -1608,6 +1608,28 @@ tree, where `source` reads `unknown`) can be matched to a built binary by its ha
   which commit built it. That needs the build to record HEAD (ns-3's
   `--enable-build-version`, or a generated header), which is a build-system change.
 
+*2026-10-04, `--stampBuildCommit` (G82), the other half.* `run_id.txt` gains one more line:
+`build source <commit> dirty <n>`. It names the tree that COMPILED the binary.
+- `scratch/catbl_build_stamp.cmake` runs as a custom target before every build of
+  `scratch_ca_tbl_causal_sim` (`scratch/CMakeLists.txt`). It writes
+  `cmake-cache/scratch/catbl_build_stamp.cc` with the short HEAD and the tracked
+  modifications under `src/` and `scratch/`: the `source` line's own rule, applied at build
+  time. The file is rewritten only when its contents change, so a build of an unchanged
+  tree recompiles nothing: the binary's hash is the same.
+- ns-3's `--enable-build-version` was not used. It is a configure-time option that stamps
+  the libraries, and it reads `git describe` against `ns-3*` tags, which this fork's
+  commits do not carry.
+- G82 launches from outside the repository, where the `source` line reads `unknown`. The
+  build line agrees with the generated stamp, and with the repository's HEAD and dirty
+  count at the time. Outputs are identical with and without the flag.
+- G82's FRESH check fails on a binary not rebuilt since the last commit or source edit.
+  That is the M.3 hazard in the gate's own run, and `./ns3 build` is the fix. In the suite,
+  G1 builds first.
+- A stamp records the tree at the start of the build. An edit made during a build is not
+  seen.
+- Default unchanged. With both flags, a sidecar names the commit that built the binary and
+  the binary's bytes. Neither is in the preset.
+
 ### M.4 Output files the sidecar does not digest
 
 `RULES.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)

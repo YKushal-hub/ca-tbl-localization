@@ -1625,6 +1625,20 @@ bash scripts/reqcarry_gate.sh "$WORK/g81" || fail G81
 bash scripts/reqcarry_gate_selftest.sh "$WORK/g81" || fail G81
 finish G81
 
+# ---------------- G82: run_id.txt records the commit that BUILT the binary (M.3)
+# G76's hash names a binary but not the commit that compiled it. --stampBuildCommit writes
+# the commit and tracked-modification count that scratch/catbl_build_stamp.cmake stamped
+# into the binary at build time. Runs launched from outside the repository, read by
+# scripts/build_stamp_gate.py: the line agrees with the generated stamp and with the
+# repository now (G1 has just built it), the source line cannot say it, outputs identical,
+# the control.
+#
+# Negative fixtures in scripts/build_stamp_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G82 the commit that built the binary is recorded (M.3) ---\n'
+bash scripts/build_stamp_gate.sh "$WORK/g82" || fail G82
+bash scripts/build_stamp_gate_selftest.sh "$WORK/g82" || fail G82
+finish G82
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
