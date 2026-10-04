@@ -123,6 +123,11 @@
 
 using namespace ns3;
 
+// M.3. The commit and tracked-modification count of the tree that BUILT this binary, from
+// the source scratch/catbl_build_stamp.cmake generates at build time.
+extern const char* const kCatblBuildCommit;
+extern const int kCatblBuildDirty;
+
 namespace
 {
 
@@ -14703,6 +14708,7 @@ main(int argc, char* argv[])
     bool digestVizOutputsArg = false; // M.4
     bool toaTableArg = false;         // MAC sect 2
     bool stampBinaryHashArg = false;  // M.3
+    bool stampBuildCommitArg = false; // M.3
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
     double gwArcDegArg = 360.0;
@@ -15889,6 +15895,16 @@ main(int argc, char* argv[])
                  "sha256 <hash> <path>', read from /proc/self/exe after the source line, which "
                  "names the binary itself whatever the working directory. Nothing else changes.",
                  stampBinaryHashArg);
+    cmd.AddValue("stampBuildCommit",
+                 "Record the commit the binary was BUILT from (TECH_DEBT M.3, the half "
+                 "--stampBinaryHash left). FALSE by default: the 'source' line is git HEAD of the "
+                 "directory a run is launched from, and a hash identifies a binary without saying "
+                 "which commit compiled it. TRUE: one more line, 'build source <commit> dirty <n>', "
+                 "stamped into the binary at build time by scratch/catbl_build_stamp.cmake by the "
+                 "source line's own rule (short HEAD; tracked modifications under src/ and "
+                 "scratch/). 'unknown dirty -1' if the build tree was not a git checkout. Nothing "
+                 "else changes.",
+                 stampBuildCommitArg);
     cmd.AddValue("toaTable",
                  "Write the time-on-air table the spec asks to be reported (MAC sect 2: 'ToA at "
                  "each SF/BW combination ... against the payload sizes each packet type "
@@ -18137,6 +18153,12 @@ main(int argc, char* argv[])
                 return 1;
             }
             ridFile << "binary sha256 " << hash << " " << exe << "\n";
+        }
+        if (stampBuildCommitArg)
+        {
+            // M.3. The tree that compiled this binary, whatever directory it runs from.
+            ridFile << "build source " << kCatblBuildCommit << " dirty " << kCatblBuildDirty
+                    << "\n";
         }
         ridFile.close();
         if (!ridFile)
