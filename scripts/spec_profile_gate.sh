@@ -71,6 +71,7 @@ edgeUplinkRanges --edgeUplinkRanges=false
 subjectEdgeUplink --subjectEdgeUplink=false
 subjectRelayChain --subjectRelayChain=false --boxHalf=750 --finderMode=1
 finderRequesterEscalation --finderRequesterEscalation=false --boxHalf=750 --finderMode=1
+requestOverMesh --requestOverMesh=false --boxHalf=750 --finderMode=1
 subjectFinderPseudoAnchor --subjectFinderPseudoAnchor=false --boxHalf=750 --finderMode=1
 finderPseudoAnchorStrict --finderPseudoAnchorStrict=false --boxHalf=750 --finderMode=1
 subjectTier1Tdoa --subjectTier1Tdoa=false

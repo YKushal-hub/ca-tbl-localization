@@ -150,6 +150,7 @@ MECH = [
     ("base-station answers", "main", lambda d, n: num(log(d, n), r"TA-1 base-station session \(\S+\): answers delivered (\d+)"), None),
     ("finder-session answers", "main", lambda d, n: num(log(d, n), r"TA-1b finder session \(\S+\): finder \d+ target m\d+, answers (\d+)"), None),
     ("requester escalations accepted", "end", lambda d, n: num(log(d, n), r"TA-2 requester escalation[^\n]*at the targets accepted (\d+)"), "requesterEscalation"),
+    ("carried requests heard at arbiters", "end", lambda d, n: num(log(d, n), r"N\.10 request over mesh \(\S+\): [^\n]*heard at arbiters (\d+)"), "requestOverMesh"),
     ("finder requests granted", "end", lambda d, n: num(log(d, n), r"TA-1b finder requester escalation \(\S+\): [^\n]*granted (\d+)"), "finderRequesterEscalation"),
     ("subjects' finder ranges on reports", "end", lambda d, n: num(log(d, n), r"N\.21 finder pseudo-anchors \(subjects, \S+\): [^\n]*reported positions used (\d+)"), "subjectFinderPseudoAnchor"),
     ("tag 0's finder ranges dropped", "end", lambda d, n: num(log(d, n), r"N\.21 strict pseudo-anchors \(\S+\): tag 0 finder ranges on reports \d+, dropped for want of a position (\d+)"), "finderPseudoAnchorStrict"),
