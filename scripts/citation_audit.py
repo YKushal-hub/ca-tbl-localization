@@ -26,6 +26,8 @@ ALLOWED = {
     "CA_TBL_HANDOFF_v4.md":        "must stay untracked by project rule; G8 asserts it",
     "SESSION_CHANGELOG.md":        "working log, must stay untracked; G8 asserts it",
     "CA_TBL_SIMULATION_REPORT.md": "earlier report, deliberately untracked; G8 asserts it",
+    "subject_summary.csv":         "a per-run output the scenario writes under --measuredSubjects "
+                                   "> 1; registrations cite it as a metric's source, not a repo path",
 }
 # Bare filenames that live inside excluded results/ directories. Legitimate because
 # the directory is recorded in EXCLUDED.md; the file inside it is not separately tracked.

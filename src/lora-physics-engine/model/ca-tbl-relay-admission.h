@@ -98,6 +98,28 @@ CaTblRelayVerdict CaTblAdmitRelayedRange(const CaTblRelayedRange& m,
                                          const std::set<uint16_t>& relaysUsed,
                                          double* sigmaEffMOut);
 
+//! Which half of A2 decided a candidate.
+enum CaTblRelayA2Reason
+{
+    CA_TBL_RELAY_A2_PASS = 0, //!< within the ceiling, and within the budget if one is set
+    CA_TBL_RELAY_A2_CEILING,  //!< depth 0 (not relayed at all) or beyond maxRelayDepth
+    CA_TBL_RELAY_A2_BUDGET    //!< within the ceiling, but tr(P_B) exceeds relayVarBudgetM2
+};
+
+/**
+ * \brief A2 alone: the depth ceiling, then the variance budget.
+ *
+ * A2 has two halves and both refuse with CA_TBL_RELAY_REJECT_DEPTH, so the verdict cannot
+ * say which bound refused. A run that has to show the BUDGET binding -- not merely the
+ * ceiling -- asks here, and CaTblAdmitRelayedRange() asks the same function, so the two
+ * cannot drift apart. The answer is meaningful only for a candidate that passed A1; A1 is
+ * checked first and a tier-1 candidate never reaches A2.
+ */
+CaTblRelayA2Reason CaTblRelayA2(const CaTblRelayedRange& m);
+
+//! "pass", "ceiling" or "budget".
+const char* CaTblRelayA2ReasonName(CaTblRelayA2Reason r);
+
 //! u^T P_B u — the relay's uncertainty projected onto the range direction.
 double CaTblProjectRelayCovariance(const double P[2][2], double ux, double uy);
 

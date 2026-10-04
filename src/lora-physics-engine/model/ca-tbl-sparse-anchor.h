@@ -23,6 +23,7 @@
 #define CA_TBL_SPARSE_ANCHOR_H
 
 #include <cstdint>
+#include <vector>
 
 namespace ns3
 {
@@ -76,11 +77,18 @@ CaTblSparseResult CaTblSolveCaseA(double x1, double y1, double d1,
  * \brief Case B -- one anchor and one peer whose own position is held.
  *
  * The spec resolves the remaining rotational freedom with the IMU heading. This
- * project's inertial driver is recorded as debt (TECH_DEBT K.9) and its heading is not
+ * project's SHS inertial driver is recorded as debt (TECH_DEBT K.9) and its heading is not
  * trustworthy, so Case B uses the SAME prior-based disambiguation as Case A rather than
- * a heading it cannot rely on. That is a DEVIATION FROM THE SPEC and is deliberate:
- * substituting a known-bad heading would be a mechanism that fires and misleads, which
- * is worse than one that is honest about its input.
+ * a heading it cannot rely on.
+ *
+ * WHAT THE PRIOR IS decides whether that is a deviation (docs/SPEC_CONFORMANCE_PLAN.md
+ * DC-2). Under --imuPredict and --sparseInStep, Step() solves Case B AFTER the controlled
+ * prediction, so the prior is the last posterior plus the synthetic IMU's displacement u_k
+ * with covariance P + Q_u: the IMU heading estimate carried into position, which in this
+ * geometry is what resolving the orientation by heading means. The deviation is CLOSED
+ * there, and the decision says so (CaTblDecision::sparsePriorSource = 1). Without
+ * --imuPredict the prior is the constant-velocity one and the deviation stays OPEN (0).
+ * The SHS heading is still not used, by owner decision.
  *
  * Structurally this is Case A with the peer standing in as the second anchor, so it
  * shares the implementation and differs only in what it reports as solvedBy -- which
@@ -106,6 +114,33 @@ CaTblSparseResult CaTblSolveCaseB(double anchorX, double anchorY, double dAnchor
  * and that is different from not having asked.
  */
 CaTblSparseResult CaTblSolveCaseC();
+
+/**
+ * \brief DC-3 (--caseCRelative). Case C's relative shape: Physical sect 2.4, "0 anchors,
+ * 2+ peers -- relative-shape-only reconstruction (SSS, no absolute frame) -- explicitly
+ * not used for absolute position, only relative offset/cohesion tracking".
+ *
+ * CaTblSolveCaseC() still refuses: there is no POSITION in this input, and that does not
+ * change. What there is, is a SHAPE. Classical multidimensional scaling of a complete
+ * k x k distance matrix (k >= 3): B = -1/2 J D^2 J with J the centring matrix, and the
+ * coordinates are the two largest eigenpairs, x_i = sqrt(lambda) v_i. The result is the
+ * members' configuration up to a rotation, a translation and a reflection, centred on
+ * their centroid. A negative eigenvalue (noise, or a matrix no plane can hold) is clamped
+ * at 0, and stressM -- the RMS gap between the shape's pairwise distances and the given
+ * ones -- says how well a plane holds it.
+ */
+struct CaTblRelativeShape
+{
+    bool ok = false;        //!< false below 3 members, or for a non-square, negative or
+                            //!< non-finite matrix
+    std::vector<double> x;  //!< centred coordinates, metres, in member order
+    std::vector<double> y;
+    double stressM = 0.0;   //!< RMS of (shape distance - given distance) over the pairs
+    double lambda1 = 0.0;   //!< the two eigenvalues kept, m^2 (lambda2 ~ 0: collinear)
+    double lambda2 = 0.0;
+};
+
+CaTblRelativeShape CaTblRelativeShapeMds(const std::vector<std::vector<double>>& d);
 
 } // namespace ns3
 

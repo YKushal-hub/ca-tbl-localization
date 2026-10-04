@@ -75,7 +75,11 @@ enum CaTblMsgType : uint8_t
     CA_TBL_MSG_ESC_GRANT = 6,        //!< grant/deny a UWB slot
     CA_TBL_MSG_QUERY = 7,            //!< identity-scoped search flood (§3.4)
     CA_TBL_MSG_RESPONSE = 8,         //!< answer to a QUERY, own entry or proxied
-    CA_TBL_MSG_ACK = 9               //!< explicit ACK; only ever for ESC_REQUEST/GRANT (§2.8)
+    CA_TBL_MSG_ACK = 9,              //!< explicit ACK; only ever for ESC_REQUEST/GRANT (§2.8)
+    //! Network sect 6: an anchor telling neighbouring anchors which UWB slots it holds.
+    //! Anchor-to-anchor, one hop, LOW access category, unacknowledged -- the next gossip
+    //! supersedes a lost one. Constructed only under --anchorGrantGossipS > 0.
+    CA_TBL_MSG_GRANT_GOSSIP = 10
 };
 
 /** Wire name, for traces. */
@@ -225,6 +229,25 @@ struct CaTblTableEntry
     //! needs its own byte, and a proxy responder cannot match without it.
     uint8_t targetManifestId;
     bool valid;
+    //! NW-9 (--queryV2). The producer's status when it published, carried with the entry
+    //! so an answer can report it: PCS, the integrity verdict (0 CLEAN, 1 SUSPECT), battery
+    //! REMAINING and confidence degradation (each quantised 0..255 over [0,1]), whether it
+    //! was on UWB, and the anchor whose UWB grant it holds (NW-7; 0 for none). Carried, not
+    //! serialised; all zero outside the flag.
+    uint8_t pcsQ;
+    uint8_t integrityFlag;
+    uint8_t batteryQ;
+    uint8_t degradationQ;
+    bool uwbActive;
+    uint16_t grantedBy;
+    //! TA-1. The tier of the producer's last fix (0xFF: none yet) and that fix's
+    //! hop_count_at_fix (NW-1), so a RESULT built from a delivered entry carries them.
+    uint8_t tierSource;
+    uint8_t fixHop;
+    //! TA-2. The arbiter the producer last had UWB-reach evidence with (a UWB exchange, or a
+    //! 2.4 GHz range under the UWB r50) within 10 s of publishing, 0 for none: the plan's
+    //! "fresh neighbour set", reduced to the one arbiter a requester needs.
+    uint16_t reachArbiter;
 
     CaTblTableEntry();
 };
@@ -324,6 +347,31 @@ struct CaTblDigestItem
  *  from most recently, which is the set a responder is most likely to be able to act on.
  */
 static const uint32_t CA_TBL_DIGEST_MAX_ITEMS = 12;
+
+/** Network sect 6. One held UWB slot, as a GRANT_GOSSIP frame carries it: the same three
+ *  fields an ESC_GRANT already carries for its slot -- target_id(2), slot_start_ms(2),
+ *  slot_len_ms(2) -- so 6 bytes on the wire. The issuing anchor is the frame's origin_id
+ *  and is not repeated per item. Times are held as absolute seconds here because this is
+ *  one simulation clock; on hardware they would be offsets from the frame's own time. */
+struct CaTblGrantItem
+{
+    uint16_t targetId = 0;
+    double startS = 0.0;
+    double endS = 0.0;
+};
+
+static const uint32_t CA_TBL_GRANT_ITEM_BYTES = 6;
+
+//! NW-6. One queued request riding a GRANT_GOSSIP: target(2) + U byte(1) + queued-for byte
+//! (1, seconds, saturating) = 4 bytes, the layout OURS.
+struct CaTblQueueGossipItem
+{
+    uint16_t targetId = 0;
+    uint8_t uQ = 0;
+    double queuedSinceS = 0.0;
+};
+
+static const uint32_t CA_TBL_QUEUE_ITEM_BYTES = 4;
 
 /** The uniform MAC header: packet_id(4) origin_id(2) hop_limit(1) msg_type(1) tier(1). */
 static const uint32_t CA_TBL_MAC_HEADER_BYTES = 9;
@@ -474,7 +522,43 @@ class CaTblHeader : public Header
     void SetDigest(const std::vector<CaTblDigestItem>& d) { m_digest = d; }
     const std::vector<CaTblDigestItem>& GetDigest() const { return m_digest; }
 
+    /** Network sect 6. The slots a GRANT_GOSSIP frame reports its origin as holding.
+     *  Carried, not serialised, like the digest: CaTblPayloadBytes(GRANT_GOSSIP, n)
+     *  bills the 6 bytes per item, so writing them again would double-count airtime. */
+    void SetGrants(const std::vector<CaTblGrantItem>& g) { m_grants = g; }
+    const std::vector<CaTblGrantItem>& GetGrants() const { return m_grants; }
+    //! NW-6. The sender's arbitration queue, gossiped beside its grants. Carried, not
+    //! serialised; the MAC bills CA_TBL_QUEUE_ITEM_BYTES each under --gossipQueue.
+    void SetQueueItems(const std::vector<CaTblQueueGossipItem>& q) { m_queueItems = q; }
+    const std::vector<CaTblQueueGossipItem>& GetQueueItems() const { return m_queueItems; }
+
     uint8_t GetQueryManifestId() const { return m_queryManifestId; }
+
+    /**
+     * \brief NW-9 (--queryV2). What the spec's QUERY carries: {query_id,
+     * target_manifest_id_list[], requester_id, ttl, priority}. ttl is the hop limit.
+     * CaTblPayloadBytes(QUERY, n) already bills query_id(2) + requester_id(2) + ttl(1) +
+     * priority(1) + n manifest ids, so these are carried, not serialised. A relay that
+     * answered some of the listed manifests forwards the rest (SetQueryManifests).
+     */
+    void SetQueryV2(uint32_t queryId, uint16_t requesterId, uint8_t priority,
+                    const std::vector<uint8_t>& manifests)
+    {
+        m_hasQueryV2 = true;
+        m_queryV2Id = queryId;
+        m_queryRequesterId = requesterId;
+        m_queryPriority = priority;
+        m_queryManifests = manifests;
+    }
+    void SetQueryManifests(const std::vector<uint8_t>& manifests) { m_queryManifests = manifests; }
+    bool HasQueryV2() const { return m_hasQueryV2; }
+    uint32_t GetQueryV2Id() const { return m_queryV2Id; }
+    uint16_t GetQueryRequesterId() const { return m_queryRequesterId; }
+    uint8_t GetQueryPriority() const { return m_queryPriority; }
+    const std::vector<uint8_t>& GetQueryManifests() const { return m_queryManifests; }
+    //! NW-9. The manifest a RESPONSE answers; its entry rides the self-entry slot.
+    void SetRespManifest(uint8_t m) { m_respManifest = m; }
+    uint8_t GetRespManifest() const { return m_respManifest; }
 
     /**
      * \brief C4. The two arbitration terms an anchor cannot observe for itself.
@@ -495,6 +579,76 @@ class CaTblHeader : public Header
     uint8_t GetReqDegradation() const { return m_reqDegradation; }
     void SetReqBattery(uint8_t b) { m_reqBattery = b; }
     uint8_t GetReqBattery() const { return m_reqBattery; }
+
+    /**
+     * \brief MC-1 (--handshakeFixes). What a reply answers, what a GRANT says, and
+     * which tier a request asks for.
+     *
+     * CaTblPayloadBytes already bills an ACK for "acked packet_id(4)", a GRANT for
+     * "granted(1) ... queue_pos(1)" and a request for its terms, and until MC-1 none of
+     * them was carried: an ACK cleared its receiver's OLDEST pending frame, whatever it
+     * acknowledged, and every GRANT meant granted. Carried, not serialised, like the C4
+     * terms above, because the bytes are already billed. All of them keep their defaults
+     * unless the MAC runs with handshakeFixes, and the event payload prints them only
+     * when they differ from those defaults -- so only under the flag.
+     */
+    void SetAckedPacketId(uint32_t id) { m_ackedPacketId = id; }
+    uint32_t GetAckedPacketId() const { return m_ackedPacketId; }
+    void SetGrantVerdict(bool granted, uint8_t queuePos)
+    {
+        m_hasGrantVerdict = true;
+        m_granted = granted;
+        m_queuePos = queuePos;
+    }
+    bool HasGrantVerdict() const { return m_hasGrantVerdict; }
+    bool GetGranted() const { return m_granted; }
+    uint8_t GetQueuePos() const { return m_queuePos; }
+    //! 0xFF: not stated, which is every request outside --handshakeFixes.
+    void SetReqTargetTier(uint8_t t) { m_reqTargetTier = t; }
+    uint8_t GetReqTargetTier() const { return m_reqTargetTier; }
+    //! NW-4. 1 when the request follows an URGENT query (Transport sect 4,
+    //! request.is_query_triggered). CaTblPayloadBytes(ESC_REQUEST) already bills its
+    //! query_triggered(1) byte, so it is carried, not serialised. 0 outside the flag.
+    void SetReqQueryTriggered(uint8_t q) { m_reqQueryTriggered = q; }
+    uint8_t GetReqQueryTriggered() const { return m_reqQueryTriggered; }
+    //! TA-2. A GRANT answering a request a REQUESTER submitted for this node (Transport
+    //! sect 4), not one the node sent itself. Carried, not serialised; false otherwise.
+    void SetGrantOnBehalf(bool b) { m_grantOnBehalf = b; }
+    bool GetGrantOnBehalf() const { return m_grantOnBehalf; }
+
+    /**
+     * \brief MC-2 (--triggeredUpdates). Why a TRIGGERED_UPDATE was sent: 1 = a large
+     * correction, 2 = the last gasp before a flat battery silences the radio. 0 = not
+     * stated, which is every frame outside the flag, including StartHandshake's
+     * RECEDING push. CaTblPayloadBytes already bills "a reason code" byte on every
+     * TRIGGERED_UPDATE, so it is carried, not serialised.
+     */
+    void SetTriggerReason(uint8_t r) { m_triggerReason = r; }
+    uint8_t GetTriggerReason() const { return m_triggerReason; }
+
+    /**
+     * \brief NW-8 (--reversePathHop). A RESPONSE names the QUERY it answers and the node
+     * that asked, so each hop of the reverse path can look up ITS OWN cached previous hop
+     * and the requester can tell that the answer reached it; forceFlood marks the
+     * fallback copy that floods although RESPONSE is not a flooded type. Carried, not
+     * serialised; the MAC bills their eight bytes (query_id 4, requester 2, answerer 2)
+     * under the flag. answererId is the node whose answer this is (the target, or the proxy
+     * answering for it), unchanged by forwarding: a lost ACK makes the sender retransmit
+     * under a fresh packet id, which dedup cannot catch, so (query, answerer) is what a
+     * forwarder and the requester deduplicate on. 0 / 0 / 0 / false outside the flag.
+     */
+    void SetRespRoute(uint32_t queryId, uint16_t requesterId, uint16_t answererId,
+                      bool forceFlood)
+    {
+        m_respQueryId = queryId;
+        m_respRequesterId = requesterId;
+        m_respAnswererId = answererId;
+        m_forceFlood = forceFlood;
+    }
+    uint16_t GetRespAnswererId() const { return m_respAnswererId; }
+    uint32_t GetRespQueryId() const { return m_respQueryId; }
+    uint16_t GetRespRequesterId() const { return m_respRequesterId; }
+    bool GetForceFlood() const { return m_forceFlood; }
     uint8_t GetHopsTraversed() const;
 
     CaTblAccessCategory GetAccessCategory() const { return CaTblAccessCategoryFor(m_msgType); }
@@ -517,10 +671,30 @@ class CaTblHeader : public Header
     //! double-count the airtime this design exists to measure.
     CaTblTableEntry m_selfEntry;
     std::vector<CaTblDigestItem> m_digest;
+    std::vector<CaTblGrantItem> m_grants; //!< sect 6, carried not serialised -- see above
     bool m_hasSelfEntry;
     uint8_t m_queryManifestId = 0; //!< C3, carried not serialised -- see above
     uint8_t m_reqDegradation = 0;  //!< C4, quantised T_deg input
     uint8_t m_reqBattery = 0;      //!< C4, quantised T_batt input
+    uint32_t m_ackedPacketId = 0;  //!< MC-1, carried not serialised -- see above
+    bool m_hasGrantVerdict = false; //!< MC-1
+    bool m_granted = true;          //!< MC-1
+    uint8_t m_queuePos = 0;         //!< MC-1; no queue exists until NW-5
+    uint8_t m_reqTargetTier = 0xFF; //!< MC-1
+    uint8_t m_triggerReason = 0;    //!< MC-2, carried not serialised -- see above
+    uint32_t m_respQueryId = 0;     //!< NW-8, carried not serialised -- see above
+    uint16_t m_respRequesterId = 0; //!< NW-8
+    uint16_t m_respAnswererId = 0;  //!< NW-8
+    bool m_forceFlood = false;      //!< NW-8
+    bool m_hasQueryV2 = false;      //!< NW-9, carried not serialised -- see above
+    uint32_t m_queryV2Id = 0;
+    uint16_t m_queryRequesterId = 0;
+    uint8_t m_queryPriority = 0;
+    std::vector<uint8_t> m_queryManifests;
+    uint8_t m_respManifest = 0;
+    uint8_t m_reqQueryTriggered = 0; //!< NW-4, carried not serialised -- see above
+    bool m_grantOnBehalf = false;    //!< TA-2, carried not serialised -- see above
+    std::vector<CaTblQueueGossipItem> m_queueItems; //!< NW-6, carried not serialised
 };
 
 } // namespace ns3

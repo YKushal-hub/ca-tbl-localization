@@ -94,15 +94,51 @@ ranging, and finders relaying to gateways, are not modelled.
 
 ## 5. Gateway placement and count
 
-**Decision.** Gateways stay on the existing `gwGrid × gwGrid` array.
+**Decision (2026-10-03).** The default deployment is unchanged: the `gwGrid × gwGrid`
+array, 3×3 over a 2 km box. Every result in `results/` that does not say otherwise used it.
+The **spec configuration** (`--specProfile`) uses **eight gateways on a ring** at 0.6 of the
+half-width of a 10 km square (`--nGateways=8`, `--boxHalf=5000`). That is GEO-01 stage 2's
+registered **fallback**: no candidate geometry met the SAR criterion.
 
-**The brief says 3 gateways, 5 field nodes, 5 km radius.** The default here is
-`gwGrid=3`, i.e. **9** gateways over a 2 km box. **This is a divergence and it is not
-resolved.** Reaching the brief's figures means `gwGrid` cannot stay a square array —
-three gateways is not a square number — so it needs explicit placement, which is not
-built.
+**The brief says 3 gateways, 5 field nodes, 5 km radius.** Three gateways at 5 km cannot
+carry a SAR fix on tier 1 in this model. That is a finding, below, not a placement choice.
 
 **Anyone quoting a gateway count should read it off `deployment.json`, not off the brief.**
+
+### How the shape was chosen: GEO-01 (`docs/SPEC_CONFORMANCE_PLAN.md` §3.4)
+
+The owner's decision 5 (2026-09-30): the least infrastructure that meets a registered SAR
+criterion, with gateways only where a vehicle can reach.
+- **The shapes** exist since 2026-10-02 (MS-2, gate G38): `--gwLayout=perimeter|cluster|
+  star|lshape|file`, beside the ring (`--nGateways --gwRingFrac`), the arc (`--gwArcDeg
+  --gwArcCentreDeg`), the ridge (`--gwRidge`) and the grid.
+- **Stage 1** (`report/GEO01_STAGE1_RESULTS.md`): a geometric screen of every shape at 3-8
+  gateways. Tier 1 alone covers a mean P(≥3) of at most 0.71 of the 10 km square at N ≤ 8.
+  It pruned ten candidates for simulation.
+- **Stage 2** (`report/PREREG_GEO01.md`, registered before any cell;
+  `report/GEO01_RESULTS.md`): ten candidates × 10 seeds × 1 800 s, the preset minus its
+  geometry. The criterion was availability ≥ 0.95 and median time to a 100 m fix ≤ 600 s.
+  - No candidate met it. Availability was at most 0.329, on `ca_tbl_full`.
+  - The registered fallback, the highest mean availability, is N8_ring; the runner-up is
+    N8_arc240.
+  - Three gateways gave 0.22-0.25.
+- **Stage 3** (inside CAMP-SPEC, `report/CAMP_SPEC_RESULTS.md` §2): the two re-run under
+  the full preset. The order held: 0.333 against 0.322.
+
+What closing the gap would take is an owner decision (`HANDOFF_2026_10_03.md` §3 item 6):
+more infrastructure, or the subjects' own mesh carrying fixes.
+
+### The earlier comparison, filed here (`HANDOFF_2026_09_09.md` §4, seed 7)
+
+At `boxHalf=2000`, before the spec scale was tested:
+- **The interior grid** gave CEP50 28 m. The owner rejected it on 2026-09-09 as unrealistic
+  for SAR: "no SAR team carries a repeater into the middle".
+- **The ridge** gave CEP50 1 932 m: a line of gateways is degenerate for multilateration.
+- **The arc** was then built as the access-route deployment. NC2 uses five gateways on a
+  140° arc centred west.
+
+These are single-seed figures from the legacy runs, kept as the record of why the grid and
+the ridge were ruled out, not as results.
 
 ## 6. Facilities remain, as places rather than infrastructure
 
@@ -124,15 +160,21 @@ packet log.
 
 ## Still unmodelled, and named so the gap is visible
 
-- **Gateways as edge servers.** The brief has gateways performing EKF fusion and NLOS/hop
-  computation rather than the battery-constrained field node. Here the field node runs its
-  own filter. This changes *where* computation happens, not what is computed, so no result
-  moves — but the energy story for the field node is optimistic if the brief's split is
-  the intended one.
-- **Finder-to-gateway relaying.** Finders do not carry the casualty's fixes back to
-  infrastructure; they are ranging targets only.
+- **Gateways as edge servers — modelled, and the default since 2026-09-29.** The brief has
+  gateways performing EKF fusion and NLOS/hop computation rather than the
+  battery-constrained field node. `--gatewayEdgeServer` (default true) bills the field node
+  one tier-1 broadcast and one downlink per fix instead of a reply per gateway; the filter
+  is the same, so at defaults only energy moves (`docs/TECH_DEBT.md` L.2.3). The uplink of
+  a tier-2 or tier-3 range to the gateway is billed since 2026-10-02 under
+  `--edgeUplinkRanges` (SY-1, in the preset); by default it is still not.
+- **Finder-to-gateway relaying.** By default finders are ranging targets only. Under
+  `--meshLinks=all` (NW-0, 2026-10-03) every radio pair can exchange frames, finders
+  included, and a RESPONSE travels back hop by hop (`--reversePath --reversePathHop`, NW-8);
+  both are in the preset.
 - **A still lost node.** Supported via `--speed=0`, not yet exercised as a scenario.
-- **5 km radius.** Untested; all corrected-topology runs so far are at `boxHalf=1000`.
+- **5 km radius.** Tested since 2026-10-03: GEO-01 stage 2 and CAMP-SPEC ran the preset at
+  `boxHalf=5000` (section 5). Earlier, K1c ran at `boxHalf=2500`, K10 at 6000, and the L.2
+  coverage probe at 3000 and 5000.
 
 ---
 

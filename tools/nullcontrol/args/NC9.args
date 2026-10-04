@@ -1,0 +1,1 @@
+--arms=ca_tbl_full,fixed_threshold --seed=1 --duration=600 --trace=true --nFinders=4 --finderMode=1 --boxHalf=750 --uwbCoverageIncludesFinders=true --escalationRequiresEvidence=false --nlosClassifier=true
