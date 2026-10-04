@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 219 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 220 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 178 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 214 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 215 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 213 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 214 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 211 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 212 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 212 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 213 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 201 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,33 +92,35 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 200 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectTriggeredUpdates` (row 210 of §3, and its §1 row): added with the default `false`
+- `--subjectTriggeredUpdates` (row 211 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectBatteryDeplete` (row 209 of §3, and its §1 row): added with the default `false`
+- `--subjectBatteryDeplete` (row 210 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectFinderPseudoAnchor` (row 208 of §3, and its §1 row): added with the default `false`
+- `--subjectFinderPseudoAnchor` (row 209 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--finderPseudoAnchorStrict` (row 207 of §3, and its §1 row): added with the default `false`
+- `--finderPseudoAnchorStrict` (row 208 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--silenceStopsRelay` (row 206 of §3, and its §1 row): added with the default `false`
+- `--silenceStopsRelay` (row 207 of §3, and its §1 row): added with the default `false`
   (N.1). Every row after it moved down one.
 - `--deadBatteryNoDraw` (row 202 of §3, and its §1 row): added with the default `false`
   (N.20). Every row after it moved down one.
 - `--digestVizOutputs` (row 132 of §3, and its §1 row): added with the default `false`
   (M.4). Every row after it moved down one.
-- `--halfDuplex` (row 205 of §3, and its §1 row): added with the default `0`
+- `--halfDuplex` (row 206 of §3, and its §1 row): added with the default `0`
   (N.6). Every row after it moved down one.
 - `--reportRecedingPushes` (row 133 of §3, and its §1 row): added with the default `false`
   (M.9). Every row after it moved down one.
 - `--stampBinaryHash` (row 131 of §3, and its §1 row): added with the default `false`
   (M.3). Every row after it moved down one.
-- `--subjectTier1Tdoa` (row 204 of §3, and its §1 row): added with the default `false`
+- `--subjectTier1Tdoa` (row 205 of §3, and its §1 row): added with the default `false`
   (row 55, MS-1 step 2). Every row after it moved down one.
-- `--subjectNlosClassifier` (row 203 of §3, and its §1 row): added with the default `false`
+- `--subjectNlosClassifier` (row 204 of §3, and its §1 row): added with the default `false`
+  (row 55, MS-1 step 2). Every row after it moved down one.
+- `--subjectIntegrityWitness` (row 203 of §3, and its §1 row): added with the default `false`
   (row 55, MS-1 step 2). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-seventy-seven names. Three flags changed meaning without changing their printed default, and §1
+seventy-eight names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -232,6 +234,7 @@ precondition missing.
 | `--stampBinaryHash` | bool | `false` | added 2026-10-04 | M.3: `run_id.txt` gains `binary sha256 <hash> <path>` for `/proc/self/exe`, after the `source` line, so the binary that ran is named whatever the working directory. Nothing else changes (G76) | — |
 | `--subjectTier1Tdoa` | bool | `false` | added 2026-10-04 | Row 55 / MS-1 step 2: each measured subject runs its own instance of tag 0's tier-1 TDoA: gateways stamp the subject's 868 MHz broadcast, a tier-1 fix set of ≥ 3 ranges is solved and fused by `Step()` beside the ranges, on tag 0's stream constants + 97 × the subject index. Writes `subjtdoa_<arm>_seed<N>_subj<id>.csv` (digested) and two TDoA lines per subject after tag 0's (G77) | needs `--tier1Tdoa` and `--measuredSubjects` > 1, else FATAL |
 | `--subjectNlosClassifier` | bool | `false` | added 2026-10-04 | Row 55 / MS-1 step 2: each measured subject runs its own instance of tag 0's NLOS classifier (its own 868 MHz windows, 2.4 GHz pool and UWB CIR stream, + 97 × the subject index), scoring the links its ranging decodes; its policy reads the scores for PCS term 3 and integrity eligibility. Writes `subjnlos_links_`/`subjnlos_summary_<arm>_seed<N>_subj<id>.csv` (digested) and the classifier lines per subject after tag 0's (G78) | needs `--nlosClassifier` and `--measuredSubjects` > 1, else FATAL |
+| `--subjectIntegrityWitness` | bool | `false` | added 2026-10-04 | Row 55 / Physical 2.6: before its `Step()` each measured subject computes tag 0's two switching-point witnesses for itself (DC-9's model witness from its own IMU track, and the neighbours' corroboration from its last exchange) and hands them to its own policy; by default no subject's escalation is vetted by either. Writes `subjwitness_<arm>_seed<N>_subj<id>.csv` (digested) and one line per subject (G79) | needs `--measuredSubjects` > 1 and `--corroborationCheck` or `--imuCrossCheck`, the latter with `--imuWitnessSource=model`, else FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -461,20 +464,21 @@ prints it.
 | 200 | `--subjectEdgeUplink` | `false` |
 | 201 | `--edgeUplinkRanges` | `false` |
 | 202 | `--deadBatteryNoDraw` | `false` |
-| 203 | `--subjectNlosClassifier` | `false` |
-| 204 | `--subjectTier1Tdoa` | `false` |
-| 205 | `--halfDuplex` | `0` |
-| 206 | `--silenceStopsRelay` | `false` |
-| 207 | `--finderPseudoAnchorStrict` | `false` |
-| 208 | `--subjectFinderPseudoAnchor` | `false` |
-| 209 | `--subjectBatteryDeplete` | `false` |
-| 210 | `--subjectTriggeredUpdates` | `false` |
-| 211 | `--triggeredUpdates` | `false` |
-| 212 | `--triggeredUpdateK` | `1` |
-| 213 | `--handshakeFixes` | `false` |
-| 214 | `--queryTierBinding` | (empty) |
-| 215 | `--uwbArbitration` | `false` |
-| 216 | `--arbBatteryCapJ` | `1000` |
-| 217 | `--anchorGrantGossipS` | `0` |
-| 218 | `--suspectForcesEscalation` | `true` |
-| 219 | `--nlosSource` | `legacy` |
+| 203 | `--subjectIntegrityWitness` | `false` |
+| 204 | `--subjectNlosClassifier` | `false` |
+| 205 | `--subjectTier1Tdoa` | `false` |
+| 206 | `--halfDuplex` | `0` |
+| 207 | `--silenceStopsRelay` | `false` |
+| 208 | `--finderPseudoAnchorStrict` | `false` |
+| 209 | `--subjectFinderPseudoAnchor` | `false` |
+| 210 | `--subjectBatteryDeplete` | `false` |
+| 211 | `--subjectTriggeredUpdates` | `false` |
+| 212 | `--triggeredUpdates` | `false` |
+| 213 | `--triggeredUpdateK` | `1` |
+| 214 | `--handshakeFixes` | `false` |
+| 215 | `--queryTierBinding` | (empty) |
+| 216 | `--uwbArbitration` | `false` |
+| 217 | `--arbBatteryCapJ` | `1000` |
+| 218 | `--anchorGrantGossipS` | `0` |
+| 219 | `--suspectForcesEscalation` | `true` |
+| 220 | `--nlosSource` | `legacy` |

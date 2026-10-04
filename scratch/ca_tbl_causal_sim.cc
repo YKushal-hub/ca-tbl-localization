@@ -6034,6 +6034,9 @@ struct SpecOptions
     bool subjectTier1Tdoa = false;
     //! Row 55 / MS-1 step 2. --subjectNlosClassifier: each subject scores its own links.
     bool subjectNlosClassifier = false;
+    //! Row 55 / MS-1 step 2. --subjectIntegrityWitness: each subject's escalation is vetted
+    //! by its own IMU witness and neighbour corroboration.
+    bool subjectIntegrityWitness = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
     //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
@@ -7652,9 +7655,25 @@ RunArm(CaTblPolicyMode mode,
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
     }
     // MS-1. Per-run state of --measuredSubjects > 1, null without it.
+    // Row 55. --subjectIntegrityWitness: a subject's DC-9 model witness and its counters.
+    struct SubjectWitness
+    {
+        bool anchored = false;
+        double wx = 0.0;
+        double wy = 0.0;
+        uint64_t evals = 0;
+        uint64_t refusals = 0;
+        uint64_t absorbed = 0;
+        uint64_t corrCycles = 0;
+        uint64_t corrWitnesses = 0;
+        uint64_t corrAgreeing = 0;
+        std::ofstream log;
+    };
     struct SubjectExtra
     {
         std::unique_ptr<std::ofstream> trace;
+        std::unique_ptr<SubjectWitness> wit; // --subjectIntegrityWitness
+        std::vector<std::pair<uint16_t, double>> ranged; // its last exchange: (id, range)
         std::unique_ptr<CaTblImuDeadReckoner> rk;
         std::unique_ptr<Tier1Tdoa> tdoa; // --subjectTier1Tdoa
         std::unique_ptr<NlosScoring> nlos; // --subjectNlosClassifier
@@ -8590,6 +8609,17 @@ RunArm(CaTblPolicyMode mode,
                                             sb.energy.GetTier1ChargeReplies(),
                                             sb.energy.GetEdgeServer(), tfn.str(),
                                             97 * static_cast<int64_t>(pt), lab.str()));
+            }
+            if (spec.subjectIntegrityWitness)
+            {
+                // Row 55. Tag 0's switching-point witnesses, for this subject's own estimate.
+                ex.wit.reset(new SubjectWitness());
+                std::ostringstream wfn;
+                wfn << traceDir << "/subjwitness_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                    << "_subj" << sb.nodeId << ".csv";
+                ex.wit->log.open(wfn.str().c_str());
+                ex.wit->log << "t,anchored,wx,wy,haveFix,fixX,fixY,rxx,ryy,sigTrace,disagree,tol,"
+                               "corrOk,corrTotal,evaluated,refused,absorbed,estX,estY\n";
             }
             if (spec.subjectNlosClassifier)
             {
@@ -9617,6 +9647,10 @@ RunArm(CaTblPolicyMode mode,
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
                     }
+                    if (ex.wit)
+                    {
+                        ex.ranged.clear(); // row 55: tag 0's rangedThisCycle, per exchange
+                    }
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(tier)];
                     std::vector<CaTblNeighbour> nb = mm->GetNeighbours(tier, t);
                     std::vector<CaTblNeighbour> keep;
@@ -9731,6 +9765,10 @@ RunArm(CaTblPolicyMode mode,
                         }
                         if (rcv && std::isfinite(range) && range > 0.0)
                         {
+                            if (ex.wit)
+                            {
+                                ex.ranged.push_back(std::make_pair(aid, range)); // row 55
+                            }
                             CaTblRangeMeasurement m;
                             m.anchorX = ap.x;
                             m.anchorY = ap.y;
@@ -9975,11 +10013,14 @@ RunArm(CaTblPolicyMode mode,
                 const CaTblTier fixTierS =
                     (fuseS && !chainUsed) ? (actM.empty() ? CA_TBL_TIER_868 : act)
                                           : (usedFloorS ? CA_TBL_TIER_868 : act);
+                double uxW = 0.0, uyW = 0.0; // row 55: this cycle's IMU displacement
                 if (ex.rk)
                 {
                     double ux, uy, qu[3];
                     ex.rk->Step(sb.pos.x - ex.prevX, sb.pos.y - ex.prevY, dt, ux, uy, qu);
                     sb.policy.SetImuControl(ux, uy, qu[0], qu[1], qu[2]);
+                    uxW = ux;
+                    uyW = uy;
                 }
                 ex.prevX = sb.pos.x;
                 ex.prevY = sb.pos.y;
@@ -10014,6 +10055,81 @@ RunArm(CaTblPolicyMode mode,
                         hopS = std::max<uint32_t>(hopS, chainM[k].hopDepth);
                     }
                 }
+                // Row 55. Physical 2.6's two witnesses for this subject, as tag 0's (DC-9 model
+                // witness; WITNESS 2, the neighbours), handed to its own policy before Step().
+                bool witFix = false;
+                double witFx = 0.0, witFy = 0.0, witRxx = 0.0, witRyy = 0.0, witSig = 0.0;
+                double witDis = 0.0, witTol = 0.0;
+                int32_t corrOkS = 0, corrTotS = 0;
+                if (ex.wit)
+                {
+                    CaTblMac* am = peerMacs[pi][static_cast<size_t>(act)];
+                    if (corroborationCheck && am != nullptr)
+                    {
+                        const double sigMine =
+                            std::sqrt(std::max(sb.policy.Pxx() + sb.policy.Pyy(), 0.0));
+                        for (size_t k = 0; k < ex.ranged.size(); ++k)
+                        {
+                            CaTblTableEntry te;
+                            if (!am->GetTableEntry(ex.ranged[k].first, te))
+                            {
+                                continue; // never heard where it claims to be: not a witness
+                            }
+                            ++corrTotS;
+                            const double exx = sb.policy.EstX() - te.x;
+                            const double eyy = sb.policy.EstY() - te.y;
+                            const double resid =
+                                std::fabs(ex.ranged[k].second - std::sqrt(exx * exx + eyy * eyy));
+                            const double sigTheirs = std::sqrt(std::max(te.varX + te.varY, 0.0));
+                            const double tolC =
+                                corroborationK * std::sqrt(sigMine * sigMine + sigTheirs * sigTheirs +
+                                                           corroborationRangeSigmaM *
+                                                               corroborationRangeSigmaM);
+                            if (resid <= tolC)
+                            {
+                                ++corrOkS;
+                            }
+                        }
+                        if (corrTotS > 0)
+                        {
+                            ++ex.wit->corrCycles;
+                            ex.wit->corrWitnesses += static_cast<uint64_t>(corrTotS);
+                            ex.wit->corrAgreeing += static_cast<uint64_t>(corrOkS);
+                        }
+                    }
+                    if (imuCrossCheck && ex.rk)
+                    {
+                        // DC-9: the IMU track anchored at the last fused fix and advanced by u,
+                        // against this cycle's raw radio fix (multilateration of the set alone).
+                        if (ex.wit->anchored)
+                        {
+                            ex.wit->wx += uxW;
+                            ex.wit->wy += uyW;
+                        }
+                        if (ex.wit->anchored && measS.size() >= 3)
+                        {
+                            std::vector<double> mv(measS.size());
+                            for (size_t mi = 0; mi < measS.size(); ++mi)
+                            {
+                                const double sg = (measS[mi].sigmaM > 0.0) ? measS[mi].sigmaM : 1.0;
+                                mv[mi] = sg * sg;
+                            }
+                            double rxy = 0.0;
+                            witFix = CaTblPolicy::RawMultilaterationWeighted(
+                                measS, mv, sb.policy.EstX(), sb.policy.EstY(), witFx, witFy, witRxx,
+                                rxy, witRyy);
+                            if (witFix)
+                            {
+                                const double* sa = ex.rk->SigmaAcc();
+                                witSig = sa[0] + sa[2];
+                                witDis = std::hypot(ex.wit->wx - witFx, ex.wit->wy - witFy);
+                                witTol = imuConsistencyK *
+                                         std::sqrt(std::max(0.0, witRxx + witRyy + witSig));
+                            }
+                        }
+                    }
+                    sb.policy.SetCrossCheck(witDis, witTol, corrOkS, corrTotS);
+                }
                 // Row 55. As tag 0's: a tier-1 fix set of >= 3 ranges is solved by TDoA and
                 // queued, so Step() fuses it beside the ranges it came with.
                 if (ex.tdoa && fixTierS == CA_TBL_TIER_868 && measS.size() >= 3)
@@ -10031,6 +10147,27 @@ RunArm(CaTblPolicyMode mode,
                 if (ex.nlos)
                 {
                     ex.nlos->NoteStep(ds); // row 55: the PCS term this subject produced
+                }
+                if (ex.wit)
+                {
+                    // Row 55. The cycle's witness, then the anchor moves to a fused fix.
+                    ex.wit->evals += ds.witnessEvaluated ? 1 : 0;
+                    ex.wit->refusals += ds.witnessRefused ? 1 : 0;
+                    ex.wit->absorbed += ds.witnessAbsorbed ? 1 : 0;
+                    ex.wit->log << std::fixed << std::setprecision(4) << t << ','
+                                << (ex.wit->anchored ? 1 : 0) << ',' << std::setprecision(6)
+                                << ex.wit->wx << ',' << ex.wit->wy << ',' << (witFix ? 1 : 0) << ','
+                                << witFx << ',' << witFy << ',' << witRxx << ',' << witRyy << ','
+                                << witSig << ',' << witDis << ',' << witTol << ',' << corrOkS << ','
+                                << corrTotS << ',' << (ds.witnessEvaluated ? 1 : 0) << ','
+                                << (ds.witnessRefused ? 1 : 0) << ',' << (ds.witnessAbsorbed ? 1 : 0)
+                                << ',' << ds.estX << ',' << ds.estY << '\n';
+                    if (ds.hadFix && !ds.measurementRejected)
+                    {
+                        ex.wit->anchored = true;
+                        ex.wit->wx = ds.estX;
+                        ex.wit->wy = ds.estY;
+                    }
                 }
                 if (chainUsed)
                 {
@@ -13451,6 +13588,26 @@ RunArm(CaTblPolicyMode mode,
                   << witness->refusals << ", absorbed by the evidence gate " << witness->absorbed
                   << "\n";
     }
+    if (subj && spec.subjectIntegrityWitness)
+    {
+        // Row 55. Each subject's witnesses and what its own policy refused.
+        for (uint32_t pt = 1; pt < spec.measuredSubjects && pt - 1 < subj->extra.size(); ++pt)
+        {
+            const SubjectWitness* w = subj->extra[pt - 1].wit.get();
+            if (w == nullptr)
+            {
+                continue;
+            }
+            const_cast<SubjectWitness*>(w)->log.close();
+            std::cout << "    Row 55 witness (subject " << tags[pt].nodeId
+                      << "): IMU evaluations " << w->evals << ", refusals " << w->refusals
+                      << ", absorbed by the evidence gate " << w->absorbed
+                      << "; corroboration cycles " << w->corrCycles << ", witnesses "
+                      << w->corrWitnesses << ", agreeing " << w->corrAgreeing
+                      << "; policy refused escalations -- IMU " << tags[pt].policy.GetImuRejections()
+                      << ", corroboration " << tags[pt].policy.GetCorroborationRejections() << "\n";
+        }
+    }
     // DC-13. Entries carried forward before use. Printed only under the flag.
     if (entryPred)
     {
@@ -16536,6 +16693,22 @@ main(int argc, char* argv[])
                  "> 0 and --silenceStopsRelay (a dead radio that relayed while drawing nothing "
                  "would be billed for transmitting and not for the reception that fed it).",
                  spec.deadBatteryNoDraw);
+    cmd.AddValue("subjectIntegrityWitness",
+                 "Each measured subject's escalation is vetted by its own witnesses (Physical 2.6; "
+                 "register row 55, MS-1 step 2). FALSE by default: subjects' policies are "
+                 "configured with --imuCrossCheck and --corroborationCheck like tag 0's, but only "
+                 "tag 0 hands its policy a cross-check each cycle, so a subject's escalation is "
+                 "never vetted by either witness, and a start-up WARNING says so. TRUE: each "
+                 "subject, before its Step(), computes tag 0's two witnesses for itself -- DC-9's "
+                 "model witness (its own IMU track, anchored at its last fused fix, against this "
+                 "cycle's raw fix of its set, tolerance --imuConsistencyK sqrt(trace R_fix + "
+                 "trace Sigma_acc)) and the neighbours' corroboration (its last exchange's ranges "
+                 "against the entries its active radio holds) -- and hands them to its own policy. "
+                 "Writes subjwitness_<arm>_seed<N>_subj<id>.csv (digested) and one line per "
+                 "subject. Needs --measuredSubjects > 1 and --corroborationCheck or --imuCrossCheck; "
+                 "with --imuCrossCheck, --imuWitnessSource=model (a per-subject SHS engine is not "
+                 "built).",
+                 spec.subjectIntegrityWitness);
     cmd.AddValue("subjectNlosClassifier",
                  "Each measured subject scores its own links (Physical 1.3 / 2.5; register row 55, "
                  "MS-1 step 2). FALSE by default: under --nlosClassifier only tag 0's links get the "
@@ -17224,6 +17397,15 @@ main(int argc, char* argv[])
         return 1;
     }
     // Row 55.
+    if (spec.subjectIntegrityWitness &&
+        (spec.measuredSubjects < 2 || (!corroborationCheckArg && !imuCrossCheckArg) ||
+         (imuCrossCheckArg && spec.imuWitnessSource != "model")))
+    {
+        std::cerr << "FATAL: --subjectIntegrityWitness needs --measuredSubjects > 1 and "
+                     "--corroborationCheck or --imuCrossCheck, and with --imuCrossCheck "
+                     "--imuWitnessSource=model: a per-subject SHS engine is not built\n";
+        return 1;
+    }
     if (spec.subjectNlosClassifier && (!nlosClassifierArg || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectNlosClassifier needs --nlosClassifier and "
@@ -17327,9 +17509,13 @@ main(int argc, char* argv[])
         {
             only.push_back("--nlosClassifier");
         }
-        if (imuCrossCheckArg || imuFusionArg)
+        if ((imuCrossCheckArg && !spec.subjectIntegrityWitness) || imuFusionArg)
         {
             only.push_back("--imuCrossCheck/--imuFusion (SHS)");
+        }
+        if (corroborationCheckArg && !spec.subjectIntegrityWitness)
+        {
+            only.push_back("--corroborationCheck");
         }
         if (sessionLayerArg)
         {
@@ -17355,7 +17541,7 @@ main(int argc, char* argv[])
         {
             only.push_back("--entryVelocity/--entryPrediction");
         }
-        if (spec.imuWitnessSource == "model")
+        if (spec.imuWitnessSource == "model" && !spec.subjectIntegrityWitness)
         {
             only.push_back("--imuWitnessSource=model");
         }
@@ -18558,6 +18744,10 @@ main(int argc, char* argv[])
     if (spec.subjectNlosClassifier)
     {
         digestPatterns += " subjnlos_*.csv"; // row 55
+    }
+    if (spec.subjectIntegrityWitness)
+    {
+        digestPatterns += " subjwitness_*.csv"; // row 55
     }
     if (spec.sparseInStep)
     {

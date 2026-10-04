@@ -2013,6 +2013,22 @@ policy then reads the scores for PCS term 3 and integrity eligibility, as tag 0'
 - Under the preset (seed 7, 900 s), the subjects scored 1 469 links, and their own Step()
   fed the score to PCS on 135 cycles: subject 2 on 133 of its 145 fix cycles, subjects 3-5
   on 0-1 of their 3-4.
+
+*2026-10-04:* `--subjectIntegrityWitness` (G79) closes a gap that did not announce itself.
+Subjects' policies are configured with `--imuCrossCheck` and `--corroborationCheck` like tag
+0's, but only tag 0 handed its policy a cross-check each cycle. The policy vets an escalation
+only on a fresh cross-check (`m_crossCheckFresh`), so **no subject's escalation was ever vetted
+by Physical 2.6's witnesses.** The start-up WARNING named the SHS flags, but not corroboration.
+- With the flag, each subject computes tag 0's two witnesses for itself before its Step(),
+  and hands them to its own policy:
+  - DC-9's model witness: its own IMU track, anchored at its last fused fix, against this
+    cycle's raw fix;
+  - the neighbours' corroboration: its last exchange's ranges against its active radio's
+    table.
+- Under the preset (seed 7, 900 s): 64 IMU-witness evaluations and 315 corroboration
+  witnesses over the subjects. Subject 2's policy refused 19 escalations on corroboration.
+- A per-subject SHS engine (`--imuWitnessSource` "" or `shs`) is not built. The flag refuses
+  that combination.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
