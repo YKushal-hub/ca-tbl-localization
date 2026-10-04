@@ -22,7 +22,7 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (UWB-delivered fixes|carried requests heard at arbiters)'
+KNOWN='POP (grant tie-break verdicts|UWB-delivered fixes)'
 
 pass=0
 fail=0
@@ -74,7 +74,7 @@ fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main.log" "$T/f/main_s8
 check "N3 a mechanism with no population in any of the three seeds (TDoA)" "POP tier-1 TDoA solves"
 fresh; sed -i -E '/TABLE CI:/d' "$T/f/main.log" "$T/f/main_s8.log" "$T/f/main_s9.log"
 check "N4 a mechanism whose evidence line is missing in every seed" "POP CI table fuses"
-fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main.log" "$T/f/main_s8.log"
+fresh; sed -i -E 's/solves OK [0-9]+/solves OK 0/' "$T/f/main_s8.log" "$T/f/main_s9.log"
 check_pop_ok "P1 a population present in one seed only is not a zero (N.19)" "POP tier-1 TDoA solves"
 fresh; rm -rf "$T/f/end_s9" "$T/f/end_s9.log"; echo 134 > "$T/f/end_s9.rc"
 check "N12 an extra seed's run did not exit 0" RUNS

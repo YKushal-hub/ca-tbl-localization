@@ -2714,6 +2714,19 @@ capture rule applies to both frames of a collision.
 - A preset-applied `--halfDuplexChip` is unused, not refused, when `--halfDuplex=0` or
   `--radioBasis=sx` is given explicitly.
 
+*2026-10-04, the spec's geometry (97 settings; owner call delegated, DESIGN_DECISIONS §9):*
+the preset takes `--nGateways=3 --gwLayout=star` (N3_star), in place of N8_ring. Register
+row 56 is CONFORMANT.
+- **The zeros changed with the geometry:** grant tie-break verdicts and UWB-delivered fixes
+  again (0+0+0 each). Carried requests heard at arbiters are back (3+0+0).
+- At 5 km, seeds 7/8/9: tier-1 TDoA solves 5+1+0, Case A fixes 0+0+2, frames sent back to
+  CAD 277+252+184.
+- **CAL-02's PCS weights and thresholds were fitted on N8_ring.** They are now applied off
+  the geometry they were fitted on. CAL-03 re-fits them by CAL-02's procedure (DESIGN_DECISIONS
+  §9).
+- G24's self-test P1 zeroes TDoA in seeds 8 and 9 and keeps seed 7's, since seed 9 now has
+  none.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
