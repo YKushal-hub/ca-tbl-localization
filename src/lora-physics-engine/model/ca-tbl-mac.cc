@@ -1722,15 +1722,28 @@ CaTblMac::DoTransmit(PendingFrame f)
     {
         return;
     }
-    // N.6. This radio's own previous frame is still on air.
-    if (m_cfg.halfDuplex != 0 && Simulator::Now() < m_txBusyUntil)
+    // N.6. This radio's own previous frame is still on air -- or, per chip, the other
+    // band's frame on the same chip.
+    Time busyUntil = m_txBusyUntil;
+    if (m_chipSibling != nullptr && m_chipSibling->TxBusyUntil() > busyUntil)
     {
-        ++m_selfOverlapTx;
+        busyUntil = m_chipSibling->TxBusyUntil();
+    }
+    if (m_cfg.halfDuplex != 0 && Simulator::Now() < busyUntil)
+    {
+        if (Simulator::Now() < m_txBusyUntil)
+        {
+            ++m_selfOverlapTx;
+        }
+        else
+        {
+            ++m_chipOverlapTx;
+        }
         if (m_cfg.halfDuplex == 2)
         {
             // Half-duplex: wait for the frame to end, then contend again (a fresh CAD).
             ++m_hdDeferred;
-            Simulator::Schedule(m_txBusyUntil - Simulator::Now(), &CaTblMac::AttemptCad, this, f);
+            Simulator::Schedule(busyUntil - Simulator::Now(), &CaTblMac::AttemptCad, this, f);
             return;
         }
     }
@@ -2814,10 +2827,16 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         // the link so that count-only mode draws exactly what mode 0 draws.
         if (rx->HalfDuplexMode() != 0)
         {
-            const bool deaf = rx->TransmittedDuring(me.start.GetSeconds(), me.end.GetSeconds());
+            const bool own = rx->TransmittedDuring(me.start.GetSeconds(), me.end.GetSeconds());
+            const bool deaf =
+                own || rx->SiblingTransmittedDuring(me.start.GetSeconds(), me.end.GetSeconds());
             if (deaf)
             {
                 rx->NoteDeafRx();
+                if (!own)
+                {
+                    rx->NoteChipDeafRx(); // N.6, per chip
+                }
                 if (rx->HalfDuplexMode() == 2)
                 {
                     if (m_eventLog != nullptr)

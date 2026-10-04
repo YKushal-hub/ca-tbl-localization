@@ -1872,6 +1872,117 @@ TestBothLost()
               ", late " + std::to_string(b.late));
 }
 
+// [17] N.6 per chip. Two nodes, each with an 868 MHz and a 2.4 GHz MAC on two channels.
+// (a) Node 1 sends one DISCOVERY on each band at one instant. (b) Node 1 sends on 868 MHz
+// while node 2 sends on 2.4 GHz. With node 1's two MACs one chip, each is the other's.
+struct ChipRun
+{
+    uint64_t chipOverlap = 0; // (a) node 1's frames due while its other band was on air
+    uint64_t deferred = 0;    // (a) sent back to CAD
+    uint64_t heardBoth = 0;   // (a) node 2's receptions of node 1's two frames
+    uint64_t chipDeaf = 0;    // (b) node 1's 2.4 GHz receptions overlapping its 868 MHz frame
+    uint64_t heard24 = 0;     // (b) node 1's 2.4 GHz receptions of node 2's frame
+};
+
+ChipRun
+RunChip(uint8_t mode, bool chip)
+{
+    ChipRun r;
+    for (int part = 0; part < 2; ++part)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel ch[2];
+        CaTblMac m[2][2]; // [node][band]
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(17);
+        for (int band = 0; band < 2; ++band)
+        {
+            ch[band].SetPhyProvider(&phy);
+            for (int i = 0; i < 2; ++i)
+            {
+                CaTblMacConfig c;
+                c.nodeId = static_cast<uint16_t>(1 + i);
+                c.sf = 7;
+                c.bandwidthHz = 125e3;
+                c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+                c.discoveryOneHop = true;
+                c.halfDuplex = mode;
+                m[i][band].Configure(c);
+                m[i][band].SetRng(rng);
+                ch[band].Register(&m[i][band]);
+            }
+        }
+        if (chip)
+        {
+            m[0][0].SetChipSibling(&m[0][1]);
+            m[0][1].SetChipSibling(&m[0][0]);
+        }
+        const CaTblTier tb[2] = {CA_TBL_TIER_868, CA_TBL_TIER_2P4};
+        if (part == 0)
+        {
+            for (int band = 0; band < 2; ++band)
+            {
+                Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0][band],
+                                    CA_TBL_MSG_DISCOVERY, tb[band], uint32_t(0), uint16_t(0));
+            }
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0][0], CA_TBL_MSG_DISCOVERY,
+                                tb[0], uint32_t(0), uint16_t(0));
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[1][1], CA_TBL_MSG_DISCOVERY,
+                                tb[1], uint32_t(0), uint16_t(0));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        if (part == 0)
+        {
+            r.chipOverlap = m[0][0].GetChipOverlapTx() + m[0][1].GetChipOverlapTx();
+            r.deferred = m[0][0].GetHalfDuplexDeferred() + m[0][1].GetHalfDuplexDeferred();
+            r.heardBoth = m[1][0].GetCounters(CA_TBL_MSG_DISCOVERY).received +
+                          m[1][1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+        }
+        else
+        {
+            r.chipDeaf = m[0][1].GetChipDeafRx();
+            r.heard24 = m[0][1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+        }
+        Simulator::Destroy();
+    }
+    return r;
+}
+
+void
+TestChipDuplex()
+{
+    std::cout << "\n[17] N.6 one chip serves two bands (the LR1121)\n";
+    const ChipRun a = RunChip(2, false);
+    const ChipRun b = RunChip(1, true);
+    const ChipRun c = RunChip(2, true);
+    Report("per radio / chip count / chip enforce: (a) due, deferred, heard; (b) deaf, heard",
+           std::to_string(a.chipOverlap) + "," + std::to_string(a.deferred) + "," +
+               std::to_string(a.heardBoth) + "," + std::to_string(a.chipDeaf) + "," +
+               std::to_string(a.heard24) + " / " + std::to_string(b.chipOverlap) + "," +
+               std::to_string(b.deferred) + "," + std::to_string(b.heardBoth) + "," +
+               std::to_string(b.chipDeaf) + "," + std::to_string(b.heard24) + " / " +
+               std::to_string(c.chipOverlap) + "," + std::to_string(c.deferred) + "," +
+               std::to_string(c.heardBoth) + "," + std::to_string(c.chipDeaf) + "," +
+               std::to_string(c.heard24));
+    Check("per radio, a node's two bands transmit and receive at once (the unmodelled chip)",
+          a.chipOverlap == 0 && a.deferred == 0 && a.heardBoth == 2 && a.heard24 == 1,
+          "heard " + std::to_string(a.heardBoth) + ", 2.4 GHz heard " + std::to_string(a.heard24));
+    Check("one chip, count only: both cases counted, nothing else moves",
+          b.chipOverlap == 1 && b.deferred == 0 && b.heardBoth == 2 && b.chipDeaf == 1 &&
+              b.heard24 == 1,
+          "due over the other band " + std::to_string(b.chipOverlap) + ", deaf " +
+              std::to_string(b.chipDeaf));
+    Check("one chip, enforced: the second band's frame waits; a reception while the other band "
+          "transmits is lost",
+          c.chipOverlap == 1 && c.deferred == 1 && c.heardBoth == 2 && c.chipDeaf == 1 &&
+              c.heard24 == 0,
+          "deferred " + std::to_string(c.deferred) + ", 2.4 GHz heard " + std::to_string(c.heard24));
+}
+
 void
 TestQueueGossip()
 {
@@ -1926,6 +2037,7 @@ main(int argc, char* argv[])
     TestHalfDuplex();
     TestOboCarry();
     TestBothLost();
+    TestChipDuplex();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

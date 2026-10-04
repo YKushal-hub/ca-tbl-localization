@@ -521,6 +521,21 @@ class CaTblMac
     uint64_t GetDeafRx() const { return m_deafRx; }
     uint8_t HalfDuplexMode() const { return m_cfg.halfDuplex; }
     void NoteDeafRx() { ++m_deafRx; }
+    //! N.6, per chip (--halfDuplexChip). The MAC of the other band served by the same chip
+    //! (the LR1121's 868 MHz and 2.4 GHz). Null (the default): this radio is its own chip.
+    //! With one set, the half-duplex rules read both bands' transmissions.
+    void SetChipSibling(CaTblMac* s) { m_chipSibling = s; }
+    //! N.6, per chip. Of the frames due over a transmission and the receptions while
+    //! transmitting, those the other band's frame alone caused.
+    uint64_t GetChipOverlapTx() const { return m_chipOverlapTx; }
+    uint64_t GetChipDeafRx() const { return m_chipDeafRx; }
+    void NoteChipDeafRx() { ++m_chipDeafRx; }
+    Time TxBusyUntil() const { return m_txBusyUntil; }
+    //! N.6, per chip. Whether the other band of this radio's chip transmitted in [s, e).
+    bool SiblingTransmittedDuring(double s, double e) const
+    {
+        return m_chipSibling != nullptr && m_chipSibling->TransmittedDuring(s, e);
+    }
     //! N.6. Whether this radio transmitted during any part of [s, e). Read from its own
     //! recent transmissions, not the channel's in-flight list: the channel erases a frame
     //! when it completes, so a frame ending later never sees it (TECH_DEBT N.22).
@@ -1082,6 +1097,9 @@ class CaTblMac
     uint64_t m_recedingSent = 0;
     // N.6.
     Time m_txBusyUntil = Seconds(0.0);
+    CaTblMac* m_chipSibling = nullptr; //!< N.6, per chip
+    uint64_t m_chipOverlapTx = 0;
+    uint64_t m_chipDeafRx = 0;
     std::deque<std::pair<double, double>> m_ownTx; // the last 16 [start, end), read only under halfDuplex
     uint64_t m_selfOverlapTx = 0;
     uint64_t m_hdDeferred = 0;

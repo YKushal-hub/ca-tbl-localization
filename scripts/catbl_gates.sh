@@ -1654,6 +1654,20 @@ bash scripts/both_lost_gate.sh "$WORK/g83" || fail G83
 bash scripts/both_lost_gate_selftest.sh "$WORK/g83" || fail G83
 finish G83
 
+# ---------------- G84: one LR1121 serves 868 MHz and 2.4 GHz (N.6 per chip)
+# --halfDuplex was per radio, so a node's two LoRa bands transmitted and received at once.
+# --halfDuplexChip pairs them as one chip under --radioBasis=lr1121. G74's regime on that
+# basis, read by scripts/chip_duplex_gate.py:
+#   - count only per chip changes no output, and its counts add up with the per-radio ones;
+#   - enforced, every frame due over either band waits, and every lost reception is a row;
+#   - the control; two refusals.
+#
+# Negative fixtures in scripts/chip_duplex_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G84 one chip serves two bands (N.6 per chip) ---\n'
+bash scripts/chip_duplex_gate.sh "$WORK/g84" || fail G84
+bash scripts/chip_duplex_gate_selftest.sh "$WORK/g84" || fail G84
+finish G84
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
