@@ -1902,7 +1902,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
 | N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
 | N.9 | queue gossip is built and rarely needed | recorded |
-| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS); the instant delivery: flag (G81), default unchanged |
+| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS); the instant delivery: flag (G81), in the preset since 2026-10-04 |
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
@@ -2310,7 +2310,8 @@ radio arbiters take requests on.
 - A unit case (packet_validator [15], four checks) shows: the frame is billed, scored on
   reception and granted on-behalf; with half-duplex enforced, nothing is retried; by default,
   the N.6 retry; and a request to an arbiter out of reach is never scored.
-- Default unchanged. Not in the preset: that is a separate step (P6), as for every flag.
+- Default unchanged. In `--specProfile` since its own P6 step (N.15's 2026-10-04 row 52
+  entry).
 
 ### N.11 Per-hop variance swamps a relayed leg's sigma
 
@@ -2670,6 +2671,18 @@ classifier, integrity witnesses and large correction.
 - **The two zeros changed with the channel.** Tag 0's triggered updates are now 0+0+1. Grant
   tie-break verdicts are 0+0+0 (1+1+0 before). The zeros: grant tie-break verdicts and
   UWB-delivered fixes.
+
+*2026-10-04, row 52 (93 settings):* the preset sets `--requestOverMesh` (N.10, G81), so no
+requester's request reaches a finder arbiter without a frame under `--specProfile`.
+- **A new population,** with its efficacy run: carried requests heard at arbiters, endgame,
+  5+0+4 over seeds 7/8/9. At 5 km none was carried in those three seeds: every request
+  there was unroutable before the carriage step.
+- Requester escalations accepted 4+6+1 (3+8+2 before), finder requests granted 2+7+0
+  (2+8+1), sessions reaching PRECISE 4+1+4 (4+1+3). The channel moved with the flag, so
+  these differences are not the flag's effect (rule 8).
+- The same two zeros: grant tie-break verdicts and UWB-delivered fixes.
+- A preset-applied value is unused, not refused, when `--requesterEscalation` is turned off
+  explicitly.
 
 ### N.16 At 5 km the covariance trace ranks error backwards
 

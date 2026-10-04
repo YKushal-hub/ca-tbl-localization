@@ -14583,6 +14583,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"identityQueryManifests", "1,2,3,4,5", "Transport 5: the batch is the five subjects"},
     {"identityQueryPeriodS", "30", "Transport 2: the session's query period (OURS)"},
     {"requesterEscalation", "true", "Transport 4: the requester drives escalation"},
+    {"requestOverMesh", "true", "row 52 / Transport 4: the request crosses the network to a finder arbiter (N.10)"},
     {"sessionPreciseOnGrant", "true", "Transport 2: LOCATED_PRECISE on a confirmed grant"},
     {"vizEvents", "true", "rule 13: events_ written and digested"},
     {"digestVizOutputs", "true", "rule 13 / M.4: the visualiser's outputs digested, which the row above claimed before they were"},
@@ -18018,6 +18019,13 @@ main(int argc, char* argv[])
         (!spec.finderSessions || !spec.requesterEscalation))
     {
         spec.finderRequesterEscalation = false;
+    }
+    // N.10. Applied by the preset while the user turned its prerequisite off explicitly:
+    // unused, not refused (as the preset's other dependent settings).
+    if (spec.requestOverMesh && specProfileOn && !explicitFlags.count("requestOverMesh") &&
+        !spec.requesterEscalation)
+    {
+        spec.requestOverMesh = false;
     }
     if (spec.requestOverMesh && !spec.requesterEscalation)
     {
