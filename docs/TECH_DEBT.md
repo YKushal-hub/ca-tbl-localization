@@ -1906,7 +1906,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
 | N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
 | N.13 | Case C shapes are coarse on 868 MHz | recorded |
-| N.14 | a UWB range never improves a fix the floor can make | REOPENED 2026-10-04: FUSE-01b (oracle closed) fails the registered accuracy bound; the preset drops the flag; for the owner |
+| N.14 | a UWB range never improves a fix the floor can make | CLOSED 2026-10-04 without a fuse: FUSE-01b and FUSE-02 both fail the registered accuracy bound; the flags stay (G63, G85) |
 | N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
 | N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
@@ -2503,6 +2503,13 @@ floor has fewer than three ranges. A floor of three or more is the old floor-fir
 - Its cost, read from the same lines: the endgame's 1-2 range UWB sets are fused only when
   the floor is short (38 UWB unions against 63), so fewer UWB ranges reach a fix (1 against
   2 fixes using UWB ranges, single seed).
+
+*2026-10-04, FUSE-02 (report/FUSE02_RESULTS.md): CLOSED without a fuse.* On the finished
+preset the narrowed fuse raises availability (+0.105 at 5 km, +0.127 in the endgame) and
+brings UWB-delivered fixes to 15 of 20 endgame seeds, but tag 0's 5 km CEP95 is worse by a
+mean +113.9 % per seed, over the registered +10 %. The preset sets no fuse. Both variants
+were measured by registered campaigns and both fail the accuracy bound: FUSE-01b on the
+endgame, FUSE-02 at 5 km.
 
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
