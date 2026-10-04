@@ -2759,6 +2759,17 @@ values are CAL-03's, re-fitted on the finished preset by CAL-02's procedure: wei
 (2.995, 0, 0.005), thresholds up 1.642 / 1.377 / 1.679 and down 1.542 / 1.880. G24: the same
 two zeros; EQUIV, FILE and PCSL pass.
 
+*2026-10-04, CAMP-FINAL (report/CAMP_FINAL_RESULTS.md §4; measured after the registered
+analysis, not a registered prediction):* the integrity check still fires on most preset
+fixes with no fault injected. `ca_tbl_full`, tag 0, SUSPECT over fix cycles, seeds 1-20:
+- A_main (5 km): 5 131 / 6 624 (0.775; per seed 0.21-0.93).
+- B_end (endgame): 13 666 / 14 106 (0.969; per seed 0.95-0.98).
+- C_n8 (N8_ring): 10 233 / 10 974 (0.932; per seed 0.86-0.96).
+
+So the fault matrix's integrity precision (0.12-0.31) is close to the share of fixes inside
+the fault window: the check is not separating the faults. Not changed here: a different
+threshold or eligibility rule is an engine change for its own registered campaign.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
