@@ -1896,7 +1896,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.1 | a silenced radio still forwards other nodes' floods | flag (G70); default unchanged |
 | N.2 | Case A with relays counts one pair twice | fixed under `--sparseInStep` only |
 | N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | components ported and in the preset (2026-10-04, G77-G79); the two copies remain |
-| N.4 | a finder tasked to a subject it never hears stands still | open |
+| N.4 | a finder tasked to a subject it never hears stands still | CLOSED 2026-10-04: resolved under the preset by the finder's own session (DESIGN_DECISIONS §9) |
 | N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
 | N.6 | a radio can put two frames on the air at once | flag (G74); per chip, flag (G84); default unchanged |
 | N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
@@ -2082,6 +2082,18 @@ default would have sent every finder toward tag 0. That is a property of the ass
 (OURS) and the dissemination it rides on, not a defect in the code. Whether a blind finder
 should fall back to its neighbours' targets, or the base station should task finders
 (TA-1), is an open design choice. No result depends on it yet.
+
+*2026-10-04, CLOSED (owner call delegated; docs/DESIGN_DECISIONS.md §9).* Neither fallback.
+The spec's own path resolves it: a finder's session (TA-1b) issues an identity-scoped query,
+and the answer, by proxy from any node holding the entry, merges into the finder's table,
+which is what it steers on. Measured under the preset (seed 7, 900 s, unregistered probe),
+cycles blind per finder 501-504:
+- the preset: 8, 8, 1, 10 of 360;
+- `--finderSessions=false`: 8, 27, **360, 360**, the defect this entry describes;
+- `--finderDigestPeriodS=0`: 10, 19, 1, 38.
+So the finders' own queries carry the steering; digest gossip helps at the margin. A
+subject with no finder (four finders, five subjects) is a deployment property, not this
+defect.
 
 ### N.5 What `--grantGatedUwb` decides that the spec does not
 
