@@ -2419,6 +2419,25 @@ ranges a finder at its true position, except tag 0 when it holds no entry (N.21,
 - Subject results measured before this (GEO-01, CAL-02, CAMP-SPEC, FUSE-01) carry the
   oracle. FUSE-01b re-measures FUSE-01 without it.
 
+*2026-10-04, `--fuseFloorActive` out again (FUSE-01b's registered rule):* FUSE-01b
+(report/FUSE01B_RESULTS.md) repeated FUSE-01 with the subjects' finder oracle closed. Tag 0's
+endgame CEP95 was 13.7 % worse with the fuse, against the rule's +10 %, so the preset drops
+the flag (86 settings). It stays a flag, and N.14 is reopened for the owner.
+- **Two populations that came with the fuse are zero again** in G24's endgame run:
+  - UWB-delivered fixes: 0, as FUSE-01b's off arm had on every endgame seed.
+  - Sessions reaching PRECISE: 0. Under the preset a session is precise on a result whose
+    entry carries a confirmed UWB grant (`--sessionPreciseOnGrant`, TA-3). Tag 0 (target
+    m1) had 6 grants confirmed, but no result that reached a session carried one in this
+    seed. Why this population depended on the fuse is not established: FUSE-01 found tag
+    0's tier occupancy unmoved by it.
+- **Finder requests granted is zero.** One request was routed to a named arbiter and
+  refused; 50 were unroutable. It was 1 before, and is the kind of single-event flip N.19
+  describes, as are Case A fixes (0, 1 before) and grant tie-break verdicts (1, 0 before).
+- **The five zeros:** Case A fixes, triggered updates, UWB-delivered fixes, finder requests
+  granted, and sessions reaching PRECISE.
+- Removing the fuse changes what is transmitted, so G24's other counts moved too. Under rule
+  8 only the control-flow claims above are drawn from them.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
