@@ -1469,6 +1469,21 @@ bash scripts/silence_relay_gate.sh "$WORK/g70" || fail G70
 bash scripts/silence_relay_gate_selftest.sh "$WORK/g70" || fail G70
 finish G70
 
+# ---------------- G71: a dead node draws nothing more (N.20)
+# The listen and sleep accounting never read the battery, so a node whose budget ran out
+# went on paying for reception, the search window and sleep (and tag 0 for the handshakes
+# its coasting filter asked for). Under --deadBatteryNoDraw none of it is billed after the
+# death. G67's regime with --silenceStopsRelay, read by scripts/dead_draw_gate.py:
+#   - by default a dead node's cumJ keeps rising (the defect reproduces); with the flag it
+#     is flat after the death, for tag 0 and every subject;
+#   - the N.20 line recounted from the traces; the control; two refusals.
+#
+# Negative fixtures in scripts/dead_draw_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G71 a dead node draws nothing more (N.20) ---\n'
+bash scripts/dead_draw_gate.sh "$WORK/g71" || fail G71
+bash scripts/dead_draw_gate_selftest.sh "$WORK/g71" || fail G71
+finish G71
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
