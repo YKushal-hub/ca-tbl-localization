@@ -1437,6 +1437,22 @@ bash scripts/subject_pseudo_gate.sh "$WORK/g68" || fail G68
 bash scripts/subject_pseudo_gate_selftest.sh "$WORK/g68" || fail G68
 finish G68
 
+# ---------------- G69: no finder range uses the finder's true position (N.21, tag 0)
+# Under --finderPseudoAnchor tag 0 replaced a finder's true position with its report only
+# when it held an entry, and otherwise kept the truth. Under --finderPseudoAnchorStrict that
+# range is dropped, and a report whose variance cannot be projected is used uninflated.
+# G68's regime with 2 m of finder GNSS error (so a report is never the truth), read by
+# scripts/finder_strict_gate.py:
+#   - tag 0 used reports and dropped ranges it held no entry for;
+#   - every substitution logged; no used position at the truth; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/finder_strict_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G69 no finder range uses the true position (N.21) ---\n'
+bash scripts/finder_strict_gate.sh "$WORK/g69" || fail G69
+bash scripts/finder_strict_gate_selftest.sh "$WORK/g69" || fail G69
+finish G69
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and
