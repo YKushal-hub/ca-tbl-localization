@@ -1582,6 +1582,20 @@ bash scripts/subject_nlos_gate.sh "$WORK/g78" || fail G78
 bash scripts/subject_nlos_gate_selftest.sh "$WORK/g78" || fail G78
 finish G78
 
+# ---------------- G79: every subject's escalation is vetted by its own witnesses (row 55)
+# Subjects' policies carried --imuCrossCheck and --corroborationCheck, but only tag 0 handed
+# its policy a cross-check, so no subject escalation was ever vetted (Physical 2.6).
+# --subjectIntegrityWitness computes both witnesses per subject. The preset at seed 7, read
+# by scripts/subject_witness_gate.py: files per subject, digested; evaluations and witnesses;
+# lines recounted from files; the witness rules row by row; the control and the WARNING; a
+# refusal of the SHS source.
+#
+# Negative fixtures in scripts/subject_witness_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G79 every subject escalation is vetted (row 55) ---\n'
+bash scripts/subject_witness_gate.sh "$WORK/g79" || fail G79
+bash scripts/subject_witness_gate_selftest.sh "$WORK/g79" || fail G79
+finish G79
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
