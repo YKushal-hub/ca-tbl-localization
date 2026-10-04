@@ -110,8 +110,9 @@ def precise(text):
 
 # mechanism -> (run, reader, flag whose efficacy run reads it (or None))
 MECH = [
-    ("tier-1 TDoA solves", "main", lambda d, n: num(log(d, n), r"solves OK (\d+)"), "tier1Tdoa"),
-    ("NLOS score fed to PCS", "main", lambda d, n: num(log(d, n), r"fed to PCS (\d+)"), "pcsNlosClassifier"),
+    # Tag 0's lines are the unlabelled ones; the subjects' (row 55) have their own rows below.
+    ("tier-1 TDoA solves", "main", lambda d, n: num(log(d, n), r"TDoA tier 1: [^\n]*solves OK (\d+)"), "tier1Tdoa"),
+    ("NLOS score fed to PCS", "main", lambda d, n: num(log(d, n), r"NLOS PCS term 3 = [^\n]*fed to PCS (\d+)"), "pcsNlosClassifier"),
     ("integrity eligibility", "main", lambda d, n: num(log(d, n), r"DC-8 integrity eligibility from NLOS_score: (\d+) eligible"), "integrityNlosFromScore"),
     ("suspect downweighted", "main", lambda d, n: num(log(d, n), r"DC-7 downweighted suspect fixes: (\d+) of"), None),
     ("IMU predict cycles", "main", lambda d, n: num(log(d, n), r"DC-1 IMU: [^\n]*cycles (\d+)"), None),
@@ -155,6 +156,11 @@ MECH = [
     ("sessions reaching PRECISE", "end", lambda d, n: precise(log(d, n)), None),
     ("edge uplink records", "main", lambda d, n: num(log(d, n), r"SY-1 edge uplink: 2.4 GHz frames \d+ records (\d+)"), "edgeUplinkRanges"),
     ("subjects' uplink records", "main", lambda d, n: num(log(d, n), r"subject \d+ 2\.4 GHz frames \d+ records (\d+)"), "subjectEdgeUplink"),
+    # Row 55 / MS-1 step 2: each subject's own components.
+    ("subjects' TDoA solves", "main", lambda d, n: num(log(d, n), r"TDoA tier 1 \(subject \d+\): [^\n]*solves OK (\d+)"), "subjectTier1Tdoa"),
+    ("subjects' NLOS scores fed to PCS", "main", lambda d, n: num(log(d, n), r"NLOS PCS term 3 \(subject \d+\) = [^\n]*fed to PCS (\d+)"), "subjectNlosClassifier"),
+    ("subjects' witness evaluations", "main", lambda d, n: num(log(d, n), r"Row 55 witness \(subject \d+\): IMU evaluations (\d+), [^\n]*witnesses (\d+)", (1, 2)), "subjectIntegrityWitness"),
+    ("subjects' large corrections", "main", lambda d, n: num(log(d, n), r"MC-2 triggered updates \(subjects, \S+\): large correction (\d+)"), "subjectTriggeredUpdates"),
 ]
 
 

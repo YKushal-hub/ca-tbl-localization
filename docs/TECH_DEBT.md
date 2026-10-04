@@ -1873,7 +1873,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 |---|---|---|
 | N.1 | a silenced radio still forwards other nodes' floods | flag (G70); default unchanged |
 | N.2 | Case A with relays counts one pair twice | fixed under `--sparseInStep` only |
-| N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | open (MS-1's deviation) |
+| N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | components ported and in the preset (2026-10-04, G77-G79); the two copies remain |
 | N.4 | a finder tasked to a subject it never hears stands still | open |
 | N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
 | N.6 | a radio can put two frames on the air at once | flag (G74); default unchanged |
@@ -2029,6 +2029,17 @@ by Physical 2.6's witnesses.** The start-up WARNING named the SHS flags, but not
   witnesses over the subjects. Subject 2's policy refused 19 escalations on corroboration.
 - A per-subject SHS engine (`--imuWitnessSource` "" or `shs`) is not built. The flag refuses
   that combination.
+
+*2026-10-04, in the preset (92 settings):* `--subjectTier1Tdoa`, `--subjectNlosClassifier`,
+`--subjectIntegrityWitness` and `--subjectTriggeredUpdates`. Under `--specProfile` the
+start-up WARNING now lists nothing. Two stale items were dropped from it:
+- sessions: under `--sessionOverMesh` every target's RESPONSEs feed the session;
+- `--entryVelocity`: subjects publish their velocity, and carry the finder entries they use
+  forward under `--subjectFinderPseudoAnchor`.
+Each preset-applied value is unused, not refused, when its prerequisite is turned off
+explicitly. Register row 55 is OPT-IN. Still tag 0 only, off the preset: a per-subject SHS
+engine, and the legacy `--sessionLayer` self-feed. The plan's single `RunSubjectCycle` was
+not built, so the two copies of the core this entry opens with remain.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
@@ -2565,6 +2576,19 @@ settings).
 *2026-10-04, `--digestVizOutputs` (M.4):* the preset sets it (88 settings), so the sidecar
 digests the visualiser files the preset writes. Every G24 POP and EFF line is identical to
 the run before it (three seeds since N.19). The same two zeros remain.
+
+*2026-10-04, row 55 (92 settings):* the preset gives every subject tag 0's TDoA, NLOS
+classifier, integrity witnesses and large correction.
+- **Tag 0's populations are now read from tag 0's own lines.** `num()` sums every match, so
+  `solves OK` and `fed to PCS` would otherwise have absorbed the subjects' lines.
+- **Four new populations,** each with an efficacy run, over seeds 7/8/9:
+  - subjects' TDoA solves 14+9+22;
+  - scores fed to PCS 99+133+83;
+  - witness evaluations 437+1 105+730;
+  - large corrections 0+1+1.
+- **The two zeros changed with the channel.** Tag 0's triggered updates are now 0+0+1. Grant
+  tie-break verdicts are 0+0+0 (1+1+0 before). The zeros: grant tie-break verdicts and
+  UWB-delivered fixes.
 
 ### N.16 At 5 km the covariance trace ranks error backwards
 

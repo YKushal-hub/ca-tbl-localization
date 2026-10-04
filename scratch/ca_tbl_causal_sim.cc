@@ -14434,6 +14434,10 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
     {"subjectFinderPseudoAnchor", "true", "MS-1 / N.21: for the subjects too -- no node ranges against a finder's true position"},
     {"finderPseudoAnchorStrict", "true", "MS-1 / N.21: tag 0 too -- a finder range with no report behind it is dropped, never solved against the truth"},
+    {"subjectTier1Tdoa", "true", "MS-1 step 2 / Physical 1.1: every subject's tier 1 is a TDoA exchange too"},
+    {"subjectNlosClassifier", "true", "MS-1 step 2 / Physical 1.3, 2.5: every subject scores its own links"},
+    {"subjectIntegrityWitness", "true", "MS-1 step 2 / Physical 2.6: every subject's escalation is vetted by its own witnesses"},
+    {"subjectTriggeredUpdates", "true", "MS-1 step 2 / MAC 7: every subject sends MC-2's large correction"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
     {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
 };
@@ -17396,6 +17400,33 @@ main(int argc, char* argv[])
                      "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
     }
+    // Row 55. Applied by the preset while the user turned a prerequisite off explicitly:
+    // unused, not refused (as the preset's other dependent settings).
+    if (specProfileOn)
+    {
+        const bool oneSubject = spec.measuredSubjects < 2;
+        if (spec.subjectTier1Tdoa && !explicitFlags.count("subjectTier1Tdoa") &&
+            (!tier1TdoaArg || oneSubject))
+        {
+            spec.subjectTier1Tdoa = false;
+        }
+        if (spec.subjectNlosClassifier && !explicitFlags.count("subjectNlosClassifier") &&
+            (!nlosClassifierArg || oneSubject))
+        {
+            spec.subjectNlosClassifier = false;
+        }
+        if (spec.subjectIntegrityWitness && !explicitFlags.count("subjectIntegrityWitness") &&
+            (oneSubject || (!corroborationCheckArg && !imuCrossCheckArg) ||
+             (imuCrossCheckArg && spec.imuWitnessSource != "model")))
+        {
+            spec.subjectIntegrityWitness = false;
+        }
+        if (spec.subjectTriggeredUpdates && !explicitFlags.count("subjectTriggeredUpdates") &&
+            (!spec.triggeredUpdates || oneSubject))
+        {
+            spec.subjectTriggeredUpdates = false;
+        }
+    }
     // Row 55.
     if (spec.subjectIntegrityWitness &&
         (spec.measuredSubjects < 2 || (!corroborationCheckArg && !imuCrossCheckArg) ||
@@ -17517,7 +17548,9 @@ main(int argc, char* argv[])
         {
             only.push_back("--corroborationCheck");
         }
-        if (sessionLayerArg)
+        // Under --sessionOverMesh the session is fed by RESPONSEs from every target; only the
+        // legacy self-feed is tag 0's.
+        if (sessionLayerArg && !spec.sessionOverMesh)
         {
             only.push_back("--sessionLayer");
         }
@@ -17537,9 +17570,11 @@ main(int argc, char* argv[])
         {
             only.push_back("--batteryDepleteJ");
         }
-        if (spec.entryPrediction || spec.entryVelocity)
+        // Subjects publish their velocity under --entryVelocity, and carry the finder entries
+        // they use forward under --subjectFinderPseudoAnchor (N.21).
+        if (spec.entryPrediction && !spec.subjectFinderPseudoAnchor)
         {
-            only.push_back("--entryVelocity/--entryPrediction");
+            only.push_back("--entryPrediction");
         }
         if (spec.imuWitnessSource == "model" && !spec.subjectIntegrityWitness)
         {
