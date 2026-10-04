@@ -146,6 +146,7 @@ MECH = [
     ("finder-session answers", "main", lambda d, n: num(log(d, n), r"TA-1b finder session \(\S+\): finder \d+ target m\d+, answers (\d+)"), None),
     ("requester escalations accepted", "end", lambda d, n: num(log(d, n), r"TA-2 requester escalation[^\n]*at the targets accepted (\d+)"), "requesterEscalation"),
     ("finder requests granted", "end", lambda d, n: num(log(d, n), r"TA-1b finder requester escalation \(\S+\): [^\n]*granted (\d+)"), "finderRequesterEscalation"),
+    ("subjects' finder ranges on reports", "end", lambda d, n: num(log(d, n), r"N\.21 finder pseudo-anchors \(subjects, \S+\): [^\n]*reported positions used (\d+)"), "subjectFinderPseudoAnchor"),
     ("sessions reaching PRECISE", "end", lambda d, n: precise(log(d, n)), None),
     ("edge uplink records", "main", lambda d, n: num(log(d, n), r"SY-1 edge uplink: 2.4 GHz frames \d+ records (\d+)"), "edgeUplinkRanges"),
     ("subjects' uplink records", "main", lambda d, n: num(log(d, n), r"subject \d+ 2\.4 GHz frames \d+ records (\d+)"), "subjectEdgeUplink"),

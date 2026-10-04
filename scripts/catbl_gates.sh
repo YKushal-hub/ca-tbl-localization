@@ -1450,7 +1450,7 @@ finish G68
 #   - every mechanism has a non-zero population in its registered run (a zero is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
-# FAIL BY FINDING today: three mechanisms have no population under the preset (TECH_DEBT N.15).
+# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15).
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'

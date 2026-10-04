@@ -13960,6 +13960,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
+    {"subjectFinderPseudoAnchor", "true", "MS-1 / N.21: for the subjects too -- no node ranges against a finder's true position"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
     {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
 };
@@ -16790,7 +16791,14 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
-    // N.21.
+    // N.21. Applied by the preset while the user turned a prerequisite off explicitly:
+    // unused, not refused (as the preset's other dependent settings).
+    if (spec.subjectFinderPseudoAnchor && specProfileOn &&
+        !explicitFlags.count("subjectFinderPseudoAnchor") &&
+        (!finderPseudoAnchorArg || spec.measuredSubjects < 2))
+    {
+        spec.subjectFinderPseudoAnchor = false;
+    }
     if (spec.subjectFinderPseudoAnchor && (!finderPseudoAnchorArg || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectFinderPseudoAnchor needs --finderPseudoAnchor and "
