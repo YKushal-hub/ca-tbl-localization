@@ -1608,6 +1608,23 @@ bash scripts/toa_table_gate.sh "$WORK/g80" || fail G80
 bash scripts/toa_table_gate_selftest.sh "$WORK/g80" || fail G80
 finish G80
 
+# ---------------- G81: a requester's request travels as a frame (register row 52; N.10)
+# A requester's escalation request was handed to its arbiter's MAC instantly and unbilled,
+# even when the arbiter was a moving finder. --requestOverMesh carries it as an on-behalf
+# ESC_REQUEST: from the gateway that heard the finder arbiter (the base station's), or from
+# the finder's own radio (a named request). G64's regime, read by scripts/reqcarry_gate.py:
+#   - every carriage has the right carrier, which had heard the arbiter;
+#   - every request to a finder arbiter is carried or unheard, with its carriage row;
+#   - every obo_submit has exactly one cause, a carried one the frame's delivery, never the
+#     carriage instant; every delivery is scored;
+#   - the N.10 line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/reqcarry_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G81 a requester request travels as a frame (N.10) ---\n'
+bash scripts/reqcarry_gate.sh "$WORK/g81" || fail G81
+bash scripts/reqcarry_gate_selftest.sh "$WORK/g81" || fail G81
+finish G81
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each

@@ -79,6 +79,10 @@ CaTblEventPayload(const CaTblHeader& h)
     {
         o << ";obo=1"; // TA-2
     }
+    if (h.GetReqSubject() != 0)
+    {
+        o << ";for=" << h.GetReqSubject(); // N.10
+    }
     if (h.GetAckedPacketId() != 0)
     {
         o << ";acks=" << h.GetAckedPacketId();
@@ -1036,6 +1040,21 @@ CaTblMac::SubmitRequestOnBehalf(uint16_t target, uint8_t degradationQ, uint8_t r
     return v;
 }
 
+void
+CaTblMac::SendRequestOnBehalf(uint16_t arbiterId, uint16_t subject, uint8_t degradationQ,
+                              uint8_t remainingQ, uint8_t queryTriggered, CaTblTier tier)
+{
+    m_nextReqDegradation = degradationQ;
+    m_nextReqBattery = remainingQ;
+    m_nextReqSubject = subject;
+    m_nextReqSubjectQT = queryTriggered;
+    if (!m_silent)
+    {
+        ++m_oboFramesSent;
+    }
+    Send(CA_TBL_MSG_ESC_REQUEST, tier, 0, arbiterId);
+}
+
 bool
 CaTblMac::TakeUrgentQuery()
 {
@@ -1416,6 +1435,8 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         m_nextHasRespEntry = false; // NW-9
         m_nextRespManifest = 0;
         m_nextReqQT = 0; // NW-4 / NW-5
+        m_nextReqSubject = 0; // N.10
+        m_nextReqSubjectQT = 0;
         m_nextQueuePos = 0;
         if (m_cfg.handshakeFixes)
         {
@@ -1550,6 +1571,13 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
         f.hdr.SetReqQueryTriggered(m_nextReqQT); // NW-4
     }
     m_nextReqQT = 0;
+    if (type == CA_TBL_MSG_ESC_REQUEST && m_nextReqSubject != 0)
+    {
+        f.hdr.SetReqSubject(m_nextReqSubject); // N.10: the subject's request, not ours
+        f.hdr.SetReqQueryTriggered(m_nextReqSubjectQT);
+    }
+    m_nextReqSubject = 0;
+    m_nextReqSubjectQT = 0;
     f.tier = tier;
     f.nEntries = nEntries;
     f.destId = destId;
@@ -1797,7 +1825,8 @@ CaTblMac::OnAckTimeout(uint32_t packetId)
         {
             m_dropCb(m_cfg.nodeId, f.hdr.GetMsgType(), "retx");
         }
-        if (m_uwbGrantCb && f.hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
+        if (m_uwbGrantCb && f.hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
+            f.hdr.GetReqSubject() == 0) // N.10: a subject's request is not this node's
         {
             m_uwbGrantCb(0, -1); // NW-7: the request ran out of retries unanswered
         }
@@ -1936,7 +1965,8 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
     if (CaTblAckPolicyFor(hdr.GetMsgType()) == CA_TBL_ACK_EXPLICIT &&
         hdr.GetMsgType() != CA_TBL_MSG_ACK && !hdr.GetForceFlood())
     {
-        if (m_cfg.handshakeFixes && hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST)
+        if (m_cfg.handshakeFixes && hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&
+            hdr.GetReqSubject() == 0) // N.10: a subject's request is ACKed to its carrier
         {
             // MC-1. No bare ACK for a request. An ACK sent here, before the arbiter below
             // has run, told the requester "settled" whatever the arbiter then decided, so
@@ -2220,7 +2250,18 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
         }
     }
 
-    if (m_cfg.sendHandshakeFrames)
+    if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST && hdr.GetReqSubject() != 0)
+    {
+        // N.10. A requester's request for another node, carried here as a frame (it was
+        // addressed to this radio, and the bare ACK above settles it with its carrier).
+        // Scored as one handed over directly; the GRANT, if any, goes to the subject.
+        ++m_oboFramesHeard;
+        const int v = SubmitRequestOnBehalf(hdr.GetReqSubject(), hdr.GetReqDegradation(),
+                                            hdr.GetReqBattery(), hdr.GetReqQueryTriggered(),
+                                            static_cast<CaTblTier>(hdr.GetTier()));
+        ++m_oboFramesVerdict[(v == 1) ? 0 : ((v == 0) ? 1 : 2)];
+    }
+    else if (m_cfg.sendHandshakeFrames)
     {
         const CaTblTier rxTier = static_cast<CaTblTier>(hdr.GetTier());
         if (hdr.GetMsgType() == CA_TBL_MSG_ESC_REQUEST &&

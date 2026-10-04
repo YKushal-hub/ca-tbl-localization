@@ -615,6 +615,11 @@ class CaTblHeader : public Header
     //! sect 4), not one the node sent itself. Carried, not serialised; false otherwise.
     void SetGrantOnBehalf(bool b) { m_grantOnBehalf = b; }
     bool GetGrantOnBehalf() const { return m_grantOnBehalf; }
+    //! N.10 (--requestOverMesh). An ESC_REQUEST a node sends for ANOTHER node: the subject
+    //! the request is for, which the frame's requester_id(2) already bills, so it is carried,
+    //! not serialised. 0 (every other frame) means the request is its origin's own.
+    void SetReqSubject(uint16_t s) { m_reqSubject = s; }
+    uint16_t GetReqSubject() const { return m_reqSubject; }
 
     /**
      * \brief MC-2 (--triggeredUpdates). Why a TRIGGERED_UPDATE was sent: 1 = a large
@@ -694,6 +699,7 @@ class CaTblHeader : public Header
     uint8_t m_respManifest = 0;
     uint8_t m_reqQueryTriggered = 0; //!< NW-4, carried not serialised -- see above
     bool m_grantOnBehalf = false;    //!< TA-2, carried not serialised -- see above
+    uint16_t m_reqSubject = 0;       //!< N.10, carried not serialised -- see above
     std::vector<CaTblQueueGossipItem> m_queueItems; //!< NW-6, carried not serialised
 };
 

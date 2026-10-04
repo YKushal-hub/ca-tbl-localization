@@ -722,6 +722,20 @@ class CaTblMac
      */
     int SubmitRequestOnBehalf(uint16_t target, uint8_t degradationQ, uint8_t remainingQ,
                               uint8_t queryTriggered, CaTblTier tier);
+    /**
+     * \brief N.10 (--requestOverMesh). Carry a requester's escalation request for
+     * \p subject to the arbiter \p arbiterId as a frame: an ESC_REQUEST from this radio,
+     * addressed to the arbiter, billed here, and lost if the channel loses it. The arbiter
+     * acts on it only on reception, where it is scored exactly as SubmitRequestOnBehalf
+     * scores a request handed to it, and ACKs it to this node.
+     */
+    void SendRequestOnBehalf(uint16_t arbiterId, uint16_t subject, uint8_t degradationQ,
+                             uint8_t remainingQ, uint8_t queryTriggered, CaTblTier tier);
+    //! N.10. On-behalf request frames this radio sent (retransmissions not counted), and
+    //! those it received as the arbiter, by verdict: granted, queued, refused.
+    uint64_t GetOboFramesSent() const { return m_oboFramesSent; }
+    uint64_t GetOboFramesHeard() const { return m_oboFramesHeard; }
+    uint64_t GetOboFramesVerdict(int k) const { return m_oboFramesVerdict[k]; }
     //! NW-5. One row per arbitration event (grant, preempt, queue, aged grant, out of
     //! range, expire) and per queued candidate scored at a cycle grant. Null = no log.
     void SetArbLog(std::ostream* os) { m_arbLog = os; }
@@ -980,6 +994,11 @@ class CaTblMac
     std::vector<ArbQueued> m_arbQueue;
     bool m_curOnBehalf = false;  //!< TA-2: ArbitrateV2 is scoring a requester's request
     bool m_nextOnBehalf = false; //!< TA-2: consumed by the next GRANT
+    uint16_t m_nextReqSubject = 0; //!< N.10: consumed by the next ESC_REQUEST
+    uint8_t m_nextReqSubjectQT = 0;
+    uint64_t m_oboFramesSent = 0;
+    uint64_t m_oboFramesHeard = 0;
+    uint64_t m_oboFramesVerdict[3] = {0, 0, 0};
     std::map<uint16_t, double> m_uwbEvidence;
     //! Requester side: my queued request -> the anchors holding it in their queue.
     std::map<uint32_t, std::set<uint16_t>> m_queuedReqs;
