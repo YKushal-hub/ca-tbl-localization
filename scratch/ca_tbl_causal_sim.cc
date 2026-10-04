@@ -9505,15 +9505,20 @@ RunArm(CaTblPolicyMode mode,
                 const Time atS = sround->Burst(now, pt);
                 const double atSec = sround->BurstS(t, pt);
                 size_t addressedActive = 0;
-                // N.21. A subject asks the finders' digest question on its active tier, on tag
-                // 0's schedule and as tag 0 does (THE EXCHANGE RUNS BOTH WAYS): the answers land
-                // in the table its ranging reads. Unbilled, as tag 0's question is: the MACs carry
-                // no energy model (TECH_DEBT N.21).
+                // N.21. A subject asks the finders' digest question on its active tier, as tag 0
+                // does (THE EXCHANGE RUNS BOTH WAYS): the answers land in the table its ranging
+                // reads. Unbilled, as tag 0's question is: the MACs carry no energy model.
+                // STAGGERED, not at tag 0's phase: the finders broadcast at phase 0 and tag 0
+                // asks at half a period, and five nodes asking at one instant drowned every
+                // answer -- tag 0 held 0.0 finder entries a cycle instead of 1.9 (seed 7, 5 km).
+                // Subject k of N asks at (0.5 + k / (2N)) of the period (OURS).
                 if (pseudoS && bidirectionalDigest && sendHandshakeFrames && finderDigestPeriodS > 0.0 &&
                     peerMacs[pi][static_cast<size_t>(act)] != nullptr &&
                     !(spec.subjectBatteryDeplete && sb.batteryDead))
                 {
-                    const double phase = finderDigestPeriodS * 0.5;
+                    const double phase =
+                        finderDigestPeriodS *
+                        (0.5 + static_cast<double>(pt) / (2.0 * static_cast<double>(spec.measuredSubjects)));
                     const double ka = std::floor((t - dt - phase) / finderDigestPeriodS);
                     const double kb = std::floor((t - phase) / finderDigestPeriodS);
                     if (kb > ka && t >= phase)
@@ -16183,8 +16188,10 @@ main(int argc, char* argv[])
                  "exactly as tag 0's. With no entry held the range is dropped (received and billed, "
                  "not used): the subject cannot know where the finder is. Tag 0's code keeps the "
                  "true position there, recorded in N.21. Under --bidirectionalDigest the subject "
-                 "also asks the finders' digest question on its active tier, on tag 0's schedule, "
-                 "so it can hold their entries (unbilled, as tag 0's). Writes "
+                 "also asks the finders' digest question on its active tier, every finder digest "
+                 "period, subject k of N at (0.5 + k/(2N)) of it (OURS: staggered off the finders' "
+                 "broadcast and tag 0's question, which one shared instant drowned), so it can "
+                 "hold their entries (unbilled, as tag 0's). Writes "
                  "subjpseudo_<arm>_seed<N>.csv (digested) and one N.21 line. Needs "
                  "--finderPseudoAnchor and --measuredSubjects > 1.",
                  spec.subjectFinderPseudoAnchor);

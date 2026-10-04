@@ -2552,6 +2552,13 @@ pseudo-anchor substitution falls through to `anchorPos`. That is the same leak, 
 because tag 0 asks. Fixing it changes every `--finderPseudoAnchor` result, so it needs its
 own flag value and null control. Open (engineering).
 
+*2026-10-04, staggered:* the flag first had subjects ask at tag 0's instant, half a period
+after the finders broadcast. Five questions at one instant drowned the answers: under the
+preset at 5 km, tag 0 held 0.0 finder entries a cycle instead of 1.9, and so fell back on
+the truth more often. Subject k of N now asks at (0.5 + k/(2N)) of the period (OURS). Tag 0
+then held 2.3 a cycle, and the subjects used 884 reported positions and dropped 142 (seed
+7, 900 s). G68 checks that tag 0's holdings do not fall (TAG0).
+
 **Also seen:** the digest question, tag 0's and now the subjects', is unbilled: the MACs
 carry no energy model (`SetEnergyModel` unset, the 2026-09-27 note), so no MAC-originated
 frame is billed. Recorded, not changed.
