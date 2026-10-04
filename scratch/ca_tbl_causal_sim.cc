@@ -14265,6 +14265,7 @@ main(int argc, char* argv[])
     std::string uwbNlosModelSpec = "legacy"; // M.2: resolved after cmd.Parse()
     std::string radioBasisArg = "sx";        // SY-2: resolved after cmd.Parse()
     bool vizEventsArg = false;
+    bool digestVizOutputsArg = false; // M.4
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
     double gwArcDegArg = 360.0;
@@ -15429,6 +15430,14 @@ main(int argc, char* argv[])
                  "things. Requires --vizEvents. Sampled rather than per-cycle: ten nodes "
                  "at every cycle is ~80k rows and an inspector cannot show that anyway.",
                  vizTablePeriodSArg);
+    cmd.AddValue("digestVizOutputs",
+                 "Digest the visualiser's outputs in run_id.txt (TECH_DEBT M.4). FALSE by "
+                 "default: events_*, nodes_*, nbrtable_*, loctable_* and deployment.json are "
+                 "written under --vizEvents but the sidecar carries no SHA-256 for them, though "
+                 "house rule 4.5 asks for one per output file, and events_* is the only on-disk "
+                 "evidence of some mechanisms (L.1.5's eager push, M.9). TRUE: all five are "
+                 "added to the digest. Nothing else changes. Needs --vizEvents.",
+                 digestVizOutputsArg);
     cmd.AddValue("vizEvents",
                  "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
                  "deployment geometry (deployment.json), for the trace-driven "
@@ -16980,6 +16989,13 @@ main(int argc, char* argv[])
                      "--injectSilentId: without them no radio is ever silenced\n";
         return 1;
     }
+    // M.4. Nothing to digest without the visualiser's files.
+    if (digestVizOutputsArg && !vizEventsArg)
+    {
+        std::cerr << "FATAL: --digestVizOutputs needs --vizEvents: without it no visualiser "
+                     "output is written\n";
+        return 1;
+    }
     // N.21 strict. Applied by the preset while the user turned --finderPseudoAnchor off
     // explicitly: unused, not refused (as the preset's other dependent settings).
     if (spec.finderPseudoAnchorStrict && specProfileOn &&
@@ -18327,6 +18343,12 @@ main(int argc, char* argv[])
     if (anchorGrantGossipSArg > 0.0)
     {
         digestPatterns += " grant_verdicts_*.csv";
+    }
+    // M.4. The visualiser's files; nbrtable_/loctable_ exist only with --vizTablePeriodS,
+    // and a pattern with no match adds nothing.
+    if (digestVizOutputsArg)
+    {
+        digestPatterns += " events_*.csv nodes_*.csv nbrtable_*.csv loctable_*.csv deployment.json";
     }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {

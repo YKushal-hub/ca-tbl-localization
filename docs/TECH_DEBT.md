@@ -1606,6 +1606,16 @@ not digested:** the viz outputs `events_*`, `nodes_*`, `nbrtable_*`, `loctable_*
 add the patterns at the digest call site, as every mechanism on this branch did for its own
 file.
 
+*2026-10-04, `--digestVizOutputs` (G73).* The five patterns go into the digest under the flag,
+and nothing else changes. It is a flag rather than a default because it changes what every
+`--vizEvents` run's sidecar holds. It needs `--vizEvents`.
+- **The preset was affected.** `--specProfile` sets `--vizEvents=true`, and its row read
+  "rule 13: events_ written and digested". It was written and not digested: a G24 preset
+  run wrote `events_`, `nodes_` and `deployment.json`, and its sidecar had no line for them.
+- G73 (seed 7, 300 s, every visualiser output):
+  - with the flag, all five kinds carry a digest line and every line verifies;
+  - with it or without it, every output but `run_id.txt` is byte-identical.
+
 ### M.5 `--tier1ChargeReplies` help text said "FALSE by default" — CLOSED at `db2ac2e`
 
 It was stale from `4779bf7` (2026-09-08), when the default became true, until `db2ac2e`.
