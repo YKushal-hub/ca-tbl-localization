@@ -6014,6 +6014,8 @@ struct SpecOptions
     bool triggeredUpdates = false;
     //! N.3 / row 55. --subjectTriggeredUpdates: subjects 2..N send the large correction too.
     bool subjectTriggeredUpdates = false;
+    //! N.3 / row 55. --subjectBatteryDeplete: subjects 2..N run --batteryDepleteJ's fault too.
+    bool subjectBatteryDeplete = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -8361,7 +8363,7 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<TriggeredUpdateState> trig;
     // N.3 / row 55. The subjects' large corrections, one row each, null without the flag.
     std::unique_ptr<std::ofstream> trigS;
-    uint64_t trigSLarge = 0, trigSBilled = 0;
+    uint64_t trigSLarge = 0, trigSBilled = 0, trigSGasp = 0;
     if (spec.subjectTriggeredUpdates)
     {
         std::ostringstream sfn;
@@ -9492,6 +9494,10 @@ RunArm(CaTblPolicyMode mode,
                 size_t addressedActive = 0;
                 auto rangeS = [&](CaTblTier tier) {
                     std::vector<CaTblRangeMeasurement> out;
+                    if (spec.subjectBatteryDeplete && sb.batteryDead)
+                    {
+                        return out; // N.3: a radio with no power makes no exchange, as tag 0's
+                    }
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(tier)];
                     std::vector<CaTblNeighbour> nb = mm->GetNeighbours(tier, t);
                     std::vector<CaTblNeighbour> keep;
@@ -9603,6 +9609,10 @@ RunArm(CaTblPolicyMode mode,
                 const CaTblTier pendT = sb.pendingHandshakeTier;
                 bool sQT = false; // NW-4: whether the request about to go follows a query
                 auto sendRequest = [&](CaTblTier on, double atT) {
+                    if (spec.subjectBatteryDeplete && sb.batteryDead)
+                    {
+                        return; // N.3: nothing is sent, so nothing is billed
+                    }
                     sb.energy.AccountEscalationHandshake(on, atT);
                     if (sendHandshakeFrames)
                     {
@@ -9651,6 +9661,7 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 if (spec.caseCRelative && actM.empty() && floorM.empty() &&
+                    !(spec.subjectBatteryDeplete && sb.batteryDead) &&
                     !(preempt && act == pendT))
                 {
                     caseCPeers(pt, sb.pos, sb.energy, peerMacs[pi][static_cast<size_t>(act)], act,
@@ -9685,7 +9696,7 @@ RunArm(CaTblPolicyMode mode,
                     {
                         chain->SubjectHolds(pt);
                     }
-                    else if (!(preempt && act == pendT))
+                    else if (!(preempt && act == pendT) && !(spec.subjectBatteryDeplete && sb.batteryDead))
                     {
                         chainM = fuseS ? fusedS : actM; // N.14: relays complete the union
                         chainPk = chain->RangeForSubject(
@@ -9830,7 +9841,7 @@ RunArm(CaTblPolicyMode mode,
                 // subject transmitted on this cycle, with the redundant class's repeats,
                 // billed to the subject (sect 6). Subjects have no battery depletion, so no
                 // last gasp (N.3).
-                if (trigS && tuTr > 0.0 && std::isfinite(tuTr) &&
+                if (trigS && tuTr > 0.0 && std::isfinite(tuTr) && !sb.batteryDead &&
                     peerMacs[pi][static_cast<size_t>(act)] != nullptr)
                 {
                     const double pxS = tuX + tuVx * dt, pyS = tuY + tuVy * dt;
@@ -9861,6 +9872,35 @@ RunArm(CaTblPolicyMode mode,
                                << thrS << ',' << sb.policy.EstX() << ',' << sb.policy.EstY() << ','
                                << pxS << ',' << pyS << ',' << std::setprecision(9)
                                << sb.energy.GetTotalJ() << ',' << frames << '\n';
+                    }
+                }
+                // N.3 / row 55. --batteryDepleteJ's fault, as tag 0's: the cycle the subject's
+                // budget is crossed, its radios fall silent (after one unrepeated LAST GASP on
+                // its active radio under --subjectTriggeredUpdates, queued first and billed),
+                // and from the next cycle it ranges, signals and relays nothing it originates.
+                if (spec.subjectBatteryDeplete && !sb.batteryDead &&
+                    sb.energy.GetTotalJ() >= batteryDepleteJ)
+                {
+                    sb.batteryDead = true;
+                    sb.batteryDeadAtS = t;
+                    CaTblMac* gm = peerMacs[pi][static_cast<size_t>(act)];
+                    if (trigS && gm != nullptr)
+                    {
+                        gm->SendTriggeredUpdate(act, 2);
+                        sb.energy.AccountFrameTx(act, t,
+                                                 gm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
+                        ++trigSGasp;
+                        *trigS << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId
+                               << ",last_gasp," << static_cast<int>(act) << ",,," << sb.policy.EstX()
+                               << ',' << sb.policy.EstY() << ",,," << std::setprecision(9)
+                               << sb.energy.GetTotalJ() << ",1\n";
+                    }
+                    for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+                    {
+                        if (peerMacs[pi][ti] != nullptr)
+                        {
+                            peerMacs[pi][ti]->SetSilent(true);
+                        }
                     }
                 }
                 // The C4 terms, as tag 0's end-of-cycle update.
@@ -13119,6 +13159,8 @@ RunArm(CaTblPolicyMode mode,
         trigS.reset();
         std::cout << "    MC-2 triggered updates (subjects, " << CaTblPolicyModeName(mode)
                   << "): large correction " << trigSLarge << ", frames billed " << trigSBilled
+                  << (spec.subjectBatteryDeplete ? ", last gasp " : "")
+                  << (spec.subjectBatteryDeplete ? std::to_string(trigSGasp) : std::string())
                   << "\n";
     }
     // MC-1. The handshake's outcomes, summed over every MAC. Printed only under the flag.
@@ -13228,6 +13270,21 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    FAULT sect 49: " << suppressed
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
+        }
+        if (spec.subjectBatteryDeplete)
+        {
+            // N.3 / row 55. One line per subject whose budget ran out.
+            for (uint32_t pt = 1; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+            {
+                if (tags[pt].batteryDeadAtS >= 0.0)
+                {
+                    std::cout << "    FAULT sect 49 (subject " << tags[pt].nodeId
+                              << "): battery exhausted at t=" << std::fixed << std::setprecision(1)
+                              << tags[pt].batteryDeadAtS << " s (" << batteryDepleteJ
+                              << " J); radio silent for the remaining "
+                              << (durationS - tags[pt].batteryDeadAtS) << " s\n";
+                }
+            }
         }
         if (batteryDeadAtS >= 0.0)
         {
@@ -15993,6 +16050,16 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("subjectBatteryDeplete",
+                 "Subjects 2..N run --batteryDepleteJ's fault, as tag 0 does (FAULT sect 49; TECH_DEBT "
+                 "N.3, register row 55). FALSE by default: only tag 0's battery runs out, and a "
+                 "start-up WARNING says so. TRUE: the cycle a subject's energy reaches the budget, "
+                 "its radios fall silent, after one unrepeated LAST GASP on its active radio under "
+                 "--subjectTriggeredUpdates (queued first, billed, as tag 0's); from then on it "
+                 "makes no ranging exchange, sends no request and ranges no peer or relay. A silent "
+                 "radio still forwards other nodes' floods (TECH_DEBT N.1). One FAULT line per "
+                 "subject. Needs --batteryDepleteJ > 0 and --measuredSubjects > 1.",
+                 spec.subjectBatteryDeplete);
     cmd.AddValue("subjectTriggeredUpdates",
                  "Subjects 2..N send MC-2's LARGE CORRECTION, as --triggeredUpdates makes tag 0 send "
                  "it (MAC sect 3, 8; TECH_DEBT N.3, register row 55). FALSE by default: only tag 0 "
@@ -16579,6 +16646,12 @@ main(int argc, char* argv[])
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
     // N.3 / row 55.
+    if (spec.subjectBatteryDeplete && (!(batteryDepleteJArg > 0.0) || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectBatteryDeplete needs --batteryDepleteJ > 0 and "
+                     "--measuredSubjects > 1: it extends tag 0's battery fault to the subjects\n";
+        return 1;
+    }
     if (spec.subjectTriggeredUpdates && (!spec.triggeredUpdates || spec.measuredSubjects < 2))
     {
         std::cerr << "FATAL: --subjectTriggeredUpdates needs --triggeredUpdates and "
@@ -16628,7 +16701,7 @@ main(int argc, char* argv[])
         {
             only.push_back("--triggeredUpdates");
         }
-        else if (spec.triggeredUpdates && batteryDepleteJArg > 0.0)
+        else if (spec.triggeredUpdates && batteryDepleteJArg > 0.0 && !spec.subjectBatteryDeplete)
         {
             only.push_back("--triggeredUpdates' last gasp");
         }
@@ -16636,7 +16709,7 @@ main(int argc, char* argv[])
         {
             only.push_back("--edgeUplinkRanges");
         }
-        if (batteryDepleteJArg > 0.0)
+        if (batteryDepleteJArg > 0.0 && !spec.subjectBatteryDeplete)
         {
             only.push_back("--batteryDepleteJ");
         }

@@ -1405,6 +1405,20 @@ bash scripts/subject_trig_gate.sh "$WORK/g66" || fail G66
 bash scripts/subject_trig_gate_selftest.sh "$WORK/g66" || fail G66
 finish G66
 
+# ---------------- G67: subjects run the battery fault and its last gasp (N.3, row 55)
+# --batteryDepleteJ silenced tag 0 only. --subjectBatteryDeplete runs it for the subjects,
+# with a last gasp under --subjectTriggeredUpdates. G34's regime with five subjects and a 3 J
+# budget, read by scripts/subject_battery_gate.py:
+#   - each death at the cycle the subject's trace crosses the budget;
+#   - after it no fix and no frame it originated, but one last gasp, heard;
+#   - the line recounted; the control (the warning); a refusal.
+#
+# Negative fixtures in scripts/subject_battery_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G67 subjects run the battery fault (N.3) ---\n'
+bash scripts/subject_battery_gate.sh "$WORK/g67" || fail G67
+bash scripts/subject_battery_gate_selftest.sh "$WORK/g67" || fail G67
+finish G67
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and

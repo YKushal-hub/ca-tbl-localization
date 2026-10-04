@@ -1844,6 +1844,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
 | N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
+| N.20 | a node whose battery has run out is still billed for listening and sleeping | open (engineering) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -1926,6 +1927,11 @@ There is no last gasp, because subjects have no battery depletion; that stays on
   0-11 times. G66 exercises the path at k = 0.5, where subjects fired 8 times.
 - Why subjects correct by less than tag 0 is not established. They range only on their
   active tier and floor, and have no TDoA or SHS.
+
+*2026-10-04:* `--subjectBatteryDeplete` (G67) runs the battery fault for subjects, with
+the last gasp under `--subjectTriggeredUpdates`. In G67's regime (3 J, 900 s) four subjects
+died, each with one last gasp heard, and none fixed or transmitted after. It inherits N.1
+(a silent radio still forwards floods) and N.20.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
@@ -2491,3 +2497,22 @@ A remedy, not built: read populations over three seeds and call a mechanism zero
 all three are. That is about three more preset runs per configuration, roughly two minutes
 of suite time. It changes what G24 asserts, so it is its own commit with its own selftest.
 Open (engineering, no owner decision).
+
+### N.20 A node whose battery has run out is still billed for listening and sleeping
+
+FAULT sect 49 (`--batteryDepleteJ`) stops a dead node's ranging and silences its radios. The
+listen and sleep accounting does not read the battery state, though. So a dead node goes on
+paying for:
+- the neighbour-search listen window while it has no neighbours;
+- the receive charge for frames delivered to its awake radio;
+- sleep.
+
+Measured while building G67 (seed 7, 900 s, a 3 J budget):
+- tag 0 died at 395 s at 3.01 J and ended at 3.23 J;
+- subject 5, with no neighbours, died at 230 s and ended at 12.3 J.
+
+So every `--batteryDepleteJ` run overstates the energy a dead node draws. A dead radio draws
+nothing. The fault's control-flow claims (no exchange, no fix, no frame) are unaffected.
+
+A fix changes what every existing `--batteryDepleteJ` run bills. It would need its own flag
+value and null control (plan §0 rule 12), like N.1's. Open (engineering).
