@@ -22,6 +22,9 @@ Checks (each prints "G24 ok|FAIL|MISSING <LABEL> ..."):
   NOHV      --hopVarianceTerms is not in the preset (owner decision 2026-10-03, TECH_DEBT
             N.11): spec_profile.txt does not set it, and no NW-1 hop-variance line is printed
             in main/ or end/.
+  PCSL      x_pcsleg, the preset with --pcsForm=legacy given explicitly (CAL-03's data
+            configuration), applies none of the preset's calibrated weights or thresholds:
+            it prints no "PCS form ... resolved" NOTE, while main/ prints the calibrated one.
   POP <m>   one line per mechanism: its population, summed over the three seeds of its
             registered configuration (gasp: one run), is > 0. A mechanism of one or two
             events a run used to flip between zero and non-zero with the channel on a
@@ -209,6 +212,12 @@ def main():
     hvl = [n for n in ("main", "end") if "NW-1 hop variance terms" in log(d, n)]
     report(not hv and not hvl, "NOHV",
            f"--hopVarianceTerms set by the preset in {hv} and its NW-1 line in {hvl} (need none)")
+
+    xl = log(d, "x_pcsleg")
+    okl = (rc(d, "x_pcsleg") == 0 and "PCS form" not in xl and "NOTE: PCS form calibrated resolved" in log(d, "main"))
+    report(okl, "PCSL", f"x_pcsleg (--pcsForm=legacy): exit {rc(d, 'x_pcsleg')}, a resolved-thresholds NOTE "
+           f"{'PCS form' in xl} (need 0, False); main/ prints the calibrated NOTE "
+           f"{'NOTE: PCS form calibrated resolved' in log(d, 'main')}")
 
     zero = []
     for name, run, reader, flag in MECH:

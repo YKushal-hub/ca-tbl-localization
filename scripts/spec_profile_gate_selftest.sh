@@ -88,6 +88,8 @@ fresh; echo 0 > "$T/f/r_n12.rc"; sed -i '/needs --fixRoutingSubjects/d' "$T/f/r_
 check "N8 the preset accepted with --fixRoutingSubjects=false (N.12)" R12
 fresh; sed -i -E '0,/NW-2 weights alpha 0 beta 0 /s//NW-2 weights alpha 1 beta 1 /' "$T/f/main.log"
 check "N9 a router not running the preset's weights (0,0,1,1)" WEIGHTS
+fresh; echo "NOTE: PCS form legacy resolved: up 868/2p4/uwb 3.000016 2.023835 1.501074; down 2p4/uwb 2.3611 1.681203" >> "$T/f/x_pcsleg.log"
+check "N13 the preset's calibrated thresholds applied to a legacy score" PCSL
 fresh; echo 1 > "$T/f/x_froff.rc"
 check "N10 the preset refused with routing turned off explicitly" RUNS
 fresh; echo 'hopVarianceTerms=true  # final plan item 1' >> "$T/f/main/spec_profile.txt"

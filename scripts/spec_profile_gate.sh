@@ -83,6 +83,9 @@ subjectIntegrityWitness --subjectIntegrityWitness=false
 subjectTriggeredUpdates --subjectTriggeredUpdates=false
 LIST
 lim; run eq_preset --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --specProfile=true &
+# CAL-03's data configuration: the preset's calibrated PCS values are unused under an
+# explicit non-calibrated form, not applied to a legacy score.
+lim; run x_pcsleg --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --pcsForm=legacy &
 # routing turned off explicitly, as CAMP-SPEC's single-hop cells do: the preset's routing
 # weights (CAMP-SPEC's pick, 2026-10-03) are then unused, not refused (RUNS).
 lim; run x_froff --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --specProfile=true --relayedRanging=false --relayChain=false --hopVarianceTerms=false --hopProvenance=false --fixRouting=false --fixRoutingConfidence=false --fixRoutingSubjects=false &
