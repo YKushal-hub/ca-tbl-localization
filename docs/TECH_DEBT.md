@@ -2493,6 +2493,17 @@ availability and fails on endgame accuracy. Two calls are open, both for the own
 - try a narrower variant: fuse only when the floor is short. That is the 5 km gain, and
   the 5 km CEP change was +2.6 %.
 
+*2026-10-04, the call (owner call delegated, DESIGN_DECISIONS §9):* the narrower variant,
+decided by a registered campaign (FUSE-02) with FUSE-01's metrics and adoption rule.
+`--fuseFloorShort` (G85) narrows `--fuseFloorActive`: the union is formed only when the
+floor has fewer than three ranges. A floor of three or more is the old floor-first path.
+- G85 (the 3-gateway preset, seed 7, 900 s): the narrowed fuse formed 414 unions in the
+  endgame and 506 at 5 km, none with a floor of three or more. The full fuse formed 729 in
+  the endgame, 302 of them with a floor of three or more.
+- Its cost, read from the same lines: the endgame's 1-2 range UWB sets are fused only when
+  the floor is short (38 UWB unions against 63), so fewer UWB ranges reach a fix (1 against
+  2 fixes using UWB ranges, single seed).
+
 ### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
 
 P6 (2026-10-03, G24). `--specProfile` sets 68 flags. It differs from the plan's §3.1 table

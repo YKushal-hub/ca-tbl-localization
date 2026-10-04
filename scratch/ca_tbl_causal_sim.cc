@@ -6099,6 +6099,8 @@ struct SpecOptions
     bool subjectRelayChain = false;
     //! N.14. --fuseFloorActive: an active tier short of three is fused with the floor.
     bool fuseFloorActive = false;
+    //! N.14 / FUSE-02. --fuseFloorShort: ... only when the floor alone is short of three too.
+    bool fuseFloorShort = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
@@ -10087,7 +10089,8 @@ RunArm(CaTblPolicyMode mode,
                 // N.14, as tag 0's: short active set plus floor, fused (labelled active).
                 std::vector<CaTblRangeMeasurement> fusedS;
                 const bool fuseS = spec.fuseFloorActive && actM.size() < 3 && !floorM.empty() &&
-                                   !(actM.empty() && floorM.size() >= 3);
+                                   !(actM.empty() && floorM.size() >= 3) &&
+                                   !(spec.fuseFloorShort && floorM.size() >= 3); // FUSE-02
                 if (fuseS)
                 {
                     fusedS = actM;
@@ -11707,7 +11710,8 @@ RunArm(CaTblPolicyMode mode,
         // the cycle used them, and they are the precise ones.
         std::vector<CaTblRangeMeasurement> fusedFA;
         const bool fuseFA = spec.fuseFloorActive && activeMeas.size() < 3 && !floorMeas.empty() &&
-                            !(activeMeas.empty() && floorMeas.size() >= 3);
+                            !(activeMeas.empty() && floorMeas.size() >= 3) &&
+                            !(spec.fuseFloorShort && floorMeas.size() >= 3); // FUSE-02
         if (fuseFA)
         {
             fusedFA = activeMeas;
@@ -15254,6 +15258,17 @@ main(int argc, char* argv[])
                  "complete a shorter one. Writes fusefloor_<arm>_seed<N>.csv (digested) and one "
                  "N.14 line. Needs --sparseInStep.",
                  spec.fuseFloorActive);
+    cmd.AddValue("fuseFloorShort",
+                 "Narrow --fuseFloorActive to cycles whose floor is short too (TECH_DEBT N.14; owner "
+                 "call delegated 2026-10-04, DESIGN_DECISIONS 9: a registered campaign, FUSE-02, "
+                 "decides it). FALSE by default: under --fuseFloorActive an active tier short of "
+                 "three is fused with ANY floor set, and FUSE-01b found that this costs tag 0's "
+                 "endgame CEP95 13.7 %, where a floor of three or more could fix alone. TRUE: the "
+                 "union is formed only when the floor has fewer than three ranges, the case that "
+                 "carried FUSE-01's availability gain at 5 km; a floor of three or more is the "
+                 "old floor-first path, so a 1-2 range active set is discarded there as before. "
+                 "Needs --fuseFloorActive.",
+                 spec.fuseFloorShort);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
@@ -18051,6 +18066,12 @@ main(int argc, char* argv[])
         return 1;
     }
     // N.14. The union's one- and two-range sets are solved by Step()'s sparse cases.
+    if (spec.fuseFloorShort && !spec.fuseFloorActive)
+    {
+        std::cerr << "FATAL: --fuseFloorShort needs --fuseFloorActive: it narrows the fuse, and "
+                     "there is no fuse to narrow\n";
+        return 1;
+    }
     if (spec.fuseFloorActive && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --fuseFloorActive needs --sparseInStep: the sparse cases on the "

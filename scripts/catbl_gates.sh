@@ -1668,6 +1668,19 @@ bash scripts/chip_duplex_gate.sh "$WORK/g84" || fail G84
 bash scripts/chip_duplex_gate_selftest.sh "$WORK/g84" || fail G84
 finish G84
 
+# ---------------- G85: the fuse narrowed to a short floor (N.14, FUSE-02)
+# --fuseFloorActive fused a short active set with any floor set, and FUSE-01b found the
+# endgame CEP95 cost over its registered bound. --fuseFloorShort forms the union only when
+# the floor is short too. G63's regime, read by scripts/fuse_short_gate.py:
+#   - under the narrowed fuse no union has a floor of three or more, and unions occur;
+#   - the full fuse does form such unions (the control); the N.14 line; a refusal.
+#
+# Negative fixtures in scripts/fuse_short_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G85 the fuse narrowed to a short floor (N.14) ---\n'
+bash scripts/fuse_short_gate.sh "$WORK/g85" || fail G85
+bash scripts/fuse_short_gate_selftest.sh "$WORK/g85" || fail G85
+finish G85
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
