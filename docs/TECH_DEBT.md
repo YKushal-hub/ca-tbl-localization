@@ -2745,6 +2745,13 @@ row 56 is CONFORMANT.
 - G24's self-test P1 zeroes TDoA in seeds 8 and 9 and keeps seed 7's, since seed 9 now has
   none.
 
+*2026-10-04, `--pcsForm` given explicitly under the preset (CAL-03's prerequisite):* the
+preset's calibrated weights and thresholds are now unused, not applied, when `--pcsForm` is
+given with a form other than `calibrated`. Before, `--specProfile --pcsForm=legacy` compared
+the legacy score with CAL-02's thresholds (`pcsThrUp868` 3.0 among them): neither form, and
+the configuration CAL-03 must generate its data in. An explicit threshold or weight still
+wins. G24 checks it (PCSL) on a 30 s run, with a negative fixture.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,

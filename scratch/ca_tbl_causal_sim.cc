@@ -17298,6 +17298,34 @@ main(int argc, char* argv[])
         }
     }
 
+    // DC-6 / CAL-03. The preset's calibrated weights and thresholds belong to its
+    // --pcsForm=calibrated. With another form given explicitly they are unused, not applied:
+    // a legacy score compared against thresholds fitted for the calibrated one is neither
+    // form. Only values the preset applied are reset; an explicit flag always wins.
+    if (specProfileOn && explicitFlags.count("pcsForm") && pcsFormArg != "calibrated")
+    {
+        static const char* kW[3] = {"pcsW1", "pcsW2", "pcsW3"};
+        double* w[3] = {&pcsW1Arg, &pcsW2Arg, &pcsW3Arg};
+        for (int k = 0; k < 3; ++k)
+        {
+            if (!explicitFlags.count(kW[k]))
+            {
+                *w[k] = -1.0;
+            }
+        }
+        static const char* kTier[CA_TBL_TIER_COUNT] = {"868", "2p4", "Uwb"};
+        for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+        {
+            if (!explicitFlags.count(std::string("pcsThrUp") + kTier[k]))
+            {
+                spec.pcsThrUp[k] = std::numeric_limits<double>::quiet_NaN();
+            }
+            if (!explicitFlags.count(std::string("pcsThrDown") + kTier[k]))
+            {
+                spec.pcsThrDown[k] = std::numeric_limits<double>::quiet_NaN();
+            }
+        }
+    }
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
     if (pcsFormArg == "v2")
     {
