@@ -14123,6 +14123,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"requesterEscalation", "true", "Transport 4: the requester drives escalation"},
     {"sessionPreciseOnGrant", "true", "Transport 2: LOCATED_PRECISE on a confirmed grant"},
     {"vizEvents", "true", "rule 13: events_ written and digested"},
+    {"digestVizOutputs", "true", "rule 13 / M.4: the visualiser's outputs digested, which the row above claimed before they were"},
     {"edgeUplinkRanges", "true", "final plan: the gateway edge server's uplink billed"},
     {"subjectEdgeUplink", "true", "final plan / decision 4: every subject's uplink billed too (row 55)"},
     {"radioBasis", "lr1121", "hardware: tiers 1 and 2 on one LR1121 (SY-2; DS.LR1121.W.APP Rev 2.0)"},

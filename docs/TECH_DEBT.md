@@ -1615,6 +1615,8 @@ and nothing else changes. It is a flag rather than a default because it changes 
 - G73 (seed 7, 300 s, every visualiser output):
   - with the flag, all five kinds carry a digest line and every line verifies;
   - with it or without it, every output but `run_id.txt` is byte-identical.
+- *In the preset* (2026-10-04, 88 settings), which makes its row's claim true. G24's
+  populations are identical with it and without it, line for line.
 
 ### M.5 `--tier1ChargeReplies` help text said "FALSE by default" — CLOSED at `db2ac2e`
 
@@ -2516,6 +2518,10 @@ settings).
   the flag's effect.
 - A preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off
   explicitly.
+
+*2026-10-04, `--digestVizOutputs` (M.4):* the preset sets it (88 settings), so the sidecar
+digests the visualiser files the preset writes. Every G24 POP and EFF line is identical to
+the run before it (three seeds since N.19). The same two zeros remain.
 
 ### N.16 At 5 km the covariance trace ranks error backwards
 
