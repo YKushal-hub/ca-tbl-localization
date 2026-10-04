@@ -1427,7 +1427,8 @@ finish G67
 # no entry for. G57's converging regime with entry prediction, read by
 # scripts/subject_pseudo_gate.py:
 #   - subjects asked and used reported positions; each carried forward as DC-13 says;
-#   - sigma within its bounds; the positions are not the truth; the line recounted;
+#   - sigma within its bounds; the positions are not the truth; tag 0's own finder
+#     entries not drowned by the subjects' questions; the line recounted;
 #   - the control; a refusal.
 #
 # Negative fixtures in scripts/subject_pseudo_gate_selftest.sh, built from these runs (rule 6).

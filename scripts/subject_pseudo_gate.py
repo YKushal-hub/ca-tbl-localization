@@ -22,6 +22,9 @@ Checks (each prints "G68 ok|FAIL|MISSING <LABEL> ..."):
            trace of the entry covariance plus 2 ageVar (a projection never exceeds the trace).
   NOTTRUE  the reported position is not the truth: on some report rows it is more than 1 m
            from the finder's true position (an oracle would put it at 0).
+  TAG0     the subjects' questions do not drown tag 0's: tag 0 holds at least 0.8 x as many
+           finder entries a cycle with the flag as without it (TABLE(reverse) line). Asked at
+           one instant, five questions once cut it from 1.9 to 0.0.
   COUNTS   the N.21 line equals the file (report and dropped rows).
   CONTROL  off/: no subjpseudo_ file and no N.21 line.
   R        the refusal exits 1 with the reason.
@@ -111,6 +114,14 @@ def main():
     report(not pb and rep, "PRED", f"{len(rep)} report rows carried forward as DC-13 says; bad {len(pb)} (need 0)" + (f": {pb[:2]}" if pb else ""))
     report(not sb and rep, "SIGMA", f"sigma_eff within [sigma_raw, sqrt(sigma_raw^2 + trace)] on every report row; bad {len(sb)} (need 0)" + (f": {sb[:2]}" if sb else ""))
     report(far > 0, "NOTTRUE", f"report rows more than 1 m from the finder's true position {far} of {len(rep)} (need > 0)")
+    held = {}
+    for n in ("on", "off"):
+        mh = re.search(r"TABLE\(reverse\): casualty sent \d+ digests, holds (\S+) finder entries per cycle", read(os.path.join(d, n + ".log")) or "")
+        held[n] = float(mh.group(1)) if mh else None
+    if held["on"] is None or held["off"] is None:
+        missing("TAG0", f"no TABLE(reverse) line: on {held['on']}, off {held['off']}")
+    else:
+        report(held["on"] >= 0.8 * held["off"], "TAG0", f"tag 0 holds {held['on']} finder entries a cycle with the flag, {held['off']} without (need >= 0.8 x)")
     m = LINE.search(read(os.path.join(d, "on.log")) or "")
     got = (int(m.group(2)), int(m.group(3))) if m else None
     report(got == (len(rep), len(kept)), "COUNTS", f"N.21 line {got}; recounted {(len(rep), len(kept))}")

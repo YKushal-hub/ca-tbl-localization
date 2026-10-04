@@ -74,6 +74,8 @@ fresh; echo 134 > "$T/f/on.rc"
 check "N8 a run the checks read did not exit 0" 1 RUNS
 fresh; sed -i -E 's/(digests asked )[0-9]+/\10/' "$T/f/on.log"
 check "N9 subjects never asking for finder entries" 1 ROWS
+fresh; sed -i -E 's/(TABLE\(reverse\): casualty sent [0-9]+ digests, holds )[0-9.]+/\10.0/' "$T/f/on.log"
+check "N10 the subjects' questions drowning tag 0's" 1 TAG0
 
 printf '  G68 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
