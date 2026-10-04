@@ -2754,6 +2754,11 @@ the legacy score with CAL-02's thresholds (`pcsThrUp868` 3.0 among them): neithe
 the configuration CAL-03 must generate its data in. An explicit threshold or weight still
 wins. G24 checks it (PCSL) on a 30 s run, with a negative fixture.
 
+*2026-10-04, CAL-03 adopted (97 settings; report/CAL03_RESULTS.md):* the preset's eight PCS
+values are CAL-03's, re-fitted on the finished preset by CAL-02's procedure: weights
+(2.995, 0, 0.005), thresholds up 1.642 / 1.377 / 1.679 and down 1.542 / 1.880. G24: the same
+two zeros; EQUIV, FILE and PCSL pass.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -2777,6 +2782,12 @@ are:
 - the integrity check firing on nearly every preset fix (N.15's populations).
 
 Each would need its own measurement. Open, for the owner, together with N.14.
+
+*2026-10-04, CAL-03 (report/CAL03_RESULTS.md):* at the spec's three gateways the trace ranks
+error the right way at 5 km (held-out ρ(−traceSigma, error) −0.281), and the re-fit keeps it
+(weights (2.995, 0, 0.005)). So the inversion is a property of the eight-gateway ring CAL-02
+was fitted on, not of the preset as it now stands. The causes listed above are not
+established; the final campaign reports the correlation per configuration.
 
 ### N.17 What `--radioBasis=lr1121` decides that the datasheet does not
 
