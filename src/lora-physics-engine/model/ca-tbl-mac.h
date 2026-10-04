@@ -519,6 +519,10 @@ class CaTblMac
     uint64_t GetSelfOverlapTx() const { return m_selfOverlapTx; }
     uint64_t GetHalfDuplexDeferred() const { return m_hdDeferred; }
     uint64_t GetDeafRx() const { return m_deafRx; }
+    //! MAC sect 2 (--reportAirtime). For every DIGEST this radio transmitted, the airtime an
+    //! ENTRY_PUSH carrying its whole valid table would have taken instead: the full push the
+    //! digest exists to avoid. Arithmetic only; nothing reads it but the report.
+    double GetDigestFullPushCfS() const { return m_digestFullPushCfS; }
     uint8_t HalfDuplexMode() const { return m_cfg.halfDuplex; }
     void NoteDeafRx() { ++m_deafRx; }
     //! N.6, per chip (--halfDuplexChip). The MAC of the other band served by the same chip
@@ -881,6 +885,7 @@ class CaTblMac
         uint32_t txAttempts;
         uint32_t repeatsLeft;
         Time enqueuedAt;
+        double cfFullPushS = 0.0; //!< MAC sect 2: a DIGEST's full-table-push counterfactual
     };
 
     void AttemptCad(PendingFrame f);
@@ -1098,6 +1103,7 @@ class CaTblMac
     // N.6.
     Time m_txBusyUntil = Seconds(0.0);
     CaTblMac* m_chipSibling = nullptr; //!< N.6, per chip
+    double m_digestFullPushCfS = 0.0;  //!< MAC sect 2, see GetDigestFullPushCfS
     uint64_t m_chipOverlapTx = 0;
     uint64_t m_chipDeafRx = 0;
     std::deque<std::pair<double, double>> m_ownTx; // the last 16 [start, end), read only under halfDuplex

@@ -1681,6 +1681,20 @@ bash scripts/fuse_short_gate.sh "$WORK/g85" || fail G85
 bash scripts/fuse_short_gate_selftest.sh "$WORK/g85" || fail G85
 finish G85
 
+# ---------------- G86: airtime per tier and message type (MAC sect 2, Transport sect 7)
+# The spec asks for the airtime the digest saves against full pushes, and reverse-path routing
+# against flooding, as reported numbers. --reportAirtime sums every MAC's own counters per
+# tier and message type, with a full-push counterfactual per DIGEST sent. The preset with the
+# report, without it, and with --reversePath=false, read by scripts/airtime_gate.py:
+#   - the report changes nothing else; its rows add up to the frames the channel carried;
+#   - every tier with digests has a counterfactual; the flooding pair is what it claims.
+#
+# Negative fixtures in scripts/airtime_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G86 airtime per tier and message type (MAC sect 2) ---\n'
+bash scripts/airtime_gate.sh "$WORK/g86" || fail G86
+bash scripts/airtime_gate_selftest.sh "$WORK/g86" || fail G86
+finish G86
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
