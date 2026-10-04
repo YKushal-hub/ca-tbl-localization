@@ -1,0 +1,1 @@
+--arms=ca_tbl_full --seed=7 --duration=1200 --trace=true --sparseCaseA=true --nGateways=3 --boxHalf=2000
