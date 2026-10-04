@@ -6022,6 +6022,8 @@ struct SpecOptions
     bool finderPseudoAnchorStrict = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
+    //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
+    bool reportRecedingPushes = false;
     //! N.6. --halfDuplex: 0 off, 1 count only, 2 enforce.
     uint32_t halfDuplex = 0;
     //! N.20. --deadBatteryNoDraw: a node whose battery has run out is not billed for
@@ -13605,6 +13607,20 @@ RunArm(CaTblPolicyMode mode,
                       << ", approaching " << mobCounts[1] << ", receding " << mobCounts[2]
                       << "\n";
         }
+        if (spec.reportRecedingPushes)
+        {
+            // M.9. Summed over every radio of every node.
+            uint64_t started = 0, sent = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                started += macs[i].GetRecedingPushesStarted();
+                sent += macs[i].GetRecedingPushesSent();
+            }
+            std::cout << "    M.9 RECEDING pushes (" << CaTblPolicyModeName(mode)
+                      << "): handshakes on the RECEDING branch " << started
+                      << ", push frames transmitted " << sent
+                      << " (the redundant class repeats each up to 3 times)\n";
+        }
         if (lifecycleTracking)
         {
             std::cout << "    sect 24-27 LIFECYCLE: tracked "
@@ -15459,6 +15475,14 @@ main(int argc, char* argv[])
                  "evidence of some mechanisms (L.1.5's eager push, M.9). TRUE: all five are "
                  "added to the digest. Nothing else changes. Needs --vizEvents.",
                  digestVizOutputsArg);
+    cmd.AddValue("reportRecedingPushes",
+                 "Count L.1.5's RECEDING eager push (TECH_DEBT M.9). FALSE by default: under "
+                 "--mobilityFromRange a node whose mean measured range is growing skips the "
+                 "digest and pushes its entry once as a TRIGGERED_UPDATE, and nothing counts it; "
+                 "its only trace is rows of events_*. TRUE: one M.9 line with the handshakes that "
+                 "took the RECEDING branch and the pushes transmitted, summed over every radio. "
+                 "A report only; nothing else changes. Needs --mobilityFromRange.",
+                 spec.reportRecedingPushes);
     cmd.AddValue("vizEvents",
                  "Emit a per-frame event log (events_<arm>_seed<N>.csv) and the "
                  "deployment geometry (deployment.json), for the trace-driven "
@@ -17010,6 +17034,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // M.9. Nothing takes the RECEDING branch without mobility state.
+    if (spec.reportRecedingPushes && !mobilityFromRangeArg)
+    {
+        std::cerr << "FATAL: --reportRecedingPushes needs --mobilityFromRange: without it "
+                     "every node reports STATIONARY and no push is ever made\n";
+        return 1;
+    }
     // N.20.
     if (spec.deadBatteryNoDraw && (!(batteryDepleteJArg > 0.0) || !spec.silenceStopsRelay))
     {

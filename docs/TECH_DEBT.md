@@ -1686,6 +1686,14 @@ runs". It has been false since `50a229a`.
 - *2026-10-03, MS-1:* `subject_summary.csv` exists under `--measuredSubjects > 1`, but
   triggered updates still run for tag 0 only (a start-up WARNING says so, N.3), so the
   RECEDING push has nowhere per-subject to be counted yet. Open.
+- *2026-10-04, `--reportRecedingPushes` (G75):* one M.9 line, summed over every radio:
+  - the handshakes that took the RECEDING branch;
+  - the push frames transmitted. TRIGGERED_UPDATE is the redundant class, so a push is a
+    first frame and up to two repeats under one packet id.
+  A report only; it needs `--mobilityFromRange`.
+  - In G75 (seed 7, 900 s, triggered updates off): 36 handshakes, 64 frames. All 36 pushes
+    were heard (36 distinct packet ids from node 1 at the originator's hop limit).
+  - Subjects run no handshake, so the count is tag 0's. The per-subject half waits on N.3.
 
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
