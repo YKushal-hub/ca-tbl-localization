@@ -1568,6 +1568,20 @@ bash scripts/subject_tdoa_gate.sh "$WORK/g77" || fail G77
 bash scripts/subject_tdoa_gate_selftest.sh "$WORK/g77" || fail G77
 finish G77
 
+# ---------------- G78: every measured subject scores its own links (row 55)
+# Under --nlosClassifier only tag 0's links were scored, so a subject's PCS term 3 and
+# integrity eligibility had nothing to read. --subjectNlosClassifier gives each subject its
+# own classifier. The preset at seed 7, read by scripts/subject_nlos_gate.py: files per
+# subject, digested; scored links; the subjects' own Step() fed the score to PCS; fix cycles
+# recounted from the subject traces; tag 0's line unchanged; the control and the WARNING;
+# a refusal.
+#
+# Negative fixtures in scripts/subject_nlos_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G78 every subject scores its own links (row 55) ---\n'
+bash scripts/subject_nlos_gate.sh "$WORK/g78" || fail G78
+bash scripts/subject_nlos_gate_selftest.sh "$WORK/g78" || fail G78
+finish G78
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each

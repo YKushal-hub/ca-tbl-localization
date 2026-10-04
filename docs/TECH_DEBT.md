@@ -2005,6 +2005,14 @@ includes the N.21 drops.
 - Under the preset (seed 7, 900 s, 5 km), subject 2 had 99 tier-1 fix cycles and 11 OK
   solves. Subjects 3-5 had 0-3 tier-1 fix cycles, since they are rarely on the floor with
   three gateways.
+
+*2026-10-04:* `--subjectNlosClassifier` (G78) gives each subject its own instance of tag 0's
+classifier: its own 868 MHz variability windows, 2.4 GHz reference pool, and UWB CIR stream
+(+97 x the subject index). It scores exactly the links the subject's ranging decodes. Its
+policy then reads the scores for PCS term 3 and integrity eligibility, as tag 0's does.
+- Under the preset (seed 7, 900 s), the subjects scored 1 469 links, and their own Step()
+  fed the score to PCS on 135 cycles: subject 2 on 133 of its 145 fix cycles, subjects 3-5
+  on 0-1 of their 3-4.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
