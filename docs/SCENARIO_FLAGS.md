@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 214 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 215 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 176 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 209 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 210 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 208 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 209 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 206 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 207 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 207 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 208 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 199 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,23 +92,25 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 198 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectTriggeredUpdates` (row 205 of §3, and its §1 row): added with the default `false`
+- `--subjectTriggeredUpdates` (row 206 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectBatteryDeplete` (row 204 of §3, and its §1 row): added with the default `false`
+- `--subjectBatteryDeplete` (row 205 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectFinderPseudoAnchor` (row 203 of §3, and its §1 row): added with the default `false`
+- `--subjectFinderPseudoAnchor` (row 204 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--finderPseudoAnchorStrict` (row 202 of §3, and its §1 row): added with the default `false`
+- `--finderPseudoAnchorStrict` (row 203 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--silenceStopsRelay` (row 201 of §3, and its §1 row): added with the default `false`
+- `--silenceStopsRelay` (row 202 of §3, and its §1 row): added with the default `false`
   (N.1). Every row after it moved down one.
 - `--deadBatteryNoDraw` (row 200 of §3, and its §1 row): added with the default `false`
   (N.20). Every row after it moved down one.
 - `--digestVizOutputs` (row 131 of §3, and its §1 row): added with the default `false`
   (M.4). Every row after it moved down one.
+- `--halfDuplex` (row 201 of §3, and its §1 row): added with the default `0`
+  (N.6). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-seventy-two names. Three flags changed meaning without changing their printed default, and §1
+seventy-three names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -217,6 +219,7 @@ precondition missing.
 | `--silenceStopsRelay` | bool | `false` | added 2026-10-04 | N.1: while a radio is silenced (a spent battery under `--batteryDepleteJ` / `--subjectBatteryDeplete`, or `--injectSilentId`), the MAC refuses at CAD every frame another node originated, and counts it; new relays, queued relays, their CAD retries, repeats and retransmissions alike. The node's own frames are untouched, so a frame queued before the silence (MC-2's last gasp) still leaves. One N.1 line (G70) | needs `--batteryDepleteJ` > 0 or `--injectSilentId`, else FATAL |
 | `--deadBatteryNoDraw` | bool | `false` | added 2026-10-04 | N.20: from the cycle its budget runs out, a dead node (tag 0, and each subject under `--subjectBatteryDeplete`) is billed for no reception, no neighbour-search window and no sleep, and tag 0 for no escalation handshake (its frame was already suppressed). A frame it transmitted (the last gasp, a relay past CAD) is still billed. One N.20 line (G71) | needs `--batteryDepleteJ` > 0 and `--silenceStopsRelay`, else FATAL |
 | `--digestVizOutputs` | bool | `false` | added 2026-10-04 | M.4: `events_*`, `nodes_*`, `nbrtable_*`, `loctable_*` and `deployment.json` get a SHA-256 line in `run_id.txt`; without it they are written under `--vizEvents` and not digested (house rule 4.5). Nothing else changes (G73) | needs `--vizEvents`, else FATAL |
+| `--halfDuplex` | uint: 0, 1, 2 | `0` | added 2026-10-04 | N.6: every radio half-duplex. 1 counts the frames that came due while the radio's own frame was on air and the receptions made while transmitting, and changes nothing else (outputs byte-identical to 0); 2 sends such a frame back to CAD when the own frame ends, and drops such a reception (an `events_` row with outcome `halfduplex`). Per radio. One N.6 line (G74) | any other value is FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -444,17 +447,18 @@ prints it.
 | 198 | `--subjectEdgeUplink` | `false` |
 | 199 | `--edgeUplinkRanges` | `false` |
 | 200 | `--deadBatteryNoDraw` | `false` |
-| 201 | `--silenceStopsRelay` | `false` |
-| 202 | `--finderPseudoAnchorStrict` | `false` |
-| 203 | `--subjectFinderPseudoAnchor` | `false` |
-| 204 | `--subjectBatteryDeplete` | `false` |
-| 205 | `--subjectTriggeredUpdates` | `false` |
-| 206 | `--triggeredUpdates` | `false` |
-| 207 | `--triggeredUpdateK` | `1` |
-| 208 | `--handshakeFixes` | `false` |
-| 209 | `--queryTierBinding` | (empty) |
-| 210 | `--uwbArbitration` | `false` |
-| 211 | `--arbBatteryCapJ` | `1000` |
-| 212 | `--anchorGrantGossipS` | `0` |
-| 213 | `--suspectForcesEscalation` | `true` |
-| 214 | `--nlosSource` | `legacy` |
+| 201 | `--halfDuplex` | `0` |
+| 202 | `--silenceStopsRelay` | `false` |
+| 203 | `--finderPseudoAnchorStrict` | `false` |
+| 204 | `--subjectFinderPseudoAnchor` | `false` |
+| 205 | `--subjectBatteryDeplete` | `false` |
+| 206 | `--subjectTriggeredUpdates` | `false` |
+| 207 | `--triggeredUpdates` | `false` |
+| 208 | `--triggeredUpdateK` | `1` |
+| 209 | `--handshakeFixes` | `false` |
+| 210 | `--queryTierBinding` | (empty) |
+| 211 | `--uwbArbitration` | `false` |
+| 212 | `--arbBatteryCapJ` | `1000` |
+| 213 | `--anchorGrantGossipS` | `0` |
+| 214 | `--suspectForcesEscalation` | `true` |
+| 215 | `--nlosSource` | `legacy` |

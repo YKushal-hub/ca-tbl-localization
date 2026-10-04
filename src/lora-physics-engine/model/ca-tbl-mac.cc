@@ -1694,6 +1694,18 @@ CaTblMac::DoTransmit(PendingFrame f)
     {
         return;
     }
+    // N.6. This radio's own previous frame is still on air.
+    if (m_cfg.halfDuplex != 0 && Simulator::Now() < m_txBusyUntil)
+    {
+        ++m_selfOverlapTx;
+        if (m_cfg.halfDuplex == 2)
+        {
+            // Half-duplex: wait for the frame to end, then contend again (a fresh CAD).
+            ++m_hdDeferred;
+            Simulator::Schedule(m_txBusyUntil - Simulator::Now(), &CaTblMac::AttemptCad, this, f);
+            return;
+        }
+    }
 
     const uint32_t payload =
         CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
@@ -1723,6 +1735,18 @@ CaTblMac::DoTransmit(PendingFrame f)
     }
 
     m_channel->Transmit(m_cfg.nodeId, f.tier, f.hdr, toa, m_txPowerDbm, f.destId);
+    if (Simulator::Now() + toa > m_txBusyUntil)
+    {
+        m_txBusyUntil = Simulator::Now() + toa; // N.6: read only under halfDuplex
+    }
+    if (m_cfg.halfDuplex != 0)
+    {
+        m_ownTx.emplace_back(Simulator::Now().GetSeconds(), (Simulator::Now() + toa).GetSeconds());
+        if (m_ownTx.size() > 16)
+        {
+            m_ownTx.pop_front();
+        }
+    }
 
     // Explicit ACK (§2.8): only the escalation exchange and an own-entry QUERY
     // response. Arm a timeout so a lost grant surfaces as a retransmission
@@ -2725,6 +2749,28 @@ CaTblChannel::CompleteTransmission(uint64_t txnId)
         if (!mine.received)
         {
             continue; // lost to path loss / fading / external interference
+        }
+        // N.6. The receiving radio transmitted during part of this frame. Evaluated after
+        // the link so that count-only mode draws exactly what mode 0 draws.
+        if (rx->HalfDuplexMode() != 0)
+        {
+            const bool deaf = rx->TransmittedDuring(me.start.GetSeconds(), me.end.GetSeconds());
+            if (deaf)
+            {
+                rx->NoteDeafRx();
+                if (rx->HalfDuplexMode() == 2)
+                {
+                    if (m_eventLog != nullptr)
+                    {
+                        *m_eventLog << Simulator::Now().GetSeconds() << ','
+                                    << static_cast<int>(me.tier) << ',' << me.txId << ',' << rxId
+                                    << ',' << CaTblMsgTypeName(me.hdr.GetMsgType())
+                                    << ",halfduplex," << mine.rxPowerDbm << ','
+                                    << CaTblEventPayload(me.hdr) << '\n';
+                    }
+                    continue;
+                }
+            }
         }
 
         // Capture arbitration against our own concurrent transmitters.

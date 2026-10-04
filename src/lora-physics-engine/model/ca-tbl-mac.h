@@ -338,6 +338,15 @@ struct CaTblMacConfig
     //! queued before the silence -- MC-2's last gasp -- still leaves. False keeps the old
     //! behaviour.
     bool silenceStopsRelay = false;
+    //! TECH_DEBT N.6. CaTblChannel::IsBusy() skips the observer's own transmissions, so a MAC
+    //! with two frames queued could start the second while the first was on air, and a
+    //! node received other nodes' frames while transmitting. A real radio is half-duplex.
+    //! 0 (default): unchanged. 1: COUNT ONLY -- every place a half-duplex radio would have
+    //! deferred or been deaf is counted, and nothing else changes (outputs byte-identical
+    //! to 0). 2: ENFORCE -- a frame whose turn comes while the radio's own frame is on air
+    //! goes back to CAD when that frame ends, and a frame arriving while the radio
+    //! transmitted any part of it is not received.
+    uint8_t halfDuplex = 0;
     //! NW-9. QUERY and RESPONSE carry what the spec says. A QUERY carries its query id,
     //! manifest list, requester and priority; a node answers EVERY listed manifest it can
     //! (as the target, or by proxy from a fresh entry), with a RESPONSE carrying the
@@ -498,6 +507,28 @@ class CaTblMac
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
     //! N.1. Other nodes' frames refused at CAD while silenced (silenceStopsRelay only).
     uint64_t GetSilentRelayRefused() const { return m_silentRelayRefused; }
+    //! N.6 (halfDuplex 1 or 2). Frames whose transmission came due while this radio's own
+    //! previous frame was on air; of those, sent back to CAD (2 only); and receptions of
+    //! other nodes' frames that overlapped one of this radio's own (lost under 2 only).
+    uint64_t GetSelfOverlapTx() const { return m_selfOverlapTx; }
+    uint64_t GetHalfDuplexDeferred() const { return m_hdDeferred; }
+    uint64_t GetDeafRx() const { return m_deafRx; }
+    uint8_t HalfDuplexMode() const { return m_cfg.halfDuplex; }
+    void NoteDeafRx() { ++m_deafRx; }
+    //! N.6. Whether this radio transmitted during any part of [s, e). Read from its own
+    //! recent transmissions, not the channel's in-flight list: the channel erases a frame
+    //! when it completes, so a frame ending later never sees it (TECH_DEBT N.22).
+    bool TransmittedDuring(double s, double e) const
+    {
+        for (size_t i = 0; i < m_ownTx.size(); ++i)
+        {
+            if (m_ownTx[i].first < e && s < m_ownTx[i].second)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
     //! The channel this MAC is registered on, i.e. which radio it is. Read by the
@@ -1021,6 +1052,12 @@ class CaTblMac
     uint64_t m_asleepRefused = 0;
     // N.1.
     uint64_t m_silentRelayRefused = 0;
+    // N.6.
+    Time m_txBusyUntil = Seconds(0.0);
+    std::deque<std::pair<double, double>> m_ownTx; // the last 16 [start, end), read only under halfDuplex
+    uint64_t m_selfOverlapTx = 0;
+    uint64_t m_hdDeferred = 0;
+    uint64_t m_deafRx = 0;
     double m_rebroadcastAirS = 0.0;
     uint64_t m_rebroadcastFrames = 0;
 };
