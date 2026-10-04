@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 224 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 225 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 181 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 219 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 220 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 218 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 219 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 216 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 217 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 217 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 218 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 204 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,15 +92,15 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 203 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectTriggeredUpdates` (row 215 of §3, and its §1 row): added with the default `false`
+- `--subjectTriggeredUpdates` (row 216 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectBatteryDeplete` (row 214 of §3, and its §1 row): added with the default `false`
+- `--subjectBatteryDeplete` (row 215 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectFinderPseudoAnchor` (row 213 of §3, and its §1 row): added with the default `false`
+- `--subjectFinderPseudoAnchor` (row 214 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--finderPseudoAnchorStrict` (row 212 of §3, and its §1 row): added with the default `false`
+- `--finderPseudoAnchorStrict` (row 213 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--silenceStopsRelay` (row 211 of §3, and its §1 row): added with the default `false`
+- `--silenceStopsRelay` (row 212 of §3, and its §1 row): added with the default `false`
   (N.1). Every row after it moved down one.
 - `--deadBatteryNoDraw` (row 205 of §3, and its §1 row): added with the default `false`
   (N.20). Every row after it moved down one.
@@ -126,9 +126,11 @@ for each change.** Row numbers below are as of the latest regeneration:
   (M.3). Every row after it moved down one.
 - `--collisionBothLost` (row 210 of §3, and its §1 row): added with the default `false`
   (N.22). Every row after it moved down one.
+- `--halfDuplexChip` (row 211 of §3, and its §1 row): added with the default `false`
+  (N.6, per chip). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-eighty-two names. Three flags changed meaning without changing their printed default, and §1
+eighty-three names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -247,6 +249,7 @@ precondition missing.
 | `--requestOverMesh` | bool | `false` | added 2026-10-04 | N.10 (register row 52): a requester's escalation request reaches its arbiter as a frame. When the base station's arbiter is a finder, the gateway that heard it most recently on 2.4 GHz sends it an on-behalf ESC_REQUEST (a gateway arbiter stays on the backhaul); a finder's named request leaves its own 2.4 GHz radio. Billed to the sender, lossy, ACKed and retried, scored only on reception; with no carrier that hears the arbiter it is unheard and not sent (one hop, OURS). Writes `reqcarry_<arm>_seed<N>.csv` (digested) and one N.10 line (G81) | needs `--requesterEscalation`, else FATAL |
 | `--stampBuildCommit` | bool | `false` | added 2026-10-04 | M.3: `run_id.txt` gains `build source <commit> dirty <n>`, stamped into the binary at build time by `scratch/catbl_build_stamp.cmake` with the `source` line's own rule, so a sidecar names the tree that compiled the binary whatever directory it ran from (`unknown dirty -1` if the build tree was not a git checkout). Nothing else changes (G82) | — |
 | `--collisionBothLost` | bool | `false` | added 2026-10-04 | N.22: the channel keeps a completed frame while a frame on air overlaps it and judges the later-ending frame against it by the capture rule, so both colliding frames can be lost; each such loss is an events_ row `collision_late` with `;by=<sender>:<packet id>`. Changes every channel: no magnitude compares across it (rule 8). One N.22 line (G83) | — |
+| `--halfDuplexChip` | bool | `false` | added 2026-10-04 | N.6 per chip: under `--halfDuplex` 1 or 2 and `--radioBasis=lr1121`, each node's 868 MHz and 2.4 GHz MACs are one LR1121, so the half-duplex rules read both bands (a frame due while the other band transmits is counted or waits; a reception overlapping the other band's transmission is counted or lost). UWB stays a separate chip. Not modelled: the LR1121 listens on one band at a time. One N.6 chip line (G84) | needs `--halfDuplex` 1 or 2 and `--radioBasis=lr1121`, else FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -484,17 +487,18 @@ prints it.
 | 208 | `--subjectTier1Tdoa` | `false` |
 | 209 | `--halfDuplex` | `0` |
 | 210 | `--collisionBothLost` | `false` |
-| 211 | `--silenceStopsRelay` | `false` |
-| 212 | `--finderPseudoAnchorStrict` | `false` |
-| 213 | `--subjectFinderPseudoAnchor` | `false` |
-| 214 | `--subjectBatteryDeplete` | `false` |
-| 215 | `--subjectTriggeredUpdates` | `false` |
-| 216 | `--triggeredUpdates` | `false` |
-| 217 | `--triggeredUpdateK` | `1` |
-| 218 | `--handshakeFixes` | `false` |
-| 219 | `--queryTierBinding` | (empty) |
-| 220 | `--uwbArbitration` | `false` |
-| 221 | `--arbBatteryCapJ` | `1000` |
-| 222 | `--anchorGrantGossipS` | `0` |
-| 223 | `--suspectForcesEscalation` | `true` |
-| 224 | `--nlosSource` | `legacy` |
+| 211 | `--halfDuplexChip` | `false` |
+| 212 | `--silenceStopsRelay` | `false` |
+| 213 | `--finderPseudoAnchorStrict` | `false` |
+| 214 | `--subjectFinderPseudoAnchor` | `false` |
+| 215 | `--subjectBatteryDeplete` | `false` |
+| 216 | `--subjectTriggeredUpdates` | `false` |
+| 217 | `--triggeredUpdates` | `false` |
+| 218 | `--triggeredUpdateK` | `1` |
+| 219 | `--handshakeFixes` | `false` |
+| 220 | `--queryTierBinding` | (empty) |
+| 221 | `--uwbArbitration` | `false` |
+| 222 | `--arbBatteryCapJ` | `1000` |
+| 223 | `--anchorGrantGossipS` | `0` |
+| 224 | `--suspectForcesEscalation` | `true` |
+| 225 | `--nlosSource` | `legacy` |

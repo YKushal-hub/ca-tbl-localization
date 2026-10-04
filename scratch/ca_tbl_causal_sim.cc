@@ -6050,6 +6050,8 @@ struct SpecOptions
     bool collisionBothLost = false;
     //! N.6. --halfDuplex: 0 off, 1 count only, 2 enforce.
     uint32_t halfDuplex = 0;
+    //! N.6, per chip. --halfDuplexChip: a node's 868 MHz and 2.4 GHz radios are one LR1121.
+    bool halfDuplexChip = false;
     //! N.20. --deadBatteryNoDraw: a node whose battery has run out is not billed for
     //! listening or sleeping.
     bool deadBatteryNoDraw = false;
@@ -7876,6 +7878,34 @@ RunArm(CaTblPolicyMode mode,
                 arbMacById[macs[m].GetNodeId()] = &macs[m];
                 macs[m].SetArbLog(arbLog.get());
             }
+        }
+    }
+    // N.6, per chip. --halfDuplexChip: every node's 868 MHz and 2.4 GHz MACs, paired as one
+    // LR1121, each reading the other's transmissions. Empty without the flag.
+    std::vector<std::pair<CaTblMac*, CaTblMac*>> chipPairs;
+    if (spec.halfDuplexChip)
+    {
+        std::map<uint16_t, std::pair<CaTblMac*, CaTblMac*>> byNode;
+        for (size_t m = 0; m < macs.size(); ++m)
+        {
+            if (macs[m].GetChannel() == &chan[CA_TBL_TIER_868])
+            {
+                byNode[macs[m].GetNodeId()].first = &macs[m];
+            }
+            else if (macs[m].GetChannel() == &chan[CA_TBL_TIER_2P4])
+            {
+                byNode[macs[m].GetNodeId()].second = &macs[m];
+            }
+        }
+        for (std::map<uint16_t, std::pair<CaTblMac*, CaTblMac*>>::iterator b = byNode.begin();
+             b != byNode.end(); ++b)
+        {
+            if (b->second.first != nullptr && b->second.second != nullptr)
+            {
+                b->second.first->SetChipSibling(b->second.second);
+                b->second.second->SetChipSibling(b->second.first);
+            }
+            chipPairs.push_back(b->second);
         }
     }
     std::map<uint32_t, std::pair<uint16_t, double>> reachSeen; // TA-2: node -> (arbiter, t)
@@ -13926,6 +13956,24 @@ RunArm(CaTblPolicyMode mode,
                       << ov << ", sent back to CAD " << dfr << ", receptions while transmitting "
                       << deaf << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
         }
+        if (spec.halfDuplexChip)
+        {
+            // N.6, per chip. The part of the N.6 line the other band alone caused.
+            uint64_t cov = 0, cdeaf = 0, pairs = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                cov += macs[i].GetChipOverlapTx();
+                cdeaf += macs[i].GetChipDeafRx();
+            }
+            for (size_t i = 0; i < chipPairs.size(); ++i)
+            {
+                pairs += (chipPairs[i].first != nullptr && chipPairs[i].second != nullptr) ? 1 : 0;
+            }
+            std::cout << "    N.6 chip (" << CaTblPolicyModeName(mode) << "): chips " << pairs
+                      << ", frames due over the other band's " << cov
+                      << ", receptions while the other band transmitted " << cdeaf
+                      << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
+        }
         if (spec.collisionBothLost)
         {
             // N.22. Summed over the three channels.
@@ -16903,8 +16951,8 @@ main(int argc, char* argv[])
                  "own frame is on air goes back to CAD when it ends (a fresh CAD, billed), and a "
                  "frame that overlaps any of the receiving radio's own transmission is not "
                  "received (an events_ row with outcome halfduplex). Per radio: a node's three "
-                 "radios are separate (the LR1121 serves tiers 1 and 2 from one chip; that is "
-                 "not modelled). One N.6 line. Any other value is FATAL.",
+                 "radios are separate unless --halfDuplexChip makes the 868 MHz and 2.4 GHz ones "
+                 "one LR1121. One N.6 line. Any other value is FATAL.",
                  spec.halfDuplex);
     cmd.AddValue("collisionBothLost",
                  "Of two frames that overlap at a receiver, judge BOTH by the capture rule "
@@ -16917,6 +16965,16 @@ main(int argc, char* argv[])
                  "';by=<sender>:<packet id>'. Changes every channel, so no magnitude compares across the "
                  "flag (rule 8). One N.22 line.",
                  spec.collisionBothLost);
+    cmd.AddValue("halfDuplexChip",
+                 "Under --halfDuplex and --radioBasis=lr1121, a node's 868 MHz and 2.4 GHz "
+                 "radios are one chip (TECH_DEBT N.6: the LR1121 serves tiers 1 and 2). FALSE "
+                 "by default: each band is its own radio, which the SX1262 + SX1280 basis is and "
+                 "the LR1121 is not. TRUE: --halfDuplex's rules read both bands -- a frame due "
+                 "while the other band's frame is on air is counted (1) or sent back to CAD "
+                 "until it ends (2), and a reception that overlaps the other band's transmission "
+                 "is counted (1) or lost (2). UWB is a separate chip. Not modelled: that one "
+                 "LR1121 listens on one band at a time. One N.6 chip line.",
+                 spec.halfDuplexChip);
     cmd.AddValue("silenceStopsRelay",
                  "A silenced radio relays no other node's frame (TECH_DEBT N.1). FALSE by "
                  "default: a radio silenced by a spent battery (--batteryDepleteJ, "
@@ -17615,6 +17673,12 @@ main(int argc, char* argv[])
         return 1;
     }
     // N.6.
+    if (spec.halfDuplexChip && (spec.halfDuplex == 0 || radioBasisArg != "lr1121"))
+    {
+        std::cerr << "FATAL: --halfDuplexChip needs --halfDuplex 1 or 2 (the rules it extends) "
+                     "and --radioBasis=lr1121 (the chip that serves both bands)\n";
+        return 1;
+    }
     if (spec.halfDuplex > 2)
     {
         std::cerr << "FATAL: --halfDuplex is 0 (off), 1 (count only) or 2 (enforce)\n";

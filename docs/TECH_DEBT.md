@@ -1898,7 +1898,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | components ported and in the preset (2026-10-04, G77-G79); the two copies remain |
 | N.4 | a finder tasked to a subject it never hears stands still | open |
 | N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
-| N.6 | a radio can put two frames on the air at once | flag (G74); default unchanged |
+| N.6 | a radio can put two frames on the air at once | flag (G74); per chip, flag (G84); default unchanged |
 | N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
 | N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
 | N.9 | queue gossip is built and rarely needed | recorded |
@@ -2144,6 +2144,29 @@ with its own null control, not a bug fix. Open.
 - A unit case (packet_validator [14], three checks) shows all three modes.
 - Per radio. The LR1121 serves tiers 1 and 2 from one chip, which is not modelled.
 - Default unchanged.
+
+*2026-10-04, `--halfDuplexChip` (G84).* Under `--halfDuplex` 1 or 2 and `--radioBasis=lr1121`,
+each node's 868 MHz and 2.4 GHz MACs are paired as one chip (`CaTblMac::SetChipSibling`).
+The half-duplex rules then read both bands:
+- a frame due while the other band's frame is on air is counted (1), or sent back to CAD
+  until that frame ends (2);
+- a reception that overlaps the other band's transmission is counted (1), or lost (2).
+The UWB radio is a separate chip (DW3000) and is not paired. FATAL on the SX basis, which is
+two chips, and without `--halfDuplex`.
+- *Measured,* G84 (seed 7, 900 s, defaults, the LR1121 basis, 10 chips):
+  - count only: 115 frames came due while the other band was transmitting, against 56 over
+    the radio's own frame. 193 receptions overlapped the other band's transmission alone,
+    against 75 that overlapped the radio's own. Every output is byte-identical to
+    `--halfDuplex=1` without the flag.
+  - enforced: 98 frames waited for the other band and 82 for their own (180 sent back to
+    CAD), and 224 receptions were lost.
+  **On one chip, the other band causes more half-duplex conflicts than the radio's own.**
+- A unit case (packet_validator [17], three checks) shows the per-radio behaviour and both
+  modes per chip.
+- Not modelled: one LR1121 listens on one band at a time. A per-chip receive schedule would
+  decide which band a node can hear in each instant. That is a larger change to every
+  node's reception, and is not built.
+- Default unchanged. Not in the preset: `--halfDuplex` is not either (owner decision 3).
 
 ### N.7 PCS does not fit the byte a table entry and a beacon give it
 
