@@ -5263,19 +5263,22 @@ struct Tier1Tdoa
               const std::vector<AnchorDef>& gateways,
               bool chargeReplies,
               bool edgeServer,
-              const std::string& logPath)
-        : ppsSigmaS(ppsSigmaNs * 1e-9),
+              const std::string& logPath,
+              int64_t streamOffset = 0,
+              const std::string& reportLabel = "")
+        : label(reportLabel),
+          ppsSigmaS(ppsSigmaNs * 1e-9),
           sf(t1.sf),
           bwHz(t1.bandwidthHz),
           billReplies(chargeReplies && !edgeServer),
           billDownlink(edgeServer)
     {
         gauss = CreateObjectWithAttributes<NormalRandomVariable>(
-            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400017),
+            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400017 + streamOffset),
             "Mean", DoubleValue(0.0),
             "Variance", DoubleValue(1.0));
         expo = CreateObjectWithAttributes<ExponentialRandomVariable>(
-            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400029),
+            "Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 1400029 + streamOffset),
             "Mean", DoubleValue(1.0));
         for (size_t k = 0; k < gateways.size(); ++k)
         {
@@ -5429,7 +5432,7 @@ struct Tier1Tdoa
     {
         log.close();
         std::ostringstream o;
-        o << "    TDoA tier 1: fix cycles " << fixCycles << " (tier-1 set >= 3 ranges), stamps "
+        o << "    TDoA tier 1" << label << ": fix cycles " << fixCycles << " (tier-1 set >= 3 ranges), stamps "
           << stampsOnFixCycles << " on them (" << stampsTaken << " taken, " << nlosDelayed
           << " NLOS-delayed, " << unstampable << " unstampable); solves OK "
           << verdicts[CA_TBL_TDOA_OK] << " (chan " << seeded[CA_TBL_TDOA_SEED_CHAN] << ", rssi "
@@ -5441,7 +5444,7 @@ struct Tier1Tdoa
           << " AMBIGUOUS " << verdicts[CA_TBL_TDOA_AMBIGUOUS] << " DIVERGED "
           << verdicts[CA_TBL_TDOA_DIVERGED] << "; fused " << fusedCount << " (policy "
           << policy.GetAuxFusedCount() << ")\n";
-        o << "    TDoA billing: " << stampsUsed << " stamps in OK solves, replies billed on "
+        o << "    TDoA billing" << label << ": " << stampsUsed << " stamps in OK solves, replies billed on "
           << "those cycles " << repliesOnOk << ", downlinks " << downlinksOnOk
           << "; node tier-1 exchanges " << exchanges << " (one billed broadcast each), "
           << "stamps " << stampsOnExchanges << " against replies " << repliesOffered
@@ -5458,6 +5461,7 @@ struct Tier1Tdoa
 
     static constexpr double kLightMps = 299792458.0; // exact, SI definition
 
+    std::string label; //!< "" for tag 0; " (subject N)" under --subjectTier1Tdoa
     Ptr<NormalRandomVariable> gauss;
     Ptr<ExponentialRandomVariable> expo;
     std::set<uint16_t> surveyed;
@@ -6021,6 +6025,8 @@ struct SpecOptions
     bool subjectFinderPseudoAnchor = false;
     //! N.21. --finderPseudoAnchorStrict: no finder range ever uses the true position.
     bool finderPseudoAnchorStrict = false;
+    //! Row 55 / MS-1 step 2. --subjectTier1Tdoa: each subject runs its own tier-1 TDoA.
+    bool subjectTier1Tdoa = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
     //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
@@ -7643,6 +7649,7 @@ RunArm(CaTblPolicyMode mode,
     {
         std::unique_ptr<std::ofstream> trace;
         std::unique_ptr<CaTblImuDeadReckoner> rk;
+        std::unique_ptr<Tier1Tdoa> tdoa; // --subjectTier1Tdoa
         double prevX = 0.0;
         double prevY = 0.0;
         uint64_t requests = 0;
@@ -8560,6 +8567,21 @@ RunArm(CaTblPolicyMode mode,
                 ex.rk.reset(new CaTblImuDeadReckoner());
                 ex.rk->Configure(CaTblImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071 +
                                                        97 * static_cast<int64_t>(pt));
+            }
+            if (spec.subjectTier1Tdoa)
+            {
+                // Row 55. Tag 0's TDoA, its own instance: its own gateways' stamps, its own
+                // log, its own two streams (+97 per subject, as its IMU's).
+                std::ostringstream tfn;
+                tfn << traceDir << "/subjtdoa_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                    << "_subj" << sb.nodeId << ".csv";
+                std::ostringstream lab;
+                lab << " (subject " << sb.nodeId << ")";
+                ex.tdoa.reset(new Tier1Tdoa(seed, tdoaPpsSigmaNs, phy[CA_TBL_TIER_868],
+                                            dep.anchors[CA_TBL_TIER_868],
+                                            sb.energy.GetTier1ChargeReplies(),
+                                            sb.energy.GetEdgeServer(), tfn.str(),
+                                            97 * static_cast<int64_t>(pt), lab.str()));
             }
             ex.prevX = sb.pos.x;
             ex.prevY = sb.pos.y;
@@ -9533,6 +9555,10 @@ RunArm(CaTblPolicyMode mode,
                 SubjectExtra& ex = subj->extra[pi];
                 const CaTblTier act = sb.policy.GetActiveTier();
                 subjCycleTier[pt] = static_cast<int>(act); // NW-2
+                if (ex.tdoa)
+                {
+                    ex.tdoa->BeginCycle(); // row 55: stamps belong to this cycle's exchange
+                }
                 const bool floorOn = hybridS && act != CA_TBL_TIER_868;
                 const Time atS = sround->Burst(now, pt);
                 const double atSec = sround->BurstS(t, pt);
@@ -9606,6 +9632,13 @@ RunArm(CaTblPolicyMode mode,
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
                                                   r.hiddenChannelState);
+                            // Row 55. A gateway that decoded the subject's broadcast stamps
+                            // it, on the links whose reply is billed below (tag 0's test).
+                            if (ex.tdoa && rcv && std::isfinite(range) && range > 0.0)
+                            {
+                                ex.tdoa->Stamp(aid, ap, sb.pos, atSec, r.finalSNRDb, r.isNLOS,
+                                               r.delaySpreadNs, nlosF);
+                            }
                         }
                         else if (tier == CA_TBL_TIER_2P4)
                         {
@@ -9747,6 +9780,10 @@ RunArm(CaTblPolicyMode mode,
                     sb.energy.AccountRangingExchange(tier, static_cast<uint32_t>(keep.size()),
                                                      static_cast<uint32_t>(out.size() + droppedS),
                                                      atSec);
+                    if (ex.tdoa && tier == CA_TBL_TIER_868)
+                    {
+                        ex.tdoa->NoteExchange(out.size() + droppedS); // the count just billed
+                    }
                     // N.3 / row 55. SY-1's uplink, as tag 0's: one frame on the tier that
                     // ranged, 9 B + 6 B per answered anchor (OURS), billed to the subject.
                     if (edgeUpS && gatewayEdgeServer && tier != CA_TBL_TIER_868 && !out.empty())
@@ -9913,9 +9950,20 @@ RunArm(CaTblPolicyMode mode,
                         hopS = std::max<uint32_t>(hopS, chainM[k].hopDepth);
                     }
                 }
+                // Row 55. As tag 0's: a tier-1 fix set of >= 3 ranges is solved by TDoA and
+                // queued, so Step() fuses it beside the ranges it came with.
+                if (ex.tdoa && fixTierS == CA_TBL_TIER_868 && measS.size() >= 3)
+                {
+                    ex.tdoa->Solve(sb.policy, measS);
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS, static_cast<int32_t>(chainUsed ? chainM.size() : actM.size()),
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (ex.tdoa)
+                {
+                    ex.tdoa->EndCycle(t, cycleIndex, sb.pos, sb.policy.AuxFusedLast(),
+                                      ds.measurementRejected, ds.estX, ds.estY);
+                }
                 if (chainUsed)
                 {
                     chain->SubjectFused(pt, sb, chainPk, act, t, maxRelayDepth, relayVarBudgetM2);
@@ -13913,6 +13961,18 @@ RunArm(CaTblPolicyMode mode,
     {
         tdoa->Report(std::cout, policy, energy.GetAccount(CA_TBL_TIER_868));
     }
+    if (subj && spec.subjectTier1Tdoa)
+    {
+        // Row 55. Each subject's two lines, after tag 0's.
+        for (uint32_t pt = 1; pt < spec.measuredSubjects && pt - 1 < subj->extra.size(); ++pt)
+        {
+            if (subj->extra[pt - 1].tdoa)
+            {
+                subj->extra[pt - 1].tdoa->Report(std::cout, tags[pt].policy,
+                                                 tags[pt].energy.GetAccount(CA_TBL_TIER_868));
+            }
+        }
+    }
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
@@ -16397,6 +16457,18 @@ main(int argc, char* argv[])
                  "> 0 and --silenceStopsRelay (a dead radio that relayed while drawing nothing "
                  "would be billed for transmitting and not for the reception that fed it).",
                  spec.deadBatteryNoDraw);
+    cmd.AddValue("subjectTier1Tdoa",
+                 "Each measured subject runs tier-1 TDoA (Physical 1.1; register row 55, MS-1 "
+                 "step 2). FALSE by default: under --tier1Tdoa only tag 0's 868 MHz broadcast is "
+                 "stamped by the gateways and solved; subjects 2..N are RSSI-ranged only, and a "
+                 "start-up WARNING says so. TRUE: each subject gets its own instance of tag 0's "
+                 "TDoA -- every gateway that decodes the subject's tier-1 broadcast stamps it, a "
+                 "tier-1 fix set of three or more ranges is solved (Chan/Taylor, the same refusals) "
+                 "and fused by Step() beside the ranges -- on its own two streams (tag 0's "
+                 "constants + 97 x the subject index, as its IMU's). Writes "
+                 "subjtdoa_<arm>_seed<N>_subj<id>.csv (digested) and two TDoA lines per subject. "
+                 "Needs --tier1Tdoa and --measuredSubjects > 1.",
+                 spec.subjectTier1Tdoa);
     cmd.AddValue("halfDuplex",
                  "Make every radio half-duplex (TECH_DEBT N.6). 0 (default): unchanged -- a "
                  "radio's CAD never sees its own frame (CaTblChannel::IsBusy skips the "
@@ -17059,6 +17131,13 @@ main(int argc, char* argv[])
                      "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
     }
+    // Row 55.
+    if (spec.subjectTier1Tdoa && (!tier1TdoaArg || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectTier1Tdoa needs --tier1Tdoa and --measuredSubjects > 1: "
+                     "it gives subjects tag 0's TDoA\n";
+        return 1;
+    }
     // N.6.
     if (spec.halfDuplex > 2)
     {
@@ -17142,7 +17221,7 @@ main(int argc, char* argv[])
     if (spec.measuredSubjects > 1)
     {
         std::vector<std::string> only;
-        if (tier1TdoaArg)
+        if (tier1TdoaArg && !spec.subjectTier1Tdoa)
         {
             only.push_back("--tier1Tdoa");
         }
@@ -18373,6 +18452,10 @@ main(int argc, char* argv[])
     if (spec.finderPseudoAnchorStrict)
     {
         digestPatterns += " pseudo_*.csv"; // N.21 strict
+    }
+    if (spec.subjectTier1Tdoa)
+    {
+        digestPatterns += " subjtdoa_*.csv"; // row 55
     }
     if (spec.sparseInStep)
     {

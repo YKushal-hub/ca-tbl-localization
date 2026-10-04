@@ -1997,6 +1997,14 @@ There is no last gasp, because subjects have no battery depletion; that stays on
 the last gasp under `--subjectTriggeredUpdates`. In G67's regime (3 J, 900 s) four subjects
 died, each with one last gasp heard, and none fixed or transmitted after. It inherits N.1
 (a silent radio still forwards floods) and N.20.
+
+*2026-10-04:* `--subjectTier1Tdoa` (G77) gives each subject its own instance of tag 0's
+tier-1 TDoA (MS-1 step 2), on tag 0's stream constants + 97 x the subject index, as its
+IMU's. The exchange time is the subject's own burst instant, and the billed reply count
+includes the N.21 drops.
+- Under the preset (seed 7, 900 s, 5 km), subject 2 had 99 tier-1 fix cycles and 11 OK
+  solves. Subjects 3-5 had 0-3 tier-1 fix cycles, since they are rarely on the floor with
+  three gateways.
 That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
 remain, and so does the list of what tag 0 has and subjects do not.
 
