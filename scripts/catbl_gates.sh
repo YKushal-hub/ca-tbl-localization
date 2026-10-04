@@ -1555,6 +1555,19 @@ bash scripts/binary_stamp_gate.sh "$WORK/g76" || fail G76
 bash scripts/binary_stamp_gate_selftest.sh "$WORK/g76" || fail G76
 finish G76
 
+# ---------------- G77: every measured subject runs tier-1 TDoA (row 55)
+# Under --tier1Tdoa only tag 0's broadcast was stamped and solved. --subjectTier1Tdoa gives
+# each subject its own instance (its own streams, log and report lines). The preset at seed 7,
+# read by scripts/subject_tdoa_gate.py: a file per subject, digested; OK solves, each line
+# recounted from its file; fusion held by the subject's own policy; no stamp beyond a billed
+# reply; tag 0's line unchanged; the control and the WARNING; a refusal.
+#
+# Negative fixtures in scripts/subject_tdoa_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G77 every subject runs tier-1 TDoA (row 55) ---\n'
+bash scripts/subject_tdoa_gate.sh "$WORK/g77" || fail G77
+bash scripts/subject_tdoa_gate_selftest.sh "$WORK/g77" || fail G77
+finish G77
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
