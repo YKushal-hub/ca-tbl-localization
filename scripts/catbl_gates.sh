@@ -1498,6 +1498,20 @@ python3 scripts/pcs_forms_undefined_gate.py || fail G72
 bash scripts/pcs_forms_undefined_gate_selftest.sh || fail G72
 finish G72
 
+# ---------------- G73: the sidecar digests the visualiser's outputs (M.4)
+# events_*, nodes_*, nbrtable_*, loctable_* and deployment.json were written under
+# --vizEvents and never digested. Under --digestVizOutputs each gets a SHA-256 line in
+# run_id.txt. A 300 s run with every visualiser output, read by scripts/viz_digest_gate.py:
+#   - every visualiser file digested, and every digest line verifies;
+#   - with the flag or without it every output but run_id.txt is identical;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/viz_digest_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G73 the visualiser outputs are digested (M.4) ---\n'
+bash scripts/viz_digest_gate.sh "$WORK/g73" || fail G73
+bash scripts/viz_digest_gate_selftest.sh "$WORK/g73" || fail G73
+finish G73
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
