@@ -1532,6 +1532,69 @@ RunQueueGossip(bool gossipQueue)
     return r;
 }
 
+// [13] N.1. A three-node line 1-2-3 with node 2 silenced: node 1 floods a QUERY for
+// manifest 7, which only node 3 carries. Node 2 is the only way to node 3.
+struct SilentRelayRun
+{
+    uint64_t heardAt3 = 0;
+    uint64_t refused = 0;
+    uint64_t relayed = 0;
+};
+
+SilentRelayRun
+RunSilentRelayLine(bool stopRelay)
+{
+    SilentRelayRun r;
+    StubPhy phy(StubPhy::LINE, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(13);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = (i == 2) ? 7 : static_cast<uint8_t>(20 + i);
+        c.silenceStopsRelay = stopRelay;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[1].SetSilent(true);
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendQuery, &m[0], CA_TBL_TIER_868, uint8_t(7));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.heardAt3 = m[2].GetCounters(CA_TBL_MSG_QUERY).received;
+    r.refused = m[1].GetSilentRelayRefused();
+    r.relayed = m[1].GetRebroadcastFrames();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestSilentRelay()
+{
+    std::cout << "\n[13] N.1 a silenced radio relays nothing (sect 49)\n";
+    const SilentRelayRun off = RunSilentRelayLine(false);
+    const SilentRelayRun on = RunSilentRelayLine(true);
+    Report("node 2 silenced, off / on: QUERY heard at node 3, relayed by 2, refused at 2",
+           std::to_string(off.heardAt3) + "/" + std::to_string(off.relayed) + "/" +
+               std::to_string(off.refused) + " / " + std::to_string(on.heardAt3) + "/" +
+               std::to_string(on.relayed) + "/" + std::to_string(on.refused));
+    Check("by default a silenced radio still relays the flood (the N.1 defect, kept)",
+          off.heardAt3 >= 1 && off.relayed >= 1 && off.refused == 0,
+          "heard " + std::to_string(off.heardAt3) + ", relayed " + std::to_string(off.relayed));
+    Check("silenceStopsRelay: the silenced radio relays nothing and counts the refusal",
+          on.heardAt3 == 0 && on.relayed == 0 && on.refused >= 1,
+          "heard " + std::to_string(on.heardAt3) + ", relayed " + std::to_string(on.relayed) +
+              ", refused " + std::to_string(on.refused));
+}
+
 void
 TestQueueGossip()
 {
@@ -1582,6 +1645,7 @@ main(int argc, char* argv[])
     TestQueryV2();
     TestArbitrationV2();
     TestQueueGossip();
+    TestSilentRelay();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

@@ -1453,6 +1453,22 @@ bash scripts/finder_strict_gate.sh "$WORK/g69" || fail G69
 bash scripts/finder_strict_gate_selftest.sh "$WORK/g69" || fail G69
 finish G69
 
+# ---------------- G70: a silenced radio relays no other node's frame (N.1)
+# SetSilent() gates Send() only, so a radio silenced by a spent battery or by
+# --injectSilentId went on relaying other nodes' floods. Under --silenceStopsRelay the MAC
+# refuses them at CAD and counts them; the node's own queued frames (the last gasp) still
+# leave. G34's regime with the per-frame event log, read by scripts/silence_relay_gate.py:
+#   - by default the dead node relays (the defect reproduces); with the flag it sends
+#     nothing after its death but the gasp, and relays are refused;
+#   - under --injectSilentId nothing inside the window, and the node back after it;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/silence_relay_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G70 a silenced radio relays nothing (N.1) ---\n'
+bash scripts/silence_relay_gate.sh "$WORK/g70" || fail G70
+bash scripts/silence_relay_gate_selftest.sh "$WORK/g70" || fail G70
+finish G70
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3) and

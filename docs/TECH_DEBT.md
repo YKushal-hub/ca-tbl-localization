@@ -1825,7 +1825,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 
 | entry | in one line | status |
 |---|---|---|
-| N.1 | a silenced radio still forwards other nodes' floods | open |
+| N.1 | a silenced radio still forwards other nodes' floods | flag (G70); default unchanged |
 | N.2 | Case A with relays counts one pair twice | fixed under `--sparseInStep` only |
 | N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | open (MS-1's deviation) |
 | N.4 | a finder tasked to a subject it never hears stands still | open |
@@ -1867,6 +1867,23 @@ DISCOVERY and every other flooded type.
 - MC-2's last gasp RELIES on the second half: the gasp is queued, then the radio is
   silenced, and the queued frame still leaves. A fix must keep that, by gating forwarding
   only, or by checking silence at the moment of queueing.
+
+*2026-10-04, `--silenceStopsRelay` (G70).* `CaTblMacConfig::silenceStopsRelay`: while the
+radio is silenced, `AttemptCad()` refuses every frame another node originated and counts it.
+AttemptCad is where a new relay, a relay's CAD retry, its repeats and its retransmissions all
+pass, so a relay queued before the silence is caught as well. The node's own frames are
+untouched, so the last gasp still leaves. The flag covers both faults.
+- *Measured,* G70 (seed 7, 900 s, `--batteryDepleteJ=3`, triggered updates):
+  - by default, after the battery died at 545 s, 1 200 receptions of frames from node 1,
+    every one a DISCOVERY relay (hop limit 2, where an originator sets 3);
+  - with the flag: none, 389 relays refused, and the last gasp heard;
+  - under `--injectSilentId=1` from 300 to 600 s: none inside the window, 280 refused, and
+    node 1 transmitting again after it.
+- A unit case (packet_validator [13], two checks) shows both behaviours on a three-node line.
+- Not covered: a frame the node itself queued before the silence, besides the gasp (a
+  repeat, a retransmission), still leaves. Those are its own frames, not relays.
+- Default unchanged. Every `--batteryDepleteJ` and `--injectSilentId` result measured without
+  the flag still carries the effect this entry describes.
 
 
 ### N.2 Case A with relays counts one pair of ranges twice — fixed only under `--sparseInStep`
