@@ -6012,6 +6012,8 @@ struct SpecOptions
     bool handshakeFixes = false;
     //! MC-2. --triggeredUpdates: large-correction and last-gasp TRIGGERED_UPDATEs.
     bool triggeredUpdates = false;
+    //! N.3 / row 55. --subjectTriggeredUpdates: subjects 2..N send the large correction too.
+    bool subjectTriggeredUpdates = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -8357,6 +8359,16 @@ RunArm(CaTblPolicyMode mode,
         std::ofstream log;
     };
     std::unique_ptr<TriggeredUpdateState> trig;
+    // N.3 / row 55. The subjects' large corrections, one row each, null without the flag.
+    std::unique_ptr<std::ofstream> trigS;
+    uint64_t trigSLarge = 0, trigSBilled = 0;
+    if (spec.subjectTriggeredUpdates)
+    {
+        std::ostringstream sfn;
+        sfn << traceDir << "/subjtriggered_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        trigS.reset(new std::ofstream(sfn.str().c_str()));
+        *trigS << "t,subjectId,kind,tier,moveM,threshM,estX,estY,predX,predY,totalJ,framesBilled\n";
+    }
     if (spec.triggeredUpdates)
     {
         trig.reset(new TriggeredUpdateState());
@@ -9714,6 +9726,10 @@ RunArm(CaTblPolicyMode mode,
                         }
                     }
                 }
+                // N.3 / row 55. MC-2's state carried into this cycle, before Step() moves it.
+                const double tuX = sb.policy.EstX(), tuY = sb.policy.EstY();
+                const double tuVx = sb.policy.EstVx(), tuVy = sb.policy.EstVy();
+                const double tuTr = sb.policy.Pxx() + sb.policy.Pyy();
                 const uint64_t covBeforeS = sb.policy.GetUwbCoverageClears(); // NW-7
                 uint32_t hopS = 0; // NW-1, under --subjectRelayChain: the set's deepest leg
                 if (chainUsed && spec.hopProvenance)
@@ -9807,6 +9823,45 @@ RunArm(CaTblPolicyMode mode,
                 if (gatewayEdgeServer && ds.hadFix)
                 {
                     sb.energy.AccountEdgeServerDownlink(edgeDownlinkOnFixTier ? fixTierS : act);
+                }
+                // N.3 / row 55. MC-2's LARGE CORRECTION, as tag 0's: the posterior moved more
+                // than k sqrt(trace P) of the previous posterior from the constant-velocity
+                // prediction. The corrected entry is published and pushed on the tier the
+                // subject transmitted on this cycle, with the redundant class's repeats,
+                // billed to the subject (sect 6). Subjects have no battery depletion, so no
+                // last gasp (N.3).
+                if (trigS && tuTr > 0.0 && std::isfinite(tuTr) &&
+                    peerMacs[pi][static_cast<size_t>(act)] != nullptr)
+                {
+                    const double pxS = tuX + tuVx * dt, pyS = tuY + tuVy * dt;
+                    const double moveS = std::hypot(sb.policy.EstX() - pxS, sb.policy.EstY() - pyS);
+                    const double thrS = spec.triggeredUpdateK * std::sqrt(tuTr);
+                    if (moveS > thrS)
+                    {
+                        for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+                        {
+                            if (peerMacs[pi][ti] != nullptr)
+                            {
+                                peerMacs[pi][ti]->PublishSelfEntry(
+                                    sb.policy.EstX(), sb.policy.EstY(), sb.policy.Pxx(),
+                                    sb.policy.Pyy(), sb.policy.Pxy(),
+                                    spec.entryVelocity ? sb.policy.EstVx() : 0.0,
+                                    spec.entryVelocity ? sb.policy.EstVy() : 0.0, t);
+                            }
+                        }
+                        CaTblMac* tm = peerMacs[pi][static_cast<size_t>(act)];
+                        tm->SendTriggeredUpdate(act, 1);
+                        const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
+                        sb.energy.AccountFrameTx(
+                            act, t, frames * tm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
+                        ++trigSLarge;
+                        trigSBilled += frames;
+                        *trigS << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId
+                               << ",large_correction," << static_cast<int>(act) << ',' << moveS << ','
+                               << thrS << ',' << sb.policy.EstX() << ',' << sb.policy.EstY() << ','
+                               << pxS << ',' << pyS << ',' << std::setprecision(9)
+                               << sb.energy.GetTotalJ() << ',' << frames << '\n';
+                    }
                 }
                 // The C4 terms, as tag 0's end-of-cycle update.
                 sb.pcsDegradation = CaTblDegradationWith(sb.pcsHist, ds.pcs, sb.pcsDegradation);
@@ -13057,6 +13112,15 @@ RunArm(CaTblPolicyMode mode,
                   << heardGasp << "); frames billed " << (trig->billedLarge + trig->billedGasp)
                   << ", transmitted " << sentFrames << "\n";
     }
+    if (trigS)
+    {
+        // N.3 / row 55. Closed before the digest.
+        trigS->close();
+        trigS.reset();
+        std::cout << "    MC-2 triggered updates (subjects, " << CaTblPolicyModeName(mode)
+                  << "): large correction " << trigSLarge << ", frames billed " << trigSBilled
+                  << "\n";
+    }
     // MC-1. The handshake's outcomes, summed over every MAC. Printed only under the flag.
     if (spec.handshakeFixes)
     {
@@ -15929,6 +15993,17 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("subjectTriggeredUpdates",
+                 "Subjects 2..N send MC-2's LARGE CORRECTION, as --triggeredUpdates makes tag 0 send "
+                 "it (MAC sect 3, 8; TECH_DEBT N.3, register row 55). FALSE by default: only tag 0 "
+                 "does, and a start-up WARNING says so. TRUE: when a subject's posterior moves more "
+                 "than --triggeredUpdateK sqrt(trace P) of its previous posterior from the "
+                 "constant-velocity prediction, its corrected entry is published and pushed as a "
+                 "TRIGGERED_UPDATE on the tier it transmitted on this cycle, with the redundant "
+                 "class's three repeats, billed to it. No last gasp: subjects have no battery "
+                 "depletion. Writes subjtriggered_<arm>_seed<N>.csv (digested) and one MC-2 subjects "
+                 "line. Needs --triggeredUpdates and --measuredSubjects > 1.",
+                 spec.subjectTriggeredUpdates);
     cmd.AddValue("triggeredUpdates",
                  "Send the spec's 'Triggered-update / last-gasp -- large correction or dying "
                  "battery' (MAC sect 3 and 8; docs/SPEC_CONFORMANCE_PLAN.md MC-2). False "
@@ -16503,6 +16578,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // N.3 / row 55.
+    if (spec.subjectTriggeredUpdates && (!spec.triggeredUpdates || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectTriggeredUpdates needs --triggeredUpdates and "
+                     "--measuredSubjects > 1: it extends tag 0's large correction to the subjects\n";
+        return 1;
+    }
     if (!(spec.triggeredUpdateK > 0.0) ||
         (spec.triggeredUpdateK != 1.0 && !spec.triggeredUpdates))
     {
@@ -16542,9 +16624,13 @@ main(int argc, char* argv[])
         {
             only.push_back("--sessionLayer");
         }
-        if (spec.triggeredUpdates)
+        if (spec.triggeredUpdates && !spec.subjectTriggeredUpdates)
         {
             only.push_back("--triggeredUpdates");
+        }
+        else if (spec.triggeredUpdates && batteryDepleteJArg > 0.0)
+        {
+            only.push_back("--triggeredUpdates' last gasp");
         }
         if (spec.edgeUplinkRanges && !spec.subjectEdgeUplink)
         {
@@ -17714,6 +17800,10 @@ main(int argc, char* argv[])
     if (spec.triggeredUpdates)
     {
         digestPatterns += " triggered_*.csv";
+    }
+    if (spec.subjectTriggeredUpdates)
+    {
+        digestPatterns += " subjtriggered_*.csv"; // N.3 / row 55
     }
     if (spec.sparseInStep)
     {

@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 207 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 208 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 175 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 202 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 203 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 201 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 202 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 199 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 200 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 200 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 201 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 198 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,9 +92,11 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 197 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
+- `--subjectTriggeredUpdates` (row 199 of §3, and its §1 row): added with the default `false`
+  (row 55, N.3). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-sixty-five names. Three flags changed meaning without changing their printed default, and §1
+sixty-six names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -196,6 +198,7 @@ precondition missing.
 | `--fuseFloorActive` | bool | `false` | added 2026-10-04 | N.14: when the active tier has fewer than three ranges and the floor ranged, the fix set is the union (the active tier's ranges, relays included, then the floor's), and Step()'s sparse cases act on it below three; the floor alone at three or more keeps the old path. A union holding active ranges is labelled with the active tier (OURS). Tag 0 and every measured subject. Writes `fusefloor_<arm>_seed<N>.csv` (digested) and one N.14 line (G63). In `--specProfile` since 2026-10-04, by FUSE-01's registered rule (report/FUSE01_RESULTS.md) | needs `--sparseInStep`, else FATAL |
 | `--finderRequesterEscalation` | bool | `false` | added 2026-10-04 | TA-1b: a finder whose own session receives a clean result below the 2.4 GHz up-threshold for a target not on UWB asks for UWB, at most once per target per `--arbSlotHoldS`: in its own queue when it holds UWB-reach evidence of the target (it is an arbiter, NW-5), else at the arbiter the target's entry names (as TA-2's, instant and unbilled), else unroutable and not sent (OURS). Writes `finderreq_<arm>_seed<N>.csv` (digested) and one TA-1b line (G64). In `--specProfile` since 2026-10-04 (decision 8); a preset-applied value is unused, not refused, when `--finderSessions` or `--requesterEscalation` is turned off explicitly | needs `--finderSessions` and `--requesterEscalation`, else FATAL |
 | `--subjectEdgeUplink` | bool | `false` | added 2026-10-04 | Row 55 / N.3: subjects 2..N bill the uplink of their tier-2/3 ranges as `--edgeUplinkRanges` bills tag 0's: one frame on the tier that ranged, 9 B + 6 B per answered anchor (OURS), billed to the subject. Only energy moves at defaults (G65); one SY-1 subjects line. In `--specProfile` since 2026-10-04; a preset-applied value is unused, not refused, when `--edgeUplinkRanges` is turned off explicitly | needs `--edgeUplinkRanges` and `--measuredSubjects` > 1, else FATAL |
+| `--subjectTriggeredUpdates` | bool | `false` | added 2026-10-04 | Row 55 / N.3: subjects 2..N send MC-2's LARGE CORRECTION as tag 0 does: the corrected entry published and pushed as a TRIGGERED_UPDATE on the tier the subject transmitted on, three repeats, billed to it. No last gasp (subjects have no battery depletion). Writes `subjtriggered_<arm>_seed<N>.csv` (digested) and one MC-2 subjects line (G66) | needs `--triggeredUpdates` and `--measuredSubjects` > 1, else FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -421,12 +424,13 @@ prints it.
 | 196 | `--sparseInStep` | `false` |
 | 197 | `--subjectEdgeUplink` | `false` |
 | 198 | `--edgeUplinkRanges` | `false` |
-| 199 | `--triggeredUpdates` | `false` |
-| 200 | `--triggeredUpdateK` | `1` |
-| 201 | `--handshakeFixes` | `false` |
-| 202 | `--queryTierBinding` | (empty) |
-| 203 | `--uwbArbitration` | `false` |
-| 204 | `--arbBatteryCapJ` | `1000` |
-| 205 | `--anchorGrantGossipS` | `0` |
-| 206 | `--suspectForcesEscalation` | `true` |
-| 207 | `--nlosSource` | `legacy` |
+| 199 | `--subjectTriggeredUpdates` | `false` |
+| 200 | `--triggeredUpdates` | `false` |
+| 201 | `--triggeredUpdateK` | `1` |
+| 202 | `--handshakeFixes` | `false` |
+| 203 | `--queryTierBinding` | (empty) |
+| 204 | `--uwbArbitration` | `false` |
+| 205 | `--arbBatteryCapJ` | `1000` |
+| 206 | `--anchorGrantGossipS` | `0` |
+| 207 | `--suspectForcesEscalation` | `true` |
+| 208 | `--nlosSource` | `legacy` |
