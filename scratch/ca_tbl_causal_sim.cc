@@ -14605,6 +14605,7 @@ main(int argc, char* argv[])
     std::string radioBasisArg = "sx";        // SY-2: resolved after cmd.Parse()
     bool vizEventsArg = false;
     bool digestVizOutputsArg = false; // M.4
+    bool toaTableArg = false;         // MAC sect 2
     bool stampBinaryHashArg = false;  // M.3
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
@@ -15778,6 +15779,17 @@ main(int argc, char* argv[])
                  "sha256 <hash> <path>', read from /proc/self/exe after the source line, which "
                  "names the binary itself whatever the working directory. Nothing else changes.",
                  stampBinaryHashArg);
+    cmd.AddValue("toaTable",
+                 "Write the time-on-air table the spec asks to be reported (MAC sect 2: 'ToA at "
+                 "each SF/BW combination ... against the payload sizes each packet type "
+                 "requires'). FALSE by default. TRUE: toa_table.csv (digested) gets one row per "
+                 "message type x SF 7..12 x bandwidth 125/250/500 kHz, computed with the MAC's own "
+                 "frame size (the 9-byte header plus CaTblPayloadBytes for one entry) and its "
+                 "own ToA function (the Semtech formula, CR 4/5, 8-symbol preamble, explicit "
+                 "header, CRC, low-data-rate optimisation above 16 ms symbols). Flag-dependent "
+                 "extras a frame can carry (manifest lists, route and gossip bytes) are not "
+                 "included; the table is the taxonomy's base sizes. Nothing else changes.",
+                 toaTableArg);
     cmd.AddValue("digestVizOutputs",
                  "Digest the visualiser's outputs in run_id.txt (TECH_DEBT M.4). FALSE by "
                  "default: events_*, nodes_*, nbrtable_*, loctable_* and deployment.json are "
@@ -18869,6 +18881,42 @@ main(int argc, char* argv[])
     if (digestVizOutputsArg)
     {
         digestPatterns += " events_*.csv nodes_*.csv nbrtable_*.csv loctable_*.csv deployment.json";
+    }
+    // MAC sect 2. The ToA table, computed with the MAC's own sizes and ToA function, so the
+    // numbers are the ones every frame in the run was billed with.
+    if (toaTableArg)
+    {
+        std::ofstream tt((outdir + "/toa_table.csv").c_str());
+        tt << "msgType,nEntries,macHeaderBytes,payloadBytes,frameBytes,sf,bwHz,codingRate,"
+              "lowDataRateOpt,symbolS,toaS\n";
+        const CaTblMsgType types[] = {CA_TBL_MSG_DISCOVERY,        CA_TBL_MSG_DIGEST,
+                                      CA_TBL_MSG_ENTRY_PUSH,       CA_TBL_MSG_TRIGGERED_UPDATE,
+                                      CA_TBL_MSG_ESC_REQUEST,      CA_TBL_MSG_ESC_GRANT,
+                                      CA_TBL_MSG_QUERY,            CA_TBL_MSG_RESPONSE,
+                                      CA_TBL_MSG_ACK,              CA_TBL_MSG_GRANT_GOSSIP};
+        const double bws[] = {125e3, 250e3, 500e3};
+        uint32_t rowsT = 0;
+        for (CaTblMsgType mt : types)
+        {
+            const uint32_t pl = CaTblPayloadBytes(mt, 1);
+            const uint32_t fb = CA_TBL_MAC_HEADER_BYTES + pl;
+            for (uint8_t sf = 7; sf <= 12; ++sf)
+            {
+                for (double bw : bws)
+                {
+                    const double ts = std::pow(2.0, static_cast<double>(sf)) / bw;
+                    tt << CaTblMsgTypeName(mt) << ",1," << CA_TBL_MAC_HEADER_BYTES << ',' << pl
+                       << ',' << fb << ',' << static_cast<int>(sf) << ',' << bw << ",1,"
+                       << ((ts > 0.016) ? 1 : 0) << ',' << std::setprecision(9) << ts << ','
+                       << CaTblEnergyModel::LoRaTimeOnAirS(sf, bw, fb, 1) << '\n';
+                    ++rowsT;
+                }
+            }
+        }
+        tt.close();
+        std::cout << "    MAC sect 2 ToA table: " << rowsT << " rows (10 message types x SF 7..12 x "
+                  << "125/250/500 kHz) in toa_table.csv\n";
+        digestPatterns += " toa_table.csv";
     }
     if (!AppendOutputDigest(outdir, digestPatterns))
     {

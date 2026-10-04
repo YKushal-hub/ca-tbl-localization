@@ -1596,6 +1596,18 @@ bash scripts/subject_witness_gate.sh "$WORK/g79" || fail G79
 bash scripts/subject_witness_gate_selftest.sh "$WORK/g79" || fail G79
 finish G79
 
+# ---------------- G80: the MAC sect 2 time-on-air table (--toaTable)
+# The spec asks for ToA at each SF/BW against each packet type's size, reported. The table
+# is written from the MAC's own sizes and ToA function; scripts/toa_table_gate.py recomputes
+# every row with an independent Semtech formula, checks the low-data-rate rule, the frame
+# sizes, the digest, and that nothing else changes.
+#
+# Negative fixtures in scripts/toa_table_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G80 the time-on-air table (MAC sect 2) ---\n'
+bash scripts/toa_table_gate.sh "$WORK/g80" || fail G80
+bash scripts/toa_table_gate_selftest.sh "$WORK/g80" || fail G80
+finish G80
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
