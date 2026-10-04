@@ -1845,6 +1845,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
 | N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
 | N.20 | a node whose battery has run out is still billed for listening and sleeping | open (engineering) |
+| N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: open |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2516,3 +2517,42 @@ nothing. The fault's control-flow claims (no exchange, no fix, no frame) are una
 
 A fix changes what every existing `--batteryDepleteJ` run bills. It would need its own flag
 value and null control (plan §0 rule 12), like N.1's. Open (engineering).
+
+### N.21 Subjects ranged finders against their true positions; tag 0 does when it holds no entry
+
+Found 2026-10-04 while porting tag 0's components to the subjects (row 55).
+- **Tag 0.** Under `--finderPseudoAnchor` its range to a finder uses the position the finder
+  REPORTED, the freshest entry it holds, with that entry's variance (age-inflated, and
+  carried forward under `--entryPrediction`) projected into sigma. It learns those entries
+  by asking the finders' digest question (`--bidirectionalDigest`).
+- **The subjects did neither.** `anchorPosById[finderId]` holds the finder's TRUE position,
+  updated every cycle. Subjects 2..N ranged finders against it with only the engine's
+  sigma: knowledge no node has. And since only tag 0 asked the digest question, they never
+  held a finder entry. In G68's regime (750 m, finders converging) 1 131 subject ranges to
+  finders in 900 s all used the truth.
+
+**What it touched.** Every result with measured subjects and finders: subject availability
+in GEO-01 stage 2, CAL-02, CAMP-SPEC and FUSE-01, and the subjects' share of UWB-delivered
+fixes. Tag 0's metrics (CEP and its trace) are tag 0's own and are not affected, beyond the
+channel moving (rule 8). An unregistered probe of the preset (seeds 1-5, 1 800 s), with the
+flag below against without it:
+- 5 km: subject availability 0.450 -> 0.385; UWB-delivered fixes 2 -> 0;
+- endgame: availability 0.756 -> 0.688; UWB-delivered fixes 164 -> 147.
+
+These are probe numbers, not results. A registered re-measurement is the next step.
+
+**The fix for subjects:** `--subjectFinderPseudoAnchor` (G68). It gives subjects tag 0's
+treatment, and asks the digest question for them. With no entry held it DROPS the range
+(received and billed, not used): the subject cannot know where the finder is. In G68's
+regime, 180 questions gave 588 ranges on reported positions; 222 of those positions were
+more than 1 m from the truth, and 863 ranges were dropped.
+
+**Tag 0 keeps the truth when it holds no entry.** The `freshestEntry` branch at its
+pseudo-anchor substitution falls through to `anchorPos`. That is the same leak, smaller
+because tag 0 asks. Fixing it changes every `--finderPseudoAnchor` result, so it needs its
+own flag value and null control. Open (engineering).
+
+**Also seen:** the digest question, tag 0's and now the subjects', is unbilled: the MACs
+carry no energy model (`SetEnergyModel` unset, the 2026-09-27 note), so no MAC-originated
+frame is billed. Recorded, not changed.
+

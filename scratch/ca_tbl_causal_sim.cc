@@ -6016,6 +6016,8 @@ struct SpecOptions
     bool subjectTriggeredUpdates = false;
     //! N.3 / row 55. --subjectBatteryDeplete: subjects 2..N run --batteryDepleteJ's fault too.
     bool subjectBatteryDeplete = false;
+    //! N.21. --subjectFinderPseudoAnchor: a subject's finder range uses the finder's report.
+    bool subjectFinderPseudoAnchor = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -8364,6 +8366,17 @@ RunArm(CaTblPolicyMode mode,
     // N.3 / row 55. The subjects' large corrections, one row each, null without the flag.
     std::unique_ptr<std::ofstream> trigS;
     uint64_t trigSLarge = 0, trigSBilled = 0, trigSGasp = 0;
+    // N.21. --subjectFinderPseudoAnchor: one row per subject range to a finder, null without.
+    std::unique_ptr<std::ofstream> pseudoS;
+    uint64_t pseudoSubs = 0, pseudoNoEntry = 0, pseudoDigests = 0;
+    if (spec.subjectFinderPseudoAnchor)
+    {
+        std::ostringstream pfn;
+        pfn << traceDir << "/subjpseudo_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        pseudoS.reset(new std::ofstream(pfn.str().c_str()));
+        *pseudoS << "t,subjectId,finderId,kind,entryT,entryX,entryY,vx,vy,predX,predY,trueX,trueY,"
+                    "entryVarX,entryVarY,ageVar,sigmaRaw,sigmaEff\n";
+    }
     if (spec.subjectTriggeredUpdates)
     {
         std::ostringstream sfn;
@@ -9492,8 +9505,26 @@ RunArm(CaTblPolicyMode mode,
                 const Time atS = sround->Burst(now, pt);
                 const double atSec = sround->BurstS(t, pt);
                 size_t addressedActive = 0;
+                // N.21. A subject asks the finders' digest question on its active tier, on tag
+                // 0's schedule and as tag 0 does (THE EXCHANGE RUNS BOTH WAYS): the answers land
+                // in the table its ranging reads. Unbilled, as tag 0's question is: the MACs carry
+                // no energy model (TECH_DEBT N.21).
+                if (pseudoS && bidirectionalDigest && sendHandshakeFrames && finderDigestPeriodS > 0.0 &&
+                    peerMacs[pi][static_cast<size_t>(act)] != nullptr &&
+                    !(spec.subjectBatteryDeplete && sb.batteryDead))
+                {
+                    const double phase = finderDigestPeriodS * 0.5;
+                    const double ka = std::floor((t - dt - phase) / finderDigestPeriodS);
+                    const double kb = std::floor((t - phase) / finderDigestPeriodS);
+                    if (kb > ka && t >= phase)
+                    {
+                        peerMacs[pi][static_cast<size_t>(act)]->Send(CA_TBL_MSG_DIGEST, act, 1, 0);
+                        ++pseudoDigests;
+                    }
+                }
                 auto rangeS = [&](CaTblTier tier) {
                     std::vector<CaTblRangeMeasurement> out;
+                    size_t droppedS = 0; // N.21: finder replies whose position the subject lacks
                     if (spec.subjectBatteryDeplete && sb.batteryDead)
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
@@ -9570,6 +9601,81 @@ RunArm(CaTblPolicyMode mode,
                             CaTblRangeMeasurement m;
                             m.anchorX = ap.x;
                             m.anchorY = ap.y;
+                            // N.21. A FINDER IS A PSEUDO-ANCHOR for a subject too: the position
+                            // it reported (the freshest entry the subject's radios hold), carried
+                            // forward under --entryPrediction, its variance and age projected
+                            // into sigma -- tag 0's treatment, line for line. With no entry held
+                            // the subject does not know where the finder is, so the range is NOT
+                            // used (tag 0's code keeps the true position there; N.21). The reply
+                            // was received, and is billed as one.
+                            bool dropS = false;
+                            if (pseudoS && aid >= 501)
+                            {
+                                CaTblTableEntry fe;
+                                bool feOk = false;
+                                for (size_t ti2 = 0; ti2 < peerMacs[pi].size(); ++ti2)
+                                {
+                                    CaTblTableEntry e2;
+                                    if (peerMacs[pi][ti2] != nullptr &&
+                                        peerMacs[pi][ti2]->GetTableEntry(aid, e2) && e2.valid &&
+                                        (!feOk || e2.timestampS > fe.timestampS))
+                                    {
+                                        fe = e2;
+                                        feOk = true;
+                                    }
+                                }
+                                if (!feOk)
+                                {
+                                    ++pseudoNoEntry;
+                                    dropS = true;
+                                    *pseudoS << std::fixed << std::setprecision(4) << t << ','
+                                             << sb.nodeId << ',' << aid << ",dropped,,,,,,,," << ap.x
+                                             << ',' << ap.y << ",,,," << sigma << ",\n";
+                                }
+                                else
+                                {
+                                    const double ageP = std::max(0.0, t - fe.timestampS);
+                                    double px = fe.x, py = fe.y, ageVar;
+                                    if (spec.entryPrediction)
+                                    {
+                                        px += fe.vx * ageP;
+                                        py += fe.vy * ageP;
+                                        const double sv = 0.5 * ageP; // DC-13's GNSS-velocity Q
+                                        ageVar = sv * sv;
+                                    }
+                                    else
+                                    {
+                                        const double travel = walkSpeedMps * ageP;
+                                        ageVar = travel * travel;
+                                    }
+                                    const double ux = sb.policy.EstX() - px;
+                                    const double uy = sb.policy.EstY() - py;
+                                    const double un = std::sqrt(ux * ux + uy * uy);
+                                    if (un > 1e-6)
+                                    {
+                                        const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
+                                                                  {fe.covXY, fe.varY + ageVar}};
+                                        const double proj =
+                                            CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                        if (proj >= 0.0)
+                                        {
+                                            const double s0 = sigma;
+                                            m.anchorX = px;
+                                            m.anchorY = py;
+                                            sigma = std::sqrt(sigma * sigma + proj);
+                                            ++pseudoSubs;
+                                            *pseudoS << std::fixed << std::setprecision(4) << t << ','
+                                                     << sb.nodeId << ',' << aid << ",report,"
+                                                     << fe.timestampS << ',' << fe.x << ',' << fe.y << ','
+                                                     << std::setprecision(6) << fe.vx << ',' << fe.vy
+                                                     << ',' << std::setprecision(4) << px << ',' << py
+                                                     << ',' << ap.x << ',' << ap.y << ','
+                                                     << std::setprecision(6) << fe.varX << ',' << fe.varY
+                                                     << ',' << ageVar << ',' << s0 << ',' << sigma << '\n';
+                                        }
+                                    }
+                                }
+                            }
                             m.rangeM = range;
                             m.nlos = nlosF;
                             m.nlosPropagation = nlosP;
@@ -9579,11 +9685,19 @@ RunArm(CaTblPolicyMode mode,
                             m.sourceKind = CaTblSourceKindOf(aid);
                             m.fromFloor = (tier != act);
                             noteUwbEvidence(aid, sb.nodeId, tier, range, t); // NW-5
-                            out.push_back(m);
+                            if (dropS)
+                            {
+                                ++droppedS; // N.21: received, billed, not used
+                            }
+                            else
+                            {
+                                out.push_back(m);
+                            }
                         }
                     }
                     sb.energy.AccountRangingExchange(tier, static_cast<uint32_t>(keep.size()),
-                                                     static_cast<uint32_t>(out.size()), atSec);
+                                                     static_cast<uint32_t>(out.size() + droppedS),
+                                                     atSec);
                     // N.3 / row 55. SY-1's uplink, as tag 0's: one frame on the tier that
                     // ranged, 9 B + 6 B per answered anchor (OURS), billed to the subject.
                     if (edgeUpS && gatewayEdgeServer && tier != CA_TBL_TIER_868 && !out.empty())
@@ -13152,6 +13266,15 @@ RunArm(CaTblPolicyMode mode,
                   << heardGasp << "); frames billed " << (trig->billedLarge + trig->billedGasp)
                   << ", transmitted " << sentFrames << "\n";
     }
+    if (pseudoS)
+    {
+        // N.21. Closed before the digest.
+        pseudoS->close();
+        pseudoS.reset();
+        std::cout << "    N.21 finder pseudo-anchors (subjects, " << CaTblPolicyModeName(mode)
+                  << "): digests asked " << pseudoDigests << ", reported positions used " << pseudoSubs
+                  << ", dropped for want of a position " << pseudoNoEntry << "\n";
+    }
     if (trigS)
     {
         // N.3 / row 55. Closed before the digest.
@@ -16050,6 +16173,21 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("subjectFinderPseudoAnchor",
+                 "A subject's range to a finder uses the finder's REPORTED position, as tag 0's does "
+                 "under --finderPseudoAnchor (TECH_DEBT N.21). FALSE by default: subjects 2..N range "
+                 "a finder against its TRUE position with the engine's sigma -- knowledge no node "
+                 "has. TRUE: the freshest entry the subject's radios hold for that finder, carried "
+                 "forward under --entryPrediction (DC-13's 0.5 m/s Q) or bounded by walk speed x age "
+                 "otherwise, its covariance projected onto the range direction and added to sigma, "
+                 "exactly as tag 0's. With no entry held the range is dropped (received and billed, "
+                 "not used): the subject cannot know where the finder is. Tag 0's code keeps the "
+                 "true position there, recorded in N.21. Under --bidirectionalDigest the subject "
+                 "also asks the finders' digest question on its active tier, on tag 0's schedule, "
+                 "so it can hold their entries (unbilled, as tag 0's). Writes "
+                 "subjpseudo_<arm>_seed<N>.csv (digested) and one N.21 line. Needs "
+                 "--finderPseudoAnchor and --measuredSubjects > 1.",
+                 spec.subjectFinderPseudoAnchor);
     cmd.AddValue("subjectBatteryDeplete",
                  "Subjects 2..N run --batteryDepleteJ's fault, as tag 0 does (FAULT sect 49; TECH_DEBT "
                  "N.3, register row 55). FALSE by default: only tag 0's battery runs out, and a "
@@ -16645,6 +16783,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // N.21.
+    if (spec.subjectFinderPseudoAnchor && (!finderPseudoAnchorArg || spec.measuredSubjects < 2))
+    {
+        std::cerr << "FATAL: --subjectFinderPseudoAnchor needs --finderPseudoAnchor and "
+                     "--measuredSubjects > 1: it gives subjects tag 0's finder treatment\n";
+        return 1;
+    }
     // N.3 / row 55.
     if (spec.subjectBatteryDeplete && (!(batteryDepleteJArg > 0.0) || spec.measuredSubjects < 2))
     {
@@ -17877,6 +18022,10 @@ main(int argc, char* argv[])
     if (spec.subjectTriggeredUpdates)
     {
         digestPatterns += " subjtriggered_*.csv"; // N.3 / row 55
+    }
+    if (spec.subjectFinderPseudoAnchor)
+    {
+        digestPatterns += " subjpseudo_*.csv"; // N.21
     }
     if (spec.sparseInStep)
     {
