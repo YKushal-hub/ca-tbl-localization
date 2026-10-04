@@ -6046,6 +6046,8 @@ struct SpecOptions
     bool silenceStopsRelay = false;
     //! M.9. --reportRecedingPushes: count L.1.5's RECEDING eager push.
     bool reportRecedingPushes = false;
+    //! N.22. --collisionBothLost: a later-ending frame is judged against completed ones.
+    bool collisionBothLost = false;
     //! N.6. --halfDuplex: 0 off, 1 count only, 2 enforce.
     uint32_t halfDuplex = 0;
     //! N.20. --deadBatteryNoDraw: a node whose battery has run out is not billed for
@@ -6779,6 +6781,7 @@ RunArm(CaTblPolicyMode mode,
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
         chan[ti].SetPhyProvider(&provider);
+        chan[ti].SetCollisionBothLost(spec.collisionBothLost); // N.22
 
         CaTblMacConfig mc;
         mc.queryProxy = queryProxy;
@@ -13923,6 +13926,19 @@ RunArm(CaTblPolicyMode mode,
                       << ov << ", sent back to CAD " << dfr << ", receptions while transmitting "
                       << deaf << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
         }
+        if (spec.collisionBothLost)
+        {
+            // N.22. Summed over the three channels.
+            uint64_t late = 0, coll = 0;
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                late += chan[ti].GetLateCollisions();
+                coll += chan[ti].GetTotalCollisions();
+            }
+            std::cout << "    N.22 both colliding frames judged (" << CaTblPolicyModeName(mode)
+                      << "): collisions " << coll << ", of them against a completed frame "
+                      << late << "\n";
+        }
         if (spec.silenceStopsRelay)
         {
             // N.1. Other nodes' frames the silenced radios refused at CAD.
@@ -16890,6 +16906,17 @@ main(int argc, char* argv[])
                  "radios are separate (the LR1121 serves tiers 1 and 2 from one chip; that is "
                  "not modelled). One N.6 line. Any other value is FATAL.",
                  spec.halfDuplex);
+    cmd.AddValue("collisionBothLost",
+                 "Of two frames that overlap at a receiver, judge BOTH by the capture rule "
+                 "(TECH_DEBT N.22). FALSE by default: the channel erases a frame when it "
+                 "completes, so only the frame that ends first sees the other and is lost, and "
+                 "the later one is delivered -- every collision is half as destructive as the "
+                 "capture rule says. TRUE: a completed frame is kept until no frame still on air "
+                 "started before it ended, and a later-ending frame is lost to it unless it "
+                 "captures; each such loss is an events_ row with outcome collision_late and "
+                 "';by=<sender>:<packet id>'. Changes every channel, so no magnitude compares across the "
+                 "flag (rule 8). One N.22 line.",
+                 spec.collisionBothLost);
     cmd.AddValue("silenceStopsRelay",
                  "A silenced radio relays no other node's frame (TECH_DEBT N.1). FALSE by "
                  "default: a radio silenced by a spent battery (--batteryDepleteJ, "
