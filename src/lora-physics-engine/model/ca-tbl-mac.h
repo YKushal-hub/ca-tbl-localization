@@ -507,6 +507,12 @@ class CaTblMac
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
     //! N.1. Other nodes' frames refused at CAD while silenced (silenceStopsRelay only).
     uint64_t GetSilentRelayRefused() const { return m_silentRelayRefused; }
+    //! M.9. L.1.5's RECEDING eager push: handshakes that took the RECEDING branch, and the
+    //! push frames this radio then transmitted (a TRIGGERED_UPDATE of its own with no MC-2
+    //! reason; the redundant class's repeats included, up to three frames a push).
+    //! Counters only; nothing reads them but the report.
+    uint64_t GetRecedingPushesStarted() const { return m_recedingStarted; }
+    uint64_t GetRecedingPushesSent() const { return m_recedingSent; }
     //! N.6 (halfDuplex 1 or 2). Frames whose transmission came due while this radio's own
     //! previous frame was on air; of those, sent back to CAD (2 only); and receptions of
     //! other nodes' frames that overlapped one of this radio's own (lost under 2 only).
@@ -1052,6 +1058,9 @@ class CaTblMac
     uint64_t m_asleepRefused = 0;
     // N.1.
     uint64_t m_silentRelayRefused = 0;
+    // M.9.
+    uint64_t m_recedingStarted = 0;
+    uint64_t m_recedingSent = 0;
     // N.6.
     Time m_txBusyUntil = Seconds(0.0);
     std::deque<std::pair<double, double>> m_ownTx; // the last 16 [start, end), read only under halfDuplex

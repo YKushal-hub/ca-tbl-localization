@@ -1726,6 +1726,11 @@ CaTblMac::DoTransmit(PendingFrame f)
     {
         ++m_trigFramesSent; // MC-2
     }
+    else if (f.hdr.GetMsgType() == CA_TBL_MSG_TRIGGERED_UPDATE &&
+             f.hdr.GetOriginId() == m_cfg.nodeId)
+    {
+        ++m_recedingSent; // M.9: the only own TRIGGERED_UPDATE without an MC-2 reason
+    }
     c.airtimeS += toa.GetSeconds();
     if (f.hdr.GetOriginId() != m_cfg.nodeId)
     {
@@ -2865,6 +2870,7 @@ CaTblMac::StartHandshake(CaTblTier tier, uint16_t peerId, uint32_t nEntriesToPus
         // degrading link the reply may never arrive -- so push the self-entry
         // once, urgent-flagged, and take the higher contention priority that
         // TRIGGERED_UPDATE's access category confers. One shot, no negotiation.
+        ++m_recedingStarted; // M.9
         Send(CA_TBL_MSG_TRIGGERED_UPDATE, tier, 1, 0);
         return;
     }

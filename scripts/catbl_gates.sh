@@ -1527,6 +1527,21 @@ bash scripts/half_duplex_gate.sh "$WORK/g74" || fail G74
 bash scripts/half_duplex_gate_selftest.sh "$WORK/g74" || fail G74
 finish G74
 
+# ---------------- G75: L.1.5's RECEDING eager push is counted (M.9)
+# Under --mobilityFromRange a node whose mean range grows pushes its entry as one
+# TRIGGERED_UPDATE, and nothing counted it. --reportRecedingPushes reports the handshakes on
+# the RECEDING branch and the push frames sent. Seed 7, 900 s, triggered updates off, the
+# event log, read by scripts/receding_push_gate.py:
+#   - the counts are non-zero and consistent with the redundant class; the pushes heard in
+#     events_ are at most the handshakes; a report only (outputs identical);
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/receding_push_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G75 the RECEDING push is counted (M.9) ---\n'
+bash scripts/receding_push_gate.sh "$WORK/g75" || fail G75
+bash scripts/receding_push_gate_selftest.sh "$WORK/g75" || fail G75
+finish G75
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
