@@ -109,6 +109,7 @@
 #include <fstream>
 #include <functional>
 #include <cstdio>
+#include <unistd.h> // M.3: readlink(/proc/self/exe)
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -14304,6 +14305,7 @@ main(int argc, char* argv[])
     std::string radioBasisArg = "sx";        // SY-2: resolved after cmd.Parse()
     bool vizEventsArg = false;
     bool digestVizOutputsArg = false; // M.4
+    bool stampBinaryHashArg = false;  // M.3
     double vizTablePeriodSArg = 0.0;
     bool gwRidgeArg = false;
     double gwArcDegArg = 360.0;
@@ -15468,6 +15470,14 @@ main(int argc, char* argv[])
                  "things. Requires --vizEvents. Sampled rather than per-cycle: ten nodes "
                  "at every cycle is ~80k rows and an inspector cannot show that anyway.",
                  vizTablePeriodSArg);
+    cmd.AddValue("stampBinaryHash",
+                 "Record the SHA-256 of the binary that ran (TECH_DEBT M.3). FALSE by default: "
+                 "run_id.txt's 'source' line is git rev-parse HEAD in the WORKING DIRECTORY, so a "
+                 "run launched from one clone with another clone's binary records a clean, wrong "
+                 "commit; it has happened (B3's C1 originals). TRUE: one more line, 'binary "
+                 "sha256 <hash> <path>', read from /proc/self/exe after the source line, which "
+                 "names the binary itself whatever the working directory. Nothing else changes.",
+                 stampBinaryHashArg);
     cmd.AddValue("digestVizOutputs",
                  "Digest the visualiser's outputs in run_id.txt (TECH_DEBT M.4). FALSE by "
                  "default: events_*, nodes_*, nbrtable_*, loctable_* and deployment.json are "
@@ -17574,6 +17584,33 @@ main(int argc, char* argv[])
                     << invStr << "\n"
                     << "source " << head << " dirty " << dirty << " profile " << profile
                     << "\n";
+        }
+        if (stampBinaryHashArg)
+        {
+            // M.3. The binary itself, whatever directory it was launched from.
+            char exe[4096];
+            const ssize_t ne = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+            std::string hash;
+            if (ne > 0)
+            {
+                exe[ne] = '\0';
+                const std::string cmd = std::string("sha256sum '") + exe + "' 2>/dev/null";
+                if (FILE* fp = popen(cmd.c_str(), "r"))
+                {
+                    char hb[256];
+                    if (fgets(hb, sizeof(hb), fp))
+                    {
+                        hash = std::string(hb).substr(0, std::string(hb).find(' '));
+                    }
+                    pclose(fp);
+                }
+            }
+            if (hash.size() != 64)
+            {
+                std::cerr << "FATAL: --stampBinaryHash could not hash /proc/self/exe\n";
+                return 1;
+            }
+            ridFile << "binary sha256 " << hash << " " << exe << "\n";
         }
         ridFile.close();
         if (!ridFile)

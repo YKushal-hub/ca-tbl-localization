@@ -1542,6 +1542,19 @@ bash scripts/receding_push_gate.sh "$WORK/g75" || fail G75
 bash scripts/receding_push_gate_selftest.sh "$WORK/g75" || fail G75
 finish G75
 
+# ---------------- G76: run_id.txt records the binary that ran (M.3)
+# The source line is git HEAD of the working directory, so a binary launched from another
+# tree records a clean, wrong commit. --stampBinaryHash adds the SHA-256 and path of
+# /proc/self/exe. Runs launched from outside the repository, read by
+# scripts/binary_stamp_gate.py: the stamp is the binary's, a copy keeps its hash, outputs
+# identical, the control.
+#
+# Negative fixtures in scripts/binary_stamp_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G76 the binary that ran is recorded (M.3) ---\n'
+bash scripts/binary_stamp_gate.sh "$WORK/g76" || fail G76
+bash scripts/binary_stamp_gate_selftest.sh "$WORK/g76" || fail G76
+finish G76
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
