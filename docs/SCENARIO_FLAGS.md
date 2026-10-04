@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 212 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 213 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -20,14 +20,14 @@ for each change.** Row numbers below are as of the latest regeneration:
   `false` (DC-8). Every row after it moved down one.
 - `--entryVelocity` (row 175 of §3, and its §1 row): added with the default `false`
   (DC-10). Every row after it moved down one.
-- `--queryTierBinding` (row 207 of §3, and its §1 row): added with an empty default,
+- `--queryTierBinding` (row 208 of §3, and its §1 row): added with an empty default,
   which ns-3 prints with no bracket and which means `first` (NW-3). Every row after it
   moved down one.
-- `--handshakeFixes` (row 206 of §3, and its §1 row): added with the default `false`
+- `--handshakeFixes` (row 207 of §3, and its §1 row): added with the default `false`
   (MC-1). Every row after it moved down one.
-- `--triggeredUpdates` (row 204 of §3, and its §1 row): added with the default `false`
+- `--triggeredUpdates` (row 205 of §3, and its §1 row): added with the default `false`
   (MC-2). Every row after it moved down one.
-- `--triggeredUpdateK` (row 205 of §3, and its §1 row): added with the default `1`
+- `--triggeredUpdateK` (row 206 of §3, and its §1 row): added with the default `1`
   (MC-2). Every row after it moved down one.
 - `--edgeUplinkRanges` (row 198 of §3, and its §1 row): added with the default `false`
   (SY-1). Every row after it moved down one.
@@ -92,19 +92,21 @@ for each change.** Row numbers below are as of the latest regeneration:
   (TA-1b). Every row after it moved down one.
 - `--subjectEdgeUplink` (row 197 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectTriggeredUpdates` (row 203 of §3, and its §1 row): added with the default `false`
+- `--subjectTriggeredUpdates` (row 204 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectBatteryDeplete` (row 202 of §3, and its §1 row): added with the default `false`
+- `--subjectBatteryDeplete` (row 203 of §3, and its §1 row): added with the default `false`
   (row 55, N.3). Every row after it moved down one.
-- `--subjectFinderPseudoAnchor` (row 201 of §3, and its §1 row): added with the default `false`
+- `--subjectFinderPseudoAnchor` (row 202 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--finderPseudoAnchorStrict` (row 200 of §3, and its §1 row): added with the default `false`
+- `--finderPseudoAnchorStrict` (row 201 of §3, and its §1 row): added with the default `false`
   (N.21). Every row after it moved down one.
-- `--silenceStopsRelay` (row 199 of §3, and its §1 row): added with the default `false`
+- `--silenceStopsRelay` (row 200 of §3, and its §1 row): added with the default `false`
   (N.1). Every row after it moved down one.
+- `--deadBatteryNoDraw` (row 199 of §3, and its §1 row): added with the default `false`
+  (N.20). Every row after it moved down one.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
-seventy names. Three flags changed meaning without changing their printed default, and §1
+seventy-one names. Three flags changed meaning without changing their printed default, and §1
 says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 `--suspectRecovery` gained the value `downweight`.
 
@@ -211,6 +213,7 @@ precondition missing.
 | `--subjectFinderPseudoAnchor` | bool | `false` | added 2026-10-04 | N.21: a subject's range to a finder uses the finder's REPORTED position (the freshest entry its radios hold, carried forward under `--entryPrediction`, its covariance projected into sigma), as tag 0's does under `--finderPseudoAnchor`; with no entry held the range is dropped (received and billed, not used); under `--bidirectionalDigest` the subject asks the finders' digest question on its active tier, subject k of N at (0.5 + k/(2N)) of the finder digest period (OURS; unbilled, as tag 0's). By default subjects range finders against their TRUE positions. Writes `subjpseudo_<arm>_seed<N>.csv` (digested) and one N.21 line (G68). In `--specProfile` since 2026-10-04; a preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off explicitly | needs `--finderPseudoAnchor` and `--measuredSubjects` > 1, else FATAL |
 | `--finderPseudoAnchorStrict` | bool | `false` | added 2026-10-04 | N.21, tag 0's half: under `--finderPseudoAnchor` no finder range uses the finder's true position. By default tag 0 keeps the truth when it holds no entry for the finder, or when the report's variance cannot be projected; with the flag, a range tag 0 holds no entry for is dropped (received and billed, not used), and where the variance cannot be projected the report is used uninflated (the same fallback for subjects under `--subjectFinderPseudoAnchor`; defensive, no population in G69). Writes `pseudo_<arm>_seed<N>.csv` (tag 0's finder ranges, digested) and one N.21 strict line (G69). In `--specProfile` since 2026-10-04; a preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off explicitly | needs `--finderPseudoAnchor`, else FATAL |
 | `--silenceStopsRelay` | bool | `false` | added 2026-10-04 | N.1: while a radio is silenced (a spent battery under `--batteryDepleteJ` / `--subjectBatteryDeplete`, or `--injectSilentId`), the MAC refuses at CAD every frame another node originated, and counts it; new relays, queued relays, their CAD retries, repeats and retransmissions alike. The node's own frames are untouched, so a frame queued before the silence (MC-2's last gasp) still leaves. One N.1 line (G70) | needs `--batteryDepleteJ` > 0 or `--injectSilentId`, else FATAL |
+| `--deadBatteryNoDraw` | bool | `false` | added 2026-10-04 | N.20: from the cycle its budget runs out, a dead node (tag 0, and each subject under `--subjectBatteryDeplete`) is billed for no reception, no neighbour-search window and no sleep, and tag 0 for no escalation handshake (its frame was already suppressed). A frame it transmitted (the last gasp, a relay past CAD) is still billed. One N.20 line (G71) | needs `--batteryDepleteJ` > 0 and `--silenceStopsRelay`, else FATAL |
 
 ## 2. Help text corrected, default unchanged
 
@@ -436,17 +439,18 @@ prints it.
 | 196 | `--sparseInStep` | `false` |
 | 197 | `--subjectEdgeUplink` | `false` |
 | 198 | `--edgeUplinkRanges` | `false` |
-| 199 | `--silenceStopsRelay` | `false` |
-| 200 | `--finderPseudoAnchorStrict` | `false` |
-| 201 | `--subjectFinderPseudoAnchor` | `false` |
-| 202 | `--subjectBatteryDeplete` | `false` |
-| 203 | `--subjectTriggeredUpdates` | `false` |
-| 204 | `--triggeredUpdates` | `false` |
-| 205 | `--triggeredUpdateK` | `1` |
-| 206 | `--handshakeFixes` | `false` |
-| 207 | `--queryTierBinding` | (empty) |
-| 208 | `--uwbArbitration` | `false` |
-| 209 | `--arbBatteryCapJ` | `1000` |
-| 210 | `--anchorGrantGossipS` | `0` |
-| 211 | `--suspectForcesEscalation` | `true` |
-| 212 | `--nlosSource` | `legacy` |
+| 199 | `--deadBatteryNoDraw` | `false` |
+| 200 | `--silenceStopsRelay` | `false` |
+| 201 | `--finderPseudoAnchorStrict` | `false` |
+| 202 | `--subjectFinderPseudoAnchor` | `false` |
+| 203 | `--subjectBatteryDeplete` | `false` |
+| 204 | `--subjectTriggeredUpdates` | `false` |
+| 205 | `--triggeredUpdates` | `false` |
+| 206 | `--triggeredUpdateK` | `1` |
+| 207 | `--handshakeFixes` | `false` |
+| 208 | `--queryTierBinding` | (empty) |
+| 209 | `--uwbArbitration` | `false` |
+| 210 | `--arbBatteryCapJ` | `1000` |
+| 211 | `--anchorGrantGossipS` | `0` |
+| 212 | `--suspectForcesEscalation` | `true` |
+| 213 | `--nlosSource` | `legacy` |

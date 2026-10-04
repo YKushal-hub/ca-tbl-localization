@@ -6022,6 +6022,9 @@ struct SpecOptions
     bool finderPseudoAnchorStrict = false;
     //! N.1. --silenceStopsRelay: a silenced radio relays no other node's frame.
     bool silenceStopsRelay = false;
+    //! N.20. --deadBatteryNoDraw: a node whose battery has run out is not billed for
+    //! listening or sleeping.
+    bool deadBatteryNoDraw = false;
     //! MC-2. --triggeredUpdateK: a large correction is a move of more than k sigma.
     double triggeredUpdateK = 1.0;
     //! SY-1. --edgeUplinkRanges: bill the uplink of tier-2/3 ranges to the gateways.
@@ -8377,6 +8380,8 @@ RunArm(CaTblPolicyMode mode,
     // N.21. --subjectFinderPseudoAnchor: one row per subject range to a finder, null without.
     std::unique_ptr<std::ofstream> pseudoS;
     uint64_t pseudoSubs = 0, pseudoNoEntry = 0, pseudoDigests = 0;
+    // N.20. Radio-cycles (one per tier per cycle) a dead node was not billed for.
+    uint64_t deadNoDrawT0 = 0, deadNoDrawS = 0, deadNoDrawHs = 0;
     // N.21 strict: tag 0's finder ranges, one row each, null without --finderPseudoAnchorStrict.
     std::unique_ptr<std::ofstream> strictLog;
     uint64_t strictReport = 0, strictDropped = 0, strictNoInflate = 0, strictNoInflateS = 0;
@@ -10079,7 +10084,13 @@ RunArm(CaTblPolicyMode mode,
                         }
                     }
                     const uint64_t rxNow = mm->GetTotals().received;
-                    if (awake)
+                    if (spec.deadBatteryNoDraw && sb.batteryDead)
+                    {
+                        // N.20: a dead radio draws nothing -- no reception, no search
+                        // window, no sleep current.
+                        ++deadNoDrawS;
+                    }
+                    else if (awake)
                     {
                         const uint64_t delivered = rxNow - sb.lastRx[k];
                         if (delivered > 0)
@@ -10841,7 +10852,14 @@ RunArm(CaTblPolicyMode mode,
             // the tier-1 fix is the inadequate one the escalation exists to
             // escape, so it is the correct thing to surrender under the rationale
             // above.
-            energy.AccountEscalationHandshake(pendingHandshakeTier, t);
+            if (spec.deadBatteryNoDraw && batteryDead)
+            {
+                ++deadNoDrawHs; // N.20: a dead radio pays for no handshake
+            }
+            else
+            {
+                energy.AccountEscalationHandshake(pendingHandshakeTier, t);
+            }
             // C1: the frame ITSELF, in addition to the charge above. The
             // accounting already sizes the handshake correctly; what it has
             // never done is contend for the medium, pass CAD, or meet the
@@ -12058,7 +12076,14 @@ RunArm(CaTblPolicyMode mode,
             // itself a check on the scope of this fix.
             if (energy.CanTransmit(active, t))
             {
-                energy.AccountEscalationHandshake(active, t);
+                if (spec.deadBatteryNoDraw && batteryDead)
+                {
+                    ++deadNoDrawHs; // N.20: a dead radio pays for no handshake
+                }
+                else
+                {
+                    energy.AccountEscalationHandshake(active, t);
+                }
                 // C1: see the note at the pre-emption site above. Charge
                 // unchanged, frame added.
                 if (sendHandshakeFrames && nodeMac[active] != nullptr)
@@ -12105,7 +12130,14 @@ RunArm(CaTblPolicyMode mode,
                 // can be reported rather than assumed away. What is NOT paid is the
                 // next cycle's ranging exchange.
                 const double tDefer = energy.GetNextAllowedTxS(active);
-                energy.AccountEscalationHandshake(active, tDefer);
+                if (spec.deadBatteryNoDraw && batteryDead)
+                {
+                    ++deadNoDrawHs; // N.20: a dead radio pays for no handshake
+                }
+                else
+                {
+                    energy.AccountEscalationHandshake(active, tDefer);
+                }
                 ++handshakeIntraCycleDefers;
                 handshakeIntraCycleWaitS += (tDefer - t);
                 if (sendHandshakeFrames && nodeMac[active] != nullptr)
@@ -12254,7 +12286,14 @@ RunArm(CaTblPolicyMode mode,
             }
             const uint64_t rxNow = nodeMac[tierIdx]->GetTotals().received;
 
-            if (wasAwake)
+            if (spec.deadBatteryNoDraw && batteryDead)
+            {
+                // N.20: a dead radio draws nothing -- no reception, no search window, no
+                // sleep current. Its relays are refused (--silenceStopsRelay, required), and
+                // any frame already past CAD when it died is still billed above.
+                ++deadNoDrawT0;
+            }
+            else if (wasAwake)
             {
                 // Discovery listening. SCOPE LIMIT, and it is a real one: this
                 // charges RECEPTION, not SEARCHING. A physical receiver also burns
@@ -13478,6 +13517,13 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    FAULT sect 49: " << suppressed
                       << " frames suppressed while node " << injectSilentId
                       << " was silent\n";
+        }
+        if (spec.deadBatteryNoDraw)
+        {
+            std::cout << "    N.20 dead radios (" << CaTblPolicyModeName(mode)
+                      << "): radio-cycles unbilled, tag 0 " << deadNoDrawT0 << ", subjects "
+                      << deadNoDrawS << "; tag 0 escalation handshakes unbilled " << deadNoDrawHs
+                      << "\n";
         }
         if (spec.silenceStopsRelay)
         {
@@ -16272,6 +16318,20 @@ main(int argc, char* argv[])
                  "--uwbArbitration read energy, so under them more can move. Prints one SY-1 "
                  "line per arm.",
                  spec.edgeUplinkRanges);
+    cmd.AddValue("deadBatteryNoDraw",
+                 "A node whose battery has run out draws nothing more (TECH_DEBT N.20). FALSE by "
+                 "default: --batteryDepleteJ stops a dead node's ranging and silences its radios, "
+                 "but the listen and sleep accounting does not read the battery, so it goes on "
+                 "billing the dead node for reception, the neighbour-search window and sleep (and "
+                 "tag 0 for escalation handshakes), and "
+                 "every such run overstates what a dead node draws. TRUE: from the cycle its "
+                 "budget runs out, tag 0 (and each subject under --subjectBatteryDeplete) is billed "
+                 "for none of the three, nor tag 0 for the escalation handshakes its coasting "
+                 "filter still asks for (their frames are already suppressed); a frame it transmitted (the last gasp, or a relay past CAD "
+                 "at the moment of death) is still billed. One N.20 line. Needs --batteryDepleteJ "
+                 "> 0 and --silenceStopsRelay (a dead radio that relayed while drawing nothing "
+                 "would be billed for transmitting and not for the reception that fed it).",
+                 spec.deadBatteryNoDraw);
     cmd.AddValue("silenceStopsRelay",
                  "A silenced radio relays no other node's frame (TECH_DEBT N.1). FALSE by "
                  "default: a radio silenced by a spent battery (--batteryDepleteJ, "
@@ -16906,6 +16966,13 @@ main(int argc, char* argv[])
         return 1;
     }
     // MC-2. k is read only by the trigger, and k <= 0 would fire on every cycle.
+    // N.20.
+    if (spec.deadBatteryNoDraw && (!(batteryDepleteJArg > 0.0) || !spec.silenceStopsRelay))
+    {
+        std::cerr << "FATAL: --deadBatteryNoDraw needs --batteryDepleteJ > 0 (nothing dies "
+                     "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
+        return 1;
+    }
     // N.1. Nothing is ever silenced without one of the two faults.
     if (spec.silenceStopsRelay && !(batteryDepleteJArg > 0.0) && injectSilentIdArg == 0)
     {

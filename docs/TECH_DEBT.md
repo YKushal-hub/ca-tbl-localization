@@ -1844,7 +1844,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
 | N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
 | N.19 | G24 reads one seed, and several of its populations are one or two events | open (engineering) |
-| N.20 | a node whose battery has run out is still billed for listening and sleeping | open (engineering) |
+| N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
 | N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
@@ -2589,6 +2589,23 @@ nothing. The fault's control-flow claims (no exchange, no fix, no frame) are una
 
 A fix changes what every existing `--batteryDepleteJ` run bills. It would need its own flag
 value and null control (plan §0 rule 12), like N.1's. Open (engineering).
+
+*2026-10-04, `--deadBatteryNoDraw` (G71).* From the cycle its budget runs out, a dead node is
+billed for no reception, no search window and no sleep: tag 0, and every subject under
+`--subjectBatteryDeplete`. A frame it actually transmitted is still billed: the last gasp,
+billed in the death cycle, and any relay already past CAD.
+- The flag needs `--silenceStopsRelay` (N.1). A dead radio that relayed while drawing nothing
+  would be billed for transmitting and not for the reception that fed it.
+- **A fourth draw, found building it.** A dead tag 0's filter coasts, and it still escalates.
+  Each escalation billed a handshake, though its frame was already suppressed. The flag
+  stops that too. Dead subjects were already guarded there.
+- *Measured,* G71 (G67's regime with `--silenceStopsRelay`: seed 7, 900 s, tag 0 and four
+  subjects on 3 J, all five died):
+  - by default cumJ rose after death by 0.21 J (tag 0) and 0.81-7.97 J (subjects);
+  - with the flag, by 0 on all five;
+  - 633 + 2 748 radio-cycles unbilled, and one escalation handshake.
+- Default unchanged. Every `--batteryDepleteJ` result measured without the flag still
+  overstates a dead node's energy, by the amounts above in this regime.
 
 ### N.21 Subjects ranged finders against their true positions; tag 0 does when it holds no entry
 
