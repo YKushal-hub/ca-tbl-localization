@@ -28,7 +28,19 @@ would understate the interval.
 
 DENOMINATOR. Only cycles with hadFix == 1 enter the correlation: a cycle with no
 fix has no radial error to correlate against. That is stated rather than assumed,
-and the count is reported per cell so the exclusion is visible.
+and the count is reported per cell so the exclusion is visible. (It was not
+reported until --strict-undefined: TECH_DEBT M.8.)
+
+OPTIONS (TECH_DEBT M.8, 2026-10-04). With none, the output is exactly what the two
+registrations that name this script applied (PREREG_PCS_FORMS, PREREG_B3_REGEN).
+  --root DIR          read DIR instead of results/pcs_forms.
+  --strict-undefined  a cell in which a correlation is undefined on any seed reads
+                      "undefined", not "indistinguishable". A score constant over a
+                      seed's fix cycles (gated PCS: 99.98 % of them) has no Spearman
+                      rho; the NaN interval satisfies neither sign test, and the
+                      default reads that as "carries nothing the trace does not".
+                      Each cell also prints its fix-cycle count and how many seeds
+                      gave an undefined rho.
 """
 import csv
 import math
@@ -37,6 +49,9 @@ import random
 import sys
 
 ROOT = "results/pcs_forms"
+STRICT_UNDEFINED = "--strict-undefined" in sys.argv[1:]  # M.8
+if "--root" in sys.argv[1:]:
+    ROOT = sys.argv[sys.argv.index("--root") + 1]
 FORMS = ["legacy", "v2", "weighted", "gated"]
 SEEDS = list(range(1, 21))
 ARMS = ["ca_tbl_full", "ca_tbl_no_integrity"]
@@ -191,8 +206,13 @@ for form in FORMS:
             verdict = "LOSES TO CONTROL"
         else:
             verdict = "indistinguishable"
+        nundef = sum(1 for x in deltas if not math.isfinite(x))
+        if STRICT_UNDEFINED and nundef > 0:
+            verdict = "undefined (rho undefined on %d of %d seeds)" % (nundef, n)  # M.8
         print("  %-10s %-20s %9.4f %9.4f %9.4f   [%+.4f, %+.4f]  %s"
               % (form, arm, rp, rc, d, lo, hi, verdict))
+        if STRICT_UNDEFINED:
+            print("  %-10s %-20s fix cycles %d over %d seeds" % ("", "", sum(r[2] for r in rows), n))
 
 print("""
 READING IT. 'indistinguishable' means the score carries nothing the covariance

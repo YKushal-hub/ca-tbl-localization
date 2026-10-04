@@ -1484,6 +1484,20 @@ bash scripts/dead_draw_gate.sh "$WORK/g71" || fail G71
 bash scripts/dead_draw_gate_selftest.sh "$WORK/g71" || fail G71
 finish G71
 
+# ---------------- G72: analyse_pcs_forms.py reads an undefined statistic as undefined (M.8)
+# A score constant over a seed's fix cycles has no Spearman rho, and the script read the NaN
+# interval as "indistinguishable". Under --strict-undefined it reads "undefined" and prints
+# each cell's fix-cycle count; its default output is the registered one, byte for byte.
+# A synthetic tree in a temp dir (the campaign's traces are not tracked), read by
+# scripts/pcs_forms_undefined_gate.py.
+#
+# Negative fixtures in scripts/pcs_forms_undefined_gate_selftest.sh: mutated copies of the
+# script, outside the tree (rule 6).
+printf '\n--- G72 an undefined statistic reads undefined (M.8) ---\n'
+python3 scripts/pcs_forms_undefined_gate.py || fail G72
+bash scripts/pcs_forms_undefined_gate_selftest.sh || fail G72
+finish G72
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
