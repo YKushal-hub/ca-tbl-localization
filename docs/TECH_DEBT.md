@@ -1646,6 +1646,21 @@ reads that as "carries nothing the covariance trace does not"
 (`report/B3_REGEN_RESULTS.md` §C2). It should print *undefined*. Its docstring also promises
 a per-cell hadFix count that it does not print.
 
+*2026-10-04, `--strict-undefined` (G72).* The script is the registered analysis of two
+campaigns (PREREG_PCS_FORMS, PREREG_B3_REGEN), so its default output is left exactly as
+they applied it.
+- `--strict-undefined`: a cell whose correlation is undefined on any seed reads
+  "undefined (rho undefined on k of n seeds)", and every cell prints its fix-cycle count.
+- `--root DIR`: read another campaign's tree, where B3 edited the script's ROOT by hand.
+- G72 runs the script on a synthetic tree, since the campaign's traces are not tracked: a
+  gated form constant on every fix cycle, three forms with a defined rho.
+  - With no option, the output is byte-identical to the registered version (`d82b865`),
+    and gated reads "indistinguishable".
+  - With the option, gated reads "undefined (rho undefined on 20 of 20 seeds)", the other
+    forms keep their verdicts, and the cycle counts print.
+- B3's §C2 reading stands as registered. A re-read with the option is not a correction of
+  it.
+
 ### M.9 `TRIGGERED_UPDATE` has no counter, and a scenario comment says its branch never runs
 
 L.1.5's eager push is visible on disk only as rows of `events_*` (M.4). No stdout or CSV
