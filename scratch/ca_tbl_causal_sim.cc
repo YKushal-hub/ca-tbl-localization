@@ -10385,7 +10385,11 @@ RunArm(CaTblPolicyMode mode,
                     ex.tdoa->Solve(sb.policy, measS);
                 }
                 CaTblDecision ds = sb.policy.Step(
-                    dt, measS, hopS, static_cast<int32_t>(chainUsed ? chainM.size() : actM.size()),
+                    dt, measS, hopS,
+                    static_cast<int32_t>(chainUsed ? chainM.size()
+                                         : (dualS && !actM.empty() && measS.size() >= 3)
+                                             ? std::max<size_t>(3, actM.size())
+                                             : actM.size()), // N.26, as tag 0's
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
                 if (ex.tdoa)
                 {
@@ -10838,6 +10842,7 @@ RunArm(CaTblPolicyMode mode,
             return floorHealthyRun + 1 < floorSkipK; // K = 1 => never blocks
         };
         bool floorRanged = false;
+        size_t crossAddedThisCycle = 0; // N.26 fix 2: UWB polls taken from the LoRa tables
 
         // Range against one tier and return its measurement set. Charges CAD and the
         // ranging exchange, including the RX-timeout cost of anchors that did not
@@ -10937,6 +10942,7 @@ RunArm(CaTblPolicyMode mode,
                         {
                             nb.push_back(ln[k]);
                             ++crossTierPolls;
+                            ++crossAddedThisCycle;
                         }
                     }
                 }
@@ -12154,11 +12160,19 @@ RunArm(CaTblPolicyMode mode,
                 nRelayedLegs += (meas[k].hopDepth > 0) ? 1u : 0u;
             }
         }
+        // N.26. Under the dual base a 1-2 range active set that joined a fused set of three
+        // or more delivered: the policy is not told the tier failed when its ranges went
+        // into a fix. Cross-tier UWB polls count as addressed: the node did transmit to them.
+        const size_t activeDelivered =
+            (dualBase && !activeMeas.empty() && meas.size() >= 3)
+                ? std::max<size_t>(3, activeMeas.size())
+                : activeMeas.size();
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
-                                            static_cast<int32_t>(activeMeas.size()),
-                                            static_cast<int32_t>(activeMeasAddressed),
+                                            static_cast<int32_t>(activeDelivered),
+                                            static_cast<int32_t>(activeMeasAddressed +
+                                                                 crossAddedThisCycle),
                                             tierEvidenceMask);
         if (fuseFA)
         {
@@ -13001,7 +13015,7 @@ RunArm(CaTblPolicyMode mode,
                 lastNonEmptyAtS[tierIdx] = t;
             }
         }
-        const uint32_t polledCount = static_cast<uint32_t>(activeMeasAddressed);
+        const uint32_t polledCount = static_cast<uint32_t>(activeMeasAddressed + crossAddedThisCycle);
         const bool blind = (polledCount == 0);
         if (blind)
         {
