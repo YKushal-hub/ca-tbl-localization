@@ -27,6 +27,11 @@ every cell's run_id.txt, each of which digests that cell's outputs), and every c
 Outputs (sha256):
 ```
 8f5805f87d80aa608509ca31f70e6cbe7d0b09d0fdf0603a81575a8057674159  LORA_CMP.md
-6fef22f5e2c4c8ec2d51c8a88859d5251d0e9311098cd34628596c6626df90dc  lora_cmp_table.csv
+f3b33d5452792d9e140f94a6a747cc2475d45eab24bef1a7ce2689db391bf463  lora_cmp_table.csv
 f7a6fc9e831cc428e4de1e47d574faeb4b613f7a7ba3a33abfb5bd0340b5e120  raw_manifest.sha256
 ```
+
+The analysis first wrote lora_cmp_table.csv with CRLF line endings (Python csv's default).
+The repository stores it as LF (.gitattributes eol=lf), so the file was converted to LF, and
+its hash above is the LF file's (CRLF original: `6fef22f5e2c4c8ec2d51c8a88859d5251d0e9311098cd34628596c6626df90dc`). The script now writes LF.
+Re-running it on these cells reproduces LORA_CMP.md and lora_cmp_table.csv byte-for-byte.
