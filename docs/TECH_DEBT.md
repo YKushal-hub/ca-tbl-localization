@@ -138,6 +138,34 @@ side is already ready — `CaTblEkf::Update(meas, varM2)` takes a per-measuremen
 `CaTblRangeMeasurement` is already an (anchor position, range) pair, which is exactly the
 pseudo-anchor shape.
 
+**C5_INSTANT, 2026-09-29 — every `--relayedRanging` number to date predates `--relaySlots`.**
+Until `--relaySlots`, every exchange a cycle made by calling an engine directly — each relay's
+anchor polls, each relay-to-relay exchange, the measured tag's own — carried the cycle's one
+instant. The engines' interference registry decides overlap on time and transmitter id alone,
+so they collided. With only `--relayedRanging` on (static_2p4, 300 s, `--boxHalf=200`, four
+tags, seeds 7/11/13), the measured tag's 3+-anchor cycles fell from 107/112/106 of 120 to
+2/0/11, and relays after the first never held a fix. With `--relaySlots` the same runs give
+103/104/107. `--relaySlots` (default off) moves the relays' round into its own 50 ms slots
+ending before the instant (`RelayRound`, `scratch/ca_tbl_causal_sim.cc`). Under it, G17b
+(L.1.2's done-when) is green: 4 fuses, depth 2 on 40 decisions, A2 at depth 2 passing 19 and
+refusing 21 on the budget. **Every relayed-ranging figure recorded before it was measured
+under the collision and does not compare with a `--relaySlots` run.** That covers
+`MASTER_PLAN.md`'s C5 row (78/31/11/11 admitted, σ 3.0 → 39–52 m, the 0.20 relayed-variance
+share, 37 vs 40 escalations), `b390ed6`'s L.1.2 sweep and `5f3ad42`'s routing counts. Those
+records stay as written. **Still open:** the registry never attenuates an interferer by
+distance (`lora-interference-submodule.cc:126-129` computes `dist` and does not use it). So
+overlapping exchanges interfere at their own link's power wherever they are, and separating
+them in time is the only protection the model has. The round is also stamped inside the slice
+the event layer has already run, so the relays in it meet no MAC frame and no MAC frame meets
+them. With the flag off a direct exchange meets only frames straddling the instant, at most
+one airtime of look-back. In G17b's regime (~50 MAC frames/s over three tiers) that bounds
+the interference the relays give up at about 16% of exchanges on 2.4 GHz.
+
+> **2026-09-30:** `--relaySlots` is now the default in every relayed run (M.1, decided). The
+> paragraph above describes the state before that. A relayed figure recorded before
+> 2026-09-30 without `--relaySlots=true` was measured under the collision, which
+> `--relaySlots=false` restores.
+
 ### 3.2 `hopWeight` stays 0, and the PCS hop term is the wrong shape
 `ca-tbl-policy.cc:672`, `:708`. The current term is **unbounded below**, penalises a
 *count* rather than an *uncertainty the covariance already carries*, and does not encode
@@ -147,6 +175,13 @@ is registered as a **separate PCS campaign**, not part of C5.
 
 Also: **A2 caps hop depth at 1, so `hopCount` is binary.** A term linear in it has two
 reachable values. Worth knowing before anyone tunes a weight expecting a gradient.
+
+> **2026-09-30, stale references, corrected here rather than in place.**
+> - The hop term now sits at `ca-tbl-policy.cc:848-851` (v2 path) and `:890-893`; the
+>   `hopWeight` default is at `:101`, not `:83`.
+> - A2 is no longer a fixed depth-1 cap. It admits depth up to `--maxRelayDepth` under a
+>   variance budget (`ca-tbl-relay-admission.cc:120-134`). The cap is still 1 **at the
+>   default** `--maxRelayDepth=1`.
 
 ### 3.3 C2-full — the peer is not a measured subject
 Rebased onto current main as `wip/c2-on-main` (`7cbfead`), builds, and the C4 conflict is
@@ -160,6 +195,15 @@ removed its role as C4's blocker, but a relay with no filter has no `P_B` to rep
 **Merge decision is open and is the owner's**, against a bar rather than a judgement:
 RULES.md §4.2 requires byte-identical output — `arm_summary` **and every trace**. This is
 result-exact and not bit-exact (§4.1), so it does not meet that bar as written.
+
+> **2026-09-30, stale.** The merge happened at `abbe3de` (2026-09-06, "merge C2-full:
+> per-tag state, so a second target can be a measured subject"). `wip/c2-on-main` and
+> `wip/c2-full-refactor` have no commits ahead of `main`.
+> - What exists is the **data structure**: `CaTblTagState`, `scratch/ca_tbl_causal_sim.cc:2627-2701`.
+> - The **behaviour** is still tag 0's alone. The cycle body is not looped over tags. Peers
+>   have no policy, and relays under `--relayedRanging` have a policy but never escalate.
+>   Their energy accounts are incompletely configured.
+> - Finishing it is `docs/SPEC_CONFORMANCE_PLAN.md` MS-1.
 
 ### 3.4 A4 / A5 — blocked on data that does not exist
 A4 says to compare reported sigma against realised error *"from the existing traces"*.
@@ -420,7 +464,7 @@ Takes precedence over anything above it that it contradicts.
 |---|---|---|
 | **A. No baseline for the corrected topology** | "outranks everything else" | **Closed.** `baseline_v8` (`ae1faf5`), `dirty 0`, reproduces 7/7. Null controls work again and five changes have since used it. |
 | **B. Gateway count/placement to the brief** | 9 over 2 km vs the brief's 3 over 5 km | **Closed.** `--nGateways` / `--gwRingFrac` (`089a9f1`). |
-| **C.1 Hop weight is zero / provenance inert** | "the confidence side is untouched" | **Partly closed.** The provenance term reaches the score (`57ebb41`) and now has a non-zero input (`edf73a5`): share 0.20 over 180 cycles, and `--hopProvenanceForm` 0 vs 1 finally differ. **Still open:** whether it carries information the covariance does not, and per-hop RSSI/SNR variance, which still never reaches the score. |
+| **C.1 Hop weight is zero / provenance inert** | "the confidence side is untouched" | **Partly closed.** The provenance term reaches the score (`57ebb41`) and now has a non-zero input (`edf73a5`): share 0.20 over 180 cycles, and `--hopProvenanceForm` 0 vs 1 finally differ. **Still open:** whether it carries information the covariance does not. *2026-10-03:* per-hop RSSI/SNR variance and per-hop NLOS reach σ_eff under `--hopVarianceTerms` (NW-1 step 3, G58), and on tag-to-tag legs they swamp it (N.11). |
 | **B. Only the self-entry propagates / exchange is one-directional** | listed as missing | **Closed.** `cf25341`. The casualty asks as well as answers, and a node reads the union of its own three tables. |
 | **E. The integrity result has no confidence interval** | "four qualifications short of a claim" | **One qualification closed.** All three intervals exclude zero (`cf09176`). The other three stand. |
 | **B. Finder entries are stale by construction** | not previously recorded | **Closed.** A finder published its spawn position once and then walked for the whole run (`5262c59`). |
@@ -513,6 +557,25 @@ configure it are consequently untestable.
 *Fix:* a configuration with a non-empty all-LOS population, or an explicit statement
 that the Mahalanobis form is not exercised under this topology. Uncosted, and it needs
 deciding before either is written up as a contribution.
+
+**2026-09-30 / 10-01, DC-8: the spec's eligibility is built, and it gives the check a
+population.**
+- What it is: the docx's condition is "NLOS_score is LOW", not "every link tagged LOS".
+  `--integrityNlosFromScore` (with `--nlosClassifier`) reads the mean score of the fix
+  set's scored links instead (gate G30).
+- What it does, at seed 7, 900 s, `ca_tbl_full`, defaults:
+  - the tag-based control evaluates 305 fixes and finds **0** all-LOS, so this entry's
+    zero reproduces;
+  - read from the score, **296 of 297** scored fixes are eligible, and the check calls
+    **152** of them suspect.
+- **That is a new problem, not a solution.** Under the default response, which is
+  reject-and-coast, half of the fix cycles are now rejected. The check's reference is the
+  prior, and a tier-1 RSSI fix sits many sigma from it on most cycles (median Mahalanobis
+  in the tens). So the check now fires constantly for the reason this entry's lock-out
+  paragraph (`CaTblSuspectRecovery`) describes.
+- Single seed: a population, not a rate (rule 8).
+- The spec pairs this condition with DC-7's downweight (`--suspectRecovery=downweight`),
+  and the preset turns on both. Whether that pair behaves is CAMP-SPEC's to measure.
 
 ### I.2 `--uwbEvidenceFromNeighbours` was broken on arrival, and is fixed
 Recorded in full at `c236834`. It read a neighbour table belonging to a radio that is
@@ -635,6 +698,22 @@ way, and correct `ch09 §9.3` — which is a documentation change, not an engine
 The DIVERGENT row already says the code and the spec disagree here; this decides which
 one moves.
 
+*2026-10-04, item 4 measured (TDOA-01, report/TDOA01_RESULTS.md; registered `5b839d0`).*
+Over 22 880 TDoA solves for tag 0 under the preset, the CRLB-based covariance holds the
+error in its bulk:
+- 95 %-ellipse coverage 0.941 at 5 km with eight gateways, 0.930 with three, and 0.915 in
+  the endgame;
+- median NEES 1.35-1.46, against χ²₂'s 1.39.
+
+It is overconfident in the tail: mean NEES 2-4, and up to 2.5 % of solves beyond χ²₂'s
+0.999 point. That is the missing threshold effect this item named.
+
+With three gateways the exactly-3 closed form never refused (0 of 370). The limit there is
+that all three rarely stamp at once: 15 344 attempts were TOO_FEW.
+
+The default and the J.2 decision stay the owner's. An outlier treatment for the tail would
+be its own flag.
+
 ---
 
 # Addendum — 2026-09-08 (second), the propagation session
@@ -722,6 +801,11 @@ does not. *Cost:* a documentation change. *Risk of leaving it:* a reader reasons
 the energy axis from a false premise, which is the exact failure mode §6 exists to prevent.
 
 ### K.4 Gateways as edge servers — built, and it can only cost energy
+
+> **2026-09-29: the default since L.2.3.** "It can only cost energy" held under the
+> no-reply billing this was written against, and it still holds on tier 2. Under the reply
+> billing that became the default on 2026-09-08 it saves 32.9–42.5% on every tier-1-using
+> arm (`report/B3_REGEN_RESULTS.md` C6). The text below is kept as written.
 
 The brief puts the EKF fusion on the gateway. `--gatewayEdgeServer` (default off) now
 charges the field node for the downlink that returns the answer, which is what the
@@ -910,6 +994,17 @@ IS.
 | **B2 Spec-conformant** | does the running simulator do what `finalyearprojectcontext.docx` describes? | **partial** |
 | **B3 Claim-supported** | is there evidence for the claims the thesis makes? | **no, and partly by measurement** |
 
+**2026-09-29.**
+
+- **B1 met.** The one qualification: L.1.2 is met only with `--relaySlots`, which is
+  default off.
+- **B2 partial.** L.2.3 and L.2.5 are closed; L.2.1, L.2.2 and L.2.4 are partial. An
+  exploratory probe corrected the coverage diagnosis for the four starved mechanisms
+  (L.2).
+- **B3.** The seven claim-bearing campaigns were regenerated (B3), and C1 with the evidence
+  gate off and CAL-01 were run after them. Four claims are supported, PCS and tiering are
+  not, and the witness cross-check is withdrawn in the shipped default (L.3).
+
 ---
 
 ## L.1 Bar 1 — engine complete
@@ -926,13 +1021,89 @@ an engine feature.
 
 | # | item | what is wrong | what closes it | done when |
 |---|---|---|---|---|
-| L.1.1 | Routing unwired | `CaTblRoutingTable` + ETX + 21 checks exist; **0 scenario call sites**. The poll set is one-hop, so there is no route to choose | Multi-hop forwarding of position-fix traffic: a node that cannot reach a gateway directly relays through one that can | A run reports a next-hop that is not the destination, and `Divergences()` is non-zero between ETX and the confidence metric |
-| L.1.2 | Net §5 depth 2 unreachable | `CaTblComposeRelayChain` and `--maxRelayDepth` exist; **finders never relay through each other**, so `hopDepth` is always 1 | Let a finder with <3 anchor ranges range against a finder that already holds a fix this cycle, inheriting depth+1 and the relay's covariance | `hopDepth == 2` appears in a run and A2 is observed both admitting and rejecting on the budget |
-| L.1.3 | Case B / Case C unwired | library only | Call Case B where one anchor + one peer is the geometry | Case B appears in a run's verdict counts |
-| L.1.4 | Anchor tie-break unwired | `CaTblGrantCoordinator` + suite; anchors do not gossip grants | Anchor-to-anchor grant gossip on the existing low-priority class | Two anchors are observed reaching opposite verdicts on one target in a run |
-| L.1.5 | `CA_TBL_MOB_RECEDING` never set | the receding → eager-push branch is dead code in the scenario | Drive mobility state from the walker's range trend | The branch executes and `TRIGGERED_UPDATE` count is non-zero |
+| L.1.1 | Routing unwired | `CaTblRoutingTable` + ETX + 21 checks exist; **0 scenario call sites**. The poll set is one-hop, so there is no route to choose | Multi-hop forwarding of position-fix traffic: a node that cannot reach a gateway directly relays through one that can | A run reports a next-hop that is not the destination, and `Divergences()` is non-zero between ETX and the confidence metric. **2026-09-29: MET at `5f3ad42`**, behind `--fixRouting` (default off) — see *L.1 status* below |
+| L.1.2 | Net §5 depth 2 unreachable | `CaTblComposeRelayChain` and `--maxRelayDepth` exist; **finders never relay through each other**, so `hopDepth` is always 1 | Let a finder with <3 anchor ranges range against a finder that already holds a fix this cycle, inheriting depth+1 and the relay's covariance | `hopDepth == 2` appears in a run and A2 is observed both admitting and rejecting on the budget. **2026-09-29: MET only with `--relaySlots` (`d24690c`, default off); NOT met by `b390ed6` alone** — see below |
+| L.1.3 | Case B / Case C unwired | library only | Call Case B where one anchor + one peer is the geometry | Case B appears in a run's verdict counts. **2026-09-29: already met at `084a7ff` (wired at `ac5766f`); this row was stale** — see below |
+| L.1.4 | Anchor tie-break unwired | `CaTblGrantCoordinator` + suite; anchors do not gossip grants | Anchor-to-anchor grant gossip on the existing low-priority class | Two anchors are observed reaching opposite verdicts on one target in a run. **2026-09-29: MET at `17ab7dd`; its evidence file is digested since `ff4f8bb`** — see below |
+| L.1.5 | `CA_TBL_MOB_RECEDING` never set | the receding → eager-push branch is dead code in the scenario | Drive mobility state from the walker's range trend | The branch executes and `TRIGGERED_UPDATE` count is non-zero. **2026-09-29: already met at `084a7ff` (wired at `50a229a`); this row was stale** — see below |
 
 **B1 is worth finishing and is cheap.** None of it requires a campaign or a decision.
+
+### L.1 status, 2026-09-29
+
+Work on branch `work/2026-09-27-spec-b1`, local only. Every mechanism below sits behind a
+default-off flag whose off state was null-controlled against the frozen `084a7ff` reference
+(`~/catbl_ref/nc.sh`: NC1 7/7 and NC2 2/2 output files byte-identical). The branch review
+(2026-09-29, working files `~/catbl_review/`) re-ran every done-when invocation at the branch
+head with `--gatewayEdgeServer=false` and got the implementers' outputs back byte-for-byte, 8
+of 8.
+
+- **L.1.1 — CLOSED, `5f3ad42`.** `--fixRouting` and `--fixRoutingConfidence`. The routers
+  are the filtered relays (ids 2+, `--relayedRanging`); the measured tag does not route,
+  because its tier changes between cycles. Done-when run: `static_2p4`, seed 7, 600 s,
+  `--relayedRanging --nTags=6`, default box (`~/catbl_probe/v3/L.1.1/donewhen_etx`).
+  `fix_routing_static_2p4_seed7.csv`, 1981 rows: the next hop was a relay on 1116 hops, and
+  781 of those were forwarded. Divergences were 576 of 1958 selections, equal to
+  `CaTblRoutingTable::Divergences()` summed over the tables, and an awk recount gives the
+  same numbers. Gates G18/G18b, 12 negatives observed to fail. **Caveat, from `d24690c`:**
+  these counts were measured while the relays' ranging still shared the cycle instant (M.1
+  below), so they do not compare with a `--relaySlots` run. The weights α, β, γ and the slack
+  are ours and uncalibrated.
+- **L.1.2 — MET only under `--relaySlots` (`d24690c`), which is default off. The owner has
+  not yet decided its default.** `b390ed6` wired `--relayChain` and measured the done-when
+  as NOT met. In G17's regime it got 112 rows, all at depth 1, A2 pass 49 / budget 63, and
+  0 fuses. The cause is the simultaneous-instant defect (M.1). With `--relaySlots`, same
+  flags (static_2p4, seed 7, 600 s, `--boxHalf=200 --nTags=4 --relayedRanging --relayChain
+  --maxRelayDepth=2 --relayVarBudget=24336`), `relay_chain_static_2p4_seed7.csv` has 541
+  rows: 4 fuse rows, 40 tag-leg rows at `hopDepth` 2, and A2 at depth 2 passing 19 and
+  refusing 21 on the budget. Seeds 11 and 13 pass G17b too, with 57 and 2 fuses. G17b has
+  been green since `d24690c`. `hopWeight` stays 0. The earlier probe outputs
+  `~/catbl_probe/v3/L.1.2/{on_*,sw_*,sx_*,sy_*,sz_*}` came from a defective draft that set
+  depth on admission rather than on a fused step, and **must not be cited**.
+  *2026-09-30:* `--relaySlots` became the default in relayed runs (M.1). G17's flags as
+  written now give the 541 rows above, and G17b reads G17's run.
+- **L.1.3 — CLOSED before this week; the row was stale.** Case A reached the fix path at
+  `c94507b`, Case B at `ac5766f`, and the census became a partition at `0031a5b` (A.7).
+  Probe of 2026-09-28, EXPLORATORY (unregistered, frozen `084a7ff` binary). Invocation
+  `--arms=ca_tbl_full --seed=7 --duration=1200 --sparseCaseA=true`; field: stdout
+  `sect 7 CASES`; census complete, 480 of 480 cycles:
+  - `--nGateways=3 --boxHalf=3000 --nFinders=4`: D 65, A 7, **B 16**, C 199.
+  - `--gwGrid=2 --boxHalf=5000 --nFinders=4`: D 54, A 1, **B 11**, C 268.
+  - `--nGateways=3 --boxHalf=2000 --nFinders=0`: D 39, **A 64**, B 0, C 318.
+
+  `ac5766f`'s message gave B = 8 and 13; those were counted before the census fix. B is also
+  18, 29 and 26 at seeds 7, 11 and 13 in the grid-2 5 km regime with four finders (1800 s).
+  Output directories `~/catbl_probe/v3/a_case*`.
+- **L.1.4 — CLOSED, `17ab7dd`; evidence digested since `ff4f8bb`.** `--anchorGrantGossipS`
+  (default 0). Done-when run: NC2's flags plus `--anchorGrantGossipS=5 --vizEvents=true`,
+  `ca_tbl_full`, seed 7, 1800 s. `grant_verdicts_ca_tbl_full_seed7.csv` has 22 rows: request
+  OK 13, SELF_REPEAT 2, gossip WIN 4, DEFER 3. There are two mutual opposite-verdict pairs on
+  target 1: 104 WIN / 103 DEFER, and 105 WIN / 104 DEFER. An awk recount equals the stdout
+  counters. It reproduces byte-identically from a clean clone (`source 17ab7dd dirty 0`,
+  `~/catbl_probe/v3/L.1.4/verify_clean`). Gate G16 has 7 negatives. `ff4f8bb` adds
+  `grant_verdicts_*.csv` to the `run_id.txt` digest; before it, a tampered verdict passed
+  `sha256sum -c`. Limits:
+  - gateway 101 received no gossip;
+  - one double grant stood (105 from 485 s, 102 from 490 s);
+  - there is no revoke frame;
+  - one seed, one deployment.
+- **L.1.5 — CLOSED before this week; the row was stale.** `--mobilityFromRange`
+  (`50a229a`). Probe on `084a7ff`, EXPLORATORY. Invocation `--arms=ca_tbl_full --seed=7
+  --duration=1200 --mobilityFromRange=true --nTags=3 --vizEvents=true`. Stdout reads
+  `sect 11.11 MOBILITY: stationary 100, approaching 177, receding 168`: 445 of 480 cycles,
+  and the 35 cycles with no range are unclassified. `events_ca_tbl_full_seed7.csv` has 44
+  `TRIGGERED_UPDATE` frames originated by node 1 (748 rows, including 174 relayed copies).
+  The only sender of that message is the RECEDING branch of `ca-tbl-mac.cc`. The same run
+  with `--mobilityFromRange=false` gives 0. With `--nTags=1` it gives 49, so `50a229a`'s
+  statement that peer tags are needed no longer holds at `084a7ff`. No counter reports this
+  message, and the scenario comment saying the receding branch never runs is now false (M.9).
+
+**B1, 2026-09-29: met.** One qualification: L.1.2's done-when needs `--relaySlots`, which is
+off by default until the owner decides.
+
+> **2026-09-30:** the owner decided (M.1). `--relaySlots` is on by default in relayed runs,
+> so L.1.2's done-when holds with G17's flags as written. `--relayChain` and
+> `--maxRelayDepth=2` are still opt-in.
 
 ---
 
@@ -967,15 +1138,125 @@ an 868 transmission regardless of active tier. A sweep over that is one afternoo
 *Done when:* each of the four reports a non-trivial population in at least one registered
 configuration, **or** the register states that it cannot and why.
 
+**2026-09-29: the coverage probe (EXPLORATORY) corrects this diagnosis.** It was about 40
+runs, unregistered, all on the frozen `084a7ff` binary (`~/catbl_ref`). Invocation
+`--arms=ca_tbl_full,static_868 --sparseCaseA=true --tableFuseCI=true`, 1800 s (720 cycles),
+mostly seed 7, a few at seeds 11 and 13. Outputs are in `~/catbl_probe/v3/{s_*,f_*}` and the
+per-run populations in `~/catbl_probe/v3/*_pops.jsonl`. The sidecars read `source unknown`,
+because the frozen binary runs outside a git tree and `run_id.txt` records the working
+directory's HEAD (M.3); the runs are identified by the binary. This re-diagnoses the four
+mechanisms. It does not measure an effect, and no result may be quoted from it.
+
+**"All four are the same fact" is wrong for two of the four.** Counts are for `ca_tbl_full`,
+per 720-cycle run:
+
+| mechanism | what the probe shows | diagnosis |
+|---|---|---|
+| Case A / B | Default box: A 7 (9 attempts), B 0. Where tier 1 does not cover, A rises to 103 (`--nGateways=3 --boxHalf=2000`), 60 (`=3000`) and 48 (`--boxHalf=3000`). B is 10–29 with four finders in the `--nGateways=3 --boxHalf=3000` and grid-2 5 km boxes, and 0–1 elsewhere | **Coverage.** Tier-1 blanketing explains Case A and Case B, and a sparse regime produces both |
+| Mahalanobis integrity check | Eligible cycles (`mahalanobis != 0 && nNlos == 0`): 0–9 in every regime under the default `--nlosSource=legacy`, sparse or dense, with or without finders. In the six runs with `--nlosSource=propagation`: 182–420 eligible, 102–288 suspects | **Structural, not coverage.** The legacy tag marks ~75 % of links NLOS, so an all-LOS fix cycle almost never occurs. The propagation source changes that |
+| Covariance Intersection | With four finders, every regime from the default box to grid-2 at 5 km has 107–318 table-entry arrivals per run, each merged. Equal-sequence (CI-eligible) arrivals: 0 in 11 of 13 finder runs, 8 and 1 in the other two. With no finders: 0 arrivals | **Not coverage.** Entries arrive whatever tier 1 does. A second copy of the same sequence number almost never does. *Inferred, not counted:* an entry reaches a holder only as its subject's unicast answer to that holder's own digest (`f017da4`), so a second route rarely carries it |
+| Routing | Wired since `5f3ad42` (L.1.1): 1116 relay next hops in its done-when run | A population exists under `--fixRouting` |
+
+`runFloor` (a hybrid arm whose active tier is not 868) is true on 600 of 720 cycles at
+defaults, 718 of 720 with four finders, and 25 of 720 in grid-2 at 5 km. The 99.9 % quoted
+above is the finder regime, not the default. What remains for the done-when is a
+*registered* configuration for each mechanism. CAL-01's `arc` regime (44 % of cycles
+without a fix, `results/cal01_loocv_20260928`) is the first registered campaign in which
+tier 1 does not blanket.
+
 **Remaining B2 divergences**
 
 | # | item | what is wrong | what closes it | done when |
 |---|---|---|---|---|
-| L.2.1 | Tier-1 observable | Spec says TDoA (Chan/Foy). Code does RSSI inversion. The energy model bills the **TDoA shape** — one broadcast, anchors timestamp — so the system pays for TDoA and localises with RSSI | Either build the timing layer + hyperbolic solver (needs GPS-PPS sync, absent, and circularly justified as "not needed, because there is no TDoA"), **or** re-bill as RSSI and amend ch09 §9.3 | Billing and observable agree, and the DIVERGENT row names which one moved. `--tier1ChargeReplies` already measures the gap: tier-1 energy 13.59 → 25.86 J |
-| L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create |
-| L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` now exists (32–42% energy saving, accuracy byte-identical) but is **off by default** | Default it true after its own reference regeneration | The CONTRADICTION row in §2.1 is resolved rather than described |
-| L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values |
-| L.2.5 | Proxy staleness | The proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound) | Faster dissemination, or an explicit statement that the spec bound is too tight for this topology | The bound is justified by measurement rather than inherited |
+| L.2.1 | Tier-1 observable | Spec says TDoA (Chan/Foy). Code does RSSI inversion. The energy model bills the **TDoA shape** — one broadcast, anchors timestamp — so the system pays for TDoA and localises with RSSI | Either build the timing layer + hyperbolic solver (needs GPS-PPS sync, absent, and circularly justified as "not needed, because there is no TDoA"), **or** re-bill as RSSI and amend ch09 §9.3 | Billing and observable agree, and the DIVERGENT row names which one moved. `--tier1ChargeReplies` already measures the gap: tier-1 energy 13.59 → 25.86 J. **2026-09-29: the observable moved, behind `--tier1Tdoa` (default off), `7377ed0`; the default is still RSSI** — see *L.2 status* below |
+| L.2.2 | NLOS determination | Spec gives a CIR leading-edge/peak ratio. Code uses a probabilistic propagation state. **No CIR exists, so no classifier can** | Synthesise a CIR from the channel state and run the leading-edge test on it | The classifier produces a confusion matrix against the modelled truth. **State the circularity**: it cannot discover NLOS the channel model did not create. **2026-09-29: PARTIAL at `86e43f2`. The 868 MHz and 2.4 GHz matrices fill; the UWB CIR matrix cannot, under the channel model** — see below |
+| L.2.3 | Estimator location | Spec puts the EKF on the gateway; code ran it on the tag. `--gatewayEdgeServer` exists (32–42% energy saving, accuracy byte-identical) and was **off by default** until 2026-09-29 | Default it true after its own reference regeneration | **CLOSED 2026-09-29 (`db2ac2e`) — the default is now true**, and MASTER_PLAN §2.1's CONTRADICTION row is PARTIAL, with the reason stated in the row. Evidence at the flipping commit, all on one binary: defaults against `--gatewayEdgeServer=false` differ ONLY in totalJ, accuracyPerJoule, the 868 and 2.4 GHz `j_`, `rx_`, `idle_` columns and the trace's `cumJ`, in four configurations (seed 7 × 3600 s all arms traced; the NC2 searcher regime; seeds 11–13 × 900 s; NC2 with `--uwbArbitration`); `static_uwb` is byte-identical, since it never fixes. `=false` reproduces the 084a7ff frozen reference byte-for-byte (NC1 7/7, NC2 2/2). A new frozen reference at the flipping commit, ~/catbl_ref_edge, serves later null controls. Gates that replay the pre-change configuration now pin `=false` (G6's comparison run, G19's replies-billed run), and G21 (`scripts/edge_default_gate.py`) re-asks the energy-only question on every suite run, with negative fixtures in `scripts/edge_default_gate_selftest.sh`. **Recorded, not fixed:** getting a tier-2 or tier-3 range from the exchange that measured it to the gateway's estimator is not billed. On 2.4 GHz the node closes the two-way arithmetic, so the range would have to be sent up; on UWB the final message leaves it with the responder, which may be a finder. This flatters the edge setting on tiers 2 and 3 only, where it already costs 0.2% more |
+| L.2.4 | Multi-hop localisation | Flood forwarding exists; the poll set is strictly one-hop and relayed ranging is capped at depth 1 | L.1.2, then raise the cap | `hopCount` takes more than two values. **2026-09-29: PARTIAL. Met in the relay-chain log under `--relaySlots` (`d24690c`); not met where PCS reads it; the cap still defaults to 1** — see below |
+| L.2.5 | Proxy staleness | *As recorded 2026-09-09:* "the proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — from an unrecorded invocation that queried a **peer**. **Measured 2026-09-29, and true of a peer, false of the casualty** (registered `report/PREREG_L25_PROXY_AGE.md`, runs at `b16531f` dirty 0, `results/l25_proxy_age_20260929`, seeds 7/11/13, the age of every entry a proxy held when a query arrived). Casualty, arc searcher regime: 458 checks of 82 queries, 265 held, age p50 11.5 s, p90 28.6 s, max 68.1 s, **265/265 inside 120 s**. Casualty, grid-2 5 km sparse regime: 42 checks of 15 queries, 39 held, p50 17.2 s, p90 49.6 s, **37/39 inside**. A peer: p50 493 s (21/130 inside) and 385 s (5/20) — an entry reaches a holder only as its subject's answer to that holder's own digest, and in the seed-7 searcher run the peer heard 13 finder digests to the casualty's 305 | Nothing, for the casualty. For a node nobody polls the lever is dissemination, not the bound; `--digestSummary`'s third-party pushes are the existing candidate and were **not** measured here | **CLOSED 2026-09-29 (`b16531f` registered, `f017da4` measured) — justified by measurement.** The spec's 120 s stays the default of `--queryStalenessBoundS`, whose help text now carries these numbers: it refuses none of the casualty's held entries in the searcher regime and 2 of 39 in the sparse one, and what it refuses is worth refusing — an estimate held 120 s is 143 m from a casualty walking 1.2 m/s, against 4.5 m fresh |
+
+**Found while closing L.2.5, recorded and not fixed.** Fixing either changes what runs
+produce, so each is a change of its own, with its own null control:
+
+- **The C3 QueryDriver asks only 868 radios.** Its loop (`scratch/ca_tbl_causal_sim.cc`,
+  the `identityQueryPeriodS > 0` block) binds every tier's driver to the *first* ANCHOR MAC
+  in `macs`, with no tier test. Under the tri-band topology that is gateway 101's 868 MAC,
+  so all three drivers transmit on the 868 channel and only 868 radios hear a query; a
+  "tier 1" or "tier 2" query is an 868 frame evaluated with the 2.4 GHz or UWB link model,
+  and a UWB-labelled one is timed as a UWB frame. Every identity-query and proxy count to
+  date carries this. It does not move L.2.5: the only
+  tables holding a casualty entry are the finders' 868 tables, which are the ones asked.
+  - *2026-10-01, NW-3:* `--queryTierBinding=per-tier` binds each driver to its tier's
+    radio (gate G32).
+  - More precisely, what the old binding did: G32 decomposes the bound MAC's QUERY
+    airtime exactly. The "2.4 GHz" queries were billed at 868 MHz's time on air, and the
+    UWB-labelled ones at the UWB frame time, all on the 868 MHz radio.
+  - The default is unchanged, so this entry stands for every result so far.
+- **The casualty's entry is one cycle older than its stamp.** `PublishSelfEntry(policy.EstX
+  ...)` runs before `policy.Step` in the per-cycle loop, so the entry stamped `t` carries
+  the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in
+  `sparse_t1` equal the trace estimate of the cycle before their timestamp. Every entry age
+  in the project is understated by 2.5 s.
+
+### L.2 status, 2026-09-29
+
+- **L.2.1 — PARTIAL, `7377ed0`.** Flags: `--tier1Tdoa` (default false) and
+  `--tdoaPpsSigmaNs` (default 20 ns, from the u-blox M8T timing data sheet). Surveyed
+  gateways stamp the node's tier-1 broadcast. Four or more gateways are solved by Chan–Ho
+  seeding Foy; exactly three by a closed form that keeps every root.
+  - *Done-when run:* defaults plus `--tier1Tdoa`, all arms, seed 7, 3600 s
+    (`~/catbl_probe/v3/TDOA/dw2_on`). `static_868` gives 1433 rows, OK on 1428 (99.7 %),
+    all fused, equal to the policy's own count; `ca_tbl_full` gives 1172 rows, 1166 fused.
+    An awk recount is equal on every arm.
+  - *Billing and observable agree with the flag on:* 8880 stamps on 8880 billed replies, and
+    0 stamps beyond a billed reply. Under the gateway-estimator default (`db2ac2e`) the
+    stamps ride the backhaul: 355 downlinks on 355 OK solves.
+  - *Why not closed.* The default observable is still RSSI inversion. Making TDoA the default
+    changes the tier-1 observable and, per J.2, invalidates every tier-1 result. That is a
+    planned campaign (owner decision pending), not a flag flip. The accuracy the model gives
+    (`static_868` rmse 167 → 11 m, seed 7) rests on a Cramér–Rao bound with no threshold
+    effect and is not a result. J.2 item 4, re-deriving tier-1 σ, is not done.
+- **L.2.2 — PARTIAL, `86e43f2`.** Flags: `--nlosClassifier`, `--pcsNlosClassifier` and
+  `--nlosScoreThreshold` (0.5, ours).
+  - *Every cell non-trivial on 868 MHz.* Searcher regime (NC2's flags, 1800 s),
+    `ca_tbl_full`: tp 19, fp 358, fn 177, tn 4474. Defaults at 900 s: 9 / 91 / 147 / 1848.
+    On 2.4 GHz (`static_2p4`, searcher regime): 3 / 67 / 6 / 2470. An awk recount from the
+    raw rows is equal.
+  - **The UWB CIR half cannot fill its TP and FN cells in any regime tried (M.2).** The
+    circularity is stated in the source: the classifier can only rediscover the NLOS the
+    channel model created.
+    *2026-09-30:* still true with the registered IEEE 802.15.4a model (`--uwbNlosModel`,
+    `57225b8`). Its NLOS frames are almost all lost, and the few decoded ones are too weak
+    to score (`report/UWB_NLOS_RESULTS.md`).
+  - The 868 detector barely separates LOS from NLOS (mean score 0.089 against 0.109). CAL-01
+    then measured the live PCS term at |ρ| ≤ 0.06.
+- **L.2.3 — CLOSED, `db2ac2e`** (row above). The branch review re-ran the null control at
+  `db2ac2e` with `--gatewayEdgeServer=false`, plus 11 further configurations against the
+  frozen `084a7ff` binary, and every one was byte-identical. `ff4f8bb` is null-controlled at
+  defaults against the new frozen reference `~/catbl_ref_edge`. Every results directory in
+  the tree, `results/regen27_*` included, was produced with the estimator on the node; to
+  replay one, add `--gatewayEdgeServer=false`. An open question the review raised about
+  which radio the downlink is billed on is M.10 (a DECISION since 2026-09-30).
+  - *2026-10-02, SY-1:* `--edgeUplinkRanges` bills the uplink the row above records as
+    unbilled: one frame on the tier that ranged, 9 header bytes plus 6 per answered anchor
+    (OURS). Gate G35: only energy moves, only on tiers 2 and 3, at one TX power per radio
+    (2.4 GHz: 0.0792 J per second of airtime on every arm that moved). On UWB the frame
+    goes from the node too. The spec's TWR is Poucet's START/ACK/DATA_REPLY, which leaves
+    the range at the initiator, so "the final message leaves it with the responder" above
+    describes a different exchange. The UWB branch is not exercised today, because no
+    regime returns a UWB range to the node (DC-6). The default is unchanged, so the edge
+    figures above still describe an unbilled uplink.
+  *Decided 2026-09-30:* the downlink is billed on the fix's tier by default
+  (`--edgeDownlinkTier`). To replay an edge-server run from before that date, add
+  `--edgeDownlinkTier=active`.
+- **L.2.4 — PARTIAL.** `hopDepth` takes 1 and 2 on relayed legs, beside the direct anchors'
+  0, in `relay_chain_*.csv` under `--relayChain --relaySlots --maxRelayDepth=2` (`d24690c`).
+  So the done-when holds in the relay-chain log. It does not hold where PCS reads a hop
+  count: the measured tag's `Step()` receives `hopCount` as the literal 0
+  (`scratch/ca_tbl_causal_sim.cc:8009` at `ff4f8bb`; CAL-01 cites `:7874` at `c019c0a`).
+  `hopWeight` stays 0, and `--maxRelayDepth` still defaults to 1, so "raise the cap" is not
+  done at defaults.
+- **L.2.5 — CLOSED, `b16531f` (registration and the age record) and `f017da4` (result)**
+  (row above).
 
 ---
 
@@ -988,11 +1269,14 @@ control, or is withdrawn.
 
 | claim | status | what would change it |
 |---|---|---|
-| Confidence-awareness (PCS) earns its place | **measured negative.** Every form loses the monotone control, whole 95% CI below zero. In the sparse regime ρ turns **positive** | Give the hop and NLOS terms real inputs (both currently dead), then re-run the control. K.8 gives the order and warns a refit alone cannot fix it |
-| Tiering beats single-band | **not supported.** Statistically indistinguishable from `static_868`; `fixed_threshold` ties or wins | A regime where tier 1 does not cover — the same fix as L.2 |
-| The architecture beats published estimators | **supported.** K10: 2 016 m vs MLAT 20 831 m, 20+/0−, p ≤ 0.0004 | Re-run on the corrected environment (K.2) before quoting |
-| The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
-| Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1 | L.1.2 then a registered PCS campaign |
+| Confidence-awareness (PCS) earns its place | **measured negative.** Every form loses the monotone control, whole 95% CI below zero. In the sparse regime ρ turns **positive**. **→ 2026-09-29: NOT SUPPORTED on the regenerated tree (B3 C2), and CAL-01 finds that no calibration rescues it** — see *L.3 status* | Give the hop and NLOS terms real inputs (both currently dead), then re-run the control. K.8 gives the order and warns a refit alone cannot fix it |
+| Tiering beats single-band | **not supported.** Statistically indistinguishable from `static_868`; `fixed_threshold` ties or wins. **→ 2026-09-29: still NOT SUPPORTED (B3 C4). The three small-box DOMINATES verdicts are a billing effect** — see below | A regime where tier 1 does not cover — the same fix as L.2 |
+| The architecture beats published estimators | **supported.** K10: 2 016 m vs MLAT 20 831 m, 20+/0−, p ≤ 0.0004. **→ 2026-09-29: REPRODUCES on the corrected environment (B3 C3)** | Re-run on the corrected environment (K.2) before quoting. *Done, B3 C3* |
+| The integrity check earns its place | **supported, narrowly.** 8/8 energy, 7/8 accuracy, both CIs excluding zero — but corroboration alone; the IMU witness contributes ~nothing. **→ 2026-09-29: WITHDRAWN in the shipped default (B3 C1, no population). With the evidence gate off, the witness lowers energy on 20/20 seeds, but it acts as a near-blanket veto and no detection claim follows (C1_NOGATE)** — see below | Re-run post-K.2; calibrate the corroboration constants (k=3, σ=30 m, floor 0.5 — all ours, uncited) |
+| Hop-aware provenance | **no population.** `hopWeight = 0`, depth capped at 1. **→ 2026-09-29: still no population for the claim. Depth 2 is now reachable in the relay chain, but PCS's hop input is a literal 0** — see below | L.1.2 then a registered PCS campaign |
+| *(row added 2026-09-29)* The mesh carries availability | **supported (B3 C5).** `fixCycles / steps` 0.041 < 0.319 < 0.647 (WAN only < sparse < WAN + mesh); WAN + mesh minus WAN only is positive on 20/20 seeds, p = 1.9×10⁻⁶. The availability belongs to the mesh, not to tiering | — |
+| *(row added 2026-09-29)* Estimation at the gateway saves node energy | **supported (B3 C6); the default since `db2ac2e`.** totalJ is 42.5 %, 32.9 % and 32.9 % lower on `static_868`, `fixed_threshold` and `ca_tbl_full`, 20/20 seeds each, with accuracy byte-identical on 20/20. It is a tier-1 mechanism: `static_2p4` costs 0.2 % more on 20/20 | Bill the delivery of a tier-2 or tier-3 range to the gateway (L.2.3). *2026-09-30:* the downlink-tier DECISION (M.10) would move the two hybrid figures, not `static_868`'s. *Decided the same day:* the downlink is billed on the fix's tier by default. The two hybrid figures describe `--edgeDownlinkTier=active` and have not been re-measured |
+| *(row added 2026-09-29)* An ideal IMU collapses the error tail | **supported as a CEILING, never as a system result (B3 C7).** cep95 median: `static_uwb` 8 413 → 17 m, `static_2p4` 27 151 → 537 m, both 20+/0−. `ca_tbl_full` 11+/9−, not significant | A measured SHS error model (K.9) |
 
 **Before any of these can be re-stated, two things must happen and they are not optional:**
 
@@ -1004,6 +1288,111 @@ control, or is withdrawn.
 2. **1.1 — the unseeded sampler.** Any change in transmission count displaces every
    link's draws, so cross-binary magnitude comparisons are inadmissible. Either assign
    streams and regenerate everything, or state the limit on every cross-binary number.
+
+### L.3 status, 2026-09-29
+
+**The two prerequisites.**
+
+1. *Regenerated for the seven claim-bearing campaigns.* B3 (`report/PREREG_B3_REGEN.md`,
+   registered at `7b17bd6` before any cell ran) produced 125 cells, all
+   `source 7b17bd6 dirty 0`. The engine is `084a7ff`'s, byte-identical, and the cells are in
+   `results/regen27_*`. Read-out: `report/B3_REGEN_RESULTS.md`. The rest of the results tree
+   still predates the correction.
+2. *The sampler decision is taken, for B3 and after it.* `LoRaDistributionSampler` stays
+   unseeded (`report/PREREG_B3_REGEN.md` §1). Every regenerated number stands on its own
+   paired control inside one binary. Cross-binary magnitudes are inadmissible; byte
+   identity is admissible, because it is a control-flow fact.
+
+**Scope of every verdict below.** B3's engine is `084a7ff`'s, and C1_NOGATE ran on the same
+binary. This branch has since added the NLOS term, tier-1 TDoA and the relay changes, all
+default off and null-controlled. It has also moved the estimator to the gateways by default
+(`db2ac2e`), and at defaults that move changes energy columns only. So the accuracy verdicts
+carry over to the current default, and every **energy** figure describes
+`--gatewayEdgeServer=false`.
+
+- **PCS — NOT SUPPORTED.**
+  - *B3 C2* (`results/regen27_pcs_forms`, 20 seeds × 3600 s):
+    - The monotone-control negative reproduces in 6 of 8 form × arm cells, each CI wholly
+      below zero (legacy/`ca_tbl_full` −0.2349 [−0.2819, −0.1846]; weighted/`no_integrity`
+      −0.0984).
+    - It is undefined for `gated`, whose PCS is 0.0 on 20 752 of 20 755 and 20 765 of 20 768
+      fix cycles. The analyser prints "indistinguishable" for that NaN (M.8).
+    - The D-1 repair reverses (SIGN FLIPS): `gated` is worse than `legacy` on cep50 by
+      +12.96 m, 15+/5−, p = 0.041.
+    - "`gated` is cheaper" is withdrawn: 18 of 20 seeds are byte-identical.
+    - The repaired forms saturate *low*. With `traceSigma` at 7.8×10⁴–1.2×10⁵ m², term 1 is
+      about 10⁻⁴, so under each of them `ca_tbl_no_integrity` is byte-identical to
+      `fixed_threshold` on 19 of 20 seeds.
+    - The sparse-regime positive ρ did not appear at `boxHalf=2000`.
+  - *CAL-01* (`report/CAL01_LOOCV_RESULTS.md`, `results/cal01_loocv_20260928`, registered at
+    `c019c0a` before any cell ran, 60 runs `dirty 0`): **CALIBRATION DOES NOT RESCUE PCS**,
+    the outcome prediction P1 named.
+    - Leave-one-seed-out against ρ(−traceSigma, error), 98.33 % intervals: A =
+      −0.0016 [−0.0066, +0.0030] (default), +0.0045 [−0.0129, +0.0217] (arc, 44 % of cycles
+      without a fix) and −0.0011 [−0.0044, +0.0001] (searcher). All three are
+      indistinguishable.
+    - The calibrated weights are (3, 0, 0) to rounding, and rank agreement with the trace is
+      0.984, 0.963 and 0.9997.
+    - The live NLOS term ranks error at |ρ| ≤ 0.06.
+    - The hand-set (2, 0.5, 0.5) loses by −0.47, −0.30 and −0.21.
+    - All five predictions held, and the default weights in code are unchanged.
+
+  The contribution claim, that PCS carries information about error beyond the trace it is
+  computed from, is not supported by any linear calibration of its terms. Withdrawing the
+  novelty claim is the owner's decision (`report/CAL01_LOOCV_RESULTS.md` §5). What could
+  still change the conclusion: a nonlinear form; a hop count that actually reaches the
+  measured tag's PCS; or an NLOS detector whose score carries information the channel
+  model's own state does not hand it.
+- **Tiering beats single-band — NOT SUPPORTED.** *B3 C4* (`results/regen27_k1`, 11 cells ×
+  20 seeds).
+  - P4.1 ("`ca_tbl_full` dominates `static_868` in no cell") is **FALSIFIED in 3 of 11**:
+    `k1a_box750`, `_box1000` and `_box1500` give DOMINATES (energy 20+/0− in each; rmse
+    18+/2−, 11+/9−, 13+/7−). P4.2 (`static_2p4` dominates `ca_tbl_full`) reproduces in
+    11/11.
+  - **The three DOMINATES verdicts are a billing effect, not evidence that escalating to a
+    precision tier pays.** Tier-1 replies are billed, so a tier-1 cycle costs 18.5–24.0 mJ
+    against 5.5–8.6 mJ for a tier-2 cycle. With floor-on-demand, the 78–88 % of cycles
+    spent on 2.4 GHz replace tier-1 time: escalating *leaves* the dearer tier.
+  - Against `fixed_threshold`, `ca_tbl_full` dominates at `k1a_box750` and `k1a_box1000`,
+    is incomparable at `k1a_box1500`, and is dominated in the other eight cells.
+  - C3's P3.2 agrees: `ca_tbl_full` is indistinguishable from `static_868` in every moving
+    cell.
+  - The billing that produces the three cells is the node-side reply bill, which the
+    gateway-estimator default removes. Those cells have not been re-run under it.
+- **Beats published estimators — SUPPORTED.** *B3 C3* (`results/regen27_k10`): P3.1
+  reproduces in all three moving cells. cep95 medians: 6 665 vs MLAT 13 762 m (19+/1−),
+  6 759 vs 38 599 m (18+/2−), and **2 016 vs 20 831 m (20+/0−, p = 1.9×10⁻⁶)**. It is a
+  filter beating a memoryless solver, and not tiering: `ca_tbl_full` escalates 0 times on
+  20/20 seeds in `wanonly_move`, and P3.2 holds.
+- **The integrity check — WITHDRAWN in the shipped default.** Three mechanisms are kept
+  distinct (`RULES.md` §2):
+  - *The witness cross-check* (`--imuCrossCheck`, `--corroborationCheck`; the policy block
+    commented SWITCHING-POINT INTEGRITY), which is what this row's original 8/8 measured.
+    - B3 C1 (`results/regen27_integrity`): **NO POPULATION → withdrawn.** Off and on rows
+      are byte-identical on 8/8 seeds, although the IMU witness refused 203–232 escalations
+      per seed. The inferred cause is that the evidence gate, default true since `7ec0d91`,
+      absorbs every refusal.
+    - C1 with the evidence gate off (`report/C1_NOGATE_RESULTS.md`,
+      `results/regen27_integrity_nogate`, registered at `ddae10f`, 20 seeds × 600 s):
+      energy **REPRODUCES**, ΔtotalJ −104.86 J, CI [−107.97, −101.12], 20−/0+,
+      p = 1.9×10⁻⁶. Accuracy is **NOT SHOWN WORSE**, ΔrmseM −0.66 m, CI [−9.62, +11.24];
+      four seeds are worse by 10–89 m.
+    - The IMU witness refused on 204–235 of 240 cycles (85–98 %), against a step-and-heading
+      engine 287–4 070 m from truth. It is a near-blanket veto on escalating into UWB, where
+      the neighbour table held under 0.1 entries per cycle. **No integrity, trust or
+      detection claim follows.**
+    - The corroboration witness has never refused, in 28 runs: its effect is unmeasured, not
+      zero.
+  - *The Mahalanobis Switching-Point Integrity Check*: not re-tested by B3. Claim 9 remains as
+    recorded, pre-correction and provisional. Its eligible population under the default
+    NLOS source is structurally near-empty (L.2, exploratory probe).
+  - *The evidence gate*: its K3 result was not in B3's scope.
+- **Hop-aware provenance — still no population for the claim.** Depth 2 is reachable in the
+  relay chain only under `--relayChain --relaySlots --maxRelayDepth=2` (L.1.2). The measured
+  tag's `Step()` receives `hopCount` as a literal 0, and `hopWeight` stays 0 (`RULES.md` §2).
+- **Mesh availability, gateway estimation, IMU ceiling — SUPPORTED**, as in the three added
+  rows (B3 C5 over C3's cells; C6 in `results/regen27_edge`; C7 in `results/regen27_imu` and
+  C3's `wanmesh_move`). The IMU figure is a ceiling and is never quoted as a system result.
 
 ---
 
@@ -1024,6 +1413,1779 @@ check and the measurement apparatus. That is a complete and defensible project. 
 the project the novelty claims describe, and the gap between those two is the thing to
 decide deliberately rather than discover at a viva.
 
+> **2026-09-29.** B3 and CAL-01 ended where this paragraph predicted for PCS and tiering:
+> neither is supported on the regenerated tree (L.3 status). Four things survive
+> regeneration:
+>
+> - the mesh (C5);
+> - the filter against snapshot estimators (C3);
+> - the gateway estimator's tier-1 energy saving (C6);
+> - the IMU ceiling, as a bound (C7).
+>
+> The integrity check **did not** survive in the shipped configuration. The witness
+> cross-check adds nothing with the evidence gate on, and the Mahalanobis check has almost
+> no eligible population under the default NLOS source. Whether to withdraw the PCS and
+> tiering novelty claims is the owner's decision. The claim-by-claim evidence for it is in
+> `CA-TBL_Technical_Report_SelfContained.md` §0.
+
 **The system is done when the register is empty or every remaining entry is a stated
 decision.** Not when the gates are green — G11 is red on purpose and closing it by tuning
 would destroy the only instrument that has ever caught a defect of its class.
+
+---
+
+# M. Found 2026-09-27 – 2026-09-29, recorded
+
+Found while building Bar 1 and Bar 2 and regenerating Bar 3 on
+`work/2026-09-27-spec-b1`. Each item says whether it is fixed, and where. Items that need
+an owner decision are marked **DECISION**.
+
+### M.1 Relays ranged at the cycle's one instant, and collided — fixed behind a flag; DECIDED 2026-09-30: on by default in relayed runs
+
+Every exchange a cycle made by calling an engine directly carried the cycle's one `now`:
+each relay's anchor polls, every relay-to-relay exchange, and the measured tag's own
+exchange. The engines' interference registry decides overlap on time and transmitter id
+alone, at the interferer's own link power, so those exchanges collided with each other.
+Measured at `86e43f2`, with only `--relayedRanging` on (`static_2p4`, 300 s,
+`--boxHalf=200`, four tags, seeds 7/11/13): the measured tag's 3+-anchor cycles fell from
+107/112/106 of 120 to 2/0/11, and under `--relayChain` no relay-to-relay exchange ever
+delivered. That is why `b390ed6` could not meet L.1.2.
+
+**Fixed behind `--relaySlots` (`d24690c`), default off.** With it, the same runs give
+103/104/107 and G17b is green. **Every `--relayedRanging` figure recorded before it was
+measured under the collision:** `MASTER_PLAN.md`'s C5 row, `b390ed6`'s sweep and
+`5f3ad42`'s routing counts. They do not compare with a `--relaySlots` run (§3.1). No
+`results/` sidecar uses `--relayedRanging=true`, so no tracked result moves.
+
+**DECISION:** whether `--relaySlots` becomes the default for `--relayedRanging` runs. It
+moves every relayed result.
+
+**DECIDED 2026-09-30 (owner: "fix them all"): the relays' round is the default in every
+relayed run.** The flag is now `--relaySlots=auto|true|false`, default `auto`. `auto` is on
+exactly when `--relayedRanging=true` and `--nTags >= 2`, and off in every other run, where
+nothing is constructed. `true` without a relay is still refused. A round that does not fit
+inside `--dt` is refused under `auto` as under `true`: at the 2.5 s default that is
+`--nTags >= 9` under `--relayChain`, or `>= 51` without it. `--relaySlots=false` keeps the
+old behaviour. Checked at the change against `7a36b63` (the commit before it), frozen at
+`~/catbl_prev_relayslots`:
+
+- *Plain defaults move nothing.* NC1 and NC2 against `~/catbl_ref_edge` (`db2ac2e`) are
+  byte-identical: 7/7 and 2/2 files, stderr identical, stdout identical but for the outdir.
+  The same holds with `--relaySlots=false` and with `--relaySlots=auto` appended.
+- *The old value reproduces the old commit.* `--relaySlots=false` against `7a36b63` with no
+  flag is byte-identical in 13 configurations: every output file, stdout and stderr. The
+  configurations are the regime above at seeds 7/11/13 with and without `--relayedRanging`;
+  868 MHz relays (`--relayTier=0`); G17's, G18's and G18b's flags; a UWB-relay chain with
+  finders; and NC1's and NC2's flags with `--relayedRanging --nTags=3`.
+- *The default is the round.* The default and `--relaySlots=true` write identical files in
+  every relayed configuration. They differ only in a stderr NOTE that the default engaged.
+- *What moves at the default in a relayed run* is everything downstream of the relays'
+  exchanges, in every relayed file. These are populations, one seed each, and not effects.
+  Engine evaluations differ between the two settings (`directCalls`), so no magnitude
+  compares across them (rule 8).
+  - The regime above: the measured tag's 3+-anchor cycles go from 2/0/11 to 103/104/107 of
+    120 (107/112/106 without relayed ranging). Relay 3 now holds a fix at seeds 7 and 11.
+  - G17's flags: relay-to-relay exchanges go from 0 to 7, fuses from 0 to 4, and depth-2
+    decisions from 0 to 40. `relay_chain_*.csv` goes from 112 rows to 541.
+  - NC2's flags with relays: `fixCycles` go from 665 to 713 of 720.
+  - NC1's flags with relays: `ca_tbl_full`'s `fixCycles` go from 291 to 303 of 360.
+  - G18's flags: the measured tag's fix cycles go from 0 to 6 of 240.
+- *Gates.* G17 and G17b no longer name the flag, so they run at the default, and G17b reads
+  G17's run. G18 and G18b pass a new `--require-round`, so that the log must show the round.
+  Their self-tests hold the old value red: N14 in each is the gate's own run with
+  `--relaySlots=false`. No other gate runs relayed ranging.
+- *Results before it.* No `results/` sidecar uses `--relayedRanging=true`, so no tracked
+  result moves. Every relayed figure recorded before 2026-09-30 without `--relaySlots=true`
+  describes the old default. `--relaySlots=false` restores it. Any other default that moved
+  since that figure was recorded is a separate flag, for example `--gatewayEdgeServer=false`
+  before `db2ac2e`.
+
+Still open:
+
+- The registry never attenuates an interferer by distance
+  (`lora-interference-submodule.cc:126-129` computes `dist` and does not use it). That is
+  an engine change with broad impact.
+- The round sits in the event slice the MAC layer has already run, so its exchanges meet no
+  MAC frame. That gives up at most about 16 % of exchanges' interference on 2.4 GHz in
+  G17b's regime.
+- Relay 4 held no fix in any 300 s run. Not investigated.
+
+### M.2 The UWB CIR confusion matrix cannot fill under the channel model — DECISION
+
+`86e43f2` synthesises a CIR for every decoded UWB link and scores the spec's leading-edge
+ratio. Its TP and FN cells are empty in every regime tried:
+
+- Legacy topology, `static_uwb`, 3600 s: tp 0, fp 0, fn 0, tn 104.
+- Default topology: no UWB link is polled at all.
+- Outdoors, the engine's NLOS probability at UWB range is about 0.1 % (1 − exp(−d / 8000 m)).
+- Where NLOS is not rare (`--envFacility` 5/6/7), every NLOS UWB link polled was lost,
+  6 of 6. Both NLOS terms add +9.64 dB at 7.99 GHz, which is beyond UWB's margin.
+
+The classifier is not what is missing: the unit suite exercises both classes on
+engine-like states (outdoor tp 157, fp 0, fn 277, tn 495). **DECISION:** filling the matrix
+needs a channel-model or regime change, for example a smaller UWB NLOS penalty or an NLOS
+scale at UWB distances. That changes the UWB physics every UWB result rests on.
+
+**2026-09-30: decided and registered, then built.** Owner decision "fix them all". The
+model is registered in `report/PREREG_UWB_NLOS.md` (`166d431`). It is built exactly as that
+registration's §2 specifies, behind `--uwbNlosModel=legacy|ieee802154a`, **default
+`legacy`**:
+- The state comes from the 3GPP TR 38.901 InF-SL law.
+- On an NLOS draw, the excess is the IEEE 802.15.4a NLOS-minus-LOS path loss.
+- It makes one sampler draw per evaluation, in the UWB engine only.
+
+Evidence at the change:
+- *The default reproduces the build before it.* The default and `=legacy` are byte-identical
+  to the frozen `53e5c38` binary (`~/catbl_prev_uwbnlos`) in 7 configurations, in every
+  output file, stdout and stderr. They are NC1, NC2, seed 11 with all arms, both
+  legacy-topology UWB cells at seed 101, the office class, and a UWB-active finder regime.
+- *The formula, on every evaluation.* The unit suite drives the engine directly, 4 000
+  evaluations at each of 2, 10 and 20 m. Every NLOS evaluation carries ΔPL(d_3D) to 1e-9 dB,
+  every LOS one 0. The NLOS fraction matches P_NLOS(d_2D) to 4σ, and `nlosProbability`
+  reports it. Legacy stays below 1 % as the negative control.
+- *In the scenario.* Gate G20b asserts the model's NLOS share of polled UWB links (≥ 0.10),
+  and the formula on decoded NLOS rows (the registration's P4). A legacy run's share was
+  1/110. Its self-test has 9 fixtures.
+
+**A finding against the registration's own expectation.** §2 "Randomness" expected the
+868 MHz and 2.4 GHz engines, the MAC, and every non-UWB static arm to be byte-identical
+between the two models, and asked the code commit to check it. **They are not.** Under
+`ieee802154a` at NC1's flags, `static_868` moves in 28 `arm_summary` columns, and its trace
+diverges at t = 10 s.
+- The network-wide MAC counters move: `mac_tx` 11 353 → 12 143, and `mac_deliveries`
+  5 227 → 6 381.
+- The mechanism: the UWB model changes which UWB-channel MAC frames are delivered. The one
+  shared MAC random stream is then consumed differently, and every tier's frame timing,
+  and so every engine's draw sequence, shifts. This is rule 8 in its MAC form.
+- It is not a defect in the model: the physics change is confined to the UWB engine.
+- It does not touch the registered design. Its predictions are populations inside each cell,
+  and its §8 already forbids cross-model magnitudes.
+
+The results file records it as a finding. The registered cells run next, at the code
+commit.
+
+**2026-09-30, measured: the cited model does not fill the matrix.** The 40 registered cells
+(`results/uwb_nlos_20260930`, all `57225b8 dirty 0`) were read in `report/UWB_NLOS_RESULTS.md`.
+- **P1 is FALSIFIED.** In open ground at 1–4 m, `A_802` decodes 30 NLOS UWB frames of 1 475
+  NLOS draws. 28 of them are unscored, because the CIR peak is under the noise floor at
+  accumulated SNRs of about +11 to −6 dB. The 2 scored ones score 0, so they read as LOS:
+  tp 0, fn 2.
+- **P4 HOLDS**: the model is as registered.
+- **P2's count clause failed** because the registration assumed polls at 2 m. The legacy
+  poll set reaches tens of metres. Legacy's per-poll NLOS rate, 0.084 % and 0.13 %, confirms
+  this entry's "about 0.1 %".
+- **P3 failed on one frame at 4.38 m.**
+
+By the registration's §6, M.2 stands for every cited NLOS excess. Filling the matrix needs
+an obstruction model of our own (a blocked direct path with the scattered energy intact),
+and that is a separate owner decision. The read-out adds one design constraint: the SNR
+headroom that model would have to leave. The default stays `legacy`.
+
+### M.3 `run_id.txt` records the working directory's commit, not the binary's
+
+The simulator writes `source` from `git rev-parse --short HEAD` run in the **working
+directory** (`scratch/ca_tbl_causal_sim.cc:10973` at `ff4f8bb`). If a run is launched from
+one clone with another clone's binary, its sidecar gets a clean, wrong SHA.
+
+- It has happened. The C1 original's sidecars read `source deb52da dirty 0`, and `deb52da`
+  does not define the flags that run used (`report/B3_REGEN_RESULTS.md` §C1).
+- The coverage probe's sidecars read `source unknown`, because the frozen reference runs
+  outside any git tree.
+
+B3 is not exposed: every cell ran from the worktree that built the binary, and the driver
+hashed the binary before every launch. *Mitigation until fixed:* launch only from the tree
+that built the binary. *Fix:* stamp the build's commit into the binary at build time. That
+is its own change, with its own null control, because it changes `run_id.txt`.
+
+*2026-10-04, `--stampBinaryHash` (G76), the cheap half.* `run_id.txt` gains one line after
+`source`: `binary sha256 <hash> <path>`, read from `/proc/self/exe`. It names the binary
+itself, whatever the working directory, so a run from another clone (or from outside any
+tree, where `source` reads `unknown`) can be matched to a built binary by its hash.
+- G76 launches from outside the repository. With the flag, the line carries the binary's
+  hash and path; a byte copy elsewhere gets the same hash at its own path. Outputs are
+  identical with and without the flag.
+- Not done: the build-time commit stamp. The hash identifies a binary; it does not say
+  which commit built it. That needs the build to record HEAD (ns-3's
+  `--enable-build-version`, or a generated header), which is a build-system change.
+
+*2026-10-04, `--stampBuildCommit` (G82), the other half.* `run_id.txt` gains one more line:
+`build source <commit> dirty <n>`. It names the tree that COMPILED the binary.
+- `scratch/catbl_build_stamp.cmake` runs as a custom target before every build of
+  `scratch_ca_tbl_causal_sim` (`scratch/CMakeLists.txt`). It writes
+  `cmake-cache/scratch/catbl_build_stamp.cc` with the short HEAD and the tracked
+  modifications under `src/` and `scratch/`: the `source` line's own rule, applied at build
+  time. The file is rewritten only when its contents change, so a build of an unchanged
+  tree recompiles nothing: the binary's hash is the same.
+- ns-3's `--enable-build-version` was not used. It is a configure-time option that stamps
+  the libraries, and it reads `git describe` against `ns-3*` tags, which this fork's
+  commits do not carry.
+- G82 launches from outside the repository, where the `source` line reads `unknown`. The
+  build line agrees with the generated stamp, and with the repository's HEAD and dirty
+  count at the time. Outputs are identical with and without the flag.
+- G82's FRESH check fails on a binary not rebuilt since the last commit or source edit.
+  That is the M.3 hazard in the gate's own run, and `./ns3 build` is the fix. In the suite,
+  G1 builds first.
+- A stamp records the tree at the start of the build. An edit made during a build is not
+  seen.
+- Default unchanged. With both flags, a sidecar names the commit that built the binary and
+  the binary's bytes. Neither is in the preset.
+
+### M.4 Output files the sidecar does not digest
+
+`RULES.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)
+was the gap on this branch, and it has been digested since `ff4f8bb`. **Still written and
+not digested:** the viz outputs `events_*`, `nodes_*`, `nbrtable_*`, `loctable_*` and
+`deployment.json`. L.1.5's only on-disk evidence lives in `events_*` (M.9). The fix is to
+add the patterns at the digest call site, as every mechanism on this branch did for its own
+file.
+
+*2026-10-04, `--digestVizOutputs` (G73).* The five patterns go into the digest under the flag,
+and nothing else changes. It is a flag rather than a default because it changes what every
+`--vizEvents` run's sidecar holds. It needs `--vizEvents`.
+- **The preset was affected.** `--specProfile` sets `--vizEvents=true`, and its row read
+  "rule 13: events_ written and digested". It was written and not digested: a G24 preset
+  run wrote `events_`, `nodes_` and `deployment.json`, and its sidecar had no line for them.
+- G73 (seed 7, 300 s, every visualiser output):
+  - with the flag, all five kinds carry a digest line and every line verifies;
+  - with it or without it, every output but `run_id.txt` is byte-identical.
+- *In the preset* (2026-10-04, 88 settings), which makes its row's claim true. G24's
+  populations are identical with it and without it, line for line.
+
+### M.5 `--tier1ChargeReplies` help text said "FALSE by default" — CLOSED at `db2ac2e`
+
+It was stale from `4779bf7` (2026-09-08), when the default became true, until `db2ac2e`.
+The B3 registration recorded it and could not correct it without touching `scratch/`. It
+now says the flag is read only with `--gatewayEdgeServer=false`.
+
+### M.6 The evidence-gate default was missing from the B3 registration's list of moved defaults
+
+`report/PREREG_B3_REGEN.md` §2 lists the defaults that moved between the originals and the
+B3 binary: the environment and the tier-1 reply billing. It omits
+`--escalationRequiresEvidence`, which went from false to true at `7ec0d91` (2026-09-08). So
+C1, C2 and the five `k1b` cells ran with the evidence gate on, where their originals ran
+with it off. No verdict changes, because the verbatim invocation binds. What changes is what
+C1's verdict is about, and that is why C1_NOGATE was registered (`ddae10f`). The
+registration is not amended after the fact; `report/B3_REGEN_RESULTS.md` is its erratum.
+
+### M.7 The CAL-01 machinery's acceptance test is not a fair control
+
+`CaTblCalibrateLoocv` (`ca-tbl-loocv.cc`) returned OK in all six CAL-01 cells, and the OK
+is an artefact. It fits the term-1-only control without an intercept, while
+t3 ≈ 0.92 gives the three-term model one for free. With an intercept on both sides the gain
+vanishes: 77.47 against 77.50 m on `default`, and 80.17 against 80.18 m on `searcher`
+(`report/CAL01_LOOCV_RESULTS.md` §4). *Fix:* fit the control with the same intercept, or
+accept on rank. That is a `src/` change with its own test. Until then, `CA_TBL_CAL_OK` is
+not evidence.
+
+*Fixed 2026-10-03:* the control is now fitted as c0 + c1 · term1. A new unit case reads
+NO_IMPROVEMENT where the old code read OK: an error of 4 · term1 + 5, with term 3 near
+0.92. On the old code that case fails (8 passed, 1 failed); on the new it passes (9 of 9).
+CAL-01's verdicts are untouched: its registered analysis is `scripts/cal01_loocv.py`,
+which never called this function.
+
+### M.8 `analyse_pcs_forms.py` reads an undefined statistic as "indistinguishable"
+
+Under `gated`, PCS is constant on 99.98 % of fix cycles, so the Spearman correlation is NaN.
+The NaN interval satisfies neither sign test, and the script prints `indistinguishable` and
+reads that as "carries nothing the covariance trace does not"
+(`report/B3_REGEN_RESULTS.md` §C2). It should print *undefined*. Its docstring also promises
+a per-cell hadFix count that it does not print.
+
+*2026-10-04, `--strict-undefined` (G72).* The script is the registered analysis of two
+campaigns (PREREG_PCS_FORMS, PREREG_B3_REGEN), so its default output is left exactly as
+they applied it.
+- `--strict-undefined`: a cell whose correlation is undefined on any seed reads
+  "undefined (rho undefined on k of n seeds)", and every cell prints its fix-cycle count.
+- `--root DIR`: read another campaign's tree, where B3 edited the script's ROOT by hand.
+- G72 runs the script on a synthetic tree, since the campaign's traces are not tracked: a
+  gated form constant on every fix cycle, three forms with a defined rho.
+  - With no option, the output is byte-identical to the registered version (`d82b865`),
+    and gated reads "indistinguishable".
+  - With the option, gated reads "undefined (rho undefined on 20 of 20 seeds)", the other
+    forms keep their verdicts, and the cycle counts print.
+- B3's §C2 reading stands as registered. A re-read with the option is not a correction of
+  it.
+
+### M.9 `TRIGGERED_UPDATE` has no counter, and a scenario comment says its branch never runs
+
+L.1.5's eager push is visible on disk only as rows of `events_*` (M.4). No stdout or CSV
+counter reports that message type. The comment at `scratch/ca_tbl_causal_sim.cc:8361-8362`
+(at `ff4f8bb`) still says "Nothing here sets mobility state … the receding branch never
+runs". It has been false since `50a229a`.
+
+- *2026-09-30:* the comment was corrected (P1, `af492ca`).
+- *2026-10-02, MC-2:* under `--triggeredUpdates` the scenario's own triggers (large
+  correction, last gasp) are counted on stdout and in `triggered_<arm>_seed<N>.csv`
+  (gate G34). The RECEDING push is still uncounted; it moves into `subject_summary.csv`
+  with MS-1.
+- *2026-10-03, MS-1:* `subject_summary.csv` exists under `--measuredSubjects > 1`, but
+  triggered updates still run for tag 0 only (a start-up WARNING says so, N.3), so the
+  RECEDING push has nowhere per-subject to be counted yet. Open.
+- *2026-10-04, `--reportRecedingPushes` (G75):* one M.9 line, summed over every radio:
+  - the handshakes that took the RECEDING branch;
+  - the push frames transmitted. TRIGGERED_UPDATE is the redundant class, so a push is a
+    first frame and up to two repeats under one packet id.
+  A report only; it needs `--mobilityFromRange`.
+  - In G75 (seed 7, 900 s, triggered updates off): 36 handshakes, 64 frames. All 36 pushes
+    were heard (36 distinct packet ids from node 1 at the originator's hop limit).
+  - Subjects run no handshake, so the count is tag 0's. The per-subject half waits on N.3.
+
+### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
+
+*Filed on 2026-09-29 as "an open question, not an established defect"; the review's
+finding is filed below, 2026-09-30.*
+
+The branch review reported a defect in the flipped `--gatewayEdgeServer` default that it did
+not fix. That report is not in the tree. The review's working files (`~/catbl_review/`)
+examine this question.
+The downlink is charged to the **active** tier (`AccountEdgeServerDownlink(active)`,
+`scratch/ca_tbl_causal_sim.cc:8076`), including on floor-solved cycles where the fix came
+from tier-1 measurements. At NC1 (defaults, seed 7, 900 s), 230 of `ca_tbl_full`'s 305 fix
+cycles are active 2.4 GHz, fix tier 868, `usedFloor` 1 (`~/catbl_review/nc_on`).
+
+The §6 invariant holds either way, because the 2.4 GHz radio is awake on those cycles and
+is the tier in use. What is not established is whether a 2.4 GHz downlink is the right
+charge on a cycle where 2.4 GHz could not reach three anchors. Recorded so that the review's
+finding is not lost. Its exact wording should be filed here from the review's report.
+
+**The review's finding, filed 2026-09-30.** The review called it a DEFECT: with the
+estimator on the gateways (the default since `db2ac2e`), a fix that came from the 868 floor
+is billed as a 2.4 GHz downlink.
+
+- *Per downlink:* 0.2005 mJ on 2.4 GHz against 0.9042 mJ on 868 MHz, so each floor-solved
+  cycle is billed 0.7037 mJ less than a fix-tier bill would charge.
+  - Both figures are recomputed here from the energy model's constants
+    (`ca-tbl-energy-model.cc:36-63`, `:150-156` and `:346-363`): a 12-byte payload at SF7,
+    3.3 V, and wake-up and turnaround at the idle current. On 868 MHz that is 125 kHz,
+    41.2 ms on air plus a 10 ms guard at 5.3 mA. On 2.4 GHz it is 800 kHz, 6.4 ms plus 2 ms
+    at 7.0 mA.
+  - The 2.4 GHz figure is also recounted on disk, from NC1 with the edge setting on minus
+    NC1 with it off (`~/catbl_review/nc_on`, `nc_off`, `arm_summary.csv` column `j_2p4`).
+    `ca_tbl_full` gains 0.049726 J over its 248 fix cycles with 2.4 GHz active (230
+    floor-solved and 18 with a 2.4 GHz fix), and `static_2p4` gains 0.002206 J over its 11
+    fixes. Both work out to 0.2005 mJ per fix.
+- *What it biases:* B3 C6's hybrid figures. C6 ran with the downlink on the active tier
+  (`report/B3_REGEN_RESULTS.md` §C6: "one downlink per fix on the active tier"; Δ `j_2p4`
+  −0.20 J on each policy arm). Billed on the fix's tier, the −32.9 % on `fixed_threshold`
+  and `ca_tbl_full` would be a smaller saving. By how much is not computed here: that needs
+  a run with the billing changed, not arithmetic on this one. `static_868`'s −42.5 % is
+  unaffected, because its active tier is always 868 MHz.
+- *Why it is a decision and not a fix:* either bill charges a radio that is awake on the
+  cycle. 2.4 GHz is the active tier, and 868 MHz ranged for the floor. Moving the bill
+  changes energy on every hybrid arm under the default.
+
+**DECISION:** bill the downlink on the tier the fix came from, or on the active tier as
+now. Until it is taken, every hybrid-arm energy figure under the edge setting carries this
+caveat. The accuracy figures do not.
+
+**DECIDED 2026-09-30 (owner: "fix them all"): the downlink is billed on the tier the fix
+came from.** The new flag `--edgeDownlinkTier=fix|active` defaults to `fix`. It is read only
+with `--gatewayEdgeServer=true`. `active` keeps the old bill, and any other value is FATAL.
+The two differ only on a hybrid arm's floor-solved fix cycle. On one of those, the downlink
+moves off the active tier and onto 868 MHz. Checked at the change against `fab313c` (the
+commit before it), frozen at `~/catbl_prev_m10`:
+
+- *The old value reproduces the old commit.* `--edgeDownlinkTier=active` against `fab313c`
+  with no flag is byte-identical in 11 configurations, in every output file, stdout and
+  stderr:
+  - NC1's and NC2's flags, and seed 11 × 900 s with all arms;
+  - NC2's flags with `--uwbArbitration`;
+  - NC1's flags with `--tier1Tdoa`, with `--relayedRanging --nTags=3`, and with
+    `--batteryDepleteJ=4.5`;
+  - two finder regimes, and a third with the evidence gate off, where the hybrid arms are
+    UWB-active;
+  - C6's edge cell at seed 7 × 3600 s. This run also reproduces the seed-7 rows of
+    `results/regen27_edge/edge/arm_summary.csv` byte-for-byte.
+
+  `~/catbl_ref_edge/nc.sh` passes with `--edgeDownlinkTier=active` (NC1 7/7, NC2 2/2).
+- *The node-side setting does not move.* `--gatewayEdgeServer=false` passes
+  `~/catbl_ref/nc.sh` against `084a7ff`, with and without `--edgeDownlinkTier=active`.
+- *What moves at the default.* Only energy, only on hybrid arms, and only on floor-solved
+  fix cycles:
+  - `arm_summary.csv`: `totalJ`, `accuracyPerJoule`, and the `j_`, `rx_` and `idle_`
+    columns on 868 MHz and on the active tier (2.4 GHz, or UWB where it was active);
+  - the traces: `cumJ`;
+  - stdout: the arm table's energy and acc/J columns, and the tier-1 rx count under
+    `--tier1Tdoa`.
+
+  `static_868`, `static_2p4` and `static_uwb` are byte-identical in every configuration,
+  which control flow requires. `fixTier` differs from `active` only when `usedFloor` is
+  set, and `runFloor` is false on a static arm. The bill is accounting only, so both
+  settings make the same engine evaluations and their magnitudes compare (rule 8 does not
+  bite).
+- *Recounted from the traces (rule 3).* In every traced configuration, `cumJ` at `fix` minus
+  `cumJ` at `active` steps on exactly the rows with `usedFloor=1` and `hadFix=1`, and on no
+  other row.
+  - The step is 0.703675 mJ where 2.4 GHz was active and 0.581780 mJ where UWB was.
+  - Per moved downlink, `arm_summary.csv` gives +0.904183 mJ on 868 MHz, −0.200508 mJ on
+    2.4 GHz and −0.322403 mJ on UWB.
+  - At NC1, 230 downlinks move on `ca_tbl_full` (the review's figure) and 234 on
+    `fixed_threshold`.
+- *The §6 invariant on those cycles.* Every row whose bill moved has `floorRanged=1`, which
+  means 868 MHz had transmitted its broadcast that cycle. That is 3 568 of 3 568 rows over
+  the nine traced configurations. The downlink now lands on the radio whose ranges made the
+  fix, and never on a radio that stayed silent.
+- *Where energy is an input, more moves.* With `--batteryDepleteJ=4.5` on NC1's flags, the
+  hybrid arms' batteries run out earlier:
+  - `fixed_threshold` at 780.0 s instead of 812.5 s;
+  - `ca_tbl_full` at 657.5 s instead of 672.5 s.
+
+  Their accuracy, tier and MAC columns then move too. With `--uwbArbitration` and one
+  requester, nothing but energy moved.
+- *C6: one seed, an illustration only.* At seed 7 × 3600 s, C6's edge cell moves 943
+  downlinks on `fixed_threshold` and 946 on `ca_tbl_full`. Against node-side estimation,
+  their totalJ saving goes from −32.30 % to −30.13 % and from −31.64 % to −29.53 %.
+  `static_868` (−42.15 %) and `static_2p4` (+0.13 %) do not move. The registered 20-seed
+  figures (−32.9 %) describe the old bill. Re-measuring them under the new default needs a
+  registered C6 re-run, which has not been done.
+- *Gates.* G21 gains a third input: G3's seed and duration at `--edgeDownlinkTier=active`.
+  Against G3's run, only energy may move, only as a transfer onto 868 MHz from the active
+  tier, and only on rows where 868 MHz transmitted. At least one row must move, so a
+  reverted default goes red. The self-test gains P1 and N8–N14. N8 is the active-tier run
+  offered as the defaults. All 17 fixtures behave as expected. No other gate bills the
+  downlink on a floor-solved fix:
+  - G6 pins `--gatewayEdgeServer=false`;
+  - G19's edge run uses `static_868` only;
+  - G2–G5 compare runs of one binary, never a tracked edge-server result.
+- *Results before it.* No `results/` directory moves. The only tracked edge-server cells,
+  `results/regen27_edge/edge`, describe `--edgeDownlinkTier=active`, which reproduces them.
+  Every hybrid-arm energy figure with the edge setting recorded before 2026-09-30
+  describes the old bill.
+
+### M.11 Stale numbers in the rules and setup documents
+
+- `RULES.md` §4 and §8 place the `cmd.AddValue` block at
+  `scratch/ca_tbl_causal_sim.cc:3178-3450`. At `ff4f8bb` it is `:9316-10762` (142 flags),
+  with `RunArm` at `:4905` and its call at `:11365`.
+- `RULES.md` §3 says G1-G11, and the header of `scripts/catbl_gates.sh` says G1-G13. The
+  suite runs 23 gates (G1–G21 with G17b and G18b). At `ff4f8bb` it gives 19 PASS and
+  4 FAIL, the four documented reds G4, G5, G6 and G11.
+- `SETUP_NEW_MACHINE.md` expects 11/15 gates and eight suites of 152 checks. There are now
+  ten suites and 235 checks: packet_validator 38, session 29, routing 27, lifecycle 16,
+  netlayer 23, relay_admission 22, sparse_anchor 11, loocv 8, tdoa 33 and nlos 28.
+
+Documentation only. It is recorded here rather than edited in the rules file, because
+`RULES.md` changes are the owner's.
+
+*2026-10-03 (P7):* the numbers have moved again, and `RULES.md` still waits for the
+owner.
+- **The gate suite:** 58 gates, from G1 to G60 with G17b, G18b and G20b; G22-G23 and
+  G25-G27 were never built. At `cef0fc6` it gives 53 PASS and 5 FAIL: the documented G4,
+  G5, G6 and G11, and G24 FAIL BY FINDING (N.15).
+- **The unit suites:** twelve, 356 checks:
+  - packet_validator 62, nlos 41, integrity 38;
+  - sparse_anchor 33, tdoa 33, session 32, netlayer 30;
+  - routing 27, relay_admission 22, lifecycle 16, imu 13, loocv 9.
+
+*2026-10-03, CLOSED (the owner approved the edit):* `RULES.md`, `SETUP_NEW_MACHINE.md` and
+the header of `scripts/catbl_gates.sh` now carry these numbers, each dated with the commit it
+was counted at. Where a line number is cited, the grep that finds it is given as well, so
+the next drift can be re-read rather than trusted. Corrected with them:
+- G3 passes now (it separates RNG contamination from the treatment effect on causal order);
+- "G11b" is G11;
+- the reds are G4, G5, G6, G11 and G24.
+Line numbers will drift again with the next code change. That is expected and is not
+reopened as debt.
+
+# N. Found 2026-10-02 to 2026-10-03, while building the spec-conformance programme
+
+Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it says otherwise:
+
+| entry | in one line | status |
+|---|---|---|
+| N.1 | a silenced radio still forwards other nodes' floods | flag (G70); default unchanged |
+| N.2 | Case A with relays counts one pair twice | fixed under `--sparseInStep` only |
+| N.3 | subjects 2..N run a core of tag 0's cycle, not the whole cycle | components ported and in the preset (2026-10-04, G77-G79); the two copies remain |
+| N.4 | a finder tasked to a subject it never hears stands still | CLOSED 2026-10-04: resolved under the preset by the finder's own session (DESIGN_DECISIONS §9) |
+| N.5 | what `--grantGatedUwb` decides that the spec does not | recorded (OURS) |
+| N.6 | a radio can put two frames on the air at once | flag (G74); per chip, flag (G84); default unchanged |
+| N.7 | PCS does not fit the byte an entry gives it | open (with CAL-02 and N.16) |
+| N.8 | what `--arbitrationV2` costs and decides | recorded (OURS) |
+| N.9 | queue gossip is built and rarely needed | recorded |
+| N.10 | what `--requesterEscalation` decides that the spec does not | recorded (OURS); the instant delivery: flag (G81), in the preset since 2026-10-04 |
+| N.11 | per-hop variance swamps a relayed leg's sigma | DECIDED 2026-10-03: out of the preset (owner); the term itself open |
+| N.12 | `--fixRouting` with subjects breaches sect 6; `--fixRoutingSubjects` replaces it | CLOSED 2026-10-03: refused (owner decision) |
+| N.13 | Case C shapes are coarse on 868 MHz | recorded |
+| N.14 | a UWB range never improves a fix the floor can make | CLOSED 2026-10-04 without a fuse: FUSE-01b and FUSE-02 both fail the registered accuracy bound; the flags stay (G63, G85) |
+| N.15 | the preset's differences from the plan, and G24's zero populations | open (G24 FAIL BY FINDING) |
+| N.16 | at 5 km the covariance trace ranks error backwards | open, cause not established |
+| N.17 | what `--radioBasis=lr1121` decides that the datasheet does not | recorded (OURS) |
+| N.18 | what `--subjectRelayChain` decides that the plan does not | recorded (OURS) |
+| N.19 | G24 reads one seed, and several of its populations are one or two events | FIXED 2026-10-04: G24 reads three seeds |
+| N.20 | a node whose battery has run out is still billed for listening and sleeping | flag (G71); default unchanged |
+| N.21 | subjects ranged finders against their true positions; tag 0 does when it holds no entry | subjects: flag (G68); tag 0: flag (G69) |
+| N.22 | of two colliding frames only the earlier-ending is lost | flag (G83); default unchanged; adopting it is a campaign decision |
+| N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
+| N.24 | what the `poucet_fusion` comparator decides that the spec does not | recorded (OURS) |
+| N.25 | at 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse | open; measured (LORA-CMP), not changed |
+| N.26 | CA-TBL spends 65 % of its endgame energy on UWB that delivers no fix, and discards 1-2-range active sets that the fusion comparators use | four fixes built (G89) and measured (FIXES-N26): they beat Poucet and LoRa fusion on availability and accuracy; NOT adopted by the registered rule, on 5 km energy (+4.32 J) |
+
+### N.1 A silenced radio still forwards other nodes' floods
+
+`CaTblMac::SetSilent(true)` gates `Send()` and nothing else. Flood forwarding goes through
+`MaybeRebroadcast()` → `AttemptCad()`, which never consults it, and so does a frame already
+queued when the radio was silenced (its CAD, its repeats). So a node whose battery is
+spent (`--batteryDepleteJ`), or one silenced by `--injectSilentId`, goes on relaying
+DISCOVERY and every other flooded type.
+
+- *Measured,* G34's default run (seed 7, 900 s, `--batteryDepleteJ=3`): after the battery
+  died at 505 s, node 1's radios rebroadcast 322 distinct DISCOVERY frames that other
+  nodes had originated (1 277 receptions of them), and originated none.
+- *Effect.* A dead node still extends the flood, so every `--batteryDepleteJ` and
+  `--injectSilentId` result overstates how much of the mesh the fault removes. Its own
+  traffic does stop, which is what the fault counters measure.
+- *Why not fixed here.* Fixing it changes every run under those two flags. It needs its
+  own flag value and null control, like any behaviour replaced under an existing flag
+  (plan §0 rule 12).
+- MC-2's last gasp RELIES on the second half: the gasp is queued, then the radio is
+  silenced, and the queued frame still leaves. A fix must keep that, by gating forwarding
+  only, or by checking silence at the moment of queueing.
+
+*2026-10-04, `--silenceStopsRelay` (G70).* `CaTblMacConfig::silenceStopsRelay`: while the
+radio is silenced, `AttemptCad()` refuses every frame another node originated and counts it.
+AttemptCad is where a new relay, a relay's CAD retry, its repeats and its retransmissions all
+pass, so a relay queued before the silence is caught as well. The node's own frames are
+untouched, so the last gasp still leaves. The flag covers both faults.
+- *Measured,* G70 (seed 7, 900 s, `--batteryDepleteJ=3`, triggered updates):
+  - by default, after the battery died at 545 s, 1 200 receptions of frames from node 1,
+    every one a DISCOVERY relay (hop limit 2, where an originator sets 3);
+  - with the flag: none, 389 relays refused, and the last gasp heard;
+  - under `--injectSilentId=1` from 300 to 600 s: none inside the window, 280 refused, and
+    node 1 transmitting again after it.
+- A unit case (packet_validator [13], two checks) shows both behaviours on a three-node line.
+- Not covered: a frame the node itself queued before the silence, besides the gasp (a
+  repeat, a retransmission), still leaves. Those are its own frames, not relays.
+- Default unchanged. Every `--batteryDepleteJ` and `--injectSilentId` result measured without
+  the flag still carries the effect this entry describes.
+
+
+### N.2 Case A with relays counts one pair of ranges twice — fixed only under `--sparseInStep`
+
+With `--sparseCaseA --relayedRanging`, the scenario solves Case A from the active tier's two
+ranges and fuses that position. C5 then appends the relays, and `Step()` range-updates on the
+same two ranges plus the relays, so one measurement goes in twice (plan §1.H item 9). The
+same path records every Case A cycle as a no-fix and counts it toward demotion: 64 of 64 at
+NC3's seed 7 (G39, OLD).
+
+- *2026-10-02, DC-11:* `--sparseInStep` solves inside `Step()`, on the final set after C5.
+  Two ranges are fused once, as a position. Two plus relays take the full path, and no
+  sparse point is fused. G39 recounts 0 cycles that do both.
+- The default is unchanged, so every `--sparseCaseA` result so far carries both effects.
+
+### N.3 Subjects 2..N run a core of tag 0's cycle, not the cycle itself
+
+The plan (MS-1 step 1) was to move the per-tag body of the loop into one `RunSubjectCycle`
+and call it for every subject, in a commit of its own with no behaviour change. That was not
+done. `--measuredSubjects` (2026-10-03, G46) instead grows C5's relay mini-pipeline into a
+subject pipeline for tags 2..N and leaves tag 0's code untouched, so the null control holds
+by construction rather than by a byte-identical move. The cost is two copies of the core:
+ranging on the active tier, the tier-1 floor, fix selection, the IMU control, `Step()`, the
+handshake and its duty-budget pre-emption, the downlink, the C4 terms, listen/sleep, and mesh
+relay billing. A change to one copy that is not made to the other drifts silently. G46's
+subject-1 = arm_summary check pins tag 0's row only, not the equivalence of the two copies.
+
+What tag 0 has and subjects 2..N do not, each named in a start-up WARNING when on:
+SHS and the SHS witness (`--imuCrossCheck`/`--imuFusion`), `--imuWitnessSource=model`,
+`--tier1Tdoa`, `--nlosClassifier`, `--sessionLayer`, `--batteryDepleteJ`,
+`--triggeredUpdates`, `--edgeUplinkRanges` and `--entryVelocity`/`--entryPrediction`.
+Finder tasking (MS-1's `--finderTasking`) is not built: finders still steer to tag 0.
+- *2026-10-03:* built, `--finderTasking=roundrobin` (G47). See N.4.
+
+Two measured facts from building it (five subjects, NC9's regime with frames and
+arbitration, seed 7, 600 s):
+- Ranged at tag 0's instant, the subjects collided with it in the engines' interference
+  model, and tag 0's static_868 fixes fell from 212 to 2. Each subject now ranges in its own
+  50 ms slot before the instant (the relay round under `--relaySlots`, else a round of its
+  own). The slots sit in the slice the MAC has already run, M.1's known limit.
+- With a refused duty budget aborting the escalation, as relays never needed, subjects did
+  not escalate at all (subject 2 deferred 137 times). They now commit it and pre-empt the
+  next cycle's ranging with the handshake, as tag 0 does under `arbitrateDutyBudget`.
+
+Turning subjects on changes the number of engine evaluations, so every tag-0 magnitude moves
+with it (rule 8): at five subjects tag 0's static_868 fixes are 225, not 212. Only
+control-flow claims compare across N.
+
+*2026-10-04:* the relay chain is open to subjects behind `--subjectRelayChain` (G62, N.18).
+
+*2026-10-04:* `--subjectEdgeUplink` (G65) bills the subjects' tier-2/3 range uplink as
+`--edgeUplinkRanges` bills tag 0's. With it on, the start-up WARNING no longer lists
+`--edgeUplinkRanges`.
+
+*2026-10-04:* `--subjectTriggeredUpdates` (G66) sends the subjects' MC-2 large corrections.
+There is no last gasp, because subjects have no battery depletion; that stays on the list.
+- A measured fact: at the default k = 1 no subject's correction exceeded one prior sigma at
+  seeds 1, 2, 3 or 7 (900 s, five subjects). The largest was 0.88 sigma, while tag 0 fired
+  0-11 times. G66 exercises the path at k = 0.5, where subjects fired 8 times.
+- Why subjects correct by less than tag 0 is not established. They range only on their
+  active tier and floor, and have no TDoA or SHS.
+
+*2026-10-04:* `--subjectBatteryDeplete` (G67) runs the battery fault for subjects, with
+the last gasp under `--subjectTriggeredUpdates`. In G67's regime (3 J, 900 s) four subjects
+died, each with one last gasp heard, and none fixed or transmitted after. It inherits N.1
+(a silent radio still forwards floods) and N.20.
+
+*2026-10-04:* `--subjectTier1Tdoa` (G77) gives each subject its own instance of tag 0's
+tier-1 TDoA (MS-1 step 2), on tag 0's stream constants + 97 x the subject index, as its
+IMU's. The exchange time is the subject's own burst instant, and the billed reply count
+includes the N.21 drops.
+- Under the preset (seed 7, 900 s, 5 km), subject 2 had 99 tier-1 fix cycles and 11 OK
+  solves. Subjects 3-5 had 0-3 tier-1 fix cycles, since they are rarely on the floor with
+  three gateways.
+
+*2026-10-04:* `--subjectNlosClassifier` (G78) gives each subject its own instance of tag 0's
+classifier: its own 868 MHz variability windows, 2.4 GHz reference pool, and UWB CIR stream
+(+97 x the subject index). It scores exactly the links the subject's ranging decodes. Its
+policy then reads the scores for PCS term 3 and integrity eligibility, as tag 0's does.
+- Under the preset (seed 7, 900 s), the subjects scored 1 469 links, and their own Step()
+  fed the score to PCS on 135 cycles: subject 2 on 133 of its 145 fix cycles, subjects 3-5
+  on 0-1 of their 3-4.
+
+*2026-10-04:* `--subjectIntegrityWitness` (G79) closes a gap that did not announce itself.
+Subjects' policies are configured with `--imuCrossCheck` and `--corroborationCheck` like tag
+0's, but only tag 0 handed its policy a cross-check each cycle. The policy vets an escalation
+only on a fresh cross-check (`m_crossCheckFresh`), so **no subject's escalation was ever vetted
+by Physical 2.6's witnesses.** The start-up WARNING named the SHS flags, but not corroboration.
+- With the flag, each subject computes tag 0's two witnesses for itself before its Step(),
+  and hands them to its own policy:
+  - DC-9's model witness: its own IMU track, anchored at its last fused fix, against this
+    cycle's raw fix;
+  - the neighbours' corroboration: its last exchange's ranges against its active radio's
+    table.
+- Under the preset (seed 7, 900 s): 64 IMU-witness evaluations and 315 corroboration
+  witnesses over the subjects. Subject 2's policy refused 19 escalations on corroboration.
+- A per-subject SHS engine (`--imuWitnessSource` "" or `shs`) is not built. The flag refuses
+  that combination.
+
+*2026-10-04, in the preset (92 settings):* `--subjectTier1Tdoa`, `--subjectNlosClassifier`,
+`--subjectIntegrityWitness` and `--subjectTriggeredUpdates`. Under `--specProfile` the
+start-up WARNING now lists nothing. Two stale items were dropped from it:
+- sessions: under `--sessionOverMesh` every target's RESPONSEs feed the session;
+- `--entryVelocity`: subjects publish their velocity, and carry the finder entries they use
+  forward under `--subjectFinderPseudoAnchor`.
+Each preset-applied value is unused, not refused, when its prerequisite is turned off
+explicitly. Register row 55 is OPT-IN. Still tag 0 only, off the preset: a per-subject SHS
+engine, and the legacy `--sessionLayer` self-feed. The plan's single `RunSubjectCycle` was
+not built, so the two copies of the core this entry opens with remain.
+That was G24's hop-depth-2 zero. The rest of this entry stands: the two copies of the core
+remain, and so does the list of what tag 0 has and subjects do not.
+
+### N.4 A finder tasked to a subject it never hears stands still
+
+Under `--finderTasking=roundrobin` (2026-10-03, G47) finder k steers on subject
+(k mod N) + 1's table entry. A finder learns entries only by anti-entropy with nodes in range,
+and a finder with no entry for its subject holds position in mode 1 (the honest behaviour the
+converge branch has always had) or keeps sweeping in mode 2. In G47's regime (G43's
+converging finders, five tags, seed 7, 600 s), with one finder per subject:
+- finder 501 (tag 0) converged for 216 cycles;
+- finders 502-504 (subjects 2-4) were blind for all 240 cycles and never left base camp.
+With two subjects, the finders on subject 2 learned its entry from the pair converging on tag
+0 and converged for 206 and 188 cycles.
+
+So round-robin tasking can leave a subject with a searcher that never moves, where the
+default would have sent every finder toward tag 0. That is a property of the assignment rule
+(OURS) and the dissemination it rides on, not a defect in the code. Whether a blind finder
+should fall back to its neighbours' targets, or the base station should task finders
+(TA-1), is an open design choice. No result depends on it yet.
+
+*2026-10-04, CLOSED (owner call delegated; docs/DESIGN_DECISIONS.md §9).* Neither fallback.
+The spec's own path resolves it: a finder's session (TA-1b) issues an identity-scoped query,
+and the answer, by proxy from any node holding the entry, merges into the finder's table,
+which is what it steers on. Measured under the preset (seed 7, 900 s, unregistered probe),
+cycles blind per finder 501-504:
+- the preset: 8, 8, 1, 10 of 360;
+- `--finderSessions=false`: 8, 27, **360, 360**, the defect this entry describes;
+- `--finderDigestPeriodS=0`: 10, 19, 1, 38.
+So the finders' own queries carry the steering; digest gossip helps at the margin. A
+subject with no finder (four finders, five subjects) is a deployment property, not this
+defect.
+
+### N.5 What `--grantGatedUwb` decides that the spec does not
+
+NW-7 (2026-10-03, G49) gates the escalation into UWB on a delivered grant. Three choices in
+it are OURS, and each changes something a reader could otherwise assume:
+- **A denial ends the request.** MC-1 leaves a denied request pending, so its ACK timeout
+  retransmits and the arbiter scores the retry afresh. The plan says a denial clears the
+  pending state, and a retry the policy no longer waits for would earn a grant nobody uses.
+  So under the flag a denial also cancels the MAC's retries (`CancelPendingRequests`), and
+  the policy asks again, with fresh terms, the next cycle it wants UWB. In G49's regime tag
+  0 drew 24 denials against 29 grants.
+- **The first verdict settles a broadcast request.** Several anchors can hear one
+  ESC_REQUEST, and each answers. Whichever verdict arrives first decides; a grant arriving
+  after an earlier denial finds no outstanding request and is ignored, though its anchor has
+  reserved a slot. Multi-anchor reconciliation is NW-5 and NW-6.
+- **The trace's `escalated` flag changes meaning on 2.4 GHz.** It marks the request (with
+  `nextTier` still 2.4 GHz), while `escalations` in arm_summary counts the grant. Any
+  analysis that equates the two needs the flag's state.
+
+A process note from the same day: `~/catbl_tmp_gates/run_suites.sh` ran the unit-suite
+binaries without rebuilding them. After NW-7's policy-header change,
+`ca_tbl_sparse_anchor_test` segfaulted on its stale binary, and the 311 checks reported at
+NW-8 (`184d688`) included binaries built before that commit's MAC-header change. Rebuilt
+and re-run on the NW-7 tree, which contains NW-8, all 321 pass. The helper now rebuilds
+first.
+
+### N.6 A radio can put two frames on the air at once
+
+`CaTblChannel::IsBusy()` skips the observer's own transmissions
+(`f.txId == observerId`), so a node's CAD never sees its own frame in flight. A MAC with two
+queued frames can start the second while the first is still on air. A third receiver then
+counts the two as a collision, since the interference loop skips only the receiver itself.
+A half-duplex radio cannot do this.
+
+It surfaced building NW-9 (2026-10-03). In a four-node line, node 2 answered part of a batch
+query and relayed the rest within the default jitter; the two frames destroyed each other at
+node 3, and the query never reached node 4. The unit case widens the relay jitter to step
+around it.
+
+It is not new to NW-9. Any node that answers and rebroadcasts at once has always done it (a
+target answering a legacy QUERY still rebroadcast it), as has any node whose ACK, beacon or
+relay overlaps its own frame. How often it happens in the scenario is not measured. A fix
+changes every run's channel and so every result (rule 8): it would be a default-off flag
+with its own null control, not a bug fix. Open.
+
+*2026-10-04, `--halfDuplex` (G74).* A per-radio mode, 0 by default.
+- **1, count only.** Every place a half-duplex radio would have waited, or been deaf, is
+  counted, and nothing else moves: every output is byte-identical to 0.
+- **2, enforce.** A frame whose turn comes while the radio's own frame is on air goes back
+  to CAD when that frame ends (a fresh CAD, billed). A frame that overlaps any of the
+  receiving radio's own transmission is not received; it is written to events_ with
+  outcome halfduplex.
+- Deafness is read from the radio's own recent transmissions, not from the channel's
+  in-flight list, which misses a frame that already completed (N.22).
+- *Measured,* G74 (seed 7, 900 s, defaults):
+  - count only: 56 frames came due over the radio's own frame, and 75 receptions happened
+    while the receiver was transmitting;
+  - enforced: 79 frames sent back to CAD, and 93 receptions lost.
+  So the defect is present at defaults, at tens of events a run.
+- A unit case (packet_validator [14], three checks) shows all three modes.
+- Per radio. The LR1121 serves tiers 1 and 2 from one chip, which is not modelled.
+- Default unchanged.
+
+*2026-10-04, `--halfDuplexChip` (G84).* Under `--halfDuplex` 1 or 2 and `--radioBasis=lr1121`,
+each node's 868 MHz and 2.4 GHz MACs are paired as one chip (`CaTblMac::SetChipSibling`).
+The half-duplex rules then read both bands:
+- a frame due while the other band's frame is on air is counted (1), or sent back to CAD
+  until that frame ends (2);
+- a reception that overlaps the other band's transmission is counted (1), or lost (2).
+The UWB radio is a separate chip (DW3000) and is not paired. FATAL on the SX basis, which is
+two chips, and without `--halfDuplex`.
+- *Measured,* G84 (seed 7, 900 s, defaults, the LR1121 basis, 10 chips):
+  - count only: 115 frames came due while the other band was transmitting, against 56 over
+    the radio's own frame. 193 receptions overlapped the other band's transmission alone,
+    against 75 that overlapped the radio's own. Every output is byte-identical to
+    `--halfDuplex=1` without the flag.
+  - enforced: 98 frames waited for the other band and 82 for their own (180 sent back to
+    CAD), and 224 receptions were lost.
+  **On one chip, the other band causes more half-duplex conflicts than the radio's own.**
+- A unit case (packet_validator [17], three checks) shows the per-radio behaviour and both
+  modes per chip.
+- Not modelled: one LR1121 listens on one band at a time. A per-chip receive schedule would
+  decide which band a node can hear in each instant. That is a larger change to every
+  node's reception, and is not built.
+- Default unchanged. Not in the preset: `--halfDuplex` is not either (owner decision 3).
+
+### N.7 PCS does not fit the byte a table entry and a beacon give it
+
+NW-9 carries the producer's PCS in its entry, quantised 0..255 over [0, 1], the same mapping
+as the C4 request terms and the 1-byte pcs_q DISCOVERY already bills. Under the default PCS
+form PCS is not bounded by 1: values of 1.96 appear in G50's regime, and 22 of 53 answers
+carried 255. A requester can therefore tell "high" from "low" but not grade within the
+saturated range. This is K.8 (PCS uncalibrated) seen from the wire. `--pcsForm=calibrated`
+(DC-6) is where a bounded score comes from. Open, with CAL-02.
+
+### N.8 What `--arbitrationV2` costs and decides
+
+NW-5 (2026-10-03, G51) implements Network sect 5's arbiter. Measured in G51's regime (five
+subjects, four finders converging, URGENT queries every 30 s, `--grantGatedUwb`, seed 7,
+1 200 s):
+- **Every anchor that hears a UWB request it has no reach evidence for answers DENY.**
+  That is 2 872 out-of-range refusals in 1 200 s, all from gateways too far away for UWB,
+  as the plan specifies ("answers DENY with reason out-of-range"). Each is a frame on 2.4
+  GHz. Silence would cost nothing on the air; the plan chose an explicit answer. Open.
+- **An out-of-range refusal does not settle the request at the node.** It was first built
+  as final, and under NW-7's first-verdict rule a far gateway's DENY then cancelled
+  requests a nearby finder would have granted. Tag 0 confirmed 5 against 29 under C4
+  before this was changed. It is now non-final: MC-1's timeout retries the request, and
+  only exhausted retries end it.
+- **A request queued by two anchors.** A broadcast request can sit in several queues.
+  The first build read the second anchor's queued verdict as a drop: the subject cleared
+  its pending state, re-requested every cycle, and missed both grants from the queue.
+  Queued requests are now tracked per anchor, and dropped only when every anchor holding
+  one drops it. Two anchors can still grant the same request from their queues; the second
+  grant is ignored, its slot is held until it expires, and NW-6's gossip of the queue is
+  what would reconcile it.
+- **Most requests time out.** Tag 0: 138 requests, 8 confirmed, 129 timed out. The NW-4
+  hook escalates whenever an URGENT query arrives, and with no anchor in UWB reach no
+  arbiter with evidence answers. Under C4 every gateway granted, so the node believed it
+  held a slot nothing could serve. The evidence gate (off in G51's regime, on in the
+  preset) is what keeps the hook out of places without UWB.
+- OURS, stated in code and help: T_batt's normalisation (e = 0.05), the 10 s evidence
+  window, the 30 s queue lifetime, the 29.5 m 2.4 GHz proxy for UWB reach (this channel
+  model's UWB r50), URGENT = priority byte 1, and finders as arbiters.
+
+### N.9 Queue gossip is built and rarely needed in the five-subject regimes
+
+NW-6 (2026-10-03, G52) gossips the --arbitrationV2 queue and extends the lower-id
+tie-break to it. Two arbiters holding the same request is what it settles, and in this
+scenario that is rare. Fourteen probe runs varied seeds, slot holds (10, 30, 60 s), finder
+counts (4, 6, 8) and converging finders; queue items reached another arbiter in three of
+them, and one (seed 1, 1 800 s) yielded. Two reasons, both measured:
+- Without digests, finders never learn tag 0's entry and stand at their spawn points, so
+  no arbiter is in range of another. G52's own gossip log shows queue items reaching only
+  field nodes in such runs.
+- Five subjects walk apart. Two arbiters both have UWB-reach evidence for the same subject
+  and both hold slots only when subjects and finders cluster.
+
+So the mechanism's reachability is shown in the packet validator ([12]: a double grant
+and a double queue between two arbiters, settled by gossip frames). G52 shows the
+scenario wiring, and one justified yield. A clustered team -- the spec's "five-person
+search" -- would exercise it; no flag places the subjects together today.
+
+Also OURS, or a consequence of the rules:
+- The queue item layout (4 bytes: target, U byte as U/4 over 0..255, queued-for byte).
+- Finders gossip only over --meshLinks=all, because the gateway pair class places the
+  transmitter at a 15 m surveyed mast. They are unbilled like everything a finder does.
+- Finder ids (501+) are above every gateway's (101+), so under "the lower id defers" a
+  finder always keeps a contested request against a gateway. The rule is the spec's; the
+  id assignment makes the outcome systematic.
+
+### N.10 What `--requesterEscalation` decides that the spec does not
+
+TA-2 (2026-10-03, G57). Transport sect 4: a requester that sees a low-precision result
+drives escalation for its target, routing the request to an anchor in the target's fresh
+neighbour set. Measured in G57's regime (G47's converging finders, five subjects, seed 7,
+1 200 s): 54 requests, 5 sent, 4 granted, 4 accepted.
+- **The request reaches the arbiter instantly and unbilled.** The base station hands it to
+  the arbiter's MAC directly. No frame carries it across the mesh: routing a frame to a
+  named anchor is NW-2's (routing per subject). Only the arbiter's on-behalf GRANT is a
+  frame, billed like any GRANT.
+- **The neighbour set is one arbiter, named by the target.** The target's entry carries the
+  id of the arbiter it last had UWB-reach evidence with: a UWB exchange, or a 2.4 GHz range
+  under 29.5 m, within 10 s. That is the NW-5 evidence rule (N.8), and the 10 s window is
+  OURS. The id travels in memory with the entry and is not serialised or billed (2 bytes
+  if it were). A list would serve the spec's wording, but a requester routes to one anchor,
+  and it cannot check the list either way.
+- **Most requests are unroutable.** 49 of 54 found no arbiter named, because the target had
+  no fresh reach when it published. Those requests are not sent. The plan's review ruled
+  out the nearest gateway, and G57's fixture N3 fails a request routed there.
+- **Every clean answer from a node not on UWB asks.** The rule compares the PCS in the
+  delivered entry with the 2.4 GHz up-threshold. That PCS is a byte over [0, 1] (N.7), and
+  under the default PCS form the thresholds (1.55 to 2.30) lie above anything the byte can
+  hold. So the test always passes, and only the per-target rate limit (one request per
+  `--arbSlotHoldS`, OURS) spaces the requests. `--pcsForm=calibrated` (DC-6, CAL-02) is
+  what would make the comparison mean something.
+- **Only the base station asks.** TA-1b's finder sessions do not submit requests; that is
+  not built. Open.
+  - *2026-10-04:* built, `--finderRequesterEscalation` (G64). A finder's session asks on the
+    base station's rule. A finder is itself a UWB arbiter (NW-5), so when it holds reach
+    evidence of the target it scores the request in its own queue, and no frame is needed.
+    Otherwise it asks at the arbiter the target's entry names, as TA-2 does, and with none
+    the request is unroutable. In G64's regime: 113 requests, 2 own, 3 named, 108
+    unroutable; all 5 sent were granted.
+  - The OURS choice: the "own queue first" route. The plan said "its own arbiter when it
+    holds UWB, else the nearest gateway's via the mesh", and the plan's review had already
+    ruled out the nearest gateway for TA-2.
+  - The named route stays instant and unbilled, as below. The TA-2 line's "at the targets
+    accepted" counts every on-behalf grant a target took, finders' included.
+- At the target, an on-behalf grant confirms a pending request of the node's own.
+  Otherwise it is the node's escalation 2.4 GHz -> UWB on a hybrid arm, effective the next
+  cycle. It is refused on 868 MHz (never a jump to UWB) and on a static arm. Both outcomes
+  are counted. In G57 none were refused.
+
+*2026-10-04, `--requestOverMesh` (G81; register row 52).* The request no longer reaches a
+finder arbiter instantly and unbilled. It travels as an on-behalf ESC_REQUEST on 2.4 GHz, the
+radio arbiters take requests on.
+- **The base station's request.** A gateway arbiter is still reached over backhaul, as before:
+  the base station and the gateways are wired. A finder arbiter is reached over the air, from
+  the gateway that heard that finder most recently in its one-hop neighbour table (ties: the
+  lower id). With no gateway that hears it, the request is `unheard` and not sent.
+- **A finder's named request** leaves the finder's own 2.4 GHz radio, to an arbiter it hears.
+  The own-queue route needs no frame and is unchanged.
+- **The frame.** It is billed to its sender. It can be lost on the channel or collide. Its
+  carried `ReqSubject` names the subject, which the request's billed `requester_id(2)` already
+  sizes, so the airtime is that of any ESC_REQUEST. The arbiter acts on it only on reception,
+  where it is scored exactly as `SubmitRequestOnBehalf` scores a request handed to it, and the
+  GRANT goes to the subject marked on-behalf. The arbiter answers the carrier with a bare ACK.
+  A lost ACK makes the carrier retry, and the arbiter re-scores the retry. A carrier whose
+  retries run out does not report it to its own grant callback, because the request was not
+  its own.
+- One hop, never relayed. OURS: the spec's `submit_to_nearest_anchor` does not say how the
+  request crosses the network, and routing a frame to a named node is NW-2's.
+- *Measured,* G81 (G64's regime, seed 7, 1 200 s):
+  - by default: 6 requests reached the carriage step. 1 was carried (finder 503 to arbiter
+    504), and 5 were unheard. The carried request was delivered 3 times, and each delivery
+    was granted. After the first and the third, the arbiter's ACK collided at the carrier
+    with the arbiter's own GRANT, which left the same radio at the same instant (N.6). After
+    the second, no ACK reached the carrier, and events_ records none; why is not established.
+    The carrier retried twice, and the arbiter re-scored each retry.
+  - with `--halfDuplex=2`: 4 requests, 1 carried (gateway 105 to finder 501, for the base
+    station), 1 delivery, 1 grant, and no retry.
+  - Across seeds 1, 2, 3, 8 and 9 (unregistered probe), 0 to 2 requests a run were carried,
+    and 2 to 6 were unheard. **Most requests to a named arbiter find no carrier that hears it.**
+    The instant delivery hid that.
+- A unit case (packet_validator [15], four checks) shows: the frame is billed, scored on
+  reception and granted on-behalf; with half-duplex enforced, nothing is retried; by default,
+  the N.6 retry; and a request to an arbiter out of reach is never scored.
+- Default unchanged. In `--specProfile` since its own P6 step (N.15's 2026-10-04 row 52
+  entry).
+
+### N.11 Per-hop variance swamps a relayed leg's sigma
+
+NW-1 step 3 (2026-10-03, G58). `--hopVarianceTerms` adds a leg's RSSI/SNR variability to its
+sigma. The variability is the von Neumann sigma of its readings, converted to range by the
+tier's nominal path-loss slope. Measured in G53's regime (four tags in a 400 m box, relays
+chained to depth 2, seed 7, 600 s; 2.4 GHz, path-loss exponent 2.3, so slope x range =
+9.99 dB):
+- **The term is large.** The median leg variability is 5.5 dB (static 2.4 GHz arm) and
+  6.2 dB (full arm), at a median range of 137 m. Converted, that is a median sigma_var of
+  64 and 83 m (90th percentile 127 and 159 m), against the engine's raw sigma of 3.5 m. The
+  relayed share of the measured tag's variance rises from 0.62 to 0.98.
+- **So a relayed leg carries almost no weight.** The measured tag's RMSE barely moves
+  (3.528 -> 3.494 m and 9.898 -> 9.884 m, same binary and seed). A short relay that fuses
+  through the chain coasts: relay 3's error on the static arm went from 65 to 122 m.
+- **Why.** The engine draws fading and NLOS independently for each transmission, so
+  successive readings on a link differ by several dB even when nothing moves, and the
+  statistic measures exactly that. Tiers 2 and 3 range by time of flight, so RSSI
+  variability is not a term of their range error at all. The conversion is OURS: the spec
+  names the term, not how to put it in metres.
+- **The NLOS half rarely fires.** 16 of 1 040 scored legs were at or above 0.5, and two of
+  those were admitted. The 2.4 GHz leg score is the ToF/RSSI excess against the legs' own
+  pool, and per-transmission fading moves that pool as much as NLOS does.
+
+The preset turns the flag on (plan sect 3.1). Whether it should is for CAL-02 and the
+comparator arms to say; the "LoRaWAPS-style" baseline runs with it off. It is not a defect
+to tune away here. Open.
+
+*2026-10-03, DECIDED by the owner:* `--hopVarianceTerms` leaves `--specProfile`. The flag
+stays, default off, unchanged. What the preset loses is a term that, where it fired, gave a
+relayed leg almost no weight. At 5 km it had no population at all (N.15: no relay leg had
+the three readings a variance term needs). The conversion of RSSI variability into a range
+sigma for time-of-flight tiers is still OURS and still open. A tier-aware form, or none on
+ToF tiers, would be its own flag.
+
+### N.12 Routing subjects: what `--fixRoutingSubjects` decides, and the breach it replaces
+
+NW-2 (2026-10-03, G59). Measured in G59's regime: full arm, five measured subjects and one
+plain relay, the confidence selector, seed 7, 600 s.
+- **The breach.** `--fixRouting` with `--measuredSubjects` > 1 routes subjects 2..N on
+  `--relayTier` whatever tier they ranged on. In G59's control, 671 of 1 204 frames on the
+  air came from a subject that ranged on another tier that cycle: a second tier
+  transmitting in one cycle, which sect 6 forbids. No gate ran that combination before.
+  The breach still runs, warned on stderr. It is not refused, because refusing would
+  change what an existing flag combination does.
+- **The fix.** Under `--fixRoutingSubjects` there is one router per tier. Each cycle a node
+  takes part only in the router of the tier it ranged on. Routes learned on a tier persist
+  for their three-cycle lifetime while the node is elsewhere. A hop whose next hop has
+  since moved tier is refused: 46 of them in G59.
+- **868 MHz routes almost nothing.** A subject on 868 MHz has spent its 2.5 % duty budget
+  on ranging, so its routed frames are refused by the governor (1 053 refusals, 24
+  forwards, nothing delivered). No subject reached UWB in this regime, so that router had
+  no participants. Neither outcome is wrong, but the per-tier routing that works is
+  2.4 GHz.
+- **Links are learned passively on every tier.** A node notes gateway beacons on all three
+  radios whether or not it is on that tier, as the MAC's neighbour tables already do. Only
+  transmission and the receive charge are tied to the cycle's tier. Whether a node on
+  868 MHz can hear 2.4 GHz beacons at all is the model's existing assumption, not NW-2's.
+- The row's pcs field stays 0, as neither metric reads it. The weights are exposed and
+  untuned (OURS); the sweep is CAMP-SPEC's.
+
+*2026-10-03, CLOSED by owner decision:* the breach is now refused. `--fixRouting` with
+`--measuredSubjects` > 1 and without `--fixRoutingSubjects` exits 1 with the reason, where it
+warned. Nothing at defaults moves (the combination needs two non-default flags), the null
+control passes, and no `run_id.txt` under `results/` used it. Two gates read it:
+- G59's control is now `--measuredSubjects=1` (the relays on `--relayTier`), and the old
+  combination is its third refusal, with a fixture that accepts it.
+- G24 can no longer turn `--fixRoutingSubjects` off under the preset, which has subjects
+  and `--fixRouting`. Its efficacy run became a refusal check (R12), with a fixture.
+
+### N.13 Case C shapes: what `--caseCRelative` decides, and how coarse they are
+
+DC-3 (2026-10-03, G60). Measured in G54's regime: five subjects in a 4 km box, five gateways
+on a 140-degree arc, finders, mesh links, the base station's batch queries every 30 s,
+seed 7, 900 s.
+- **0-anchor cycles are common and mostly on 868 MHz.** There were 736 node-cycles with no
+  anchor range, and a peer was heard on all but 11 of them. Peer exchanges numbered 2 159,
+  of which 1 759 returned a range. A node with no anchor has usually been demoted to
+  868 MHz, where ranging is RSSI inversion. Peer ranges there err by about 190 m (median;
+  90th percentile about 730 m) at separations of a few hundred metres.
+- **So the shapes are coarse.** The 13 shapes of three or more miss the true
+  configuration by about 360 m (median, after the best rotation and reflection), at a
+  median cohesion of about 1.4 km. MDS reproduces its input; the input is the problem.
+  G60 checks the reconstruction, not its accuracy, as the plan's verification asks.
+- **Most sets never reach the base station.** Gateway tables in this model never merge a
+  field node's entry; a gateway holds only its own. So a node's entry, and the peer
+  ranges riding it, reach the base station only in an answer to its query (TA-1a). With
+  answers every 30 s and a 10 s window (OURS), 14 sets arrived and 677 did not. A first
+  build looked in gateway tables and delivered nothing. A shorter query period, or a
+  window as long as the query period, would deliver more; both are choices, so they were
+  not made here.
+- **Missing pairs are completed by shortest path (OURS):** 34 completions over 13 shapes.
+  A completion overstates its distance whenever the path bends. Three members with one
+  completed pair come out collinear (lambda2 = 0).
+- **The carry is billed, not modelled.** "3 bytes a range" is billed as extra airtime on
+  the node's active tier when the ranges are taken, as if they rode an entry sent that
+  cycle. No frame grows.
+
+### N.14 A UWB range never improves a fix the floor can make
+
+The MS-3 checkpoint (report/MS3_UWB_CHECKPOINT.md, 2026-10-03) failed: no UWB-delivered
+fix on any seed of the preset. Two structural reasons.
+- **One finder per subject at most.** `--finderTasking=roundrobin` gives each subject one
+  finder; with 4 finders and 5 subjects, one subject has none. A UWB multilateration
+  needs three anchors in UWB reach, and gateways are never that close. In a 750 m box
+  tag 0 had two UWB neighbours on 16 of 2 160 cycles and three on none.
+- **Floor-first fix selection.** When the active tier returns fewer than three ranges and
+  the 868 MHz floor solves, the cycle uses the floor's set, and the active tier's ranges
+  are not fused at all (`nRangesEkf` = `nAnchors` on every such UWB cycle). Case A and
+  Case D on the active tier run only when the floor fails. The rule was measured as right
+  for 2.4 GHz Case A against the floor (the census comment in the scenario). For UWB it
+  throws away a range three orders of magnitude better than the RSSI ranges it keeps.
+
+The remedy, not built and waiting on the owner: fuse the active tier's 1-2 ranges with the
+floor's set (a flag, its own null control and gate). Open.
+
+*2026-10-03, GEO-01 stage 2 (report/GEO01_RESULTS.md §2, P4):* the same rule costs the
+subjects availability at sparse geometry. The sparse cases (Case A, two ranges) run on the
+active tier only. A subject that escalates to 2.4 GHz and finds 0-1 anchors there gets no
+fix, because the 868 MHz floor needs three ranges. On `static_868` the same subject stays
+on 868 MHz and fixes from two ranges (75 cycles against 0 for subject 3, N8_ring seed 1).
+So `static_868` beat `ca_tbl_full` on availability in every GEO-01 cell, by 0.03-0.06. Applying
+the sparse cases to the floor's set as well would be part of the same remedy.
+
+
+*2026-10-04, the remedy built (owner decision: a flag, then a registered campaign):*
+`--fuseFloorActive` (G63). When the active tier has fewer than three ranges and the floor
+ranged, the fix set is the union: the active tier's ranges, relays included, then the
+floor's. Step()'s sparse cases act on it below three. The floor alone at three or more keeps
+the old path. Tag 0 and every measured subject. What it decides, each OURS:
+- **A union holding active ranges is labelled with the active tier** in the traces. The
+  cycle used them, and they are the precise ones. This overrides the rule written above the
+  fix selection, that each cycle's fix comes from one tier, which is the point of the
+  remedy. So a "UWB fix" under the flag can hold 868 MHz ranges. `fusefloor_*.csv` says
+  which, and how many of each.
+- **Under `--subjectRelayChain`, a union of three is a fix on direct ranges** (the subject
+  holds), and relays may complete a shorter union.
+- **TDoA still runs only on a pure floor set** of three or more.
+
+In G63's preset runs (seed 7, 900 s):
+- the endgame formed 666 unions, 91 of them on UWB, with 19 UWB-delivered fixes against 0
+  without the flag;
+- at 5 km it formed 872, of which 644 had no active range and a short floor, the case
+  GEO-01 found.
+
+Whether the preset takes it is FUSE-01's registered rule, not this entry.
+
+*2026-10-04, FUSE-01 (report/FUSE01_RESULTS.md):* it does.
+- **Availability:** +0.118 at 5 km and +0.127 in the endgame. `ca_tbl_full` is now above
+  `static_868` at 5 km.
+- **UWB-delivered fixes:** on 20 of 20 endgame seeds, 552 of them. 538 are fused sets,
+  labelled UWB by this flag's rule.
+- **The cost:** tag 0's endgame CEP95 is 8 % worse on average (interval to +18 %, P4 failed),
+  and subjects spend more energy on UWB.
+- The registered rule adopted it, and the preset sets it since then. CLOSED.
+
+*2026-10-04, REOPENED by FUSE-01b (report/FUSE01B_RESULTS.md).* FUSE-01 ran on a preset in
+which subjects ranged finders at their true positions (N.21). Re-measured with that closed:
+- availability still rises (+0.116 at 5 km, +0.120 in the endgame);
+- `ca_tbl_full` with the fuse is still above `static_868` at 5 km (+0.036);
+- UWB-delivered fixes come on all 20 endgame seeds;
+- but tag 0's endgame CEP95 is 13.7 % worse on average, over the registered +10 % bound.
+
+So the registered rule does not adopt it, and the preset drops it. The remedy works on
+availability and fails on endgame accuracy. Two calls are open, both for the owner:
+- adopt it anyway;
+- try a narrower variant: fuse only when the floor is short. That is the 5 km gain, and
+  the 5 km CEP change was +2.6 %.
+
+*2026-10-04, the call (owner call delegated, DESIGN_DECISIONS §9):* the narrower variant,
+decided by a registered campaign (FUSE-02) with FUSE-01's metrics and adoption rule.
+`--fuseFloorShort` (G85) narrows `--fuseFloorActive`: the union is formed only when the
+floor has fewer than three ranges. A floor of three or more is the old floor-first path.
+- G85 (the 3-gateway preset, seed 7, 900 s): the narrowed fuse formed 414 unions in the
+  endgame and 506 at 5 km, none with a floor of three or more. The full fuse formed 729 in
+  the endgame, 302 of them with a floor of three or more.
+- Its cost, read from the same lines: the endgame's 1-2 range UWB sets are fused only when
+  the floor is short (38 UWB unions against 63), so fewer UWB ranges reach a fix (1 against
+  2 fixes using UWB ranges, single seed).
+
+*2026-10-04, FUSE-02 (report/FUSE02_RESULTS.md): CLOSED without a fuse.* On the finished
+preset the narrowed fuse raises availability (+0.105 at 5 km, +0.127 in the endgame) and
+brings UWB-delivered fixes to 15 of 20 endgame seeds, but tag 0's 5 km CEP95 is worse by a
+mean +113.9 % per seed, over the registered +10 %. The preset sets no fuse. Both variants
+were measured by registered campaigns and both fail the accuracy bound: FUSE-01b on the
+endgame, FUSE-02 at 5 km.
+
+### N.15 The preset: what `--specProfile` sets that the plan's table did not say, and its zero populations
+
+P6 (2026-10-03, G24). `--specProfile` sets 68 flags. It differs from the plan's §3.1 table
+in these ways, each forced by the build:
+- `--sparseCaseA` is left out. It is FATAL together with `--sparseInStep`, which replaces
+  it.
+- `--relayVarBudget=24336` ((156 m)^2, G17's value, OURS) is added. With A2's budget at 0
+  the chain is inert ("budget 0.0 m^2" in the first probe).
+- `--identityQueryPeriodS=30` (OURS) is added. `--queryV2` is FATAL without a query
+  period.
+- `--fixRoutingSubjects`, `--hopProvenance`, `--reversePathHop`, `--requesterEscalation`
+  and `--sessionPreciseOnGrant` were built after the table was written, and are in it.
+- **Not yet in it:**
+  - `--radioBasis=lr1121` (SY-2: the LR1121 datasheet, which needs poppler-utils or the
+    owner's tables);
+  - ~~the calibrated PCS~~: in it since CAL-02 (`--pcsForm=calibrated`, weights
+    (0, 1.92, 1.08) and five thresholds; report/CAL02_RESULTS.md, N.16).
+- *2026-10-03:* the geometry is now in it: `--nGateways=8`, a ring, GEO-01 stage 2's
+  registered fallback. No candidate met the criterion (report/GEO01_RESULTS.md). The
+  preset with it reproduces the GEO-01 N8_ring seed-1 cell byte for byte.
+
+G24 runs the preset (5 km), its endgame variant (750 m box, finders converging; the
+owner's decision after MS-3), the last-gasp run, and the preset with one flag off per
+mechanism. Every efficacy run reads 0, the preset reproduces its own flags byte for byte,
+and the refusal fires. But **six mechanisms have a zero population**, and G24 lists each
+as FAIL:
+- **Case A and Case B fixes.** Floor-first selection (N.14): the 868 MHz floor solves
+  whenever the active tier has fewer than three ranges, so the sparse cases are tried only
+  when it does not. That was once or twice a run, refused as degenerate each time.
+- **UWB-delivered fixes and sessions reaching LOCATED_PRECISE.** N.14 again: at most one
+  finder is in a subject's UWB reach, and a single UWB range loses to the floor. In the
+  endgame, 6 grants were confirmed and no UWB fix formed. PRECISE needs the delivered
+  entry to name a grant the node still holds, and its tier has already fallen back by
+  then.
+- **Fixes at hop depth 2.** The relay chain (L.1.2) runs for plain C5 relays. Under the
+  preset all five field nodes are measured subjects, which step through the MS-1 pipeline
+  (N.3), so the chain never steps a short relay ("short relays stepped 0" in every run).
+  Depth 1 appears in the endgame: 243 fixes.
+- **Grant tie-break verdicts.** Grant gossip runs among the gateways on tier 1, while
+  finders make 27 of the 31 grants. No two anchors granted the same request, so there was
+  never a WIN or DEFER.
+
+Each needs a change to the estimator or the network, not a setting: the N.14 fusion, the
+relay chain for subjects, and finders taking part in grant gossip. They wait on the owner,
+and G24 stays FAIL until they are made or the owner accepts the zeros. Open.
+
+*2026-10-03, with GEO-01's ring (8 gateways):* the zero set moved. It is still six, and
+they are populations of a sparse geometry, not defects of a mechanism:
+- **Back:** Case B fixes (2 in the main run) and sessions reaching LOCATED_PRECISE (4 in
+  the endgame, where the ring's gateways now sit 450 m from the centre and 10 grants were
+  confirmed).
+- **Still zero:** Case A, hop depth 2, grant tie-break verdicts, UWB-delivered fixes.
+- **Newly zero at 5 km:**
+  - triggered updates: no large correction fired;
+  - per-hop variance terms: 3 relay legs reached admission, and none had the three
+    readings a variance term needs. With the old default grid the subjects met often
+    enough for both.
+
+*2026-10-03, with CAL-02's calibrated PCS:* five zeros. Grant tie-break verdicts appear:
+the calibrated thresholds move when subjects ask for UWB, and two anchors now granted one
+request. The other five stand: Case A, triggered updates, hop depth 2, per-hop variance
+terms, UWB-delivered fixes.
+
+*2026-10-03, the routing weights (owner decision):* the preset sets CAMP-SPEC's registered
+sweep pick, `--routeAlpha=0 --routeBeta=0 --routeGamma=1 --routeSlack=1` (82 settings). It
+reproduces the sweep's `D_route_a0_b0_g1_s1` seed-1 cell byte for byte (37 files).
+- **One choice is OURS.** The weights need `--fixRouting`, and a weight given without it is
+  refused. A weight the preset applied is exempt: with `--fixRouting=false` given
+  explicitly, as CAMP-SPEC's single-hop cells do, the preset's weights are unused, not
+  refused. G24 runs that shape (x_froff) and requires exit 0.
+- **The zero set moved, still five.** The routes changed, so the channel did, and every
+  magnitude moved with it (rule 8).
+  - Case A fixes are back: 1 in main.
+  - Grant tie-break verdicts are zero again in the endgame: 0, where CAL-02's preset gave 2.
+  - Both populations are one or two events in G24's single seed.
+  - The five zeros: triggered updates, hop depth 2, per-hop variance terms, grant tie-break
+    verdicts, UWB-delivered fixes.
+
+*2026-10-03, `--hopVarianceTerms` out of the preset (owner decision, N.11):* 81 settings. G24
+no longer asks for its population. It checks instead that the preset neither sets the flag
+nor prints its NW-1 line (NOHV). Still four zeros, one of them new:
+- triggered updates, hop depth 2 and UWB-delivered fixes, as before;
+- requester escalations accepted in the endgame. No request was granted: 2 refused and 44
+  unroutable, where the routing-weight preset had 1 accepted.
+- Grant tie-break verdicts are back (1).
+
+Like the moves before it, these are populations of a few events in one seed.
+
+*2026-10-03, SY-2:* the preset sets `--radioBasis=lr1121` (82 settings). The same four zeros.
+
+*2026-10-04, `--subjectRelayChain` (N.18; owner decision: preset entry if it shows a
+population):* the preset sets it (83 settings).
+- **Hop depth 2 has a population:** 137 of tag 0's fixes in the endgame, where subjects
+  fused through the chain 39 times; with the flag off, 0.
+- **A preset-applied `--subjectRelayChain` is unused, not refused,** when `--relayChain` is
+  turned off explicitly, as the routing weights are with `--fixRouting`. Otherwise
+  CAMP-SPEC's single-hop command line would be refused.
+- **Case A and Case B fixes read 0 at 5 km,** where they were 1 and 3. The subjects' chain
+  exchanges at 5 km are few, and none is admitted, but they are transmissions: the channel
+  moved, and with it these one-event populations (rule 8).
+- **The five zeros:** Case A, Case B, triggered updates, UWB-delivered fixes, requester
+  escalations accepted.
+
+*2026-10-04, `--fuseFloorActive` (FUSE-01's registered rule, N.14):* the preset sets it
+(84 settings). It reproduces FUSE-01's `main_on` and `end_on` seed-1 cells byte for byte
+(72 files each).
+- **Three zeros are filled:** UWB-delivered fixes (19 in the endgame, 0 with the flag off;
+  most are fused sets, N.14), requester escalations accepted, and Case B (1).
+- **Two zeros remain, both tag 0's at 5 km:**
+  - Case A fixes. Tag 0's census reads `d.fixKind`, and in G24's seed tag 0 never solved a
+    two-gateway set.
+  - Triggered updates. The large-correction trigger never fired for tag 0; subjects do not
+    run it at all (N.3).
+
+*2026-10-04, `--finderRequesterEscalation` (decision 8, both requesters; TA-1b):* the preset
+sets it (85 settings). Probes at 900 s found granted finder requests in the endgame on every
+seed tried (1-3 a run), and none at 5 km, where all were unroutable.
+- In G24 the finders' requests have a population: 1 granted in the endgame, 0 with the flag
+  off.
+- **Requester escalations accepted is zero again.** The base station's 37 requests were all
+  unroutable. The finder's one grant reached its target while the target was on 868 MHz,
+  and the target refused it (`obo_refuse`, as the rule says). One event, one seed.
+- **The three zeros:** Case A fixes, triggered updates, requester escalations accepted.
+- A preset-applied `--finderRequesterEscalation` is unused, not refused, when
+  `--finderSessions` or `--requesterEscalation` is turned off explicitly. G24's
+  requesterEscalation efficacy run does exactly that.
+
+*2026-10-04, `--subjectEdgeUplink` (SY-1 for every subject; decision 4):* the preset sets it
+(86 settings). The subjects' uplink has a population at 5 km: 189 records in G24's main run,
+0 with the flag off. A preset-applied value is unused, not refused, when
+`--edgeUplinkRanges` is turned off explicitly. The same three zeros.
+
+*2026-10-04, `--subjectFinderPseudoAnchor` (N.21; MS-1's "finders as pseudo-anchors" for the
+subjects too):* the preset sets it (87 settings). No node in the spec configuration now
+ranges a finder at its true position, except tag 0 when it holds no entry (N.21, open).
+- In G24: subjects' finder ranges on reported positions 2 353 in the endgame, 0 with the
+  flag off.
+- Tag 0 holds 2.3 finder entries a cycle at 5 km, against 1.9 before (the subjects'
+  staggered questions bring more answers).
+- **Two zeros remain:** triggered updates, and grant tie-break verdicts (0 again; 1 before).
+  Case A fixes (1) and requester escalations accepted (1) are back. These are the
+  single-seed flips N.19 describes.
+- Subject results measured before this (GEO-01, CAL-02, CAMP-SPEC, FUSE-01) carry the
+  oracle. FUSE-01b re-measures FUSE-01 without it.
+
+*2026-10-04, `--fuseFloorActive` out again (FUSE-01b's registered rule):* FUSE-01b
+(report/FUSE01B_RESULTS.md) repeated FUSE-01 with the subjects' finder oracle closed. Tag 0's
+endgame CEP95 was 13.7 % worse with the fuse, against the rule's +10 %, so the preset drops
+the flag (86 settings). It stays a flag, and N.14 is reopened for the owner.
+- **Two populations that came with the fuse are zero again** in G24's endgame run:
+  - UWB-delivered fixes: 0, as FUSE-01b's off arm had on every endgame seed.
+  - Sessions reaching PRECISE: 0. Under the preset a session is precise on a result whose
+    entry carries a confirmed UWB grant (`--sessionPreciseOnGrant`, TA-3). Tag 0 (target
+    m1) had 6 grants confirmed, but no result that reached a session carried one in this
+    seed. Why this population depended on the fuse is not established: FUSE-01 found tag
+    0's tier occupancy unmoved by it.
+- **Finder requests granted is zero.** One request was routed to a named arbiter and
+  refused; 50 were unroutable. It was 1 before, and is the kind of single-event flip N.19
+  describes, as are Case A fixes (0, 1 before) and grant tie-break verdicts (1, 0 before).
+- **The five zeros:** Case A fixes, triggered updates, UWB-delivered fixes, finder requests
+  granted, and sessions reaching PRECISE.
+- Removing the fuse changes what is transmitted, so G24's other counts moved too. Under rule
+  8 only the control-flow claims above are drawn from them.
+
+*2026-10-04, `--finderPseudoAnchorStrict` (N.21, tag 0's half):* the preset sets it (87
+settings).
+- In G24: tag 0's finder ranges dropped, 221 in the endgame, 0 with the flag off.
+- **Two zeros remain:** triggered updates and UWB-delivered fixes.
+- Case A fixes (4), finder requests granted (3) and sessions reaching PRECISE (4) are back,
+  the single-seed flips N.19 describes. The channel moved with the flag, so these are not
+  the flag's effect.
+- A preset-applied value is unused, not refused, when `--finderPseudoAnchor` is turned off
+  explicitly.
+
+*2026-10-04, `--digestVizOutputs` (M.4):* the preset sets it (88 settings), so the sidecar
+digests the visualiser files the preset writes. Every G24 POP and EFF line is identical to
+the run before it (three seeds since N.19). The same two zeros remain.
+
+*2026-10-04, row 55 (92 settings):* the preset gives every subject tag 0's TDoA, NLOS
+classifier, integrity witnesses and large correction.
+- **Tag 0's populations are now read from tag 0's own lines.** `num()` sums every match, so
+  `solves OK` and `fed to PCS` would otherwise have absorbed the subjects' lines.
+- **Four new populations,** each with an efficacy run, over seeds 7/8/9:
+  - subjects' TDoA solves 14+9+22;
+  - scores fed to PCS 99+133+83;
+  - witness evaluations 437+1 105+730;
+  - large corrections 0+1+1.
+- **The two zeros changed with the channel.** Tag 0's triggered updates are now 0+0+1. Grant
+  tie-break verdicts are 0+0+0 (1+1+0 before). The zeros: grant tie-break verdicts and
+  UWB-delivered fixes.
+
+*2026-10-04, row 52 (93 settings):* the preset sets `--requestOverMesh` (N.10, G81), so no
+requester's request reaches a finder arbiter without a frame under `--specProfile`.
+- **A new population,** with its efficacy run: carried requests heard at arbiters, endgame,
+  5+0+4 over seeds 7/8/9. At 5 km none was carried in those three seeds: every request
+  there was unroutable before the carriage step.
+- Requester escalations accepted 4+6+1 (3+8+2 before), finder requests granted 2+7+0
+  (2+8+1), sessions reaching PRECISE 4+1+4 (4+1+3). The channel moved with the flag, so
+  these differences are not the flag's effect (rule 8).
+- The same two zeros: grant tie-break verdicts and UWB-delivered fixes.
+- A preset-applied value is unused, not refused, when `--requesterEscalation` is turned off
+  explicitly.
+
+*2026-10-04, channel fidelity (96 settings; owner call delegated, DESIGN_DECISIONS §9):* the
+preset sets `--halfDuplex=2`, `--halfDuplexChip=true` and `--collisionBothLost=true`. The
+spec puts 868 MHz and 2.4 GHz on one LR1121 die, a LoRa transceiver is half-duplex, and the
+capture rule applies to both frames of a collision.
+- **Three new populations** at 5 km, seeds 7/8/9, each with its efficacy run:
+  - frames sent back to CAD 267+303+197;
+  - receptions lost to the other band 246+257+176;
+  - collisions against a completed frame 50+56+39.
+- **The two zeros changed with the channel.** Grant tie-break verdicts are back (1+0+1).
+  Carried requests heard at arbiters fell to 0+0+0 (5+0+4 before): every named request in
+  the endgame found no carrier that hears its arbiter (3 and 5 unheard in seeds 7 and 8).
+  The zeros: UWB-delivered fixes and carried requests heard at arbiters. Both populations
+  are single digits, the case N.19 describes.
+- Every preset number measured before this is superseded by the final campaign
+  (DESIGN_DECISIONS §9).
+- A preset-applied `--halfDuplexChip` is unused, not refused, when `--halfDuplex=0` or
+  `--radioBasis=sx` is given explicitly.
+
+*2026-10-04, the spec's geometry (97 settings; owner call delegated, DESIGN_DECISIONS §9):*
+the preset takes `--nGateways=3 --gwLayout=star` (N3_star), in place of N8_ring. Register
+row 56 is CONFORMANT.
+- **The zeros changed with the geometry:** grant tie-break verdicts and UWB-delivered fixes
+  again (0+0+0 each). Carried requests heard at arbiters are back (3+0+0).
+- At 5 km, seeds 7/8/9: tier-1 TDoA solves 5+1+0, Case A fixes 0+0+2, frames sent back to
+  CAD 277+252+184.
+- **CAL-02's PCS weights and thresholds were fitted on N8_ring.** They are now applied off
+  the geometry they were fitted on. CAL-03 re-fits them by CAL-02's procedure (DESIGN_DECISIONS
+  §9).
+- G24's self-test P1 zeroes TDoA in seeds 8 and 9 and keeps seed 7's, since seed 9 now has
+  none.
+
+*2026-10-04, `--pcsForm` given explicitly under the preset (CAL-03's prerequisite):* the
+preset's calibrated weights and thresholds are now unused, not applied, when `--pcsForm` is
+given with a form other than `calibrated`. Before, `--specProfile --pcsForm=legacy` compared
+the legacy score with CAL-02's thresholds (`pcsThrUp868` 3.0 among them): neither form, and
+the configuration CAL-03 must generate its data in. An explicit threshold or weight still
+wins. G24 checks it (PCSL) on a 30 s run, with a negative fixture.
+
+*2026-10-04, CAL-03 adopted (97 settings; report/CAL03_RESULTS.md):* the preset's eight PCS
+values are CAL-03's, re-fitted on the finished preset by CAL-02's procedure: weights
+(2.995, 0, 0.005), thresholds up 1.642 / 1.377 / 1.679 and down 1.542 / 1.880. G24: the same
+two zeros; EQUIV, FILE and PCSL pass.
+
+*2026-10-04, CAMP-FINAL (report/CAMP_FINAL_RESULTS.md §4; measured after the registered
+analysis, not a registered prediction):* the integrity check still fires on most preset
+fixes with no fault injected. `ca_tbl_full`, tag 0, SUSPECT over fix cycles, seeds 1-20:
+- A_main (5 km): 5 131 / 6 624 (0.775; per seed 0.21-0.93).
+- B_end (endgame): 13 666 / 14 106 (0.969; per seed 0.95-0.98).
+- C_n8 (N8_ring): 10 233 / 10 974 (0.932; per seed 0.86-0.96).
+
+So the fault matrix's integrity precision (0.12-0.31) is close to the share of fixes inside
+the fault window: the check is not separating the faults. Not changed here: a different
+threshold or eligibility rule is an engine change for its own registered campaign.
+
+*2026-10-05, the cause found (N.26 fix 3; single seed, not a result):* under the preset the
+check's distance is **not chi-square scaled**. `--mahalUseR=false` takes S = P_prior alone,
+leaving out the measurement covariance, so a test point with tens of metres of error is
+judged against an EKF that believes in about a metre. `ca_tbl_full`, seed 7, 900 s, fault-free,
+tag 0's eligible fix cycles:
+
+| run | distance p50 / p90 / p99 | flagged |
+|---|---|---|
+| endgame, preset | 37 244 / 375 938 / 6.4e7 | 329 of 351 |
+| endgame, `--mahalUseR=true` | 2.85 / 12.3 / 27.1 | 56 of 345 |
+| 5 km, preset | 173 363 / 5.8e6 / 5.2e11 | 103 of 126 |
+| 5 km, `--mahalUseR=true` | 1.40 / 6.7 / 13.8 | 3 of 126 |
+
+A chi-square 2 DOF distance has p50 1.39 and p99 9.21. The correctly specified form
+(S = P_prior + (J'R^-1 J)^-1, which already exists as `--mahalUseR`) is close to that at 5 km
+and about 2-3x inflated in the endgame. So the fix is `--mahalUseR=true` first. Then
+`--integrityChi2` is fitted on fault-free calibration seeds for what remains: the
+registered campaign PREREG_FIXES_N26 (HANDOFF_2026_10_05 sect 4).
+
+*2026-10-05, FIXES-N26 (report/FIXES_N26_RESULTS.md sect 3; registered):* with
+`--mahalUseR=true` the fault-free distance still has a heavy tail. Over 20 calibration seeds
+the p99 is 6 521 at 5 km and 582 in the endgame, and the fitted threshold is 1 992.9. At that
+threshold the false alarms are gone (SUSPECT 1.6 % and 0.5 % of fault-free fixes), but so is
+detection: recall under the injected faults is 0.009-0.031. **Open:** the covariance the
+check uses understates a minority of fixes' error. *Hypothesis, not established:* NLOS ranges
+and finder pseudo-anchor positions whose error is not in R. No threshold fixes that.
+
+### N.16 At 5 km the covariance trace ranks error backwards
+
+CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
+error) over tag 0's fix cycles is +0.315 on the held-out seeds: a smaller trace goes with
+a larger error. The facts behind it, read from the 40 seeds:
+- 98 % of the fixes are 868 MHz floor fixes, and nearly all are SUSPECT, so DC-7 fuses
+  almost every one at R × 4.
+- Within the 868 MHz fixes the trace still ranks error backwards (+0.22).
+- In the endgame (2.4 GHz fixes, a 750 m box) it ranks error correctly (−0.53 overall,
+  −0.55 within 2.4 GHz).
+
+**The consequence.** CAL-02 fitted the weights where the trace is least informative. FIT-R
+wanted a negative trace weight, and the clamp to non-negative weights dropped it, leaving
+(0, 1.92, 1.08). The calibrated score then "beats" the inverted control by the registered
+test, while ranking error only weakly (ρ = −0.10).
+
+**Not established:** why the RSSI-ranged, mostly-SUSPECT fixes invert the trace. Candidates
+are:
+- range-proportional σ near gateways;
+- DC-7's inflation applied to almost every fix;
+- the integrity check firing on nearly every preset fix (N.15's populations).
+
+Each would need its own measurement. Open, for the owner, together with N.14.
+
+*2026-10-04, CAL-03 (report/CAL03_RESULTS.md):* at the spec's three gateways the trace ranks
+error the right way at 5 km (held-out ρ(−traceSigma, error) −0.281), and the re-fit keeps it
+(weights (2.995, 0, 0.005)). So the inversion is a property of the eight-gateway ring CAL-02
+was fitted on, not of the preset as it now stands. The causes listed above are not
+established; the final campaign reports the correlation per configuration.
+
+### N.17 What `--radioBasis=lr1121` decides that the datasheet does not
+
+SY-2 (2026-10-03, G61). The currents come from Semtech's LR1121 datasheet, DS.LR1121.W.APP
+Rev 2.0 (Dec 2023), sect 3.4.1, Tables 3-4, 3-5 and 3-6, read from the PDF. Two
+distributors' copies (sha256 `ede17ac3...` and `f36bcf2d...`) carry the same tables; both are
+kept outside the repository in `~/catbl_work/datasheets/`. The choices:
+- **The revision.** Semtech's product page lists a datasheet dated 2025-04-26. Its download
+  is a script-driven viewer that would not serve the file, and a Rev 2.1 mirror is behind a
+  browser challenge. Rev 2.0 is the one read, so it is the one cited. A later revision
+  could move a figure.
+- **TX at 2.4 GHz:** 26 mA, the +13 dBm row. The scenario transmits 12.5 dBm; the table
+  has +13 and +10 dBm. Taking the setting that delivers 12.5 dBm is OURS.
+- **RX:** the RxBoosted figures, 7.8 mA (sub-GHz, 125 kHz) and 7.5 mA (2.4 GHz, 812 kHz,
+  the LR1121 setting nearest the scenario's 800 kHz). The SX1262 profile was boosted too,
+  and the sensitivity tables assume it.
+- **CAD:** at the RX current. The datasheet gives no CAD figure; the SX1262 profile's
+  "CAD draws RX-equivalent current" is kept. OURS.
+- **Idle and sleep:** STBY_RC (1.25 mA) and SLEEP with the RC-based RTC, no RAM retained
+  (1.6 µA), the counterparts of the SX profiles' choices.
+- **Timing:** CAD duration, turnaround, wake-up, guards and timeouts are not tabulated. They
+  are kept from the SX profiles, so a basis change moves currents only. That is what makes
+  G61's ratio check exact; it is not a claim that the LR1121's timing equals the SX parts'.
+- **What it changes beyond energy.** At defaults, nothing (G61: 6 arms and 6 traces, no
+  non-energy value moved). Under `--specProfile` energy feeds the escalation request's
+  battery term, and so arbitration. G24's populations at 82 settings: the same four zeros
+  as before.
+- **Seen while building G61:** `subject_summary.csv` carries only the tx and sleep buckets
+  of each tier, not rx, CAD or idle. So a subject's energy can be checked only through
+  those buckets and the tier totals. Recorded, not changed: adding columns would change the
+  file every subject run writes.
+
+### N.18 What `--subjectRelayChain` decides that the plan does not
+
+2026-10-04, G62; the owner's decision of 2026-10-03 to build it behind a flag. Measured
+subjects stepped through the MS-1 pipeline (N.3) and never ranged another node, so their
+depth stayed 0. A range through a subject was then depth 1, and with every field node a
+subject depth 2 could not arise (G24's zero). The flag runs L.1.2's short-relay exchange for
+subjects. The choices, each OURS:
+- **The tier is the subject's active tier,** not `--relayTier`. A subject escalates, and it
+  transmits on one tier a cycle (sect 6), which pays for the exchange.
+- **Never on 868 MHz.** A1 refuses every relayed range on tier 1, so a subject on 868 MHz
+  makes no exchange. A first build did make them, and all 21 in G62's hybrid run were
+  refused and billed.
+- **A holder must be awake on that tier:** its active tier, or 868 MHz while a hybrid arm
+  keeps the floor. A sleeping radio does not answer (NW-0's rule).
+- **Holders are nodes stepped earlier in the cycle with a fix:** plain relays and lower-id
+  subjects. Tag 0 steps after every subject, so it is never one.
+- **Relayed ranges only complete a full set.** They join the active set only if it then
+  has three or more. The sparse cases never take one, and the floor's 868 MHz ranges are
+  never mixed with them (the fix selection's rule; N.14's flag changes that).
+- **Depth is carried across cycles,** as L.1.2's is. A subject re-grounds only on three
+  direct ranges.
+
+**Measured.**
+- G62's regime (static_2p4, 200 m box, four subjects, 600 s): 4 subject fuses at depth 1,
+  and 16 of tag 0's fixes at depth 2.
+- In the hybrid arm of the same regime, no exchange. On 2.4 GHz the floor solves, so the
+  subject holds a fix; on 868 MHz A1 admits nothing (554 short subject-cycles).
+- Under the preset (900 s, seeds 7, 1 and 2; the preset sets the flag since 2026-10-04):
+  - at 5 km, no admitted exchange: subjects are kilometres apart;
+  - in the endgame, subjects fused through the chain 39-67 times a run, and tag 0 had 50,
+    137 and 183 fixes at depth 2.
+
+### N.19 G24 reads one seed, and several of its populations are one or two events
+
+G24 decides each spec mechanism's population from one 900 s run per configuration (seed 7).
+Several of those populations are one or two events, so a preset change that moves the
+channel flips them between zero and non-zero. That happened six times on 2026-10-03/04:
+- Case A: 0 -> 1 -> 0;
+- Case B: 1 -> 0 -> 1;
+- grant tie-break verdicts: 2 -> 0 -> 1;
+- requester escalations accepted: 1 -> 0 -> 1 -> 0.
+
+Each flip was a single-seed fact about rare events, not a mechanism starting or stopping,
+and each commit said so. But a reader of the suite summary sees "FAIL BY FINDING" with a
+moving list, and a real regression in a rare mechanism would look the same as noise.
+
+A remedy, not built: read populations over three seeds and call a mechanism zero only when
+all three are. That is about three more preset runs per configuration, roughly two minutes
+of suite time. It changes what G24 asserts, so it is its own commit with its own selftest.
+Open (engineering, no owner decision).
+
+*2026-10-04, FIXED (gate change only).* G24 runs main and end again at seeds 8 and 9. A
+population is the sum over the three seeds, MISSING only when no seed prints its evidence
+line. The efficacy runs stay at seed 7: with a flag off, its population is 0 by control
+flow, not by chance. G24 went from about 2 to 2.6 minutes. On the first run:
+- **The rare populations split across seeds:**
+  - Case A fixes 4+0+1;
+  - arbitration pre-emptions 2+0+2;
+  - queue gossip items 2+0+4;
+  - grant tie-break verdicts 1+1+0.
+  Seed 8 alone would have called the first three zero, and seed 9 the fourth.
+- **The two zeros are zero on all three seeds:** triggered updates (0+0+0 at 5 km) and
+  UWB-delivered fixes (0+0+0 in the endgame). They are not this entry's noise.
+- The self-test has two new fixtures: P1 (a population present on one seed is not a zero)
+  and N12 (an extra seed's run failing). N3 and N4 now zero every seed.
+
+### N.20 A node whose battery has run out is still billed for listening and sleeping
+
+FAULT sect 49 (`--batteryDepleteJ`) stops a dead node's ranging and silences its radios. The
+listen and sleep accounting does not read the battery state, though. So a dead node goes on
+paying for:
+- the neighbour-search listen window while it has no neighbours;
+- the receive charge for frames delivered to its awake radio;
+- sleep.
+
+Measured while building G67 (seed 7, 900 s, a 3 J budget):
+- tag 0 died at 395 s at 3.01 J and ended at 3.23 J;
+- subject 5, with no neighbours, died at 230 s and ended at 12.3 J.
+
+So every `--batteryDepleteJ` run overstates the energy a dead node draws. A dead radio draws
+nothing. The fault's control-flow claims (no exchange, no fix, no frame) are unaffected.
+
+A fix changes what every existing `--batteryDepleteJ` run bills. It would need its own flag
+value and null control (plan §0 rule 12), like N.1's. Open (engineering).
+
+*2026-10-04, `--deadBatteryNoDraw` (G71).* From the cycle its budget runs out, a dead node is
+billed for no reception, no search window and no sleep: tag 0, and every subject under
+`--subjectBatteryDeplete`. A frame it actually transmitted is still billed: the last gasp,
+billed in the death cycle, and any relay already past CAD.
+- The flag needs `--silenceStopsRelay` (N.1). A dead radio that relayed while drawing nothing
+  would be billed for transmitting and not for the reception that fed it.
+- **A fourth draw, found building it.** A dead tag 0's filter coasts, and it still escalates.
+  Each escalation billed a handshake, though its frame was already suppressed. The flag
+  stops that too. Dead subjects were already guarded there.
+- *Measured,* G71 (G67's regime with `--silenceStopsRelay`: seed 7, 900 s, tag 0 and four
+  subjects on 3 J, all five died):
+  - by default cumJ rose after death by 0.21 J (tag 0) and 0.81-7.97 J (subjects);
+  - with the flag, by 0 on all five;
+  - 633 + 2 748 radio-cycles unbilled, and one escalation handshake.
+- Default unchanged. Every `--batteryDepleteJ` result measured without the flag still
+  overstates a dead node's energy, by the amounts above in this regime.
+
+### N.21 Subjects ranged finders against their true positions; tag 0 does when it holds no entry
+
+Found 2026-10-04 while porting tag 0's components to the subjects (row 55).
+- **Tag 0.** Under `--finderPseudoAnchor` its range to a finder uses the position the finder
+  REPORTED, the freshest entry it holds, with that entry's variance (age-inflated, and
+  carried forward under `--entryPrediction`) projected into sigma. It learns those entries
+  by asking the finders' digest question (`--bidirectionalDigest`).
+- **The subjects did neither.** `anchorPosById[finderId]` holds the finder's TRUE position,
+  updated every cycle. Subjects 2..N ranged finders against it with only the engine's
+  sigma: knowledge no node has. And since only tag 0 asked the digest question, they never
+  held a finder entry. In G68's regime (750 m, finders converging) 1 131 subject ranges to
+  finders in 900 s all used the truth.
+
+**What it touched.** Every result with measured subjects and finders: subject availability
+in GEO-01 stage 2, CAL-02, CAMP-SPEC and FUSE-01, and the subjects' share of UWB-delivered
+fixes. Tag 0's metrics (CEP and its trace) are tag 0's own and are not affected, beyond the
+channel moving (rule 8). An unregistered probe of the preset (seeds 1-5, 1 800 s), with the
+flag below against without it:
+- 5 km: subject availability 0.450 -> 0.385; UWB-delivered fixes 2 -> 0;
+- endgame: availability 0.756 -> 0.688; UWB-delivered fixes 164 -> 147.
+
+These are probe numbers, not results. A registered re-measurement is the next step.
+
+**The fix for subjects:** `--subjectFinderPseudoAnchor` (G68). It gives subjects tag 0's
+treatment, and asks the digest question for them. With no entry held it DROPS the range
+(received and billed, not used): the subject cannot know where the finder is. In G68's
+regime, 180 questions gave 588 ranges on reported positions; 222 of those positions were
+more than 1 m from the truth, and 863 ranges were dropped.
+
+**Tag 0 keeps the truth when it holds no entry.** The `freshestEntry` branch at its
+pseudo-anchor substitution falls through to `anchorPos`. That is the same leak, smaller
+because tag 0 asks. Fixing it changes every `--finderPseudoAnchor` result, so it needs its
+own flag value and null control. Open (engineering).
+
+*2026-10-04, staggered:* the flag first had subjects ask at tag 0's instant, half a period
+after the finders broadcast. Five questions at one instant drowned the answers: under the
+preset at 5 km, tag 0 held 0.0 finder entries a cycle instead of 1.9, and so fell back on
+the truth more often. Subject k of N now asks at (0.5 + k/(2N)) of the period (OURS). Tag 0
+then held 2.3 a cycle, and the subjects used 884 reported positions and dropped 142 (seed
+7, 900 s). G68 checks that tag 0's holdings do not fall (TAG0).
+
+**Also seen:** the digest question, tag 0's and now the subjects', is unbilled: the MACs
+carry no energy model (`SetEnergyModel` unset, the 2026-09-27 note), so no MAC-originated
+frame is billed. Recorded, not changed.
+
+*2026-10-04, tag 0's half: `--finderPseudoAnchorStrict` (G69).* Under `--finderPseudoAnchor`,
+a range tag 0 holds no entry for is dropped (received and billed, not used), as the subjects'
+are. Where the report's variance cannot be projected, the report is used uninflated, never
+the truth; the same fallback applies to subjects.
+- **How large the leak was.** In G69's regime (G68's, with 2 m of finder GNSS error), 487 of
+  tag 0's 1 459 finder ranges in 900 s had no entry behind them. By default each of those
+  used the truth.
+- **The uninflated fallback is defensive.** uᵀPu is negative only for a covariance that is
+  not positive semi-definite, and a finder entry's is diagonal (the GNSS variance plus the
+  age term). The direction is undefined only when tag 0's estimate is within a micrometre
+  of the report. It had no population in G69 (0 for tag 0, 0 for subjects), and none is
+  expected.
+- **A report can equal the truth.** At the default `--finderPosSigma=0` a finder reports
+  its position exactly, so a report from a finder that has not moved since is the truth to
+  the last digit. In G69's first run, 844 of 858 such rows came from a finder standing
+  still. That is the flattering GNSS default the flag's help already names, not this leak.
+  G69 therefore runs with `--finderPosSigma=2.0`, where a used position at the truth can
+  only be the oracle.
+- By default nothing moves (NC1-NC9). Every `--finderPseudoAnchor` result measured without
+  the flag carries the leak for tag 0's finder ranges.
+
+*2026-10-04, in the preset:* `--specProfile` sets `--finderPseudoAnchorStrict` (87
+settings), so no node in the spec configuration ranges a finder at its true position. An
+unregistered probe of the preset (seeds 1-5, 1 800 s, `ca_tbl_full`, tag 0's own trace),
+with the flag against without it:
+- 5 km: tag 0 dropped 321-1 131 finder ranges a run. Its availability fell by 0.055 on
+  average (from 0.919-0.978 without the flag), and its CEP95 tightened by 9 % on average.
+- Endgame: 127-603 dropped a run; availability unchanged (+0.000), CEP95 +3 %.
+- Tag 0 held 2.0-3.9 finder entries a cycle either way. G24's single seed (seed 7, 900 s,
+  5 km) read 0.8 against 2.5 and 232 fixes against 334. Seeds 1-5 do not repeat that, so
+  it is one seed's channel (rule 8).
+
+These are probe numbers, not results. Preset results measured before this (GEO-01 stage 2,
+CAL-02, CAMP-SPEC, FUSE-01 and FUSE-01b) carry tag 0's half of the oracle.
+
+### N.22 Of two colliding frames, only the one that ends first is lost
+
+Found 2026-10-04 building N.6's unit case. `CaTblChannel::CompleteTransmission()` judges a
+finishing frame against everything still in `m_inFlight` that overlapped it, then erases
+the frame. So when two frames overlap at comparable power:
+- the one that ends first sees the other, and is lost;
+- the one that ends later no longer sees the first, and is delivered.
+
+A real receiver loses both, unless one captures. In the unit case, node 1's two DISCOVERY
+frames overlapped on air, and node 2 heard one of them. Every collision in the simulator is
+therefore half as destructive as the capture rule says.
+- `IsBusy()` and `PruneExpired()` are unaffected: they ask what is on air now.
+- *Effect.* Every result's collision and delivery counts. The frames delivered here would
+  have been lost. How many per run is not measured.
+- *Fix,* not built: keep a completed frame until every frame that overlapped it has been
+  judged. That changes every run's channel, so it needs a default-off flag and a null
+  control (rule 8), and a campaign to say what moves. `--halfDuplex` already reads
+  deafness from the radio's own history to step around it.
+
+Open (engineering).
+
+*2026-10-04, `--collisionBothLost` (G83).* `CaTblChannel::SetCollisionBothLost`: a completed
+frame is kept in a second list until no frame still on air started before it ended. A
+finishing frame is then judged against those completed frames too, by the same capture rule
+and after the in-flight ones. A loss to a completed frame is an events_ row with outcome
+`collision_late`, and its payload ends `;by=<sender>:<packet id>`.
+- *Measured,* G83 (seed 7, 900 s, defaults): 1 340 collisions, 492 of them late. So 492
+  receptions that the default channel delivers are lost under the capture rule applied to
+  both frames. 54 of the 492 were lost to the same sender's earlier frame (N.6's
+  self-overlap). 393 were lost to another sender's copy of the same packet: two relays of
+  one flooded frame. The other 45 were lost to a different packet.
+- No magnitude compares across the flag. It changes which frames reach every receiver,
+  and so every later draw (rule 8). The 492 is a count within one flag-on run.
+- A unit case (packet_validator [16], two checks): two equal-power frames overlap at a
+  third node. By default one is heard; with the flag, neither is, and the later one is lost
+  to the completed frame.
+- Default unchanged. Whether every result is re-run with both frames judged is the
+  campaign decision this entry already named.
+
+### N.23 The digest exchange may cost more airtime than the full pushes it replaces
+
+Found 2026-10-04 building `--reportAirtime` (G86). MAC sect 2 justifies the digest as the
+airtime saver at high SF: a summary, then a targeted push, instead of the whole table. The
+report adds, for every DIGEST transmitted, the airtime of pushing the sender's whole valid
+table instead (a counterfactual from the MAC's own ToA function).
+- In G86's run (the preset, seed 7, 900 s, single seed: an observation, not a result), at
+  868 MHz the digests took 14.2 s and the entry pushes 42.9 s, against a full-push
+  counterfactual of 33.0 s. At 2.4 GHz: 0.80 s and 1.05 s against 2.38 s.
+- Not established: how much of the 42.9 s answers digests. ENTRY_PUSH also carries eager
+  pushes, and a full push per digest is not the only counterfactual a protocol without
+  digests would use.
+- The final campaign reports it over 20 seeds. If it holds, the spec's airtime claim for the
+  digest does not hold in this model at the preset's table sizes, and that is reported, not
+  tuned away.
+
+The same report reads reverse-path routing against flooding: the preset with
+`--reversePath=false` floods its responses (a preset-applied `--reversePathHop` is unused
+there, not refused). In G86's run: 254 responses unicast against 172 flooded, 59.5 s of
+RESPONSE airtime against 40.9 s. Single seed, and the two runs answer different numbers of
+queries; the final campaign pairs them over 20 seeds.
+
+### N.24 What the `poucet_fusion` comparator decides that the spec does not
+
+Built 2026-10-04 (G87). The spec's comparison table puts the system against "Poucet-style
+fusion" (Vey et al., IPIN 2021: every radio on, a multi-input fusion). `--arms=poucet_fusion`
+is that baseline. Its choices, each OURS:
+- **All three tiers ranged every cycle, their ranges fused in one solve.** Each range keeps
+  its own tier's sigma, which `rangeTier` sets. Poucet fuses positions from GPS, LoRa and UWB
+  with its own filter; this arm uses ours, so it isolates "always on and fused" from "a
+  different filter".
+- **No switching:** the policy's tier stays 868 MHz, it never escalates, and there is no
+  integrity check on a switch, because there is no switch.
+- **Every radio awake and billed** (listen, CAD and ranging on all three). The arm breaks
+  `RULES.md` §6's invariant on purpose: one tier per cycle is what the system claims to
+  save, and this arm is the cost it is compared against.
+- **The trace labels a fix with the most precise tier among its ranges** (UWB, else
+  2.4 GHz, else 868 MHz), as `--fuseFloorActive` does.
+- **By name only:** `--arms=all` is unchanged, so no default run moves.
+- *Measured,* G87 (the preset's endgame, seed 7, 900 s; single seed, not a result): tag 0
+  CEP50 / CEP95 2.98 / 7.47 m against `ca_tbl_full`'s 3.62 / 8.84 m, at 209.7 J against
+  10.9 J, of which 203.5 J is UWB.
+
+### N.25 At 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse
+
+Found 2026-10-05 by LORA-CMP (`report/LORA_CMP_RESULTS.md` sect 5). It was measured outside
+that campaign's registration, from its registered cells. The comparison is `static_868`,
+RSSI-only (`--tier1Tdoa=false`) against the preset's RSSI + TDoA, tag 0 CEP95, paired over
+seeds 1-20:
+- **5 km, N3_star:** RSSI-only is better by 438.9 m [119.4, 826.2], on 13 of 20 seeds. On
+  seed 1, 7 solves were accepted out of 334 tier-1 fix cycles, and CEP95 went from 26.8 to
+  2 455 m.
+- **Endgame, N3_star:** TDoA is better by 85.4 m [54.2, 121.7], on every seed.
+- **N8_ring:** TDoA is better by 73.4 m [56.6, 91.4], on every seed.
+
+Availability and energy do not move (within 0.01 and 1.2 %).
+
+**Not established:** the mechanism. A candidate is that the exact three-gateway solve has no
+redundancy: a wrong root choice is fused into the EKF with its full covariance as R, and
+nothing downstream rejects it. The candidate needs its own measurement: the per-solve error
+from `tdoa_*.csv` against the root-choice path.
+
+**Not changed.** The preset's tier 1 is RSSI + TDoA (Physical sect 1.1), and changing it is an
+engine change to the preset that needs its own registered campaign. CA-TBL's 5 km tier 1
+carries the same defect.
+
+*2026-10-05, FIXES-N26 (registered):* `--tdoaInnovationGate` (fix 4) alone takes
+`ca_tbl_full`'s 5 km tag 0 CEP95 down by 139.4 m [17.2, 284.7], paired over 20 seeds. Its
+availability (−0.003) and energy (−0.06 J) are unchanged, and it is indistinguishable in the
+endgame. The gate is the fix. It is not in the preset yet, because the combination it was
+registered with was not adopted (N.26).
+
+### N.26 CA-TBL's UWB escalation buys no fix, and its one-tier-per-cycle rule discards partial sets
+
+Found 2026-10-05 (`report/LORA_CMP2_RESULTS.md` sect 3). Dual-band LoRa fusion
+(`--arms=lora_fusion`) beats CA-TBL on availability in every configuration (+0.052, +0.079,
++0.110). Its tag 0 CEP95 cannot be distinguished from CA-TBL's, and in the endgame it uses
+38 % of CA-TBL's subject energy. UWB adds nothing measurable to Poucet over that fusion. Two
+measured causes in CA-TBL, from CAMP-FINAL's traces (`ca_tbl_full`, tag 0, seeds 1-20):
+- **UWB.** In the endgame there are 900 UWB cycles:
+  - UWB neighbours: 0 on 704, 1-2 on 196, never 3;
+  - a finder is physically in UWB range on 823 of them (the radio sleeps until escalated);
+  - 0 UWB-delivered fixes over 20 seeds;
+  - UWB is 16.08 of 24.91 J of subject energy (64.6 %).
+- **Preference.** At 5 km, 6 771 of 11 736 2.4 GHz cycles have 1-2 2.4 GHz neighbours; their
+  ranges are discarded, while the fusion comparators use them.
+
+**Candidates, not established:**
+- fuse a short active set with the floor (FUSE-02; it failed at 5 km, partly through N.25);
+- refuse escalation into UWB without a discovered UWB neighbour, or listen for finders first;
+- task more than one finder per subject, so that three can be in UWB range.
+
+**Not changed.** Each is an engine or preset change for its own registered campaign.
+
+*2026-10-05, FIXES-N26 (report/FIXES_N26_RESULTS.md; registered).* All four fixes
+together (`--loraDualBase --uwbCrossTierPoll --tdoaInnovationGate --mahalUseR
+--integrityChi2=1992.9`), against the preset:
+- **5 km:** availability +0.111, CEP95 −151.8 m, energy +4.32 J;
+- **endgame:** availability +0.139, CEP95 −6.4 m, energy −1.93 J, and UWB-delivered fixes on
+  20 of 20 seeds (371; the preset has 0);
+- **N8_ring:** availability +0.133.
+
+They beat Poucet on availability at 5 km and in the endgame (+0.047, +0.057), at 1/28 and
+1/18 of its energy, and dual-band LoRa fusion on availability in all three configurations.
+**Not adopted:** the registered rule needs subject J not above the preset's in both
+configurations, and at 5 km it is 16.69 against 12.37. The dual base keeps 2.4 GHz ranging
+where it rarely reaches; the dual base alone costs +5.35 J there. A follow-up variant
+(2.4 GHz ranged on demand) needs its own registration.

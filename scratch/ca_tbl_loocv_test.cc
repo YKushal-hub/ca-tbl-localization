@@ -98,6 +98,25 @@ main(int argc, char* argv[])
               "and both errors are still reported, so the margin is inspectable");
     }
 
+    // --- M.7: a near-constant term 3 is not information --------------------
+    // Error = 4 * term1 + 5: an offset and term 1, nothing else. Term 3 sits at ~0.92 (the
+    // LOS fraction's habit) and so can stand in for an intercept. Before M.7 the control
+    // was fitted through the origin and lost to that stand-in, and this read OK.
+    {
+        std::vector<CaTblCalSample> v;
+        for (int i = 0; i < 20; ++i)
+        {
+            const double a = 0.05 * (i + 1);
+            const double b = ((i * 37) % 11) * 0.01;
+            const double c = 0.92 + ((i * 53) % 7) * 0.0005;
+            v.push_back(S(a, b, c, 4.0 * a + 5.0));
+        }
+        CaTblCalResult r = CaTblCalibrateLoocv(v);
+        Check(r.verdict == CA_TBL_CAL_NO_IMPROVEMENT && r.controlRmse < 1e-6,
+              "M.7: an offset plus term 1 is the control's, intercept included -- a "
+              "near-constant term 3 no longer wins as a free intercept");
+    }
+
     // --- the acceptance test can be switched off, and says so ----------------
     {
         std::vector<CaTblCalSample> v;

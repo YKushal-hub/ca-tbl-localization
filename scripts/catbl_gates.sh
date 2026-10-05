@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates G1-G13. Run after every code change.
+# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward).
+# Run after every code change.
 #
 # Every gate RUNS; failures are recorded and reported in the summary block at the end,
 # and the script exits 1 if any gate failed. It no longer stops at the first failure --
@@ -20,9 +21,9 @@
 #
 # G1 build / G2 determinism / G3 null ablation / G4 verifier / G5 verifier self-test.
 #
-# G3 is expected to start failing once Phase 5 makes `suspect` fire. Until then a
-# G3 failure means RNG contamination has returned. Export CATBL_SKIP_G3=1 to
-# demote it to a warning once fault injection lands.
+# G3 separates RNG contamination from the integrity check's treatment effect on causal
+# order (scripts/catbl_g3_ablation.py), so a firing `suspect` no longer turns it red; a
+# divergence that predates the first rejection still does.
 
 set -u
 # WITHOUT pipefail, `./ns3 run ... | tail -3 || fail` tests tail's exit status, not
@@ -189,8 +190,20 @@ G6_MISMATCH=0
 # carries --nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy and is
 # the null-control reference, while these two are pure defaults and are the evidence
 # this gate compares against. Do not substitute one for the other.
-for spec in "causal_v11/arm_summary.csv:causal/arm_summary.csv" \
-            "det_a_v11/arm_summary.csv:det_a/arm_summary.csv"; do
+#
+# ITS OWN RUN SINCE 2026-09-29, and the reason is the flag, not the gate. The v11 pair
+# was produced when --gatewayEdgeServer defaulted false; it now defaults true, so G2's
+# and G3's default runs no longer share the tracked evidence's configuration and a
+# comparison with them would disagree on energy for a reason this gate is not about.
+# One run at the evidence's recorded arguments with the flag at its ORIGINAL default,
+# --trace=false because arm_summary.csv does not depend on tracing (causal_v11 and
+# det_a_v11 carry the same digest, 26e85540...). G2-G5 keep testing the shipped default.
+mkdir -p "$WORK/g6_nodeside"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
+    --trace=false --gatewayEdgeServer=false --outdir="$WORK/g6_nodeside" \
+    > "$WORK/g6_nodeside.log" 2>&1 || gerror G6 "node-side run exited non-zero"
+for spec in "causal_v11/arm_summary.csv:g6_nodeside/arm_summary.csv" \
+            "det_a_v11/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
@@ -454,6 +467,1297 @@ printf '\n--- G15 relayed-range admission (C5) ---\n'
 ./build/scratch/ns3.47-ca_tbl_relay_admission_test-optimized || fail G15
 finish G15
 
+# ---------------- G16: the anchor grant tie-break is REACHED (L.1.4, Network sect 6)
+# CaTblGrantCoordinator had a passing unit suite and zero scenario call sites: the rule
+# was right and nothing ran it. A unit suite cannot see that; only a run can. This runs
+# the arc deployment (NC2's flags, the regime in which one tier-1 ESC_REQUEST reaches
+# several gateways at once) with --anchorGrantGossipS=5 and requires, in the verdict file
+# the run writes, two gateways reaching OPPOSITE verdicts on one field node -- the higher
+# id WIN, the lower id DEFER -- with every row obeying the lower-id-defers rule.
+#
+# Negative fixtures in scripts/grant_tiebreak_gate_selftest.sh, including the same run
+# with the flag off, which must FAIL (rule 6). Both run; neither alone is the gate.
+printf '\n--- G16 anchor grant tie-break reached (L.1.4) ---\n'
+mkdir -p "$WORK/g16"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=1800 --trace=false --nFinders=4 --finderPseudoAnchor=true --finderMode=2 \
+    --finderDispersal=1.0 --sendHandshakeFrames=true --finderDigestPeriodS=20 \
+    --boxHalf=2000 --nGateways=5 --gwArcDeg=140 --gwArcCentreDeg=180 \
+    --anchorGrantGossipS=5 --outdir="$WORK/g16" > "$WORK/g16.log" 2>&1 \
+    || gerror G16 "flag-on run exited non-zero"
+python3 scripts/grant_tiebreak_gate.py "$WORK/g16/grant_verdicts_ca_tbl_full_seed7.csv" \
+    || fail G16
+bash scripts/grant_tiebreak_gate_selftest.sh || fail G16
+finish G16
+
+# ---------------- G17 / G17b: relay depth 2 (L.1.2, Network sect 5)
+# CaTblComposeRelayChain, --maxRelayDepth and --relayVarBudget existed and the scenario
+# hard-set hopDepth = 1. --relayChain lets a relay short of three anchors range a relay
+# that holds a fix this cycle, and take that relay's depth + 1 when its step FUSES the
+# range. This runs it (static_2p4, 600 s, four tags, budget 156^2 -- one tier-2 r80) and
+# reads the decision log the run writes.
+#
+# G17 requires the chain wired and honest: every A2 label agreeing with its row's numbers,
+# every admitted sigma_eff within [sigma_raw, sqrt(sigma_raw^2 + tr P)], every depth >= 2
+# preceded by the fuse that earned it, and the budget half of A2 seen both admitting and
+# refusing. GREEN.
+#
+# G17b is the L.1.2 done-when: depth 2 reached, and A2 admitting and refusing on the
+# budget AT depth 2. It needs the relays' round (--relaySlots, C5_INSTANT). Without it every
+# relay exchange in a cycle is stamped with the cycle's one instant and the engines'
+# interference registry treats them as simultaneous, so no two relays hold a fix in one
+# cycle and no relay-to-relay exchange delivers: that was G17's own run until 2026-09-30,
+# and G17b was red from b390ed6 until the round got instants of its own. With it, 4 fuses
+# and 40 depth-2 decisions (A2 at depth 2: pass 19, budget 21). --stdout recounts the run's
+# own counters, so the green is traced to the round: every relay-to-relay exchange moved,
+# the round inside the cycle, the CSV's fuse rows equal to the run's.
+#
+# SINCE 2026-09-30 THE ROUND IS THE DEFAULT in every relayed run (--relaySlots=auto), so
+# neither gate names the flag: G17's run is at the default, and G17b reads that same run.
+# Until then G17b ran its own copy with --relaySlots=true. The two runs are byte-identical
+# (every output file; only the stderr NOTE that the default engaged differs), so reading
+# G17's is the same evidence without the second run, and a default that reverted would
+# turn G17b red through --stdout (no round line) and the fuse count -- which is N14.
+#
+# Negative fixtures in scripts/relay_chain_gate_selftest.sh, including the same run with
+# the chain off, G17b's run with --relaySlots=false (N14), and the first draft's own
+# depth-from-nowhere rows (rule 6).
+printf '\n--- G17 relay chain wired, A2 and provenance honest (L.1.2) ---\n'
+mkdir -p "$WORK/g17"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --boxHalf=200 --nTags=4 --relayedRanging=true \
+    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --outdir="$WORK/g17" \
+    > "$WORK/g17.log" 2>&1 || gerror G17 "flag-on run exited non-zero"
+python3 scripts/relay_chain_gate.py "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17
+bash scripts/relay_chain_gate_selftest.sh || fail G17
+finish G17
+
+printf '\n--- G17b relay depth 2 reached, A2 on the budget at depth 2 (L.1.2 done-when) ---\n'
+if [ ! -s "$WORK/g17/relay_chain_static_2p4_seed7.csv" ] || [ ! -s "$WORK/g17.log" ]; then
+    gerror G17b "G17's run wrote no chain log or no stdout -- nothing to read"
+else
+    python3 scripts/relay_chain_gate.py --require-depth2 --stdout "$WORK/g17.log" \
+        "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17b
+fi
+finish G17b
+
+# ---------------- G18 / G18b: position fixes routed (L.1.1, Network sect 2-3)
+# CaTblRoutingTable, the ETX baseline, the confidence metric and Divergences() had a
+# passing unit suite and zero scenario call sites. --fixRouting builds a table on every
+# relay from the links it has heard and routes each relay's ENTRY_PUSH to the gateway
+# backbone hop by hop, choosing on ETX while scoring the confidence metric in the same
+# call; --fixRoutingConfidence makes the confidence metric the selector. This runs both
+# (static_2p4, 600 s, five relays, default box: the relays dwell out of 2.4 GHz reach of
+# every gateway, so most fixes must cross a relay) and reads the hop log each writes.
+#
+# G18 is the L.1.1 done-when under ETX: a fix handed to a next hop that is not a gateway,
+# a relayed fix delivered, Divergences() non-zero -- with every row consistent with the
+# metric that routed it, every relayed hop continuous with the forward behind it, and the
+# CSV recounted against the run's own counters (router = tables = CSV).
+# G18b is the same file contract under the confidence selector, and requires a diverged
+# hop that the fix actually crossed: traffic sent where ETX would not have sent it.
+#
+# SINCE 2026-09-30 both runs are at the --relaySlots default, which gives the relays'
+# ranging round instants of its own in every relayed run (C5_INSTANT; TECH_DEBT M.1), and
+# --require-round makes both gates TEST that default rather than merely run under it: the
+# log must show the round. Until then both ran with every relay exchange at the cycle's one
+# instant, which that run still reproduces byte-for-byte with --relaySlots=false.
+#
+# Negative fixtures in scripts/fix_routing_gate_selftest.sh, including the same run with
+# the flag off, a real ETX-routed log offered to G18b, and G18's own run with
+# --relaySlots=false offered with and without --require-round (P4/N14) (rule 6).
+printf '\n--- G18 position fixes routed, ETX and confidence diverge (L.1.1) ---\n'
+mkdir -p "$WORK/g18" "$WORK/g18b"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
+    --outdir="$WORK/g18" > "$WORK/g18.log" 2>&1 || gerror G18 "flag-on run exited non-zero"
+python3 scripts/fix_routing_gate.py --require-round --stdout "$WORK/g18.log" \
+    "$WORK/g18/fix_routing_static_2p4_seed7.csv" || fail G18
+bash scripts/fix_routing_gate_selftest.sh || fail G18
+finish G18
+
+printf '\n--- G18b position fixes routed BY the confidence metric (L.1.1 done-when) ---\n'
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
+    --duration=600 --trace=false --relayedRanging=true --nTags=6 --fixRouting=true \
+    --fixRoutingConfidence=true --outdir="$WORK/g18b" > "$WORK/g18b.log" 2>&1 \
+    || gerror G18b "flag-on run exited non-zero"
+python3 scripts/fix_routing_gate.py --require-confidence --require-round \
+    --stdout "$WORK/g18b.log" "$WORK/g18b/fix_routing_static_2p4_seed7.csv" || fail G18b
+finish G18b
+
+# ---------------- G19: tier-1 TDoA produced, fused and billed (L.2.1, Physical sect 1.1)
+# The energy model has billed tier 1 as a TDoA exchange -- one broadcast the gateways
+# timestamp, a reply per gateway -- while the estimator used RSSI inversion alone.
+# --tier1Tdoa builds the observable that bill describes: surveyed gateways stamp the
+# broadcast on GPS-PPS time, the differences are solved as hyperbolae (Chan, Foy, the
+# three-anchor closed form), and the fix is fused with its covariance beside the same
+# cycle's RSSI ranges. It adds no frame and no charge.
+#
+# G19 runs the solver's unit suite (33 checks, its refusals among them), then the
+# mechanism in a run, in both billing modes -- replies billed (--gatewayEdgeServer=false,
+# pinned since that flag's default became true on 2026-09-29, or this run would silently
+# become a second edge-server run and the reply half of the billing check would go
+# unexercised) and the edge server's single downlink -- and reads the per-cycle log: OK
+# solves on at least half the
+# tier-1 fix cycles, every OK fix on an accepted cycle fused, every stamp on a billed
+# frame, and the CSV recounted against the scenario's and the policy's own counters.
+#
+# Negative fixtures in scripts/tdoa_gate_selftest.sh, including the same run with the flag
+# off, the flag on in an arm that never uses tier 1, and the first draft's own runaway
+# fix (rule 6). All run; none alone is the gate.
+printf '\n--- G19 tier-1 TDoA produced, fused and billed (L.2.1) ---\n'
+mkdir -p "$WORK/g19" "$WORK/g19e"
+./build/scratch/ns3.47-ca_tbl_tdoa_test-optimized || fail G19
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
+    --duration=900 --trace=false --tier1Tdoa=true --gatewayEdgeServer=false \
+    --outdir="$WORK/g19" > "$WORK/g19.log" 2>&1 || gerror G19 "flag-on run exited non-zero"
+python3 scripts/tdoa_gate.py --stdout "$WORK/g19.log" \
+    "$WORK/g19/tdoa_static_868_seed7.csv" || fail G19
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_868 --seed=7 \
+    --duration=900 --trace=false --tier1Tdoa=true --gatewayEdgeServer=true \
+    --outdir="$WORK/g19e" > "$WORK/g19e.log" 2>&1 || gerror G19 "edge-server run exited non-zero"
+python3 scripts/tdoa_gate.py --stdout "$WORK/g19e.log" \
+    "$WORK/g19e/tdoa_static_868_seed7.csv" || fail G19
+bash scripts/tdoa_gate_selftest.sh || fail G19
+finish G19
+
+# ---------------- G20: NLOS scores produced, checked and fed to PCS (L.2.2, Physical 1.3/2.5)
+# PCS term 3 has read a boolean tag since it was written (K.8: the tag fires on 75-78% of
+# links). --nlosClassifier gives every ranged link the spec's tier-specific NLOS_score --
+# a synthesised UWB CIR's leading edge against its peak, the 2.4 GHz ToF distance against
+# the RSSI, the 868 MHz link's RSSI/SNR variability -- and scores each against the channel
+# model's own LOS/NLOS draw. --pcsNlosClassifier makes term 3 mean(1 - NLOS_score).
+#
+# G20 runs the unit suite, then the same short run three ways. OFF and CLASSIFIER-ONLY
+# must write byte-identical arm_summary.csv: the scores decide nothing until fed, and the
+# CIR draws from its own stream. Both flag-on runs are read by the gate: the matrix is its
+# rows, the rows honour their detector, one tier has every cell >= 5, the term varies, and
+# it is fed on every scored cycle exactly when the feed is on.
+#
+# THE CIR CANNOT FILL ITS OWN MATRIX IN ANY SCENARIO RUN, and G20 does not pretend it can:
+# no decoded UWB link is NLOS in the model (the UWB NLOS penalty exceeds UWB's margin, and
+# at UWB distances the outdoor NLOS probability is ~0.1%). The matrix G20 requires full is
+# the 868 one. Negative fixtures, including the flag off, the classifier-only run offered
+# as a feed run, and a UWB-only run, are in scripts/nlos_classifier_gate_selftest.sh (rule 6).
+printf '\n--- G20 NLOS scores produced, checked and fed to PCS (L.2.2) ---\n'
+mkdir -p "$WORK/g20off" "$WORK/g20d" "$WORK/g20f"
+./build/scratch/ns3.47-ca_tbl_nlos_test-optimized || fail G20
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --outdir="$WORK/g20off" \
+    > "$WORK/g20off.log" 2>&1 || gerror G20 "flag-off run exited non-zero"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --nlosClassifier=true --outdir="$WORK/g20d" \
+    > "$WORK/g20d.log" 2>&1 || gerror G20 "classifier-only run exited non-zero"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=ca_tbl_full --seed=7 \
+    --duration=900 --trace=false --nlosClassifier=true --pcsNlosClassifier=true \
+    --outdir="$WORK/g20f" > "$WORK/g20f.log" 2>&1 || gerror G20 "feed run exited non-zero"
+if cmp -s "$WORK/g20off/arm_summary.csv" "$WORK/g20d/arm_summary.csv"; then
+    printf '  G20 classifier alone: arm_summary.csv byte-identical to the flag off\n'
+else
+    printf '  G20 classifier alone CHANGED arm_summary.csv -- it must decide nothing unfed\n'
+    fail G20
+fi
+python3 scripts/nlos_classifier_gate.py --forbid-fed --stdout "$WORK/g20d.log" \
+    "$WORK/g20d/nlos_links_ca_tbl_full_seed7.csv" \
+    "$WORK/g20d/nlos_summary_ca_tbl_full_seed7.csv" || fail G20
+python3 scripts/nlos_classifier_gate.py --require-fed --stdout "$WORK/g20f.log" \
+    "$WORK/g20f/nlos_links_ca_tbl_full_seed7.csv" \
+    "$WORK/g20f/nlos_summary_ca_tbl_full_seed7.csv" || fail G20
+bash scripts/nlos_classifier_gate_selftest.sh || fail G20
+finish G20
+
+# ---------------- G20b: --uwbNlosModel=ieee802154a is report/PREREG_UWB_NLOS.md sect 2 (M.2)
+# The registered model: the UWB LOS/NLOS state from the 3GPP InF-SL law, and on an NLOS
+# draw the IEEE 802.15.4a NLOS-minus-LOS path loss, deterministic in distance. The
+# formula on EVERY evaluation, decoded or lost, is checked by the unit suite G20 has just
+# run ("engine, ieee802154a"). This gate checks the scenario: in a short legacy-topology
+# UWB run with the model on, the NLOS share of polled UWB links is far above anything the
+# legacy model can produce (so the flag reaches the engine through the config macro), every
+# decoded NLOS row carries dPL(distM) to 1e-6 dB and every LOS row 0 (the registration's P4).
+# Its configuration is deliberately NOT one of the registered cells. The default stays
+# legacy, whatever the registered runs show; G2-G6's null behaviour covers that.
+#
+# Negative fixtures in scripts/uwb_nlos_model_gate_selftest.sh, including the same run with
+# the model off (rule 6).
+printf '\n--- G20b UWB NLOS model is the registered one (M.2) ---\n'
+mkdir -p "$WORK/g20b"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --topology=1 --arms=static_uwb \
+    --envFacility=0 --vegFacility=0 --uwbTriad=1 --nlosClassifier=true --duration=600 \
+    --trace=false --seed=101 --uwbNlosModel=ieee802154a --outdir="$WORK/g20b" \
+    > "$WORK/g20b.log" 2>&1 || gerror G20b "model-on run exited non-zero"
+python3 scripts/uwb_nlos_model_gate.py "$WORK/g20b/nlos_links_static_uwb_seed101.csv" \
+    "$WORK/g20b/nlos_summary_static_uwb_seed101.csv" || fail G20b
+bash scripts/uwb_nlos_model_gate_selftest.sh || fail G20b
+finish G20b
+
+# ---------------- G21: the estimator-location default moves energy and nothing else (L.2.3)
+# --gatewayEdgeServer became TRUE by default on 2026-09-29 on the evidence that it changes
+# what the node is billed and not what the system does (B3 C6: seven accuracy columns
+# byte-identical on 20/20 seeds). This keeps that true. It reads two runs the suite has
+# already made, at the same seed and duration from the same binary: G3's, at defaults, and
+# G6's, with --gatewayEdgeServer=false (arm_summary.csv does not depend on --trace). Every
+# non-energy column must match, tx_/cad_/sleep_ included; every row with a fix must differ
+# in totalJ, and every row without one must not; an unused tier must not be charged.
+#
+# AND WHICH RADIO THE DOWNLINK IS BILLED ON (TECH_DEBT M.10, 2026-09-30). Since then it is
+# billed on the tier the fix came from, so a hybrid arm's floor-solved fix is an 868 MHz
+# downlink rather than one on the active tier. One more run, the same seed and duration
+# at --edgeDownlinkTier=active (the old bill), is compared with G3's: only energy may
+# move, only as a transfer onto 868 MHz from the active tier, only where 868 MHz
+# transmitted, and at least one row must move -- so a reverted default goes red here.
+#
+# Negative fixtures in scripts/edge_default_gate_selftest.sh, built from a fresh real
+# triple, including the node-side run offered as both sides -- the edge path dead -- and
+# the active-tier run offered as the defaults -- the downlink default reverted (rule 6).
+printf '\n--- G21 the edge-server default moves energy and nothing else (L.2.3, M.10) ---\n'
+mkdir -p "$WORK/g21_active"
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
+    --trace=false --edgeDownlinkTier=active --outdir="$WORK/g21_active" \
+    > "$WORK/g21_active.log" 2>&1 || gerror G21 "active-tier run exited non-zero"
+if [ ! -s "$WORK/causal/arm_summary.csv" ] || [ ! -s "$WORK/g6_nodeside/arm_summary.csv" ] \
+   || [ ! -s "$WORK/g21_active/arm_summary.csv" ]; then
+    gerror G21 "G3's, G6's or the active-tier run produced no arm_summary -- nothing to compare"
+else
+    python3 scripts/edge_default_gate.py "$WORK/causal/arm_summary.csv" \
+        "$WORK/g6_nodeside/arm_summary.csv" \
+        --active "$WORK/g21_active/arm_summary.csv" || fail G21
+fi
+bash scripts/edge_default_gate_selftest.sh || fail G21
+finish G21
+
+# ---------------- G28: the spec's calibrated PCS is expressible and reaches the policy (DC-6)
+# The spec's PCS is w1*t1 + w2*t2 + w3*t3 with weights AND thresholds calibrated by
+# leave-one-out (Physical 2.5). Until 2026-09-30 neither could be given: the thresholds
+# had no flag and a weight of 0 -- LOOCV's answer is (3, 0, 0) -- was silently the default.
+# 18 short runs, read by scripts/pcs_calibrated_gate.py: --pcsForm=calibrated at weights
+# (1, 1, 1) and the legacy thresholds must reproduce --pcsForm=legacy byte-for-byte, trace
+# included; each of the three observable thresholds, moved alone, must move the decision
+# it owns; --pcsW2=0 must remove exactly the geometry term from every scored cycle; what
+# was resolved must sit in each flag's own tier slot; and a missing value, an inverted
+# pair (explicit or resolved against a built-in) and the 868 MHz down threshold, which
+# decides nothing, are refused. The UWB thresholds' EFFECT is not checked, and the gate
+# says why: no regime this build has delivers a UWB fix.
+#
+# Negative fixtures in scripts/pcs_calibrated_gate_selftest.sh, built from these runs,
+# including --pcsW2=0 ignored (the tree before this gate), a threshold that reaches
+# nothing, two tiers' slots swapped, and an inverted pair accepted (rule 6).
+printf '\n--- G28 the calibrated PCS is expressible and reaches the policy (DC-6) ---\n'
+bash scripts/pcs_calibrated_gate.sh "$WORK/g28" || fail G28
+bash scripts/pcs_calibrated_gate_selftest.sh "$WORK/g28" || fail G28
+finish G28
+
+# ---------------- G29: a SUSPECT fix is downweighted, not rejected (DC-7, Physical 2.6)
+# The spec flags a suspect fix, forbids it alone to justify a de-escalation, and has it
+# "downweight[ed] in PCS regardless of raw trace(Sigma)". The default rejects it. Under
+# --suspectRecovery=downweight it is fused at R x --suspectInflateFactor and its PCS is
+# scaled by --suspectPcsFactor. G29 runs the integrity check's unit suite (21 checks, DC-8's included),
+# then six runs at NC8's configuration, read by scripts/suspect_downweight_gate.py.
+# Not one suspect fix is rejected, and every one is counted. At inflate 1 and factor 1,
+# downweight IS bounded with N = 1, differing in the trace's `rejected` column only. The
+# PCS factor alone moves pcs, only on suspect cycles, by exactly x 0.5. The inflate
+# factor alone leaves a larger trace(P) at the first suspect cycle. The factor is refused
+# where it would do nothing.
+#
+# Negative fixtures in scripts/suspect_downweight_gate_selftest.sh, built from these
+# runs, including the default's run offered as the downweight run -- the tree before DC-7
+# -- and each factor not applied (rule 6).
+printf '\n--- G29 a SUSPECT fix is downweighted, not rejected (DC-7) ---\n'
+./build/scratch/ns3.47-ca_tbl_integrity_test-optimized || fail G29
+bash scripts/suspect_downweight_gate.sh "$WORK/g29" || fail G29
+bash scripts/suspect_downweight_gate_selftest.sh "$WORK/g29" || fail G29
+finish G29
+
+# ---------------- G30: the integrity check's eligibility is read from the NLOS score (DC-8)
+# The spec calls a fix SUSPECT on Mahalanobis disagreement "AND NLOS_score is LOW"
+# (Physical 2.6). The default reads "every link tagged LOS", and under the default tag that
+# set is empty -- the control below evaluates ~300 fixes at seed 7 and finds 0 all-LOS, so
+# the check can never fire (TECH_DEBT I.1). --integrityNlosFromScore reads the mean score
+# of the fix set's scored links. G29 has already run the unit suite, whose DC-8 section
+# checks the rule itself. Three runs, read by scripts/integrity_score_gate.py:
+#   - the policy's own record of each evaluated fix (integrity_*) is recounted from the
+#     scorer's nlos_links_* rows -- the fix set, its scored links, their mean;
+#   - every verdict follows the rule at the threshold the run was given (0.5 and 0.1);
+#   - the trace, arm_summary and stdout agree with the record;
+#   - only the checking arm writes it;
+#   - the flag without the classifier is refused.
+#
+# Negative fixtures in scripts/integrity_score_gate_selftest.sh, built from these runs,
+# including the control offered as the flag run (the tree before DC-8) and the 0.1 run's
+# verdicts taken at 0.5 (a threshold that does not arrive) (rule 6).
+printf '\n--- G30 the integrity check reads the NLOS score (DC-8) ---\n'
+bash scripts/integrity_score_gate.sh "$WORK/g30" || fail G30
+bash scripts/integrity_score_gate_selftest.sh "$WORK/g30" || fail G30
+finish G30
+
+# ---------------- G31: table entries carry the producer's velocity (DC-10, Physical 2.1)
+# The spec's entry carries a velocity estimate. The wire format billed the two fields,
+# and every producer published 0, 0. Under --entryVelocity:
+#   - a field node publishes its EKF velocity;
+#   - a finder publishes its GNSS velocity, the displacement over the time since its last
+#     publication;
+#   - a gateway publishes 0.
+# Two pairs of runs, flag off and on, read by scripts/entry_velocity_gate.py: the NC2
+# searcher regime, where entries travel by digest, and the NC4 relay regime, where peers
+# publish too. Nothing reads the velocity yet, so the flag must move no other output, byte
+# for byte. Every producer's read-back publication must equal what it was handed. Each
+# finder's is recounted from its own published displacement. Every held entry must carry
+# the velocity published under its sequence number. Gateways must carry 0.
+#
+# Negative fixtures in scripts/entry_velocity_gate_selftest.sh, built from these runs,
+# including every velocity 0 (the tree before DC-10), a trace that moved when the flag
+# came on, and a velocity changed in transit (rule 6).
+printf '\n--- G31 table entries carry the producer velocity (DC-10) ---\n'
+bash scripts/entry_velocity_gate.sh "$WORK/g31" || fail G31
+bash scripts/entry_velocity_gate_selftest.sh "$WORK/g31" || fail G31
+finish G31
+
+# ---------------- G32: each tier's identity-query driver sends on its own radio (NW-3)
+# Every tier's C3 query driver was bound to the first anchor MAC -- gateway 101's 868 MHz
+# radio -- so a "2.4 GHz" query went out with 868 MHz's SF and bandwidth (TECH_DEBT L.2).
+# --queryTierBinding=per-tier binds each to that tier's radio; given explicitly, either value
+# prints the binding. Three runs in NC5's query regime, read by
+# scripts/query_binding_gate.py:
+#   - explicit first is the default, byte for byte;
+#   - under first, the bound MAC's airtime decomposes EXACTLY into 868 MHz and UWB frame
+#     times -- the defect, observed;
+#   - under per-tier, each driver is on its tier's radio at that tier's time on air,
+#     recomputed from the Semtech and 802.15.4z formulas;
+#   - the flag without queries is refused.
+#
+# Negative fixtures in scripts/query_binding_gate_selftest.sh, built from these runs,
+# including per-tier binding nothing (the tree before NW-3) and a 2.4 GHz driver billed at
+# 868 MHz airtime (rule 6).
+printf '\n--- G32 each query driver sends on its own tier radio (NW-3) ---\n'
+bash scripts/query_binding_gate.sh "$WORK/g32" || fail G32
+bash scripts/query_binding_gate_selftest.sh "$WORK/g32" || fail G32
+finish G32
+
+# ---------------- G33: the escalation handshake as MAC sect 8 specifies it (MC-1)
+# By default an ACK clears its receiver's OLDEST pending frame, an anchor ACKs a request
+# before arbitrating (so a denial is never retried), the pre-emption send carries no terms,
+# the others carry the previous cycle's, and de-escalations are signalled too.
+# --handshakeFixes fixes all five. Three runs in NC9's regime with arbitration and two peer
+# tags, read by scripts/handshake_fixes_gate.py:
+#   - --handshakeFixes=false is the default, byte for byte;
+#   - the default's bare ACKs and off-UWB requests, observed;
+#   - under the flag: every request says target=2 and sits on an escalation into UWB; every
+#     ACK names a GRANT/RESPONSE; every GRANT names a request and says granted or denied;
+#     denials are retried; the terms are this cycle's, recomputed from the trace;
+#   - the flag without handshake frames is refused.
+#
+# Negative fixtures in scripts/handshake_fixes_gate_selftest.sh, built from these runs
+# (rule 6). The MAC cases (ACK by id, deny then retry) are in ca_tbl_packet_validator [7].
+printf '\n--- G33 the escalation handshake as MAC sect 8 specifies it (MC-1) ---\n'
+bash scripts/handshake_fixes_gate.sh "$WORK/g33" || fail G33
+bash scripts/handshake_fixes_gate_selftest.sh "$WORK/g33" || fail G33
+finish G33
+
+# ---------------- G34: the spec's triggered update and last gasp (MC-2)
+# By default the only TRIGGERED_UPDATE is StartHandshake's RECEDING push and nothing counts
+# it (TECH_DEBT M.9). --triggeredUpdates adds a large-correction push and a last gasp for
+# the measured node. Three runs at seed 7 with a 3 J battery, read by
+# scripts/triggered_updates_gate.py:
+#   - --triggeredUpdates=false is the default, byte for byte;
+#   - each large correction agrees with the trace (estimate, threshold, active tier);
+#   - every reason-coded frame follows its trigger; the last gasp is the last frame the
+#     node originated; the stdout counts equal the CSV's;
+#   - --triggeredUpdateK without the flag is refused.
+#
+# Negative fixtures in scripts/triggered_updates_gate_selftest.sh, built from these runs
+# (rule 6). The MAC cases are in ca_tbl_packet_validator [8].
+printf '\n--- G34 the spec triggered update and last gasp (MC-2) ---\n'
+bash scripts/triggered_updates_gate.sh "$WORK/g34" || fail G34
+bash scripts/triggered_updates_gate_selftest.sh "$WORK/g34" || fail G34
+finish G34
+
+# ---------------- G35: the uplink of a tier-2/3 range to the gateway estimator (SY-1)
+# With the estimator on the gateways (the default), a range measured by two-way time of
+# flight is left at the node and the frame that carries it up was never billed (TECH_DEBT
+# L.2.3). --edgeUplinkRanges bills it. Three runs of all six arms (seed 7, 900 s), read by
+# scripts/edge_uplink_gate.py:
+#   - --edgeUplinkRanges=false is the default, byte for byte;
+#   - only energy moves: every non-energy summary column and every trace column but cumJ
+#     is byte-identical; tier-2/3 tx_/airtime_ only rise; a silent tier is never charged;
+#   - static_2p4 is billed; the extra joules per extra second are one TX power per radio;
+#     the stdout airtime equals the bill;
+#   - the flag with the estimator on the node is refused.
+#
+# Negative fixtures in scripts/edge_uplink_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G35 the uplink of a tier-2/3 range to the gateways is billed (SY-1) ---\n'
+bash scripts/edge_uplink_gate.sh "$WORK/g35" || fail G35
+bash scripts/edge_uplink_gate_selftest.sh "$WORK/g35" || fail G35
+finish G35
+
+# ---------------- G36: tier-1 and tier-2 SF and bandwidth from the CLI (SY-3)
+# Physical 1.1 makes SF7-SF12 and 125/250/500 kHz configurable; phy[] was hard-coded.
+# --sf868/--bw868/--sf2p4/--bw2p4 replace it when given, and a non-default bandwidth
+# shifts the engine's sensitivity table by 10 log10(BW/BW0). Four runs (seed 7, 600 s),
+# read by scripts/phy_flags_gate.py:
+#   - the four flags at their defaults are the default, byte for byte;
+#   - the SY-3 PHY line's offset and time on air, recomputed;
+#   - every arm's engine sensitivity is the table entry plus the offset;
+#   - static_868's airtime is cycles x ToA at the run's SF/BW, and static_2p4's a whole
+#     number of frames;
+#   - out-of-range values are refused.
+#
+# Negative fixtures in scripts/phy_flags_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G36 tier-1 and tier-2 SF and bandwidth from the CLI (SY-3) ---\n'
+bash scripts/phy_flags_gate.sh "$WORK/g36" || fail G36
+bash scripts/phy_flags_gate_selftest.sh "$WORK/g36" || fail G36
+finish G36
+
+# ---------------- G37: the transmit-power-drop and antenna-loss fault classes (SY-5)
+# The docx's evaluation induces cold-soaked batteries and detuned or covered antennas;
+# only range bias, silence and depletion existed. --injectTxPowerDropDb and
+# --injectAntennaLossDb lower the measured node's link budget over the seeded
+# --injectBiasFraction window. Four runs (seed 7, 900 s), read by
+# scripts/link_fault_gate.py:
+#   - magnitudes of 0 are no fault, byte for byte;
+#   - the window is the seeded one, and the fault acts in it and not before;
+#   - the tier-1 skew factor is 10^(dB/(10 n)), applied on > 0 links;
+#   - the drop is transmit-only, the antenna loss reciprocal;
+#   - a magnitude without its window, or a negative one, is refused.
+#
+# Negative fixtures in scripts/link_fault_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G37 the transmit-power-drop and antenna-loss fault classes (SY-5) ---\n'
+bash scripts/link_fault_gate.sh "$WORK/g37" || fail G37
+bash scripts/link_fault_gate_selftest.sh "$WORK/g37" || fail G37
+finish G37
+
+# ---------------- G38: gateway placement shapes (MS-2)
+# GEO-01 compares gateway shapes the scenario could not build: perimeter, cluster, star,
+# L-shape and an optimiser's file. --gwLayout builds them, in every tier list, ids 101+.
+# Short runs at boxHalf 5000 with 5 gateways, read by scripts/gw_layout_gate.py:
+#   - --gwLayout=legacy is the default, byte for byte;
+#   - every shape's coordinates recomputed from its documented construction, camp
+#     included (base camp, or the west midpoint);
+#   - the deployment the run used has those gateways in all three tier lists;
+#   - a file layout is its rows, clamped to the box;
+#   - four refusals.
+#
+# Negative fixtures in scripts/gw_layout_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G38 gateway placement shapes (MS-2) ---\n'
+bash scripts/gw_layout_gate.sh "$WORK/g38" || fail G38
+bash scripts/gw_layout_gate_selftest.sh "$WORK/g38" || fail G38
+finish G38
+
+# ---------------- G39: Cases A/B solved inside Step(), after the prediction (DC-11)
+# --sparseCaseA solves before Step() against the previous posterior, and Step() then counts
+# the cycle a no-fix (and, with relays, updates on the same pair again). --sparseInStep
+# solves after Predict() on the final set. NC3's regime four ways and NC4's relayed one,
+# read by scripts/sparse_in_step_gate.py:
+#   - --sparseInStep=false is the default, byte for byte;
+#   - the old path's solved cycles recorded as no-fixes, observed;
+#   - every accepted solve is one position fuse and zero range updates, a fix in the trace,
+#     no demotion; the propagated prior, not the previous posterior; the census complete;
+#   - relays completing a two-range set take the full path, never both;
+#   - --sparseCaseA with --sparseInStep is refused.
+#
+# Negative fixtures in scripts/sparse_in_step_gate_selftest.sh, built from these runs
+# (rule 6). The policy cases are in ca_tbl_sparse_anchor_test (G-less unit suite).
+printf '\n--- G39 Cases A/B solved inside Step(), after the prediction (DC-11) ---\n'
+bash scripts/sparse_in_step_gate.sh "$WORK/g39" || fail G39
+bash scripts/sparse_in_step_gate_selftest.sh "$WORK/g39" || fail G39
+finish G39
+
+# ---------------- G40: the prediction takes a synthetic-IMU control input (DC-1)
+# Physical 2.2 predicts with an IMU control input; the filter was constant velocity.
+# --imuPredict drives PredictWithControl from a dead-reckoning error model whose covariance
+# is the ACCUMULATED error since the last fused fix. NC3's regime, read by
+# scripts/imu_predict_gate.py:
+#   - --imuPredict=false is the default, byte for byte;
+#   - every coasted cycle moved by exactly u;
+#   - every residual and covariance is the stated model, recomputed with the cited constants;
+#   - Q_u is the PSD increment of the accumulation, which resets exactly on a fused fix;
+#   - NEES across 20 seeds inside the chi^2 band (one sample per seed: the errors are per run).
+#
+# Negative fixtures in scripts/imu_predict_gate_selftest.sh, built from these runs (rule 6),
+# among them an independent per-step Q, which fails NEES. The model's unit cases are in
+# ca_tbl_imu_test.
+printf '\n--- G40 the prediction takes a synthetic-IMU control input (DC-1) ---\n'
+bash scripts/imu_predict_gate.sh "$WORK/g40" || fail G40
+bash scripts/imu_predict_gate_selftest.sh "$WORK/g40" || fail G40
+finish G40
+
+# ---------------- G41: Case D, a single range on the propagated state (DC-4)
+# Step() discarded a single range and coasted, counting it toward demotion; Physical 2.4D
+# applies it as a constraint on the IMU-propagated state. --caseD does, behind a NIS guard,
+# and the cycle reaches the escalation decision. NC3's regime with --sparseInStep and
+# --imuPredict, read by scripts/case_d_gate.py:
+#   - --caseD=false is the flag absent, byte for byte;
+#   - a range went in exactly when its NIS passed 6.63;
+#   - every Case D cycle is a one-range non-fix IMU-predicted cycle that did not demote;
+#   - every one reached the decision (PCS computed), and some wanted to escalate;
+#   - the stdout counts equal the CSV's; one refusal and one warning.
+#
+# Negative fixtures in scripts/case_d_gate_selftest.sh, built from these runs (rule 6). The
+# policy cases are in ca_tbl_sparse_anchor_test.
+printf '\n--- G41 Case D, a single range on the propagated state (DC-4) ---\n'
+bash scripts/case_d_gate.sh "$WORK/g41" || fail G41
+bash scripts/case_d_gate_selftest.sh "$WORK/g41" || fail G41
+finish G41
+
+# ---------------- G42: Case B resolves against the IMU-propagated prior (DC-2)
+# Physical 2.4 resolves Case B's orientation by IMU heading; the code chose with the prior,
+# a recorded deviation. Under --imuPredict --sparseInStep the prior IS the last posterior +
+# the IMU's u_k. NC3's regime with four finders, seeds 1-4, with and without --imuPredict,
+# read by scripts/case_b_imu_gate.py:
+#   - every solve labelled by its prior (IMU / constant-velocity);
+#   - Case B occurs under --imuPredict;
+#   - every prior there is the previous posterior + u, recounted from the imu_ file.
+#
+# Negative fixtures in scripts/case_b_imu_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G42 Case B resolves against the IMU-propagated prior (DC-2) ---\n'
+bash scripts/case_b_imu_gate.sh "$WORK/g42" || fail G42
+bash scripts/case_b_imu_gate_selftest.sh "$WORK/g42" || fail G42
+finish G42
+
+# ---------------- G43: held entries carried forward before use (DC-13)
+# A held finder entry was used where it was reported, inflated isotropically by walk
+# speed x age. --entryPrediction (with --entryVelocity) uses x + v age and a source-type Q.
+# NC9's regime with pseudo-anchor finders and digests, read by
+# scripts/entry_prediction_gate.py:
+#   - --entryPrediction=false is the flag absent, byte for byte;
+#   - every substitution is x0 + v age with (0.5 age)^2, recomputed; moving entries move;
+#   - every substituted entry is one node 1 held (DC-10's entries_ record);
+#   - the stdout counts equal the CSV's; the flag without --entryVelocity is refused.
+#
+# Negative fixtures in scripts/entry_prediction_gate_selftest.sh, built from these runs.
+printf '\n--- G43 held entries carried forward before use (DC-13) ---\n'
+bash scripts/entry_prediction_gate.sh "$WORK/g43" || fail G43
+bash scripts/entry_prediction_gate_selftest.sh "$WORK/g43" || fail G43
+finish G43
+
+# ---------------- G44: the IMU witness against the raw radio fix (DC-9)
+# --imuCrossCheck compared the diverging SHS track with the EKF estimate. Under
+# --imuWitnessSource=model the synthetic IMU track is compared with the cycle's raw fix --
+# not the estimate, which already contains u -- and the counters are split. NC9's regime,
+# read by scripts/imu_witness_gate.py:
+#   - --imuWitnessSource=shs is the default witness, byte for byte;
+#   - the track is the anchor + u; disagreement and tolerance recomputed; the raw fix is not
+#     the estimate;
+#   - evaluations, refusals and absorbed refusals consistent, none absorbed with the
+#     evidence gate off; two refusals.
+#
+# Negative fixtures in scripts/imu_witness_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G44 the IMU witness against the raw radio fix (DC-9) ---\n'
+bash scripts/imu_witness_gate.sh "$WORK/g44" || fail G44
+bash scripts/imu_witness_gate_selftest.sh "$WORK/g44" || fail G44
+finish G44
+
+# ---------------- G45: real mesh links (NW-0)
+# The PHY provider linked only field nodes to anchors, so the "mesh" was a star with anchor
+# reflection. --meshLinks=all links every registered pair on a shared tier, makes DISCOVERY
+# one-hop, polls anchors only, sleeps the node's idle radios and bills its relays. NC9's
+# regime with peers, handshakes and per-tier identity queries, read by
+# scripts/mesh_links_gate.py:
+#   - --meshLinks=star is the default, byte for byte;
+#   - finder->gateway, gateway->gateway and tag->tag frames delivered under all, none under
+#     star; no DISCOVERY relayed under all;
+#   - nothing received or relayed at the node on a sleeping radio; floods terminate;
+#   - the node's relays billed; the poll guard fired; one refusal.
+#
+# Negative fixtures in scripts/mesh_links_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G45 real mesh links (NW-0) ---\n'
+bash scripts/mesh_links_gate.sh "$WORK/g45" || fail G45
+bash scripts/mesh_links_gate_selftest.sh "$WORK/g45" || fail G45
+finish G45
+
+# ---------------- G46: every field node is a measured subject (MS-1)
+# Only tag 0 ran the pipeline; the other tags were protocol peers or fixed-tier relays, and
+# PeerRequestDriver sent constant requests in their name. --measuredSubjects=N runs the core
+# of tag 0's cycle for tags 2..N on their own accounts, each in its own slot of a round.
+# NC9's regime with five tags, frames and arbitration, read by scripts/subjects_gate.py:
+#   - --measuredSubjects=1 writes nothing new;
+#   - subject_summary.csv has N x arms x seeds rows; subject 1's row is arm_summary's;
+#   - steps, policy cycles and trace rows all equal duration/dt per subject (a relay that is
+#     a subject is stepped once); fixes, cycles, escalations and RMSE recounted from traces;
+#   - sect 6 per subject: an unused tier is charged for sleep only;
+#   - subjects send their own requests; files digested; two refusals and a warning.
+#
+# Negative fixtures in scripts/subjects_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G46 every field node is a measured subject (MS-1) ---\n'
+bash scripts/subjects_gate.sh "$WORK/g46" || fail G46
+bash scripts/subjects_gate_selftest.sh "$WORK/g46" || fail G46
+finish G46
+
+# ---------------- G47: finders search for specific people (MS-1 finder tasking)
+# Every finder steered on tag 0's entry, so with five subjects four were never searched
+# for. --finderTasking=roundrobin tasks finder k to subject (k mod N) + 1 and spreads each
+# group over its subject's ellipse. G43's converging-finder regime with five tags, read by
+# scripts/finder_tasking_gate.py:
+#   - --finderTasking=tag0 is the default, byte for byte;
+#   - every finder-cycle names the right subject, and a converging finder's entry is that
+#     subject's own published estimate (recomputed from its trace), never tag 0's;
+#   - the goal is the entry plus the within-group spread; one row per finder-cycle;
+#   - four refusals.
+#
+# Negative fixtures in scripts/finder_tasking_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G47 finders search for specific people (MS-1 finder tasking) ---\n'
+bash scripts/finder_tasking_gate.sh "$WORK/g47" || fail G47
+bash scripts/finder_tasking_gate_selftest.sh "$WORK/g47" || fail G47
+finish G47
+
+# ---------------- G48: the reverse path really exists (NW-8)
+# The MAC was never told who transmitted a frame, so --reversePath cached a QUERY's
+# originator and sent the RESPONSE one hop to it on hit and miss alike. --reversePathHop
+# caches the previous hop, unicasts the RESPONSE hop by hop, floods on a miss and absorbs
+# retransmitted copies. G32's query regime under --meshLinks=all with the event log, read
+# by scripts/reverse_path_gate.py:
+#   - every unicast hop goes to the sender's previous hop, recomputed from QUERY rows;
+#   - forwarded, delivered and duplicates recounted per (query, answerer);
+#   - paths of more than one hop exist; --reversePath alone is unchanged; two refusals.
+#
+# Negative fixtures in scripts/reverse_path_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G48 the reverse path really exists (NW-8) ---\n'
+bash scripts/reverse_path_gate.sh "$WORK/g48" || fail G48
+bash scripts/reverse_path_gate_selftest.sh "$WORK/g48" || fail G48
+finish G48
+
+# ---------------- G49: a UWB escalation commits only on a confirmed grant (NW-7)
+# The tier changed inside Step() and nothing at the node read ESC_GRANT, so a node could run
+# on UWB with no anchor's grant. --grantGatedUwb makes the escalation a pending request
+# committed by a delivered GRANT(granted). G33's handshake regime with the event log, read
+# by scripts/grant_gated_gate.py:
+#   - every UWB entry of every subject has a confirm in the slice before it, matched to a
+#     delivered GRANT frame; requests are exactly the trace's pending cycles;
+#   - no healthy demotion or escalation while pending; counts recounted; static arms exempt;
+#   - without the flag some UWB entries have no grant at all; a refusal.
+#
+# Negative fixtures in scripts/grant_gated_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G49 a UWB escalation commits only on a confirmed grant (NW-7) ---\n'
+bash scripts/grant_gated_gate.sh "$WORK/g49" || fail G49
+bash scripts/grant_gated_gate_selftest.sh "$WORK/g49" || fail G49
+finish G49
+
+# ---------------- G50: QUERY and RESPONSE carry what the spec says (NW-9)
+# A QUERY carried one manifest, a RESPONSE no entry and no query id, nothing at the
+# requester handled it, and an answering target still rebroadcast. --queryV2 answers every
+# listed manifest with the entry and relays only what is left. G32's query regime under mesh
+# links and the reverse path, five subjects, a five-manifest batch, read by
+# scripts/query_v2_gate.py:
+#   - without the flag nothing v2 is written or carried;
+#   - every answer is the named subject's own published state, recomputed from its trace;
+#   - answered + relayed manifests partition each received list; relay iff something left;
+#   - the NW-9 line recounted; digests; three refusals.
+#
+# Negative fixtures in scripts/query_v2_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G50 QUERY and RESPONSE carry what the spec says (NW-9) ---\n'
+bash scripts/query_v2_gate.sh "$WORK/g50" || fail G50
+bash scripts/query_v2_gate_selftest.sh "$WORK/g50" || fail G50
+finish G50
+
+# ---------------- G51: query-triggered escalation and arbitration as specified (NW-4 + NW-5)
+# No path led from a QUERY to escalation, and the C4 arbiter scored the battery spent, a
+# constant T_query, forgot denials, let only gateways arbitrate and took a 2.4 GHz request
+# as UWB reach. The five-subject regime with URGENT v2 queries, --grantGatedUwb and the
+# event log, 1 200 s, read by scripts/arbitration_v2_gate.py:
+#   - every score recomputed; every grant from the queue the argmax of its cycle;
+#   - UWB-reach evidence behind every grant and queueing, none behind a refusal;
+#   - grants from the queue, one committed at its subject; finders arbitrate;
+#   - URGENT queries latched, hook escalations, requests carrying is_query_triggered;
+#   - the NW-5 line recounted; the C4 control writes nothing; three refusals.
+#
+# Negative fixtures in scripts/arbitration_v2_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G51 query-triggered escalation and arbitration as specified (NW-4 + NW-5) ---\n'
+bash scripts/arbitration_v2_gate.sh "$WORK/g51" || fail G51
+bash scripts/arbitration_v2_gate_selftest.sh "$WORK/g51" || fail G51
+finish G51
+
+# ---------------- G52: anchors gossip their queue as well as their grants (NW-6)
+# GRANT_GOSSIP carried grants only, so two arbiters could hold the same request in their
+# queues and each grant it. --gossipQueue gossips the queue and extends the lower-id
+# tie-break to it; finders gossip over the mesh. G51's regime at seed 1, 1 800 s, with grant
+# gossip and mesh links, read by scripts/queue_gossip_gate.py:
+#   - queue items gossiped and heard by arbiters, finders among the senders;
+#   - every yield had a higher-id holder; a yielder never grants the request after;
+#   - the NW-6 line recounted; grants-only gossip carries no queue; a refusal.
+#
+# Negative fixtures in scripts/queue_gossip_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G52 anchors gossip their queue as well as their grants (NW-6) ---\n'
+bash scripts/queue_gossip_gate.sh "$WORK/g52" || fail G52
+bash scripts/queue_gossip_gate_selftest.sh "$WORK/g52" || fail G52
+finish G52
+
+# ---------------- G53: hop provenance reaches the decision and the RESULT (NW-1, steps 1-2)
+# The measured tag's Step() was passed a literal 0 and the RESULT said 0, though C5 knew each
+# relayed range's depth. --hopProvenance passes the fused set's deepest leg and carries it
+# as hop_count_at_fix (hopWeight stays 0). G17's relay-chain regime, static_2p4 and
+# ca_tbl_full, read by scripts/hop_provenance_gate.py:
+#   - every cycle's depth and relayed count recounted from relay_chain_*'s admitted tag legs;
+#   - fused fixes carry depths 1 and 2; the NW-1 line equals the log; the control; a refusal.
+#
+# Negative fixtures in scripts/hop_provenance_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G53 hop provenance reaches the decision and the RESULT (NW-1) ---\n'
+bash scripts/hop_provenance_gate.sh "$WORK/g53" || fail G53
+bash scripts/hop_provenance_gate_selftest.sh "$WORK/g53" || fail G53
+finish G53
+
+# ---------------- G54: the base station's session is fed by delivered RESPONSEs (TA-1a)
+# The session layer was opened by the measured tag for itself and fed its own EKF every
+# cycle. --sessionOverMesh opens the base station's session (requester 0) over what its
+# queries ask, fed only by RESPONSEs delivered to a gateway. G50's regime with
+# --sessionLayer, read by scripts/session_gate.py:
+#   - every result is a gateway delivery, once per answer, and every delivery is fed;
+#   - each RESULT is the delivered entry; the state chain holds and leaves SEARCHING on
+#     an answer; time-to-first-fix is the first delivered result; the control; refusals.
+#
+# Negative fixtures in scripts/session_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G54 the base station session is fed by delivered RESPONSEs (TA-1a) ---\n'
+bash scripts/session_gate.sh "$WORK/g54" || fail G54
+bash scripts/session_gate_selftest.sh "$WORK/g54" || fail G54
+finish G54
+
+# ---------------- G55: LOCATED_PRECISE on a confirmed UWB grant (TA-3), batch spread (TA-4)
+# The session went precise on any result from a UWB fix. --sessionPreciseOnGrant makes it
+# precise on a delivered entry naming a confirmed grant (NW-7), and the TA-1 line reports
+# the batch's precision spread. G49's five-subject regime with v2 batch queries, mesh links
+# and the base station's session, 1 200 s, read by scripts/precise_gate.py:
+#   - every first-precise time is the first granted result, and PRECISE is entered on one;
+#   - no target stamped precise by an ungranted UWB fix; the spread is max - min;
+#   - without the flag the default rule holds; a refusal.
+#
+# Negative fixtures in scripts/precise_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G55 LOCATED_PRECISE on a confirmed UWB grant (TA-3, TA-4) ---\n'
+bash scripts/precise_gate.sh "$WORK/g55" || fail G55
+bash scripts/precise_gate_selftest.sh "$WORK/g55" || fail G55
+finish G55
+
+# ---------------- G56: every finder runs its own search (TA-1b)
+# Only the base station searched. --finderSessions gives each finder its own session for its
+# round-robin subject, fed only by the answers that reach it over the reverse path, and
+# cancels it once the finder is within --finderCancelM of its target. G54's regime with
+# finders tasked round-robin, plus G47's converging regime for the cancel, read by
+# scripts/finder_session_gate.py:
+#   - every finder result is an answer that reached that finder, once; every one is fed;
+#   - finders search for their assigned subjects and leave SEARCHING on an answer;
+#   - cancels within the distance close the session for good (and do occur at 30 m);
+#   - lines recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/finder_session_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G56 every finder runs its own search (TA-1b) ---\n'
+bash scripts/finder_session_gate.sh "$WORK/g56" || fail G56
+bash scripts/finder_session_gate_selftest.sh "$WORK/g56" || fail G56
+finish G56
+
+# ---------------- G57: the requester drives escalation (TA-2)
+# Only a node's own PCS asked for UWB. --requesterEscalation makes the base station submit an
+# escalation request for a target whose delivered answer has a low PCS, routed to the arbiter
+# the target's own entry names as in UWB reach (never the nearest gateway), scored there with
+# query_triggered set; the on-behalf GRANT is taken by the target as its escalation. G47's
+# converging regime, read by scripts/reqesc_gate.py:
+#   - every request follows the rule (a clean low-PCS answer, one per slot hold);
+#   - every request sent went to the arbiter the target named, which had reach evidence;
+#   - the arbiter scored each as logged; delivered grants accepted, then UWB the next cycle;
+#   - the TA-2 line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/reqesc_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G57 the requester drives escalation (TA-2) ---\n'
+bash scripts/reqesc_gate.sh "$WORK/g57" || fail G57
+bash scripts/reqesc_gate_selftest.sh "$WORK/g57" || fail G57
+finish G57
+
+# ---------------- G58: per-hop variance and NLOS enter a relayed range sigma (NW-1 step 3)
+# C5 composed sigma_eff from the engine's sigma and the relay's covariance alone.
+# --hopVarianceTerms adds each leg's RSSI/SNR variability, converted to range by the tier's
+# path-loss slope, and inflates a leg the tier's NLOS score calls NLOS. G53's relayed regime
+# with the NLOS classifier, read by scripts/hop_variance_gate.py:
+#   - every decision row carries the leg's readings and terms;
+#   - the variability, its conversion, the NLOS verdict and sigma_leg are recomputed;
+#   - sigma_eff is composed from sigma_leg within [0, trace P];
+#   - both terms fire on admitted legs, at depths 1 and 2; lines recounted; the control;
+#     two refusals.
+#
+# Negative fixtures in scripts/hop_variance_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G58 per-hop variance and NLOS enter a relayed range sigma (NW-1 step 3) ---\n'
+bash scripts/hop_variance_gate.sh "$WORK/g58" || fail G58
+bash scripts/hop_variance_gate_selftest.sh "$WORK/g58" || fail G58
+finish G58
+
+# ---------------- G59: every measured subject routes its own fixes, on its own tier (NW-2)
+# --fixRouting routed the relays on --relayTier; the measured tag never routed, and subjects
+# 2..N routed on --relayTier whatever tier they ranged on. --fixRoutingSubjects runs one
+# router per tier and lets a node take part only on the tier it ranged on that cycle;
+# --routeAlpha/Beta/Gamma/Slack weight the confidence cost. G18b's regime on the full arm
+# with five subjects, read by scripts/subject_routing_gate.py:
+#   - sect 6 per routed frame, against tag 0's trace and each subject's subjtrace;
+#   - a hop to a next hop on another tier is refused, never sent;
+#   - the measured tag and subjects deliver fixes, on two tiers;
+#   - every routed row's cost recomputed from the run's weights (and beta 0 drops a term);
+#   - router blocks recounted; the control (no subjects); three refusals, one of them the
+#     old breach, --fixRouting with subjects and without the flag (TECH_DEBT N.12, refused
+#     since 2026-10-03).
+#
+# Negative fixtures in scripts/subject_routing_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G59 every measured subject routes its own fixes on its own tier (NW-2) ---\n'
+bash scripts/subject_routing_gate.sh "$WORK/g59" || fail G59
+bash scripts/subject_routing_gate_selftest.sh "$WORK/g59" || fail G59
+finish G59
+
+# ---------------- G60: Case C's relative shape at the base station (DC-3)
+# A 0-anchor cycle was counted as Case C and coasted. --caseCRelative lets such a subject
+# range the peer subjects it hears; the ranges reach the base station in its answers, which
+# reconstructs each connected set by classical MDS (a pair as its distance) and fuses
+# nothing. G54's regime, read by scripts/case_c_gate.py:
+#   - every peer range on a 0-anchor cycle of its node, on its tier, to another subject;
+#   - delivery checked against the gateways' answers, inside the 10 s window;
+#   - the base station's sets and shapes recomputed from the delivered ranges;
+#   - nothing fused; pairs and shapes both assembled; the line recounted; the control;
+#     a refusal.
+#
+# Negative fixtures in scripts/case_c_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G60 Case C relative shape at the base station (DC-3) ---\n'
+bash scripts/case_c_gate.sh "$WORK/g60" || fail G60
+bash scripts/case_c_gate_selftest.sh "$WORK/g60" || fail G60
+finish G60
+
+# ---------------- G61: the LR1121 radio basis (SY-2)
+# The energy model billed tiers 1 and 2 on an SX1262 and an SX1280; the spec puts both on one
+# Semtech LR1121. --radioBasis=lr1121 bills them from DS.LR1121.W.APP Rev 2.0 and changes
+# currents only. Pairs that differ only in the basis, read by scripts/radio_basis_gate.py:
+#   - the default configuration, six arms: every non-energy value identical, and every
+#     energy bucket the SX one times the current ratio (UWB unchanged);
+#   - five measured subjects: the same ratios on their rows;
+#   - G16's gossip regime: the gateways' gossip accounts at the ratios;
+#   - the SY-2 line, the preset setting the basis, a refusal.
+#
+# Negative fixtures in scripts/radio_basis_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G61 the LR1121 radio basis (SY-2) ---\n'
+bash scripts/radio_basis_gate.sh "$WORK/g61" || fail G61
+bash scripts/radio_basis_gate_selftest.sh "$WORK/g61" || fail G61
+finish G61
+
+# ---------------- G62: measured subjects in the relay chain (TECH_DEBT N.3, N.15)
+# Measured subjects stepped through the MS-1 pipeline and never ranged another node, so a
+# range through a subject was depth 1 and depth 2 could not arise when every field node is a
+# subject. --subjectRelayChain puts them in L.1.2's chain. G17's regime with four subjects,
+# read by scripts/subject_chain_gate.py:
+#   - subjects range holders and fuse; tag 0 reaches depth 2 through a subject;
+#   - A2 and sigma honest; every depth >= 2 earned by an earlier fuse (G17's rules);
+#   - holders are lower-id subjects, awake on the subject's own tier; no exchange on 868;
+#   - the subject-chain line recounted; the control; two refusals.
+#
+# Negative fixtures in scripts/subject_chain_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G62 measured subjects in the relay chain (N.3, N.15) ---\n'
+bash scripts/subject_chain_gate.sh "$WORK/g62" || fail G62
+bash scripts/subject_chain_gate_selftest.sh "$WORK/g62" || fail G62
+finish G62
+
+# ---------------- G63: the active tier fused with the floor (TECH_DEBT N.14)
+# When the active tier came up short of three, a cycle used the 868 MHz floor's set if IT had
+# three, and the active tier's 1-2 ranges otherwise: a UWB range was never fused while the
+# floor solved, and two floor ranges were dropped whenever a node was off 868 MHz.
+# --fuseFloorActive fuses the two and runs the sparse cases on the union. The preset at 5 km
+# and in its endgame, read by scripts/fuse_floor_gate.py:
+#   - every union formed only where the old path does not apply, the sum of its parts, and
+#     labelled with the active tier when it holds active ranges;
+#   - Step()'s fix kind fits the set's size; tag 0's trace rows agree with the file;
+#   - UWB-delivered fixes in the endgame (G24's zero), the N.14 line recounted, the
+#     control, a refusal.
+#
+# Negative fixtures in scripts/fuse_floor_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G63 the active tier fused with the floor (N.14) ---\n'
+bash scripts/fuse_floor_gate.sh "$WORK/g63" || fail G63
+bash scripts/fuse_floor_gate_selftest.sh "$WORK/g63" || fail G63
+finish G63
+
+# ---------------- G64: a finder's session drives escalation (TA-1b; TECH_DEBT N.10)
+# Only the base station asked for UWB on a target's behalf (TA-2). --finderRequesterEscalation
+# lets each finder's own session ask too: in its own queue when it holds UWB-reach evidence of
+# the target, else at the arbiter the target's entry names. G57's converging regime, read by
+# scripts/finderreq_gate.py:
+#   - every request follows a clean low-PCS result in that finder's session, one per 10 s;
+#   - own requests only with the finder's evidence; named ones never to itself;
+#   - each sent request scored at its arbiter as logged; some granted;
+#   - the TA-1b line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/finderreq_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G64 a finder session drives escalation (TA-1b) ---\n'
+bash scripts/finderreq_gate.sh "$WORK/g64" || fail G64
+bash scripts/finderreq_gate_selftest.sh "$WORK/g64" || fail G64
+finish G64
+
+# ---------------- G65: subjects bill their range uplink (SY-1 for subjects; N.3, row 55)
+# --edgeUplinkRanges billed tag 0's tier-2/3 range uplink only. --subjectEdgeUplink bills the
+# subjects' too. Five subjects at defaults otherwise, read by scripts/subject_uplink_gate.py:
+#   - only the subjects' energy moves, only tx on tiers 2 and 3; tag 0's files identical;
+#   - each subject's rise is the line's airtime at the radio's TX power, exactly;
+#   - no subject billed on a tier it never transmitted on; the warning; a refusal.
+#
+# Negative fixtures in scripts/subject_uplink_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G65 subjects bill their range uplink (SY-1, N.3) ---\n'
+bash scripts/subject_uplink_gate.sh "$WORK/g65" || fail G65
+bash scripts/subject_uplink_gate_selftest.sh "$WORK/g65" || fail G65
+finish G65
+
+# ---------------- G66: subjects send MC-2's large correction (N.3, row 55)
+# --triggeredUpdates sent tag 0's large corrections only. --subjectTriggeredUpdates sends the
+# subjects' too. G34's regime with five subjects at --triggeredUpdateK=0.5 (at k = 1 no
+# subject correction exceeds one prior sigma at the seeds tried), read by
+# scripts/subject_trig_gate.py:
+#   - every row consistent with the subject's own trace (estimate, threshold, tier);
+#   - every subject reason=1 frame within 2 s of one of its triggers; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/subject_trig_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G66 subjects send the large correction (MC-2, N.3) ---\n'
+bash scripts/subject_trig_gate.sh "$WORK/g66" || fail G66
+bash scripts/subject_trig_gate_selftest.sh "$WORK/g66" || fail G66
+finish G66
+
+# ---------------- G67: subjects run the battery fault and its last gasp (N.3, row 55)
+# --batteryDepleteJ silenced tag 0 only. --subjectBatteryDeplete runs it for the subjects,
+# with a last gasp under --subjectTriggeredUpdates. G34's regime with five subjects and a 3 J
+# budget, read by scripts/subject_battery_gate.py:
+#   - each death at the cycle the subject's trace crosses the budget;
+#   - after it no fix and no frame it originated, but one last gasp, heard;
+#   - the line recounted; the control (the warning); a refusal.
+#
+# Negative fixtures in scripts/subject_battery_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G67 subjects run the battery fault (N.3) ---\n'
+bash scripts/subject_battery_gate.sh "$WORK/g67" || fail G67
+bash scripts/subject_battery_gate_selftest.sh "$WORK/g67" || fail G67
+finish G67
+
+# ---------------- G68: a subject's finder range uses the finder's report (N.21)
+# Subjects 2..N ranged a finder against its TRUE position, with the engine's sigma. They never
+# held a finder entry, because only tag 0 asked the finders' digest question. Under
+# --subjectFinderPseudoAnchor a subject asks it too, uses the freshest entry it holds
+# (carried forward, its covariance projected into sigma), and drops a finder range it holds
+# no entry for. G57's converging regime with entry prediction, read by
+# scripts/subject_pseudo_gate.py:
+#   - subjects asked and used reported positions; each carried forward as DC-13 says;
+#   - sigma within its bounds; the positions are not the truth; tag 0's own finder
+#     entries not drowned by the subjects' questions; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/subject_pseudo_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G68 a subject finder range uses the finder report (N.21) ---\n'
+bash scripts/subject_pseudo_gate.sh "$WORK/g68" || fail G68
+bash scripts/subject_pseudo_gate_selftest.sh "$WORK/g68" || fail G68
+finish G68
+
+# ---------------- G69: no finder range uses the finder's true position (N.21, tag 0)
+# Under --finderPseudoAnchor tag 0 replaced a finder's true position with its report only
+# when it held an entry, and otherwise kept the truth. Under --finderPseudoAnchorStrict that
+# range is dropped, and a report whose variance cannot be projected is used uninflated.
+# G68's regime with 2 m of finder GNSS error (so a report is never the truth), read by
+# scripts/finder_strict_gate.py:
+#   - tag 0 used reports and dropped ranges it held no entry for;
+#   - every substitution logged; no used position at the truth; the line recounted;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/finder_strict_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G69 no finder range uses the true position (N.21) ---\n'
+bash scripts/finder_strict_gate.sh "$WORK/g69" || fail G69
+bash scripts/finder_strict_gate_selftest.sh "$WORK/g69" || fail G69
+finish G69
+
+# ---------------- G70: a silenced radio relays no other node's frame (N.1)
+# SetSilent() gates Send() only, so a radio silenced by a spent battery or by
+# --injectSilentId went on relaying other nodes' floods. Under --silenceStopsRelay the MAC
+# refuses them at CAD and counts them; the node's own queued frames (the last gasp) still
+# leave. G34's regime with the per-frame event log, read by scripts/silence_relay_gate.py:
+#   - by default the dead node relays (the defect reproduces); with the flag it sends
+#     nothing after its death but the gasp, and relays are refused;
+#   - under --injectSilentId nothing inside the window, and the node back after it;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/silence_relay_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G70 a silenced radio relays nothing (N.1) ---\n'
+bash scripts/silence_relay_gate.sh "$WORK/g70" || fail G70
+bash scripts/silence_relay_gate_selftest.sh "$WORK/g70" || fail G70
+finish G70
+
+# ---------------- G71: a dead node draws nothing more (N.20)
+# The listen and sleep accounting never read the battery, so a node whose budget ran out
+# went on paying for reception, the search window and sleep (and tag 0 for the handshakes
+# its coasting filter asked for). Under --deadBatteryNoDraw none of it is billed after the
+# death. G67's regime with --silenceStopsRelay, read by scripts/dead_draw_gate.py:
+#   - by default a dead node's cumJ keeps rising (the defect reproduces); with the flag it
+#     is flat after the death, for tag 0 and every subject;
+#   - the N.20 line recounted from the traces; the control; two refusals.
+#
+# Negative fixtures in scripts/dead_draw_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G71 a dead node draws nothing more (N.20) ---\n'
+bash scripts/dead_draw_gate.sh "$WORK/g71" || fail G71
+bash scripts/dead_draw_gate_selftest.sh "$WORK/g71" || fail G71
+finish G71
+
+# ---------------- G72: analyse_pcs_forms.py reads an undefined statistic as undefined (M.8)
+# A score constant over a seed's fix cycles has no Spearman rho, and the script read the NaN
+# interval as "indistinguishable". Under --strict-undefined it reads "undefined" and prints
+# each cell's fix-cycle count; its default output is the registered one, byte for byte.
+# A synthetic tree in a temp dir (the campaign's traces are not tracked), read by
+# scripts/pcs_forms_undefined_gate.py.
+#
+# Negative fixtures in scripts/pcs_forms_undefined_gate_selftest.sh: mutated copies of the
+# script, outside the tree (rule 6).
+printf '\n--- G72 an undefined statistic reads undefined (M.8) ---\n'
+python3 scripts/pcs_forms_undefined_gate.py || fail G72
+bash scripts/pcs_forms_undefined_gate_selftest.sh || fail G72
+finish G72
+
+# ---------------- G73: the sidecar digests the visualiser's outputs (M.4)
+# events_*, nodes_*, nbrtable_*, loctable_* and deployment.json were written under
+# --vizEvents and never digested. Under --digestVizOutputs each gets a SHA-256 line in
+# run_id.txt. A 300 s run with every visualiser output, read by scripts/viz_digest_gate.py:
+#   - every visualiser file digested, and every digest line verifies;
+#   - with the flag or without it every output but run_id.txt is identical;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/viz_digest_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G73 the visualiser outputs are digested (M.4) ---\n'
+bash scripts/viz_digest_gate.sh "$WORK/g73" || fail G73
+bash scripts/viz_digest_gate_selftest.sh "$WORK/g73" || fail G73
+finish G73
+
+# ---------------- G74: every radio half-duplex (N.6)
+# CaTblChannel::IsBusy skips the observer's own frames, so a radio could start a second
+# frame while its first was on air, and received while transmitting. --halfDuplex=1 counts
+# both and changes nothing; =2 sends the frame back to CAD and drops the reception. Seed 7,
+# 900 s, defaults, read by scripts/half_duplex_gate.py:
+#   - count-only identical to off, and the defect present at defaults;
+#   - enforced: every such frame deferred, every deaf reception an events_ row;
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/half_duplex_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G74 every radio half-duplex (N.6) ---\n'
+bash scripts/half_duplex_gate.sh "$WORK/g74" || fail G74
+bash scripts/half_duplex_gate_selftest.sh "$WORK/g74" || fail G74
+finish G74
+
+# ---------------- G75: L.1.5's RECEDING eager push is counted (M.9)
+# Under --mobilityFromRange a node whose mean range grows pushes its entry as one
+# TRIGGERED_UPDATE, and nothing counted it. --reportRecedingPushes reports the handshakes on
+# the RECEDING branch and the push frames sent. Seed 7, 900 s, triggered updates off, the
+# event log, read by scripts/receding_push_gate.py:
+#   - the counts are non-zero and consistent with the redundant class; the pushes heard in
+#     events_ are at most the handshakes; a report only (outputs identical);
+#   - the control; a refusal.
+#
+# Negative fixtures in scripts/receding_push_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G75 the RECEDING push is counted (M.9) ---\n'
+bash scripts/receding_push_gate.sh "$WORK/g75" || fail G75
+bash scripts/receding_push_gate_selftest.sh "$WORK/g75" || fail G75
+finish G75
+
+# ---------------- G76: run_id.txt records the binary that ran (M.3)
+# The source line is git HEAD of the working directory, so a binary launched from another
+# tree records a clean, wrong commit. --stampBinaryHash adds the SHA-256 and path of
+# /proc/self/exe. Runs launched from outside the repository, read by
+# scripts/binary_stamp_gate.py: the stamp is the binary's, a copy keeps its hash, outputs
+# identical, the control.
+#
+# Negative fixtures in scripts/binary_stamp_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G76 the binary that ran is recorded (M.3) ---\n'
+bash scripts/binary_stamp_gate.sh "$WORK/g76" || fail G76
+bash scripts/binary_stamp_gate_selftest.sh "$WORK/g76" || fail G76
+finish G76
+
+# ---------------- G77: every measured subject runs tier-1 TDoA (row 55)
+# Under --tier1Tdoa only tag 0's broadcast was stamped and solved. --subjectTier1Tdoa gives
+# each subject its own instance (its own streams, log and report lines). The preset at seed 7,
+# read by scripts/subject_tdoa_gate.py: a file per subject, digested; OK solves, each line
+# recounted from its file; fusion held by the subject's own policy; no stamp beyond a billed
+# reply; tag 0's line unchanged; the control and the WARNING; a refusal.
+#
+# Negative fixtures in scripts/subject_tdoa_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G77 every subject runs tier-1 TDoA (row 55) ---\n'
+bash scripts/subject_tdoa_gate.sh "$WORK/g77" || fail G77
+bash scripts/subject_tdoa_gate_selftest.sh "$WORK/g77" || fail G77
+finish G77
+
+# ---------------- G78: every measured subject scores its own links (row 55)
+# Under --nlosClassifier only tag 0's links were scored, so a subject's PCS term 3 and
+# integrity eligibility had nothing to read. --subjectNlosClassifier gives each subject its
+# own classifier. The preset at seed 7, read by scripts/subject_nlos_gate.py: files per
+# subject, digested; scored links; the subjects' own Step() fed the score to PCS; fix cycles
+# recounted from the subject traces; tag 0's line unchanged; the control and the WARNING;
+# a refusal.
+#
+# Negative fixtures in scripts/subject_nlos_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G78 every subject scores its own links (row 55) ---\n'
+bash scripts/subject_nlos_gate.sh "$WORK/g78" || fail G78
+bash scripts/subject_nlos_gate_selftest.sh "$WORK/g78" || fail G78
+finish G78
+
+# ---------------- G79: every subject's escalation is vetted by its own witnesses (row 55)
+# Subjects' policies carried --imuCrossCheck and --corroborationCheck, but only tag 0 handed
+# its policy a cross-check, so no subject escalation was ever vetted (Physical 2.6).
+# --subjectIntegrityWitness computes both witnesses per subject. The preset at seed 7, read
+# by scripts/subject_witness_gate.py: files per subject, digested; evaluations and witnesses;
+# lines recounted from files; the witness rules row by row; the control and the WARNING; a
+# refusal of the SHS source.
+#
+# Negative fixtures in scripts/subject_witness_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G79 every subject escalation is vetted (row 55) ---\n'
+bash scripts/subject_witness_gate.sh "$WORK/g79" || fail G79
+bash scripts/subject_witness_gate_selftest.sh "$WORK/g79" || fail G79
+finish G79
+
+# ---------------- G80: the MAC sect 2 time-on-air table (--toaTable)
+# The spec asks for ToA at each SF/BW against each packet type's size, reported. The table
+# is written from the MAC's own sizes and ToA function; scripts/toa_table_gate.py recomputes
+# every row with an independent Semtech formula, checks the low-data-rate rule, the frame
+# sizes, the digest, and that nothing else changes.
+#
+# Negative fixtures in scripts/toa_table_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G80 the time-on-air table (MAC sect 2) ---\n'
+bash scripts/toa_table_gate.sh "$WORK/g80" || fail G80
+bash scripts/toa_table_gate_selftest.sh "$WORK/g80" || fail G80
+finish G80
+
+# ---------------- G81: a requester's request travels as a frame (register row 52; N.10)
+# A requester's escalation request was handed to its arbiter's MAC instantly and unbilled,
+# even when the arbiter was a moving finder. --requestOverMesh carries it as an on-behalf
+# ESC_REQUEST: from the gateway that heard the finder arbiter (the base station's), or from
+# the finder's own radio (a named request). G64's regime, read by scripts/reqcarry_gate.py:
+#   - every carriage has the right carrier, which had heard the arbiter;
+#   - every request to a finder arbiter is carried or unheard, with its carriage row;
+#   - every obo_submit has exactly one cause, a carried one the frame's delivery, never the
+#     carriage instant; every delivery is scored;
+#   - the N.10 line recounted; the control; a refusal.
+#
+# Negative fixtures in scripts/reqcarry_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G81 a requester request travels as a frame (N.10) ---\n'
+bash scripts/reqcarry_gate.sh "$WORK/g81" || fail G81
+bash scripts/reqcarry_gate_selftest.sh "$WORK/g81" || fail G81
+finish G81
+
+# ---------------- G82: run_id.txt records the commit that BUILT the binary (M.3)
+# G76's hash names a binary but not the commit that compiled it. --stampBuildCommit writes
+# the commit and tracked-modification count that scratch/catbl_build_stamp.cmake stamped
+# into the binary at build time. Runs launched from outside the repository, read by
+# scripts/build_stamp_gate.py: the line agrees with the generated stamp and with the
+# repository now (G1 has just built it), the source line cannot say it, outputs identical,
+# the control.
+#
+# Negative fixtures in scripts/build_stamp_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G82 the commit that built the binary is recorded (M.3) ---\n'
+bash scripts/build_stamp_gate.sh "$WORK/g82" || fail G82
+bash scripts/build_stamp_gate_selftest.sh "$WORK/g82" || fail G82
+finish G82
+
+# ---------------- G83: both colliding frames are judged (N.22)
+# The channel erased a frame when it completed, so of two overlapping frames only the one
+# ending first was lost. --collisionBothLost keeps a completed frame while a frame on air
+# overlaps it, and judges the later one against it. G74's regime, read by
+# scripts/both_lost_gate.py:
+#   - late losses occur, each an events_ row, and the N.22 line equals the rows;
+#   - each names a frame that ended before it, within 5 s, sent by anyone but the receiver;
+#   - the control. No magnitude compared across the flag (rule 8).
+#
+# Negative fixtures in scripts/both_lost_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G83 both colliding frames are judged (N.22) ---\n'
+bash scripts/both_lost_gate.sh "$WORK/g83" || fail G83
+bash scripts/both_lost_gate_selftest.sh "$WORK/g83" || fail G83
+finish G83
+
+# ---------------- G84: one LR1121 serves 868 MHz and 2.4 GHz (N.6 per chip)
+# --halfDuplex was per radio, so a node's two LoRa bands transmitted and received at once.
+# --halfDuplexChip pairs them as one chip under --radioBasis=lr1121. G74's regime on that
+# basis, read by scripts/chip_duplex_gate.py:
+#   - count only per chip changes no output, and its counts add up with the per-radio ones;
+#   - enforced, every frame due over either band waits, and every lost reception is a row;
+#   - the control; two refusals.
+#
+# Negative fixtures in scripts/chip_duplex_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G84 one chip serves two bands (N.6 per chip) ---\n'
+bash scripts/chip_duplex_gate.sh "$WORK/g84" || fail G84
+bash scripts/chip_duplex_gate_selftest.sh "$WORK/g84" || fail G84
+finish G84
+
+# ---------------- G85: the fuse narrowed to a short floor (N.14, FUSE-02)
+# --fuseFloorActive fused a short active set with any floor set, and FUSE-01b found the
+# endgame CEP95 cost over its registered bound. --fuseFloorShort forms the union only when
+# the floor is short too. G63's regime, read by scripts/fuse_short_gate.py:
+#   - under the narrowed fuse no union has a floor of three or more, and unions occur;
+#   - the full fuse does form such unions (the control); the N.14 line; a refusal.
+#
+# Negative fixtures in scripts/fuse_short_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G85 the fuse narrowed to a short floor (N.14) ---\n'
+bash scripts/fuse_short_gate.sh "$WORK/g85" || fail G85
+bash scripts/fuse_short_gate_selftest.sh "$WORK/g85" || fail G85
+finish G85
+
+# ---------------- G86: airtime per tier and message type (MAC sect 2, Transport sect 7)
+# The spec asks for the airtime the digest saves against full pushes, and reverse-path routing
+# against flooding, as reported numbers. --reportAirtime sums every MAC's own counters per
+# tier and message type, with a full-push counterfactual per DIGEST sent. The preset with the
+# report, without it, and with --reversePath=false, read by scripts/airtime_gate.py:
+#   - the report changes nothing else; its rows add up to the frames the channel carried;
+#   - every tier with digests has a counterfactual; the flooding pair is what it claims.
+#
+# Negative fixtures in scripts/airtime_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G86 airtime per tier and message type (MAC sect 2) ---\n'
+bash scripts/airtime_gate.sh "$WORK/g86" || fail G86
+bash scripts/airtime_gate_selftest.sh "$WORK/g86" || fail G86
+finish G86
+
+# ---------------- G87: the Poucet-style fusion arm (the spec's comparison table)
+# The spec compares the system with fixed-threshold switching, Poucet-style fusion and
+# single-hop confidence. --arms=poucet_fusion ranges all three tiers every cycle and fuses
+# them, never switching, every radio billed. The preset's endgame, read by
+# scripts/poucet_arm_gate.py: the arm moves no other arm and stays out of --arms=all; it
+# never escalates; every radio is awake and billed; its labels name tiers it could range.
+#
+# Negative fixtures in scripts/poucet_arm_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G87 the Poucet-style fusion arm ---\n'
+bash scripts/poucet_arm_gate.sh "$WORK/g87" || fail G87
+bash scripts/poucet_arm_gate_selftest.sh "$WORK/g87" || fail G87
+finish G87
+
+# ---------------- G88: the dual-band LoRa fusion arm (the LoRa comparators on both bands)
+# The outdoor-LoRa comparison (report/LORA_CMP_RESULTS.md) covered 868 MHz RSSI and RSSI + TDoA
+# and 2.4 GHz ToF separately. --arms=lora_fusion is poucet_fusion without UWB: both LoRa radios
+# ranged and fused every cycle, UWB asleep. Read by scripts/lora_fusion_gate.py: the arm moves
+# no other arm and stays out of --arms=all; it never escalates; no UWB exchange, listen or
+# label; both LoRa radios billed; some fixes put the two bands into one set.
+#
+# Negative fixtures in scripts/lora_fusion_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G88 the dual-band LoRa fusion arm ---\n'
+bash scripts/lora_fusion_gate.sh "$WORK/g88" || fail G88
+bash scripts/lora_fusion_gate_selftest.sh "$WORK/g88" || fail G88
+finish G88
+
+# ---------------- G89: the four N.26 fixes (TECH_DEBT N.26, HANDOFF_2026_10_05 sect 3)
+# --loraDualBase, --uwbCrossTierPoll, --integrityChi2 (with --mahalUseR) and
+# --tdoaInnovationGate, each off and on. Read by scripts/n26_fixes_gate.py: nothing fires with
+# the flags off; the static arm is untouched; the dual base ranges both LoRa tiers and fuses
+# them; cross-tier polls are addressed; the threshold moves every SUSPECT; the TDoA gate
+# refuses on the seed whose TDoA went wrong.
+#
+# Negative fixtures in scripts/n26_fixes_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G89 the four N.26 fixes ---\n'
+bash scripts/n26_fixes_gate.sh "$WORK/g89" || fail G89
+bash scripts/n26_fixes_gate_selftest.sh "$WORK/g89" || fail G89
+finish G89
+
+# ---------------- G24: the preset is conformant (P6, plan sect 3.2)
+# --specProfile sets every spec flag the user did not give. G24 runs the preset, its
+# endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
+# at seeds 7, 8 and 9 (TECH_DEBT N.19), the last-gasp run, and the preset with one flag off
+# per mechanism, read by
+# scripts/spec_profile_gate.py:
+#   - the preset reproduces its own settings given as flags, byte for byte;
+#   - spec_profile.txt lists every setting, and an explicit flag is kept;
+#   - every router runs the preset's routing weights, CAMP-SPEC's pick (0,0,1,1), and
+#     the preset with routing turned off explicitly still runs;
+#   - --hopVarianceTerms is not in the preset (owner decision, N.11);
+#   - every mechanism has a non-zero population summed over its three seeds (a zero in
+#     all three is FAIL);
+#   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
+#     the preset with --fixRoutingSubjects=false refused (N.12).
+# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15):
+# UWB-delivered fixes, and carried requests heard at arbiters (since the channel-fidelity flags).
+#
+# Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G24 the preset is conformant (P6) ---\n'
+bash scripts/spec_profile_gate.sh "$WORK/g24" || fail G24
+bash scripts/spec_profile_gate_selftest.sh "$WORK/g24" || fail G24
+finish G24
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
@@ -467,6 +1771,10 @@ if [ "${GATE_ST[G6]:-}" = FAIL ]; then
     printf '  The remedy is baseline_v7: regenerate to NEW paths and move the citations.\n'
     printf '  Overwriting results/{causal,det_a,det_b} to make it green reintroduces the\n'
     printf '  defect e21666d removed -- a suite that rewrites the evidence it verifies.\n'
+fi
+if [ "${GATE_ST[G24]:-}" = FAIL ]; then
+    printf '\n  G24 is FAIL BY FINDING: mechanisms with no population under the preset\n'
+    printf '  (TECH_DEBT N.15). It passes when they are exercised or the owner accepts them.\n'
 fi
 if [ "$SUITE_BAD" -eq 0 ]; then
     printf '\n=== ALL GATES PASS (seed=%s duration=%s) ===\n' "$SEED" "$DUR"

@@ -1,7 +1,47 @@
 #include "lora-uwb-physics-parameters.h"
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 
 namespace ns3 {
+
+double
+UwbNlosProbabilityInfSl(double d2DM)
+{
+    // 3GPP TR 38.901 V19.2.0: d_clutter 10 m (Table 7.2-4, InF-SL), r = 0.20 (Table 7.8-7).
+    const double dClutterM = 10.0;
+    const double r = 0.20;
+    const double k = -dClutterM / std::log(1.0 - r); // 44.81 m
+    if (!(d2DM > 0.0))
+    {
+        return 0.0;
+    }
+    return 1.0 - std::exp(-d2DM / k);
+}
+
+double
+UwbNlosExcessDb802154a(double d3DM, double carrierHz, EnvironmentClass env)
+{
+    // IEEE P802.15-04-0662-02-004a, sect III-B (office CM3/CM4) and III-C (outdoor CM5/CM6).
+    double pl0L = 45.6;
+    double pl0N = 73.0;
+    double nL = 1.76;
+    double nN = 2.5;
+    double kL = 0.12;
+    double kN = 0.13;
+    if (env == ENV_INDOOR_OFFICE)
+    {
+        pl0L = 35.4;
+        pl0N = 57.9;
+        nL = 1.63;
+        nN = 3.07;
+        kL = 0.03;
+        kN = 0.71;
+    }
+    const double d = std::max(d3DM, 1.0);
+    return (pl0N - pl0L) + 10.0 * (nN - nL) * std::log10(d) +
+           20.0 * (kN - kL) * std::log10(carrierHz / 5e9);
+}
 
 ReceiverDecisionParamsUWB ReceiverDecisionParamsUWB::Defaults() {
     ReceiverDecisionParamsUWB p;

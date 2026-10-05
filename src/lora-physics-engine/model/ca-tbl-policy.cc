@@ -1,5 +1,7 @@
 #include "ca-tbl-policy.h"
 
+#include "ca-tbl-sparse-anchor.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -23,6 +25,10 @@ CaTblPolicyModeName(CaTblPolicyMode mode)
         return "static_2p4";
     case CA_TBL_MODE_STATIC_UWB:
         return "static_uwb";
+    case CA_TBL_MODE_FUSE_ALL:
+        return "poucet_fusion";
+    case CA_TBL_MODE_FUSE_LORA:
+        return "lora_fusion";
     default:
         return "unknown";
     }
@@ -35,7 +41,8 @@ CaTblRangeMeasurement::CaTblRangeMeasurement()
       nlos(false),
       nlosPropagation(false),
       hiddenChannelActive(false),
-      sigmaM(0.0)
+      sigmaM(0.0),
+      nlosScore(-1.0)
 {
 }
 
@@ -76,6 +83,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     // 3.1623 m target. Below that the filter is not tracking to spec and the
     // score should say so rather than being carried by the other two terms.
     pcsGateFloor = 0.10;
+    pcsNlosFromScore = false; // default preserves the pre-existing baseline
     fastDemoteOnZeroNeighbours = false; // default preserves the pre-existing baseline
     multiStepDemote = false;            // default preserves the pre-existing baseline
 
@@ -151,7 +159,10 @@ CaTblDecision::CaTblDecision()
       meanSigmaRawM(0.0),
       sigmaGeoM(-1.0),
       predictedVisUwb(-1),
-      predictedVis2p4(-1)
+      predictedVis2p4(-1),
+      nNlosScored(0),
+      nlosScoreTerm(-1.0),
+      nlosScoreFed(false)
 {
 }
 
@@ -243,6 +254,36 @@ CaTblEkf::Predict(double dt)
 
     // Snapshot the prior: the integrity check compares the incoming fix against
     // this, so it must be the pre-update state, not the posterior.
+    for (int i = 0; i < 4; ++i)
+    {
+        m_xPrior[i] = m_x[i];
+        for (int j = 0; j < 4; ++j)
+        {
+            m_PPrior[i][j] = m_P[i][j];
+        }
+    }
+}
+
+void
+CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, double quxy,
+                             double quyy)
+{
+    m_x[0] += ux;
+    m_x[1] += uy;
+    const double inv = (dt > 0.0) ? 1.0 / dt : 0.0;
+    m_x[2] = ux * inv;
+    m_x[3] = uy * inv;
+    const double q[2][2] = {{quxx, quxy}, {quxy, quyy}};
+    for (int i = 0; i < 2; ++i)
+    {
+        for (int j = 0; j < 2; ++j)
+        {
+            m_P[i][j] += q[i][j];
+            m_P[i][j + 2] = q[i][j] * inv;
+            m_P[i + 2][j] = q[i][j] * inv;
+            m_P[i + 2][j + 2] = q[i][j] * inv * inv;
+        }
+    }
     for (int i = 0; i < 4; ++i)
     {
         m_xPrior[i] = m_x[i];
@@ -402,6 +443,146 @@ CaTblEkf::FusePosition(double zx, double zy, double varM2)
     }
 }
 
+// Out of line on purpose: Step() gains a call and a branch, not an inlined 2x2 update
+// sitting among the expressions the byte-identical null control holds fixed.
+bool
+CaTblPolicy::AuxPassesGate(double rScale)
+{
+    if (!m_config.auxInnovationGate)
+    {
+        return true;
+    }
+    const double nis =
+        m_ekf.PositionNis(m_aux[0], m_aux[1], rScale * m_aux[2], rScale * m_aux[3], rScale * m_aux[4]);
+    if (nis >= 0.0 && nis <= m_config.auxInnovationChi2)
+    {
+        return true;
+    }
+    ++m_auxGated;
+    return false;
+}
+
+__attribute__((noinline)) void
+CaTblPolicy::FuseAux()
+{
+    if (!AuxPassesGate(1.0))
+    {
+        return;
+    }
+    if (m_ekf.FusePositionCov(m_aux[0], m_aux[1], m_aux[2], m_aux[3], m_aux[4]))
+    {
+        m_auxFusedLast = true;
+        ++m_auxFused;
+    }
+}
+
+void
+CaTblPolicy::FuseAuxInflated(double rScale)
+{
+    if (!AuxPassesGate(rScale))
+    {
+        return;
+    }
+    if (m_ekf.FusePositionCov(m_aux[0],
+                              m_aux[1],
+                              rScale * m_aux[2],
+                              rScale * m_aux[3],
+                              rScale * m_aux[4]))
+    {
+        m_auxFusedLast = true;
+        ++m_auxFused;
+    }
+}
+
+double
+CaTblEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
+        !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
+        !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return -1.0;
+    }
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = 0.5 * (m_P[0][1] + m_P[1][0]) + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return -1.0;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    return (s11 * v0 * v0 - 2.0 * s01 * v0 * v1 + s00 * v1 * v1) / det;
+}
+
+bool
+CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
+        !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
+        !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return false;
+    }
+
+    // S = H P H' + R, H selecting the two position states.
+    const double pxy = 0.5 * (m_P[0][1] + m_P[1][0]);
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = pxy + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return false;
+    }
+    const double i00 = s11 / det;
+    const double i01 = -s01 / det;
+    const double i11 = s00 / det;
+
+    // K = P H' S^-1: P H' is the first two columns of P.
+    double K[4][2];
+    for (int i = 0; i < 4; ++i)
+    {
+        K[i][0] = m_P[i][0] * i00 + m_P[i][1] * i01;
+        K[i][1] = m_P[i][0] * i01 + m_P[i][1] * i11;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    for (int i = 0; i < 4; ++i)
+    {
+        m_x[i] += K[i][0] * v0 + K[i][1] * v1;
+    }
+
+    // P <- P - K (H P): H P is the first two rows of P.
+    double newP[4][4];
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i][0] * m_P[0][j] - K[i][1] * m_P[1][j];
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    // Same reason as Update(): an asymmetric P silently corrupts the Mahalanobis gate.
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = i + 1; j < 4; ++j)
+        {
+            const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+            m_P[i][j] = avg;
+            m_P[j][i] = avg;
+        }
+    }
+    return true;
+}
+
 void
 CaTblEkf::RevertToPrior()
 {
@@ -476,6 +657,13 @@ CaTblPolicy::CaTblPolicy()
     : m_tier(CA_TBL_TIER_868),
       m_deescalateCounter(0),
       m_escalations(0),
+      // Initialised here since 2026-09-30. Until then these three were zero only because
+      // the scenario value-initialises its std::vector<CaTblTagState>, which zero-fills
+      // before this constructor runs; a CaTblPolicy constructed any other way started with
+      // indeterminate counters (docs/SPEC_CONFORMANCE_PLAN.md sect 1.H item 2).
+      m_consecutiveRejections(0),
+      m_reinitFallbackCount(0),
+      m_recoveryFirings(0),
       m_predictBlockedQuality(0),
       m_predictBlockedCoverage(0),
       m_evidenceBlockedT2(0),
@@ -728,7 +916,8 @@ CaTblPolicy::ComputePcs(double traceSigma,
                         uint32_t nLos,
                         uint32_t nTotal,
                         uint32_t hopCount,
-                        double sigmaGeoM) const
+                        double sigmaGeoM,
+                        double losTermOverride) const
 {
     if (m_config.pcsForm == CA_TBL_PCS_V2)
     {
@@ -772,8 +961,13 @@ CaTblPolicy::ComputePcs(double traceSigma,
     const double term1 = m_config.traceRef / (m_config.traceRef + std::max(traceSigma, 0.0));
     // Term 2: geometric quality.
     const double term2 = 1.0 / std::max(gdop, 1.0);
-    // Term 3: fraction of contributing links believed line-of-sight.
-    const double term3 = (nTotal == 0) ? 0.0 : static_cast<double>(nLos) / static_cast<double>(nTotal);
+    // Term 3: fraction of contributing links believed line-of-sight -- or, under
+    // pcsNlosFromScore, the spec's mean (1 - NLOS_score), which Step() passes in. The
+    // override replaces this one term; the sums below are the same code either way.
+    const double term3 = (losTermOverride >= 0.0)
+                             ? losTermOverride
+                             : ((nTotal == 0) ? 0.0
+                                              : static_cast<double>(nLos) / static_cast<double>(nTotal));
 
     // LEGACY sums these unweighted, which is the saturation defect: term2 + term3
     // alone reach 2.0 against a 1.55 threshold, so term1 cannot veto. The two
@@ -824,9 +1018,147 @@ CaTblPolicy::ApplyProvenance(double pcs) const
     return pcs / (1.0 + m_config.hopPenalty * f);
 }
 
+bool
+CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
+                                   const std::vector<CaTblRangeMeasurement>& meas) const
+{
+    // DC-9. Step()'s evidence-gate UWB branch, side-effect free. The tier-2 branch runs
+    // BEFORE the witness, so a witness that was evaluated has already passed it.
+    const bool haveMap = !m_config.uwbAnchorX.empty();
+    if (!m_config.escalationRequiresEvidence || m_tier != CA_TBL_TIER_2P4 ||
+        !(m_config.uwbEvidenceFromNeighbours || haveMap))
+    {
+        return false;
+    }
+    const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
+    if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+    {
+        return true;
+    }
+    if (m_config.uwbEvidenceFromNeighbours)
+    {
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.uwbPredictRadiusM)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    const double r2 = m_config.uwbPredictRadiusM * m_config.uwbPredictRadiusM;
+    uint32_t vis = 0;
+    for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
+    {
+        const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
+        const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+        if (dx * dx + dy * dy <= r2)
+        {
+            ++vis;
+        }
+    }
+    return vis < 3;
+}
+
+void
+CaTblPolicy::RequestQueryEscalation()
+{
+    m_queryEscArmed = true;
+    ++m_queryEscRequests;
+}
+
+void
+CaTblPolicy::QueryEscalateOneTier(CaTblDecision& d)
+{
+    if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+    {
+        if (!m_uwbPending)
+        {
+            m_uwbPending = true;
+            ++m_uwbRequests;
+            d.escalated = true;
+            d.uwbPending = true;
+        }
+    }
+    else if (m_tier < CA_TBL_TIER_UWB)
+    {
+        m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
+        m_escalations++;
+        d.escalated = true;
+    }
+    m_deescalateCounter = 0;
+}
+
+bool
+CaTblPolicy::ConfirmUwbGrant()
+{
+    if (!m_uwbPending || m_tier != CA_TBL_TIER_2P4)
+    {
+        ++m_uwbLate;
+        return false;
+    }
+    m_uwbPending = false;
+    m_tier = CA_TBL_TIER_UWB;
+    m_escalations++;
+    m_deescalateCounter = 0;
+    ++m_uwbConfirmed;
+    return true;
+}
+
+bool
+CaTblPolicy::AcceptGrantOnBehalf()
+{
+    const bool hybrid = (m_config.mode == CA_TBL_MODE_FULL ||
+                         m_config.mode == CA_TBL_MODE_NO_INTEGRITY ||
+                         m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD);
+    if (m_uwbPending && ConfirmUwbGrant())
+    {
+        ++m_oboAccepted;
+        return true;
+    }
+    if (hybrid && m_tier == CA_TBL_TIER_2P4)
+    {
+        m_tier = CA_TBL_TIER_UWB;
+        m_escalations++;
+        m_deescalateCounter = 0;
+        ++m_oboAccepted;
+        return true;
+    }
+    ++m_oboRefused;
+    return false;
+}
+
+bool
+CaTblPolicy::ClearUwbPending(bool timeout)
+{
+    if (!m_uwbPending)
+    {
+        return false;
+    }
+    m_uwbPending = false;
+    if (timeout)
+    {
+        ++m_uwbTimeouts;
+    }
+    else
+    {
+        ++m_uwbDenied;
+    }
+    return true;
+}
+
 void
 CaTblPolicy::AbortTierChange(CaTblTier restoreTo)
 {
+    // NW-7: an escalation into UWB that is only pending changed no tier and counted
+    // nothing, so aborting it drops the request and restores nothing.
+    if (m_uwbPending && m_tier == restoreTo)
+    {
+        m_uwbPending = false;
+        ++m_uwbAborted;
+        m_deescalateCounter = 0;
+        return;
+    }
     m_tier = restoreTo;
     if (m_escalations > 0)
     {
@@ -846,12 +1178,51 @@ CaTblPolicy::Step(double dt,
                   uint32_t tierEvidenceMask)
 {
     CaTblDecision d;
+    // NW-7. A request is pending only on 2.4 GHz; a demotion since (coverage loss, which
+    // the freeze allows) has cancelled it. Otherwise this is one more cycle waiting.
+    if (m_uwbPending)
+    {
+        if (m_tier != CA_TBL_TIER_2P4)
+        {
+            m_uwbPending = false;
+            ++m_uwbCoverageClears;
+        }
+        else
+        {
+            ++m_uwbWaitCycles;
+        }
+    }
     d.activeTier = m_tier;
     d.nextTier = m_tier;
+    // NW-4: a static arm is single-band by definition and ignores a query's hook.
+    const bool hybridMode = (m_config.mode == CA_TBL_MODE_FULL ||
+                             m_config.mode == CA_TBL_MODE_NO_INTEGRITY ||
+                             m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD);
+    if (m_queryEscArmed && (!m_config.queryTriggeredEscalation || !hybridMode))
+    {
+        m_queryEscArmed = false;
+        ++m_queryEscIgnored;
+    }
+
+    // A queued tier-1 TDoA fix belongs to THIS cycle and to no other, whatever the cycle
+    // decides below (SetAuxPositionFix). Never queued, these three lines are inert.
+    const bool auxQueued = m_auxPending;
+    m_auxPending = false;
+    m_auxFusedLast = false;
 
     m_tierCycles[m_tier]++;
 
-    m_ekf.Predict(dt);
+    if (m_imuPending)
+    {
+        // DC-1: the queued synthetic-IMU displacement drives the prediction.
+        m_imuPending = false;
+        m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
+        d.imuPredicted = true;
+    }
+    else
+    {
+        m_ekf.Predict(dt);
+    }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
     // somewhere". A concurrent-tier caller substitutes tier-1 ranges when the active
@@ -862,11 +1233,65 @@ CaTblPolicy::Step(double dt,
         (activeTierRanges < 0) ? (meas.size() >= 3)
                                : (static_cast<uint32_t>(activeTierRanges) >= 3);
 
+    // DC-11. Two ranges, solved HERE, after the prediction: the current state IS the
+    // propagated prior Physical 2.4 resolves Cases A/B against (the scenario's pre-Step
+    // solve used the previous posterior). Case A when both ranges are to surveyed
+    // gateways, Case B otherwise -- provenance, not geometry, decides, as before. The
+    // point is fused ONCE, as a position, with the same conservative variance the
+    // scenario used, 2 (s0^2 + s1^2); the two ranges are never also applied as ranges,
+    // which closes the double count of Case A plus relays (plan sect 1.H item 9) -- with
+    // relays appended the set has three or more and takes the full path instead. A
+    // solved cycle is a fix and does not count toward demotion. A refused one falls
+    // through to the coast below, exactly as before.
+    if (m_config.sparseInStep && meas.size() == 2)
+    {
+        const bool bothSurveyed = meas[0].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY &&
+                                  meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
+        d.sparsePriorX = m_ekf.X();
+        d.sparsePriorY = m_ekf.Y();
+        d.sparsePriorSource = d.imuPredicted ? 1 : 0; // DC-2
+        const CaTblSparseResult sr =
+            bothSurveyed
+                ? CaTblSolveCaseA(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
+                                  meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
+                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  m_config.sparseMarginM)
+                : CaTblSolveCaseB(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
+                                  meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
+                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  m_config.sparseMarginM);
+        d.sparseVerdict = static_cast<uint8_t>(sr.verdict);
+        const double var = 2.0 * (meas[0].sigmaM * meas[0].sigmaM +
+                                  meas[1].sigmaM * meas[1].sigmaM);
+        if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
+        {
+            m_ekf.FusePosition(sr.x, sr.y, var);
+            d.positionFuses = 1;
+            d.sparseX = sr.x;
+            d.sparseY = sr.y;
+            d.sparseVarM2 = var;
+            d.fixKind = (sr.solvedBy == CA_TBL_CASE_B) ? CA_TBL_FIX_CASE_B : CA_TBL_FIX_CASE_A;
+            d.hadFix = true;
+            d.estX = m_ekf.X();
+            d.estY = m_ekf.Y();
+            d.traceSigma = m_ekf.TracePos();
+            d.nAnchorsUsed = 2;
+            d.nextTier = m_tier;
+            return d;
+        }
+    }
+
+    // DC-4. Case D: exactly one range, under the flag, goes down the ordinary path below
+    // as a scalar update on the propagated state (NIS-guarded), and reaches the decision.
+    const bool caseD = m_config.caseD && meas.size() == 1;
+
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
-    // prediction. Note this is where Case B (1 anchor + 1 peer) and Case C
-    // (relative-only) from the design would plug in; they are not implemented
-    // yet, so sparse geometry currently degrades to dead reckoning.
-    if (meas.size() < 3)
+    // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f). By
+    // default they run in the SCENARIO, before Step(), against the previous posterior --
+    // so a two-range cycle still arrives here, is counted a no-fix and counts toward
+    // demotion. Under sparseInStep (DC-11) they run above, and only a refused one
+    // arrives here. Case C only classifies; Case D does not exist yet (DC-4).
+    if (meas.size() < 3 && !caseD)
     {
         m_noFixCycles++;
         d.hadFix = false;
@@ -874,6 +1299,50 @@ CaTblPolicy::Step(double dt,
         d.estY = m_ekf.Y();
         d.traceSigma = m_ekf.TracePos();
         d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
+
+        // NW-4. The hook acts here too: an URGENT query is a reason to go up even on a
+        // cycle with no fix. The two evidence preconditions still apply, from the ranges
+        // this cycle did get; the IMU and corroboration witnesses need a fix and do not
+        // run on a coast. The dropout is not counted toward demotion on such a cycle.
+        if (m_queryEscArmed && m_tier < CA_TBL_TIER_UWB && !m_uwbPending)
+        {
+            ++m_queryEscFired;
+            d.queryTriggered = true;
+            d.wantedEscalation = true;
+            bool blocked = false;
+            if (m_tier == CA_TBL_TIER_2P4)
+            {
+                blocked = UwbEvidenceWouldBlock(d.traceSigma, meas);
+            }
+            else if (m_config.escalationRequiresEvidenceT2)
+            {
+                uint32_t nearT2 = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
+                {
+                    if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.t2PredictRadiusM)
+                    {
+                        ++nearT2;
+                    }
+                }
+                blocked = nearT2 < m_config.t2PredictMinAnchors;
+            }
+            if (blocked)
+            {
+                ++m_queryEscSuppressed;
+                m_queryEscArmed = false;
+            }
+            else
+            {
+                QueryEscalateOneTier(d);
+                ++m_queryEscalations;
+                if (m_tier == CA_TBL_TIER_UWB || m_uwbPending)
+                {
+                    m_queryEscArmed = false;
+                }
+            }
+            d.nextTier = m_tier;
+            return d;
+        }
 
         // A dropout is evidence the current tier is not delivering. Count it
         // toward de-escalation so a node cannot get stranded on a tier whose
@@ -899,6 +1368,19 @@ CaTblPolicy::Step(double dt,
 
     d.hadFix = true;
     d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
+    if (m_config.sparseInStep)
+    {
+        d.fixKind = CA_TBL_FIX_FULL; // DC-11: the census reads it
+    }
+    if (caseD)
+    {
+        // DC-4: not a position fix -- one range constrains one direction -- but the
+        // covariance it leaves is live.
+        d.hadFix = false;
+        d.fixKind = CA_TBL_FIX_CASE_D;
+        m_noFixCycles++;
+        m_caseDCycles++;
+    }
 
     // Per-measurement variance, inflated for NLOS-tagged links. This is the
     // NLOS-adaptive R the design calls for.
@@ -960,6 +1442,28 @@ CaTblPolicy::Step(double dt,
     d.nNlos = static_cast<uint32_t>(meas.size()) - nLos;
     d.nNlosPropagation = nNlosProp;
     d.nHiddenChannel = nHidden;
+
+    // The classifier's PCS term 3 (TECH_DEBT L.2.2): mean (1 - NLOS_score) over the links
+    // that carry a score. Pure arithmetic over this cycle's set -- no RNG draw, no state --
+    // and computed whether or not it is fed, so the term is observable before it decides
+    // anything. Without --nlosClassifier every nlosScore is -1, nScored is 0 and nothing
+    // below differs from before.
+    {
+        double sum = 0.0;
+        uint32_t nScored = 0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            if (meas[i].nlosScore >= 0.0)
+            {
+                sum += 1.0 - std::min(1.0, meas[i].nlosScore);
+                ++nScored;
+            }
+        }
+        d.nNlosScored = nScored;
+        d.nlosScoreTerm = (nScored > 0) ? sum / static_cast<double>(nScored) : -1.0;
+        d.nlosScoreFed = m_config.pcsNlosFromScore && nScored > 0 &&
+                         m_config.pcsForm != CA_TBL_PCS_V2;
+    }
 
     // sigma_geo: this cycle's measurement-only radial position sigma, the exact
     // sqrt(trace((J^T R^-1 J)^-1)). Needed only by CA_TBL_PCS_V2, so it is computed
@@ -1054,7 +1558,44 @@ CaTblPolicy::Step(double dt,
         if (haveFix)
         {
             d.mahalanobis = mahal;
-            const bool allLos = (d.nNlos == 0);
+            // "Every link tagged LOS": the Python reference's condition, and the default.
+            bool allLos = (d.nNlos == 0);
+            if (m_config.integrityNlosFromScore)
+            {
+                // DC-8, the spec's condition: "NLOS_score is LOW" (Physical 2.6), read as
+                // the mean score over the links that carry one. With none scored there is
+                // nothing to read, and the tag decides as before.
+                double sum = 0.0;
+                uint32_t nScored = 0;
+                for (size_t i = 0; i < meas.size(); ++i)
+                {
+                    if (meas[i].nlosScore >= 0.0)
+                    {
+                        sum += std::min(1.0, meas[i].nlosScore);
+                        ++nScored;
+                    }
+                }
+                if (nScored > 0)
+                {
+                    d.integrityBasis = 1;
+                    d.integrityMeanScore = sum / static_cast<double>(nScored);
+                    allLos = d.integrityMeanScore < m_config.integrityNlosScoreThreshold;
+                    if (allLos)
+                    {
+                        ++m_integrityScoreEligible;
+                    }
+                    else
+                    {
+                        ++m_integrityScoreIneligible;
+                    }
+                }
+                else
+                {
+                    d.integrityBasis = 2;
+                    ++m_integrityTagFallback;
+                }
+            }
+            d.integrityEligible = allLos;
             if (mahal > m_config.mahalanobisThreshold && allLos)
             {
                 suspect = true;
@@ -1064,14 +1605,35 @@ CaTblPolicy::Step(double dt,
     }
     d.suspect = suspect;
 
-    if (suspect)
+    const bool downweight =
+        suspect && m_config.suspectRecovery == CA_TBL_RECOVERY_DOWNWEIGHT;
+    if (downweight)
+    {
+        // DC-7, the spec's response (Physical 2.6): accepted, flagged, fused at inflated
+        // R, and its PCS downweighted below. Not a rejection, so the rejection run ends.
+        std::vector<double> inflated(varM2);
+        for (double& v : inflated)
+        {
+            v *= m_config.suspectInflateFactor;
+        }
+        m_ekf.Update(meas, inflated);
+        ++d.rangeUpdates;
+        if (auxQueued)
+        {
+            FuseAuxInflated(m_config.suspectInflateFactor);
+        }
+        m_consecutiveRejections = 0;
+        m_downweightedFixes++;
+    }
+    else if (suspect)
     {
         m_consecutiveRejections++;
         // RECOVERY POLICY. NONE is the pre-existing behaviour and the default.
         //
-        // Rejecting is only half a response. RevertToPrior() restores the PRE-UPDATE
-        // covariance, so P does not grow across a rejection run and the filter is
-        // stuck rather than coasting. Because the gate's reference IS the prior, a
+        // Rejecting is only half a response. RevertToPrior() runs before any Update()
+        // of this cycle, so it is a no-op and a rejected cycle is a plain coast (this
+        // comment said until 2026-09-30 that it froze P; see the correction on
+        // CaTblSuspectRecovery). Because the gate's reference IS the prior, a
         // wrong prior makes every honest measurement look anomalous, and the gate
         // holds itself shut -- measured at 22 consecutive cycles on a run with NO
         // fault injected, and 108 / 251 on F1 / F3.
@@ -1083,7 +1645,12 @@ CaTblPolicy::Step(double dt,
             // during a genuine persistent fault this fuses the very measurement the
             // gate identified as faulty.
             m_ekf.Update(meas, varM2);
+            ++d.rangeUpdates;
             recovered = true;
+            if (auxQueued)
+            {
+                FuseAux(); // force-accepted cycle: the TDoA half of the fix goes in too
+            }
         }
         else if (m_config.suspectRecovery == CA_TBL_RECOVERY_REINIT &&
                  m_consecutiveRejections >= m_config.suspectRecoveryN && haveRawFix)
@@ -1126,7 +1693,39 @@ CaTblPolicy::Step(double dt,
     else
     {
         m_consecutiveRejections = 0;
-        m_ekf.Update(meas, varM2);
+        if (caseD)
+        {
+            // DC-4. One range against a wide P can leave an inconsistent covariance, so it
+            // goes in only if its innovation is plausible: NIS = nu^2 / (H P H^T + R) with
+            // H the unit vector from the anchor, against chi^2(1 dof, 0.99) = 6.63.
+            const double dx = m_ekf.X() - meas[0].anchorX;
+            const double dy = m_ekf.Y() - meas[0].anchorY;
+            const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
+            const double hx = dx / r, hy = dy / r;
+            const double s = hx * hx * m_ekf.Pxx() + 2.0 * hx * hy * m_ekf.Pxy() +
+                             hy * hy * m_ekf.Pyy() + varM2[0];
+            const double nu = meas[0].rangeM - r;
+            d.caseDNis = (s > 0.0) ? nu * nu / s : -1.0;
+            if (s > 0.0 && d.caseDNis <= 6.63)
+            {
+                m_ekf.Update(meas, varM2);
+                ++d.rangeUpdates;
+                d.caseDApplied = true;
+            }
+            else
+            {
+                m_caseDRefused++;
+            }
+        }
+        else
+        {
+            m_ekf.Update(meas, varM2);
+            ++d.rangeUpdates;
+        }
+        if (auxQueued)
+        {
+            FuseAux(); // the COMBINED tier-1 fix: RSSI ranges above, TDoA position here
+        }
     }
 
     const double traceSigma = m_ekf.TracePos();
@@ -1140,8 +1739,22 @@ CaTblPolicy::Step(double dt,
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
     const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
-    const double pcs =
-        ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount, sigmaGeoM);
+    double pcs = ComputePcs(traceSigma,
+                            gdop,
+                            nLos,
+                            static_cast<uint32_t>(meas.size()),
+                            hopCount,
+                            sigmaGeoM,
+                            d.nlosScoreFed ? d.nlosScoreTerm : -1.0);
+    if (downweight)
+    {
+        // "Downweight in PCS regardless of raw trace(Sigma)" (Physical 2.6). Form-aware,
+        // as ApplyProvenance should be (sect 1.H item 3): v2 scores can be negative, and
+        // scaling a negative score by a factor < 1 would RAISE it.
+        pcs = (m_config.pcsForm == CA_TBL_PCS_V2)
+                  ? pcs - std::log10(1.0 / m_config.suspectPcsFactor)
+                  : pcs * m_config.suspectPcsFactor;
+    }
 
     d.traceSigma = traceSigma;
     d.gdop = gdop;
@@ -1181,6 +1794,16 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // NW-4: an URGENT query forces the decision, whatever the PCS; the suppress-only
+    // preconditions below still apply to it.
+    const bool queryHook = m_queryEscArmed && dynamic && m_tier < CA_TBL_TIER_UWB && !m_uwbPending;
+    if (queryHook)
+    {
+        wantEscalate = true;
+        d.queryTriggered = true;
+        ++m_queryEscFired;
+    }
+    d.wantedEscalation = wantEscalate; // DC-4: before any precondition suppresses it
     // ------------------------------------------ availability precondition (B.2+) --
     // Escalate only into a tier there are grounds to believe can deliver. Applied
     // AFTER wantEscalate is formed, so it can only ever SUPPRESS an escalation the
@@ -1240,6 +1863,11 @@ CaTblPolicy::Step(double dt,
     {
         if (m_config.imuCrossCheck && m_imuTolM > 0.0)
         {
+            if (m_config.witnessCounts)
+            {
+                ++m_witnessEvals; // DC-9
+                d.witnessEvaluated = true;
+            }
             // The inertial estimate is an independent ABSOLUTE position that drifts.
             // The caller supplies both the disagreement and the tolerance, because the
             // drift model belongs with the engine that produces it -- an SHS is bounded
@@ -1250,6 +1878,7 @@ CaTblPolicy::Step(double dt,
             {
                 wantEscalate = false;
                 m_imuRejections++;
+                d.witnessRefused = m_config.witnessCounts; // DC-9
             }
         }
 
@@ -1357,7 +1986,15 @@ CaTblPolicy::Step(double dt,
         }
     }
 
-    if (dynamic && !activeDelivered)
+    // DC-9: a witness refusal the evidence gate would have made anyway is ABSORBED.
+    if (d.witnessRefused && UwbEvidenceWouldBlock(traceSigma, meas))
+    {
+        ++m_witnessAbsorbed;
+        d.witnessAbsorbed = true;
+    }
+    // DC-4: a Case D cycle has a live covariance and is not a blind cycle, so it takes the
+    // normal escalation decision below and does not count toward demotion.
+    if (dynamic && !activeDelivered && !caseD && !(queryHook && wantEscalate))
     {
         // A fix was obtained, but NOT from the active tier -- the caller fell back to
         // the tier-1 floor. That is direct evidence the active tier has no coverage
@@ -1412,13 +2049,32 @@ CaTblPolicy::Step(double dt,
     }
     else if (dynamic && wantEscalate)
     {
-        if (m_tier < CA_TBL_TIER_UWB)
+        if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+        {
+            // NW-7: into UWB only on a confirmed grant. The first cycle that wants it asks
+            // (escalated, so the caller sends the request); while pending, nothing more.
+            if (!m_uwbPending)
+            {
+                m_uwbPending = true;
+                ++m_uwbRequests;
+                d.escalated = true;
+                d.uwbPending = true;
+            }
+            m_deescalateCounter = 0;
+        }
+        else if (m_tier < CA_TBL_TIER_UWB)
         {
             m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
             m_escalations++;
             d.escalated = true;
             m_deescalateCounter = 0;
         }
+    }
+    else if (dynamic && m_uwbPending)
+    {
+        // NW-7: frozen while a UWB request is pending -- no healthy demotion, which could
+        // otherwise let the grant land on a node that has stepped down to 868.
+        m_deescalateCounter = 0;
     }
     else if (dynamic)
     {
@@ -1450,6 +2106,24 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    if (queryHook)
+    {
+        // NW-4: an escalation made under the hook is counted; on UWB, or once UWB is asked
+        // for, the hook has done its job. Suppressed by a precondition, it disarms.
+        if (d.escalated)
+        {
+            ++m_queryEscalations;
+            if (m_tier == CA_TBL_TIER_UWB || m_uwbPending)
+            {
+                m_queryEscArmed = false;
+            }
+        }
+        else if (!wantEscalate)
+        {
+            ++m_queryEscSuppressed;
+            m_queryEscArmed = false;
+        }
+    }
     d.nextTier = m_tier;
     // Remember where the filter was, so the next cycle can ask whether it moved the
     // way the body did. Recorded on EVERY cycle including refused ones: the comparison

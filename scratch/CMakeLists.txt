@@ -99,3 +99,19 @@ foreach(subdir ${scratch_subdirectories})
     create_scratch("${scratch_sources}")
   endif()
 endforeach()
+
+# M.3 (TECH_DEBT). ca_tbl_causal_sim carries the commit of the tree that built it, for
+# --stampBuildCommit. The stamp target runs on every build; it rewrites its source only when
+# HEAD or the tracked-modification count changes, so an unchanged tree recompiles nothing.
+if(TARGET scratch_ca_tbl_causal_sim)
+  set(catbl_stamp_src ${CMAKE_CURRENT_BINARY_DIR}/catbl_build_stamp.cc)
+  add_custom_target(
+    catbl_build_stamp
+    BYPRODUCTS ${catbl_stamp_src}
+    COMMAND ${CMAKE_COMMAND} -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${catbl_stamp_src} -P
+            ${CMAKE_CURRENT_SOURCE_DIR}/catbl_build_stamp.cmake
+    COMMENT "Stamping the build commit (M.3)"
+  )
+  target_sources(scratch_ca_tbl_causal_sim PRIVATE ${catbl_stamp_src})
+  add_dependencies(scratch_ca_tbl_causal_sim catbl_build_stamp)
+endif()

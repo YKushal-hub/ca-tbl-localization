@@ -122,7 +122,7 @@ exist. Full analysis in `MASTER_PLAN.md` §2.3.
 | Item | Specified | Implemented |
 |---|---|---|
 | Tier-1 observable | TDoA multilateration (Chan, Foy) | **RSSI inversion.** No timing layer, no sync, no TDoA solver. This is why the CRLB gate does not apply to tier 1 (R-10) and why NOV-03/NOV-04 are currently moot |
-| Estimation location | Anchor/Gateway Node | **Field tag.** EKF, PCS, gates and FSM all run on the tag |
+| Estimation location | Anchor/Gateway Node | **Gateways, by default since 2026-09-29** (`--gatewayEdgeServer`): the tag is billed one tier-1 broadcast and one downlink per fix. Before that, and under `--gatewayEdgeServer=false`, the field tag ran the EKF, PCS, gates and FSM. Getting a tier-2 or tier-3 range to the gateway's estimator is not billed (`docs/TECH_DEBT.md` L.2.3) |
 | Predict-step prior | Inertial dead-reckoning (IMU) | **Constant velocity, 4-state.** No IMU anywhere. Consequence: the integrity check's "independent prior" is propagated from previous radio fixes, so it is not independent in the sense the specification requires |
 | PCS composition | Weighted sum, weights by LOOCV | **Unweighted sum** of three [0,1] terms (legacy), or `log10(σ_ref/σ_eff)` (v2). The missing weighting is the direct cause of the saturation defect |
 | Fusion | Covariance Intersection + sequence supersession | Neither implemented |

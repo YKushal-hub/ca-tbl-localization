@@ -1,0 +1,1 @@
+--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --suspectRecovery=inflate --nlosSource=propagation
