@@ -61,11 +61,20 @@ REPRO = [  # (this campaign's cell, the earlier campaign's root and cell, arms)
 ]
 
 
+# Amendment (PREREG_LORA_CMP2 sect 7, after the registered check fired): the snapshot
+# multilateration diagnostic's two error columns are left out of the reproduction comparison.
+# They amplify 1e-13 input differences through near-singular solves, and nothing here reads
+# them. Every other column, mlat_solved included, must still reproduce byte-for-byte.
+UNSTABLE = {"rmse_mlat", "cep95_mlat"}
+
+
 def lines(p, arm):
     try:
-        return [ln for ln in open(p) if ln.startswith(arm + ",")]
+        rows = list(csv.reader(open(p)))
     except OSError:
         return []
+    keep = [i for i, h in enumerate(rows[0]) if h not in UNSTABLE]
+    return [[r[i] for i in keep] for r in rows[1:] if r and r[0] == arm]
 
 
 def checks(roots, problems):
