@@ -1288,6 +1288,22 @@ ArbBatteryTerm(bool remaining, double usedFrac)
     return remaining ? 1.0 - usedFrac : usedFrac;
 }
 
+//! The fusion comparators: poucet_fusion ranges and fuses every tier each cycle, lora_fusion
+//! the two LoRa tiers only (its UWB radio sleeps). Neither switches.
+static bool
+IsFuseMode(CaTblPolicyMode m)
+{
+    return m == CA_TBL_MODE_FUSE_ALL || m == CA_TBL_MODE_FUSE_LORA;
+}
+
+//! Whether a fusion arm has tier <ti>'s radio awake, ranging and billed every cycle.
+static bool
+FuseTierOn(CaTblPolicyMode m, int ti)
+{
+    return m == CA_TBL_MODE_FUSE_ALL ||
+           (m == CA_TBL_MODE_FUSE_LORA && ti != static_cast<int>(CA_TBL_TIER_UWB));
+}
+
 // SY-2. --radioBasis=lr1121: every field-node and gateway-gossip energy account takes the
 // LR1121 profiles for 868 MHz and 2.4 GHz (UWB stays DW3000). A file-scope global, like
 // --terrainPerTierFreq's and --uwbNlosModel's: written once after cmd.Parse(), read where
@@ -8423,7 +8439,7 @@ RunArm(CaTblPolicyMode mode,
         {
             if (nodeMac[ti] != nullptr)
             {
-                nodeMac[ti]->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL || ti == static_cast<int>(t0) ||
+                nodeMac[ti]->SetAsleep(!(FuseTierOn(mode, ti) || ti == static_cast<int>(t0) ||
                                          (hybrid0 && t0 != CA_TBL_TIER_868 &&
                                           ti == CA_TBL_TIER_868)));
             }
@@ -10063,10 +10079,14 @@ RunArm(CaTblPolicyMode mode,
                 {
                     sb.energy.AccountCad(act);
                 }
-                else if (mode == CA_TBL_MODE_FUSE_ALL)
+                else if (IsFuseMode(mode))
                 {
                     for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
                     {
+                        if (!FuseTierOn(mode, k))
+                        {
+                            continue;
+                        }
                         const std::vector<CaTblRangeMeasurement> m =
                             rangeS(static_cast<CaTblTier>(k));
                         fuseAllS[k] = m.size();
@@ -10122,9 +10142,10 @@ RunArm(CaTblPolicyMode mode,
                 if (chain && spec.subjectRelayChain)
                 {
                     chain->awake[pt] = static_cast<uint8_t>(
-                        (mode == CA_TBL_MODE_FUSE_ALL) ? 7u
-                                                       : ((1u << static_cast<int>(act)) |
-                                                          (floorOn ? 1u : 0u)));
+                        (mode == CA_TBL_MODE_FUSE_ALL)    ? 7u
+                        : (mode == CA_TBL_MODE_FUSE_LORA) ? 3u
+                                                          : ((1u << static_cast<int>(act)) |
+                                                             (floorOn ? 1u : 0u)));
                     if (actSolved || usedFloorS || (fuseS && fusedS.size() >= 3))
                     {
                         chain->SubjectHolds(pt);
@@ -10142,7 +10163,7 @@ RunArm(CaTblPolicyMode mode,
                 const std::vector<CaTblRangeMeasurement>& measS =
                     chainUsed ? chainM : (fuseS ? fusedS : (usedFloorS ? floorM : actM));
                 const CaTblTier fixTierS =
-                    (mode == CA_TBL_MODE_FUSE_ALL && !chainUsed)
+                    (IsFuseMode(mode) && !chainUsed)
                         ? (fuseAllS[CA_TBL_TIER_UWB] > 0
                                ? CA_TBL_TIER_UWB
                                : (fuseAllS[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4
@@ -10468,7 +10489,7 @@ RunArm(CaTblPolicyMode mode,
                 {
                     const CaTblTier tr = static_cast<CaTblTier>(k);
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
-                    const bool awake = (mode == CA_TBL_MODE_FUSE_ALL) || (tr == act) ||
+                    const bool awake = FuseTierOn(mode, k) || (tr == act) ||
                                        (floorOn && tr == CA_TBL_TIER_868);
                     if (mesh)
                     {
@@ -10519,7 +10540,7 @@ RunArm(CaTblPolicyMode mode,
                     if (mesh)
                     {
                         const bool floorNext = hybridS && ds.nextTier != CA_TBL_TIER_868;
-                        mm->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL ||
+                        mm->SetAsleep(!(FuseTierOn(mode, k) ||
                                         k == static_cast<int>(ds.nextTier) ||
                                         (floorNext && k == CA_TBL_TIER_868)));
                     }
@@ -11315,12 +11336,17 @@ RunArm(CaTblPolicyMode mode,
                 }
             }
         }
-        else if (mode == CA_TBL_MODE_FUSE_ALL)
+        else if (IsFuseMode(mode))
         {
-            // Poucet-style fusion: every tier ranged, every cycle, into one set.
+            // Poucet-style fusion: every tier ranged, every cycle, into one set
+            // (lora_fusion: the two LoRa tiers).
             pendingHandshake = false;
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
+                if (!FuseTierOn(mode, ti))
+                {
+                    continue;
+                }
                 const std::vector<CaTblRangeMeasurement> m =
                     rangeTier(static_cast<CaTblTier>(ti));
                 fuseAllN[ti] = m.size();
@@ -11755,7 +11781,7 @@ RunArm(CaTblPolicyMode mode,
         const std::vector<CaTblRangeMeasurement>& meas =
             fuseFA ? fusedFA : (usedFloor ? floorMeas : activeMeas);
         const CaTblTier fixTier =
-            (mode == CA_TBL_MODE_FUSE_ALL)
+            IsFuseMode(mode)
                 ? (fuseAllN[CA_TBL_TIER_UWB] > 0
                        ? CA_TBL_TIER_UWB
                        : (fuseAllN[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4 : CA_TBL_TIER_868))
@@ -12009,7 +12035,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 if (nodeMac[ti] != nullptr)
                 {
-                    nodeMac[ti]->SetAsleep(!(mode == CA_TBL_MODE_FUSE_ALL ||
+                    nodeMac[ti]->SetAsleep(!(FuseTierOn(mode, ti) ||
                                              ti == static_cast<int>(d.nextTier) ||
                                              (floorNext && ti == CA_TBL_TIER_868)));
                 }
@@ -12688,7 +12714,7 @@ RunArm(CaTblPolicyMode mode,
         for (int tierIdx = 0; tierIdx < CA_TBL_TIER_COUNT; ++tierIdx)
         {
             const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
-            const bool wasAwake = (mode == CA_TBL_MODE_FUSE_ALL) || (tr == active) ||
+            const bool wasAwake = FuseTierOn(mode, tierIdx) || (tr == active) ||
                                   (runFloor && tr == CA_TBL_TIER_868);
             if (mesh && nodeMac[tierIdx] != nullptr)
             {
@@ -15714,7 +15740,10 @@ main(int argc, char* argv[])
                  "run's. Exists for the operating-point sweep, where four of the "
                  "six arms are pure runtime. 'poucet_fusion' (by name only, not in 'all'): "
                  "the spec's Poucet-style comparator -- every radio on, each cycle's ranges "
-                 "from all three tiers fused, no switching, every tier billed.",
+                 "from all three tiers fused, no switching, every tier billed. 'lora_fusion' "
+                 "(by name only): the same without UWB -- the 868 MHz and 2.4 GHz LoRa radios "
+                 "ranged and fused every cycle, the UWB radio asleep -- so the comparison "
+                 "covers LoRa on both of its bands, not only 868 MHz RSSI and TDoA.",
                  armsArg);
     cmd.AddValue("injectRangeBias",
                  "S7-lite: metres of COMMON-MODE range bias added to every tier-2 "
@@ -18816,6 +18845,11 @@ main(int argc, char* argv[])
             if (!found && name == CaTblPolicyModeName(CA_TBL_MODE_FUSE_ALL))
             {
                 arms.push_back(CA_TBL_MODE_FUSE_ALL); // by name only: 'all' is unchanged
+                found = true;
+            }
+            if (!found && name == CaTblPolicyModeName(CA_TBL_MODE_FUSE_LORA))
+            {
+                arms.push_back(CA_TBL_MODE_FUSE_LORA); // by name only: 'all' is unchanged
                 found = true;
             }
             if (!found && !name.empty())

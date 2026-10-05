@@ -27,6 +27,8 @@ CaTblPolicyModeName(CaTblPolicyMode mode)
         return "static_uwb";
     case CA_TBL_MODE_FUSE_ALL:
         return "poucet_fusion";
+    case CA_TBL_MODE_FUSE_LORA:
+        return "lora_fusion";
     default:
         return "unknown";
     }

@@ -139,7 +139,12 @@ enum CaTblPolicyMode
     //! cycle's ranges from all three tiers fused, no switching. The spec's comparison-table
     //! baseline. Never escalates; its tier stays 868 MHz in the policy. Selectable only by
     //! name (--arms=poucet_fusion), so --arms=all is unchanged.
-    CA_TBL_MODE_FUSE_ALL
+    CA_TBL_MODE_FUSE_ALL,
+    //! Dual-band LoRa fusion: CA_TBL_MODE_FUSE_ALL without UWB. The 868 MHz and 2.4 GHz
+    //! radios are on and ranged every cycle and their ranges fused; the UWB radio sleeps and
+    //! is billed only for sleeping. The LoRa-only comparator on both LoRa bands. Selectable
+    //! only by name (--arms=lora_fusion).
+    CA_TBL_MODE_FUSE_LORA
 };
 
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);
