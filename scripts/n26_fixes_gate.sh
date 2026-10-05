@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# G89 runner: the four N.26 fixes (--loraDualBase, --uwbCrossTierPoll, --integrityChi2 with
+# --mahalUseR, --tdoaInnovationGate). What each run is for, and what a firing looks like on
+# disk, is in scripts/n26_fixes_gate.py, which reads them.
+#
+# usage: bash scripts/n26_fixes_gate.sh [<workdir>]
+#   With <workdir> the runs are left there for the self-test to build its fixtures from;
+#   without one they go to a mktemp directory removed on exit.
+#
+# The preset's endgame (seed 7, 900 s; ca_tbl_full and static_868) with each fix off and on,
+# and the 5 km seed whose TDoA went wrong (seed 1, 1 800 s; static_868) with the gate off/on.
+set -u
+cd "$(dirname "$0")/.." || exit 2
+BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
+if [ $# -ge 1 ]; then
+    D=$1
+    mkdir -p "$D" || exit 2
+else
+    D=$(mktemp -d "${TMPDIR:-/tmp}/g89.XXXXXX") || exit 2
+    trap 'rm -rf "$D"' EXIT
+fi
+E="--specProfile=true --seed=7 --duration=900 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full,static_868"
+K="--specProfile=true --seed=1 --duration=1800 --trace=true --arms=static_868"
+run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
+    local n=$1
+    shift
+    mkdir -p "$D/$n"
+    # shellcheck disable=SC2068
+    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    echo $? > "$D/$n.rc"
+}
+run e_off $E &
+run e_dual $E --loraDualBase=true &
+run e_cross $E --uwbCrossTierPoll=true &
+wait
+run e_chi $E --mahalUseR=true --integrityChi2=20 &
+run k_off $K &
+run k_gate $K --tdoaInnovationGate=true &
+wait
+
+python3 scripts/n26_fixes_gate.py "$D"
