@@ -142,7 +142,7 @@ def main():
             md.append(f"| {name} | {d('av')} | {d('c95')} | {d('J')} | {len(s)} |")
         md.append("")
     with open(os.path.join(lc, "lora_cmp_table.csv"), "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()), lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
     md += [f"Problems: {len(problems)}" + ("" if problems else " (none)")] + [f"- {p}" for p in problems]
