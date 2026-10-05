@@ -96,3 +96,28 @@ Nothing is adopted. The table answers the owner's coverage request, and the Pouc
 answers part of "why Poucet wins". The diagnosis of CA-TBL's own UWB path (0–2 UWB neighbours
 on its UWB cycles, measured from CAMP-FINAL's B_end traces) is reported separately and is not
 a prediction here.
+
+## 7. Amendment, 2026-10-05, after the registered reproduction check fired
+
+The check in §5 fired on its first analysis. It is reported here, not overridden silently.
+
+**What fired.** X_main and X_end: `poucet_fusion`'s `arm_summary.csv` row differs from
+CAMP-FINAL's in two columns, and in nothing else:
+- `rmse_mlat`: 11 503.4 → 11 765.4 m (A_main seed 1) and 7 608.6 → 13 987.4 m (B_end seed 1);
+- `cep95_mlat`: 25 580.0 → 25 583.0 m and 2 186.7 → 2 221.3 m.
+
+Every other column of every compared row is identical, `mlat_solved` included, and so is
+every `subject_summary.csv` row. X_rssi reproduces in full.
+
+**Cause.** These are the rival-system diagnostic `BaselineMultilaterate()`: a snapshot least-
+squares solve on the cycle's raw range set. For `poucet_fusion` that set mixes three tiers and
+finder pseudo-anchors, and its errors run to kilometres, so the solves are near-singular.
+Across the two binaries the compared arms' traces differ only in `estXhp`, `estYhp`,
+`meanSigmaM`, `meanSigmaRawM` and `mahalanobis`, at most 9.1e-14 relative (TECH_DEBT 4.1's
+codegen class). `directCalls` and `macEvals` are identical on all 5 760 trace rows of the X
+cells. So the two binaries perform the same engine evaluations (rule 8), and the diagnostic
+amplifies last-digit differences.
+
+**Amendment.** The reproduction comparison leaves out exactly those two columns
+(`scripts/lora_cmp2_analyse.py`, `UNSTABLE`). The analysis reads neither of them. Every other
+§5 condition stands unchanged. This amendment is committed before any result is written up.
