@@ -6119,6 +6119,20 @@ struct SpecOptions
     bool fuseFloorActive = false;
     //! N.14 / FUSE-02. --fuseFloorShort: ... only when the floor alone is short of three too.
     bool fuseFloorShort = false;
+    //! N.26 fix 1. --loraDualBase: a hybrid arm ranges both LoRa tiers every cycle and fuses
+    //! every range it took (the active tier's, the floor's, the other LoRa tier's).
+    bool loraDualBase = false;
+    //! N.26 fix 2. --uwbCrossTierPoll: a UWB exchange also polls the finders heard on LoRa
+    //! within uwbCrossTierRadiusM of the node's estimate, not only those whose UWB beacon was
+    //! decoded.
+    bool uwbCrossTierPoll = false;
+    double uwbCrossTierRadiusM = 40.0;
+    //! N.15 / N.26 fix 3. --integrityChi2: the integrity check's threshold on the Mahalanobis
+    //! distance (CaTblPolicyConfig::mahalanobisThreshold), chi-square 2 DOF 99 % by default.
+    double integrityChi2 = 9.21;
+    //! N.25 / N.26 fix 4. --tdoaInnovationGate: a TDoA position enters the EKF only if its
+    //! innovation against the RSSI-updated state is within chi-square 2 DOF 99 %.
+    bool tdoaInnovationGate = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
@@ -6540,6 +6554,14 @@ RunArm(CaTblPolicyMode mode,
     if (spec.grantGatedUwb)
     {
         pcfg.grantGatedUwb = true; // NW-7
+    }
+    if (spec.integrityChi2 != 9.21)
+    {
+        pcfg.mahalanobisThreshold = spec.integrityChi2; // N.26 fix 3
+    }
+    if (spec.tdoaInnovationGate)
+    {
+        pcfg.auxInnovationGate = true; // N.26 fix 4
     }
     if (spec.queryTriggeredEscalation)
     {
@@ -7615,6 +7637,9 @@ RunArm(CaTblPolicyMode mode,
     double blLkpX = 0.0, blLkpY = 0.0;
     bool blMlatHave = false, blWclHave = false, blProxHave = false;
     uint64_t mlatSolved = 0;
+    uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
+    uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
+    uint64_t crossTierPolls = 0; // N.26 fix 2: UWB polls added from the LoRa tables
     Vector prevTruePos = pos;
     // DC-10 (--entryVelocity). Each finder's last published position and time, for the
     // velocity its GNSS receiver would report, and the entries_ record of what every
@@ -8441,7 +8466,9 @@ RunArm(CaTblPolicyMode mode,
             {
                 nodeMac[ti]->SetAsleep(!(FuseTierOn(mode, ti) || ti == static_cast<int>(t0) ||
                                          (hybrid0 && t0 != CA_TBL_TIER_868 &&
-                                          ti == CA_TBL_TIER_868)));
+                                          ti == CA_TBL_TIER_868) ||
+                                         (spec.loraDualBase && hybrid0 &&
+                                          ti != static_cast<int>(CA_TBL_TIER_UWB))));
             }
         }
     }
@@ -9795,6 +9822,41 @@ RunArm(CaTblPolicyMode mode,
                             keep.push_back(nb[k]);
                         }
                     }
+                    // N.26 fix 2, as tag 0's: LoRa-heard finders near the subject's estimate
+                    // are polled on UWB too.
+                    if (tier == CA_TBL_TIER_UWB && spec.uwbCrossTierPoll)
+                    {
+                        for (int lt = 0; lt < 2; ++lt)
+                        {
+                            const std::vector<CaTblNeighbour> ln =
+                                peerMacs[pi][static_cast<size_t>(lt)]->GetNeighbours(
+                                    static_cast<CaTblTier>(lt), t);
+                            for (size_t k = 0; k < ln.size(); ++k)
+                            {
+                                const auto fp = anchorPosById.find(ln[k].id);
+                                if (ln[k].id < 501 || fp == anchorPosById.end())
+                                {
+                                    continue;
+                                }
+                                const double qx = fp->second.x - sb.policy.EstX();
+                                const double qy = fp->second.y - sb.policy.EstY();
+                                if (std::sqrt(qx * qx + qy * qy) > spec.uwbCrossTierRadiusM)
+                                {
+                                    continue;
+                                }
+                                bool have = false;
+                                for (size_t j = 0; j < keep.size(); ++j)
+                                {
+                                    have = have || keep[j].id == ln[k].id;
+                                }
+                                if (!have)
+                                {
+                                    keep.push_back(ln[k]);
+                                    ++crossTierPolls;
+                                }
+                            }
+                        }
+                    }
                     sb.energy.AccountCad(tier);
                     if (tier == act)
                     {
@@ -10110,7 +10172,20 @@ RunArm(CaTblPolicyMode mode,
                         ++ex.floorCycles;
                     }
                 }
-                if (spec.caseCRelative && actM.empty() && floorM.empty() &&
+                // N.26 fix 1, as tag 0's: the other LoRa tier too, every cycle (the floor
+                // already ranges whenever the subject is off 868 MHz).
+                const bool dualS = spec.loraDualBase && hybridS;
+                std::vector<CaTblRangeMeasurement> otherS;
+                if (dualS)
+                {
+                    if (act != CA_TBL_TIER_2P4 && !(preempt && pendT == CA_TBL_TIER_2P4))
+                    {
+                        otherS = rangeS(CA_TBL_TIER_2P4);
+                    }
+                    ++dualCycles;
+                    dualRanges += actM.size() + floorM.size() + otherS.size();
+                }
+                if (spec.caseCRelative && actM.empty() && floorM.empty() && otherS.empty() &&
                     !(spec.subjectBatteryDeplete && sb.batteryDead) &&
                     !(preempt && act == pendT))
                 {
@@ -10129,6 +10204,13 @@ RunArm(CaTblPolicyMode mode,
                     fusedS = actM;
                     fusedS.insert(fusedS.end(), floorM.begin(), floorM.end());
                 }
+                std::vector<CaTblRangeMeasurement> dualFusedS; // N.26 fix 1
+                if (dualS)
+                {
+                    dualFusedS = actM;
+                    dualFusedS.insert(dualFusedS.end(), floorM.begin(), floorM.end());
+                    dualFusedS.insert(dualFusedS.end(), otherS.begin(), otherS.end());
+                }
                 // N.15 (--subjectRelayChain). Three or more direct ranges on either set
                 // make the subject a fix-holder at depth 0. Short of three on both, it
                 // ranges the holders awake on its active tier, and the relayed ranges join
@@ -10145,14 +10227,16 @@ RunArm(CaTblPolicyMode mode,
                         (mode == CA_TBL_MODE_FUSE_ALL)    ? 7u
                         : (mode == CA_TBL_MODE_FUSE_LORA) ? 3u
                                                           : ((1u << static_cast<int>(act)) |
-                                                             (floorOn ? 1u : 0u)));
-                    if (actSolved || usedFloorS || (fuseS && fusedS.size() >= 3))
+                                                             (floorOn ? 1u : 0u) |
+                                                             (dualS ? 3u : 0u)));
+                    if (actSolved || usedFloorS || (fuseS && fusedS.size() >= 3) ||
+                        (dualS && dualFusedS.size() >= 3))
                     {
                         chain->SubjectHolds(pt);
                     }
                     else if (!(preempt && act == pendT) && !(spec.subjectBatteryDeplete && sb.batteryDead))
                     {
-                        chainM = fuseS ? fusedS : actM; // N.14: relays complete the union
+                        chainM = dualS ? dualFusedS : (fuseS ? fusedS : actM); // N.14: relays complete the union
                         chainPk = chain->RangeForSubject(
                             pt, tags, nTags, act, chain->awake, phy, engine868, engine2p4,
                             engineUwb, t, dt, now, maxRelayDepth, relayVarBudgetM2,
@@ -10161,9 +10245,16 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 const std::vector<CaTblRangeMeasurement>& measS =
-                    chainUsed ? chainM : (fuseS ? fusedS : (usedFloorS ? floorM : actM));
+                    chainUsed ? chainM
+                              : (dualS ? dualFusedS : (fuseS ? fusedS : (usedFloorS ? floorM : actM)));
                 const CaTblTier fixTierS =
-                    (IsFuseMode(mode) && !chainUsed)
+                    (dualS && !chainUsed)
+                        ? ((act == CA_TBL_TIER_UWB && !actM.empty())
+                               ? CA_TBL_TIER_UWB
+                               : (((act == CA_TBL_TIER_2P4 && !actM.empty()) || !otherS.empty())
+                                      ? CA_TBL_TIER_2P4
+                                      : CA_TBL_TIER_868))
+                    : (IsFuseMode(mode) && !chainUsed)
                         ? (fuseAllS[CA_TBL_TIER_UWB] > 0
                                ? CA_TBL_TIER_UWB
                                : (fuseAllS[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4
@@ -10490,7 +10581,8 @@ RunArm(CaTblPolicyMode mode,
                     const CaTblTier tr = static_cast<CaTblTier>(k);
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
                     const bool awake = FuseTierOn(mode, k) || (tr == act) ||
-                                       (floorOn && tr == CA_TBL_TIER_868);
+                                       (floorOn && tr == CA_TBL_TIER_868) ||
+                                       (dualS && tr != CA_TBL_TIER_UWB);
                     if (mesh)
                     {
                         const double air = mm->GetRebroadcastAirtimeS();
@@ -10542,7 +10634,8 @@ RunArm(CaTblPolicyMode mode,
                         const bool floorNext = hybridS && ds.nextTier != CA_TBL_TIER_868;
                         mm->SetAsleep(!(FuseTierOn(mode, k) ||
                                         k == static_cast<int>(ds.nextTier) ||
-                                        (floorNext && k == CA_TBL_TIER_868)));
+                                        (floorNext && k == CA_TBL_TIER_868) ||
+                                        (dualS && k != static_cast<int>(CA_TBL_TIER_UWB))));
                     }
                 }
                 *ex.trace << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId << ','
@@ -10805,6 +10898,48 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
                 nb.swap(keep);
+            }
+            // N.26 fix 2 (--uwbCrossTierPoll). A finder heard on a LoRa tier, standing within
+            // uwbCrossTierRadiusM of this node's estimate, is polled on UWB as well, without
+            // waiting for its UWB beacon: the beacon is decoded on 15-34 % of the cycles a
+            // finder stands in UWB range (N.26), and never on a stint's first cycle, when the
+            // radio has just woken. The physics engine still decides whether the exchange
+            // closes; an unanswered poll is billed as one.
+            if (tier == CA_TBL_TIER_UWB && spec.uwbCrossTierPoll)
+            {
+                for (int lt = 0; lt < 2; ++lt)
+                {
+                    if (nodeMac[lt] == nullptr)
+                    {
+                        continue;
+                    }
+                    const std::vector<CaTblNeighbour> ln =
+                        nodeMac[lt]->GetNeighbours(static_cast<CaTblTier>(lt), t);
+                    for (size_t k = 0; k < ln.size(); ++k)
+                    {
+                        const auto ap = anchorPosById.find(ln[k].id);
+                        if (ln[k].id < 501 || ap == anchorPosById.end())
+                        {
+                            continue;
+                        }
+                        const double ex = ap->second.x - policy.EstX();
+                        const double ey = ap->second.y - policy.EstY();
+                        if (std::sqrt(ex * ex + ey * ey) > spec.uwbCrossTierRadiusM)
+                        {
+                            continue;
+                        }
+                        bool have = false;
+                        for (size_t j = 0; j < nb.size(); ++j)
+                        {
+                            have = have || nb[j].id == ln[k].id;
+                        }
+                        if (!have)
+                        {
+                            nb.push_back(ln[k]);
+                            ++crossTierPolls;
+                        }
+                    }
+                }
             }
 
             energy.AccountCad(tier);
@@ -11246,6 +11381,7 @@ RunArm(CaTblPolicyMode mode,
             tdoa->BeginCycle();
         }
 
+        int preemptTier = -1; // N.26 fix 1: the tier whose ranging the handshake took
         if (pendingHandshake && arbitrateDutyBudget)
         {
             // Pre-empt: the tier change committed last cycle but the handshake
@@ -11311,6 +11447,7 @@ RunArm(CaTblPolicyMode mode,
             }
             ++handshakePreemptions;
             pendingHandshake = false;
+            preemptTier = static_cast<int>(pendingHandshakeTier);
 
             // Ranging proceeds on every tier EXCEPT the one surrendering its slot.
             // rangeTier() charges CAD itself, so charge it directly for the
@@ -11362,6 +11499,27 @@ RunArm(CaTblPolicyMode mode,
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
             }
+        }
+        // N.26 fix 1 (--loraDualBase). Both LoRa tiers every cycle: the floor even where
+        // --floorOnDemand would skip it, and 2.4 GHz whenever it is not the active tier
+        // (its radio is kept awake below). A tier whose ranging slot the handshake took is
+        // not ranged, as above. The ranges are fused at the fix selection.
+        const bool dualBase = spec.loraDualBase && hybridArm;
+        std::vector<CaTblRangeMeasurement> otherLoraMeas;
+        if (dualBase)
+        {
+            if (active != CA_TBL_TIER_868 && !floorRanged &&
+                preemptTier != static_cast<int>(CA_TBL_TIER_868))
+            {
+                floorMeas = rangeTier(CA_TBL_TIER_868);
+                floorRanged = true;
+            }
+            if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4))
+            {
+                otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
+            }
+            ++dualCycles;
+            dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
         }
 
         // Fix selection: prefer the escalated tier when it solved, fall back to the
@@ -11778,10 +11936,24 @@ RunArm(CaTblPolicyMode mode,
             fusedFA = activeMeas;
             fusedFA.insert(fusedFA.end(), floorMeas.begin(), floorMeas.end());
         }
+        // N.26 fix 1: every range this cycle took, in one set, labelled with the most
+        // precise tier among them (as the fusion comparators label theirs).
+        std::vector<CaTblRangeMeasurement> dualFused;
+        bool dualHas2p4 = false;
+        bool dualHasUwb = false;
+        if (dualBase)
+        {
+            dualFused = activeMeas;
+            dualFused.insert(dualFused.end(), floorMeas.begin(), floorMeas.end());
+            dualFused.insert(dualFused.end(), otherLoraMeas.begin(), otherLoraMeas.end());
+            dualHasUwb = active == CA_TBL_TIER_UWB && !activeMeas.empty();
+            dualHas2p4 = (active == CA_TBL_TIER_2P4 && !activeMeas.empty()) || !otherLoraMeas.empty();
+        }
         const std::vector<CaTblRangeMeasurement>& meas =
-            fuseFA ? fusedFA : (usedFloor ? floorMeas : activeMeas);
+            dualBase ? dualFused : (fuseFA ? fusedFA : (usedFloor ? floorMeas : activeMeas));
         const CaTblTier fixTier =
-            IsFuseMode(mode)
+            dualBase ? (dualHasUwb ? CA_TBL_TIER_UWB : (dualHas2p4 ? CA_TBL_TIER_2P4 : CA_TBL_TIER_868))
+            : IsFuseMode(mode)
                 ? (fuseAllN[CA_TBL_TIER_UWB] > 0
                        ? CA_TBL_TIER_UWB
                        : (fuseAllN[CA_TBL_TIER_2P4] > 0 ? CA_TBL_TIER_2P4 : CA_TBL_TIER_868))
@@ -12037,7 +12209,9 @@ RunArm(CaTblPolicyMode mode,
                 {
                     nodeMac[ti]->SetAsleep(!(FuseTierOn(mode, ti) ||
                                              ti == static_cast<int>(d.nextTier) ||
-                                             (floorNext && ti == CA_TBL_TIER_868)));
+                                             (floorNext && ti == CA_TBL_TIER_868) ||
+                                             (spec.loraDualBase && hybridArm &&
+                                              ti != static_cast<int>(CA_TBL_TIER_UWB))));
                 }
             }
         }
@@ -12715,7 +12889,8 @@ RunArm(CaTblPolicyMode mode,
         {
             const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
             const bool wasAwake = FuseTierOn(mode, tierIdx) || (tr == active) ||
-                                  (runFloor && tr == CA_TBL_TIER_868);
+                                  (runFloor && tr == CA_TBL_TIER_868) ||
+                                  (spec.loraDualBase && hybridArm && tr != CA_TBL_TIER_UWB);
             if (mesh && nodeMac[tierIdx] != nullptr)
             {
                 // NW-0. Under mesh links the node relays others' floods on its awake radios;
@@ -14489,6 +14664,25 @@ RunArm(CaTblPolicyMode mode,
             }
         }
     }
+    if (spec.loraDualBase || spec.uwbCrossTierPoll || spec.tdoaInnovationGate ||
+        spec.integrityChi2 != 9.21)
+    {
+        // N.26. Tag 0 and the measured subjects together.
+        uint64_t gated = policy.GetAuxGatedCount();
+        uint64_t fusedAux = policy.GetAuxFusedCount();
+        uint64_t suspects = policy.GetSuspectCount();
+        for (uint32_t pt = 1; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            gated += tags[pt].policy.GetAuxGatedCount();
+            fusedAux += tags[pt].policy.GetAuxFusedCount();
+            suspects += tags[pt].policy.GetSuspectCount();
+        }
+        std::cout << "    N.26 fixes (" << CaTblPolicyModeName(mode) << "): dual LoRa base node-cycles "
+                  << dualCycles << ", ranges in their sets " << dualRanges << "; UWB cross-tier polls "
+                  << crossTierPolls << "; TDoA innovation gate refused " << gated << ", TDoA fused "
+                  << fusedAux << "; integrity threshold " << pcfg.mahalanobisThreshold
+                  << ", suspects " << suspects << "\n";
+    }
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
@@ -15391,6 +15585,55 @@ main(int argc, char* argv[])
                  "old floor-first path, so a 1-2 range active set is discarded there as before. "
                  "Needs --fuseFloorActive.",
                  spec.fuseFloorShort);
+    cmd.AddValue("loraDualBase",
+                 "N.26 fix 1: a hybrid arm (ca_tbl_full, ca_tbl_no_integrity, fixed_threshold) keeps "
+                 "both LoRa radios awake and ranges both every cycle -- the 868 MHz floor even where "
+                 "--floorOnDemand would skip it, and 2.4 GHz whenever it is not the active tier -- and "
+                 "every range it took (the active tier's, UWB's included, the floor's, the other "
+                 "LoRa tier's) goes into one fix set, labelled with its most precise tier. FALSE by "
+                 "default: one tier's fix per cycle, the active tier's if it solves, else the floor's "
+                 "(the fix selection's preference rule), which discards a 1-2 range set: at 5 km "
+                 "6 771 of tag 0's 11 736 2.4 GHz cycles (CAMP-FINAL). LORA-CMP-2 measured the "
+                 "LoRa-only form (--arms=lora_fusion) at +0.052 / +0.079 / +0.110 availability over "
+                 "ca_tbl_full with tag 0's CEP95 indistinguishable. Breaks CLAUDE.md sect 6's one "
+                 "radio per cycle ON PURPOSE, and bills every radio that ranged: the energy axis "
+                 "then measures what the fusion costs. Static and fusion arms are unaffected.",
+                 spec.loraDualBase);
+    cmd.AddValue("uwbCrossTierPoll",
+                 "N.26 fix 2: a UWB exchange also polls the finders this node heard on 868 MHz or "
+                 "2.4 GHz that stand within --uwbCrossTierRadius of its estimate, not only those "
+                 "whose UWB beacon it decoded. FALSE by default. In CAMP-FINAL's endgame tag 0 had "
+                 "0-2 UWB neighbours on every one of its 900 UWB cycles, 0 on 704, while a finder "
+                 "stood within 30 m on 823: the beacon is never decoded on a stint's first cycle "
+                 "(the radio has just woken) and on 15-34 % after. The finder announces itself on "
+                 "LoRa with its position, so the node knows whom to poll. The engine still decides "
+                 "whether each exchange closes, and an unanswered poll is billed as one.",
+                 spec.uwbCrossTierPoll);
+    cmd.AddValue("uwbCrossTierRadius",
+                 "Radius for --uwbCrossTierPoll, metres, from the node's estimate to the finder's "
+                 "announced position. 40 (OURS): the 30 m UWB nominal range of the coverage label "
+                 "plus 10 m for the estimate's own error; wider polls finders that cannot answer and "
+                 "bills the timeouts.",
+                 spec.uwbCrossTierRadiusM);
+    cmd.AddValue("integrityChi2",
+                 "N.26 fix 3: the integrity check's threshold on the Mahalanobis distance "
+                 "(CaTblPolicyConfig::mahalanobisThreshold). 9.21 by default, chi-square 2 DOF 99 %, "
+                 "which assumes the covariance the check uses is right. It is not: with no fault "
+                 "injected the check flags 77-97 % of the preset's fixes (N.15, CAMP-FINAL), and "
+                 "ca_tbl_no_integrity has +0.042 endgame availability at 7.1 J less. A threshold "
+                 "fitted as the 99th percentile of the fault-free distance restores the 1 % false-"
+                 "alarm rate the 9.21 was meant to give; it is fitted on seeds the evaluation does "
+                 "not use (PREREG_FIXES_N26).",
+                 spec.integrityChi2);
+    cmd.AddValue("tdoaInnovationGate",
+                 "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
+                 "innovation against the state after this cycle's range update is at most 9.21 "
+                 "(chi-square 2 DOF 99 %). FALSE by default: it is fused with its full covariance "
+                 "whatever it says, and the three-gateway exact solve has no redundancy, so a wrong "
+                 "root goes in unchallenged -- at 5 km on N3_star TDoA makes static_868's tag 0 "
+                 "CEP95 worse by 438.9 m [119.4, 826.2] (LORA-CMP). Refusals are counted in the N.26 "
+                 "line. Read only under --tier1Tdoa.",
+                 spec.tdoaInnovationGate);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
