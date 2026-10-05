@@ -1918,6 +1918,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
 | N.24 | what the `poucet_fusion` comparator decides that the spec does not | recorded (OURS) |
 | N.25 | at 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse | open; measured (LORA-CMP), not changed |
+| N.26 | CA-TBL spends 65 % of its endgame energy on UWB that delivers no fix, and discards 1-2-range active sets that the fusion comparators use | open; measured (LORA-CMP-2), not changed |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -3118,3 +3119,25 @@ from `tdoa_*.csv` against the root-choice path.
 **Not changed.** The preset's tier 1 is RSSI + TDoA (Physical sect 1.1), and changing it is an
 engine change to the preset that needs its own registered campaign. CA-TBL's 5 km tier 1
 carries the same defect.
+
+### N.26 CA-TBL's UWB escalation buys no fix, and its one-tier-per-cycle rule discards partial sets
+
+Found 2026-10-05 (`report/LORA_CMP2_RESULTS.md` sect 3). Dual-band LoRa fusion
+(`--arms=lora_fusion`) beats CA-TBL on availability in every configuration (+0.052, +0.079,
++0.110). Its tag 0 CEP95 cannot be distinguished from CA-TBL's, and in the endgame it uses
+38 % of CA-TBL's subject energy. UWB adds nothing measurable to Poucet over that fusion. Two
+measured causes in CA-TBL, from CAMP-FINAL's traces (`ca_tbl_full`, tag 0, seeds 1-20):
+- **UWB.** In the endgame there are 900 UWB cycles:
+  - UWB neighbours: 0 on 704, 1-2 on 196, never 3;
+  - a finder is physically in UWB range on 823 of them (the radio sleeps until escalated);
+  - 0 UWB-delivered fixes over 20 seeds;
+  - UWB is 16.08 of 24.91 J of subject energy (64.6 %).
+- **Preference.** At 5 km, 6 771 of 11 736 2.4 GHz cycles have 1-2 2.4 GHz neighbours; their
+  ranges are discarded, while the fusion comparators use them.
+
+**Candidates, not established:**
+- fuse a short active set with the floor (FUSE-02; it failed at 5 km, partly through N.25);
+- refuse escalation into UWB without a discovered UWB neighbour, or listen for finders first;
+- task more than one finder per subject, so that three can be in UWB range.
+
+**Not changed.** Each is an engine or preset change for its own registered campaign.
