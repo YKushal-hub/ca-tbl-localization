@@ -210,6 +210,28 @@ main(int argc, char** argv)
               "a shared answer reaches every session that asked");
     }
 
+    // TA-3: precision on a confirmed grant, not on a UWB fix.
+    {
+        CaTblSessionManager mgr;
+        mgr.SetPreciseOnGrant(true);
+        const uint32_t sid = mgr.SearchAndLocalize(1, 0, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        mgr.OnResult(MakeResult(1, CA_TBL_TIER_UWB, false, 5.0), 5.0);
+        Check(mgr.Sessions().at(sid).State() == CA_TBL_SESSION_LOCATED_COARSE &&
+                  mgr.Sessions().at(sid).TimeToPrecise(1) < 0.0,
+              "TA-3: a UWB fix without a confirmed grant is coarse");
+        CaTblResult g = MakeResult(1, CA_TBL_TIER_2P4, false, 9.0);
+        g.uwbGranted = true;
+        mgr.OnResult(g, 9.0);
+        Check(mgr.Sessions().at(sid).State() == CA_TBL_SESSION_LOCATED_PRECISE &&
+                  mgr.Sessions().at(sid).TimeToPrecise(1) == 9.0,
+              "TA-3: an entry carrying a confirmed grant makes the session precise");
+        CaTblSessionManager legacy;
+        const uint32_t l = legacy.SearchAndLocalize(1, 0, CA_TBL_PRIORITY_ROUTINE, 0.0);
+        legacy.OnResult(MakeResult(1, CA_TBL_TIER_UWB, false, 5.0), 5.0);
+        Check(legacy.Sessions().at(l).State() == CA_TBL_SESSION_LOCATED_PRECISE,
+              "CONTROL: by default a UWB fix is precise");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
 }

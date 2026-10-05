@@ -86,6 +86,56 @@ RadioPowerProfile::Dw3000_Uwb()
     return p;
 }
 
+// ---------------------------------------------------------------------------
+// SY-2. The spec's radio basis: tiers 1 and 2 on one Semtech LR1121 die (DW3000 stays
+// tier 3). Source: Semtech, "LR1121 Datasheet", DS.LR1121.W.APP Rev 2.0, Dec 2023,
+// sect 3.4.1, Tables 3-4, 3-5 and 3-6, read from the PDF (sha256 ede17ac3...; a second
+// distributor's copy has the same tables). Conditions: VBAT = 3.3 V, 25 C, DC-DC mode.
+// Semtech's page lists a 2025-04-26 revision that could not be downloaded; Rev 2.0 is
+// cited because it is the one read. Each choice below is stated; OURS where it is ours.
+//   TX 868 MHz +14 dBm, LP PA ........ 28 mA   (IDDTXLP2, Table 3-6)
+//   TX 2.4 GHz +13 dBm, HF PA ........ 26 mA   (IDDTXHF1, Table 3-6). The scenario
+//        transmits 12.5 dBm; the table has +13 and +10 dBm, and the +13 row is taken
+//        (the setting that delivers 12.5 dBm). OURS.
+//   RX 868 MHz LoRa 125 kHz, RxBoosted  7.8 mA  (IDDRXL1, Table 3-5)
+//   RX 2.4 GHz LoRa 812 kHz, RxBoosted  7.5 mA  (IDDRXL2, Table 3-5; the scenario's
+//        800 kHz is the LR1121's 812 kHz setting). Boosted, as Sx1262_868() is.
+//   CAD = the RX current. The datasheet gives no CAD current; the SX1262 profile's
+//        "CAD draws RX-equivalent current" is kept. OURS.
+//   idle 1.25 mA                      (IDDSBRLD, STBY_RC, Table 3-4)
+//   sleep 1.6 uA                      (IDDSL1, SLEEP with the RC-based RTC for the
+//        wake, no RAM retained, Table 3-4; the SX1262 profile's 1.2 uA is its RC wake)
+// The timing fields (CAD duration, turnaround, wake-up, guards, timeouts) are not in the
+// datasheet's tables. They are kept from the SX profiles, so a basis change moves currents
+// only, never a time: an energy-only change at defaults (OURS).
+// ---------------------------------------------------------------------------
+
+RadioPowerProfile
+RadioPowerProfile::Lr1121_868()
+{
+    RadioPowerProfile p = Sx1262_868(); // timing kept
+    p.supplyVoltageV = 3.3;
+    p.txCurrentMa = 28.0;
+    p.rxCurrentMa = 7.8;
+    p.cadCurrentMa = 7.8;
+    p.idleCurrentMa = 1.25;
+    p.sleepCurrentMa = 0.0016;
+    return p;
+}
+
+RadioPowerProfile
+RadioPowerProfile::Lr1121_2p4()
+{
+    RadioPowerProfile p = Sx1280_2p4(); // timing kept
+    p.supplyVoltageV = 3.3;
+    p.txCurrentMa = 26.0;
+    p.rxCurrentMa = 7.5;
+    p.cadCurrentMa = 7.5;
+    p.idleCurrentMa = 1.25;
+    p.sleepCurrentMa = 0.0016;
+    return p;
+}
+
 const char*
 CaTblTierName(CaTblTier tier)
 {
@@ -537,6 +587,22 @@ CaTblEnergyModel::AccountListen(CaTblTier tier, double seconds)
     const RadioPowerProfile& p = m_profiles[tier];
     TierEnergyAccount& a = m_accounts[tier];
     Charge(tier, seconds, p.rxCurrentMa, a.rxJ, a.rxTimeS);
+}
+
+void
+CaTblEnergyModel::AccountTx(CaTblTier tier, double airtimeS, uint64_t frames)
+{
+    const RadioPowerProfile& p = m_profiles[tier];
+    TierEnergyAccount& a = m_accounts[tier];
+    Charge(tier, airtimeS, p.txCurrentMa, a.txJ, a.txTimeS);
+    a.txFrames += frames;
+}
+
+void
+CaTblEnergyModel::AccountFrameTx(CaTblTier tier, double txStartS, double airtimeS)
+{
+    AccountTx(tier, airtimeS, 1);
+    ArmDutyCycle(tier, txStartS, airtimeS);
 }
 
 const TierEnergyAccount&

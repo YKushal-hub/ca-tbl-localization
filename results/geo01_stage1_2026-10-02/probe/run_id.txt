@@ -1,0 +1,5 @@
+2a786ba8cbd08c17
+build Oct  2 2026 19:54:22 | build/scratch/ns3.47-ca_tbl_causal_sim-optimized --probe=true --seed=7 --boxHalf=5000 --outdir=results/geo01_stage1_2026-10-02/probe
+source cc058eb dirty 0 profile optimized
+digest sha256
+8c0c3b6d9f563754b755b7901303672bfb5d57c477a6b284e2492a9a63b69a80  probe_range_sweep.csv

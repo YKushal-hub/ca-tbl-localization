@@ -41,6 +41,7 @@
  */
 
 #include "ca-tbl-energy-model.h"
+#include "ca-tbl-grant-coord.h"
 #include "ca-tbl-header.h"
 
 #include "ns3/callback.h"
@@ -50,8 +51,11 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <ostream>
 #include <map>
+#include <set>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -126,6 +130,24 @@ class CaTblPhyProvider
                                       CaTblTier tier,
                                       double txPowerDbm,
                                       uint8_t hopsTraversed) = 0;
+
+    /**
+     * \brief Evaluate the link for one specific frame. What CaTblChannel calls.
+     *
+     * The default is Evaluate() with the frame's hop count and nothing else, so a
+     * provider that does not override it behaves exactly as before this existed. It
+     * exists because one frame type -- the anchor GRANT_GOSSIP (Network sect 6) -- is
+     * carried on a pair class the scenario's provider otherwise has no link for
+     * (anchor to anchor), and that decision needs the frame, not just the endpoints.
+     */
+    virtual CaTblLinkOutcome EvaluateFrame(uint16_t txId,
+                                           uint16_t rxId,
+                                           CaTblTier tier,
+                                           double txPowerDbm,
+                                           const CaTblHeader& hdr)
+    {
+        return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+    }
 
     /** Sensitivity floor for the APC loop (§2.1.1). */
     virtual double SensitivityDbm(CaTblTier tier, uint8_t sf) = 0;
@@ -258,6 +280,33 @@ struct CaTblMacConfig
     double arbLambdaQuery = 1.0;
     //! Seconds after which a held UWB slot is considered free again.
     double arbSlotHoldS = 10.0;
+    //! NW-5 (Network sect 5), with uwbArbitration and handshakeFixes. A request carries the
+    //! battery REMAINING and T_batt = min(1/max(rem, e), 1/e) * e, in [e, 1] (e =
+    //! arbBattEps, OURS); T_query is the request's query-triggered bit (NW-4). A request is
+    //! considered only with this arbiter's OWN evidence that the requester is in its UWB
+    //! range -- a UWB exchange, or a 2.4 GHz range under arbUwbRangeM, within
+    //! arbUwbEvidenceS (the scenario reports both) -- else it is denied with queue position
+    //! 0. A request that cannot have the slot is QUEUED and told its position; each cycle
+    //! (ArbitrationCycle) a free slot goes to the queue's argmax, staleness aging by the
+    //! time waited; a queued request older than arbQueueMaxS, or out of range, is dropped
+    //! with a final denial. Finders (RESCUER) arbitrate their own UWB radio too: in this
+    //! topology a finder is the mobile anchor the spec's "anchors (fixed or vehicle-mounted)"
+    //! covers -- our mapping. False keeps the C4 arbiter.
+    bool arbitrationV2 = false;
+    double arbBattEps = 0.05;      //!< OURS
+    double arbUwbEvidenceS = 10.0; //!< OURS
+    double arbUwbRangeM = 29.5;    //!< the UWB r50 of this channel model
+    double arbQueueMaxS = 30.0;    //!< OURS
+    //! NW-4. An URGENT v2 QUERY naming this node's own manifest latches TakeUrgentQuery(),
+    //! and the ESC_REQUEST it leads to carries the query-triggered bit.
+    bool queryTriggeredEscalation = false;
+    //! NW-6 (Network sect 6: anchors "periodically gossip their current Q (request queue)
+    //! and active grants"). With a grant coordinator and arbitrationV2: the gossip carries
+    //! the arbiter's queue (4 bytes an item, billed); a heard queue is stored; and the
+    //! tie-break extends to queues -- an arbiter drops (with a final denial) a queued
+    //! request that a higher-id anchor queues or has granted, and frees a slot whose grant
+    //! it has yielded. False keeps grants-only gossip.
+    bool gossipQueue = false;
 
     //! Network §4: answer a QUERY on behalf of a fresh table entry, not only
     //! when this node IS the target. The spec calls this the case that makes the
@@ -276,6 +325,48 @@ struct CaTblMacConfig
     //! Bounded and time-windowed on the same discipline as the dedup cache.
     double reversePathWindowS = 300.0;
     uint32_t reversePathMaxEntries = 64;
+    //! NW-8. With reversePath: cache the PREVIOUS HOP a QUERY arrived from (the channel's
+    //! transmitter), not its originator; unicast the RESPONSE to it, and every node on the
+    //! way forwards it to its own cached previous hop; honour reversePathWindowS; and on a
+    //! miss FLOOD the RESPONSE. Without it, reversePath caches the originator and both
+    //! branches send the same one-hop frame (the pre-NW-8 behaviour, kept).
+    bool reversePathHop = false;
+    //! TECH_DEBT N.1. SetSilent(true) gates Send() only, so a silenced radio went on relaying
+    //! other nodes' floods (MaybeRebroadcast) and any relay already queued (its CAD retries,
+    //! its repeats). True: AttemptCad() refuses a frame another node originated while the
+    //! radio is silenced, and counts it. The node's own frames are untouched, so a frame it
+    //! queued before the silence -- MC-2's last gasp -- still leaves. False keeps the old
+    //! behaviour.
+    bool silenceStopsRelay = false;
+    //! TECH_DEBT N.6. CaTblChannel::IsBusy() skips the observer's own transmissions, so a MAC
+    //! with two frames queued could start the second while the first was on air, and a
+    //! node received other nodes' frames while transmitting. A real radio is half-duplex.
+    //! 0 (default): unchanged. 1: COUNT ONLY -- every place a half-duplex radio would have
+    //! deferred or been deaf is counted, and nothing else changes (outputs byte-identical
+    //! to 0). 2: ENFORCE -- a frame whose turn comes while the radio's own frame is on air
+    //! goes back to CAD when that frame ends, and a frame arriving while the radio
+    //! transmitted any part of it is not received.
+    uint8_t halfDuplex = 0;
+    //! NW-9. QUERY and RESPONSE carry what the spec says. A QUERY carries its query id,
+    //! manifest list, requester and priority; a node answers EVERY listed manifest it can
+    //! (as the target, or by proxy from a fresh entry), with a RESPONSE carrying the
+    //! answered entry, its manifest and the producer's status; it rebroadcasts the QUERY
+    //! with the answered manifests removed, and not at all if it answered every one. The
+    //! requester counts the answers and hands them to SetResponseCallback(). False keeps
+    //! the single-manifest QUERY and the empty RESPONSE.
+    bool queryV2 = false;
+
+    //! NW-0. Under mesh links DISCOVERY is one-hop: neighbour discovery is one-hop by
+    //! definition (MAC sect 8, "next beacon supersedes"), and flooding it through a mesh
+    //! where every pair can hear every other is a beacon storm. False keeps it flooded.
+    bool discoveryOneHop = false;
+
+    //! MC-1 (docs/SPEC_CONFORMANCE_PLAN.md). The escalation handshake as MAC sect 8
+    //! specifies it: an ACK matched by the packet id it names; an anchor that arbitrates
+    //! FIRST and answers every request with a GRANT saying granted or denied (no bare
+    //! ACK); a requester that treats a granted GRANT as the answer and retries a denied
+    //! one. False reproduces the build before it.
+    bool handshakeFixes = false;
 
     CaTblMacConfig();
 };
@@ -303,6 +394,33 @@ struct CaTblMsgCounters
     uint64_t cadBusyEvents;
 
     CaTblMsgCounters();
+};
+
+/**
+ * \brief L.2.5: one proxy check -- a QUERY reached a radio that is not the target it
+ * names, and this is what that radio's table held about the target at that instant.
+ *
+ * The refusal counter could say THAT the staleness bound refused, never by how much:
+ * "7 refusals / 0 answers" is equally consistent with entries 121 s old and 1 200 s
+ * old, and those call for opposite changes. So the age is recorded BEFORE the freshness
+ * decision and whatever it decides, which keeps the distribution independent of the
+ * bound it is used to judge. A check that found no matching entry is recorded too,
+ * because "held nothing" and "held something old" are different failures and share a
+ * denominator. Observation only: nothing reads a record back into the MAC.
+ */
+struct CaTblProxyCheck
+{
+    double tS = 0.0;         //!< when the query arrived at this radio
+    uint32_t queryId = 0;    //!< the query's packet_id, so arrivals group into queries
+    //! The tier the QUERY frame is LABELLED with -- not necessarily the radio that heard
+    //! it. The C3 QueryDriver binds every tier's driver to the first anchor MAC, which is
+    //! gateway 101's 868 MAC, so every query travels on the 868 channel and only 868
+    //! radios are asked; a "tier 1" label means 2.4 GHz link physics on an 868 radio.
+    uint8_t tier = 0;
+    uint8_t manifestId = 0;  //!< the target the query named
+    bool held = false;       //!< a matching entry was in this radio's table
+    bool answered = false;   //!< ...and it was inside the staleness bound
+    CaTblTableEntry entry;   //!< the matching entry; meaningful only when held
 };
 
 class CaTblChannel;
@@ -374,11 +492,73 @@ class CaTblMac
      * present data.
      */
     void SetSilent(bool s) { m_silent = s; }
+    //! NW-0. A radio the node has asleep this cycle neither receives nor rebroadcasts
+    //! (under mesh links a sleeping 2.4 GHz/UWB radio would otherwise relay peers'
+    //! floods on a tier the arm never woke, unbilled -- CLAUDE.md sect 6).
+    void SetAsleep(bool a) { m_asleep = a; }
+    bool IsAsleep() const { return m_asleep; }
+    void NoteAsleepRefusal() { ++m_asleepRefused; }
+    uint64_t GetAsleepRefused() const { return m_asleepRefused; }
+    //! NW-0. Airtime and frames of rebroadcasts this MAC transmitted (others' frames).
+    double GetRebroadcastAirtimeS() const { return m_rebroadcastAirS; }
+    uint64_t GetRebroadcastFrames() const { return m_rebroadcastFrames; }
     bool IsSilent() const { return m_silent; }
     //! Frames this MAC declined to transmit while silenced.
     uint64_t GetSuppressedTx() const { return m_suppressedTx; }
+    //! N.1. Other nodes' frames refused at CAD while silenced (silenceStopsRelay only).
+    uint64_t GetSilentRelayRefused() const { return m_silentRelayRefused; }
+    //! M.9. L.1.5's RECEDING eager push: handshakes that took the RECEDING branch, and the
+    //! push frames this radio then transmitted (a TRIGGERED_UPDATE of its own with no MC-2
+    //! reason; the redundant class's repeats included, up to three frames a push).
+    //! Counters only; nothing reads them but the report.
+    uint64_t GetRecedingPushesStarted() const { return m_recedingStarted; }
+    uint64_t GetRecedingPushesSent() const { return m_recedingSent; }
+    //! N.6 (halfDuplex 1 or 2). Frames whose transmission came due while this radio's own
+    //! previous frame was on air; of those, sent back to CAD (2 only); and receptions of
+    //! other nodes' frames that overlapped one of this radio's own (lost under 2 only).
+    uint64_t GetSelfOverlapTx() const { return m_selfOverlapTx; }
+    uint64_t GetHalfDuplexDeferred() const { return m_hdDeferred; }
+    uint64_t GetDeafRx() const { return m_deafRx; }
+    //! MAC sect 2 (--reportAirtime). For every DIGEST this radio transmitted, the airtime an
+    //! ENTRY_PUSH carrying its whole valid table would have taken instead: the full push the
+    //! digest exists to avoid. Arithmetic only; nothing reads it but the report.
+    double GetDigestFullPushCfS() const { return m_digestFullPushCfS; }
+    uint8_t HalfDuplexMode() const { return m_cfg.halfDuplex; }
+    void NoteDeafRx() { ++m_deafRx; }
+    //! N.6, per chip (--halfDuplexChip). The MAC of the other band served by the same chip
+    //! (the LR1121's 868 MHz and 2.4 GHz). Null (the default): this radio is its own chip.
+    //! With one set, the half-duplex rules read both bands' transmissions.
+    void SetChipSibling(CaTblMac* s) { m_chipSibling = s; }
+    //! N.6, per chip. Of the frames due over a transmission and the receptions while
+    //! transmitting, those the other band's frame alone caused.
+    uint64_t GetChipOverlapTx() const { return m_chipOverlapTx; }
+    uint64_t GetChipDeafRx() const { return m_chipDeafRx; }
+    void NoteChipDeafRx() { ++m_chipDeafRx; }
+    Time TxBusyUntil() const { return m_txBusyUntil; }
+    //! N.6, per chip. Whether the other band of this radio's chip transmitted in [s, e).
+    bool SiblingTransmittedDuring(double s, double e) const
+    {
+        return m_chipSibling != nullptr && m_chipSibling->TransmittedDuring(s, e);
+    }
+    //! N.6. Whether this radio transmitted during any part of [s, e). Read from its own
+    //! recent transmissions, not the channel's in-flight list: the channel erases a frame
+    //! when it completes, so a frame ending later never sees it (TECH_DEBT N.22).
+    bool TransmittedDuring(double s, double e) const
+    {
+        for (size_t i = 0; i < m_ownTx.size(); ++i)
+        {
+            if (m_ownTx[i].first < e && s < m_ownTx[i].second)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     void SetChannel(CaTblChannel* ch) { m_channel = ch; }
+    //! The channel this MAC is registered on, i.e. which radio it is. Read by the
+    //! scenario to bind a driver to the radio it claims to use (NW-3).
+    const CaTblChannel* GetChannel() const { return m_channel; }
     void SetEnergyModel(CaTblEnergyModel* e) { m_energy = e; }
     void SetRng(Ptr<UniformRandomVariable> rng) { m_rng = rng; }
 
@@ -409,22 +589,73 @@ class CaTblMac
     //! Simulator::Schedule binds a member function at EXACT arity, so widening Send
     //! breaks every scheduled call to it. Found by the compiler, not by inspection.
     void SendQuery(CaTblTier tier, uint8_t manifestId);
+    //! NW-9. A query for a LIST of manifests at a priority (0 ROUTINE). Its query id is
+    //! its packet id and its requester this node.
+    void SendQueryV2(CaTblTier tier, const std::vector<uint8_t>& manifests, uint8_t priority);
+    //! NW-9. The status the next PublishSelfEntry() stamps on this node's entry.
+    void SetSelfStatus(uint8_t pcsQ, uint8_t integrityFlag, uint8_t batteryQ,
+                       uint8_t degradationQ, bool uwbActive, uint16_t grantedBy,
+                       uint8_t tierSource = 0xFF, uint8_t fixHop = 0,
+                       uint16_t reachArbiter = 0);
+    //! NW-9. Every first copy of an answer that reaches this node as its requester.
+    void SetResponseCallback(std::function<void(const CaTblHeader&)> cb) { m_respCb = cb; }
+    //! NW-9. One row per decision on a v2 QUERY (answered, proxied, relayed with the
+    //! listed manifests left, suppressed), for the gate. Null = no log.
+    void SetQueryLog(std::ostream* os) { m_queryLog = os; }
+    uint64_t GetV2Answered() const { return m_v2Answered; }
+    uint64_t GetV2Proxied() const { return m_v2Proxied; }
+    uint64_t GetV2Suppressed() const { return m_v2Suppressed; }
+    uint64_t GetV2Reduced() const { return m_v2Reduced; }
+    uint64_t GetV2ResponsesHeard() const { return m_v2ResponsesHeard; }
+    uint64_t GetV2EntriesHeard() const { return m_v2EntriesHeard; }
 
     /** Network §4: is there a fresh table entry about \p manifestId to answer on
      *  behalf of? Freshness is checked here, not by the caller, because a stale
      *  match and no match are different outcomes and are counted separately. */
-    bool ProxyAnswerFor(uint8_t manifestId, double nowS);
+    bool ProxyAnswerFor(uint8_t manifestId, double nowS, CaTblTier tier, uint32_t queryId,
+                        CaTblTableEntry* answered = nullptr);
     /** Network §1: extra wire bytes for target_manifest_id, zero unless the
      *  proxy responder is enabled and the message actually carries entries. */
     uint32_t ManifestOverheadBytes(uint8_t msgType, uint32_t nEntries) const;
     /** Transport §1: record which neighbour a QUERY arrived from. */
     void RememberReversePath(uint32_t queryId, uint16_t fromId, double nowS);
-    /** Transport §1: unicast a RESPONSE home, or flood if no path is cached. */
-    void SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId);
+    /** Transport §1: unicast a RESPONSE home, or flood if no path is cached. NW-8:
+     *  answererId 0 means this node is answering; a forwarder passes the original's. */
+    void SendResponse(CaTblTier tier, uint32_t queryId, uint16_t requesterId,
+                      uint16_t answererId = 0);
 
     //! C4. The two U(r) terms an anchor cannot observe, quantised to 0..255 over
     //! [0,1]. Set before an ESC_REQUEST; consumed by the next Send() and cleared,
     //! so a stale value cannot leak onto an unrelated frame.
+    /**
+     * \brief MC-2. A TRIGGERED_UPDATE carrying this node's own entry and why it was sent
+     * (1 = large correction, 2 = last gasp).
+     *
+     * A large correction goes like any TRIGGERED_UPDATE, with the redundant class's
+     * jittered repeats. A last gasp goes ONCE and unrepeated, because the caller silences
+     * the radio straight after. SetSilent() gates Send() only, so a frame already queued
+     * still leaves -- which is what lets the last gasp out -- but repeats would leak past
+     * the silence, and a dead battery sends nothing more.
+     */
+    void SendTriggeredUpdate(CaTblTier tier, uint8_t reason);
+    //! MC-2. Time on air of a frame of this type on this MAC, as DoTransmit computes it.
+    double FrameAirtimeS(CaTblMsgType type, CaTblTier tier, uint32_t nEntries) const;
+    //! MC-2. TRIGGERED_UPDATE frames with a reason this node originated and transmitted
+    //! (repeats included), and receptions here of such frames, by reason (1, 2).
+    uint64_t GetTrigFramesSent() const { return m_trigFramesSent; }
+    uint64_t GetTrigHeard(uint8_t reason) const { return reason < 3 ? m_trigHeard[reason] : 0; }
+    //! MC-1. The tier an ESC_REQUEST asks for. Consumed by the next Send(), like the
+    //! terms; read only under handshakeFixes.
+    void SetRequestTargetTier(uint8_t tier) { m_nextReqTargetTier = tier; }
+    //! MC-1 counters. All 0 unless handshakeFixes.
+    uint64_t GetHsGrantsSent() const { return m_hsGrantsSent; }
+    uint64_t GetHsDeniesSent() const { return m_hsDeniesSent; }
+    uint64_t GetHsGrantsHeard() const { return m_hsGrantsHeard; }
+    uint64_t GetHsDeniesHeard() const { return m_hsDeniesHeard; }
+    uint64_t GetHsRequestsAnswered() const { return m_hsRequestsAnswered; }
+    uint64_t GetHsAcksMatched() const { return m_hsAcksMatched; }
+    uint64_t GetHsAcksUnmatched() const { return m_hsAcksUnmatched; }
+    uint64_t GetHsRequestAcksSkipped() const { return m_hsRequestAcksSkipped; }
     void SetRequestTerms(uint8_t degradation, uint8_t battery)
     {
         m_nextReqDegradation = degradation;
@@ -450,6 +681,33 @@ class CaTblMac
     uint64_t GetResponsesFlooded() const { return m_responsesFlooded; }
     uint64_t GetReversePathHits() const { return m_reversePathHits; }
     uint64_t GetReversePathMisses() const { return m_reversePathMisses; }
+    //! NW-8 accounting (reversePathHop): RESPONSE frames sent unicast to a cached
+    //! previous hop (by the answerer and by every forwarder), misses that flooded,
+    //! RESPONSEs forwarded on behalf of another node, and RESPONSEs that reached this
+    //! node as their requester.
+    uint64_t GetRpUnicastHops() const { return m_rpUnicastHops; }
+    uint64_t GetRpFloods() const { return m_rpFloods; }
+    uint64_t GetRpForwarded() const { return m_rpForwarded; }
+    uint64_t GetRpDelivered() const { return m_rpDelivered; }
+    uint64_t GetRpExpired() const { return m_rpExpired; }
+    //! Copies of an answer already forwarded or delivered: retransmissions after a lost
+    //! ACK, which carry a fresh packet id.
+    uint64_t GetRpDuplicates() const { return m_rpDuplicates; }
+
+    /**
+     * \brief NW-7. Told the outcome of this node's own outstanding ESC_REQUEST: 1 a
+     * GRANT(granted) answering it, 0 a GRANT(denied) answering it (both under
+     * handshakeFixes, which carries the verdict and the acked packet id), -1 its
+     * retransmissions ran out unanswered. The first argument is the answering anchor, 0
+     * for -1. Unset (the default) changes nothing.
+     */
+    void SetUwbGrantCallback(std::function<void(uint16_t, int)> cb) { m_uwbGrantCb = cb; }
+    //! NW-7. Drop this node's outstanding ESC_REQUESTs, so a denied one is not retried
+    //! after the caller has given up on it. Returns how many.
+    uint32_t CancelPendingRequests();
+    //! L.2.5: every proxy check this radio made, in arrival order. Empty unless
+    //! --queryProxy is on, because nothing else reaches ProxyAnswerFor.
+    const std::vector<CaTblProxyCheck>& GetProxyChecks() const { return m_proxyChecks; }
 
     //! C3: identity-scoped queries answered, and responses sent. Counted so the
     //! mechanism is measurable rather than asserted.
@@ -459,6 +717,58 @@ class CaTblMac
     //! C4. Grants, arbitration denials, and pre-emptions of a held slot.
     uint64_t GetArbGrants() const { return m_arbGrants; }
     uint64_t GetArbDenials() const { return m_arbDenials; }
+    //! NW-4. True once per URGENT query that named this node since the last call.
+    bool TakeUrgentQuery();
+    uint64_t GetUrgentQueries() const { return m_urgentQueries; }
+    //! NW-4. The next ESC_REQUEST says whether it follows an URGENT query.
+    void SetRequestQueryTriggered(bool q) { m_nextReqQT = q ? 1 : 0; }
+    //! NW-5. Evidence, at this arbiter, that \p nodeId is within its UWB range now.
+    void NoteUwbEvidence(uint16_t nodeId, double tS) { m_uwbEvidence[nodeId] = tS; }
+    //! TA-1b. Whether this arbiter holds that evidence for \p nodeId at \p nowS, by the
+    //! window ArbitrateV2 applies (arbUwbEvidenceS). A read: nothing is sent or logged.
+    bool HasUwbEvidence(uint16_t nodeId, double nowS) const
+    {
+        std::map<uint16_t, double>::const_iterator it = m_uwbEvidence.find(nodeId);
+        return it != m_uwbEvidence.end() && nowS - it->second <= m_cfg.arbUwbEvidenceS;
+    }
+    //! NW-5. Re-score the queue and grant a free slot to its argmax; drop expired entries.
+    void ArbitrationCycle();
+    /**
+     * \brief TA-2. A requester's escalation request for \p target, delivered to this
+     * arbiter (the scenario carries it there; see the flag). Scored and decided exactly as a
+     * request the target sent (NW-5): granted -- the GRANT goes to the target marked
+     * on-behalf -- queued, or refused out of range. Returns 1, 0 or -1.
+     */
+    int SubmitRequestOnBehalf(uint16_t target, uint8_t degradationQ, uint8_t remainingQ,
+                              uint8_t queryTriggered, CaTblTier tier);
+    /**
+     * \brief N.10 (--requestOverMesh). Carry a requester's escalation request for
+     * \p subject to the arbiter \p arbiterId as a frame: an ESC_REQUEST from this radio,
+     * addressed to the arbiter, billed here, and lost if the channel loses it. The arbiter
+     * acts on it only on reception, where it is scored exactly as SubmitRequestOnBehalf
+     * scores a request handed to it, and ACKs it to this node.
+     */
+    void SendRequestOnBehalf(uint16_t arbiterId, uint16_t subject, uint8_t degradationQ,
+                             uint8_t remainingQ, uint8_t queryTriggered, CaTblTier tier);
+    //! N.10. On-behalf request frames this radio sent (retransmissions not counted), and
+    //! those it received as the arbiter, by verdict: granted, queued, refused.
+    uint64_t GetOboFramesSent() const { return m_oboFramesSent; }
+    uint64_t GetOboFramesHeard() const { return m_oboFramesHeard; }
+    uint64_t GetOboFramesVerdict(int k) const { return m_oboFramesVerdict[k]; }
+    //! NW-5. One row per arbitration event (grant, preempt, queue, aged grant, out of
+    //! range, expire) and per queued candidate scored at a cycle grant. Null = no log.
+    void SetArbLog(std::ostream* os) { m_arbLog = os; }
+    uint64_t GetArbQueued() const { return m_arbQueuedN; }
+    uint64_t GetArbAgedGrants() const { return m_arbAgedGrants; }
+    uint64_t GetArbOutOfRange() const { return m_arbOutOfRange; }
+    uint64_t GetArbExpired() const { return m_arbExpired; }
+    uint64_t GetQueuedHeard() const { return m_queuedHeard; }
+    //! NW-6: queued requests given up to a higher-id anchor, and queue items heard.
+    uint64_t GetQueueYields() const { return m_queueYields; }
+    uint64_t GetQueueItemsHeard() const { return m_queueItemsHeard; }
+    uint64_t GetQueueItemsSent() const { return m_queueItemsSent; }
+    //! NW-5: out-of-range refusals of this node's requests, which do not settle them.
+    uint64_t GetOutOfRangeHeard() const { return m_outOfRangeHeard; }
     uint64_t GetArbPreemptions() const { return m_arbPreemptions; }
     //! Per-target grant counts, so a fairness delta is measurable rather than
     //! asserted. Keyed by originating node id.
@@ -466,6 +776,48 @@ class CaTblMac
     {
         return m_grantsByTarget;
     }
+
+    // ---- L.1.4 / Network sect 6: the anchor grant tie-break -----------------
+    /**
+     * \brief Attach the anchor's grant coordinator. Null (the default) leaves every
+     *        path exactly as it was: no ESC_REQUEST is ever withheld and a
+     *        GRANT_GOSSIP frame, should one arrive, changes nothing.
+     *
+     * One coordinator per ANCHOR, shared by its three MACs. A gateway is one node with
+     * three radios, and the slot it holds for a field node is the same slot whichever
+     * radio the request happened to arrive on.
+     */
+    void SetGrantCoordinator(CaTblGrantCoordinator* gc) { m_grantCoord = gc; }
+    CaTblGrantCoordinator* GetGrantCoordinator() const { return m_grantCoord; }
+
+    /** Per-verdict event sink for the tie-break. Written, never read; null writes
+     *  nothing. Columns: t,anchorId,targetId,otherAnchorId,source,verdict,action,
+     *  windowStartS,windowEndS. */
+    void SetGrantLog(std::ostream* os) { m_grantLog = os; }
+
+    /**
+     * \brief Broadcast this anchor's currently held grants on \p tier (Network sect 6).
+     *
+     * One frame, one hop, LOW access category, through the ordinary CAD and duty
+     * governor. Sends NOTHING when the anchor holds no active grant: an empty gossip
+     * carries nothing a receiver could act on, and the channel it would occupy is the
+     * one the field node ranges on. That silence is a design choice made here, not one
+     * the spec states. A separate entry point, not a Send() argument, for the arity
+     * reason SendQuery() records.
+     */
+    void SendGrantGossip(CaTblTier tier);
+
+    //! Grant items heard in GRANT_GOSSIP frames (new ones only, echoes excluded).
+    uint64_t GetGossipItemsHeard() const { return m_gossipItemsHeard; }
+    //! Gossip rounds skipped because this anchor held nothing to report.
+    uint64_t GetGossipSkippedEmpty() const { return m_gossipSkippedEmpty; }
+    //! ESC_REQUESTs NOT answered with a grant because a higher-id anchor holds the slot.
+    uint64_t GetGrantsWithheld() const { return m_grantsWithheld; }
+    //! Own grants given up on hearing a higher-id anchor's overlapping grant.
+    uint64_t GetGrantsYielded() const { return m_grantsYielded; }
+    //! Airtime of GRANT_GOSSIP frames delivered to this MAC -- the receive half of what
+    //! the gossip costs, which CaTblMsgCounters (transmit airtime only) cannot give.
+    double GetGossipRxAirtimeS() const { return m_gossipRxAirtimeS; }
 
     /**
      * \brief The §2.9 handshake: mobility state selects which messages get sent.
@@ -478,8 +830,9 @@ class CaTblMac
      */
     void StartHandshake(CaTblTier tier, uint16_t peerId, uint32_t nEntriesToPush);
 
-    /** Delivered by the channel after propagation and capture arbitration. */
-    void DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out);
+    /** Delivered by the channel after propagation and capture arbitration. txId is
+     *  the transmitter of THIS copy -- the previous hop, which NW-8 needs. */
+    void DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_t txId = 0);
 
     /** Channel-side notifications, so per-message-type collision and capture
      *  counts are attributable instead of only existing as channel totals.
@@ -532,6 +885,7 @@ class CaTblMac
         uint32_t txAttempts;
         uint32_t repeatsLeft;
         Time enqueuedAt;
+        double cfFullPushS = 0.0; //!< MAC sect 2: a DIGEST's full-table-push counterfactual
     };
 
     void AttemptCad(PendingFrame f);
@@ -563,6 +917,21 @@ class CaTblMac
     uint64_t m_arbDenials = 0;
     uint64_t m_arbPreemptions = 0;
     std::map<uint16_t, uint64_t> m_grantsByTarget;
+    // L.1.4 tie-break state. All inert while m_grantCoord is null.
+    CaTblGrantCoordinator* m_grantCoord = nullptr;
+    std::ostream* m_grantLog = nullptr;
+    std::vector<CaTblGrantItem> m_nextGossip; //!< consumed by the next Send()
+    uint64_t m_gossipItemsHeard = 0;
+    uint64_t m_gossipSkippedEmpty = 0;
+    uint64_t m_grantsWithheld = 0;
+    uint64_t m_grantsYielded = 0;
+    double m_gossipRxAirtimeS = 0.0;
+    void LogGrantVerdict(uint16_t targetId, uint16_t otherId, const char* source,
+                         CaTblGrantVerdict v, const char* action, double startS,
+                         double endS) const;
+    //! MC-1. Names what the next Send() answers and, for a GRANT, what it says. Does
+    //! nothing unless handshakeFixes.
+    void PrepareReply(uint32_t ackedPacketId, bool isGrant, bool granted);
     uint64_t m_queriesIgnored = 0;
     DropCallback m_dropCb;
 
@@ -613,7 +982,136 @@ class CaTblMac
     uint64_t m_responsesFlooded = 0;
     uint64_t m_reversePathHits = 0;
     uint64_t m_reversePathMisses = 0;
+    // NW-8 (reversePathHop).
+    uint32_t m_nextRespQueryId = 0;   //!< consumed by the next Send(), like the C4 terms
+    uint16_t m_nextRespRequester = 0;
+    uint16_t m_nextRespAnswerer = 0;
+    uint64_t m_rpDuplicates = 0;
+    //! (query, answerer) already forwarded or delivered here, with when; bounded like
+    //! m_reversePath and windowed by dedupWindowS, like m_dedupSeen.
+    std::map<std::tuple<uint32_t, uint16_t, uint8_t>, double> m_rpSeen;
+    //! NW-9 adds the answered manifest to the key: one proxy can answer two manifests of a
+    //! batch query, and those are two answers, not a retransmission. 0 outside queryV2.
+    bool RpFirstCopy(uint32_t queryId, uint16_t answererId, uint8_t manifest, double nowS);
+    // NW-7.
+    std::function<void(uint16_t, int)> m_uwbGrantCb;
+    // NW-4 / NW-5.
+    bool m_urgentQueryPending = false;
+    uint64_t m_urgentQueries = 0;
+    uint8_t m_nextReqQT = 0;
+    uint8_t m_nextQueuePos = 0;
+    struct ArbQueued
+    {
+        uint16_t who;
+        uint32_t pid;
+        uint8_t tier;
+        double tReq;
+        double tDeg;
+        double rem;
+        uint8_t qt;
+        bool onBehalf = false; //!< TA-2: submitted by a requester for the target
+    };
+    std::vector<ArbQueued> m_arbQueue;
+    bool m_curOnBehalf = false;  //!< TA-2: ArbitrateV2 is scoring a requester's request
+    bool m_nextOnBehalf = false; //!< TA-2: consumed by the next GRANT
+    uint16_t m_nextReqSubject = 0; //!< N.10: consumed by the next ESC_REQUEST
+    uint8_t m_nextReqSubjectQT = 0;
+    uint64_t m_oboFramesSent = 0;
+    uint64_t m_oboFramesHeard = 0;
+    uint64_t m_oboFramesVerdict[3] = {0, 0, 0};
+    std::map<uint16_t, double> m_uwbEvidence;
+    //! Requester side: my queued request -> the anchors holding it in their queue.
+    std::map<uint32_t, std::set<uint16_t>> m_queuedReqs;
+    std::ostream* m_arbLog = nullptr;
+    uint64_t m_arbQueuedN = 0;
+    uint64_t m_arbAgedGrants = 0;
+    uint64_t m_arbOutOfRange = 0;
+    uint64_t m_arbExpired = 0;
+    uint64_t m_queuedHeard = 0;
+    uint64_t m_outOfRangeHeard = 0;
+    // NW-6.
+    std::vector<CaTblQueueGossipItem> m_nextGossipQueue;
+    uint64_t m_queueYields = 0;
+    uint64_t m_queueItemsHeard = 0;
+    uint64_t m_queueItemsSent = 0;
+    void PublishQueue(double nowS);
+    uint32_t GossipQueueBytes(const CaTblHeader& h) const;
+    double ScoreV2(double tDeg, double rem, double tStale, uint8_t qt, double* tBatt) const;
+    int ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos);
+    void LogArb(double tS, uint16_t who, const char* ev, double u, double tDeg, double rem,
+                double tBatt, double tStale, uint8_t qt, uint32_t queuePos);
+    // NW-9.
+    std::function<void(const CaTblHeader&)> m_respCb;
+    std::ostream* m_queryLog = nullptr;
+    std::vector<uint8_t> m_nextV2Manifests;
+    uint8_t m_nextV2Priority = 0;
+    bool m_nextV2 = false;
+    CaTblTableEntry m_nextRespEntry;
+    bool m_nextHasRespEntry = false;
+    uint8_t m_nextRespManifest = 0;
+    uint8_t m_selfPcsQ = 0;
+    uint8_t m_selfIntegrity = 0;
+    uint8_t m_selfBatteryQ = 0;
+    uint8_t m_selfDegradationQ = 0;
+    bool m_selfUwbActive = false;
+    uint16_t m_selfGrantedBy = 0;
+    uint8_t m_selfTierSource = 0xFF; // TA-1
+    uint8_t m_selfFixHop = 0;
+    uint16_t m_selfReachArbiter = 0; // TA-2
+    uint64_t m_v2Answered = 0;
+    uint64_t m_v2Proxied = 0;
+    uint64_t m_v2Suppressed = 0;
+    uint64_t m_v2Reduced = 0;
+    uint64_t m_v2ResponsesHeard = 0;
+    uint64_t m_v2EntriesHeard = 0;
+    void LogQueryV2(double tS, uint8_t tier, uint32_t queryId, const char* what,
+                    uint8_t manifest, const std::vector<uint8_t>& left);
+    bool m_nextForceFlood = false;
+    uint64_t m_rpUnicastHops = 0;
+    uint64_t m_rpFloods = 0;
+    uint64_t m_rpForwarded = 0;
+    uint64_t m_rpDelivered = 0;
+    uint64_t m_rpExpired = 0;
+    uint32_t RouteOverheadBytes(uint8_t msgType) const;
+    std::vector<CaTblProxyCheck> m_proxyChecks;
     uint64_t m_dutyViolationAttempts;
+    // MC-1 (handshakeFixes). Consumed by the next Send(), like the C4 terms.
+    uint8_t m_nextReqTargetTier = 0xFF;
+    uint32_t m_nextAckedPacketId = 0;
+    bool m_nextHasVerdict = false;
+    bool m_nextGranted = true;
+    uint64_t m_hsGrantsSent = 0;
+    uint64_t m_hsDeniesSent = 0;
+    uint64_t m_hsGrantsHeard = 0;
+    uint64_t m_hsDeniesHeard = 0;
+    uint64_t m_hsRequestsAnswered = 0;
+    uint64_t m_hsAcksMatched = 0;
+    uint64_t m_hsAcksUnmatched = 0;
+    uint64_t m_hsRequestAcksSkipped = 0;
+    // MC-2 (triggered updates).
+    uint8_t m_nextTriggerReason = 0; //!< consumed by the next Send()
+    uint64_t m_trigFramesSent = 0;
+    uint64_t m_trigHeard[3] = {0, 0, 0};
+    // NW-0.
+    bool m_asleep = false;
+    uint64_t m_asleepRefused = 0;
+    // N.1.
+    uint64_t m_silentRelayRefused = 0;
+    // M.9.
+    uint64_t m_recedingStarted = 0;
+    uint64_t m_recedingSent = 0;
+    // N.6.
+    Time m_txBusyUntil = Seconds(0.0);
+    CaTblMac* m_chipSibling = nullptr; //!< N.6, per chip
+    double m_digestFullPushCfS = 0.0;  //!< MAC sect 2, see GetDigestFullPushCfS
+    uint64_t m_chipOverlapTx = 0;
+    uint64_t m_chipDeafRx = 0;
+    std::deque<std::pair<double, double>> m_ownTx; // the last 16 [start, end), read only under halfDuplex
+    uint64_t m_selfOverlapTx = 0;
+    uint64_t m_hdDeferred = 0;
+    uint64_t m_deafRx = 0;
+    double m_rebroadcastAirS = 0.0;
+    uint64_t m_rebroadcastFrames = 0;
 };
 
 /**
@@ -642,6 +1140,17 @@ class CaTblChannel
      *  events, itemised, so an animation can show them. */
     void SetEventLog(std::ostream* os) { m_eventLog = os; }
     void SetCaptureThresholdDb(double db) { m_captureThresholdDb = db; }
+    /**
+     * \brief N.22. Judge a finishing frame against frames that already completed too.
+     *
+     * Off (the default), a completed frame is erased, so of two overlapping frames only the
+     * one that ends first sees the other and is lost. On, a completed frame is kept until no
+     * frame still on air started before it ended, and a later-ending frame that overlapped it
+     * is judged against it by the same capture rule. Such a loss is logged as
+     * "collision_late" and counted.
+     */
+    void SetCollisionBothLost(bool on) { m_collisionBothLost = on; }
+    uint64_t GetLateCollisions() const { return m_lateCollisions; }
     double GetCaptureThresholdDb() const { return m_captureThresholdDb; }
 
     void Register(CaTblMac* mac);
@@ -691,6 +1200,9 @@ class CaTblChannel
     std::ostream* m_eventLog = nullptr;
     std::map<uint16_t, CaTblMac*> m_nodes;
     std::vector<InFlight> m_inFlight;
+    std::vector<InFlight> m_done; //!< N.22: completed frames still overlapping one on air
+    bool m_collisionBothLost = false;
+    uint64_t m_lateCollisions = 0;
     double m_captureThresholdDb;
     uint64_t m_txnCounter;
     uint64_t m_totalTx;

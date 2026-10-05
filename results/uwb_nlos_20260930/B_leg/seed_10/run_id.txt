@@ -1,0 +1,7 @@
+2bd8d7b126d847a0
+build Sep 30 2026 19:53:27 | /home/nethi/projects/ca-tbl-localization/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --topology=1 --arms=static_uwb --duration=3600 --trace=false --nlosClassifier=true --uwbNlosModel=legacy --seed=10 --outdir=/home/nethi/catbl_uwbnlos/registered/B_leg/seed_10
+source 57225b8 dirty 0 profile optimized
+digest sha256
+c1926d519ee63976724219408fdb97eac388f0ea98c58a81a1e6ade40dc809d0  arm_summary.csv
+836985da9ca44bc42fb669fa74a0a1e8588b1fd3e43d83c9300a2de54d4ea51a  nlos_links_static_uwb_seed10.csv
+1a27033399b8322b00cc7a3303b12c8552bde0e88d149c6d3ed8e52d611b2cfa  nlos_summary_static_uwb_seed10.csv

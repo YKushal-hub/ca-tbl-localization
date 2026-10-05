@@ -760,6 +760,1249 @@ TestHandshake()
           "not conditioned on anything");
 }
 
+// ---------------------------------------------------------------------------
+// Test 7 -- MC-1: ACK matched by packet id, and a denied request retried
+// ---------------------------------------------------------------------------
+
+int g_drops = 0;
+
+void
+OnDropCount(uint16_t nodeId, CaTblMsgType t, std::string why)
+{
+    (void)nodeId;
+    (void)t;
+    (void)why;
+    ++g_drops;
+}
+
+void
+RequestWithTerms(CaTblMac* m, uint8_t degradation, uint8_t battery)
+{
+    m->SetRequestTerms(degradation, battery);
+    m->SetRequestTargetTier(CA_TBL_TIER_UWB);
+    m->Send(CA_TBL_MSG_ESC_REQUEST, CA_TBL_TIER_868, 0, 0);
+}
+
+CaTblMacConfig
+Mc1Config(uint16_t id, CaTblIdentityClass cls, bool fixes)
+{
+    CaTblMacConfig c;
+    c.nodeId = id;
+    c.identityClass = cls;
+    c.sf = 7;
+    c.bandwidthHz = 125e3;
+    c.isAccessPoint = true;
+    c.sendHandshakeFrames = true;
+    c.uwbArbitration = true;
+    c.handshakeFixes = fixes;
+    return c;
+}
+
+struct AckByIdResult
+{
+    uint64_t retx;
+    int drops;
+    uint64_t matched;
+    uint64_t unmatched;
+};
+
+// Node 1 sends a RESPONSE (an ACK'd frame) to node 2, which is silenced and so never ACKs,
+// then one to node 3, which does. Node 3's ACK names the second frame.
+AckByIdResult
+RunAckById(bool fixes)
+{
+    g_drops = 0;
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac a, c, d;
+    a.Configure(Mc1Config(1, CA_TBL_ID_TARGET, fixes));
+    c.Configure(Mc1Config(2, CA_TBL_ID_TARGET, fixes));
+    d.Configure(Mc1Config(3, CA_TBL_ID_TARGET, fixes));
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(7);
+    a.SetRng(rng);
+    c.SetRng(rng);
+    d.SetRng(rng);
+    a.SetDropCallback(MakeCallback(&OnDropCount));
+    channel.Register(&a);
+    channel.Register(&c);
+    channel.Register(&d);
+    c.SetSilent(true);
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &a, CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868,
+                        1u, static_cast<uint16_t>(2));
+    Simulator::Schedule(Seconds(1.3), &CaTblMac::Send, &a, CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868,
+                        1u, static_cast<uint16_t>(3));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    AckByIdResult r;
+    r.retx = a.GetCounters(CA_TBL_MSG_RESPONSE).retransmissions;
+    r.drops = g_drops;
+    r.matched = a.GetHsAcksMatched();
+    r.unmatched = a.GetHsAcksUnmatched();
+    Simulator::Destroy();
+    return r;
+}
+
+struct DenyResult
+{
+    uint64_t reqRetx;
+    uint64_t arbDenials;
+    uint64_t deniesSent;
+    uint64_t deniesHeard;
+    uint64_t grantsHeardByWinner;
+    uint64_t winnerRetx;
+    uint64_t skipped;
+};
+
+// Node 3 asks first with high terms and takes the slot (held 10 s); node 1 asks next with
+// zero terms and loses to the holder.
+DenyResult
+RunDenyRetry(bool fixes)
+{
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac a, b, e;
+    a.Configure(Mc1Config(1, CA_TBL_ID_TARGET, fixes));
+    b.Configure(Mc1Config(2, CA_TBL_ID_ANCHOR, fixes));
+    e.Configure(Mc1Config(3, CA_TBL_ID_TARGET, fixes));
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(11);
+    a.SetRng(rng);
+    b.SetRng(rng);
+    e.SetRng(rng);
+    channel.Register(&a);
+    channel.Register(&b);
+    channel.Register(&e);
+    Simulator::Schedule(Seconds(1.0), &RequestWithTerms, &e, uint8_t(255), uint8_t(255));
+    Simulator::Schedule(Seconds(1.6), &RequestWithTerms, &a, uint8_t(0), uint8_t(0));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    DenyResult r;
+    r.reqRetx = a.GetCounters(CA_TBL_MSG_ESC_REQUEST).retransmissions;
+    r.arbDenials = b.GetArbDenials();
+    r.deniesSent = b.GetHsDeniesSent();
+    r.deniesHeard = a.GetHsDeniesHeard();
+    r.grantsHeardByWinner = e.GetHsGrantsHeard();
+    r.winnerRetx = e.GetCounters(CA_TBL_MSG_ESC_REQUEST).retransmissions;
+    r.skipped = b.GetHsRequestAcksSkipped() + a.GetHsRequestAcksSkipped() +
+                e.GetHsRequestAcksSkipped();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestHandshakeFixes()
+{
+    std::cout << "\n[7] MC-1 handshake fixes (MAC sect 8: an ACK'd UWB request)\n";
+
+    const AckByIdResult a0 = RunAckById(false);
+    const AckByIdResult a1 = RunAckById(true);
+    Report("ACK by id, default: retransmissions / drops",
+           std::to_string(a0.retx) + " / " + std::to_string(a0.drops));
+    Report("ACK by id, fixed: retransmissions / drops / matched / unmatched",
+           std::to_string(a1.retx) + " / " + std::to_string(a1.drops) + " / " +
+               std::to_string(a1.matched) + " / " + std::to_string(a1.unmatched));
+    // Default: node 3's ACK clears the OLDEST pending frame -- the one node 2 never
+    // acknowledged -- so that frame is never retried, and the acknowledged one is.
+    Check("default: an ACK clears the oldest frame (the unACKed one is never retried)",
+          a0.retx == 1 && a0.drops == 0,
+          "retx " + std::to_string(a0.retx) + ", drops " + std::to_string(a0.drops));
+    // Fixed: the ACK clears the frame it names; the unACKed one is retried to the limit
+    // (maxRetransmissions = 2) and then dropped.
+    Check("fixed: an ACK clears the frame it names; the unACKed one is retried and dropped",
+          a1.retx == 2 && a1.drops == 1 && a1.matched == 1 && a1.unmatched == 0,
+          "retx " + std::to_string(a1.retx) + ", drops " + std::to_string(a1.drops) +
+              ", matched " + std::to_string(a1.matched));
+
+    const DenyResult d0 = RunDenyRetry(false);
+    const DenyResult d1 = RunDenyRetry(true);
+    Report("deny, default: loser retransmissions / arbiter denials",
+           std::to_string(d0.reqRetx) + " / " + std::to_string(d0.arbDenials));
+    Report("deny, fixed: loser retransmissions / denials scored / sent / heard",
+           std::to_string(d1.reqRetx) + " / " + std::to_string(d1.arbDenials) + " / " +
+               std::to_string(d1.deniesSent) + " / " + std::to_string(d1.deniesHeard));
+    // Default: the anchor ACKs before arbitrating, so the denied request is settled and
+    // the requester never asks again.
+    Check("default: a denied request is ACKed first and never retried",
+          d0.arbDenials == 1 && d0.reqRetx == 0,
+          "denials " + std::to_string(d0.arbDenials) + ", retx " + std::to_string(d0.reqRetx));
+    // Fixed: each denial is answered and the request is retried on its ACK timeout; with
+    // the slot held 10 s, the original and both retries are scored and denied.
+    Check("fixed: a denial is answered, and the request is retried and re-scored",
+          d1.reqRetx == 2 && d1.arbDenials == 3 && d1.deniesSent == 3 && d1.deniesHeard == 3,
+          "retx " + std::to_string(d1.reqRetx) + ", denials " + std::to_string(d1.arbDenials) +
+              ", sent " + std::to_string(d1.deniesSent) + ", heard " +
+              std::to_string(d1.deniesHeard));
+    Check("fixed: the winner's request is settled by its GRANT, not retried",
+          d1.grantsHeardByWinner == 1 && d1.winnerRetx == 0,
+          "grants heard " + std::to_string(d1.grantsHeardByWinner) + ", retx " +
+              std::to_string(d1.winnerRetx));
+    // 4 request transmissions (the winner's, and the loser's original and two retries),
+    // each heard by the 2 other nodes.
+    Check("fixed: no node answers a request with a bare ACK", d1.skipped == 8,
+          "withheld " + std::to_string(d1.skipped) + " (need 4 transmissions x 2 hearers)");
+}
+
+// ---------------------------------------------------------------------------
+// Test 8 -- MC-2: a last gasp leaves before the silence; a large correction repeats
+// ---------------------------------------------------------------------------
+
+void
+GaspThenSilence(CaTblMac* m)
+{
+    m->SendTriggeredUpdate(CA_TBL_TIER_868, 2);
+    m->SetSilent(true);
+    // Anything after the silence must not leave.
+    m->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+}
+
+void
+TestTriggeredUpdates()
+{
+    std::cout << "\n[8] MC-2 triggered updates (MAC sect 3 and 8)\n";
+
+    uint64_t heard[3] = {0, 0, 0};
+    uint64_t sentFrames[3] = {0, 0, 0};
+    uint64_t suppressed = 0;
+    uint64_t digestsHeard = 0;
+    for (uint8_t reason = 1; reason <= 2; ++reason)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel channel;
+        channel.SetPhyProvider(&phy);
+        CaTblMac a, b;
+        CaTblMacConfig ca;
+        ca.nodeId = 1;
+        ca.sf = 7;
+        ca.bandwidthHz = 125e3;
+        ca.isAccessPoint = true;
+        ca.defaultHopLimit = 1; // no rebroadcast, so every reception is an original
+        CaTblMacConfig cb = ca;
+        cb.nodeId = 2;
+        a.Configure(ca);
+        b.Configure(cb);
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(5);
+        a.SetRng(rng);
+        b.SetRng(rng);
+        channel.Register(&a);
+        channel.Register(&b);
+        a.PublishSelfEntry(10.0, 20.0, 4.0, 4.0, 0.0, 0.0, 0.0, 0.5);
+        if (reason == 2)
+        {
+            Simulator::Schedule(Seconds(1.0), &GaspThenSilence, &a);
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::SendTriggeredUpdate, &a,
+                                CA_TBL_TIER_868, uint8_t(1));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        heard[reason] = b.GetTrigHeard(reason);
+        sentFrames[reason] = a.GetTrigFramesSent();
+        if (reason == 2)
+        {
+            suppressed = a.GetSuppressedTx();
+            digestsHeard = b.GetCounters(CA_TBL_MSG_DIGEST).received;
+        }
+        Simulator::Destroy();
+    }
+    Report("large correction: frames sent / heard",
+           std::to_string(sentFrames[1]) + " / " + std::to_string(heard[1]));
+    Report("last gasp: frames sent / heard / later frames suppressed",
+           std::to_string(sentFrames[2]) + " / " + std::to_string(heard[2]) + " / " +
+               std::to_string(suppressed));
+    // The redundant class: the first frame and two jittered repeats, all one packet id, so
+    // the receiver's dedup keeps one.
+    Check("a large correction goes with the redundant class's 3 frames",
+          sentFrames[1] == 3 && heard[1] == 1,
+          "sent " + std::to_string(sentFrames[1]) + ", heard " + std::to_string(heard[1]));
+    // Queued before SetSilent(true), so it leaves; unrepeated; and what follows does not.
+    Check("a last gasp leaves once, before the silence, and nothing after it",
+          sentFrames[2] == 1 && heard[2] == 1 && suppressed == 1 && digestsHeard == 0,
+          "sent " + std::to_string(sentFrames[2]) + ", heard " + std::to_string(heard[2]) +
+              ", suppressed " + std::to_string(suppressed) + ", digests heard " +
+              std::to_string(digestsHeard));
+}
+
+// [9] NW-8. A four-node line 1-2-3-4: node 1 (an anchor) asks for manifest 7, which
+// only node 4 carries. The QUERY floods out over two relays; the RESPONSE must come back
+// hop by hop, each node sending it to the previous hop IT cached.
+struct RpRun
+{
+    uint64_t answered = 0;
+    uint64_t hops[4] = {0, 0, 0, 0};
+    uint64_t forwarded[4] = {0, 0, 0, 0};
+    uint64_t floods[4] = {0, 0, 0, 0};
+    uint64_t expired[4] = {0, 0, 0, 0};
+    uint64_t delivered = 0;
+    uint64_t respHeardAtRequester = 0;
+    uint64_t duplicates = 0;
+};
+
+RpRun
+RunReversePathLine(bool hop, double node3WindowS)
+{
+    RpRun r;
+    StubPhy phy(StubPhy::LINE, 4, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(9);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = (i == 3) ? 7 : static_cast<uint8_t>(20 + i);
+        c.reversePath = true;
+        c.reversePathHop = hop;
+        if (i == 2)
+        {
+            c.reversePathWindowS = node3WindowS;
+        }
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendQuery, &m[0], CA_TBL_TIER_868, uint8_t(7));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.answered = m[3].GetQueriesAnswered();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.hops[i] = m[i].GetRpUnicastHops();
+        r.forwarded[i] = m[i].GetRpForwarded();
+        r.floods[i] = m[i].GetRpFloods();
+        r.expired[i] = m[i].GetRpExpired();
+    }
+    r.delivered = m[0].GetRpDelivered();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.duplicates += m[i].GetRpDuplicates();
+    }
+    r.respHeardAtRequester = m[0].GetCounters(CA_TBL_MSG_RESPONSE).received;
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestReversePathHop()
+{
+    std::cout << "\n[9] NW-8 reverse path, hop by hop (Transport sect 1)\n";
+    const RpRun a = RunReversePathLine(true, 300.0);
+    Report("chain: unicast hops at nodes 4/3/2, forwarded at 3/2, delivered at 1",
+           std::to_string(a.hops[3]) + "/" + std::to_string(a.hops[2]) + "/" +
+               std::to_string(a.hops[1]) + ", " + std::to_string(a.forwarded[2]) + "/" +
+               std::to_string(a.forwarded[1]) + ", " + std::to_string(a.delivered));
+    Check("the RESPONSE follows the reverse path: one unicast hop from each of 4, 3, 2",
+          a.answered == 1 && a.hops[3] == 1 && a.hops[2] == 1 && a.hops[1] == 1 &&
+              a.hops[0] == 0 && a.forwarded[2] == 1 && a.forwarded[1] == 1,
+          "answered " + std::to_string(a.answered));
+    // A lost ACK makes a hop retransmit under a fresh packet id, which dedup cannot
+    // catch: those copies must be absorbed as duplicates, not forwarded again (the first
+    // build forwarded every copy, 1 -> 3 -> 5).
+    Report("frames heard at the requester / duplicates absorbed on the path",
+           std::to_string(a.respHeardAtRequester) + " / " + std::to_string(a.duplicates));
+    Check("it is delivered once, with no flood, whatever the retransmissions",
+          a.delivered == 1 && a.respHeardAtRequester >= 1 &&
+              a.floods[0] + a.floods[1] + a.floods[2] + a.floods[3] == 0,
+          "delivered " + std::to_string(a.delivered) + ", heard " +
+              std::to_string(a.respHeardAtRequester));
+    // Node 3's entry is past its window when the answer comes back: the hop must flood,
+    // and node 2 then carries the flood on rather than unicasting it.
+    const RpRun b = RunReversePathLine(true, 0.0);
+    Report("node 3 window 0: expired / floods at 3, forwarded at 2, delivered at 1",
+           std::to_string(b.expired[2]) + " / " + std::to_string(b.floods[2]) + ", " +
+               std::to_string(b.forwarded[1]) + ", " + std::to_string(b.delivered));
+    Check("a missing (expired) entry floods, and the flood still reaches the requester",
+          b.expired[2] == 1 && b.floods[2] == 1 && b.hops[2] == 0 && b.forwarded[1] == 0 &&
+              b.delivered == 1,
+          "expired " + std::to_string(b.expired[2]) + ", floods " + std::to_string(b.floods[2]));
+    // The pre-NW-8 behaviour, kept under reversePath alone: the cache names the
+    // originator, node 1, which is not node 4's neighbour -- the answer never arrives.
+    const RpRun c = RunReversePathLine(false, 300.0);
+    Check("without reversePathHop the one-hop answer to a 3-hop originator is lost",
+          c.answered == 1 && c.respHeardAtRequester == 0 && c.delivered == 0,
+          "heard " + std::to_string(c.respHeardAtRequester));
+    // The route fields are billed under the flag and only there.
+    CaTblMac on, off;
+    CaTblMacConfig co;
+    co.nodeId = 1;
+    co.sf = 7;
+    co.bandwidthHz = 125e3;
+    co.reversePath = true;
+    CaTblMacConfig cn = co;
+    cn.reversePathHop = true;
+    off.Configure(co);
+    on.Configure(cn);
+    const double tOff = off.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double tOn = on.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double qOff = off.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 1);
+    const double qOn = on.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 1);
+    Check("a RESPONSE's route fields are billed under reversePathHop, and nothing else is",
+          tOn > tOff && qOn == qOff,
+          "RESPONSE " + std::to_string(tOff) + " -> " + std::to_string(tOn) + " s");
+}
+
+// [10] NW-9. The same four-node line 1-2-3-4 under queryV2 (and reversePathHop, so an
+// answer from node 4 can come home). Node 1 asks; nodes 2, 3, 4 carry manifests 8, 22, 7
+// -- or, for the proxy case, 8, 7, 22, with node 3's entry pushed to node 2 first.
+//
+// The relay jitter is widened to 1.5 s because a node can put two frames on the air at
+// once (TECH_DEBT N.6): node 2's answer and its relay of the rest of the list otherwise
+// overlap and destroy each other at node 3. That defect is not what this case tests.
+struct V2Run
+{
+    uint64_t answered[4] = {0, 0, 0, 0};
+    uint64_t proxied[4] = {0, 0, 0, 0};
+    uint64_t suppressed[4] = {0, 0, 0, 0};
+    uint64_t reduced[4] = {0, 0, 0, 0};
+    uint64_t queriesHeard[4] = {0, 0, 0, 0};
+    uint64_t heard = 0;
+    uint64_t withEntry = 0;
+    std::vector<std::vector<int>> answers; // {manifest, answerer, entryNode, pcsQ, batteryQ}
+};
+
+V2Run
+RunV2Line(const std::vector<uint8_t>& list, bool proxyAt2)
+{
+    V2Run r;
+    StubPhy phy(StubPhy::LINE, 4, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(10);
+    const uint8_t midList[4] = {0, 8, 22, 7};
+    const uint8_t midProxy[4] = {0, 8, 7, 22};
+    const uint8_t* mid = proxyAt2 ? midProxy : midList;
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = mid[i];
+        c.reversePath = true;
+        c.reversePathHop = true;
+        c.queryV2 = true;
+        c.queryProxy = (i == 1) && proxyAt2;
+        c.rebroadcastJitterMaxS = 1.5;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+        if (i > 0)
+        {
+            m[i].SetSelfStatus(200, 0, 150, 10, false, 0);
+            m[i].PublishSelfEntry(100.0 * i, 50.0 * i, 9.0, 9.0, 0.0, 0.0, 0.0, 0.5);
+        }
+    }
+    m[0].SetResponseCallback([&r](const CaTblHeader& h) {
+        r.answers.push_back({static_cast<int>(h.GetRespManifest()),
+                             static_cast<int>(h.GetRespAnswererId()),
+                             static_cast<int>(h.HasSelfEntry() ? h.GetSelfEntry().nodeId : 0),
+                             static_cast<int>(h.GetSelfEntry().pcsQ),
+                             static_cast<int>(h.GetSelfEntry().batteryQ)});
+    });
+    if (proxyAt2)
+    {
+        // Node 3's entry reaches its neighbour node 2 first, by its own update.
+        Simulator::Schedule(Seconds(0.6), &CaTblMac::SendTriggeredUpdate, &m[2], CA_TBL_TIER_868,
+                            uint8_t(1));
+    }
+    Simulator::Schedule(Seconds(5.0), &CaTblMac::SendQueryV2, &m[0], CA_TBL_TIER_868, list,
+                        uint8_t(0));
+    Simulator::Stop(Seconds(40.0));
+    Simulator::Run();
+    for (int i = 0; i < 4; ++i)
+    {
+        r.answered[i] = m[i].GetV2Answered();
+        r.proxied[i] = m[i].GetV2Proxied();
+        r.suppressed[i] = m[i].GetV2Suppressed();
+        r.reduced[i] = m[i].GetV2Reduced();
+        r.queriesHeard[i] = m[i].GetCounters(CA_TBL_MSG_QUERY).received;
+    }
+    {
+        const CaTblMsgCounters& q = m[1].GetCounters(CA_TBL_MSG_QUERY);
+            const CaTblMsgCounters& q3 = m[2].GetCounters(CA_TBL_MSG_QUERY);
+        }
+    {
+        CaTblTableEntry e4;
+        }
+    r.heard = m[0].GetV2ResponsesHeard();
+    r.withEntry = m[0].GetV2EntriesHeard();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestQueryV2()
+{
+    std::cout << "\n[10] NW-9 QUERY and RESPONSE carry what the spec says (Network sect 4)\n";
+    const V2Run a = RunV2Line({7, 8, 9}, false);
+    Report("list {7,8,9}: answered at 2/3/4, reduced at 2/3/4, answers heard / with entry",
+           std::to_string(a.answered[1]) + "/" + std::to_string(a.answered[2]) + "/" +
+               std::to_string(a.answered[3]) + ", " + std::to_string(a.reduced[1]) + "/" +
+               std::to_string(a.reduced[2]) + "/" + std::to_string(a.reduced[3]) + ", " +
+               std::to_string(a.heard) + " / " + std::to_string(a.withEntry));
+    bool got7 = false, got8 = false;
+    for (size_t k = 0; k < a.answers.size(); ++k)
+    {
+        got7 = got7 || (a.answers[k][0] == 7 && a.answers[k][1] == 4 && a.answers[k][2] == 4);
+        got8 = got8 || (a.answers[k][0] == 8 && a.answers[k][1] == 2 && a.answers[k][2] == 2);
+    }
+    Check("every listed manifest a node carries is answered, by its target, with its entry",
+          a.answered[1] == 1 && a.answered[3] == 1 && a.answered[2] == 0 && got7 && got8 &&
+              a.heard == 2 && a.withEntry == 2,
+          "answers heard " + std::to_string(a.heard));
+    Check("a node that answered part of the list relays the rest (batch-safe), and one that "
+          "answered nothing relays it whole",
+          a.reduced[1] == 1 && a.reduced[2] == 0 && a.queriesHeard[3] >= 1 &&
+              a.suppressed[1] == 0,
+          "reduced at 2: " + std::to_string(a.reduced[1]));
+    const V2Run b = RunV2Line({8}, false);
+    Check("a node that answered every listed manifest does not rebroadcast",
+          b.answered[1] == 1 && b.suppressed[1] == 1 && b.queriesHeard[2] == 0 && b.heard == 1,
+          "suppressed " + std::to_string(b.suppressed[1]) + ", node 3 heard " +
+              std::to_string(b.queriesHeard[2]));
+    // The answer's header is billed under queryV2 (12 bytes over the 28-byte entry), alone
+    // and with reversePathHop (then only the answerer's 2 more), and a QUERY is not.
+    CaTblMacConfig cb;
+    cb.nodeId = 1;
+    cb.sf = 7;
+    cb.bandwidthHz = 125e3;
+    CaTblMacConfig cv = cb;
+    cv.queryV2 = true;
+    CaTblMacConfig cvh = cv;
+    cvh.reversePathHop = true;
+    CaTblMac mb, mv, mvh;
+    mb.Configure(cb);
+    mv.Configure(cv);
+    mvh.Configure(cvh);
+    const double rb = mb.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double rv = mv.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    const double rvh = mvh.FrameAirtimeS(CA_TBL_MSG_RESPONSE, CA_TBL_TIER_868, 1);
+    Check("the v2 RESPONSE header is billed, with NW-8's fields not billed twice, and a QUERY "
+          "is unchanged",
+          rv > rb && rvh >= rv &&
+              mv.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 3) ==
+                  mb.FrameAirtimeS(CA_TBL_MSG_QUERY, CA_TBL_TIER_868, 3),
+          "RESPONSE " + std::to_string(rb) + " -> " + std::to_string(rv) + " -> " +
+              std::to_string(rvh) + " s");
+    const V2Run c = RunV2Line({7}, true);
+    bool proxy7 = false;
+    for (size_t k = 0; k < c.answers.size(); ++k)
+    {
+        // ... with the status node 3 published (PCS 200, battery 150), carried unchanged.
+        proxy7 = proxy7 || (c.answers[k][0] == 7 && c.answers[k][1] == 2 && c.answers[k][2] == 3 &&
+                            c.answers[k][3] == 200 && c.answers[k][4] == 150);
+    }
+    Check("a proxy answers on behalf of the entry it holds (answerer 2, entry node 3), and "
+          "having answered the whole list does not pass the query on to the target",
+          c.proxied[1] == 1 && proxy7 && c.suppressed[1] == 1 && c.answered[2] == 0 &&
+              c.queriesHeard[2] == 0,
+          "proxied " + std::to_string(c.proxied[1]));
+}
+
+// [11] NW-5. One arbiter (an anchor, id 10) and three requesters (ids 11-13), all in
+// range of each other. Requester 1 takes the slot; 2 and 3 queue; when the slot frees the
+// queue's argmax is granted. Each requester's outcome is recorded by its grant callback.
+struct ArbRun
+{
+    uint64_t aged = 0;
+    uint64_t queued = 0;
+    uint64_t outOfRange = 0;
+    int outcome[4] = {9, 9, 9, 9}; // last callback per requester: 1 grant, 2 queued, 0 deny
+    int queuedSeen[4] = {0, 0, 0, 0};
+    int deniedSeen[4] = {0, 0, 0, 0};
+};
+
+ArbRun
+RunArbiter(uint8_t deg2, uint8_t rem2, double t2, uint8_t deg3, uint8_t rem3, double t3,
+           bool evidenceFor3)
+{
+    ArbRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 4, 10); // ids 10..13 (0 would read as broadcast)
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(11);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(10 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+        if (i > 0)
+        {
+            m[i].SetUwbGrantCallback([&r, i](uint16_t, int o) {
+                r.outcome[i] = o;
+                if (o == 2)
+                {
+                    r.queuedSeen[i] = 1;
+                }
+                if (o == 0)
+                {
+                    r.deniedSeen[i] = 1;
+                }
+            });
+        }
+    }
+    m[0].NoteUwbEvidence(11, 0.0);
+    m[0].NoteUwbEvidence(12, 0.0);
+    if (evidenceFor3)
+    {
+        m[0].NoteUwbEvidence(13, 0.0);
+    }
+    // Evidence stays fresh for the run (it is renewed each second, as ranging would).
+    for (int k = 1; k < 30; ++k)
+    {
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(11),
+                            double(k));
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(12),
+                            double(k));
+        if (evidenceFor3)
+        {
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[0], uint16_t(13),
+                                double(k));
+        }
+        Simulator::Schedule(Seconds(k + 0.5), &CaTblMac::ArbitrationCycle, &m[0]);
+    }
+    auto ask = [&](int i, uint8_t deg, uint8_t rem, double at) {
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTerms, &m[i], deg, rem);
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTargetTier, &m[i],
+                            uint8_t(CA_TBL_TIER_UWB));
+        Simulator::Schedule(Seconds(at), &CaTblMac::Send, &m[i], CA_TBL_MSG_ESC_REQUEST,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    };
+    ask(1, 255, 255, 0.2);
+    ask(2, deg2, rem2, t2);
+    ask(3, deg3, rem3, t3);
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.aged = m[0].GetArbAgedGrants();
+    r.queued = m[0].GetArbQueued();
+    r.outOfRange = m[0].GetArbOutOfRange();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestArbitrationV2()
+{
+    std::cout << "\n[11] NW-5 arbitration as Network sect 5 specifies\n";
+    // Aging: 2 asks early with the lower degradation, 3 asks just before the slot frees
+    // with a higher one. Scored on the time waited, 2 has aged to the top; scored on time
+    // since last grant (C4, never granted = 1 for both), 3 would win.
+    const ArbRun a = RunArbiter(128, 255, 1.0, 153, 255, 9.8, true);
+    Report("aging: outcomes 1/2/3, queued, granted from the queue",
+           std::to_string(a.outcome[1]) + "/" + std::to_string(a.outcome[2]) + "/" +
+               std::to_string(a.outcome[3]) + ", " + std::to_string(a.queued) + ", " +
+               std::to_string(a.aged));
+    Check("a denied request stays queued, told its place, and aging lifts the one that waited",
+          a.queuedSeen[2] == 1 && a.queuedSeen[3] == 1 && a.outcome[2] == 1 && a.aged >= 1,
+          "outcome of 2: " + std::to_string(a.outcome[2]));
+    // Battery: same degradation, same moment; 3 has 10 % left, 2 has 90 %.
+    const ArbRun b = RunArbiter(128, 230, 2.0, 128, 26, 2.0, true);
+    Check("the inverse-remaining battery term orders two otherwise equal requests: the "
+          "nearly flat one is granted first",
+          b.outcome[3] == 1 && b.queuedSeen[2] == 1,
+          "outcomes 2/3: " + std::to_string(b.outcome[2]) + "/" + std::to_string(b.outcome[3]));
+    // Range: no evidence for 3, so it is refused, not queued. The refusal does not settle a
+    // broadcast request (another anchor may be in reach): MC-1 retries it, each retry is
+    // refused, and it ends when the retries run out (-1).
+    const ArbRun c = RunArbiter(128, 255, 1.0, 200, 255, 2.0, false);
+    Check("a request without the arbiter's own UWB-range evidence is refused, not queued, "
+          "and the refusal does not settle it: it times out",
+          c.outOfRange >= 2 && c.deniedSeen[3] == 0 && c.queuedSeen[3] == 0 && c.outcome[3] == -1,
+          "out of range " + std::to_string(c.outOfRange));
+}
+
+// [12] NW-6. Two arbiters (anchors 20 and 21, each with its grant coordinator) and two
+// requesters (22, 23), all in range. 22 asks first and both arbiters grant it (the double
+// grant L.1.4 settles by gossip); 23 asks while both slots are held, and both queue it.
+// The anchors then gossip. The lower id, 20, must give up its grant to 22 and its queued
+// 23, with a final denial; 23 stays queued at 21 and is granted from 21's queue.
+struct QgRun
+{
+    uint64_t yieldsLow = 0;
+    uint64_t agedLow = 0;
+    uint64_t agedHigh = 0;
+    uint64_t heardLow = 0;
+    int last23 = 9;
+    uint16_t grantedBy23 = 0;
+    int queued23 = 0;
+};
+
+QgRun
+RunQueueGossip(bool gossipQueue)
+{
+    QgRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 4, 20); // ids 20..23
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[4];
+    CaTblGrantCoordinator c20(20), c21(21);
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(12);
+    for (int i = 0; i < 4; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(20 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true;
+        c.identityClass = (i < 2) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        c.gossipQueue = gossipQueue;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[0].SetGrantCoordinator(&c20);
+    m[1].SetGrantCoordinator(&c21);
+    m[3].SetUwbGrantCallback([&r](uint16_t a, int o) {
+        r.last23 = o;
+        if (o == 2)
+        {
+            r.queued23 = 1;
+        }
+        if (o == 1)
+        {
+            r.grantedBy23 = a;
+        }
+    });
+    for (int k = 0; k < 40; ++k)
+    {
+        for (int a = 0; a < 2; ++a)
+        {
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[a], uint16_t(22),
+                                double(k));
+            Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[a], uint16_t(23),
+                                double(k));
+            Simulator::Schedule(Seconds(k + 0.5), &CaTblMac::ArbitrationCycle, &m[a]);
+        }
+    }
+    auto ask = [&](int i, double at) {
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTerms, &m[i], uint8_t(128),
+                            uint8_t(255));
+        Simulator::Schedule(Seconds(at), &CaTblMac::SetRequestTargetTier, &m[i],
+                            uint8_t(CA_TBL_TIER_UWB));
+        Simulator::Schedule(Seconds(at), &CaTblMac::Send, &m[i], CA_TBL_MSG_ESC_REQUEST,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    };
+    ask(2, 0.2);
+    ask(3, 1.2);
+    // Gossip from both, every 2 s, at offsets that do not collide.
+    for (int k = 2; k < 40; k += 2)
+    {
+        Simulator::Schedule(Seconds(k + 0.1), &CaTblMac::SendGrantGossip, &m[0], CA_TBL_TIER_868);
+        Simulator::Schedule(Seconds(k + 0.9), &CaTblMac::SendGrantGossip, &m[1], CA_TBL_TIER_868);
+    }
+    Simulator::Stop(Seconds(40.0));
+    Simulator::Run();
+    r.yieldsLow = m[0].GetQueueYields();
+    r.agedLow = m[0].GetArbAgedGrants();
+    r.agedHigh = m[1].GetArbAgedGrants();
+    r.heardLow = m[0].GetQueueItemsHeard();
+    Simulator::Destroy();
+    return r;
+}
+
+// [13] N.1. A three-node line 1-2-3 with node 2 silenced: node 1 floods a QUERY for
+// manifest 7, which only node 3 carries. Node 2 is the only way to node 3.
+struct SilentRelayRun
+{
+    uint64_t heardAt3 = 0;
+    uint64_t refused = 0;
+    uint64_t relayed = 0;
+};
+
+SilentRelayRun
+RunSilentRelayLine(bool stopRelay)
+{
+    SilentRelayRun r;
+    StubPhy phy(StubPhy::LINE, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(13);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR : CA_TBL_ID_TARGET;
+        c.targetManifestId = (i == 2) ? 7 : static_cast<uint8_t>(20 + i);
+        c.silenceStopsRelay = stopRelay;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[1].SetSilent(true);
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendQuery, &m[0], CA_TBL_TIER_868, uint8_t(7));
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    r.heardAt3 = m[2].GetCounters(CA_TBL_MSG_QUERY).received;
+    r.refused = m[1].GetSilentRelayRefused();
+    r.relayed = m[1].GetRebroadcastFrames();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestSilentRelay()
+{
+    std::cout << "\n[13] N.1 a silenced radio relays nothing (sect 49)\n";
+    const SilentRelayRun off = RunSilentRelayLine(false);
+    const SilentRelayRun on = RunSilentRelayLine(true);
+    Report("node 2 silenced, off / on: QUERY heard at node 3, relayed by 2, refused at 2",
+           std::to_string(off.heardAt3) + "/" + std::to_string(off.relayed) + "/" +
+               std::to_string(off.refused) + " / " + std::to_string(on.heardAt3) + "/" +
+               std::to_string(on.relayed) + "/" + std::to_string(on.refused));
+    Check("by default a silenced radio still relays the flood (the N.1 defect, kept)",
+          off.heardAt3 >= 1 && off.relayed >= 1 && off.refused == 0,
+          "heard " + std::to_string(off.heardAt3) + ", relayed " + std::to_string(off.relayed));
+    Check("silenceStopsRelay: the silenced radio relays nothing and counts the refusal",
+          on.heardAt3 == 0 && on.relayed == 0 && on.refused >= 1,
+          "heard " + std::to_string(on.heardAt3) + ", relayed " + std::to_string(on.relayed) +
+              ", refused " + std::to_string(on.refused));
+}
+
+// [14] N.6. Two nodes in range. (a) Node 1 queues two DISCOVERY frames at one instant:
+// both pass CAD, since a radio's CAD never sees its own frame, and overlap on air.
+// (b) Nodes 1 and 2 each send one frame at one instant: each transmits while the other's
+// frame arrives.
+struct HdRun
+{
+    uint64_t heardAt2 = 0;     // (a) DISCOVERY frames node 2 received from node 1
+    uint64_t selfOverlap = 0;  // (a) node 1's frames due while its own was on air
+    uint64_t deferred = 0;     // (a) of those, sent back to CAD
+    uint64_t rxWhileTx = 0;    // (b) receptions at 1 and 2 of the other's frame
+    uint64_t deaf = 0;         // (b) receptions that overlapped the receiver's own frame
+};
+
+void
+SendTwo(CaTblMac* m)
+{
+    m->Send(CA_TBL_MSG_DISCOVERY, CA_TBL_TIER_868, 0, 0);
+    m->Send(CA_TBL_MSG_DISCOVERY, CA_TBL_TIER_868, 0, 0);
+}
+
+HdRun
+RunHalfDuplex(uint8_t mode)
+{
+    HdRun r;
+    for (int part = 0; part < 2; ++part)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel channel;
+        channel.SetPhyProvider(&phy);
+        CaTblMac m[2];
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(14);
+        for (int i = 0; i < 2; ++i)
+        {
+            CaTblMacConfig c;
+            c.nodeId = static_cast<uint16_t>(1 + i);
+            c.sf = 7;
+            c.bandwidthHz = 125e3;
+            c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+            c.defaultHopLimit = 1;  // no rebroadcast
+            c.halfDuplex = mode;
+            m[i].Configure(c);
+            m[i].SetRng(rng);
+            channel.Register(&m[i]);
+        }
+        if (part == 0)
+        {
+            Simulator::Schedule(Seconds(1.0), &SendTwo, &m[0]);
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0], CA_TBL_MSG_DISCOVERY,
+                                CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[1], CA_TBL_MSG_DISCOVERY,
+                                CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        if (part == 0)
+        {
+            r.heardAt2 = m[1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+            r.selfOverlap = m[0].GetSelfOverlapTx();
+            r.deferred = m[0].GetHalfDuplexDeferred();
+        }
+        else
+        {
+            r.rxWhileTx = m[0].GetCounters(CA_TBL_MSG_DISCOVERY).received +
+                          m[1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+            r.deaf = m[0].GetDeafRx() + m[1].GetDeafRx();
+        }
+        Simulator::Destroy();
+    }
+    return r;
+}
+
+void
+TestHalfDuplex()
+{
+    std::cout << "\n[14] N.6 a radio is half-duplex (CaTblChannel::IsBusy)\n";
+    const HdRun a = RunHalfDuplex(0);
+    const HdRun b = RunHalfDuplex(1);
+    const HdRun c = RunHalfDuplex(2);
+    Report("mode 0/1/2: (a) heard at 2, self-overlaps, deferred; (b) received, deaf",
+           std::to_string(a.heardAt2) + "," + std::to_string(a.selfOverlap) + "," +
+               std::to_string(a.deferred) + "," + std::to_string(a.rxWhileTx) + "," +
+               std::to_string(a.deaf) + " / " + std::to_string(b.heardAt2) + "," +
+               std::to_string(b.selfOverlap) + "," + std::to_string(b.deferred) + "," +
+               std::to_string(b.rxWhileTx) + "," + std::to_string(b.deaf) + " / " +
+               std::to_string(c.heardAt2) + "," + std::to_string(c.selfOverlap) + "," +
+               std::to_string(c.deferred) + "," + std::to_string(c.rxWhileTx) + "," +
+               std::to_string(c.deaf));
+    // Of the two overlapping frames only the earlier-ending is lost: the channel erases a
+    // completed frame, so the later one never sees it (TECH_DEBT N.22).
+    Check("by default a radio's two frames overlap and one is lost, and a transmitting "
+          "radio still receives (the N.6 defect, kept)",
+          a.heardAt2 == 1 && a.rxWhileTx == 2,
+          "heard " + std::to_string(a.heardAt2) + ", received while transmitting " +
+              std::to_string(a.rxWhileTx));
+    Check("count-only mode changes nothing and counts both cases",
+          b.heardAt2 == a.heardAt2 && b.rxWhileTx == a.rxWhileTx && b.selfOverlap == 1 &&
+              b.deferred == 0 && b.deaf == 2,
+          "self-overlaps " + std::to_string(b.selfOverlap) + ", deaf " + std::to_string(b.deaf));
+    Check("enforced: the second frame waits and both are heard; no reception while transmitting",
+          c.heardAt2 == 2 && c.deferred == 1 && c.rxWhileTx == 0 && c.deaf == 2,
+          "heard " + std::to_string(c.heardAt2) + ", deferred " + std::to_string(c.deferred) +
+              ", received while transmitting " + std::to_string(c.rxWhileTx));
+}
+
+// [15] N.10. A three-node line 10-11-12: gateway 10 carries a requester's escalation request
+// for target 12 to arbiter 11 (a finder: a rescuer under arbitration v2, holding UWB-reach
+// evidence of 12). (c) The same carrier asks for an arbiter it cannot reach (12).
+struct OboRun
+{
+    uint64_t carrierSent = 0;    // ESC_REQUEST frames the carrier put on air, retries included
+    uint64_t carrierRetx = 0;
+    double carrierAirtimeS = 0.0;
+    uint64_t heard = 0;          // carried requests the arbiter received
+    uint64_t granted = 0;
+    int subjectSaw = 9;          // the target's grant callback: 3 = granted on its behalf
+    int carrierCb = 9;           // the carrier's own grant callback: never, for a carried request
+};
+
+OboRun
+RunOboCarry(uint8_t hdMode, uint16_t arbiter)
+{
+    OboRun r;
+    StubPhy phy(StubPhy::LINE, 3, 10);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(15);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(10 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.identityClass = (i == 0) ? CA_TBL_ID_ANCHOR
+                                   : ((i == 1) ? CA_TBL_ID_RESCUER : CA_TBL_ID_TARGET);
+        c.sendHandshakeFrames = true;
+        c.handshakeFixes = true;
+        c.uwbArbitration = true;
+        c.arbitrationV2 = true;
+        c.halfDuplex = hdMode;
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    m[0].SetUwbGrantCallback([&r](uint16_t, int o) { r.carrierCb = o; });
+    m[2].SetUwbGrantCallback([&r](uint16_t, int o) { r.subjectSaw = o; });
+    for (int k = 0; k < 30; ++k)
+    {
+        Simulator::Schedule(Seconds(k), &CaTblMac::NoteUwbEvidence, &m[1], uint16_t(12),
+                            double(k));
+    }
+    Simulator::Schedule(Seconds(1.0), &CaTblMac::SendRequestOnBehalf, &m[0], arbiter,
+                        uint16_t(12), uint8_t(200), uint8_t(250), uint8_t(1), CA_TBL_TIER_868);
+    Simulator::Stop(Seconds(30.0));
+    Simulator::Run();
+    const CaTblMsgCounters& cc = m[0].GetCounters(CA_TBL_MSG_ESC_REQUEST);
+    r.carrierSent = cc.sent;
+    r.carrierRetx = cc.retransmissions;
+    r.carrierAirtimeS = cc.airtimeS;
+    r.heard = m[1].GetOboFramesHeard();
+    r.granted = m[1].GetOboFramesVerdict(0);
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestOboCarry()
+{
+    std::cout << "\n[15] N.10 a requester's request travels as a frame (Transport sect 4)\n";
+    const OboRun a = RunOboCarry(0, 11);
+    const OboRun b = RunOboCarry(2, 11);
+    const OboRun c = RunOboCarry(2, 12);
+    Report("half-duplex 0 / 2 / unreachable: sent, retx, heard, granted, subject cb, carrier cb",
+           std::to_string(a.carrierSent) + "," + std::to_string(a.carrierRetx) + "," +
+               std::to_string(a.heard) + "," + std::to_string(a.granted) + "," +
+               std::to_string(a.subjectSaw) + "," + std::to_string(a.carrierCb) + " / " +
+               std::to_string(b.carrierSent) + "," + std::to_string(b.carrierRetx) + "," +
+               std::to_string(b.heard) + "," + std::to_string(b.granted) + "," +
+               std::to_string(b.subjectSaw) + "," + std::to_string(b.carrierCb) + " / " +
+               std::to_string(c.carrierSent) + "," + std::to_string(c.carrierRetx) + "," +
+               std::to_string(c.heard) + "," + std::to_string(c.granted) + "," +
+               std::to_string(c.subjectSaw) + "," + std::to_string(c.carrierCb));
+    Check("the carried request is a billed frame, scored on reception, and its GRANT reaches "
+          "the subject marked on-behalf",
+          b.carrierSent >= 1 && b.carrierAirtimeS > 0.0 && b.heard == 1 && b.granted == 1 &&
+              b.subjectSaw == 3,
+          "sent " + std::to_string(b.carrierSent) + ", heard " + std::to_string(b.heard) +
+              ", subject cb " + std::to_string(b.subjectSaw));
+    Check("enforced half-duplex: the arbiter's ACK settles the carrier, nothing is retried",
+          b.carrierRetx == 0 && b.carrierCb == 9,
+          "retx " + std::to_string(b.carrierRetx));
+    // N.6: the arbiter's ACK and its GRANT leave one radio at once, and the GRANT destroys
+    // the ACK at the carrier; the carrier retries and the arbiter scores the retry again.
+    Check("by default the arbiter's own GRANT destroys its ACK (N.6) and the request is "
+          "retried and re-scored",
+          a.carrierRetx >= 1 && a.heard == 1 + a.carrierRetx && a.subjectSaw == 3,
+          "retx " + std::to_string(a.carrierRetx) + ", heard " + std::to_string(a.heard));
+    Check("a request to an arbiter out of reach is retried, never scored, and never reported "
+          "to the carrier as its own",
+          c.carrierRetx >= 1 && c.heard == 0 && c.subjectSaw == 9 && c.carrierCb == 9,
+          "retx " + std::to_string(c.carrierRetx) + ", carrier cb " +
+              std::to_string(c.carrierCb));
+}
+
+// [16] N.22. Three nodes in range. Nodes 1 and 2 each send one DISCOVERY at one instant, so
+// the two frames overlap at node 3 at equal power, where neither can capture.
+struct BothLostRun
+{
+    uint64_t heardAt3 = 0;
+    uint64_t collisions = 0;
+    uint64_t late = 0;
+};
+
+BothLostRun
+RunBothLost(bool on)
+{
+    BothLostRun r;
+    StubPhy phy(StubPhy::FULL_MESH, 3, 1);
+    CaTblChannel channel;
+    channel.SetPhyProvider(&phy);
+    channel.SetCollisionBothLost(on);
+    CaTblMac m[3];
+    Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+    rng->SetStream(16);
+    for (int i = 0; i < 3; ++i)
+    {
+        CaTblMacConfig c;
+        c.nodeId = static_cast<uint16_t>(1 + i);
+        c.sf = 7;
+        c.bandwidthHz = 125e3;
+        c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+        c.defaultHopLimit = 1;
+        c.discoveryOneHop = true; // DISCOVERY leaves with hop limit 0: never relayed
+        m[i].Configure(c);
+        m[i].SetRng(rng);
+        channel.Register(&m[i]);
+    }
+    for (int i = 0; i < 2; ++i)
+    {
+        Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[i], CA_TBL_MSG_DISCOVERY,
+                            CA_TBL_TIER_868, uint32_t(0), uint16_t(0));
+    }
+    Simulator::Stop(Seconds(20.0));
+    Simulator::Run();
+    r.heardAt3 = m[2].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+    r.collisions = channel.GetTotalCollisions();
+    r.late = channel.GetLateCollisions();
+    Simulator::Destroy();
+    return r;
+}
+
+void
+TestBothLost()
+{
+    std::cout << "\n[16] N.22 both colliding frames are judged (CaTblChannel)\n";
+    const BothLostRun a = RunBothLost(false);
+    const BothLostRun b = RunBothLost(true);
+    Report("off / on: heard at node 3, collisions, of them against a completed frame",
+           std::to_string(a.heardAt3) + "," + std::to_string(a.collisions) + "," +
+               std::to_string(a.late) + " / " + std::to_string(b.heardAt3) + "," +
+               std::to_string(b.collisions) + "," + std::to_string(b.late));
+    Check("by default only the earlier-ending frame is lost and the later one is delivered "
+          "(the N.22 defect, kept)",
+          a.heardAt3 == 1 && a.collisions == 1 && a.late == 0,
+          "heard " + std::to_string(a.heardAt3) + ", collisions " + std::to_string(a.collisions));
+    Check("collisionBothLost: both frames are lost, the later one to the completed frame",
+          b.heardAt3 == 0 && b.collisions == 2 && b.late == 1,
+          "heard " + std::to_string(b.heardAt3) + ", collisions " + std::to_string(b.collisions) +
+              ", late " + std::to_string(b.late));
+}
+
+// [17] N.6 per chip. Two nodes, each with an 868 MHz and a 2.4 GHz MAC on two channels.
+// (a) Node 1 sends one DISCOVERY on each band at one instant. (b) Node 1 sends on 868 MHz
+// while node 2 sends on 2.4 GHz. With node 1's two MACs one chip, each is the other's.
+struct ChipRun
+{
+    uint64_t chipOverlap = 0; // (a) node 1's frames due while its other band was on air
+    uint64_t deferred = 0;    // (a) sent back to CAD
+    uint64_t heardBoth = 0;   // (a) node 2's receptions of node 1's two frames
+    uint64_t chipDeaf = 0;    // (b) node 1's 2.4 GHz receptions overlapping its 868 MHz frame
+    uint64_t heard24 = 0;     // (b) node 1's 2.4 GHz receptions of node 2's frame
+};
+
+ChipRun
+RunChip(uint8_t mode, bool chip)
+{
+    ChipRun r;
+    for (int part = 0; part < 2; ++part)
+    {
+        StubPhy phy(StubPhy::FULL_MESH, 2, 1);
+        CaTblChannel ch[2];
+        CaTblMac m[2][2]; // [node][band]
+        Ptr<UniformRandomVariable> rng = CreateObject<UniformRandomVariable>();
+        rng->SetStream(17);
+        for (int band = 0; band < 2; ++band)
+        {
+            ch[band].SetPhyProvider(&phy);
+            for (int i = 0; i < 2; ++i)
+            {
+                CaTblMacConfig c;
+                c.nodeId = static_cast<uint16_t>(1 + i);
+                c.sf = 7;
+                c.bandwidthHz = 125e3;
+                c.isAccessPoint = true; // 10 % duty: nothing here is throttled
+                c.discoveryOneHop = true;
+                c.halfDuplex = mode;
+                m[i][band].Configure(c);
+                m[i][band].SetRng(rng);
+                ch[band].Register(&m[i][band]);
+            }
+        }
+        if (chip)
+        {
+            m[0][0].SetChipSibling(&m[0][1]);
+            m[0][1].SetChipSibling(&m[0][0]);
+        }
+        const CaTblTier tb[2] = {CA_TBL_TIER_868, CA_TBL_TIER_2P4};
+        if (part == 0)
+        {
+            for (int band = 0; band < 2; ++band)
+            {
+                Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0][band],
+                                    CA_TBL_MSG_DISCOVERY, tb[band], uint32_t(0), uint16_t(0));
+            }
+        }
+        else
+        {
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[0][0], CA_TBL_MSG_DISCOVERY,
+                                tb[0], uint32_t(0), uint16_t(0));
+            Simulator::Schedule(Seconds(1.0), &CaTblMac::Send, &m[1][1], CA_TBL_MSG_DISCOVERY,
+                                tb[1], uint32_t(0), uint16_t(0));
+        }
+        Simulator::Stop(Seconds(20.0));
+        Simulator::Run();
+        if (part == 0)
+        {
+            r.chipOverlap = m[0][0].GetChipOverlapTx() + m[0][1].GetChipOverlapTx();
+            r.deferred = m[0][0].GetHalfDuplexDeferred() + m[0][1].GetHalfDuplexDeferred();
+            r.heardBoth = m[1][0].GetCounters(CA_TBL_MSG_DISCOVERY).received +
+                          m[1][1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+        }
+        else
+        {
+            r.chipDeaf = m[0][1].GetChipDeafRx();
+            r.heard24 = m[0][1].GetCounters(CA_TBL_MSG_DISCOVERY).received;
+        }
+        Simulator::Destroy();
+    }
+    return r;
+}
+
+void
+TestChipDuplex()
+{
+    std::cout << "\n[17] N.6 one chip serves two bands (the LR1121)\n";
+    const ChipRun a = RunChip(2, false);
+    const ChipRun b = RunChip(1, true);
+    const ChipRun c = RunChip(2, true);
+    Report("per radio / chip count / chip enforce: (a) due, deferred, heard; (b) deaf, heard",
+           std::to_string(a.chipOverlap) + "," + std::to_string(a.deferred) + "," +
+               std::to_string(a.heardBoth) + "," + std::to_string(a.chipDeaf) + "," +
+               std::to_string(a.heard24) + " / " + std::to_string(b.chipOverlap) + "," +
+               std::to_string(b.deferred) + "," + std::to_string(b.heardBoth) + "," +
+               std::to_string(b.chipDeaf) + "," + std::to_string(b.heard24) + " / " +
+               std::to_string(c.chipOverlap) + "," + std::to_string(c.deferred) + "," +
+               std::to_string(c.heardBoth) + "," + std::to_string(c.chipDeaf) + "," +
+               std::to_string(c.heard24));
+    Check("per radio, a node's two bands transmit and receive at once (the unmodelled chip)",
+          a.chipOverlap == 0 && a.deferred == 0 && a.heardBoth == 2 && a.heard24 == 1,
+          "heard " + std::to_string(a.heardBoth) + ", 2.4 GHz heard " + std::to_string(a.heard24));
+    Check("one chip, count only: both cases counted, nothing else moves",
+          b.chipOverlap == 1 && b.deferred == 0 && b.heardBoth == 2 && b.chipDeaf == 1 &&
+              b.heard24 == 1,
+          "due over the other band " + std::to_string(b.chipOverlap) + ", deaf " +
+              std::to_string(b.chipDeaf));
+    Check("one chip, enforced: the second band's frame waits; a reception while the other band "
+          "transmits is lost",
+          c.chipOverlap == 1 && c.deferred == 1 && c.heardBoth == 2 && c.chipDeaf == 1 &&
+              c.heard24 == 0,
+          "deferred " + std::to_string(c.deferred) + ", 2.4 GHz heard " + std::to_string(c.heard24));
+}
+
+void
+TestQueueGossip()
+{
+    std::cout << "\n[12] NW-6 anchors gossip their queue and the lower id gives it up\n";
+    const QgRun a = RunQueueGossip(true);
+    Report("with the queue gossiped: yields at 20, grants from the queue at 20/21, 23's grantor",
+           std::to_string(a.yieldsLow) + ", " + std::to_string(a.agedLow) + "/" +
+               std::to_string(a.agedHigh) + ", " + std::to_string(a.grantedBy23));
+    Check("the lower id hears the higher id's queue and gives the double-queued request up",
+          a.heardLow >= 1 && a.yieldsLow >= 1 && a.agedLow == 0,
+          "heard " + std::to_string(a.heardLow) + ", yields " + std::to_string(a.yieldsLow));
+    Check("the request stays queued at the higher id and is granted from its queue",
+          a.queued23 == 1 && a.last23 == 1 && a.grantedBy23 == 21 && a.agedHigh >= 1,
+          "23 granted by " + std::to_string(a.grantedBy23));
+    const QgRun b = RunQueueGossip(false);
+    Check("CONTROL: with grants-only gossip nothing is yielded from a queue",
+          b.yieldsLow == 0 && b.heardLow == 0,
+          "yields " + std::to_string(b.yieldsLow));
+}
+
 } // namespace
 
 int
@@ -784,6 +2027,17 @@ main(int argc, char* argv[])
     TestPriorityContention(contenders, outdir);
     TestFlood(nodes);
     TestHandshake();
+    TestHandshakeFixes();
+    TestTriggeredUpdates();
+    TestReversePathHop();
+    TestQueryV2();
+    TestArbitrationV2();
+    TestQueueGossip();
+    TestSilentRelay();
+    TestHalfDuplex();
+    TestOboCarry();
+    TestBothLost();
+    TestChipDuplex();
 
     std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
     if (g_fail > 0)

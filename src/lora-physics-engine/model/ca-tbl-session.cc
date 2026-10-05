@@ -139,7 +139,9 @@ CaTblSession::OnResult(const CaTblResult& r, double nowS)
         return;
     }
 
-    if (r.tierSource == CA_TBL_TIER_UWB)
+    // TA-3: under SetPreciseOnGrant, precision is a confirmed grant, not a UWB fix.
+    const bool preciseNow = m_preciseOnGrant ? r.uwbGranted : (r.tierSource == CA_TBL_TIER_UWB);
+    if (preciseNow)
     {
         if (m_firstPreciseS.find(r.targetManifestId) == m_firstPreciseS.end())
         {
@@ -159,7 +161,7 @@ CaTblSession::OnResult(const CaTblResult& r, double nowS)
     }
 
     // ---- state advance ----------------------------------------------------
-    const bool precise = (r.tierSource == CA_TBL_TIER_UWB);
+    const bool precise = preciseNow;
     const CaTblSessionState before = m_state;
     switch (m_state)
     {
@@ -311,6 +313,7 @@ CaTblSessionManager::OnResult(const CaTblResult& r, double nowS)
     for (std::map<uint32_t, CaTblSession>::iterator it = m_sessions.begin();
          it != m_sessions.end(); ++it)
     {
+        it->second.SetPreciseOnGrant(m_preciseOnGrant);
         it->second.OnResult(r, nowS);
     }
 }

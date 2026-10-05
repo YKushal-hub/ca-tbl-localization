@@ -58,6 +58,24 @@ CheckClose(const std::string& name, double got, double want, double tol)
     }
 }
 
+static void
+CheckReason(const std::string& name, CaTblRelayA2Reason got, CaTblRelayA2Reason want)
+{
+    if (got == want)
+    {
+        std::printf("  G15 ok    %-52s A2 %s\n", name.c_str(), CaTblRelayA2ReasonName(got));
+        ++g_pass;
+    }
+    else
+    {
+        std::printf("  G15 FAIL  %-52s got A2 %s, expected A2 %s\n",
+                    name.c_str(),
+                    CaTblRelayA2ReasonName(got),
+                    CaTblRelayA2ReasonName(want));
+        ++g_fail;
+    }
+}
+
 //! A measurement that satisfies every condition. Each fixture below breaks exactly one.
 static CaTblRelayedRange
 Valid()
@@ -177,6 +195,51 @@ main(int, char**)
         other.relayId = 3;
         Check("A5 control: a different relay is still admitted",
               CaTblAdmitRelayedRange(other, used, &s), CA_TBL_RELAY_ADMIT);
+    }
+
+    // A2 HAS TWO HALVES, and both refuse with REJECT_DEPTH. L.1.2 has to show the BUDGET
+    // binding at depth 2, not the ceiling, so each half gets its own fixture here and the
+    // reason function is checked against the verdict it feeds.
+    {
+        // Depth 2 under a ceiling of 2 and no budget: admitted. This is the case the old
+        // single-hop A2 refused outright.
+        CaTblRelayedRange m = Valid();
+        m.hopDepth = 2;
+        m.maxRelayDepth = 2;
+        CheckReason("A2 depth 2 under ceiling 2, no budget", CaTblRelayA2(m),
+                    CA_TBL_RELAY_A2_PASS);
+        Check("A2 depth 2 under ceiling 2 is admitted", CaTblAdmitRelayedRange(m, none, &s),
+              CA_TBL_RELAY_ADMIT);
+        // One past the ceiling is the CEILING half, not the budget.
+        m.hopDepth = 3;
+        CheckReason("A2 depth 3 over ceiling 2", CaTblRelayA2(m), CA_TBL_RELAY_A2_CEILING);
+        m.hopDepth = 0;
+        CheckReason("A2 depth 0 is the ceiling half", CaTblRelayA2(m), CA_TBL_RELAY_A2_CEILING);
+    }
+    {
+        // THE BUDGET SEES WHAT THE RELAY INHERITED, and only because the chain is composed.
+        // P_B as reported has trace 8, inside a budget of 10. Composed with the 4 m^2 the
+        // relay inherited along its own upstream leg, the trace is 12, and the same
+        // measurement is refused on the budget. Handing A2 the uncomposed P_B at depth 2
+        // is exactly the understatement CaTblComposeRelayChain exists to correct.
+        CaTblRelayedRange m = Valid();
+        m.hopDepth = 2;
+        m.maxRelayDepth = 2;
+        m.relayVarBudgetM2 = 10.0;
+        CheckReason("A2 budget: uncomposed P_B (tr 8 <= 10) passes", CaTblRelayA2(m),
+                    CA_TBL_RELAY_A2_PASS);
+        double composed[2][2];
+        const bool ok = CaTblComposeRelayChain(m.relayP, 4.0, 0.0, 1.0, composed);
+        m.relayP[0][0] = composed[0][0];
+        m.relayP[0][1] = composed[0][1];
+        m.relayP[1][0] = composed[1][0];
+        m.relayP[1][1] = composed[1][1];
+        CheckClose("composed trace carries the inherited 4 m^2",
+                   ok ? (m.relayP[0][0] + m.relayP[1][1]) : -1.0, 12.0, 1e-12);
+        CheckReason("A2 budget: composed P_B (tr 12 > 10) refused", CaTblRelayA2(m),
+                    CA_TBL_RELAY_A2_BUDGET);
+        Check("A2 budget refusal is the DEPTH verdict", CaTblAdmitRelayedRange(m, none, &s),
+              CA_TBL_RELAY_REJECT_DEPTH);
     }
 
     // The projection must see off-diagonal terms, or a correlated P_B would be treated

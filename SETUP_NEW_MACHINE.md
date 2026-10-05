@@ -2,7 +2,7 @@
 
 Written 2026-09-09 for a fresh agent on a new PC with the `nethi` tree copied over.
 Read `CLAUDE.md` first — it is short and every rule in it was earned by a real defect.
-Read this second. Read `HANDOFF_2026_09_09.md` third.
+Read this second. Read the newest `HANDOFF_*.md` third (check `git log` before trusting it).
 
 ---
 
@@ -68,17 +68,23 @@ A full build from clean is a few minutes. An incremental build after editing
 
 ## 4. Verify the copy arrived intact
 
-Run all eight suites. **152 checks, all should pass.**
+Run all twelve suites. **356 checks, all should pass** (counted at `c79fffd`, 2026-10-03).
+Build them first: a stale suite binary has reported results for a tree it was not built
+from (TECH_DEBT N.5).
 
 ```bash
-for t in ca_tbl_packet_validator ca_tbl_session_test ca_tbl_routing_test \
-         ca_tbl_lifecycle_test ca_tbl_netlayer_test ca_tbl_relay_admission_test \
-         ca_tbl_sparse_anchor_test ca_tbl_loocv_test; do
-    echo -n "$t: "; ./build/scratch/ns3.47-$t-optimized 2>&1 | tail -1
+S="ca_tbl_packet_validator ca_tbl_session_test ca_tbl_routing_test ca_tbl_lifecycle_test \
+   ca_tbl_netlayer_test ca_tbl_relay_admission_test ca_tbl_sparse_anchor_test \
+   ca_tbl_loocv_test ca_tbl_tdoa_test ca_tbl_nlos_test ca_tbl_integrity_test ca_tbl_imu_test"
+CC=gcc-11 CXX=g++-11 ./ns3 build $S
+mkdir -p scratchpad/validator
+for t in $S; do
+    a=""; [ "$t" = ca_tbl_packet_validator ] && a="--outdir=scratchpad/validator"
+    echo -n "$t: "; ./build/scratch/ns3.47-$t-optimized $a 2>&1 | tail -1
 done
 ```
 
-Expected: 38, 29, 21, 16, 15, 14, 11, 8 — all with 0 failed.
+Expected: 62, 32, 27, 16, 30, 22, 33, 9, 33, 41, 38, 13 — all with 0 failed.
 
 Then the gate suite:
 
@@ -86,7 +92,7 @@ Then the gate suite:
 bash scripts/catbl_gates.sh
 ```
 
-**Expect 11/15 with four reds, and they are not your problem:**
+**Expect 53/58 with five reds** (at `c79fffd`), **and they are not your problem:**
 
 - **G4, G5** — red from the environment-split correction. Recorded as true findings
   (`TECH_DEBT` K.6).
@@ -94,9 +100,12 @@ bash scripts/catbl_gates.sh
   overwriting `results/{causal,det_a,det_b}` reintroduces the exact defect `e21666d`
   removed: a suite that rewrites the evidence it verifies. **Do not do this.**
 - **G11** — red by design (`TECH_DEBT` J.1). Terrain is transcription-only.
+- **G24** — FAIL BY FINDING: mechanisms with no population under `--specProfile`
+  (`TECH_DEBT` N.15).
 
-A red G3 is also not a broken build — the integrity check fires once at seed 7, so
-byte-identity between ablation arms is gone by design.
+G3 passes: it separates RNG contamination from the integrity check's treatment effect on
+causal order (`scripts/catbl_g3_ablation.py`). The whole suite takes about 25 minutes; run
+it with `TMPDIR` outside `/tmp`, and compare `git status --short` before and after.
 
 ---
 
@@ -184,7 +193,7 @@ URL (`51e1d3c6…`); **that one does not exist.**
 
 1. `CLAUDE.md` — the rules, and why each exists
 2. this file
-3. `HANDOFF_2026_09_09.md` — current state and what to do next
+3. the newest `HANDOFF_*.md` — current state and what to do next (check `git log` first)
 4. `docs/TECH_DEBT.md` §L — the definition of done, three bars with observable criteria
 5. `docs/BEHAVIOUR_ANOMALIES.md` — the register of things nobody intended
 6. `finalyearprojectcontext.docx` — the architecture spec the system is measured against
@@ -192,3 +201,18 @@ URL (`51e1d3c6…`); **that one does not exist.**
 **Check `git log` before trusting any status document.** Two prior handoffs were stale on
 handover: v14's priority-1 item was already built, and a two-phase finder search was
 written before discovering `finderMode=2` already was one, better.
+
+---
+
+## 9. A cloud container (added 2026-10-04)
+
+The tree was continued once in a fresh cloud container (Ubuntu 24.04, 4 cores). The
+differences from §1-§6:
+
+- **gcc-11 is in the archive.** `apt-get install -y gcc-11 g++-11` gives 11.5.0 with no PPA.
+  The default compiler there is gcc-13. Build with `CC=gcc-11 CXX=g++-11` as everywhere.
+- **The clone was shallow.** G13 then reports sidecar SHAs as unresolved (3 on 2026-10-04)
+  because the commits are not in the clone. Run `git fetch --unshallow origin` before the
+  first suite.
+- **Set the git identity to the owner's before the first commit.** The container's default
+  identity named an assistant. G12 rejects that, and `CLAUDE.md` §2 forbids it.

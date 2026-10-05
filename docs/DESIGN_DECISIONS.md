@@ -94,15 +94,57 @@ ranging, and finders relaying to gateways, are not modelled.
 
 ## 5. Gateway placement and count
 
-**Decision.** Gateways stay on the existing `gwGrid × gwGrid` array.
+**Decision (2026-10-03).** The default deployment is unchanged: the `gwGrid × gwGrid`
+array, 3×3 over a 2 km box. Every result in `results/` that does not say otherwise used it.
+The **spec configuration** (`--specProfile`) uses **eight gateways on a ring** at 0.6 of the
+half-width of a 10 km square (`--nGateways=8`, `--boxHalf=5000`). That is GEO-01 stage 2's
+registered **fallback**: no candidate geometry met the SAR criterion.
 
-**The brief says 3 gateways, 5 field nodes, 5 km radius.** The default here is
-`gwGrid=3`, i.e. **9** gateways over a 2 km box. **This is a divergence and it is not
-resolved.** Reaching the brief's figures means `gwGrid` cannot stay a square array —
-three gateways is not a square number — so it needs explicit placement, which is not
-built.
+**The brief says 3 gateways, 5 field nodes, 5 km radius.** Three gateways at 5 km cannot
+carry a SAR fix on tier 1 in this model. That is a finding, below, not a placement choice.
 
 **Anyone quoting a gateway count should read it off `deployment.json`, not off the brief.**
+
+### How the shape was chosen: GEO-01 (`docs/SPEC_CONFORMANCE_PLAN.md` §3.4)
+
+The owner's decision 5 (2026-09-30): the least infrastructure that meets a registered SAR
+criterion, with gateways only where a vehicle can reach.
+- **The shapes** exist since 2026-10-02 (MS-2, gate G38): `--gwLayout=perimeter|cluster|
+  star|lshape|file`, beside the ring (`--nGateways --gwRingFrac`), the arc (`--gwArcDeg
+  --gwArcCentreDeg`), the ridge (`--gwRidge`) and the grid.
+- **Stage 1** (`report/GEO01_STAGE1_RESULTS.md`): a geometric screen of every shape at 3-8
+  gateways. Tier 1 alone covers a mean P(≥3) of at most 0.71 of the 10 km square at N ≤ 8.
+  It pruned ten candidates for simulation.
+- **Stage 2** (`report/PREREG_GEO01.md`, registered before any cell;
+  `report/GEO01_RESULTS.md`): ten candidates × 10 seeds × 1 800 s, the preset minus its
+  geometry. The criterion was availability ≥ 0.95 and median time to a 100 m fix ≤ 600 s.
+  - No candidate met it. Availability was at most 0.329, on `ca_tbl_full`.
+  - The registered fallback, the highest mean availability, is N8_ring; the runner-up is
+    N8_arc240.
+  - Three gateways gave 0.22-0.25.
+- **Stage 3** (inside CAMP-SPEC, `report/CAMP_SPEC_RESULTS.md` §2): the two re-run under
+  the full preset. The order held: 0.333 against 0.322.
+
+What closing the gap would take is an owner decision (`HANDOFF_2026_10_03.md` §3 item 6):
+more infrastructure, or the subjects' own mesh carrying fixes.
+
+### The earlier comparison, filed here (`HANDOFF_2026_09_09.md` §4, seed 7)
+
+At `boxHalf=2000`, before the spec scale was tested:
+- **The interior grid** gave CEP50 28 m. The owner rejected it on 2026-09-09 as unrealistic
+  for SAR: "no SAR team carries a repeater into the middle".
+- **The ridge** gave CEP50 1 932 m: a line of gateways is degenerate for multilateration.
+- **The arc** was then built as the access-route deployment. NC2 uses five gateways on a
+  140° arc centred west.
+
+These are single-seed figures from the legacy runs, kept as the record of why the grid and
+the ridge were ruled out, not as results.
+
+**2026-10-04: the preset takes the spec's three gateways** (owner call delegated, §9):
+`--nGateways=3 --gwLayout=star`, GEO-01 stage 2's best N = 3 layout (availability 0.245,
+against N8_ring's 0.329). N8_ring was a fallback for a criterion of ours that no geometry
+met; the spec's deployment is three gateways at 5 km. N8_ring stays reachable as a
+sensitivity geometry.
 
 ## 6. Facilities remain, as places rather than infrastructure
 
@@ -124,15 +166,21 @@ packet log.
 
 ## Still unmodelled, and named so the gap is visible
 
-- **Gateways as edge servers.** The brief has gateways performing EKF fusion and NLOS/hop
-  computation rather than the battery-constrained field node. Here the field node runs its
-  own filter. This changes *where* computation happens, not what is computed, so no result
-  moves — but the energy story for the field node is optimistic if the brief's split is
-  the intended one.
-- **Finder-to-gateway relaying.** Finders do not carry the casualty's fixes back to
-  infrastructure; they are ranging targets only.
+- **Gateways as edge servers — modelled, and the default since 2026-09-29.** The brief has
+  gateways performing EKF fusion and NLOS/hop computation rather than the
+  battery-constrained field node. `--gatewayEdgeServer` (default true) bills the field node
+  one tier-1 broadcast and one downlink per fix instead of a reply per gateway; the filter
+  is the same, so at defaults only energy moves (`docs/TECH_DEBT.md` L.2.3). The uplink of
+  a tier-2 or tier-3 range to the gateway is billed since 2026-10-02 under
+  `--edgeUplinkRanges` (SY-1, in the preset); by default it is still not.
+- **Finder-to-gateway relaying.** By default finders are ranging targets only. Under
+  `--meshLinks=all` (NW-0, 2026-10-03) every radio pair can exchange frames, finders
+  included, and a RESPONSE travels back hop by hop (`--reversePath --reversePathHop`, NW-8);
+  both are in the preset.
 - **A still lost node.** Supported via `--speed=0`, not yet exercised as a scenario.
-- **5 km radius.** Untested; all corrected-topology runs so far are at `boxHalf=1000`.
+- **5 km radius.** Tested since 2026-10-03: GEO-01 stage 2 and CAMP-SPEC ran the preset at
+  `boxHalf=5000` (section 5). Earlier, K1c ran at `boxHalf=2500`, K10 at 6000, and the L.2
+  coverage probe at 3000 and 5000.
 
 ---
 
@@ -185,3 +233,26 @@ gives identical numbers. The inertial witness contributes nothing at present and
 
 **Any claim that this system currently performs IMU cross-validation would be false.**
 That is written here rather than left for a reader to infer from the existence of a flag.
+
+## 9. The owner's open calls, decided against the spec (2026-10-04, delegated)
+
+On 2026-10-04 the owner handed every open call in `HANDOFF_2026_10_04.md` §3 to whatever
+fits the spec, `finalyearprojectcontext.docx`, better. Each is decided here against the
+section it answers. Line numbers are of the text extracted from the docx. A call that
+moves results goes through its own commit, gate and, where a registered rule exists, its
+own registered campaign. None of these decisions overrides a registered adoption rule.
+
+| call | decision | spec basis | how it is carried out |
+|---|---|---|---|
+| N.14, the fuse | **Neither "adopt anyway" nor nothing: build the narrower variant, fuse only when the floor is short, and let a registered campaign (FUSE-02) decide it by FUSE-01's rule.** | Physical §2.3: one EKF corrected by a fix from any tier, with a tier-specific R, so "higher tiers tighten the estimate more per fix". A UWB range thrown away is against that. §5 Evaluation reports CEP50/95, so a 13.7 % CEP95 cost cannot be waved through. Adopting against FUSE-01b's registered rule would break rule 13. | A flag value, its gate, PREREG FUSE-02 on the finished preset, the campaign, adoption by rule. |
+| Pre-N.21 preset campaigns (GEO-01 stage 2, CAL-02, CAMP-SPEC, FUSE-01, FUSE-01b) | **Not re-registered one by one. One final registered campaign on the finished preset supersedes their preset numbers; they stay as dated history.** | Phase 5 asks for one comparison table: this system against fixed-threshold switching, Poucet-style fusion and single-hop confidence, on error against hop count, PCS-error correlation, and switch-decision accuracy under induced degradation. | The final campaign, registered once the preset stops moving. |
+| `--halfDuplex`, N.22, `--halfDuplexChip` | **All three into the preset: `--halfDuplex=2`, `--halfDuplexChip=true`, `--collisionBothLost=true`.** | §1.1-1.2 put 868 MHz and 2.4 GHz on one LR1121 die, and the final plan says "one board, two radio ICs". A LoRa transceiver cannot transmit and receive at once, and the capture rule (MAC §3, §6) applies to both frames of a collision. These are fidelity to the named hardware, like N.21's oracle closure, not tuning. | One P6 commit, G24 re-run. Every earlier preset number is superseded by the final campaign. |
+| N.4, a finder that never hears its subject | **Neither fallback. Closed: the spec's own path already resolves it.** | Transport §2 and §4: the rescuer's handheld opens a session and issues an identity-scoped QUERY; Network §4: any node holding a fresh entry answers by proxy. The finder steers on what its own query returns. | Measured under the preset (seed 7, 900 s): finders blind 1-10 of 360 cycles. With the finders' sessions off, finders 503 and 504 are blind for all 360 cycles; with digest gossip off, 1-38. Recorded in TECH_DEBT N.4. |
+| Row 56, the gateway count | **The preset takes the spec's deployment, 3 gateways, in GEO-01's best N = 3 layout (`N3_star`). `N8_ring` stays as a named sensitivity geometry.** | The final audit (lines 852-856): "3 gateways, 5 field nodes, 5 km radius", and "most fixes will fall into Case B or Case C ... the framework was built for your real deployment". The availability ≥ 0.95 criterion that made `N8_ring` the fallback was ours, and no geometry met it. | One P6 commit, G24 re-run. The PCS calibration is re-fitted on it (below). |
+| Row 6, the UWB CIR NLOS score | **Stays PARTIAL in simulation. No obstruction model of our own is built to fill the matrix.** | §1.3 takes the score from the DW3000's CIR, "cited from UWB ranging literature rather than invented", and validates it on the bench (Phase 0, Phase 2). The cited 802.15.4a model does not fill the matrix (UWB_NLOS_RESULTS). An uncited model built until it does would manufacture the result, the failure the topology correction was about. | No code. The CIR score is a hardware-validation item. |
+| Row 17, PCS term 1 | **Kept DIVERGENT, as decided.** | §2.5 writes 1/trace(Σ); the bounded monotone transform keeps its order and keeps the byte. | No change. |
+| The PCS calibration | **Re-fitted on the finished preset by CAL-02's registered procedure (CAL-03), because the geometry it was fitted on is no longer the preset's.** | Final audit, Gap B: weights by leave-one-out on the deployment's own data. | PREREG CAL-03 after FUSE-02, then the campaign. |
+| J.2, tier-1 TDoA as the binary default | **Stays off by default; stays on in the preset.** | §1.1 uses TDOA "where three or more anchors receive the same transmission", with GPS-PPS anchor sync (line 854). The preset is the spec configuration; the binary default is the null-control baseline (`CLAUDE.md` §4). TDOA-01's overconfident tail is reported, not hidden. | No change. |
+| SAR availability at 5 km | **No availability criterion is applied; availability is reported as measured.** | The spec sets none. The 0.95 was ours. | The final campaign reports it. |
+| How the novelty claims are worded | **Not this repository's to write.** | The spec's own wording (line 272) is the assembly-level claim `CLAUDE.md` §9 already holds. | Thesis-side. |
+| N.16, I.1, I.6 | **Carried into the final campaign:** N.16 as a reported finding, I.6 by the campaign itself, I.1 as its integrity-check precision and recall. | Phase 5 metrics. | The final campaign. |

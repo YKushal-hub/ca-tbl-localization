@@ -150,15 +150,27 @@ CaTblCalibrateLoocv(const std::vector<CaTblCalSample>& samples, bool requireImpr
         // measured to be a re-encoding of. Fitting it identically is what makes the
         // comparison fair -- a control given fewer fitting opportunities would lose for
         // the wrong reason.
-        double num = 0.0, den = 0.0;
+        //
+        // WITH AN INTERCEPT (TECH_DEBT M.7). The three-term model has none, but term 3
+        // (the LOS fraction, ~0.92 and nearly constant) gives it one for free. A control
+        // fitted through the origin then loses for exactly the wrong reason, and every
+        // CAL-01 cell read OK on that offset alone. c0 + c1 * term1 levels it.
+        double n1 = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
         for (size_t j = 0; j < samples.size(); ++j)
         {
             if (j == i) { continue; }
-            num += samples[j].term1 * samples[j].realisedErrorM;
-            den += samples[j].term1 * samples[j].term1;
+            const double x = samples[j].term1;
+            const double y = samples[j].realisedErrorM;
+            n1 += 1.0;
+            sx += x;
+            sy += y;
+            sxx += x * x;
+            sxy += x * y;
         }
-        const double c1 = (den > 1e-12) ? (num / den) : 0.0;
-        const double ec = samples[i].realisedErrorM - c1 * samples[i].term1;
+        const double det = n1 * sxx - sx * sx;
+        const double c1 = (std::fabs(det) > 1e-12) ? (n1 * sxy - sx * sy) / det : 0.0;
+        const double c0 = (n1 > 0.0) ? (sy - c1 * sx) / n1 : 0.0;
+        const double ec = samples[i].realisedErrorM - (c0 + c1 * samples[i].term1);
         sseControl += ec * ec;
     }
     r.loocvRmse = std::sqrt(sse / static_cast<double>(samples.size()));

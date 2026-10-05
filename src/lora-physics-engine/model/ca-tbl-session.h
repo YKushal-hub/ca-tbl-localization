@@ -76,6 +76,9 @@ struct CaTblResult
     CaTblTier tierSource;
     double pcs;
     uint8_t hopCountAtFix;
+    //! TA-3. The producer's entry said it holds a confirmed UWB grant (NW-7's grantedBy).
+    //! What makes a session LOCATED_PRECISE under SetPreciseOnGrant(true).
+    bool uwbGranted = false;
     //! The switching-point integrity verdict, carried all the way up. Surfacing it to the
     //! operator is the entire reason that check exists.
     bool suspect;
@@ -140,6 +143,8 @@ class CaTblSession
     /** Fold in a result for one of this session's targets. Ignores targets it did not ask
      *  about, so a shared flood does not corrupt an unrelated session's clock. */
     void OnResult(const CaTblResult& r, double nowS);
+    //! TA-3. Set by the manager before each result.
+    void SetPreciseOnGrant(bool on) { m_preciseOnGrant = on; }
 
     /** Advance time-driven transitions: TRACKING -> STALE -> CLOSED. Separate from
      *  OnResult because staleness is defined by the ABSENCE of results, and a transition
@@ -204,6 +209,7 @@ class CaTblSession
     uint64_t m_staleEpisodes;
     uint64_t m_recoveries;
     bool m_everPrecise = false;
+    bool m_preciseOnGrant = false; // TA-3
     std::string m_path;
 };
 
@@ -222,6 +228,11 @@ class CaTblSessionManager
 
     void SetStalenessBound(double s) { m_stalenessBoundS = s; }
     void SetSessionTimeout(double s) { m_sessionTimeoutS = s; }
+    /** \brief TA-3 (Transport sect 4: "ON UWB grant confirmed: session.state =
+     *  LOCATED_PRECISE"). True: precision is a result whose entry carries a confirmed UWB
+     *  grant, and a result from a UWB fix without one is coarse. False (default): a result
+     *  from a UWB fix is precise. */
+    void SetPreciseOnGrant(bool on) { m_preciseOnGrant = on; }
 
     /** Application §4. Returns the new session id. */
     uint32_t SearchAndLocalize(uint8_t target,
@@ -255,6 +266,7 @@ class CaTblSessionManager
 
   private:
     std::map<uint32_t, CaTblSession> m_sessions;
+    bool m_preciseOnGrant = false; // TA-3
     uint32_t m_nextId;
     double m_stalenessBoundS;
     double m_sessionTimeoutS;
