@@ -1,0 +1,25 @@
+config,comparator,source,seeds,availability,availability_lo,availability_hi,cep50_tag0_m,cep95_tag0_m,cep95_subjects_m,ttff_median_s,subject_j,j_per_subject_fix
+5 km (A_main),CA-TBL,A_main/ca_tbl_full,20,0.1740,0.1521,0.1972,70.91,209.59,93.46,32,12.368,0.11156
+5 km (A_main),LoRa 868 RSSI,R_main/static_868,20,0.1589,0.1373,0.1830,51.68,120.39,111.27,34,6.067,0.05945
+5 km (A_main),LoRa 868 RSSI + gateway TDoA,A_main/static_868,20,0.1646,0.1435,0.1892,289.25,559.25,204.64,34,6.104,0.05655
+5 km (A_main),LoRa 2.4 GHz ToF,A_main/static_2p4,20,0.0305,0.0216,0.0406,24.45,54.95,53.12,31,14.207,2.09369
+5 km (A_main),"LoRa dual-band fusion, 868 RSSI+TDoA + 2.4 ToF",F_main/lora_fusion,20,0.2262,0.2039,0.2494,193.10,410.87,148.31,30,16.751,0.10875
+5 km (A_main),"LoRa dual-band fusion, 868 RSSI + 2.4 ToF",FR_main/lora_fusion,20,0.2280,0.1989,0.2579,42.38,106.68,85.41,30,16.749,0.11452
+5 km (A_main),fixed-threshold band switching,A_main/fixed_threshold,20,0.1861,0.1625,0.2107,69.30,179.37,83.34,32,11.039,0.09384
+5 km (A_main),Poucet-style LoRa+UWB fusion,A_main/poucet_fusion,20,0.2380,0.2062,0.2705,161.76,219.38,119.88,20,462.461,3.01825
+5 km (A_main),CA-TBL single-hop (LoRaWAPS-style),G_single/ca_tbl_full,20,0.1522,0.1286,0.1753,53.49,111.11,78.38,51,12.268,0.14233
+endgame (B_end),CA-TBL,B_end/ca_tbl_full,20,0.4228,0.4048,0.4411,8.38,18.43,21.09,10,24.906,0.08263
+endgame (B_end),LoRa 868 RSSI,R_end/static_868,20,0.3708,0.3560,0.3863,64.59,106.04,83.13,8,6.352,0.02399
+endgame (B_end),LoRa 868 RSSI + gateway TDoA,B_end/static_868,20,0.3709,0.3560,0.3858,9.13,20.59,56.42,8,6.428,0.02428
+endgame (B_end),LoRa 2.4 GHz ToF,B_end/static_2p4,20,0.2714,0.2605,0.2813,4.86,10.81,16.21,18,5.809,0.03000
+endgame (B_end),"LoRa dual-band fusion, 868 RSSI+TDoA + 2.4 ToF",F_end/lora_fusion,20,0.5013,0.4797,0.5232,6.58,15.63,35.91,9,9.451,0.02647
+endgame (B_end),"LoRa dual-band fusion, 868 RSSI + 2.4 ToF",FR_end/lora_fusion,20,0.4997,0.4773,0.5220,7.10,19.50,36.01,9,9.322,0.02617
+endgame (B_end),fixed-threshold band switching,B_end/fixed_threshold,20,0.4393,0.4248,0.4556,7.72,16.55,18.93,10,15.436,0.04924
+endgame (B_end),Poucet-style LoRa+UWB fusion,B_end/poucet_fusion,20,0.5055,0.4821,0.5286,6.44,13.51,32.16,8,416.243,1.15828
+endgame (B_end),CA-TBL single-hop (LoRaWAPS-style),G_single_end/ca_tbl_full,20,0.4147,0.3981,0.4316,8.93,19.77,24.25,10,21.157,0.07193
+N8_ring (C_n8),CA-TBL,C_n8/ca_tbl_full,20,0.2814,0.2613,0.3038,19.47,43.72,47.50,10,12.776,0.06500
+N8_ring (C_n8),LoRa 868 RSSI,R_n8/static_868,20,0.3114,0.2903,0.3313,51.72,106.77,98.93,14,6.043,0.02770
+N8_ring (C_n8),LoRa 868 RSSI + gateway TDoA,C_n8/static_868,20,0.3193,0.2900,0.3472,16.30,33.32,79.94,14,6.047,0.02759
+N8_ring (C_n8),LoRa 2.4 GHz ToF,S2_n8/static_2p4,20,0.0356,0.0270,0.0453,12.18,31.51,37.02,42,12.432,0.79076
+N8_ring (C_n8),"LoRa dual-band fusion, 868 RSSI+TDoA + 2.4 ToF",F_n8/lora_fusion,20,0.3914,0.3674,0.4172,17.52,38.07,53.58,10,15.098,0.05454
+N8_ring (C_n8),"LoRa dual-band fusion, 868 RSSI + 2.4 ToF",FR_n8/lora_fusion,20,0.3856,0.3603,0.4110,26.74,68.18,63.27,10,15.079,0.05577
