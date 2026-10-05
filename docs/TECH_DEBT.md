@@ -1917,6 +1917,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.22 | of two colliding frames only the earlier-ending is lost | flag (G83); default unchanged; adopting it is a campaign decision |
 | N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
 | N.24 | what the `poucet_fusion` comparator decides that the spec does not | recorded (OURS) |
+| N.25 | at 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse | open; measured (LORA-CMP), not changed |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -3095,3 +3096,25 @@ is that baseline. Its choices, each OURS:
   CEP50 / CEP95 2.98 / 7.47 m against `ca_tbl_full`'s 3.62 / 8.84 m, at 209.7 J against
   10.9 J, of which 203.5 J is UWB.
 
+### N.25 At 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse
+
+Found 2026-10-05 by LORA-CMP (`report/LORA_CMP_RESULTS.md` sect 5). It was measured outside
+that campaign's registration, from its registered cells. The comparison is `static_868`,
+RSSI-only (`--tier1Tdoa=false`) against the preset's RSSI + TDoA, tag 0 CEP95, paired over
+seeds 1-20:
+- **5 km, N3_star:** RSSI-only is better by 438.9 m [119.4, 826.2], on 13 of 20 seeds. On
+  seed 1, 7 solves were accepted out of 334 tier-1 fix cycles, and CEP95 went from 26.8 to
+  2 455 m.
+- **Endgame, N3_star:** TDoA is better by 85.4 m [54.2, 121.7], on every seed.
+- **N8_ring:** TDoA is better by 73.4 m [56.6, 91.4], on every seed.
+
+Availability and energy do not move (within 0.01 and 1.2 %).
+
+**Not established:** the mechanism. A candidate is that the exact three-gateway solve has no
+redundancy: a wrong root choice is fused into the EKF with its full covariance as R, and
+nothing downstream rejects it. The candidate needs its own measurement: the per-solve error
+from `tdoa_*.csv` against the root-choice path.
+
+**Not changed.** The preset's tier 1 is RSSI + TDoA (Physical sect 1.1), and changing it is an
+engine change to the preset that needs its own registered campaign. CA-TBL's 5 km tier 1
+carries the same defect.
