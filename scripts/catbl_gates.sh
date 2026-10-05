@@ -1708,6 +1708,19 @@ bash scripts/poucet_arm_gate.sh "$WORK/g87" || fail G87
 bash scripts/poucet_arm_gate_selftest.sh "$WORK/g87" || fail G87
 finish G87
 
+# ---------------- G88: the dual-band LoRa fusion arm (the LoRa comparators on both bands)
+# The outdoor-LoRa comparison (report/LORA_CMP_RESULTS.md) covered 868 MHz RSSI and RSSI + TDoA
+# and 2.4 GHz ToF separately. --arms=lora_fusion is poucet_fusion without UWB: both LoRa radios
+# ranged and fused every cycle, UWB asleep. Read by scripts/lora_fusion_gate.py: the arm moves
+# no other arm and stays out of --arms=all; it never escalates; no UWB exchange, listen or
+# label; both LoRa radios billed; some fixes put the two bands into one set.
+#
+# Negative fixtures in scripts/lora_fusion_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G88 the dual-band LoRa fusion arm ---\n'
+bash scripts/lora_fusion_gate.sh "$WORK/g88" || fail G88
+bash scripts/lora_fusion_gate_selftest.sh "$WORK/g88" || fail G88
+finish G88
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
