@@ -1918,7 +1918,7 @@ Index (P7 of `docs/SPEC_CONFORMANCE_PLAN.md`). Every entry is open unless it say
 | N.23 | the digest exchange may cost more airtime than the full pushes it replaces | measured by the final campaign (`--reportAirtime`, G86) |
 | N.24 | what the `poucet_fusion` comparator decides that the spec does not | recorded (OURS) |
 | N.25 | at 5 km with three gateways, gateway TDoA makes tier-1 accuracy worse | open; measured (LORA-CMP), not changed |
-| N.26 | CA-TBL spends 65 % of its endgame energy on UWB that delivers no fix, and discards 1-2-range active sets that the fusion comparators use | open; measured (LORA-CMP-2), not changed |
+| N.26 | CA-TBL spends 65 % of its endgame energy on UWB that delivers no fix, and discards 1-2-range active sets that the fusion comparators use | four fixes built (G89) and measured (FIXES-N26): they beat Poucet and LoRa fusion on availability and accuracy; NOT adopted by the registered rule, on 5 km energy (+4.32 J) |
 
 ### N.1 A silenced radio still forwards other nodes' floods
 
@@ -2791,6 +2791,14 @@ and about 2-3x inflated in the endgame. So the fix is `--mahalUseR=true` first. 
 `--integrityChi2` is fitted on fault-free calibration seeds for what remains: the
 registered campaign PREREG_FIXES_N26 (HANDOFF_2026_10_05 sect 4).
 
+*2026-10-05, FIXES-N26 (report/FIXES_N26_RESULTS.md sect 3; registered):* with
+`--mahalUseR=true` the fault-free distance still has a heavy tail. Over 20 calibration seeds
+the p99 is 6 521 at 5 km and 582 in the endgame, and the fitted threshold is 1 992.9. At that
+threshold the false alarms are gone (SUSPECT 1.6 % and 0.5 % of fault-free fixes), but so is
+detection: recall under the injected faults is 0.009-0.031. **Open:** the covariance the
+check uses understates a minority of fixes' error. *Hypothesis, not established:* NLOS ranges
+and finder pseudo-anchor positions whose error is not in R. No threshold fixes that.
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
@@ -3139,6 +3147,12 @@ from `tdoa_*.csv` against the root-choice path.
 engine change to the preset that needs its own registered campaign. CA-TBL's 5 km tier 1
 carries the same defect.
 
+*2026-10-05, FIXES-N26 (registered):* `--tdoaInnovationGate` (fix 4) alone takes
+`ca_tbl_full`'s 5 km tag 0 CEP95 down by 139.4 m [17.2, 284.7], paired over 20 seeds. Its
+availability (−0.003) and energy (−0.06 J) are unchanged, and it is indistinguishable in the
+endgame. The gate is the fix. It is not in the preset yet, because the combination it was
+registered with was not adopted (N.26).
+
 ### N.26 CA-TBL's UWB escalation buys no fix, and its one-tier-per-cycle rule discards partial sets
 
 Found 2026-10-05 (`report/LORA_CMP2_RESULTS.md` sect 3). Dual-band LoRa fusion
@@ -3160,3 +3174,18 @@ measured causes in CA-TBL, from CAMP-FINAL's traces (`ca_tbl_full`, tag 0, seeds
 - task more than one finder per subject, so that three can be in UWB range.
 
 **Not changed.** Each is an engine or preset change for its own registered campaign.
+
+*2026-10-05, FIXES-N26 (report/FIXES_N26_RESULTS.md; registered).* All four fixes
+together (`--loraDualBase --uwbCrossTierPoll --tdoaInnovationGate --mahalUseR
+--integrityChi2=1992.9`), against the preset:
+- **5 km:** availability +0.111, CEP95 −151.8 m, energy +4.32 J;
+- **endgame:** availability +0.139, CEP95 −6.4 m, energy −1.93 J, and UWB-delivered fixes on
+  20 of 20 seeds (371; the preset has 0);
+- **N8_ring:** availability +0.133.
+
+They beat Poucet on availability at 5 km and in the endgame (+0.047, +0.057), at 1/28 and
+1/18 of its energy, and dual-band LoRa fusion on availability in all three configurations.
+**Not adopted:** the registered rule needs subject J not above the preset's in both
+configurations, and at 5 km it is 16.69 against 12.37. The dual base keeps 2.4 GHz ranging
+where it rarely reaches; the dual base alone costs +5.35 J there. A follow-up variant
+(2.4 GHz ranged on demand) needs its own registration.
