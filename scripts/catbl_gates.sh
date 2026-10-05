@@ -1721,6 +1721,19 @@ bash scripts/lora_fusion_gate.sh "$WORK/g88" || fail G88
 bash scripts/lora_fusion_gate_selftest.sh "$WORK/g88" || fail G88
 finish G88
 
+# ---------------- G89: the four N.26 fixes (TECH_DEBT N.26, HANDOFF_2026_10_05 sect 3)
+# --loraDualBase, --uwbCrossTierPoll, --integrityChi2 (with --mahalUseR) and
+# --tdoaInnovationGate, each off and on. Read by scripts/n26_fixes_gate.py: nothing fires with
+# the flags off; the static arm is untouched; the dual base ranges both LoRa tiers and fuses
+# them; cross-tier polls are addressed; the threshold moves every SUSPECT; the TDoA gate
+# refuses on the seed whose TDoA went wrong.
+#
+# Negative fixtures in scripts/n26_fixes_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G89 the four N.26 fixes ---\n'
+bash scripts/n26_fixes_gate.sh "$WORK/g89" || fail G89
+bash scripts/n26_fixes_gate_selftest.sh "$WORK/g89" || fail G89
+finish G89
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
