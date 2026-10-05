@@ -445,9 +445,30 @@ CaTblEkf::FusePosition(double zx, double zy, double varM2)
 
 // Out of line on purpose: Step() gains a call and a branch, not an inlined 2x2 update
 // sitting among the expressions the byte-identical null control holds fixed.
+bool
+CaTblPolicy::AuxPassesGate(double rScale)
+{
+    if (!m_config.auxInnovationGate)
+    {
+        return true;
+    }
+    const double nis =
+        m_ekf.PositionNis(m_aux[0], m_aux[1], rScale * m_aux[2], rScale * m_aux[3], rScale * m_aux[4]);
+    if (nis >= 0.0 && nis <= m_config.auxInnovationChi2)
+    {
+        return true;
+    }
+    ++m_auxGated;
+    return false;
+}
+
 __attribute__((noinline)) void
 CaTblPolicy::FuseAux()
 {
+    if (!AuxPassesGate(1.0))
+    {
+        return;
+    }
     if (m_ekf.FusePositionCov(m_aux[0], m_aux[1], m_aux[2], m_aux[3], m_aux[4]))
     {
         m_auxFusedLast = true;
@@ -458,6 +479,10 @@ CaTblPolicy::FuseAux()
 void
 CaTblPolicy::FuseAuxInflated(double rScale)
 {
+    if (!AuxPassesGate(rScale))
+    {
+        return;
+    }
     if (m_ekf.FusePositionCov(m_aux[0],
                               m_aux[1],
                               rScale * m_aux[2],
@@ -467,6 +492,28 @@ CaTblPolicy::FuseAuxInflated(double rScale)
         m_auxFusedLast = true;
         ++m_auxFused;
     }
+}
+
+double
+CaTblEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
+        !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
+        !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return -1.0;
+    }
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = 0.5 * (m_P[0][1] + m_P[1][0]) + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return -1.0;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    return (s11 * v0 * v0 - 2.0 * s01 * v0 * v1 + s00 * v1 * v1) / det;
 }
 
 bool

@@ -587,6 +587,14 @@ struct CaTblPolicyConfig
     //! which both precede the escalation decision. Static arms ignore it. False reproduces
     //! every prior result.
     bool queryTriggeredEscalation = false;
+    //! N.25 / N.26 fix 4. A queued tier-1 TDoA position (SetAuxPositionFix) is fused only
+    //! if its normalised innovation against the state after this cycle's range update,
+    //! nu' (P_pos + R)^-1 nu, is at most auxInnovationChi2 (chi-square 2 DOF 99 %). The
+    //! three-gateway exact solve has no redundancy, so a wrong root is otherwise fused
+    //! with its full covariance and nothing downstream rejects it. False reproduces every
+    //! prior result.
+    bool auxInnovationGate = false;
+    double auxInnovationChi2 = 9.21;
     //! DC-9. Count the IMU witness's evaluations, refusals, and refusals the evidence gate
     //! would ALSO have suppressed (absorbed), so an absorbed refusal is reported as
     //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
@@ -805,6 +813,10 @@ class CaTblEkf
      *  prior alone, so the integrity gate's reference is still the prediction. */
     bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
 
+    /** The normalised innovation nu' (P_pos + R)^-1 nu of a position measurement against
+     *  the current state, or -1 when R or S is not positive definite. Reads only. */
+    double PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const;
+
     /** Discard this cycle's measurement: keep the prior as the posterior. */
     void RevertToPrior();
 
@@ -980,6 +992,8 @@ class CaTblPolicy
     bool AuxFusedLast() const { return m_auxFusedLast; }
     //! Queued position observations fused, over the policy's life.
     uint64_t GetAuxFusedCount() const { return m_auxFused; }
+    //! N.26 fix 4: queued TDoA positions refused by auxInnovationGate.
+    uint64_t GetAuxGatedCount() const { return m_auxGated; }
 
     /**
      * \brief Advance one cycle.
@@ -1258,6 +1272,10 @@ class CaTblPolicy
     // TA-2. Appended last.
     uint64_t m_oboAccepted = 0;
     uint64_t m_oboRefused = 0;
+    // N.26 fix 4. Appended last.
+    uint64_t m_auxGated = 0;
+    //! Whether the queued aux fix passes auxInnovationGate (true when the gate is off).
+    bool AuxPassesGate(double rScale);
     //! NW-4: one tier up, through NW-7's gate when it is on. Used by the coast path only;
     //! the main path keeps its own escalation branch.
     void QueryEscalateOneTier(CaTblDecision& d);
