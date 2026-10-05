@@ -2772,6 +2772,25 @@ So the fault matrix's integrity precision (0.12-0.31) is close to the share of f
 the fault window: the check is not separating the faults. Not changed here: a different
 threshold or eligibility rule is an engine change for its own registered campaign.
 
+*2026-10-05, the cause found (N.26 fix 3; single seed, not a result):* under the preset the
+check's distance is **not chi-square scaled**. `--mahalUseR=false` takes S = P_prior alone,
+leaving out the measurement covariance, so a test point with tens of metres of error is
+judged against an EKF that believes in about a metre. `ca_tbl_full`, seed 7, 900 s, fault-free,
+tag 0's eligible fix cycles:
+
+| run | distance p50 / p90 / p99 | flagged |
+|---|---|---|
+| endgame, preset | 37 244 / 375 938 / 6.4e7 | 329 of 351 |
+| endgame, `--mahalUseR=true` | 2.85 / 12.3 / 27.1 | 56 of 345 |
+| 5 km, preset | 173 363 / 5.8e6 / 5.2e11 | 103 of 126 |
+| 5 km, `--mahalUseR=true` | 1.40 / 6.7 / 13.8 | 3 of 126 |
+
+A chi-square 2 DOF distance has p50 1.39 and p99 9.21. The correctly specified form
+(S = P_prior + (J'R^-1 J)^-1, which already exists as `--mahalUseR`) is close to that at 5 km
+and about 2-3x inflated in the endgame. So the fix is `--mahalUseR=true` first. Then
+`--integrityChi2` is fitted on fault-free calibration seeds for what remains: the
+registered campaign PREREG_FIXES_N26 (HANDOFF_2026_10_05 sect 4).
+
 ### N.16 At 5 km the covariance trace ranks error backwards
 
 CAL-02 (2026-10-03, report/CAL02_RESULTS.md). Under the preset at 5 km, ρ(−traceSigma,
