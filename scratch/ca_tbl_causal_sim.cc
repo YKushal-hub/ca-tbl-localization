@@ -6148,6 +6148,10 @@ struct SpecOptions
     //! --traceCovariance: the posterior 2x2 position covariance on every trace row, for the
     //! filter consistency test (NEES). Off: the trace has exactly its old columns.
     bool traceCovariance = false;
+    // --- S2-B accuracy flags ---
+    //! --dualBaseRelayTier: under the dual base, relay legs on 2.4 GHz when the active tier is
+    //! 868 MHz (tag 0 and the subjects). Off: relays only on the active tier, as before.
+    bool dualBaseRelayTier = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -7659,6 +7663,9 @@ RunArm(CaTblPolicyMode mode,
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
     uint64_t crossTierPolls = 0; // N.26 fix 2: UWB polls added from the LoRa tables
+    uint64_t f1TagLegs = 0;      // --dualBaseRelayTier: tag 0's relay legs on 2.4 GHz, 868 active
+    uint64_t f1TagAdmitted = 0;  // ... of which admitted
+    uint64_t f1SubjRetiered = 0; // ... subject relay exchanges moved from 868 MHz to 2.4 GHz
     Vector prevTruePos = pos;
     // DC-10 (--entryVelocity). Each finder's last published position and time, for the
     // velocity its GNSS receiver would report, and the entries_ record of what every
@@ -10256,8 +10263,13 @@ RunArm(CaTblPolicyMode mode,
                     else if (!(preempt && act == pendT) && !(spec.subjectBatteryDeplete && sb.batteryDead))
                     {
                         chainM = dualS ? dualFusedS : (fuseS ? fusedS : actM); // N.14: relays complete the union
+                        // --dualBaseRelayTier: a dual-base subject's 2.4 GHz radio is awake and
+                        // ranging (awake mask 3), so its relay exchange runs there, not on
+                        // 868 MHz where A1 admits nothing.
+                        const bool f1S = spec.dualBaseRelayTier && dualS && act == CA_TBL_TIER_868;
+                        f1SubjRetiered += f1S ? 1 : 0;
                         chainPk = chain->RangeForSubject(
-                            pt, tags, nTags, act, chain->awake, phy, engine868, engine2p4,
+                            pt, tags, nTags, f1S ? CA_TBL_TIER_2P4 : act, chain->awake, phy, engine868, engine2p4,
                             engineUwb, t, dt, now, maxRelayDepth, relayVarBudgetM2,
                             relayRound.get(), chainM);
                         chainUsed = chainPk.used > 0 && chainM.size() >= 3;
@@ -11531,6 +11543,7 @@ RunArm(CaTblPolicyMode mode,
         // not ranged, as above. The ranges are fused at the fix selection.
         const bool dualBase = spec.loraDualBase && hybridArm;
         std::vector<CaTblRangeMeasurement> otherLoraMeas;
+        bool ranged2p4Other = false; // --dualBaseRelayTier: the 2.4 GHz radio ranged this cycle
         if (dualBase)
         {
             if (active != CA_TBL_TIER_868 && !floorRanged &&
@@ -11542,6 +11555,7 @@ RunArm(CaTblPolicyMode mode,
             if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4))
             {
                 otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
+                ranged2p4Other = true;
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
@@ -11726,7 +11740,15 @@ RunArm(CaTblPolicyMode mode,
         {
             const CaTblTier rt = static_cast<CaTblTier>(
                 std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
-            if (rt == active)
+            // --dualBaseRelayTier (S2 Part B, F1): under the dual base the 2.4 GHz radio
+            // transmitted this cycle even when the active tier is 868 MHz, so a relay leg on
+            // 2.4 GHz is one more exchange on a radio already transmitting, and it is billed
+            // there. The dual base already ranges both LoRa tiers each cycle (N.26 fix 1).
+            const bool relayOnOther = spec.dualBaseRelayTier && dualBase && ranged2p4Other &&
+                                      active == CA_TBL_TIER_868 && rt == CA_TBL_TIER_2P4;
+            const CaTblTier legTier = relayOnOther ? rt : active;
+            std::vector<CaTblRangeMeasurement>& legMeas = relayOnOther ? otherLoraMeas : activeMeas;
+            if (rt == active || relayOnOther)
             {
                 std::set<uint16_t> relaysUsedThisUpdate;
                 for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
@@ -11748,11 +11770,11 @@ RunArm(CaTblPolicyMode mode,
                     double rAB = 0.0;
                     double sigRaw = 0.0;
                     bool got = false;
-                    const int ati = static_cast<int>(active);
+                    const int ati = static_cast<int>(legTier);
                     LegTerms::Obs obs; // NW-1 step 3
                     obs.tier = ati;
                     obs.txPowerDbm = phy[ati].txPowerDbm;
-                    if (active == CA_TBL_TIER_2P4)
+                    if (legTier == CA_TBL_TIER_2P4)
                     {
                         PhysicsResult2p4 r = engine2p4.ProcessTransmission(
                             nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
@@ -11764,7 +11786,7 @@ RunArm(CaTblPolicyMode mode,
                         obs.rssiDbm = r.measuredRssiDbm;
                         obs.snrDb = r.snr_db;
                     }
-                    else if (active == CA_TBL_TIER_UWB)
+                    else if (legTier == CA_TBL_TIER_UWB)
                     {
                         PhysicsResultUWB r = engineUwb.ProcessTransmission(
                             nodeId, static_cast<uint16_t>(tags[pt].nodeId), pos,
@@ -11793,7 +11815,8 @@ RunArm(CaTblPolicyMode mode,
                     // Charged on the active tier, whether or not the measurement is
                     // ultimately admitted. The energy was spent on the exchange; a
                     // later software decision to discard the result does not refund it.
-                    energy.AccountRangingExchange(active, 1, got ? 1 : 0, t);
+                    energy.AccountRangingExchange(legTier, 1, got ? 1 : 0, t);
+                    f1TagLegs += relayOnOther ? 1 : 0;
 
                     if (!got || !std::isfinite(rAB) || rAB <= 0.0 || dist <= 0.0)
                     {
@@ -11802,7 +11825,7 @@ RunArm(CaTblPolicyMode mode,
 
                     CaTblRelayedRange rr;
                     rr.relayId = static_cast<uint16_t>(tags[pt].nodeId);
-                    rr.tier = active;
+                    rr.tier = legTier;
                     // Depth is the relay's own hop count plus one. A relay whose
                     // position came from infrastructure is at depth 1; one whose
                     // position came from another relay is deeper, and carries the
@@ -11881,7 +11904,8 @@ RunArm(CaTblPolicyMode mode,
                     m.anchorId = rr.relayId; // DC-11
                     m.sourceKind = CA_TBL_SRC_RELAY;
                     m.hopDepth = rr.hopDepth;
-                    activeMeas.push_back(m);
+                    legMeas.push_back(m);
+                    f1TagAdmitted += relayOnOther ? 1 : 0;
 
                     relaysUsedThisUpdate.insert(rr.relayId);
                     relayedVarThisCycle += sigmaEff * sigmaEff;
@@ -14721,6 +14745,14 @@ RunArm(CaTblPolicyMode mode,
                   << fusedAux << "; integrity threshold " << pcfg.mahalanobisThreshold
                   << ", suspects " << suspects << "\n";
     }
+    if (spec.dualBaseRelayTier)
+    {
+        // S2 Part B, F1. Printed only with the flag, so the flag-off stdout is unchanged.
+        std::cout << "    B-F1 dual-base relay tier (" << CaTblPolicyModeName(mode)
+                  << "): tag 0 legs on 2.4 GHz with 868 MHz active " << f1TagLegs << ", admitted "
+                  << f1TagAdmitted << "; subject exchanges moved from 868 MHz to 2.4 GHz "
+                  << f1SubjRetiered << "\n";
+    }
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
@@ -15701,6 +15733,17 @@ main(int argc, char* argv[])
                  "row, for the filter consistency test (NEES, Bar-Shalom et al. 2001 sect. 5.4). "
                  "FALSE by default: the trace keeps exactly its old columns.",
                  spec.traceCovariance);
+    // --- S2-B accuracy flags ---
+    cmd.AddValue("dualBaseRelayTier",
+                 "S2 Part B, F1: under the dual base (--loraDualBase), form relay legs on 2.4 GHz "
+                 "when the active tier is 868 MHz -- tag 0's legs to its relays and each dual-base "
+                 "subject's relay exchange -- billed on the 2.4 GHz radio, which transmitted that "
+                 "cycle anyway; tag 0's admitted relayed ranges join the 2.4 GHz set the dual base "
+                 "fuses. FALSE by default: a relay leg forms only on the active tier, and A1 "
+                 "refuses every one on 868 MHz, so under the dual base (active tier 868 MHz on ~64 % "
+                 "of endgame cycles) tag 0 is offered ~6x fewer relay legs than static_2p4. Read "
+                 "only by the hybrid arms; static and fusion arms are unchanged.",
+                 spec.dualBaseRelayTier);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
