@@ -6178,6 +6178,9 @@ struct SpecOptions
     //! N.36. --relayCovScale: hybrid arms scale a relay's position covariance in tag 0's
     //! relayed legs by this factor before admission and composition. 1 = unchanged.
     double relayCovScale = 1.0;
+    //! N.37. --hybridNoLone868: hybrid arms do not hand Step() a cycle whose only range is
+    //! a tier-1 RSSI range, so Case D never applies one. 0 = unchanged.
+    bool hybridNoLone868 = false;
 };
 
 /**
@@ -10399,8 +10402,13 @@ RunArm(CaTblPolicyMode mode,
                 {
                     ex.tdoa->Solve(sb.policy, measS);
                 }
+                static const std::vector<CaTblRangeMeasurement> kNoMeasS;
+                const bool hybridS = mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY ||
+                                     mode == CA_TBL_MODE_FIXED_THRESHOLD;
+                const bool dropLoneS = spec.hybridNoLone868 && hybridS && measS.size() == 1 &&
+                                       fixTierS == CA_TBL_TIER_868; // N.37
                 CaTblDecision ds = sb.policy.Step(
-                    dt, measS, hopS,
+                    dt, dropLoneS ? kNoMeasS : measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
                                          : (dualS && !actM.empty() && measS.size() >= 3)
                                              ? std::max<size_t>(3, actM.size())
@@ -12200,8 +12208,11 @@ RunArm(CaTblPolicyMode mode,
             (dualBase && !activeMeas.empty() && meas.size() >= 3)
                 ? std::max<size_t>(3, activeMeas.size())
                 : activeMeas.size();
+        static const std::vector<CaTblRangeMeasurement> kNoMeas;
+        const bool dropLone = spec.hybridNoLone868 && hybridArm && meas.size() == 1 &&
+                              fixTier == CA_TBL_TIER_868; // N.37
         CaTblDecision d = policy.Step(dt,
-                                            meas,
+                                            dropLone ? kNoMeas : meas,
                                             hopArg,
                                             static_cast<int32_t>(activeDelivered),
                                             static_cast<int32_t>(activeMeasAddressed +
@@ -15723,6 +15734,21 @@ main(int argc, char* argv[])
                  "25 m -0.063 and -0.051, LOSS) -- down-weighting the legs gives back what they add. "
                  "Kept at 1. OURS. Static and fusion arms ignore it.",
                  spec.relayCovScale);
+    cmd.AddValue("hybridNoLone868",
+                 "N.37: on the hybrid arms, a cycle (tag 0 or a subject) whose fix set is ONE tier-1 "
+                 "868 MHz range is stepped as an empty set, so Case D (DC-4) coasts instead of "
+                 "applying it. FALSE by default: Case D takes any single range its NIS test admits. "
+                 "Measured (20 seeds, specProfile): a lone 868 MHz range applied on a no-fix cycle "
+                 "RAISES the subjects' error by +0.33 m/cycle (5 km) and +0.26 m/cycle (endgame), "
+                 "and tag 0's by +2.5 m/cycle in the endgame, while a lone 2.4 GHz range lowers it "
+                 "(-0.95, -0.19). An RSSI range has sigma ~0.6 d and a bias the NIS test cannot see "
+                 "with one degree of freedom against a wide P. Those per-cycle figures are selected "
+                 "cycles, not an effect: on seeds 21-30 the flag ties at 5 km and LOSES in the "
+                 "endgame (availability -0.013, within 25 m -0.017), because an empty set also "
+                 "changes the cycle's escalation and demotion path. Superseded by --caseDInfoRatio, "
+                 "which refuses the update and keeps the cycle a Case D cycle. OURS. Static and "
+                 "fusion arms ignore it.",
+                 spec.hybridNoLone868);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
