@@ -1,0 +1,64 @@
+diff --git a/scratch/ca_tbl_causal_sim.cc b/scratch/ca_tbl_causal_sim.cc
+index b0925a4a..6d1aaa72 100644
+--- a/scratch/ca_tbl_causal_sim.cc
++++ b/scratch/ca_tbl_causal_sim.cc
+@@ -107,6 +107,8 @@
+ #include <limits>
+ #include <deque>
+ #include <fstream>
++#include <cstdlib>
++static std::ofstream* g_catblRangeLog = nullptr; // EXPLORATORY, uncommitted
+ #include <functional>
+ #include <cstdio>
+ #include <unistd.h> // M.3: readlink(/proc/self/exe)
+@@ -5421,6 +5423,11 @@ struct Tier1Tdoa
+         repliesOnOk += billReplies ? repliesThisCycle : 0;
+         downlinksOnOk += billDownlink ? 1 : 0;
+         policy.SetAuxPositionFix(res.x, res.y, res.rxx, res.rxy, res.ryy);
++        if (g_catblRangeLog != nullptr)
++        {
++            *g_catblRangeLog << std::setprecision(12) << "A,-1," << res.x << ',' << res.y << ','
++                             << res.rxx << ',' << res.rxy << ',' << res.ryy << ",0,0,0\n";
++        }
+     }
+ 
+     //! After Step(): write the cycle's row. Only cycles that solved have one.
+@@ -7492,6 +7499,17 @@ RunArm(CaTblPolicyMode mode,
+         std::ostringstream fn;
+         fn << traceDir << "/trace_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+         trace.open(fn.str().c_str());
++        if (std::getenv("CATBL_RANGELOG"))
++        {
++            std::ostringstream rfn;
++            rfn << traceDir << "/ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
++            static std::ofstream rlog;
++            rlog.close();
++            rlog.clear();
++            rlog.open(rfn.str().c_str());
++            rlog << "kind,t,a,b,c,d,e,f,g,h\n";
++            g_catblRangeLog = &rlog;
++        }
+         // CHECKED, and aborts rather than degrading. An unchecked failure here makes
+         // every later `trace << ...` a silent no-op, so the run completes and emits a
+         // summary while the per-cycle evidence is absent -- and the verifier's
+@@ -12167,6 +12185,20 @@ RunArm(CaTblPolicyMode mode,
+             (dualBase && !activeMeas.empty() && meas.size() >= 3)
+                 ? std::max<size_t>(3, activeMeas.size())
+                 : activeMeas.size();
++        if (g_catblRangeLog != nullptr)
++        {
++            std::ofstream& rl = *g_catblRangeLog;
++            rl << std::setprecision(12);
++            rl << "T," << t << ',' << pos.x << ',' << pos.y << ',' << dt << ',' << policy.EstX()
++               << ',' << policy.EstY() << ',' << active << ',' << (usedFloor ? 1 : 0) << ",0\n";
++            for (size_t k = 0; k < meas.size(); ++k)
++            {
++                rl << "R," << t << ',' << meas[k].anchorX << ',' << meas[k].anchorY << ','
++                   << meas[k].rangeM << ',' << meas[k].sigmaM << ',' << (meas[k].nlos ? 1 : 0) << ','
++                   << static_cast<int>(meas[k].sourceKind) << ',' << (meas[k].fromFloor ? 1 : 0)
++                   << ',' << meas[k].anchorId << '\n';
++            }
++        }
+         CaTblDecision d = policy.Step(dt,
+                                             meas,
+                                             hopArg,
