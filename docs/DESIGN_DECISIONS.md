@@ -256,3 +256,11 @@ own registered campaign. None of these decisions overrides a registered adoption
 | SAR availability at 5 km | **No availability criterion is applied; availability is reported as measured.** | The spec sets none. The 0.95 was ours. | The final campaign reports it. |
 | How the novelty claims are worded | **Not this repository's to write.** | The spec's own wording (line 272) is the assembly-level claim `RULES.md` §9 already holds. | Thesis-side. |
 | N.16, I.1, I.6 | **Carried into the final campaign:** N.16 as a reported finding, I.6 by the campaign itself, I.1 as its integrity-check precision and recall. | Phase 5 metrics. | The final campaign. |
+
+**2026-10-08, the owner's calls (direct, not delegated).**
+
+| call | decision | how it is carried out |
+|---|---|---|
+| FIXES-N26 | **Adopted into the preset by owner override of the registered rule.** FIXES-N26's rule said DO NOT ADOPT on one term: subject energy at 5 km rose from 12.37 to 16.69 J. The owner took the fixes for what the same registered campaign measured: availability +0.111 / +0.139 / +0.133 (5 km, endgame, N8_ring), 5 km tag 0 CEP95 −151.8 m, and UWB-delivered fixes on 20 of 20 endgame seeds. | `--specProfile` gains `--loraDualBase`, `--uwbCrossTierPoll`, `--tdoaInnovationGate`, `--mahalUseR` and `--integrityChi2=1992.9`. The preset alone reproduces FIXES-N26's registered ALL cell byte for byte. G24 re-run. **This is the one place a registered adoption rule is overridden, and it is the owner's.** |
+| Row 17, PCS term 1 | **The literal 1/trace(Σ) is built behind `--pcsTerm1Inverse` (G90); the preset keeps the bounded form.** | Switching the preset would need the PCS re-calibrated on the literal term, which this call did not ask for. |
+| Row 6 | **Unchanged: stays PARTIAL, as decided on 2026-10-04.** | No code. |

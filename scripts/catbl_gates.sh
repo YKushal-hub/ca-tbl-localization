@@ -1760,8 +1760,9 @@ finish G90
 #     all three is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
-# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15):
-# UWB-delivered fixes, and carried requests heard at arbiters (since the channel-fidelity flags).
+# FAIL BY FINDING today: four mechanisms have no population under the preset (TECH_DEBT N.15),
+# since FIXES-N26 joined it (2026-10-08): Case A fixes, arbitration pre-emptions, queue gossip
+# items and grant tie-break verdicts. UWB-delivered fixes are no longer zero.
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'

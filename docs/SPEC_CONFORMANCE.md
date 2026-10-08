@@ -16,7 +16,7 @@ snapshot like every other status document here (RULES.md §8). Check the cited c
 | status | meaning |
 |---|---|
 | **CONFORMANT** | built as specified and **on by default** |
-| **OPT-IN** | built as specified, behind a default-off flag. It is part of the spec configuration through `--specProfile` (P6, 2026-10-03; plan §3.1), which sets every such flag unless one is given explicitly. G24 checks each mechanism's population under it; two are zero at the row-55 preset commit, 2026-10-04 (TECH_DEBT N.15) |
+| **OPT-IN** | built as specified, behind a default-off flag. It is part of the spec configuration through `--specProfile` (P6, 2026-10-03; plan §3.1), which sets every such flag unless one is given explicitly. G24 checks each mechanism's population under it; four are zero since FIXES-N26 joined the preset, 2026-10-08 (Case A fixes, arbitration pre-emptions, queue gossip items, grant tie-break verdicts; TECH_DEBT N.15) |
 | **PARTIAL** | built, but part of the specified behaviour is missing, or the mechanism has no population where it should act |
 | **DIVERGENT** | built differently from the spec. The reason is recorded, and whether it is to be closed or kept is stated |
 | **ABSENT** | not built |
