@@ -28,7 +28,7 @@ struct FoliageVariationResult {
     double coherenceFactorDb; // Link coherence (spatial correlation of wind effects)
 };
 
-// Feature 5: Compute dynamic wind-induced foliage loss variation (Meng et al. 2009 IEEE TAP)
+// Feature 5: Compute dynamic wind-induced foliage loss variation (Cheffena & Ekman, EURASIP JWCN 2009; values OURS)
 // Uses Ornstein-Uhlenbeck process: new = rho*old + sqrt(1-rho²)*σ*N(0,1)
 // where rho = exp(-dt / T_wind) and T_wind = depth_m / (wind_speed_mps + 1)
 FoliageVariationResult ComputeDynamicFoliageLossDb(

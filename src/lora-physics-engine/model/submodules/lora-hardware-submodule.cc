@@ -146,7 +146,7 @@ TimestampObservation HardwareSubmodule::GenerateTimestampObservation(
     return obs;
 }
 
-// Feature 6: Temperature-dependent CFO computation (Robyns 2017 ACM WiSec)
+// Feature 6: Temperature-dependent CFO computation (coefficient OURS; Robyns 2017 WiSec shows none)
 // CFO = coefficient * (T - T_ref) for oscillator frequency temperature dependency
 // SX1272 typical coefficient: 1.5 Hz/°C at 868 MHz (can range 0.5-3.0 Hz/°C)
 double HardwareSubmodule::ComputeTemperatureCFO(double temperatureCelsius,
