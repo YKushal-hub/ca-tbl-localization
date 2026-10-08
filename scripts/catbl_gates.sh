@@ -1782,6 +1782,16 @@ bash scripts/tof_field_gate.sh "$WORK/g120" || fail G120
 bash scripts/tof_field_gate_selftest.sh "$WORK/g120" || fail G120
 finish G120
 
+# ---------------- G110: --dualBaseRelayTier, relay legs on 2.4 GHz under the dual base (S2 Part B, F1)
+# Read by scripts/acc_b_gate.py: the flag given as false changes no byte or stdout line; on, tag 0's
+# legs on 2.4 GHz with 868 MHz active, their admissions and the subjects' re-tiered exchanges are
+# all > 0 and billed on 2.4 GHz; static_2p4 and lora_fusion are byte-identical on and off.
+# Negative fixtures in scripts/acc_b_gate_selftest.sh (rule 6).
+printf '\n--- G110 dual-base relay tier ---\n'
+bash scripts/acc_b_gate.sh "$WORK/g110" || fail G110
+bash scripts/acc_b_gate_selftest.sh "$WORK/g110" || fail G110
+finish G110
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
