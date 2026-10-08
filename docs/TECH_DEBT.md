@@ -3205,6 +3205,51 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
 
+### N.35 Under the dual base, tag 0 is offered ~6x fewer relay legs than static 2.4 GHz, and its subjects are refused on 868 MHz
+
+*2026-10-09, S2 Part B, B2 (exploratory diagnosis; `work/2026-10-09-acc-part-b`).*
+
+**Data.** TOF-FIELD's D0 cells, read only: the 102-setting preset, 1 800 s, this cloud machine,
+seeds 1-15 (14 in B). The arms are `ca_tbl_full` and `static_2p4` from the same cells. The
+counts are the run logs' C5 and L.1.2 lines, means per run.
+
+| | `ca_tbl_full` B | `static_2p4` B | `ca_tbl_full` A | `static_2p4` A |
+|---|---|---|---|---|
+| tag 0 active tier 2.4 GHz, share of cycles | 0.364 | 1.000 | 0.691 | 1.000 |
+| tag 0 relay legs offered (all depths) | 204 | 1 240 | 107 | 279 |
+| ... admitted | 174 | 1 129 | 101 | 267 |
+| ... refused by A1 / A2 / A3 | 0 / 11.0 / 18.6 | 0 / 6.1 / 105.2 | 0 / 0.1 / 6.0 | 0 / 0.5 / 11.8 |
+| subject-cycles short of a fix | 1 768 | 2 742 | 2 469 | 2 880 |
+| ... of which on 868 MHz, refused before any exchange | 904 | 0 | 999 | 0 |
+| subject relay exchanges / admitted / fused | 558 / 192 / 130 | 13 / 7 / 7 | 188 / 30 / 26 | 0 / 0 / 0 |
+
+**Cause, tag 0 (H1, confirmed in the code).**
+- A relay leg forms only when the relay tier equals the active tier (the C5 block,
+  `rt == active`, `ca_tbl_causal_sim.cc`).
+- A1 never refused one: zero in every cell. The legs are never *formed*.
+- Under the dual base the 2.4 GHz radio ranges every cycle (`otherLoraMeas`), but the active
+  tier is 868 MHz on 64 % of endgame cycles. On those cycles no relay leg is attempted.
+- The count is lower than the 36 % share alone predicts (204 against ~450), because the block
+  also requires `!usedFloor`.
+
+**Cause, subjects.** `RangeForSubject` returns before any exchange when the subject's active tier
+is 868 MHz (A1 would refuse the range). That happens on 904 of 1 768 short subject-cycles in B.
+Yet the dual-base subjects exchange far more than `static_2p4`'s, whose subjects are short on 2 731
+cycles with "no exchange possible". So "a holder has a fix" is not the limit for `static_2p4`. The
+hybrid's limit is the tier.
+
+**The 5 km subjects (H2/H3), median error over all cycles (m), subjects 2-5.**
+- `ca_tbl_full`: 16.1 / 15.9 / 18.1 / 22.2, fixing on 39 / 24 / 8 / 1.6 % of cycles.
+- `static_2p4`: 12.5 / 15.8 / 12.9 / 17.7, fixing on under 1.1 %.
+- The hybrid subjects' error is the same with the active tier on 868 MHz or 2.4 GHz (median
+  18.4 against 18.2 m), so time off 2.4 GHz (H3) does not explain it.
+- Fewer fixes with lower error is *consistent with* H2: the hybrid's extra tier-1 / TDoA fixes
+  pull a dead-reckoned estimate off. **Not established.** Q5 needs a per-subject range log and a
+  replay with and without those fixes, which this session did not build.
+
+**Fix built:** F1, `--dualBaseRelayTier` (G110), for H1, tag 0 and subjects. Measured in
+`report/PREREG_ACC_B_HYBRID.md`. F2 (H2) is not built.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
