@@ -1745,6 +1745,19 @@ bash scripts/pcs_term1_gate.sh "$WORK/g90" || fail G90
 bash scripts/pcs_term1_gate_selftest.sh "$WORK/g90" || fail G90
 finish G90
 
+# ---------------- G91: the S2-B accuracy flags (TECH_DEBT N.35-N.38)
+# --dualBaseRelayTier, --relayCovScale, --hybridNoLone868, --caseDInfoRatio. Read by
+# scripts/acc_b_gate.py: the four at their off values are the flags absent byte for byte; the
+# relay tier forms 2.4 GHz tag legs on 868 MHz cycles (none without it); the scale multiplies
+# the first leg's carried variance by exactly 4; no lone 868 MHz Case D update survives
+# --hybridNoLone868, while the case itself still occurs; and the ratio refuses Case D rows
+# whose NIS passed, as many as its stdout line counts.
+# Negative fixtures in scripts/acc_b_gate_selftest.sh (rule 6).
+printf '\n--- G91 S2-B accuracy flags (N.35-N.38) ---\n'
+bash scripts/acc_b_gate.sh "$WORK/g91" || fail G91
+bash scripts/acc_b_gate_selftest.sh "$WORK/g91" || fail G91
+finish G91
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
