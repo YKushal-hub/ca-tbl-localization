@@ -6175,6 +6175,9 @@ struct SpecOptions
     //! N.35. --dualBaseRelayTier: under --loraDualBase, relayed ranging runs on 2.4 GHz
     //! (the dual base's second LoRa radio, already awake and ranging) whatever the active tier.
     bool dualBaseRelayTier = false;
+    //! N.36. --relayCovScale: hybrid arms scale a relay's position covariance in tag 0's
+    //! relayed legs by this factor before admission and composition. 1 = unchanged.
+    double relayCovScale = 1.0;
 };
 
 /**
@@ -11828,6 +11831,16 @@ RunArm(CaTblPolicyMode mode,
                     {
                         continue;
                     }
+                    if (hybridArm && spec.relayCovScale != 1.0) // N.36: after the chain composed it
+                    {
+                        for (int ri = 0; ri < 2; ++ri)
+                        {
+                            for (int rj = 0; rj < 2; ++rj)
+                            {
+                                rr.relayP[ri][rj] *= spec.relayCovScale;
+                            }
+                        }
+                    }
 
                     LegTerms::Out terms;
                     if (legTerms)
@@ -15697,6 +15710,19 @@ main(int argc, char* argv[])
                  "720 cycles in one seed) mostly vanish (214). The relay exchange is billed on the "
                  "2.4 GHz radio it used. Read only under --loraDualBase and --relayedRanging.",
                  spec.dualBaseRelayTier);
+    cmd.AddValue("relayCovScale",
+                 "N.36: on the hybrid arms, multiply the relay's 2x2 position covariance by this "
+                 "factor in tag 0's relayed (C5) legs, before admission (A2/A3) and before it is "
+                 "projected into the range sigma. 1 by default: the relay's own filter covariance is "
+                 "taken at face value. Measured (endgame, 20 seeds, --dualBaseRelayTier): the "
+                 "realised error of an admitted relayed range is 2.15x its claimed sigma at depth 1 "
+                 "and 1.64x at depth 2 (1.37x and 1.35x without the flag; static_2p4 1.11x), "
+                 "because the relays' covariances understate their position error. Calibrated on "
+                 "seeds 21-30 with --dualBaseRelayTier: k = 4 and k = 16 do no better than 1 (endgame "
+                 "CEP50 -0.6 and -0.5 m against the reference where k = 1 gives -1.4 m; 5 km within "
+                 "25 m -0.063 and -0.051, LOSS) -- down-weighting the legs gives back what they add. "
+                 "Kept at 1. OURS. Static and fusion arms ignore it.",
+                 spec.relayCovScale);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
