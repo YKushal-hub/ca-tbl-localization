@@ -398,6 +398,10 @@ struct CaTblPolicyConfig
     //! R -- so they are fixed under a single flag. Default false so the pre-existing
     //! baseline reproduces byte-identically.
     bool mahalUseR;
+    //! Row 17 (Phys 2.5). TRUE: PCS term 1 is the spec's literal 1/trace(Sigma), unbounded,
+    //! in place of the monotone traceRef/(traceRef+trace). FALSE (default) keeps the bounded
+    //! form every result so far used. Not read under CA_TBL_PCS_V2, which has no term 1.
+    bool pcsTerm1Inverse = false;
 
     /**
      * Escalate only into a tier the node has grounds to believe can deliver.
