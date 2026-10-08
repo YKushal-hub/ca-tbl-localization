@@ -122,7 +122,7 @@ DelaySpreadResult DelaySpreadSubmodule::ComputeDelaySpread(
 }
 
 // Feature 7: Dynamic delay spread sampling from LOS/NLOS distributions
-// Reference: Lim et al. 2018 (MDPI Sensors): measured delay spread distribution
+// Values OURS: the cited 'Lim et al. 2018 (MDPI Sensors)' source was not found
 DelaySpreadResult DelaySpreadSubmodule::ComputeDelaySpreadDynamic(
     LinkPhysicsState& state, EnvironmentClass env, double distM, double carrierFreqHz, double signalBandwidthHz,
     const DelaySpreadParams& params, LoRaDistributionSampler& sampler)

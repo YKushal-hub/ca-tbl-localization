@@ -51,7 +51,7 @@ double ComputeFoliageLossDb(
 
 // Feature 5: Dynamic wind-induced foliage variation with per-link caching
 // Uses Ornstein-Uhlenbeck process for time-correlated stochastic variation
-// Reference: Meng et al. 2009 IEEE TAP
+// Reference: Cheffena & Ekman, EURASIP JWCN 2009, doi 10.1155/2009/306876 (wind-induced fading); parameter values OURS
 FoliageVariationResult ComputeDynamicFoliageLossDb(
     Vector txPos, Vector rxPos,
     const FoliageParams& params,
@@ -72,7 +72,7 @@ FoliageVariationResult ComputeDynamicFoliageLossDb(
     }
     
     // Feature 5: Wind-induced dynamic variation using Ornstein-Uhlenbeck process
-    // Meng et al. 2009: foliage loss varies with wind-induced branch motion
+    // Cheffena & Ekman 2009: foliage loss varies with wind-induced branch motion (Meng 2009 TAP is static near-ground path loss)
     
     double windSpeed = sampler.Sample(windParams.windSpeedMps);
     double windAmplitude = sampler.Sample(windParams.windAmplitudeDb);

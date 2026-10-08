@@ -3204,3 +3204,22 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
   - Pre-emptions and queue items follow from fewer escalations competing, once the
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
+
+### N.42 Physics-engine citations that do not support the values they are attached to
+
+*2026-10-08, S3 (`WORKSTREAMS_2026_10_09.md`).* Comment and documentation only; no value moved.
+
+| cited | finding | now |
+|---|---|---|
+| Petäjäjärvi 2015, for n = 2.2 (`RURAL_OPEN`) and 2.75 (`SUBURBAN`) | the paper reports an on-water exponent of 1.76; Rademacher 2021 quotes its Oulu fit as n = 2.65, PL(d0) = 132.25 dB | OURS (CONTEXT_PACK PROV-01) |
+| Rademacher 2021, n = 1.58 | confirmed verbatim (§IV), with PL1km = 132.41 dB and σ = 9.9 dB; a single-slope urban fit; samples 112,372 (§III), 112,404 in Table I | ADAPTED as the far slope (PROV-02, Architecture R-18) |
+| "Oliveira 2017, ~0.075 dB/°C" | the figure is not traced to Oliveira 2017; the measured LoRa temperature effect is Boano, Cattani & Römer 2018: 3-4 dB over 0-50 °C (RFM95), 5-6 dB (SX1272) | Boano 2018 (R-20); the term is 0 in code |
+| "Meng et al. 2009 TAP", wind variation | Meng 2009 is near-ground foliage path loss, not wind dynamics; the wind fading source is Cheffena & Ekman 2009 | Cheffena & Ekman (R-19); values OURS |
+| "Lim et al. 2018 (MDPI Sensors)", delay spread | not found | OURS |
+| "Hofer 2015 IEEE VTC", NLOS loss | not found | OURS |
+| "Robyns 2017 ACM WiSec", 1-2 Hz/°C CFO coefficient | a fingerprinting paper (closed access); no CFO-temperature coefficient visible | OURS |
+
+**Not changed:** the values. Relabelling a value OURS does not make it wrong, and changing one is
+an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
+open for a source.
+

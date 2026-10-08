@@ -838,7 +838,7 @@ struct AdaptiveEnvironmentConfigParams {
 
 /**
  * @brief Dynamic delay spread parameters (Feature 7)
- * Reference: Lim et al. 2018 (MDPI Sensors): measured delay spread distribution
+ * Values OURS: the cited 'Lim et al. 2018 (MDPI Sensors)' source was not found
  */
 struct DelaySpreadParams {
     bool enabled;
@@ -851,7 +851,7 @@ struct DelaySpreadParams {
 
 /**
  * @brief Wind-induced foliage variation parameters (Feature 5)
- * Reference: Meng et al. 2009 (IEEE TAP): seasonal and dynamic variation
+ * Values OURS. Wind fading model: Cheffena & Ekman, EURASIP JWCN 2009, doi 10.1155/2009/306876 (Meng 2009 TAP is static path loss)
  */
 struct WindVariationParams {
     bool windVariationEnabled;
@@ -863,7 +863,7 @@ struct WindVariationParams {
 
 /**
  * @brief Temperature-dependent CFO and jitter parameters (Feature 6)
- * Reference: Robyns et al. 2017 (ACM WiSec): temperature coefficient ~1-2 Hz/°C for SX1272
+ * Values OURS: ~1-2 Hz/°C for SX1272. Robyns et al. 2017 (WiSec, fingerprinting) shows no such coefficient
  */
 struct TemperatureCfoParams {
     DistributionParam temperatureCoefficientHzPerC;
