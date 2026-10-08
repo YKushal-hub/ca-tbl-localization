@@ -3205,6 +3205,29 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
 
+### N.40 Tier 2's 3.0 m ToF floor carries every endgame accuracy figure; at measured outdoor error the endgame CEP95 triples
+
+*2026-10-09, S3 (`report/TOF_FIELD_RESULTS.md`; registered, `17472fe7`).*
+
+Mueller et al., ICL-GNSS 2021, measured outdoor SX1280 ranging at SD 83.6 m / bias +46.4 m
+(rural) and 45 m / +39 m (suburban). The engine's tier-2 floor is 3.0 m, from ranges measured
+within tens of metres. At the measured levels (`--tofFieldSigmaM`, `--tofFieldBiasM`), paired
+over 20 seeds:
+- **The preset's endgame tag 0 CEP95 is 12.0 m at the floor and 35-39 m at field error.** At
+  5 km it is 57.8 m against 80-96 m. Every arm degrades.
+- **Static 2.4 GHz degrades most.** It is not significantly more accurate than the preset even
+  at the floor, and at rural field error it is 30.7 m [22.6, 39.2] worse in the endgame. The
+  unmodelled bias does it: with the bias removed the difference is not significant.
+- **The decision rule:** against `fixed_threshold` with the same measurements, it gains +0.01 to
+  +0.02 availability at the floor and no accuracy anywhere. Under field error it costs +9 to
+  +12 J per node in the endgame.
+
+**Open.**
+- The floor is still 3.0 m by default. Every tier-2 accuracy claim must be cited as conditional
+  on it, or re-run at a field level.
+- Static 2.4 GHz loses 0.031 availability at R1 in the endgame. The mechanism is not
+  identified.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
