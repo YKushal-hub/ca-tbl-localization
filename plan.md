@@ -1,5 +1,7 @@
 # CA-TBL — plan to improve localisation accuracy, and where ML belongs
 
+> **For the next 6–7 hours use `plan_6h.md`** (two independent parts, no ML). This file keeps the long-range list; its WP-A2 is stale because the TDoA gate is now in the preset (`e308c14f`).
+
 Plan, 2026-10-08. Evidence is in `context.md` (cited as C§n). Work obeys RULES.md §1–§4.
 Remit: the engine. No thesis prose here.
 

@@ -487,3 +487,38 @@ supports a better quality score than the trace. Consistent with CAL-01 and N.16.
    swept parameter. It changes every 5 km number.
 3. Whether the start-at-truth, 100 m prior is a scenario choice or an artefact.
 4. Closed-loop effect of a consistent covariance on escalation, finder dispatch and PCS: unmeasured.
+
+---
+
+## 11. Addendum, 2026-10-08 (later): the new preset scoreboard
+
+**Baseline moved.** `e308c14f` (branch `work/2026-09-27-spec-b1`, owner override) put FIXES-N26's four fixes into
+`--specProfile` (102 settings). My `--specProfile` + those four flags cells are identical to the tracked
+`fixes_n26_2026-10-05/eval/ALL_main` and `ALL_end` cells (320 of 320 compared values). The sections above
+measured the 97-setting preset except where marked `ALL`.
+
+Closed loop, 20 seeds, [M], exploratory. Five-node fix availability / five-node within 25 m / tag-0 CEP50 /
+CEP95 (m) / J per node:
+
+| arm | 5 km | endgame |
+|---|---|---|
+| `ca_tbl_full` (new preset) | 0.285 / 0.613 / 16.2 / 85.0 / 16.7 | 0.562 / 0.968 / 4.8 / 16.1 / 23.0 |
+| `fixed_threshold` + the four fixes | 0.274 / 0.625 / 16.7 / 72.9 / 16.9 | 0.545 / 0.964 / 4.6 / 17.6 / 22.0 |
+| `static_2p4` | 0.031 / 0.683 / 12.5 / 79.4 / 14.2 | 0.271 / 0.968 / 4.3 / 13.4 / 5.8 |
+| `poucet_fusion` | 0.238 / 0.499 / 29.7 / 290.0 / 462.5 | 0.506 / 0.862 / 5.4 / 18.9 / 416.2 |
+| `lora_fusion` | 0.226 / 0.513 / 36.1 / 2 308.6 / 16.8 | 0.501 / 0.885 / 5.9 / 18.5 / 9.5 |
+
+Findings that change the picture (full tables in `plan_6h.md` §1):
+- Fix availability is already first among all arms on the new preset.
+- Multiplying the IMU increment covariance by 10, for every arm, gives `ca_tbl_full` 11.7 / 61.7 m (5 km) and
+  2.7 / 8.0 m (endgame), and a significant win over `poucet_fusion` and `lora_fusion` on every accuracy metric.
+- Remaining significant loss: 5 km five-node within 25 m against `static_2p4` (−0.067 [−0.129, −0.016]).
+  It comes from subjects 2–5, not tag 0.
+- Against `fixed_threshold`, `ca_tbl_full` ties on all accuracy metrics in both configurations.
+- Endgame range supply: tag 0 gets 1.80 precise (σ < 40 m) ranges per cycle against `static_2p4`'s 2.67, because
+  peer ranges fall from 1.52 to 0.23 per cycle. The dual base moved the hybrid's active tier off 2.4 GHz
+  (86 % → 36 % of cycles).
+- Replay with the new preset's range streams reproduces `ca_tbl_full` well (15.2 / 87.8 vs 16.2 / 85.0 m at 5 km;
+  4.8 / 15.8 vs 4.8 / 16.1 m endgame). The error-state filter in replay: 7.2 / 60.4 and 1.5 / 4.7 m with the
+  scenario's 100 m prior.
+- Dropping or inflating the 868 MHz ranges to absorb their long-range bias hurts or changes nothing.
