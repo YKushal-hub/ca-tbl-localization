@@ -508,7 +508,7 @@ CEP95 (m) / J per node:
 | `poucet_fusion` | 0.238 / 0.499 / 29.7 / 290.0 / 462.5 | 0.506 / 0.862 / 5.4 / 18.9 / 416.2 |
 | `lora_fusion` | 0.226 / 0.513 / 36.1 / 2 308.6 / 16.8 | 0.501 / 0.885 / 5.9 / 18.5 / 9.5 |
 
-Findings that change the picture (full tables in `plan_6h.md` §1):
+Findings that change the picture (full tables in `plan_part_a_filter.md` §2 and `plan_part_b_hybrid.md` §1–2):
 - Fix availability is already first among all arms on the new preset.
 - Multiplying the IMU increment covariance by 10, for every arm, gives `ca_tbl_full` 11.7 / 61.7 m (5 km) and
   2.7 / 8.0 m (endgame), and a significant win over `poucet_fusion` and `lora_fusion` on every accuracy metric.
