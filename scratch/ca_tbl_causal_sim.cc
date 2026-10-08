@@ -6148,6 +6148,10 @@ struct SpecOptions
     //! --traceCovariance: the posterior 2x2 position covariance on every trace row, for the
     //! filter consistency test (NEES). Off: the trace has exactly its old columns.
     bool traceCovariance = false;
+    // --- S2-A accuracy flags ---
+    //! --imuQuScale: multiplies the IMU increment covariance handed to every filter (tag 0's and
+    //! the subjects'). 1 (default) multiplies by exactly 1.
+    double imuQuScale = 1.0;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -10285,7 +10289,8 @@ RunArm(CaTblPolicyMode mode,
                 {
                     double ux, uy, qu[3];
                     ex.rk->Step(sb.pos.x - ex.prevX, sb.pos.y - ex.prevY, dt, ux, uy, qu);
-                    sb.policy.SetImuControl(ux, uy, qu[0], qu[1], qu[2]);
+                    sb.policy.SetImuControl(ux, uy, qu[0] * spec.imuQuScale, qu[1] * spec.imuQuScale,
+                                            qu[2] * spec.imuQuScale);
                     uxW = ux;
                     uyW = uy;
                 }
@@ -12097,8 +12102,8 @@ RunArm(CaTblPolicyMode mode,
             imuPred->dx = imuPred->havePrev ? pos.x - imuPred->prevX : 0.0;
             imuPred->dy = imuPred->havePrev ? pos.y - imuPred->prevY : 0.0;
             imuPred->rk.Step(imuPred->dx, imuPred->dy, dt, imuPred->ux, imuPred->uy, imuPred->qu);
-            policy.SetImuControl(imuPred->ux, imuPred->uy, imuPred->qu[0], imuPred->qu[1],
-                                 imuPred->qu[2]);
+            policy.SetImuControl(imuPred->ux, imuPred->uy, imuPred->qu[0] * spec.imuQuScale,
+                                 imuPred->qu[1] * spec.imuQuScale, imuPred->qu[2] * spec.imuQuScale);
             imuPred->prevX = pos.x;
             imuPred->prevY = pos.y;
             imuPred->havePrev = true;
@@ -15701,6 +15706,17 @@ main(int argc, char* argv[])
                  "row, for the filter consistency test (NEES, Bar-Shalom et al. 2001 sect. 5.4). "
                  "FALSE by default: the trace keeps exactly its old columns.",
                  spec.traceCovariance);
+    // --- S2-A accuracy flags ---
+    cmd.AddValue("imuQuScale",
+                 "Multiplier on the IMU increment covariance (quxx, quxy, quyy) handed to every "
+                 "filter each cycle, tag 0's and the subjects', every arm. 1 by default, which "
+                 "reproduces every earlier result. Not a physical constant: it is a stand-in for "
+                 "the correlation the filter ignores. The dead-reckoner's gyro bias and scale error "
+                 "are constant for a run, so its position error grows coherently, while the EKF "
+                 "adds each cycle's increment covariance as if independent; measured, its position "
+                 "variance is 3-54x too small (S2 context.md sect 6.5). 10 is the value an "
+                 "exploratory closed-loop run measured; an error-state filter is the principled fix.",
+                 spec.imuQuScale);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
