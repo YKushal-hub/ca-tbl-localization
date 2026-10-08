@@ -1709,7 +1709,10 @@ CaTblPolicy::Step(double dt,
                              hy * hy * m_ekf.Pyy() + varM2[0];
             const double nu = meas[0].rangeM - r;
             d.caseDNis = (s > 0.0) ? nu * nu / s : -1.0;
-            if (s > 0.0 && d.caseDNis <= 6.63)
+            // N.38: refused when sigma_R exceeds k sigma_prior along the line of sight.
+            const double k = m_config.caseDInfoRatio;
+            const bool infoOk = !(k > 0.0) || varM2[0] <= k * k * (s - varM2[0]);
+            if (s > 0.0 && d.caseDNis <= 6.63 && infoOk)
             {
                 m_ekf.Update(meas, varM2);
                 ++d.rangeUpdates;

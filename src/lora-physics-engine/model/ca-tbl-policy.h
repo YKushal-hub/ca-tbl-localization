@@ -575,6 +575,14 @@ struct CaTblPolicyConfig
     //! normal escalation decision runs, and it does not count toward demotion -- that last
     //! is OURS. Requires sparseInStep. False reproduces every prior result.
     bool caseD = false;
+    //! N.38. Under caseD, when > 0, the single range is refused (the cycle stays a Case D
+    //! cycle, its decision runs) when its sigma exceeds this many times the prior's sigma
+    //! along the line of sight, sqrt(H P H^T): an update far less informative than the prior
+    //! it moves, so a small bias in it is all it carries. Measured on the preset: a lone
+    //! tier-1 RSSI range (sigma ~0.5 d, low-biased beyond 1 km) never lowered the error in
+    //! any prior-sigma bin, and raised it by 0.6-5.9 m per update when the prior sigma
+    //! exceeded 80 m. OURS. 0 reproduces caseD.
+    double caseDInfoRatio = 0.0;
     //! NW-7 (MAC sect 8; Transport sect 4 "ON UWB grant confirmed"). An escalation INTO
     //! UWB is recorded as pending and commits only when the caller confirms a delivered
     //! grant (ConfirmUwbGrant), at the next cycle. While pending the tier is frozen: no

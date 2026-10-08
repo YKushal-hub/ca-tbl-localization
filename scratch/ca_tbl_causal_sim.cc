@@ -6181,6 +6181,9 @@ struct SpecOptions
     //! N.37. --hybridNoLone868: hybrid arms do not hand Step() a cycle whose only range is
     //! a tier-1 RSSI range, so Case D never applies one. 0 = unchanged.
     bool hybridNoLone868 = false;
+    //! N.38. --caseDInfoRatio: under --caseD a single range whose sigma exceeds k times the
+    //! prior's along its line of sight is refused. 0 = unchanged.
+    double caseDInfoRatio = 0.0;
 };
 
 /**
@@ -6563,6 +6566,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.caseD)
     {
         pcfg.caseD = true;
+        pcfg.caseDInfoRatio = spec.caseDInfoRatio; // N.38
     }
     if (spec.grantGatedUwb)
     {
@@ -8537,6 +8541,7 @@ RunArm(CaTblPolicyMode mode,
         uint64_t cycles = 0;
         uint64_t applied = 0;
         uint64_t refused = 0;
+        uint64_t infoRefused = 0; // N.38: refused although the NIS passed
         uint64_t wanted = 0;
         uint64_t escalated = 0;
         uint64_t demoted = 0;
@@ -12301,6 +12306,8 @@ RunArm(CaTblPolicyMode mode,
             ++caseDst->cycles;
             caseDst->applied += d.caseDApplied ? 1 : 0;
             caseDst->refused += d.caseDApplied ? 0 : 1;
+            caseDst->infoRefused +=
+                (!d.caseDApplied && d.caseDNis >= 0.0 && d.caseDNis <= 6.63) ? 1 : 0;
             caseDst->wanted += d.wantedEscalation ? 1 : 0;
             caseDst->escalated += d.escalated ? 1 : 0;
             caseDst->demoted += d.deescalated ? 1 : 0;
@@ -14059,6 +14066,12 @@ RunArm(CaTblPolicyMode mode,
                   << caseDst->applied << ", refused by NIS " << caseDst->refused
                   << "; wanted escalation " << caseDst->wanted << ", escalated "
                   << caseDst->escalated << ", demoted " << caseDst->demoted << "\n";
+        if (spec.caseDInfoRatio > 0.0)
+        {
+            // N.38. Counted in "refused by NIS" above, whose wording G41 parses.
+            std::cout << "    N.38 Case D refused as less informative than the prior (sigma ratio > "
+                      << spec.caseDInfoRatio << "): " << caseDst->infoRefused << "\n";
+        }
     }
     // DC-1. The run's IMU errors and how often the accumulation restarted. Under the flag.
     if (imuPred)
@@ -15749,6 +15762,19 @@ main(int argc, char* argv[])
                  "which refuses the update and keeps the cycle a Case D cycle. OURS. Static and "
                  "fusion arms ignore it.",
                  spec.hybridNoLone868);
+    cmd.AddValue("caseDInfoRatio",
+                 "N.38: under --caseD, when > 0, refuse the single range's update when its sigma "
+                 "exceeds this many times the prior's sigma along the line of sight, "
+                 "sqrt(H P H^T); the cycle stays a Case D cycle and reaches the decision. 0 by "
+                 "default: Case D takes any single range its NIS test admits. Measured on the preset "
+                 "(20 seeds, ca_tbl_full, both configurations): a lone 868 MHz range (sigma ~0.5 d, "
+                 "low-biased beyond 1 km) never lowered the error in any prior-sigma bin, and raised "
+                 "it by 0.6-5.9 m per update when the prior sigma exceeded 80 m -- the first "
+                 "minutes, under the 100 m initial prior. The NIS test cannot see it: S is dominated "
+                 "by R. A ratio of 1 also refuses the endgame's useful lone 2.4 GHz ranges (sigma a "
+                 "few m against a prior of ~5 m; within 25 m -0.019 on calibration seeds), so the "
+                 "ratio is set between the tiers. OURS. Every arm, as Case D.",
+                 spec.caseDInfoRatio);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
@@ -18569,6 +18595,11 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --caseD needs --sparseInStep=true: Case D is one of the sparse "
                   << "cases Step() resolves after the prediction\n";
+        return 1;
+    }
+    if (spec.caseDInfoRatio > 0.0 && !spec.caseD)
+    {
+        std::cerr << "FATAL: --caseDInfoRatio needs --caseD=true: it gates Case D's update\n";
         return 1;
     }
     if (spec.caseD && !spec.imuPredict)
