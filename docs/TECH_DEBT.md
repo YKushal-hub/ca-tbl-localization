@@ -3205,6 +3205,29 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
 
+### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
+
+*2026-10-09, S3 (`report/UWB_REACH.md`).*
+
+**Engine defect, recorded and not fixed.**
+- `lora-uwb-physics-parameters.cc:116` and `lora-2p4-physics-parameters.cc:77` scale only the
+  mean of the foliage specific attenuation, by ×5.28 and ×2.17 (ITU-R P.833, f^0.75).
+- The bounds stay at 0.2γ and 1.8γ of the unscaled value, and `SampleNormal` clamps
+  (`lora-distribution-sampler.cc:76`).
+- So the effective scaling is ×1.80 (UWB) and ×1.79 (2.4 GHz): +1.6 dB at the median depth on
+  both tiers, not +4.15 / +2.06.
+- A fix (scale the bounds, or the whole distribution) changes the engine and every result. It
+  is a planned change with its own null control and campaign, not a bug fix.
+
+**The independent model now carries the engine's behaviour** (`linkbudget.py`, `5018c7aa`).
+- UWB residual (D-7): the plateau falls by 1.70 dB. The 2-20 m rise is unchanged (~4.3 dB), so
+  this is NOT the open residual.
+- 2.4 GHz: the near-field gap (10-430 m) widens from −0.5..−1.3 dB to −2.2..−3.0 dB. Some term
+  on the engine's 2.4 GHz side is not what the model assumes. OPEN.
+
+**OURS in tier 3's reach:** the −104 dBm sensitivity (DW3000 datasheet: −99.3 dBm), 0 dB antenna
+gain, the f^0.75 extrapolation to 8 GHz.
+
 ### N.42 Physics-engine citations that do not support the values they are attached to
 
 *2026-10-08, S3 (`WORKSTREAMS_2026_10_09.md`).* Comment and documentation only; no value moved.
