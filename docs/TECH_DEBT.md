@@ -3189,3 +3189,18 @@ They beat Poucet on availability at 5 km and in the endgame (+0.047, +0.057), at
 configurations, and at 5 km it is 16.69 against 12.37. The dual base keeps 2.4 GHz ranging
 where it rarely reaches; the dual base alone costs +5.35 J there. A follow-up variant
 (2.4 GHz ranged on demand) needs its own registration.
+
+*2026-10-08, FIXES-N26 in the preset (owner override; DESIGN_DECISIONS §9):* the preset takes
+all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
+- **N.26 closed in the preset:** UWB-delivered fixes in the endgame on all three seeds (9, 8, 4).
+- **N.25 closed in the preset:** a TDoA position is fused only within chi-square 99 %.
+- **N.15, the integrity check:** the preset now runs it at `--mahalUseR` with FIXES-N26's
+  fitted 1992.9. It gives few false alarms and, as FIXES-N26 measured, almost no detection:
+  recall at most 0.031. The covariance tail stays open.
+- **G24's zeros move to four:** Case A fixes, arbitration pre-emptions, queue gossip items
+  and grant tie-break verdicts.
+  - Case A follows from the fused sets: two ranges are fused with the rest, never solved as
+    two circles.
+  - Pre-emptions and queue items follow from fewer escalations competing, once the
+    integrity check stops flagging nearly every fix.
+  - Grant tie-break verdicts were already zero.

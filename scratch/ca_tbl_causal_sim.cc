@@ -6133,6 +6133,8 @@ struct SpecOptions
     //! N.25 / N.26 fix 4. --tdoaInnovationGate: a TDoA position enters the EKF only if its
     //! innovation against the RSSI-updated state is within chi-square 2 DOF 99 %.
     bool tdoaInnovationGate = false;
+    //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
+    bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
     bool hopVarianceTerms = false;
     //! NW-2. --fixRoutingSubjects: every measured subject routes its fixes on its own tier.
@@ -6530,6 +6532,7 @@ RunArm(CaTblPolicyMode mode,
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.pcsTerm1Inverse = spec.pcsTerm1Inverse; // row 17
     pcfg.suspectRecovery = suspectRecovery;
     pcfg.suspectInflateFactor = suspectInflateFactor;
     pcfg.suspectRecoveryN = suspectRecoveryN;
@@ -14944,6 +14947,14 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"subjectTriggeredUpdates", "true", "MS-1 step 2 / MAC 7: every subject sends MC-2's large correction"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
     {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
+    // FIXES-N26 (report/FIXES_N26_RESULTS.md), adopted by OWNER OVERRIDE on 2026-10-08: the
+    // registered rule said DO NOT ADOPT on the 5 km energy term alone (16.69 against 12.37 J);
+    // the owner took the fixes for availability, accuracy and UWB fixes (DESIGN_DECISIONS 9).
+    {"loraDualBase", "true", "N.26 fix 1: both LoRa tiers ranged and fused every cycle (owner override of FIXES-N26's rule)"},
+    {"uwbCrossTierPoll", "true", "N.26 fix 2: a UWB exchange polls finders heard on LoRa (owner override)"},
+    {"tdoaInnovationGate", "true", "N.26 fix 4 / N.25: a TDoA position fused only within chi-square 99 % (owner override)"},
+    {"mahalUseR", "true", "N.26 fix 3 / N.15: the integrity distance includes the fix's R (owner override)"},
+    {"integrityChi2", "1992.9", "N.26 fix 3: FIXES-N26 phase 1's registered threshold fit (owner override)"},
 };
 
 int
@@ -15639,6 +15650,15 @@ main(int argc, char* argv[])
                  "alarm rate the 9.21 was meant to give; it is fitted on seeds the evaluation does "
                  "not use (PREREG_FIXES_N26).",
                  spec.integrityChi2);
+    cmd.AddValue("pcsTerm1Inverse",
+                 "Register row 17 (Physical 2.5): PCS term 1 is the spec's literal 1/trace(Sigma), "
+                 "in m^-2, unbounded above. FALSE by default: term 1 is traceRef/(traceRef+trace), "
+                 "a monotone stand-in bounded in (0, 1] so that it cannot swamp the other two "
+                 "terms -- the form every result, every threshold and every calibration so far "
+                 "(CAL-01/02/03) was made with. So the preset keeps the bounded form: switching "
+                 "it needs the PCS re-calibrated on the literal term. FATAL with --pcsForm=v2, "
+                 "which has no term 1.",
+                 spec.pcsTerm1Inverse);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
@@ -17724,6 +17744,11 @@ main(int argc, char* argv[])
         }
     }
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
+    if (spec.pcsTerm1Inverse && pcsFormArg == "v2")
+    {
+        std::cerr << "FATAL: --pcsTerm1Inverse with --pcsForm=v2: the v2 score has no term 1\n";
+        return 1;
+    }
     if (pcsFormArg == "v2")
     {
         pcsForm = CA_TBL_PCS_V2;
