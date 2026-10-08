@@ -957,8 +957,11 @@ CaTblPolicy::ComputePcs(double traceSigma,
         return pcs;
     }
 
-    // Term 1: filter uncertainty, mapped to (0,1] so it cannot dominate.
-    const double term1 = m_config.traceRef / (m_config.traceRef + std::max(traceSigma, 0.0));
+    // Term 1: filter uncertainty, mapped to (0,1] so it cannot dominate -- or, under
+    // pcsTerm1Inverse (row 17), the spec's literal 1/trace(Sigma), unbounded above.
+    const double term1 = m_config.pcsTerm1Inverse
+                             ? 1.0 / std::max(traceSigma, 1e-12)
+                             : m_config.traceRef / (m_config.traceRef + std::max(traceSigma, 0.0));
     // Term 2: geometric quality.
     const double term2 = 1.0 / std::max(gdop, 1.0);
     // Term 3: fraction of contributing links believed line-of-sight -- or, under
