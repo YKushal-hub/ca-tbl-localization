@@ -14947,6 +14947,14 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"subjectTriggeredUpdates", "true", "MS-1 step 2 / MAC 7: every subject sends MC-2's large correction"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
     {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
+    // FIXES-N26 (report/FIXES_N26_RESULTS.md), adopted by OWNER OVERRIDE on 2026-10-08: the
+    // registered rule said DO NOT ADOPT on the 5 km energy term alone (16.69 against 12.37 J);
+    // the owner took the fixes for availability, accuracy and UWB fixes (DESIGN_DECISIONS 9).
+    {"loraDualBase", "true", "N.26 fix 1: both LoRa tiers ranged and fused every cycle (owner override of FIXES-N26's rule)"},
+    {"uwbCrossTierPoll", "true", "N.26 fix 2: a UWB exchange polls finders heard on LoRa (owner override)"},
+    {"tdoaInnovationGate", "true", "N.26 fix 4 / N.25: a TDoA position fused only within chi-square 99 % (owner override)"},
+    {"mahalUseR", "true", "N.26 fix 3 / N.15: the integrity distance includes the fix's R (owner override)"},
+    {"integrityChi2", "1992.9", "N.26 fix 3: FIXES-N26 phase 1's registered threshold fit (owner override)"},
 };
 
 int
