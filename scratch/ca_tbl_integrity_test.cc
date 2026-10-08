@@ -509,6 +509,32 @@ main(int argc, char* argv[])
               "refused on 868 MHz (never a jump to UWB) and on a static arm, counted");
     }
 
+    std::cout << "--- Row 17: PCS term 1 as the literal 1/trace(Sigma)\n";
+    {
+        const Pt at = {400, 300};
+        CaTblPolicyConfig b;
+        b.mode = CA_TBL_MODE_STATIC_868; // no escalation: the score is only computed
+        CaTblPolicyConfig l = b;
+        l.pcsTerm1Inverse = true;
+        CaTblPolicy pb;
+        CaTblPolicy pl;
+        pb.Configure(b);
+        pl.Configure(l);
+        pb.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        pl.Initialize(kPrior.x, kPrior.y, 100.0, 5.0);
+        const CaTblDecision db = pb.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const CaTblDecision dl = pl.Step(1.0, Ranges(kA3, at, 20.0), 0, 3, 3, 7u);
+        const double t2b = 1.0 / std::max(db.gdop, 1.0);
+        const double t3b = db.pcs - b.traceRef / (b.traceRef + db.traceSigma) - t2b;
+        const double t3l = dl.pcs - 1.0 / dl.traceSigma - 1.0 / std::max(dl.gdop, 1.0);
+        Check(db.traceSigma == dl.traceSigma && std::fabs(t3b - t3l) < 1e-12 && t3l >= 0.0 &&
+                  t3l <= 1.0,
+              "the same fix: only term 1 differs, and it is 1/trace exactly under the flag");
+        Check(std::fabs((dl.pcs - db.pcs) -
+                        (1.0 / dl.traceSigma - b.traceRef / (b.traceRef + db.traceSigma))) < 1e-12,
+              "the score moves by exactly the change in term 1");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

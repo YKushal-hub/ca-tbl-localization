@@ -1734,6 +1734,17 @@ bash scripts/n26_fixes_gate.sh "$WORK/g89" || fail G89
 bash scripts/n26_fixes_gate_selftest.sh "$WORK/g89" || fail G89
 finish G89
 
+# ---------------- G90: register row 17, PCS term 1 as the spec's literal 1/trace(Sigma)
+# --pcsTerm1Inverse replaces the bounded traceRef/(traceRef+trace) with 1/trace. Read by
+# scripts/pcs_term1_gate.py: under the legacy form each fix row's score decomposes with
+# t3 in [0, 1] only for the term the run used (literal on, bounded off), the forms differ on
+# the data, and the v2 refusal.
+# Negative fixtures in scripts/pcs_term1_gate_selftest.sh (rule 6).
+printf '\n--- G90 PCS term 1 as the literal 1/trace (row 17) ---\n'
+bash scripts/pcs_term1_gate.sh "$WORK/g90" || fail G90
+bash scripts/pcs_term1_gate_selftest.sh "$WORK/g90" || fail G90
+finish G90
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
@@ -1749,8 +1760,9 @@ finish G89
 #     all three is FAIL);
 #   - with each mechanism's flag off its population is 0; the --topology=1 refusal, and
 #     the preset with --fixRoutingSubjects=false refused (N.12).
-# FAIL BY FINDING today: two mechanisms have no population under the preset (TECH_DEBT N.15):
-# UWB-delivered fixes, and carried requests heard at arbiters (since the channel-fidelity flags).
+# FAIL BY FINDING today: four mechanisms have no population under the preset (TECH_DEBT N.15),
+# since FIXES-N26 joined it (2026-10-08): Case A fixes, arbitration pre-emptions, queue gossip
+# items and grant tie-break verdicts. UWB-delivered fixes are no longer zero.
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'
