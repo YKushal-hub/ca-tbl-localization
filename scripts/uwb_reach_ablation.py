@@ -26,7 +26,7 @@ def r(over, q=0.80):
 
 NOVEG = {"veg": {"amax": 0.0}}
 rows = [
-    ("as simulated (TX -16.47 dBm, sens -104 dBm, 0 dBi, sparse shrubs, shadow 5 dB, Rician)", {}),
+    ("as simulated (TX -16.47 dBm, sens -104 dBm, 0 dBi, sparse shrubs with the clamped x5.28, shadow 5 dB, Rician)", {}),
     ("datasheet radio: TX -14.3 dBm (-41.3 dBm/MHz x 499.2 MHz), sens -99.3 dBm (DW3000 ch9 850k/1024)",
      {"phy": {"tx": -14.3}, "sensitivity": -99.3}),
     ("  ... and no foliage", {"phy": {"tx": -14.3}, "sensitivity": -99.3, **NOVEG}),
@@ -43,9 +43,14 @@ for ch, f, bud in (("ch9", 7.9872e9, 85.0), ("ch5", 6.4896e9, 86.0)):
     fs1 = lb.fspl_at_reference(f, 1.0)
     print("free space, %s, %0.0f dB budget, 0 dBi: %.1f m; with +3 dBi each end: %.1f m"
           % (ch, bud, 10 ** ((bud - fs1) / 20), 10 ** ((bud + 6 - fs1) / 20)))
-print("foliage at the corpus median depth (sparse shrubs): %.2f dB" % lb.foliage_loss_db("UWB", 0.0))
-# The engine scales UWB foliage specific attenuation by 5.28 (lora-uwb-physics-parameters.cc:116);
-# linkbudget.py does not. With it:
-SC = {"veg": {"gamma": 0.04 * 5.28}}
-print("with the engine x5.28 UWB foliage scaling: r80 %.1f m, r50 %.1f m, foliage at median depth %.2f dB"
-      % (r(SC), r(SC, 0.5), lb.foliage_loss_db("UWB", 0.0, SC)))
+print("foliage at the corpus median depth (sparse shrubs, engine scaling): %.2f dB" % lb.foliage_loss_db("UWB", 0.0))
+# linkbudget.py carries the engine's per-tier foliage scaling since 2026-10-09: the mean of gamma
+# x5.28 for UWB (lora-uwb-physics-parameters.cc:116), with the bounds unscaled and the draw
+# clamped (lora-distribution-sampler.cc:76), so E[gamma] is 1.80x, not 5.28x. Without it, and
+# with the x5.28 taken at face value (unclamped, which the engine does NOT do):
+U = {"veg_scale": 1.0}
+F = {"veg": {"gamma": 0.04 * 5.28}, "veg_scale": 1.0}
+print("without the engine's foliage scaling: r80 %.1f m, r50 %.1f m, foliage at median depth %.2f dB"
+      % (r(U), r(U, 0.5), lb.foliage_loss_db("UWB", 0.0, U)))
+print("x5.28 unclamped (NOT the engine): r80 %.1f m, r50 %.1f m, foliage at median depth %.2f dB"
+      % (r(F), r(F, 0.5), lb.foliage_loss_db("UWB", 0.0, F)))
