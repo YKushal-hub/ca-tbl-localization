@@ -2135,6 +2135,11 @@ static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
 // the macro below; 0 (every default) leaves the tables untouched.
 static double g_sensShiftDb868 = 0.0;
 static double g_sensShiftDb2p4 = 0.0;
+// --- S3 evidence-fix flags ---
+//! --tofFieldSigmaM / --tofFieldBiasM: tier-2 ranging at a measured field error level
+//! instead of the 3.0 m hardware floor. 0 (both defaults) leaves the configs untouched.
+static double g_tofFieldSigmaM = 0.0;
+static double g_tofFieldBiasM = 0.0;
 //! SY-3. True when any of --sf868/--bw868/--sf2p4/--bw2p4 was given: RunArm then prints the
 //! sensitivity its engines were actually configured with.
 static bool g_sy3Given = false;
@@ -2184,7 +2189,13 @@ static bool g_sy3Given = false;
         {                                                                                          \
             c2p4.receiver.sensitivityDbm[sfi] += g_sensShiftDb2p4;                                 \
         }                                                                                          \
-    }
+    }                                                                                              \
+    if (g_tofFieldSigmaM > 0.0)                                                                    \
+    {                                                                                              \
+        c2p4.ranging.tofLosFloorM = std::max(c2p4.ranging.tofLosFloorM, g_tofFieldSigmaM);         \
+        c2p4.ranging.tofNlosFloorM = std::max(c2p4.ranging.tofNlosFloorM, g_tofFieldSigmaM);       \
+    }                                                                                              \
+    c2p4.ranging.tofFieldBiasM = g_tofFieldBiasM;
 
 /**
  * \brief MS-2. Gateway positions for a named placement shape (--gwLayout).
@@ -6133,6 +6144,10 @@ struct SpecOptions
     //! N.25 / N.26 fix 4. --tdoaInnovationGate: a TDoA position enters the EKF only if its
     //! innovation against the RSSI-updated state is within chi-square 2 DOF 99 %.
     bool tdoaInnovationGate = false;
+    // --- S3 evidence-fix flags ---
+    //! --traceCovariance: the posterior 2x2 position covariance on every trace row, for the
+    //! filter consistency test (NEES). Off: the trace has exactly its old columns.
+    bool traceCovariance = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -7552,7 +7567,8 @@ RunArm(CaTblPolicyMode mode,
               // the coverage channel and the accuracy channel separable in the
               // data rather than argued about afterwards -- see
               // PREDICTION_P1_v2.md falsifier 4.
-              << "floorRanged,nRangesEkf\n";
+              << "floorRanged,nRangesEkf" << (spec.traceCovariance ? ",pxx,pxy,pyy" : "")
+              << "\n";
     }
 
     // C4. The two U(r) terms this tag contributes to an anchor's arbitration.
@@ -13250,7 +13266,12 @@ RunArm(CaTblPolicyMode mode,
                   << provider.GetEvaluations() << "," << std::setprecision(12) << d.estX << ","
                   << d.estY << "," << d.meanSigmaM << "," << d.meanSigmaRawM << ","
                   << d.sigmaGeoM << "," << (floorRanged ? 1 : 0) << ","
-                  << meas.size() << "\n";
+                  << meas.size();
+            if (spec.traceCovariance)
+            {
+                trace << "," << policy.Pxx() << "," << policy.Pxy() << "," << policy.Pyy();
+            }
+            trace << "\n";
         }
 
         // DC-3. Ranges reach the base station on the measuring node's entry: once a RESPONSE
@@ -15659,6 +15680,27 @@ main(int argc, char* argv[])
                  "it needs the PCS re-calibrated on the literal term. FATAL with --pcsForm=v2, "
                  "which has no term 1.",
                  spec.pcsTerm1Inverse);
+    // --- S3 evidence-fix flags ---
+    cmd.AddValue("tofFieldSigmaM",
+                 "Tier-2 (2.4 GHz ToF) ranging sigma floor in metres, raised to a MEASURED field "
+                 "error level for a sensitivity run. 0 by default: the floor stays the 3.0 m LOS / "
+                 "3.6 m NLOS hardware value, which rests on an arXiv preprint measured within tens "
+                 "of metres. Mueller et al., ICL-GNSS 2021 (doi 10.1109/ICL-GNSS51451.2021.9452277) "
+                 "measured outdoor SX1280 ranging SD 83.6 m (rural, to 1400 m) and 45 m (suburban, "
+                 "to 500 m). Applied as max(current floor, value) to both floors; the EKF sees it "
+                 "through each range's sigma.",
+                 g_tofFieldSigmaM);
+    cmd.AddValue("tofFieldBiasM",
+                 "Tier-2 ranging over-estimate in metres, added to every 2.4 GHz range with no "
+                 "random draw. 0 by default (no bias in LOS). Mueller et al. 2021 report a mean "
+                 "error of +46.4 m (rural) and +39 m (suburban). The EKF is not told: a real "
+                 "system would see the bias only through calibration.",
+                 g_tofFieldBiasM);
+    cmd.AddValue("traceCovariance",
+                 "Append the posterior 2x2 position covariance (pxx,pxy,pyy, m^2) to every trace "
+                 "row, for the filter consistency test (NEES, Bar-Shalom et al. 2001 sect. 5.4). "
+                 "FALSE by default: the trace keeps exactly its old columns.",
+                 spec.traceCovariance);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
