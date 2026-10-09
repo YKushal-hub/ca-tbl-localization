@@ -114,6 +114,7 @@ solving**. It is read from the same cells' traces, endgame, D0 against R1, 20 se
 - Cycles with three or more ranges fix about as before.
 
 With σ 83.6 m and a +46.4 m bias, two range circles often do not intersect, and the sparse
-two-circle solve has no solution. The hybrid arms lose less, because their dual base usually
-supplies a third range. This explains Q3's failure; the verdict stands as registered.
+two-circle solve has no solution. The preset's availability does not fall at R1 (+0.002, n.s.).
+A plausible reason is that its dual base usually supplies a third range, but this is not measured
+here. This explains Q3's failure; the verdict stands as registered.
 
