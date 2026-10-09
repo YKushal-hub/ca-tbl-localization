@@ -3225,8 +3225,10 @@ over 20 seeds:
 **Open.**
 - The floor is still 3.0 m by default. Every tier-2 accuracy claim must be cited as conditional
   on it, or re-run at a field level.
-- Static 2.4 GHz loses 0.031 availability at R1 in the endgame. The mechanism is not
-  identified.
+- Static 2.4 GHz loses 0.031 availability at R1 in the endgame. Mechanism (post-hoc, from the
+  cells' traces): its two-range solves stop solving because the circles no longer intersect.
+  Tag 0's two-range no-fix cycles go from 36 to 469, and the subjects' from 67 to 1 440
+  (`report/TOF_FIELD_RESULTS.md`, addendum).
 
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 

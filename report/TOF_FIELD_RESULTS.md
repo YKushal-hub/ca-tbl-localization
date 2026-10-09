@@ -103,3 +103,17 @@ Provenance: `RUN.md` there (one resume after the session's 2 h limit).
 - **The bias is constant and the EKF is not told.** A calibrated system (Mueller's 0.95 d + 1) is
   closer to R0 than to R1.
 - **Q3's availability loss for static 2.4 GHz is unexplained.** It is recorded, not attributed.
+
+## Addendum (2026-10-09, post-hoc and exploratory, not registered): Q3's mechanism
+
+Static 2.4 GHz's endgame availability loss at R1 comes from **two-range solves that stop
+solving**. It is read from the same cells' traces, endgame, D0 against R1, 20 seeds:
+- **Tag 0:** cycles with exactly two ranges and no fix go from 36 to 469.
+- **Subjects 2-5:** cycles with two anchors and no fix go from 67 to 1 440. The subjects' fix
+  share falls from 0.126 to 0.097.
+- Cycles with three or more ranges fix about as before.
+
+With σ 83.6 m and a +46.4 m bias, two range circles often do not intersect, and the sparse
+two-circle solve has no solution. The hybrid arms lose less, because their dual base usually
+supplies a third range. This explains Q3's failure; the verdict stands as registered.
+
