@@ -3250,6 +3250,24 @@ hybrid's limit is the tier.
 **Fix built:** F1, `--dualBaseRelayTier` (G110), for H1, tag 0 and subjects. Measured in
 `report/PREREG_ACC_B_HYBRID.md`. F2 (H2) is not built.
 
+### N.36 F1 (`--dualBaseRelayTier`) restores tag 0's relay supply; it buys endgame availability, not accuracy, and the 5 km within-25 m loss stays
+
+*2026-10-09, S2 Part B (`report/ACC_B_RESULTS.md`; registered, `0f68d454`; exploratory).*
+- **Relay supply:** with the flag on, tag 0's endgame relay legs go from 198 to 894 per run, and
+  admitted from 170 to 765. Static 2.4 GHz has 1 202.
+- **Availability and accuracy:** endgame availability +0.030 [0.019, 0.043]; endgame CEP
+  unchanged; 5 km CEP50 −5.2 m [−10.0, −1.5].
+- **Energy:** +0.82 J per node at 5 km.
+- **The loss it was meant to close stays:** five-node within 25 m at 5 km against static
+  2.4 GHz, −0.064 [−0.122, −0.012].
+
+**Not done:**
+- F2 / H2, the subjects' tier-1 and TDoA fixes (N.35);
+- the fixed-threshold arm with F1;
+- B1's range log.
+
+**Not adopted:** S1 decides.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
