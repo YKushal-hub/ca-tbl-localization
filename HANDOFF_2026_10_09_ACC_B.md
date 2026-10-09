@@ -33,3 +33,12 @@ significant there. Against: no endgame accuracy gain, +5 % energy at 5 km.
 `tools/regen_flags.py` after merging.
 
 **G10 (citation audit):** one ABSENT, `report/TOF_FIELD_RESULTS.md`, until S3 (which has it) merges first.
+
+**Added later the same night: F2, `--subjectPreciseOnly`, H2.**
+- `6c0c3194`: F2 and gate G111. NC1-NC9 41/41 identical to F1's binary.
+- `66338f26`: PREREG_ACC_B2.
+- Results: `report/ACC_B2_RESULTS.md` and N.37. **H2 in its range form is falsified.** Leaving
+  out 868 MHz never helps the subjects, and in the endgame it costs −0.042 availability. The 5 km
+  within-25 m loss to static 2.4 GHz remains unexplained after F1 and F2. Next is B1's range log,
+  or H2's TDoA form.
+

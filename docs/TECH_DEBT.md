@@ -3268,6 +3268,19 @@ hybrid's limit is the tier.
 
 **Not adopted:** S1 decides.
 
+### N.37 F2 (`--subjectPreciseOnly`) falsifies H2 in its range form; the 5 km within-25 m loss to static 2.4 GHz is still unexplained
+
+*2026-10-09, S2 Part B (`report/ACC_B2_RESULTS.md`; registered, `66338f26`; exploratory).*
+- **What F2 does.** It leaves the dual-base subjects' 868 MHz ranges out of their fused set
+  whenever there are >= 2 precise ranges.
+- **At 5 km** it changes nothing: subjects' median error +0.74 m n.s., within 25 m −0.011 n.s.
+- **In the endgame** it is worse: availability −0.042 [−0.051, −0.034], subjects' error
+  +0.74 m [0.28, 1.25], +2.30 J per node.
+- **The loss to static 2.4 GHz stays** (−0.082). H1 (N.35/N.36) and H2 in its range form are
+  both ruled out as its cause.
+- **Open:** H2 in its TDoA form (the subjects' TDoA fixes), and the per-subject range log (B1)
+  needed to see what else differs.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
