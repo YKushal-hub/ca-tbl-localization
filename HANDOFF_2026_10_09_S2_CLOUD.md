@@ -20,7 +20,7 @@ The S2 accuracy stream's cloud branch: its state, how it overlaps the two other 
 | `ead864fb` → `12960c3c` | ACC-B3-US: pre-registration, then results |
 | `88b0a101` | **Plan A, A2: `--imuErrorStates`**, the error-state IMU filter, gate G101 |
 | `9da4bd71` → `7dc74b13` | ACC-A2: pre-registration, then results |
-| `a6ea951e` | ACC-B3 citable re-run, `results/acc_b3_2026-10-09` (source `e87378cb` dirty 0) |
+| `a6ea951e` | ACC-B3 citable re-run (since replaced by `results/acc_b3_cit_2026-10-09`, see below) |
 | `f1562b59` | **preset: `--imuErrorStates` adopted (103 settings)**, at the owner's request |
 
 ## 2. Results in one line each
@@ -90,8 +90,11 @@ The S2 accuracy stream's cloud branch: its state, how it overlaps the two other 
 - Plan A's A3: the IMU-quality stress flags (a mis-declared prior, a drifting bias).
 - Re-tuning the B3 flags under the error-state filter.
 - The unknown start under the error-state filter.
-- The ACC-B3-US and ACC-A2 runs were exploratory (`source unknown`). They are re-run from clean worktrees at
-  `53766acb` and `88b0a101`; see the commits after this file.
+- Done: all three campaigns re-run from clean worktrees outside the repository, into
+  `results/acc_b3_cit_2026-10-09` (`e87378cb`), `results/acc_b3_us_cit_2026-10-09` (`53766acb`) and
+  `results/acc_a2_cit_2026-10-09` (`88b0a101`). Every summary and `metrics.csv` is byte-identical to the runs the reports
+  were computed from (1 080 files). The earlier directories were removed from tracking: two read `source unknown`
+  (380 G13 entries), and all three recorded the session's scratch paths.
 
 ## 7. Suite after the preset change
 
@@ -105,7 +108,7 @@ was freed. Every red is accounted for:
 | G10, G63, G87, G89 | already red on the base (`1596cb41` local verification; S1's preset change `e308c14f`) |
 | G13, G72 | artifacts of this container's **shallow clone**: they resolve SHAs (`c019c0a`, `d82b865`, ...) that are not in the 320 fetched commits |
 
-**G13 also counted 380 sidecars reading `source unknown`.** Those are this branch's exploratory ACC-B3-US and ACC-A2
-runs, which are being re-run from clean worktrees (§6).
+**G13 also counted 380 sidecars reading `source unknown`.** Those were this branch's exploratory ACC-B3-US and ACC-A2
+runs; they are replaced by citable re-runs (§6).
 
 G101, G112, G113 and G90 pass.

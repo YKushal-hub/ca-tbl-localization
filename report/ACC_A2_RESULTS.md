@@ -2,8 +2,8 @@
 
 2026-10-09. Exploratory grade. Registered in `report/PREREG_ACC_A2_ERROR_STATES.md` (`9da4bd71`) before the first
 evaluation cell.
-- **Runs:** `results/acc_a2_2026-10-09`. They are not citable as is (see its README).
-- **Reference:** the citable `results/acc_b3_2026-10-09`.
+- **Runs:** `results/acc_a2_cit_2026-10-09`, a citable re-run (`source 88b0a101 dirty 0`), byte-identical to the exploratory runs these numbers were first computed from.
+- **Reference:** the citable `results/acc_b3_cit_2026-10-09`.
 
 ## Setup
 

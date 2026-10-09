@@ -2,8 +2,8 @@
 
 2026-10-09. Exploratory grade. Registered in `report/PREREG_ACC_B3_UNKNOWN_START.md` (`ead864fb`) before the first
 cell.
-- **Runs:** `results/acc_b3_us_2026-10-09`. They are not citable as is (`source unknown`; see its README).
-- **The s = 0 reference:** the citable `results/acc_b3_2026-10-09`.
+- **Runs:** `results/acc_b3_us_cit_2026-10-09`, a citable re-run (`source 53766acb dirty 0`), byte-identical to the exploratory runs these numbers were first computed from.
+- **The s = 0 reference:** the citable `results/acc_b3_cit_2026-10-09`.
 
 ## Setup
 
@@ -65,4 +65,4 @@ and more than `lora_fusion` in the endgame.
 - **One start-error level.** s = 100 matches the prior the code already claims; it is not a measured search
   start.
 - **The start model:** a single Gaussian draw per node, with no correlation between nodes.
-- **Exploratory provenance** (see the results README).
+- **Exploratory grade:** a single campaign, registered but not blind to the earlier diagnosis.

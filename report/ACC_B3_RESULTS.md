@@ -92,7 +92,7 @@ arm's lone 2.4 GHz ranges against a tight prior. The `ca_tbl_full` arm's own gai
 
 ## 7. Citable re-run (2026-10-09)
 
-`results/acc_b3_2026-10-09/` reproduces this evaluation from a clean commit:
+`results/acc_b3_cit_2026-10-09/` reproduces this evaluation from a clean commit. It replaced `results/acc_b3_2026-10-09`, whose sidecars recorded scratch paths; the content is byte-identical:
 - **Provenance:** every `run_id.txt` reads `source e87378cb dirty 0`, 160 of 160.
 - **One binary for both arms:** reference = flags off, candidate = flags on (rule 8).
 - **Reproduction:** all 320 summary files are byte-identical to the runs §2 and §3 were computed from.
