@@ -895,6 +895,10 @@ flowchart BT
 | R-15 | Perkins & Bhagwat, DSDV                                                                                    | Sequence-number generational supersession                   |
 | R-16 | AODV / DSR reactive routing                                                                                | Reverse-path caching for query responses                    |
 | R-17 | Meshtastic / flooding-protocol literature                                                                  | Packet-ID dedup, hop limit, rebroadcast jitter              |
+| R-18 | Rademacher et al., VTC2021-Fall (arXiv 2109.07768) — urban LoRa path loss, Bonn, 112,372 samples          | `pathLossExponent2` = 1.58: ADAPTED, their single-slope n used as the far slope beyond 1 km |
+| R-19 | Cheffena & Ekman, *EURASIP JWCN* 2009, doi 10.1155/2009/306876 — wind-induced foliage fading            | The wind-variation model; its parameter values are OURS (replaces a "Meng 2009" citation) |
+| R-20 | Boano, Cattani & Römer, SENSORNETS 2018, doi 10.5220/0006605600390050 — LoRa temperature effects        | Cited for the thermal comment only; unused in code (`thermalEfficiencyLossDb` = 0) |
+| R-21 | Mueller et al., ICL-GNSS 2021, doi 10.1109/ICL-GNSS51451.2021.9452277 — outdoor SX1280 ranging        | `--tofFieldSigmaM` / `--tofFieldBiasM` levels (sensitivity only, default off) |
 
 ### 13.2 Positioning and prior art
 

@@ -16,9 +16,9 @@ PropagationParams PropagationParams::DefaultsFor(EnvironmentClass env) {
     // Feature: Dual-Slope Path Loss (Default: disabled)
     p.enableDualSlope = false;
     p.dualSlopeBreakpointM = 1000.0;
-    p.pathLossExponent2 = DistributionParam::Fixed(1.58); // Rademacher long-range
+    p.pathLossExponent2 = DistributionParam::Fixed(1.58); // ADAPTED: Rademacher 2021 (arXiv 2109.07768) single-slope urban fit n=1.58, PL1km=132.41 dB; used here as the far slope beyond 1 km
 
-    // Path loss exponent presets from empirical measurements (Petäjäjärvi 2015 and others)
+    // Path loss exponent presets. OURS: 2.2 / 2.75 are not in Petajajarvi 2015 (Oulu fit n=2.65, PLd0=132.25, as quoted by Rademacher 2021)
     switch (env) {
         case ENV_RURAL_OPEN:
             p.pathLossExponent = DistributionParam::Fixed(2.2);
@@ -484,7 +484,7 @@ TerrainParams TerrainParams::Defaults() {
 DelaySpreadParams DelaySpreadParams::DefaultsFor(EnvironmentClass env) {
     DelaySpreadParams d;
     d.enabled = true;
-    // Lim et al. 2018 default values (in nanoseconds)
+    // OURS (nanoseconds): the cited 'Lim et al. 2018' source was not found, so these are engineering values
     switch (env) {
         case ENV_RURAL_OPEN:
             d.losDelaySpreadNs = DistributionParam::Normal(50.0, 20.0, 10.0, 150.0);
@@ -503,7 +503,7 @@ DelaySpreadParams DelaySpreadParams::DefaultsFor(EnvironmentClass env) {
             d.nlosDelaySpreadNs = DistributionParam::Normal(380.0, 120.0, 150.0, 800.0);
             break;
         case ENV_RURAL_FORESTED:
-            // Spec (Lim 2018, Table III): LOS forest 80 ns mean, NLOS 300 ns mean
+            // OURS: LOS forest 80 ns mean, NLOS 300 ns mean (the cited Lim 2018 Table III was not found)
             d.losDelaySpreadNs  = DistributionParam::Normal(80.0,  30.0, 20.0,  200.0);
             d.nlosDelaySpreadNs = DistributionParam::Normal(300.0, 100.0, 100.0, 700.0);
             break;
@@ -554,7 +554,7 @@ WindVariationParams WindVariationParams::Defaults() {
 // Feature 6: Temperature-dependent CFO
 TemperatureCfoParams TemperatureCfoParams::Defaults() {
     TemperatureCfoParams t;
-    // Robyns 2017: SX1272 temperature coefficient ~1-2 Hz/°C
+    // OURS: ~1-2 Hz/°C. Robyns 2017 is a fingerprinting paper and shows no CFO-temperature coefficient
     t.temperatureCoefficientHzPerC = DistributionParam::Normal(1.5, 0.5, 0.5, 3.0);
     t.jitterTempSensitivity = DistributionParam::Normal(0.005, 0.002, 0.001, 0.02);
     t.referenceTemperatureC = 25.0;

@@ -5,7 +5,7 @@
 namespace ns3 {
 
 /**
- * @brief Normal(μ, σ) NLOS Loss Model per 3GPP TR 38.901 / Hofer 2015
+ * @brief Normal(μ, σ) NLOS Loss Model per 3GPP TR 38.901; values OURS (the cited 'Hofer 2015' was not found)
  *
  * NLOS attenuation is drawn from the per-environment Normal distribution
  * already configured in NLOSParams::DefaultsFor() (lora-physics-parameters.cc).
@@ -53,7 +53,7 @@ double ComputeNLOSPenaltyDb(
 
     // 4. If NLOS: draw loss from Normal(mu, sigma) with hard 3σ cap
     // This replaces the Poisson compound accumulation which had unbounded tails.
-    // Spec reference: 3GPP TR 38.901, Hofer 2015 IEEE VTC.
+    // Spec reference: 3GPP TR 38.901. The cited 'Hofer 2015 IEEE VTC' was not found: values OURS.
     if (u < P_nlos) {
         if (params.envClass == ENV_URBAN_DENSE || params.envClass == ENV_URBAN_MODERATE) {
             double f_GHz = params.frequencyHz / 1e9;

@@ -3204,3 +3204,70 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
   - Pre-emptions and queue items follow from fewer escalations competing, once the
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
+
+### N.40 Tier 2's 3.0 m ToF floor carries every endgame accuracy figure; at measured outdoor error the endgame CEP95 triples
+
+*2026-10-09, S3 (`report/TOF_FIELD_RESULTS.md`; registered, `17472fe7`).*
+
+Mueller et al., ICL-GNSS 2021, measured outdoor SX1280 ranging at SD 83.6 m / bias +46.4 m
+(rural) and 45 m / +39 m (suburban). The engine's tier-2 floor is 3.0 m, from ranges measured
+within tens of metres. At the measured levels (`--tofFieldSigmaM`, `--tofFieldBiasM`), paired
+over 20 seeds:
+- **The preset's endgame tag 0 CEP95 is 12.0 m at the floor and 35-39 m at field error.** At
+  5 km it is 57.8 m against 80-96 m. Every arm degrades.
+- **Static 2.4 GHz degrades most.** It is not significantly more accurate than the preset even
+  at the floor, and at rural field error it is 30.7 m [22.6, 39.2] worse in the endgame. The
+  unmodelled bias does it: with the bias removed the difference is not significant.
+- **The decision rule:** against `fixed_threshold` with the same measurements, it gains +0.01 to
+  +0.02 availability at the floor and no accuracy anywhere. Under field error it costs +9 to
+  +12 J per node in the endgame.
+
+**Open.**
+- The floor is still 3.0 m by default. Every tier-2 accuracy claim must be cited as conditional
+  on it, or re-run at a field level.
+- Static 2.4 GHz loses 0.031 availability at R1 in the endgame. Mechanism (post-hoc, from the
+  cells' traces): its two-range solves stop solving because the circles no longer intersect.
+  Tag 0's two-range no-fix cycles go from 36 to 469, and the subjects' from 67 to 1 440
+  (`report/TOF_FIELD_RESULTS.md`, addendum).
+
+### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
+
+*2026-10-09, S3 (`report/UWB_REACH.md`).*
+
+**Engine defect, recorded and not fixed.**
+- `lora-uwb-physics-parameters.cc:116` and `lora-2p4-physics-parameters.cc:77` scale only the
+  mean of the foliage specific attenuation, by ×5.28 and ×2.17 (ITU-R P.833, f^0.75).
+- The bounds stay at 0.2γ and 1.8γ of the unscaled value, and `SampleNormal` clamps
+  (`lora-distribution-sampler.cc:76`).
+- So the effective scaling is ×1.80 (UWB) and ×1.79 (2.4 GHz): +1.6 dB at the median depth on
+  both tiers, not +4.15 / +2.06.
+- A fix (scale the bounds, or the whole distribution) changes the engine and every result. It
+  is a planned change with its own null control and campaign, not a bug fix.
+
+**The independent model now carries the engine's behaviour** (`linkbudget.py`, `5018c7aa`).
+- UWB residual (D-7): the plateau falls by 1.70 dB. The 2-20 m rise is unchanged (~4.3 dB), so
+  this is NOT the open residual.
+- 2.4 GHz: the near-field gap (10-430 m) widens from −0.5..−1.3 dB to −2.2..−3.0 dB. Some term
+  on the engine's 2.4 GHz side is not what the model assumes. OPEN.
+
+**OURS in tier 3's reach:** the −104 dBm sensitivity (DW3000 datasheet: −99.3 dBm), 0 dB antenna
+gain, the f^0.75 extrapolation to 8 GHz.
+
+### N.42 Physics-engine citations that do not support the values they are attached to
+
+*2026-10-08, S3 (`WORKSTREAMS_2026_10_09.md`).* Comment and documentation only; no value moved.
+
+| cited | finding | now |
+|---|---|---|
+| Petäjäjärvi 2015, for n = 2.2 (`RURAL_OPEN`) and 2.75 (`SUBURBAN`) | the paper reports an on-water exponent of 1.76; Rademacher 2021 quotes its Oulu fit as n = 2.65, PL(d0) = 132.25 dB | OURS (CONTEXT_PACK PROV-01) |
+| Rademacher 2021, n = 1.58 | confirmed verbatim (§IV), with PL1km = 132.41 dB and σ = 9.9 dB; a single-slope urban fit; samples 112,372 (§III), 112,404 in Table I | ADAPTED as the far slope (PROV-02, Architecture R-18) |
+| "Oliveira 2017, ~0.075 dB/°C" | the figure is not traced to Oliveira 2017; the measured LoRa temperature effect is Boano, Cattani & Römer 2018: 3-4 dB over 0-50 °C (RFM95), 5-6 dB (SX1272) | Boano 2018 (R-20); the term is 0 in code |
+| "Meng et al. 2009 TAP", wind variation | Meng 2009 is near-ground foliage path loss, not wind dynamics; the wind fading source is Cheffena & Ekman 2009 | Cheffena & Ekman (R-19); values OURS |
+| "Lim et al. 2018 (MDPI Sensors)", delay spread | not found | OURS |
+| "Hofer 2015 IEEE VTC", NLOS loss | not found | OURS |
+| "Robyns 2017 ACM WiSec", 1-2 Hz/°C CFO coefficient | a fingerprinting paper (closed access); no CFO-temperature coefficient visible | OURS |
+
+**Not changed:** the values. Relabelling a value OURS does not make it wrong, and changing one is
+an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
+open for a source.
+

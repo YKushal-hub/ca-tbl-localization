@@ -208,7 +208,11 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                 DistributionParam::Normal(0.0, sigmaM,
                                           -3.0 * sigmaM, 3.0 * sigmaM));
 
-            state.rangeErrorM           = bias + noise;
+            // --tofFieldBiasM: a measured field over-estimate, deterministic, so it moves
+            // no draw. Skipped entirely at its default of 0.
+            state.rangeErrorM           = (params.tofFieldBiasM != 0.0)
+                                              ? bias + noise + params.tofFieldBiasM
+                                              : bias + noise;
             state.estimatedRangeM       = state.trueRangeM + state.rangeErrorM;
             state.positionErrorM        = std::abs(state.rangeErrorM);
             state.propagationLossBiasDb = 0.0;

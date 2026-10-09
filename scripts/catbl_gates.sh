@@ -1770,6 +1770,18 @@ bash scripts/spec_profile_gate.sh "$WORK/g24" || fail G24
 bash scripts/spec_profile_gate_selftest.sh "$WORK/g24" || fail G24
 finish G24
 
+# ---------------- G120: tier-2 field-error flags and the covariance trace columns
+# --tofFieldSigmaM, --tofFieldBiasM (Mueller et al., ICL-GNSS 2021, doi
+# 10.1109/ICL-GNSS51451.2021.9452277) and --traceCovariance. Read by scripts/tof_field_gate.py:
+# the flags at their defaults change no byte; the covariance columns are appended and are the
+# filter's (pxx + pyy = traceSigma); the sigma floor reaches every tier-2 fix; the bias moves
+# the probe's tier-2 error by the bias and moves no random draw.
+# Negative fixtures in scripts/tof_field_gate_selftest.sh (rule 6).
+printf '\n--- G120 tier-2 field error and covariance trace ---\n'
+bash scripts/tof_field_gate.sh "$WORK/g120" || fail G120
+bash scripts/tof_field_gate_selftest.sh "$WORK/g120" || fail G120
+finish G120
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
