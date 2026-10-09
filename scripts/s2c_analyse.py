@@ -128,9 +128,19 @@ def collect(out, cell, arm):
     return res
 
 
+_CI_CACHE = {}
+
+
 def paired(a, b, k):
-    s = sorted(set(a) & set(b))
-    return cs.ci([a[i][k] - b[i][k] for i in s]), len(s)
+    """Paired difference a - b over common seeds, as cs.ci's (mean, lo, hi), and n. Memoised per
+    (a, b, k) so a verdict reuses the interval its table row printed: cs.ci resamples from one
+    seeded generator, so a second call would draw a different bootstrap (corrected after the run,
+    see RUN.md)."""
+    key = (id(a), id(b), k)
+    if key not in _CI_CACHE:
+        s = sorted(set(a) & set(b))
+        _CI_CACHE[key] = (cs.ci([a[i][k] - b[i][k] for i in s]), len(s))
+    return _CI_CACHE[key]
 
 
 def inc0(iv):
@@ -288,6 +298,7 @@ def main():
         ("P11", "T |ANEES − 2| smaller at s* than s = 1", (ann[sstar] < ann[1]) if sstar != 1 else None),
     ]
     md += ["", "## Registered predictions", "", "| # | prediction | verdict |", "|---|---|---|"]
+    verdicts = [(n, txt, None if v is None else bool(v)) for n, txt, v in verdicts]
     for n, txt, v in verdicts:
         md.append(f"| {n} | {txt} | {'held' if v is True else 'failed' if v is False else 'not evaluable'} |")
         if v is None and not (n in ("P9", "P10", "P11") and sstar == 1):
