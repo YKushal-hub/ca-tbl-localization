@@ -1792,6 +1792,16 @@ bash scripts/acc_b_gate.sh "$WORK/g110" || fail G110
 bash scripts/acc_b_gate_selftest.sh "$WORK/g110" || fail G110
 finish G110
 
+# ---------------- G111: --subjectPreciseOnly, subjects fuse precise ranges without 868 MHz (S2 Part B, F2)
+# Read by scripts/acc_b2_gate.py: the flag given as false changes no byte or stdout line; on, subject-
+# cycles fused without 868 MHz and the ranges left out are > 0 and the subjects' traces change;
+# static_2p4 and lora_fusion are byte-identical on and off. Negative fixtures in
+# scripts/acc_b2_gate_selftest.sh (rule 6).
+printf '\n--- G111 subject precise-only ---\n'
+bash scripts/acc_b2_gate.sh "$WORK/g111" || fail G111
+bash scripts/acc_b2_gate_selftest.sh "$WORK/g111" || fail G111
+finish G111
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

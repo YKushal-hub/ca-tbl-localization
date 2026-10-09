@@ -6152,6 +6152,9 @@ struct SpecOptions
     //! --dualBaseRelayTier: under the dual base, relay legs on 2.4 GHz when the active tier is
     //! 868 MHz (tag 0 and the subjects). Off: relays only on the active tier, as before.
     bool dualBaseRelayTier = false;
+    //! --subjectPreciseOnly: a dual-base subject with >= 2 ranges on 2.4 GHz or UWB this cycle
+    //! fuses those without its 868 MHz ranges. Off: every range of the cycle, as before.
+    bool subjectPreciseOnly = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -7666,6 +7669,8 @@ RunArm(CaTblPolicyMode mode,
     uint64_t f1TagLegs = 0;      // --dualBaseRelayTier: tag 0's relay legs on 2.4 GHz, 868 active
     uint64_t f1TagAdmitted = 0;  // ... of which admitted
     uint64_t f1SubjRetiered = 0; // ... subject relay exchanges moved from 868 MHz to 2.4 GHz
+    uint64_t f2Dropped = 0;      // --subjectPreciseOnly: subject-cycles fused without 868 MHz
+    uint64_t f2DroppedRanges = 0; // ... and the 868 MHz ranges left out
     Vector prevTruePos = pos;
     // DC-10 (--entryVelocity). Each finder's last published position and time, for the
     // velocity its GNSS receiver would report, and the entries_ record of what every
@@ -10231,7 +10236,23 @@ RunArm(CaTblPolicyMode mode,
                     fusedS.insert(fusedS.end(), floorM.begin(), floorM.end());
                 }
                 std::vector<CaTblRangeMeasurement> dualFusedS; // N.26 fix 1
-                if (dualS)
+                // --subjectPreciseOnly (S2 Part B, F2, for H2; the threshold of two is OURS):
+                // with two or more ranges on 2.4 GHz or UWB this cycle, the subject's 868 MHz
+                // RSSI ranges (~50 % of distance in error) are measured and billed as before but
+                // left out of the set it fuses.
+                const size_t nPreciseS = (act != CA_TBL_TIER_868 ? actM.size() : 0) + otherS.size();
+                const bool f2Drop = spec.subjectPreciseOnly && dualS && nPreciseS >= 2;
+                if (dualS && f2Drop)
+                {
+                    if (act != CA_TBL_TIER_868)
+                    {
+                        dualFusedS = actM;
+                    }
+                    dualFusedS.insert(dualFusedS.end(), otherS.begin(), otherS.end());
+                    ++f2Dropped;
+                    f2DroppedRanges += floorM.size() + (act == CA_TBL_TIER_868 ? actM.size() : 0);
+                }
+                else if (dualS)
                 {
                     dualFusedS = actM;
                     dualFusedS.insert(dualFusedS.end(), floorM.begin(), floorM.end());
@@ -14753,6 +14774,13 @@ RunArm(CaTblPolicyMode mode,
                   << f1TagAdmitted << "; subject exchanges moved from 868 MHz to 2.4 GHz "
                   << f1SubjRetiered << "\n";
     }
+    if (spec.subjectPreciseOnly)
+    {
+        // S2 Part B, F2. Printed only with the flag.
+        std::cout << "    B-F2 subject precise-only (" << CaTblPolicyModeName(mode)
+                  << "): subject-cycles fused without 868 MHz " << f2Dropped
+                  << ", 868 MHz ranges left out " << f2DroppedRanges << "\n";
+    }
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
@@ -15744,6 +15772,14 @@ main(int argc, char* argv[])
                  "of endgame cycles) tag 0 is offered ~6x fewer relay legs than static_2p4. Read "
                  "only by the hybrid arms; static and fusion arms are unchanged.",
                  spec.dualBaseRelayTier);
+    cmd.AddValue("subjectPreciseOnly",
+                 "S2 Part B, F2 (H2, TECH_DEBT N.35): a dual-base subject with two or more ranges on "
+                 "2.4 GHz or UWB in a cycle fuses those without its 868 MHz RSSI ranges, which are "
+                 "still measured and billed. The threshold of two is OURS. FALSE by default: the "
+                 "dual base fuses every range of the cycle, and at 5 km the hybrid subjects, fixing "
+                 "10-40x more often than static_2p4's, have the larger median error. Read only by "
+                 "hybrid arms' subjects; tag 0 and static and fusion arms are unchanged.",
+                 spec.subjectPreciseOnly);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
