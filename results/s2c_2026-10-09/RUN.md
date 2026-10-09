@@ -49,3 +49,5 @@ printed as "not evaluable". Two defects in the script:
 
 `S2C.md` and `s2c_table.csv` are the second pass's outputs. The first pass's `S2C.md` is kept as
 `S2C_firstpass.md`. No cell, metric, threshold or prediction changed.
+
+`s2c_table.csv` is tracked with LF line endings (the repository attributes set `eol=lf`, as for ACC-A's table); the manifest digests the analysis's CRLF original.
