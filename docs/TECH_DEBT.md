@@ -3255,3 +3255,24 @@ initial-condition effect:
 - The arms are level by minute 12-15.
 - The prior was not changed. It is a scenario-wide choice with a stated reason, so changing
   it is a scenario change.
+
+### N.39 Every filter is seeded at or next to the truth under a 100 m prior
+
+Found 2026-10-09; this extends `acc-part-a`'s static 2.4 GHz diagnosis, `4ece0f0f`, which lists the unknown start
+as not done.
+- **The seeding:** subjects and relays start AT their true position, and tag 0 at the base camp (median 3.0 m
+  off), while the prior claims 100 m.
+- **What it did to the numbers:** an arm that rarely ranges kept the truth by dead reckoning. That is how
+  `static_2p4` led the 5 km within-25 m share.
+- **The flag:** `--unknownStartSigmaM=s` (default 0) seeds every filter at its point plus N(0, s²) per axis, with
+  the prior at least s. The draw comes from its own generator keyed on (seed, node), so it is identical across arms
+  and moves no ns-3 stream. Gate G113.
+
+**Measured at s = 100** (`report/ACC_B3_US_RESULTS.md`, exploratory):
+- Every arm loses about a third of its 5 km within-25 m share; `static_2p4` loses 0.222.
+- `ca_tbl_full` ties `static_2p4` at 5 km (U2 failed).
+- With the B3 flags, `ca_tbl_full` has no accuracy LOSS against any arm in either configuration, and beats
+  `static_2p4` on endgame within 25 m.
+
+**Open:** whether s = 100 should become the scenario's default start. It is a change of scenario for every arm
+(RULES.md "different deployments"), so it is S1's and the owner's call.
