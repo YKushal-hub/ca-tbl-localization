@@ -6170,6 +6170,9 @@ struct SpecOptions
     bool traceSubjectConsistency = false;
     //! --measVarScale: multiplies every range variance a filter fuses. 1 multiplies by exactly 1.
     double measVarScale = 1.0;
+    //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
+    //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
+    std::string nlosRSource = "operative";
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6688,6 +6691,8 @@ RunArm(CaTblPolicyMode mode,
     // The band, then DC-6's explicit per-tier thresholds; see ResolvePcsThresholds.
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
+    // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
+    pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -15806,6 +15811,18 @@ main(int argc, char* argv[])
                  "42 % of fixes at 5 km; ACC-A sect 2). The TDoA position and the scenario's "
                  "two-range solves form their own variances and are not scaled.",
                  spec.measVarScale);
+    cmd.AddValue("nlosRSource",
+                 "Which NLOS tag the filter's Step() keys the range variance inflation "
+                 "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
+                 "operative|detector|none. 'operative' (default) is the tag --nlosSource builds, "
+                 "which under --specProfile is the propagation layer's own NLOS truth "
+                 "(PhysicsResult::isNLOS): an oracle a fielded node does not have. 'detector' uses "
+                 "only the per-tier classifier's verdict (score >= --nlosScoreThreshold; an "
+                 "unscored link counts as LOS), so no truth reaches R or the count. 'none' treats "
+                 "no link as NLOS there. Measured on ACC-A's logs (report/S2C_NLOS_AUDIT.md) the "
+                 "detectors' precision is 0.02-0.08, so 'detector' is expected to inflate mostly "
+                 "LOS links. Every other consumer of the tag outside Step() is unchanged.",
+                 spec.nlosRSource);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "

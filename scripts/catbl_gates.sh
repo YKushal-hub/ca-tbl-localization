@@ -1802,6 +1802,15 @@ bash scripts/unk_start_gate.sh "$WORK/g130" || fail G130
 bash scripts/unk_start_gate_selftest.sh "$WORK/g130" || fail G130
 finish G130
 
+# ---------------- G131: --nlosRSource, which NLOS tag keys R and the LOS count in Step() (S2-C)
+# Read by scripts/nlos_r_gate.py: 'operative' given explicitly changes no byte; 'none' leaves no
+# NLOS count; 'detector' counts NLOS only on cycles the detector called NLOS, and the oracle run
+# is shown to differ from it. Negative fixtures in scripts/nlos_r_gate_selftest.sh (rule 6).
+printf '\n--- G131 NLOS tag source for R ---\n'
+bash scripts/nlos_r_gate.sh "$WORK/g131" || fail G131
+bash scripts/nlos_r_gate_selftest.sh "$WORK/g131" || fail G131
+finish G131
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
