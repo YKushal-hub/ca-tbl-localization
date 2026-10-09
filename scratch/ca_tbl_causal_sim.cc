@@ -6031,6 +6031,15 @@ WriteProxyChecks(const std::deque<CaTblMac>& macs,
  * call, and a comma expression there is silent. New flags go in here instead, each with
  * the value that reproduces the build before it.
  */
+// --- S2-C unknown-start and consistency flags ---
+//! --unknownStart's prior sigma per axis: a uniform distribution over [-h, h] has standard
+//! deviation h / sqrt(3). The search box is the only thing the filter is told.
+static double
+UnknownStartSigmaM(double boxHalfM)
+{
+    return boxHalfM / std::sqrt(3.0);
+}
+
 struct SpecOptions
 {
     //! DC-6. Explicit per-tier PCS thresholds; NaN = keep whatever the form set.
@@ -6152,6 +6161,15 @@ struct SpecOptions
     //! --imuQuScale: multiplies the IMU increment covariance handed to every filter (tag 0's and
     //! the subjects'). 1 (default) multiplies by exactly 1.
     double imuQuScale = 1.0;
+    // --- S2-C unknown-start and consistency flags ---
+    //! --unknownStart: every field-node filter (tag 0, the subjects, the relay peers) is seeded at
+    //! the search box's centre with the box's uniform-equivalent sigma, never from its truth.
+    bool unknownStart = false;
+    //! --traceSubjectConsistency: the subjects' traces also carry pxx,pxy,pyy,mahalanobis,
+    //! meanSigmaM,nAnchorsUsed. Off: they keep exactly their old columns.
+    bool traceSubjectConsistency = false;
+    //! --measVarScale: multiplies every range variance a filter fuses. 1 multiplies by exactly 1.
+    double measVarScale = 1.0;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6669,6 +6687,7 @@ RunArm(CaTblPolicyMode mode,
     }
     // The band, then DC-6's explicit per-tier thresholds; see ResolvePcsThresholds.
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
+    pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -6705,6 +6724,17 @@ RunArm(CaTblPolicyMode mode,
         initY = dep.baseCampY;
         const double away = std::hypot(pos.x - initX, pos.y - initY);
         initStdM = std::max(100.0, away);
+    }
+    // --- S2-C unknown-start and consistency flags ---
+    // --unknownStart. Every branch above reads the node's true position (pos, or the camp
+    // distance `away`, which is computed from it). Under the flag the filter is told only the
+    // search box: its centre and the sigma of a uniform distribution over it. No term here is
+    // computed from the node's position. The truth stays with the evaluation (errM).
+    if (spec.unknownStart)
+    {
+        initX = 0.0;
+        initY = 0.0;
+        initStdM = UnknownStartSigmaM(dep.boxHalfM);
     }
     policy.Initialize(initX, initY, initStdM, 5.0);
 
@@ -7159,7 +7189,15 @@ RunArm(CaTblPolicyMode mode,
             // the consumer's own filter carries, and admission test A3 compares
             // exactly those two quantities.
             tags[pt].policy.Configure(pcfg);
-            tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
+            // --- S2-C unknown-start and consistency flags --- (see tag 0's seeding)
+            if (spec.unknownStart)
+            {
+                tags[pt].policy.Initialize(0.0, 0.0, UnknownStartSigmaM(dep.boxHalfM), 5.0);
+            }
+            else
+            {
+                tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
+            }
         }
     }
     // L.1.2. Null unless --relayChain, and while null the relay loop below is unchanged.
@@ -8755,7 +8793,15 @@ RunArm(CaTblPolicyMode mode,
             sb.walker = &peerWalkers[pi];
             sb.pos = peerWalkers[pi].Position();
             sb.policy.Configure(pcfg);
-            sb.policy.Initialize(sb.pos.x, sb.pos.y, 100.0, 5.0);
+            // --- S2-C unknown-start and consistency flags --- (see tag 0's seeding)
+            if (spec.unknownStart)
+            {
+                sb.policy.Initialize(0.0, 0.0, UnknownStartSigmaM(dep.boxHalfM), 5.0);
+            }
+            else
+            {
+                sb.policy.Initialize(sb.pos.x, sb.pos.y, 100.0, 5.0);
+            }
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 sb.energy.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz,
@@ -8771,7 +8817,9 @@ RunArm(CaTblPolicyMode mode,
             ex.trace.reset(new std::ofstream(sfn.str().c_str()));
             *ex.trace << "t,subjectId,activeTier,nextTier,fixTier,usedFloor,trueX,trueY,estX,"
                          "estY,errM,pcs,traceSigma,nAnchors,hadFix,escalated,deescalated,"
-                         "cumJ\n";
+                         "cumJ"
+                      << (spec.traceSubjectConsistency ? ",pxx,pxy,pyy,mahalanobis,meanSigmaM" : "")
+                      << "\n";
             if (spec.imuPredict)
             {
                 ex.rk.reset(new CaTblImuDeadReckoner());
@@ -10673,7 +10721,17 @@ RunArm(CaTblPolicyMode mode,
                           << errS << ',' << ds.pcs << ',' << ds.traceSigma << ','
                           << ds.nAnchorsUsed << ',' << (ds.hadFix ? 1 : 0) << ','
                           << (ds.escalated ? 1 : 0) << ',' << (ds.deescalated ? 1 : 0) << ','
-                          << std::setprecision(9) << sb.energy.GetTotalJ() << '\n';
+                          << std::setprecision(9) << sb.energy.GetTotalJ();
+                // --- S2-C unknown-start and consistency flags --- (--traceSubjectConsistency)
+                // Posterior P, and the 2-DOF NIS of the raw fix against the prior (filled only
+                // where the mode computes it, CA_TBL_MODE_FULL; 0 elsewhere and on coasts).
+                if (spec.traceSubjectConsistency)
+                {
+                    *ex.trace << ',' << std::setprecision(6) << sb.policy.Pxx() << ','
+                              << sb.policy.Pxy() << ',' << sb.policy.Pyy() << ','
+                              << ds.mahalanobis << ',' << ds.meanSigmaM;
+                }
+                *ex.trace << '\n';
             }
         }
 
@@ -15717,6 +15775,37 @@ main(int argc, char* argv[])
                  "variance is 3-54x too small (S2 context.md sect 6.5). 10 is the value an "
                  "exploratory closed-loop run measured; an error-state filter is the principled fix.",
                  spec.imuQuScale);
+    // --- S2-C unknown-start and consistency flags ---
+    cmd.AddValue("unknownStart",
+                 "Seed every field-node filter (tag 0, the measured subjects, the relay peers) at "
+                 "the search box's centre with sigma = boxHalf/sqrt(3) per axis, the standard "
+                 "deviation of a uniform position over the box -- the only thing a search team "
+                 "knows about a lost node. FALSE by default, which keeps every earlier result: "
+                 "there tag 0 starts at the base camp it departs from and every subject at its own "
+                 "true position, so a node that never fixes is still tracked by dead reckoning "
+                 "from a known start (report/ACC_A_STATIC2P4_DIAGNOSIS.md: 42 of 80 static 2.4 GHz "
+                 "subject-runs never fix at 5 km yet stay within 25 m 69 % of the time). Under the "
+                 "flag nothing the filter is seeded with is computed from the node's position; the "
+                 "truth reaches only the evaluation (errM). Anchor and gateway positions stay "
+                 "known, as they are surveyed.",
+                 spec.unknownStart);
+    cmd.AddValue("traceSubjectConsistency",
+                 "Append the posterior position covariance (pxx,pxy,pyy, m^2), the raw fix's "
+                 "2-DOF normalised innovation against the prior (mahalanobis; computed only by "
+                 "ca_tbl_full, 0 elsewhere and on coasts) and the fused ranges' RMS sigma "
+                 "(meanSigmaM) to every subject trace row, so the subjects' NEES and NIS can be "
+                 "measured as tag 0's can under --traceCovariance. FALSE by default: the subject "
+                 "traces keep exactly their old columns. Writes only; no engine value moves.",
+                 spec.traceSubjectConsistency);
+    cmd.AddValue("measVarScale",
+                 "Multiplier on every range variance a filter's Step() fuses (R in the range "
+                 "updates, the weighted multilateration and the integrity distance), every node "
+                 "and every arm. 1 by default, which multiplies exactly and reproduces every "
+                 "earlier result. NOT a physical constant: an empirical probe of the hypothesis "
+                 "that the filters trust their ranges too much (tag 0's 2-DOF NIS exceeds 9.21 on "
+                 "42 % of fixes at 5 km; ACC-A sect 2). The TDoA position and the scenario's "
+                 "two-range solves form their own variances and are not scaled.",
+                 spec.measVarScale);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "

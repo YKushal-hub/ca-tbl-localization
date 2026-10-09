@@ -1791,6 +1791,17 @@ bash scripts/acc_a_gate.sh "$WORK/g100" || fail G100
 bash scripts/acc_a_gate_selftest.sh "$WORK/g100" || fail G100
 finish G100
 
+# ---------------- G130: --unknownStart, --traceSubjectConsistency, --measVarScale (S2-C)
+# Read by scripts/unk_start_gate.py: the three flags at their defaults change no byte; the
+# consistency columns are appended to the subject traces and nothing else moves; under
+# --unknownStart no filter starts at its truth and range-free first rows sit at the box centre;
+# --measVarScale=4 doubles the first fused cycle's RMS sigma exactly. Negative fixtures in
+# scripts/unk_start_gate_selftest.sh (rule 6).
+printf '\n--- G130 unknown start, subject consistency trace, range-variance multiplier ---\n'
+bash scripts/unk_start_gate.sh "$WORK/g130" || fail G130
+bash scripts/unk_start_gate_selftest.sh "$WORK/g130" || fail G130
+finish G130
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
