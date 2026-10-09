@@ -838,7 +838,7 @@ struct AdaptiveEnvironmentConfigParams {
 
 /**
  * @brief Dynamic delay spread parameters (Feature 7)
- * Reference: Lim et al. 2018 (MDPI Sensors): measured delay spread distribution
+ * Values OURS: the cited 'Lim et al. 2018 (MDPI Sensors)' source was not found
  */
 struct DelaySpreadParams {
     bool enabled;
@@ -851,7 +851,7 @@ struct DelaySpreadParams {
 
 /**
  * @brief Wind-induced foliage variation parameters (Feature 5)
- * Reference: Meng et al. 2009 (IEEE TAP): seasonal and dynamic variation
+ * Values OURS. Wind fading model: Cheffena & Ekman, EURASIP JWCN 2009, doi 10.1155/2009/306876 (Meng 2009 TAP is static path loss)
  */
 struct WindVariationParams {
     bool windVariationEnabled;
@@ -863,7 +863,7 @@ struct WindVariationParams {
 
 /**
  * @brief Temperature-dependent CFO and jitter parameters (Feature 6)
- * Reference: Robyns et al. 2017 (ACM WiSec): temperature coefficient ~1-2 Hz/°C for SX1272
+ * Values OURS: ~1-2 Hz/°C for SX1272. Robyns et al. 2017 (WiSec, fingerprinting) shows no such coefficient
  */
 struct TemperatureCfoParams {
     DistributionParam temperatureCoefficientHzPerC;
@@ -1082,6 +1082,14 @@ struct RangingParams {
     // and energy against accuracy), not a fitting knob, and S7 can sweep it.
     double uwbPreambleSymbols;
 
+    // Tier 2 field bias, metres, added to EVERY tier-2 range, LOS or NLOS, with no
+    // random draw. 0 (the default) adds exactly 0. Set only by --tofFieldBiasM, the
+    // sensitivity to measured outdoor SX1280 ranging: Mueller et al., ICL-GNSS 2021
+    // (doi 10.1109/ICL-GNSS51451.2021.9452277), sect. III, report a positive mean
+    // distance error -- the range over-estimated -- of 46.4 m on a rural route up to
+    // 1400 m and 39 m on a suburban route up to 500 m (BW 400 kHz, SF 8).
+    double tofFieldBiasM;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1090,7 +1098,8 @@ struct RangingParams {
           uwbNlosFloorM(0.25),
           tofNlosBias  (DistributionParam::Normal(1.5, 0.8,           0.0, 6.0)),
           uwbNlosBias  (DistributionParam::LogNormal(std::log(0.3f), 0.6, 0.0, 3.0)),
-          uwbPreambleSymbols(1024.0)
+          uwbPreambleSymbols(1024.0),
+          tofFieldBiasM(0.0)
     {}
 };
 

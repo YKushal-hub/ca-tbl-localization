@@ -578,7 +578,7 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     result.syncCorruptionOccurred = (result.collisionOverlapFraction > 0.08 && !wasCaptured);
     
     // 14. Total loss accumulation with bounded loss caps (including TDL multipath penalty)
-    // Feature: Oliveira 2017 thermal sensitivity target (~0.075 dB/°C)
+    // Unused (thermalEfficiencyLossDb = 0). Not Oliveira 2017: Boano, Cattani, Romer, SENSORNETS 2018, doi 10.5220/0006605600390050 measure 3-4 dB (RFM95) / 5-6 dB (SX1272) over 0-50 °C
     double ambientTemp = m_config.atmospheric.temperatureCelsius.mean;
     double thermalEfficiencyLossDb = 0.0; // Handled by Johnson-Nyquist in atmospheric submodule
     
