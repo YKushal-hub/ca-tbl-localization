@@ -24,3 +24,6 @@ stamp pins the binary):
 
 Each cell keeps `arm_summary.csv` and `run_id.txt`; `raw_manifest.sha256` digests every raw file
 (traces untracked). Tables: the analysis output in this directory.
+
+
+**Run-log exit value, corrected note (2026-10-09).** The run log's closing line quotes `runner exit $?` *after* a `$(date ...)` substitution in the same `echo`, so it prints `date`'s status (always 0), not the runner's (`bash -c 'false; echo "$(date) exit $?"'` prints 0). It is not evidence that the runner exited 0. The evidence is each run's own `rc` file: every one reads 0, and the analysis checks them.

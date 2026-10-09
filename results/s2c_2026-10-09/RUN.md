@@ -51,3 +51,6 @@ printed as "not evaluable". Two defects in the script:
 `S2C_firstpass.md`. No cell, metric, threshold or prediction changed.
 
 `s2c_table.csv` is tracked with LF line endings (the repository attributes set `eol=lf`, as for ACC-A's table); the manifest digests the analysis's CRLF original.
+
+
+**Run-log exit value, corrected note (2026-10-09).** The run log's closing line quotes `runner exit $?` *after* a `$(date ...)` substitution in the same `echo`, so it prints `date`'s status (always 0), not the runner's (`bash -c 'false; echo "$(date) exit $?"'` prints 0). It is not evidence that the runner exited 0. The evidence is each run's own `rc` file: every one reads 0, and the analysis checks them.
