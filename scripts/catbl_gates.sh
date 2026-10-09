@@ -1799,6 +1799,8 @@ finish G101
 # FAIL BY FINDING today: four mechanisms have no population under the preset (TECH_DEBT N.15),
 # since FIXES-N26 joined it (2026-10-08): Case A fixes, arbitration pre-emptions, queue gossip
 # items and grant tie-break verdicts. UWB-delivered fixes are no longer zero.
+# Since --imuErrorStates joined it (2026-10-09) a fifth: subjects' tier-1 TDoA solves, 2 over
+# seeds 7-9 with the old filter (0+2+0), 0 with the error-state filter.
 #
 # Negative fixtures in scripts/spec_profile_gate_selftest.sh, built from these runs (rule 6).
 printf '\n--- G24 the preset is conformant (P6) ---\n'
