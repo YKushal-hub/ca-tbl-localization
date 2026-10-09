@@ -105,6 +105,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     uwbEvidenceFromNeighbours = false; // default preserves the pre-existing baseline
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
+    measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -1417,7 +1418,10 @@ CaTblPolicy::Step(double dt,
         {
             sigma = meas[i].nlos ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
         }
-        varM2.push_back(sigma * sigma);
+        // --measVarScale (S2-C): one multiplier on every range variance this Step() fuses.
+        // 1.0 multiplies exactly; the TDoA position (FuseAux) and the scenario's sparse
+        // solves form their own variances and are not scaled.
+        varM2.push_back(sigma * sigma * m_config.measVarScale);
         // Raw = pre-inflation. Recomputed rather than captured above so the two
         // branches of the sigma selection stay legible.
         {

@@ -527,6 +527,7 @@ struct CaTblPolicyConfig
      * never written down. If the target should be tier-dependent, say so here.
      */
     double traceRef;
+    double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 
