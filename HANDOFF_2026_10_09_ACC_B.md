@@ -31,3 +31,5 @@ significant there. Against: no endgame accuracy gain, +5 % energy at 5 km.
 `cmd.AddValue` block (the S2-A and S2-B blocks both sit after S3's) and `scripts/catbl_gates.sh`
 (G100 and G110 both appended). Keep both sides. Regenerate SCENARIO_FLAGS with
 `tools/regen_flags.py` after merging.
+
+**G10 (citation audit):** one ABSENT, `report/TOF_FIELD_RESULTS.md`, until S3 (which has it) merges first.
