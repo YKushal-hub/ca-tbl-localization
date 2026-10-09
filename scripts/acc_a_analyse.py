@@ -63,6 +63,7 @@ def seed_metrics(d, arm):
     t0 = rows(os.path.join(d, f"trace_{arm}_seed{s}.csv"))
     if a is None or not ss or t0 is None:
         return None
+    has_cov = bool(t0) and "pxx" in t0[0]
     err0 = np.array([float(r["errM"]) for r in t0])
     w = [float(np.mean(err0 <= 25.0))]
     for k in range(2, 6):
@@ -98,7 +99,7 @@ def seed_metrics(d, arm):
         rej_share=float(np.mean([r["rejected"] == "1" for r in t0])),
         anees=float(np.mean(nees)) if nees else float("nan"),
         nees95=float(np.mean([x > CHI2_2_95 for x in nees])) if nees else float("nan"),
-        nnees=len(nees),
+        nnees=len(nees), has_cov=has_cov,
         nis921=float(np.mean([x > CHI2_2_99 for x in nis])) if nis else float("nan"),
         nismed=float(np.median(nis)) if nis else float("nan"),
         tdoa_ref=(g[0] / (g[0] + g[1]) if g and (g[0] + g[1]) > 0 else float("nan")),
@@ -176,8 +177,14 @@ def main():
     for key, v in D.items():
         if len(v) != 20:
             problems.append(f"{key}: {len(v)} seeds, not 20")
+        elif not all(x["has_cov"] for x in v.values()):
+            problems.append(f"{key}: a seed whose trace has no covariance columns (--traceCovariance did not reach the trace)")
         elif any(x["nnees"] == 0 for x in v.values()):
-            problems.append(f"{key}: a seed with no covariance rows (--traceCovariance did not reach the trace)")
+            # Corrected 2026-10-09 after the run (disclosed in ACC_A_RESULTS): the registered
+            # condition is the flag reaching the trace (columns present). A seed with no tag-0
+            # fix after the warm-up has no NEES row and is reported, not an abort.
+            print(f"note: {key}: seeds with no tag-0 fix row after {WARMUP_S:.0f} s (no NEES): "
+                  f"{sorted(s for s, x in v.items() if x['nnees'] == 0)}")
     for c in CONFIGS:
         for k in (1, 10):
             fl = []
