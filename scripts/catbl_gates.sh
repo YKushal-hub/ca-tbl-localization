@@ -1782,6 +1782,15 @@ bash scripts/tof_field_gate.sh "$WORK/g120" || fail G120
 bash scripts/tof_field_gate_selftest.sh "$WORK/g120" || fail G120
 finish G120
 
+# ---------------- G100: --imuQuScale, the IMU increment covariance multiplier (S2 Part A, A1)
+# Read by scripts/acc_a_gate.py: the flag at 1 changes no byte; at 10 the per-cycle growth of
+# trace(P) on cycles without a fix is >= 5x that at 1, for tag 0 and for the subjects (both call
+# sites). Negative fixtures in scripts/acc_a_gate_selftest.sh (rule 6).
+printf '\n--- G100 IMU increment covariance multiplier ---\n'
+bash scripts/acc_a_gate.sh "$WORK/g100" || fail G100
+bash scripts/acc_a_gate_selftest.sh "$WORK/g100" || fail G100
+finish G100
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
