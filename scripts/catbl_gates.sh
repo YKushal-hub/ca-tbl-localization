@@ -1811,6 +1811,15 @@ bash scripts/nlos_r_gate.sh "$WORK/g131" || fail G131
 bash scripts/nlos_r_gate_selftest.sh "$WORK/g131" || fail G131
 finish G131
 
+# ---------------- G132: --acquireMinAnchors, the acquisition rule under --unknownStart (S2-C)
+# Read by scripts/acq_gate.py: 0 given explicitly changes no byte; at 3 no node fixes from fewer
+# than 3 ranges before its first fix from 3 or more, where the control does. Negative fixtures in
+# scripts/acq_gate_selftest.sh (rule 6).
+printf '\n--- G132 acquisition rule ---\n'
+bash scripts/acq_gate.sh "$WORK/g132" || fail G132
+bash scripts/acq_gate_selftest.sh "$WORK/g132" || fail G132
+finish G132
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
