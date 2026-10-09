@@ -528,6 +528,7 @@ struct CaTblPolicyConfig
      */
     double traceRef;
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
+    int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 

@@ -106,6 +106,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
     measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
+    nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -1401,11 +1402,19 @@ CaTblPolicy::Step(double dt,
         // produced, and they are wrong by large factors against the measured error:
         // losSigmaM[868] = 50 m against a tier-1 error reaching 2907 m at 6 km, and
         // losSigmaM[2p4] = 15 m against a tier-2 error of ~3 m.
+        // --nlosRSource (S2-C). 0 (default): the operative tag `nlos`, built by --nlosSource
+        // (under the preset, the propagation truth). 1: the detector's verdict only (score at or
+        // above integrityNlosScoreThreshold; an unscored link counts as LOS), so no truth reaches
+        // R or the LOS count. 2: no link is treated as NLOS here. Off, `nl` is `nlos` exactly.
+        const bool nl = (m_config.nlosRSource == 0)   ? meas[i].nlos
+                        : (m_config.nlosRSource == 1) ? (meas[i].nlosScore >= 0.0 &&
+                                                         meas[i].nlosScore >= m_config.integrityNlosScoreThreshold)
+                                                      : false;
         double sigma;
         if (meas[i].sigmaM > 0.0)
         {
             sigma = meas[i].sigmaM;
-            if (meas[i].nlos)
+            if (nl)
             {
                 // The physics sigma already uses the NLOS hardware floor, but it does
                 // NOT contain the NLOS excess-delay BIAS, which is an unmodelled
@@ -1416,7 +1425,7 @@ CaTblPolicy::Step(double dt,
         }
         else
         {
-            sigma = meas[i].nlos ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
+            sigma = nl ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
         }
         // --measVarScale (S2-C): one multiplier on every range variance this Step() fuses.
         // 1.0 multiplies exactly; the TDoA position (FuseAux) and the scenario's sparse
@@ -1427,11 +1436,11 @@ CaTblPolicy::Step(double dt,
         {
             const double raw = (meas[i].sigmaM > 0.0)
                                    ? meas[i].sigmaM
-                                   : (meas[i].nlos ? m_config.nlosSigmaM[m_tier]
-                                                   : m_config.losSigmaM[m_tier]);
+                                   : (nl ? m_config.nlosSigmaM[m_tier]
+                                         : m_config.losSigmaM[m_tier]);
             sumVarRaw += raw * raw;
         }
-        if (!meas[i].nlos)
+        if (!nl)
         {
             nLos++;
         }
