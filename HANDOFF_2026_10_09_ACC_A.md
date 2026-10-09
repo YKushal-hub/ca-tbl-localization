@@ -42,3 +42,26 @@ with `tools/regen_flags.py`.
 - G100 and G120: pass;
 - full suite: 81 PASS. The reds are the five expected ones, plus G10 (fixed here), plus G63, G87 and G89. Those three were already red on `1596cb41`, from S1's preset change `e308c14f`, and are S1's to fix.
 - Its k sweep on seeds 21-30: k = 10 is best in B; at 5 km it is mixed (one seed carries the rise).
+
+**Added later the same day (post-hoc diagnoses and one registered test):**
+- `58f3a98c`, `report/ACC_A_DECISION_DIAGNOSIS.md`.
+  - In the preset, PCS = 2.9947·10/(10 + trace P) + [0, 0.0053] on every decision row, so
+    `ca_tbl_full` is a variance-threshold rule.
+  - In the endgame, 85-99.5 % of escalations come from the shared URGENT-query hook.
+  - The dual base makes the 868 ↔ 2.4 GHz choice nearly irrelevant to what is measured.
+- `5c28eb75` PREREG, then `72c309b0`, `report/ACC_A_OPPOINT_RESULTS.md`.
+  - `fixed_threshold` at T = 25 m² matches `ca_tbl_full`'s endgame availability and accuracy for
+    4.19 J less per node; T = 12 gives more availability.
+  - **`ca_tbl_full`'s registered operating point is inside the single-threshold curve.**
+  - Disclosed correction: `f42e9ec4`. The run_id "source" line is the worktree HEAD, not the
+    build commit.
+- `4ece0f0f`, `report/ACC_A_STATIC2P4_DIAGNOSIS.md`.
+  - Every estimate is seeded at or next to truth. At 5 km, static 2.4 GHz's within-25 m share is
+    dead reckoning: 42/80 subject-runs never fix, against 9/80 for the hybrid.
+  - The hybrid's subject fixes leave the estimate slightly worse 60-76 % of the time.
+  - **The unknown-start case is not simulated.**
+
+**Not done, added:**
+- a `ca_tbl_full` threshold sweep (can it reach the single-threshold curve at all?);
+- an unknown-start scenario;
+- the subjects' NIS and measurement-weighting check (the likely cause of the 5 km within-25 m loss).
