@@ -89,3 +89,13 @@ arm's lone 2.4 GHz ranges against a tight prior. The `ca_tbl_full` arm's own gai
 - **Endgame accuracy did not move on seeds 1–20** (P2). The calibration WINs did not replicate. The larger accuracy
   lever measured so far is the filter (Part A: error-state replay 7.2 / 60.4 m at 5 km against 16.2 / 85.0 m),
   not range supply.
+
+## 7. Citable re-run (2026-10-09)
+
+`results/acc_b3_2026-10-09/` reproduces this evaluation from a clean commit:
+- **Provenance:** every `run_id.txt` reads `source e87378cb dirty 0`, 160 of 160.
+- **One binary for both arms:** reference = flags off, candidate = flags on (rule 8).
+- **Reproduction:** all 320 summary files are byte-identical to the runs §2 and §3 were computed from.
+- **Verdicts:** `scripts/acc_s2_analyse.py` on the committed `metrics.csv` gives the same verdict on every cell of
+  §2 and §3. Its bootstrap is seeded per call, so the third decimal of an interval can differ from the figures
+  above.
