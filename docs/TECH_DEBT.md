@@ -3227,7 +3227,7 @@ Superseded by N.38. Recorded so the negative result stays reproducible.
 
 ### N.34 `--dualBaseRelayTier` on the S2 cloud branch (same mechanism as `acc-part-b`'s N.35)
 
-Found 2026-10-08 (S2 Part B, cloud branch `work/2026-10-09-acc-reruns`, `report/ACC_B3_RESULTS.md`). The same flag, under the same name, was built independently on `work/2026-10-09-acc-part-b` (`caf441bb`, gate G110, its N.35). At merge, keep one implementation; this section then folds into N.35. Relayed ranges are formed only
+Found 2026-10-08 (S2 Part B, the S2 cloud branch, `report/ACC_B3_RESULTS.md`). The same flag, under the same name, was built independently on `work/2026-10-09-acc-part-b` (`caf441bb`, gate G110, its N.35). At merge, keep one implementation; this section then folds into N.35. Relayed ranges are formed only
 when `--relayTier` (2.4 GHz) is the active tier. Under `--loraDualBase` the active tier is
 868 MHz on about two thirds of endgame cycles, while the 2.4 GHz radio still ranges and is
 billed every cycle. Result: 214 relayed legs offered per 720 cycles in one seed, against

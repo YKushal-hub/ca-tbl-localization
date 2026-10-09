@@ -1,4 +1,4 @@
-# HANDOFF 2026-10-09 — S2 cloud branch (`work/2026-10-09-acc-reruns`)
+# HANDOFF 2026-10-09 — the S2 cloud branch
 
 The S2 accuracy stream's cloud branch: its state, how it overlaps the two other S2 branches
 (`work/2026-10-09-acc-part-a`, `work/2026-10-09-acc-part-b`), and what it needs from S1. Read
