@@ -1,6 +1,6 @@
 # CA-TBL — context for the accuracy and ML work
 
-Research record, 2026-10-08. Branch `work/2026-10-09-acc-reruns`, base `a0829213`.
+Research record, 2026-10-08. The S2 cloud branch, base `a0829213`.
 Companion: `plan.md` (what to do about it). Exploratory scripts and the logging patch:
 `analysis/accuracy_replay/`.
 
