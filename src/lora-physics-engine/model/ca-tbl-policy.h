@@ -529,6 +529,7 @@ struct CaTblPolicyConfig
     double traceRef;
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
+    uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 
@@ -1270,6 +1271,7 @@ class CaTblPolicy
     uint64_t m_uwbWaitCycles = 0;
     // NW-4. Appended last.
     bool m_queryEscArmed = false;
+    bool m_acquired = true; //!< S2-C --acquireMinAnchors: has a fix of that many ranges been fused yet
     uint64_t m_queryEscRequests = 0;
     uint64_t m_queryEscFired = 0;
     uint64_t m_queryEscalations = 0;

@@ -107,6 +107,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     hopWeight = 0.0; // no mesh yet -- see header note
     measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
+    acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -706,6 +707,8 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
 {
     m_ekf.Init(x0, y0, 0.0, 0.0, posStdM * posStdM, velStdMps * velStdMps);
     m_deescalateCounter = 0;
+    // --acquireMinAnchors (S2-C). 0 (default): acquired from the start, as before.
+    m_acquired = (m_config.acquireMinAnchors == 0);
 }
 
 double
@@ -1248,7 +1251,11 @@ CaTblPolicy::Step(double dt,
     // relays appended the set has three or more and takes the full path instead. A
     // solved cycle is a fix and does not count toward demotion. A refused one falls
     // through to the coast below, exactly as before.
-    if (m_config.sparseInStep && meas.size() == 2)
+    // --acquireMinAnchors (S2-C): before the first cycle that fuses at least that many ranges,
+    // the prior cannot pick a two-range root or anchor a one-range update, so neither runs and
+    // any cycle with fewer ranges coasts. Off (0), acqBlock is false and nothing changes.
+    const bool acqBlock = !m_acquired;
+    if (m_config.sparseInStep && meas.size() == 2 && !acqBlock)
     {
         const bool bothSurveyed = meas[0].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY &&
                                   meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
@@ -1288,7 +1295,7 @@ CaTblPolicy::Step(double dt,
 
     // DC-4. Case D: exactly one range, under the flag, goes down the ordinary path below
     // as a scalar update on the propagated state (NIS-guarded), and reaches the decision.
-    const bool caseD = m_config.caseD && meas.size() == 1;
+    const bool caseD = m_config.caseD && meas.size() == 1 && !acqBlock;
 
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
     // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f). By
@@ -1296,7 +1303,8 @@ CaTblPolicy::Step(double dt,
     // so a two-range cycle still arrives here, is counted a no-fix and counts toward
     // demotion. Under sparseInStep (DC-11) they run above, and only a refused one
     // arrives here. Case C only classifies; Case D does not exist yet (DC-4).
-    if (meas.size() < 3 && !caseD)
+    if ((meas.size() < 3 && !caseD) ||
+        (acqBlock && meas.size() < static_cast<size_t>(m_config.acquireMinAnchors)))
     {
         m_noFixCycles++;
         d.hadFix = false;
@@ -1372,6 +1380,7 @@ CaTblPolicy::Step(double dt,
     }
 
     d.hadFix = true;
+    m_acquired = true; // --acquireMinAnchors (S2-C): the first full fix acquires; already true when off
     d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
     if (m_config.sparseInStep)
     {

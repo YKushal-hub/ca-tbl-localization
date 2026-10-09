@@ -6173,6 +6173,8 @@ struct SpecOptions
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
+    //! --acquireMinAnchors: 0 (default) off; else the first fix must fuse this many ranges.
+    uint32_t acquireMinAnchors = 0;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6693,6 +6695,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
+    pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -15823,6 +15826,16 @@ main(int argc, char* argv[])
                  "detectors' precision is 0.02-0.08, so 'detector' is expected to inflate mostly "
                  "LOS links. Every other consumer of the tag outside Step() is unchanged.",
                  spec.nlosRSource);
+    cmd.AddValue("acquireMinAnchors",
+                 "Acquisition rule for a filter that starts without a usable position (meant for "
+                 "--unknownStart): until it first fuses a cycle of at least this many ranges, no "
+                 "two-range solve (Cases A/B under --sparseInStep) and no one-range update (Case D) "
+                 "runs, and any cycle with fewer ranges coasts. 0 (default) is off and reproduces "
+                 "every earlier result. Why: under --unknownStart at 5 km two-thirds of first fixes "
+                 "were two-range solves against a prior that cannot pick the root (median error at "
+                 "first fix 611 m), and the filter then stayed on the wrong root. The scenario's "
+                 "own pre-Step Case A (used only without --sparseInStep) is not gated.",
+                 spec.acquireMinAnchors);
     cmd.AddValue("tdoaInnovationGate",
                  "N.26 fix 4 (N.25): a tier-1 TDoA position enters the EKF only if its normalised "
                  "innovation against the state after this cycle's range update is at most 9.21 "
