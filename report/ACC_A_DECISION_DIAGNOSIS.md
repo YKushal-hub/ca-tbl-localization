@@ -116,3 +116,9 @@ None of these reasons is about tuning:
 - **Reading 4 is a hypothesis until tested.** If `ca_tbl_full`'s gain is only an operating point,
   `fixed_threshold` with its single threshold lowered to the same region should reproduce it.
   That is `PREREG_ACC_A_OPPOINT.md`.
+
+**Outcome, 2026-10-09 (`ACC_A_OPPOINT_RESULTS.md`).** The test ran, and reading 4 is wrong as
+stated. In the endgame, `fixed_threshold` at T = 25 m² matches `ca_tbl_full`'s availability and
+accuracy for 4.19 J less per node, and at T = 12 it has more availability. So `ca_tbl_full`'s
+registered thresholds are an inefficient operating point: they sit inside the single-threshold
+curve, not on it. Readings 1-3 are unchanged.
