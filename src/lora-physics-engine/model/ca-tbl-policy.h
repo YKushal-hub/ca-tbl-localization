@@ -575,6 +575,14 @@ struct CaTblPolicyConfig
     //! normal escalation decision runs, and it does not count toward demotion -- that last
     //! is OURS. Requires sparseInStep. False reproduces every prior result.
     bool caseD = false;
+    //! Plan A, A2 (--imuErrorStates): run CaTblEkf's error-state mode, with these priors and
+    //! the bias random walk ieQb. The scenario fills the priors from CaTblImuParams.
+    bool imuErrorStates = false;
+    double ieSigmaB = 0.0;
+    double ieSigmaS = 0.0;
+    double ieArw = 0.0;
+    double ieSigmaW = 0.0;
+    double ieQb = 0.0;
     //! N.38. Under caseD, when > 0, the single range is refused (the cycle stays a Case D
     //! cycle, its decision runs) when its sigma exceeds this many times the prior's sigma
     //! along the line of sight, sqrt(H P H^T): an update far less informative than the prior
@@ -838,6 +846,11 @@ class CaTblEkf
     {
         m_P[0][0] *= factor;
         m_P[1][1] *= factor;
+        if (m_ieOn) // A2: the mirrored block's source
+        {
+            m_Pz[0][0] *= factor;
+            m_Pz[1][1] *= factor;
+        }
     }
 
     double X() const { return m_x[0]; }
@@ -882,6 +895,38 @@ class CaTblEkf
                                      double rxy,
                                      double ryy) const;
 
+    /**
+     * \brief Plan A, A2 (--imuErrorStates). Carry the IMU's accumulated heading error psi,
+     * gyro bias b and scale error s as states beside x and y, so their effect on position
+     * is correlated across cycles as it is in the generator, instead of entering as
+     * independent increments (the covariance defect of TECH_DEBT N.30).
+     *
+     * z = [x, y, psi, b, s]. Prediction from the reported displacement u:
+     * x' = x + (1 - s)(cos psi ux + sin psi uy), y' = y + (1 - s)(-sin psi ux + cos psi uy),
+     * psi' = psi + b dt; Q = sigmaW^2 on x and y, arw^2 dt on psi, qB^2 dt on b (the bias
+     * random walk is OURS: the generator's bias is constant). Reference implementation:
+     * analysis/accuracy_replay/replay.py, AugEkf. Every reader keeps reading m_x and the
+     * position block of m_P, which IeSync() mirrors after every operation; velocity reads
+     * u / dt of the last control. Called before Init(). Off: nothing here runs.
+     */
+    struct IeParams
+    {
+        double sigmaB;  //!< prior std of the gyro bias, rad/s
+        double sigmaS;  //!< prior std of the scale error
+        double arw;     //!< gyro noise density, rad/s/sqrt(Hz)
+        double sigmaW;  //!< per-step position noise, m
+        double qB;      //!< bias random walk, rad/s/sqrt(s)
+    };
+
+    void EnableErrorStates(const IeParams& p);
+
+    bool ErrorStatesOn() const { return m_ieOn; }
+
+    /** psi, b, s of the error-state filter (0 when it is off). */
+    double IePsi() const { return m_ieOn ? m_z[2] : 0.0; }
+    double IeBias() const { return m_ieOn ? m_z[3] : 0.0; }
+    double IeScale() const { return m_ieOn ? m_z[4] : 0.0; }
+
   private:
     double m_x[4];
     double m_P[4][4];
@@ -889,6 +934,24 @@ class CaTblEkf
     double m_PPrior[4][4];
     double m_qPos;
     double m_qVel;
+
+    // A2 state; untouched while m_ieOn is false.
+    bool m_ieOn = false;
+    IeParams m_ieP{0.0, 0.0, 0.0, 0.0, 0.0};
+    double m_z[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double m_Pz[5][5] = {};
+    double m_zPrior[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double m_PzPrior[5][5] = {};
+    double m_ieVx = 0.0;
+    double m_ieVy = 0.0;
+
+    void IeInit(double posVar);
+    void IeSnapshotPrior();
+    void IeSync();
+    void IePredict(double dt, double ux, double uy);
+    void IePredictCv(double dt);
+    void IeScalar(const double H[5], double innovation, double var);
+    bool IeFusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
 };
 
 /**

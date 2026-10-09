@@ -201,6 +201,10 @@ CaTblEkf::Init(double x, double y, double vx, double vy, double posVar, double v
     {
         m_PPrior[i][i] = m_P[i][i];
     }
+    if (m_ieOn) // A2
+    {
+        IeInit(posVar);
+    }
 }
 
 void
@@ -213,6 +217,11 @@ CaTblEkf::SetProcessNoise(double stdPos, double stdVel)
 void
 CaTblEkf::Predict(double dt)
 {
+    if (m_ieOn) // A2
+    {
+        IePredictCv(dt);
+        return;
+    }
     // x <- F x, with F the constant-velocity transition.
     m_x[0] += m_x[2] * dt;
     m_x[1] += m_x[3] * dt;
@@ -268,6 +277,11 @@ void
 CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, double quxy,
                              double quyy)
 {
+    if (m_ieOn) // A2: the increment covariance is the error states' to model
+    {
+        IePredict(dt, ux, uy);
+        return;
+    }
     m_x[0] += ux;
     m_x[1] += uy;
     const double inv = (dt > 0.0) ? 1.0 / dt : 0.0;
@@ -297,6 +311,21 @@ CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, doubl
 void
 CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
+    if (m_ieOn) // A2
+    {
+        const size_t m = std::min(meas.size(), varM2.size());
+        for (size_t k = 0; k < m; ++k)
+        {
+            const double dx = m_z[0] - meas[k].anchorX;
+            const double dy = m_z[1] - meas[k].anchorY;
+            const double rPred = std::sqrt(dx * dx + dy * dy);
+            const double rSafe = std::max(rPred, 1e-6);
+            const double H[5] = {dx / rSafe, dy / rSafe, 0.0, 0.0, 0.0};
+            IeScalar(H, meas[k].rangeM - rPred, varM2[k]);
+        }
+        IeSync();
+        return;
+    }
     const size_t n = std::min(meas.size(), varM2.size());
     for (size_t k = 0; k < n; ++k)
     {
@@ -369,6 +398,19 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
 void
 CaTblEkf::FusePosition(double zx, double zy, double varM2)
 {
+    if (m_ieOn) // A2
+    {
+        if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) || !std::isfinite(zy))
+        {
+            return;
+        }
+        const double hx[5] = {1.0, 0.0, 0.0, 0.0, 0.0};
+        IeScalar(hx, zx - m_z[0], varM2);
+        const double hy[5] = {0.0, 1.0, 0.0, 0.0, 0.0};
+        IeScalar(hy, zy - m_z[1], varM2);
+        IeSync();
+        return;
+    }
     if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) ||
         !std::isfinite(zy))
     {
@@ -519,6 +561,10 @@ CaTblEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ryy) 
 bool
 CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
 {
+    if (m_ieOn) // A2
+    {
+        return IeFusePositionCov(zx, zy, rxx, rxy, ryy);
+    }
     if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
         !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
         !(rxx * ryy - rxy * rxy > 0.0))
@@ -586,6 +632,19 @@ CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double r
 void
 CaTblEkf::RevertToPrior()
 {
+    if (m_ieOn) // A2
+    {
+        for (int i = 0; i < 5; ++i)
+        {
+            m_z[i] = m_zPrior[i];
+            for (int j = 0; j < 5; ++j)
+            {
+                m_Pz[i][j] = m_PzPrior[i][j];
+            }
+        }
+        IeSync();
+        return;
+    }
     for (int i = 0; i < 4; ++i)
     {
         m_x[i] = m_xPrior[i];
@@ -594,6 +653,252 @@ CaTblEkf::RevertToPrior()
             m_P[i][j] = m_PPrior[i][j];
         }
     }
+}
+
+// ---- Plan A, A2: the error-state mode (--imuErrorStates). Nothing here runs while it is off.
+
+void
+CaTblEkf::EnableErrorStates(const IeParams& p)
+{
+    m_ieOn = true;
+    m_ieP = p;
+}
+
+__attribute__((noinline)) void
+CaTblEkf::IeInit(double posVar)
+{
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            m_Pz[i][j] = 0.0;
+        }
+    }
+    m_z[0] = m_x[0];
+    m_z[1] = m_x[1];
+    m_z[2] = 0.0;
+    m_z[3] = 0.0;
+    m_z[4] = 0.0;
+    m_Pz[0][0] = posVar;
+    m_Pz[1][1] = posVar;
+    m_Pz[2][2] = 1e-8; // the heading error starts at zero, known
+    m_Pz[3][3] = m_ieP.sigmaB * m_ieP.sigmaB;
+    m_Pz[4][4] = m_ieP.sigmaS * m_ieP.sigmaS;
+    m_ieVx = m_x[2];
+    m_ieVy = m_x[3];
+    IeSnapshotPrior();
+    IeSync();
+}
+
+void
+CaTblEkf::IeSnapshotPrior()
+{
+    for (int i = 0; i < 5; ++i)
+    {
+        m_zPrior[i] = m_z[i];
+        for (int j = 0; j < 5; ++j)
+        {
+            m_PzPrior[i][j] = m_Pz[i][j];
+        }
+    }
+}
+
+// Mirror the error-state filter into the arrays every reader uses: position and the 2x2
+// position block, the velocity of the last control, and the prior the integrity gate reads.
+void
+CaTblEkf::IeSync()
+{
+    m_x[0] = m_z[0];
+    m_x[1] = m_z[1];
+    m_x[2] = m_ieVx;
+    m_x[3] = m_ieVy;
+    m_xPrior[0] = m_zPrior[0];
+    m_xPrior[1] = m_zPrior[1];
+    m_xPrior[2] = m_ieVx;
+    m_xPrior[3] = m_ieVy;
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            m_P[i][j] = (i < 2 && j < 2) ? m_Pz[i][j] : 0.0;
+            m_PPrior[i][j] = (i < 2 && j < 2) ? m_PzPrior[i][j] : 0.0;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::IePredict(double dt, double ux, double uy)
+{
+    const double psi = m_z[2];
+    const double sc = 1.0 - m_z[4];
+    const double c = std::cos(psi);
+    const double sn = std::sin(psi);
+    const double ax = c * ux + sn * uy;  // R(-psi) u, x
+    const double ay = -sn * ux + c * uy; // R(-psi) u, y
+    m_z[0] += sc * ax;
+    m_z[1] += sc * ay;
+    m_z[2] += m_z[3] * dt;
+    // F = I plus the five non-trivial partials.
+    double F[5][5] = {};
+    for (int i = 0; i < 5; ++i)
+    {
+        F[i][i] = 1.0;
+    }
+    F[0][2] = sc * ay;  // d/dpsi of sc(c ux + sn uy) = sc(-sn ux + c uy)
+    F[1][2] = -sc * ax; // d/dpsi of sc(-sn ux + c uy) = -sc(c ux + sn uy)
+    F[0][4] = -ax;
+    F[1][4] = -ay;
+    F[2][3] = dt;
+    double FP[5][5];
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            double acc = 0.0;
+            for (int k = 0; k < 5; ++k)
+            {
+                acc += F[i][k] * m_Pz[k][j];
+            }
+            FP[i][j] = acc;
+        }
+    }
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            double acc = 0.0;
+            for (int k = 0; k < 5; ++k)
+            {
+                acc += FP[i][k] * F[j][k];
+            }
+            m_Pz[i][j] = acc;
+        }
+    }
+    m_Pz[0][0] += m_ieP.sigmaW * m_ieP.sigmaW;
+    m_Pz[1][1] += m_ieP.sigmaW * m_ieP.sigmaW;
+    m_Pz[2][2] += m_ieP.arw * m_ieP.arw * dt;
+    m_Pz[3][3] += m_ieP.qB * m_ieP.qB * dt;
+    const double inv = (dt > 0.0) ? 1.0 / dt : 0.0;
+    m_ieVx = ux * inv;
+    m_ieVy = uy * inv;
+    IeSnapshotPrior();
+    IeSync();
+}
+
+// No control this cycle: the constant-velocity position prediction, psi, b and s unchanged.
+__attribute__((noinline)) void
+CaTblEkf::IePredictCv(double dt)
+{
+    m_z[0] += m_ieVx * dt;
+    m_z[1] += m_ieVy * dt;
+    m_Pz[0][0] += m_qPos * m_qPos * dt;
+    m_Pz[1][1] += m_qPos * m_qPos * dt;
+    IeSnapshotPrior();
+    IeSync();
+}
+
+__attribute__((noinline)) void
+CaTblEkf::IeScalar(const double H[5], double innovation, double var)
+{
+    double PH[5];
+    for (int i = 0; i < 5; ++i)
+    {
+        double acc = 0.0;
+        for (int k = 0; k < 5; ++k)
+        {
+            acc += m_Pz[i][k] * H[k];
+        }
+        PH[i] = acc;
+    }
+    double S = var;
+    for (int k = 0; k < 5; ++k)
+    {
+        S += H[k] * PH[k];
+    }
+    if (!(S > 0.0) || !std::isfinite(S))
+    {
+        return;
+    }
+    double K[5];
+    for (int i = 0; i < 5; ++i)
+    {
+        K[i] = PH[i] / S;
+        m_z[i] += K[i] * innovation;
+    }
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            m_Pz[i][j] -= K[i] * PH[j];
+        }
+    }
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = i + 1; j < 5; ++j)
+        {
+            const double avg = 0.5 * (m_Pz[i][j] + m_Pz[j][i]);
+            m_Pz[i][j] = avg;
+            m_Pz[j][i] = avg;
+        }
+    }
+}
+
+__attribute__((noinline)) bool
+CaTblEkf::IeFusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) ||
+        !std::isfinite(rxy) || !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) ||
+        !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return false;
+    }
+    const double s00 = m_Pz[0][0] + rxx;
+    const double s01 = 0.5 * (m_Pz[0][1] + m_Pz[1][0]) + rxy;
+    const double s11 = m_Pz[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return false;
+    }
+    const double i00 = s11 / det;
+    const double i01 = -s01 / det;
+    const double i11 = s00 / det;
+    double K[5][2];
+    for (int i = 0; i < 5; ++i)
+    {
+        K[i][0] = m_Pz[i][0] * i00 + m_Pz[i][1] * i01;
+        K[i][1] = m_Pz[i][0] * i01 + m_Pz[i][1] * i11;
+    }
+    const double v0 = zx - m_z[0];
+    const double v1 = zy - m_z[1];
+    for (int i = 0; i < 5; ++i)
+    {
+        m_z[i] += K[i][0] * v0 + K[i][1] * v1;
+    }
+    double newP[5][5];
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            newP[i][j] = m_Pz[i][j] - K[i][0] * m_Pz[0][j] - K[i][1] * m_Pz[1][j];
+        }
+    }
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            m_Pz[i][j] = (i <= j) ? 0.5 * (newP[i][j] + newP[j][i]) : 0.0;
+        }
+    }
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < i; ++j)
+        {
+            m_Pz[i][j] = m_Pz[j][i];
+        }
+    }
+    IeSync();
+    return true;
 }
 
 double
@@ -682,6 +987,11 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
 {
     m_config = config;
     m_ekf.SetProcessNoise(config.processNoiseStdPos, config.processNoiseStdVel);
+    if (config.imuErrorStates) // A2; before Initialize(), which seeds the error states
+    {
+        m_ekf.EnableErrorStates(
+            {config.ieSigmaB, config.ieSigmaS, config.ieArw, config.ieSigmaW, config.ieQb});
+    }
 
     // The static arms pin the tier for the whole run; they are the single-band
     // baselines the architectural claim is measured against.

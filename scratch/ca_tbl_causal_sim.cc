@@ -5891,6 +5891,23 @@ struct NlosScoring
  * codegen there by one ulp with the feature off.
  */
 /**
+ * Plan A, A2. --imuErrorStates: the error-state filter's priors from the generator's own
+ * parameters (CaTblImuParams), so the filter declares the IMU it is given. Out of line, as
+ * InitFilter, so RunArm's codegen is untouched while the flag is off.
+ */
+static void __attribute__((noinline))
+ApplyErrorStates(CaTblPolicyConfig& pcfg, double qB)
+{
+    const CaTblImuParams ip;
+    pcfg.imuErrorStates = true;
+    pcfg.ieSigmaB = ip.gyroBiasSigmaRadS;
+    pcfg.ieSigmaS = ip.scaleSigma;
+    pcfg.ieArw = ip.gyroNoiseDensityRadSqrtS;
+    pcfg.ieSigmaW = ip.dwellSigmaM;
+    pcfg.ieQb = qB;
+}
+
+/**
  * N.39. --unknownStartSigmaM: every filter is seeded at its usual point plus an offset drawn
  * N(0, sigma^2) per axis, with a prior std of at least sigma, so the prior describes the start
  * error instead of claiming 100 m about a position seeded at truth. The offset comes from its
@@ -6225,6 +6242,10 @@ struct SpecOptions
     //! N.39. --unknownStartSigmaM: every filter starts off its seeded point by a draw of this
     //! std per axis, with a prior at least as wide. 0 = seeded as before.
     double unknownStartSigmaM = 0.0;
+    //! Plan A, A2. --imuErrorStates: the error-state filter (CaTblEkf::EnableErrorStates).
+    bool imuErrorStates = false;
+    //! Plan A, A2. --imuErrorStatesQb: its gyro-bias random walk, rad/s/sqrt(s).
+    double imuErrorStatesQb = 0.0;
 };
 
 /**
@@ -6608,6 +6629,10 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.caseD = true;
         pcfg.caseDInfoRatio = spec.caseDInfoRatio; // N.38
+    }
+    if (spec.imuErrorStates)
+    {
+        ApplyErrorStates(pcfg, spec.imuErrorStatesQb); // Plan A, A2
     }
     if (spec.grantGatedUwb)
     {
@@ -15828,6 +15853,22 @@ main(int argc, char* argv[])
                  "4ece0f0f; ACC-B3). At s = 100 the 100 m prior is honest. The offset comes from its own "
                  "generator keyed on (seed, node): the same in every arm, and no ns-3 stream moves. OURS.",
                  spec.unknownStartSigmaM);
+    cmd.AddValue("imuErrorStates",
+                 "Plan A, A2: filter with the IMU's heading error, gyro bias and scale error as states "
+                 "beside position (z = [x, y, psi, b, s]; analysis/accuracy_replay/replay.py AugEkf), so "
+                 "their effect is correlated across cycles as it is in the generator. FALSE by default: "
+                 "the filter takes each cycle's displacement with an independent increment covariance, "
+                 "and a constant bias then grows the true error quadratically while P grows linearly "
+                 "-- tag 0's ANEES is 105 at 5 km and 46 in the endgame against 2 if consistent "
+                 "(TECH_DEBT N.30, acc-part-a). --imuQuScale (acc-part-a) inflates that covariance as a "
+                 "stand-in; this models the cause. Priors from CaTblImuParams; every filter, every arm. "
+                 "Requires --imuPredict.",
+                 spec.imuErrorStates);
+    cmd.AddValue("imuErrorStatesQb",
+                 "Plan A, A2: under --imuErrorStates, the gyro bias random walk in rad/s/sqrt(s). 0 by "
+                 "default, which is the generator's constant bias; a real bias drifts, so a value above "
+                 "0 tests the filter's tolerance of a bias the generator does not have. OURS.",
+                 spec.imuErrorStatesQb);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "
@@ -18648,6 +18689,11 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --caseD needs --sparseInStep=true: Case D is one of the sparse "
                   << "cases Step() resolves after the prediction\n";
+        return 1;
+    }
+    if (spec.imuErrorStates && !spec.imuPredict)
+    {
+        std::cerr << "FATAL: --imuErrorStates needs --imuPredict=true: its states are the IMU's\n";
         return 1;
     }
     if (spec.caseDInfoRatio > 0.0 && !spec.caseD)

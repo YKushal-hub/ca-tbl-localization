@@ -1769,6 +1769,17 @@ bash scripts/unknown_start_gate.sh "$WORK/g113" || fail G113
 bash scripts/unknown_start_gate_selftest.sh "$WORK/g113" || fail G113
 finish G113
 
+# ---------------- G101: Plan A, A2, the error-state filter
+# --imuErrorStates carries psi, b and s as states beside position. Read by scripts/ie_gate.py:
+# the C++ filter matches the Python reference (analytic Jacobian) to 1e-9 relative on a fixed
+# stream (A2v); false is the flag absent byte for byte; on, every filter of both arms moves;
+# without --imuPredict it is refused.
+# Negative fixtures in scripts/ie_gate_selftest.sh (rule 6), the Jacobian sign flip among them.
+printf '\n--- G101 error-state filter (Plan A, A2) ---\n'
+bash scripts/ie_gate.sh "$WORK/g101" || fail G101
+bash scripts/ie_gate_selftest.sh "$WORK/g101" || fail G101
+finish G101
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
