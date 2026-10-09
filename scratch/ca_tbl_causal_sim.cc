@@ -5890,6 +5890,44 @@ struct NlosScoring
  * out of line, because a local added to RunArm has already once shifted floating-point
  * codegen there by one ulp with the feature off.
  */
+/**
+ * N.39. --unknownStartSigmaM: every filter is seeded at its usual point plus an offset drawn
+ * N(0, sigma^2) per axis, with a prior std of at least sigma, so the prior describes the start
+ * error instead of claiming 100 m about a position seeded at truth. The offset comes from its
+ * own generator keyed on (seed, node), not from any ns-3 stream: it is the same in every arm,
+ * and no other draw moves. Out of line, as WriteProxyChecks, so RunArm's codegen is untouched.
+ * With sigma 0 it is exactly the Initialize() call it replaces.
+ */
+static void __attribute__((noinline))
+InitFilter(CaTblPolicy& policy,
+           double x,
+           double y,
+           double posStdM,
+           double velStdMps,
+           double unknownSigmaM,
+           uint32_t seed,
+           uint32_t nodeId)
+{
+    if (unknownSigmaM > 0.0)
+    {
+        uint64_t z = 0x9E3779B97F4A7C15ULL ^ (static_cast<uint64_t>(seed) << 20) ^ nodeId;
+        const auto u = [&z]() { // splitmix64, then 53 bits into (0, 1)
+            z += 0x9E3779B97F4A7C15ULL;
+            uint64_t v = z;
+            v = (v ^ (v >> 30)) * 0xBF58476D1CE4E5B9ULL;
+            v = (v ^ (v >> 27)) * 0x94D049BB133111EBULL;
+            v ^= v >> 31;
+            return (static_cast<double>(v >> 11) + 0.5) / 9007199254740992.0;
+        };
+        const double r = unknownSigmaM * std::sqrt(-2.0 * std::log(u()));
+        const double th = 2.0 * std::acos(-1.0) * u();
+        x += r * std::cos(th);
+        y += r * std::sin(th);
+        posStdM = std::max(posStdM, unknownSigmaM);
+    }
+    policy.Initialize(x, y, posStdM, velStdMps);
+}
+
 static void __attribute__((noinline))
 WriteProxyChecks(const std::deque<CaTblMac>& macs,
                  const std::string& traceDir,
@@ -6184,6 +6222,9 @@ struct SpecOptions
     //! N.38. --caseDInfoRatio: under --caseD a single range whose sigma exceeds k times the
     //! prior's along its line of sight is refused. 0 = unchanged.
     double caseDInfoRatio = 0.0;
+    //! N.39. --unknownStartSigmaM: every filter starts off its seeded point by a draw of this
+    //! std per axis, with a prior at least as wide. 0 = seeded as before.
+    double unknownStartSigmaM = 0.0;
 };
 
 /**
@@ -6701,7 +6742,7 @@ RunArm(CaTblPolicyMode mode,
         const double away = std::hypot(pos.x - initX, pos.y - initY);
         initStdM = std::max(100.0, away);
     }
-    policy.Initialize(initX, initY, initStdM, 5.0);
+    InitFilter(policy, initX, initY, initStdM, 5.0, spec.unknownStartSigmaM, seed, nodeId); // N.39
 
     // ---- S4 MAC substrate ---------------------------------------------------
     //
@@ -7154,7 +7195,8 @@ RunArm(CaTblPolicyMode mode,
             // the consumer's own filter carries, and admission test A3 compares
             // exactly those two quantities.
             tags[pt].policy.Configure(pcfg);
-            tags[pt].policy.Initialize(tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0);
+            InitFilter(tags[pt].policy, tags[pt].pos.x, tags[pt].pos.y, 100.0, 5.0,
+                       spec.unknownStartSigmaM, seed, tags[pt].nodeId); // N.39
         }
     }
     // L.1.2. Null unless --relayChain, and while null the relay loop below is unchanged.
@@ -8750,7 +8792,8 @@ RunArm(CaTblPolicyMode mode,
             sb.walker = &peerWalkers[pi];
             sb.pos = peerWalkers[pi].Position();
             sb.policy.Configure(pcfg);
-            sb.policy.Initialize(sb.pos.x, sb.pos.y, 100.0, 5.0);
+            InitFilter(sb.policy, sb.pos.x, sb.pos.y, 100.0, 5.0, spec.unknownStartSigmaM, seed,
+                       sb.nodeId); // N.39
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 sb.energy.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz,
@@ -15775,6 +15818,16 @@ main(int argc, char* argv[])
                  "few m against a prior of ~5 m; within 25 m -0.019 on calibration seeds), so the "
                  "ratio is set between the tiers. OURS. Every arm, as Case D.",
                  spec.caseDInfoRatio);
+    cmd.AddValue("unknownStartSigmaM",
+                 "N.39: start every filter (tag 0, the subjects, the relays; every arm) at its usual "
+                 "seed point plus an offset drawn N(0, s^2) per axis, with a prior std of at least s. "
+                 "0 by default: subjects and relays are seeded AT their true position, and tag 0 at the "
+                 "base camp (median 3.0 m off), while the prior claims 100 m. That start is not a "
+                 "search: an arm that rarely ranges keeps the true position by dead reckoning, which "
+                 "is what static_2p4's 5 km within-25 m share measures (ACC-A static 2.4 GHz diagnosis, "
+                 "4ece0f0f; ACC-B3). At s = 100 the 100 m prior is honest. The offset comes from its own "
+                 "generator keyed on (seed, node): the same in every arm, and no ns-3 stream moves. OURS.",
+                 spec.unknownStartSigmaM);
     cmd.AddValue("subjectRelayChain",
                  "Measured subjects take part in the relay chain (L.1.2; TECH_DEBT N.3 and N.15). "
                  "FALSE by default: a subject steps through the MS-1 pipeline, never ranges "

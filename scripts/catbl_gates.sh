@@ -1758,6 +1758,17 @@ bash scripts/acc_b_gate.sh "$WORK/g112" || fail G112
 bash scripts/acc_b_gate_selftest.sh "$WORK/g112" || fail G112
 finish G112
 
+# ---------------- G113: the unknown start (TECH_DEBT N.39)
+# --unknownStartSigmaM starts every filter off its seed point by an N(0, s^2) draw per axis,
+# with a prior at least s wide, from its own generator keyed on (seed, node). Read by
+# scripts/unknown_start_gate.py: at 0 the flag is absent byte for byte; at 100 the subjects
+# start ~100 m off under a 100 m prior, identically in both arms, and no true trajectory moves.
+# Negative fixtures in scripts/unknown_start_gate_selftest.sh (rule 6).
+printf '\n--- G113 unknown start (N.39) ---\n'
+bash scripts/unknown_start_gate.sh "$WORK/g113" || fail G113
+bash scripts/unknown_start_gate_selftest.sh "$WORK/g113" || fail G113
+finish G113
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
