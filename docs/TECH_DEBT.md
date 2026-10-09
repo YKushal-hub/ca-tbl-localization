@@ -3205,6 +3205,50 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
 
+### N.30 The EKF's covariance is 20-50x too small, because persistent IMU errors enter as independent increments
+
+*2026-10-09, S2 Part A (`report/ACC_A_RESULTS.md`; registered, `681e90c8`; exploratory).*
+- **The problem.** Tag 0's median ANEES under the preset is 105 (5 km) and 46 (endgame).
+  Consistent would be 2.
+- **The stand-in fix.** `--imuQuScale=k` multiplies the IMU increment covariance. ANEES falls
+  to 15.6 / 5.7 at k = 10 and 3.3 / 2.3 at k = 30.
+- **What k = 10 buys `ca_tbl_full`:**
+  - endgame CEP95 12.0 → 7.5 m (−4.5 [−6.5, −2.7]);
+  - 5 km CEP50 24.4 → 16.6 m;
+  - +0.013 endgame availability;
+  - at +3.0 J per node in the endgame.
+- **It is filter-wide.** Every arm's endgame improves except LoRa fusion's. At 5 km the pooled
+  CEP95 tail worsens for `fixed_threshold`, LoRa fusion and Poucet.
+- **Open:**
+  - an error-state filter (S2's A2), the principled fix;
+  - the PCS thresholds (CAL-03) were fitted at k = 1;
+  - k is not tuned. The local machine's sweep on seeds 21-30 is the input.
+
+### N.31 PCS adds nothing over P even with a corrected covariance: the stop rule is met
+
+*2026-10-09, S2 Part A.* PCS − trace informativeness (−Spearman(pcs, err) − Spearman(trace,
+err), paired by seed):
+- k = 1: −0.082 [−0.189, 0.020] at 5 km and −0.004 in the endgame;
+- k = 10: −0.165 [−0.258, −0.093] and −0.002.
+
+PCS is no better, and at 5 km worse, than the covariance trace it is computed from. This is the
+third test, after `PCS_FORMS_RESULTS`, to say so. Per Part A §11 and MASTER_PLAN A8: **no
+further PCS form.**
+
+### N.32 Forced escalation on SUSPECT is redundant in the preset; the integrity check has little effect at chi2 1992.9
+
+*2026-10-09, S2 Part A.*
+- **`--suspectForcesEscalation=true` changes no byte** of `ca_tbl_full`'s output: 80 of 80
+  seed-cells, A and B, k = 1 and 10.
+- **Why (control flow, proven on the data).** The preset's `downweight` recovery multiplies a
+  SUSPECT fix's PCS by 0.5. On all 350 SUSPECT rows that already puts PCS below the tier's up
+  threshold, so the fix escalates anyway.
+- **The integrity check itself.** It fires on 1-8 fixes per run. Turning it off
+  (`ca_tbl_no_integrity`) changes nothing at k = 1. At k = 10 the arm without it has +0.013
+  availability at 5 km and 3 fewer endgame escalations.
+- **Open:** whether a consistent covariance makes the check worth re-fitting (S2's appendix:
+  re-fit `--integrityChi2` on seeds 21-40 and run the fault matrix).
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
