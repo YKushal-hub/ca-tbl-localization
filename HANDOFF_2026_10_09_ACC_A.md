@@ -34,3 +34,11 @@ the owner's "PART A — Filter Consistency + CA-TBL Pending Work" (2026-10-09).
 **Merge:** per WORKSTREAMS §4. Expect append-only conflicts with Part B in `SpecOptions`, the
 flag block and `catbl_gates.sh` (G100 and G110). Keep both sides, and regenerate SCENARIO_FLAGS
 with `tools/regen_flags.py`.
+
+**G10 (citation audit):** one ABSENT, `report/TOF_FIELD_RESULTS.md`, until S3 (which has it) merges first.
+
+**Local verification** (`work/2026-10-09-local-verification`, `2552bd9d`, run on the owner's machine on `eadcb0b3`):
+- null control: identical to `1596cb41`;
+- G100 and G120: pass;
+- full suite: 81 PASS. The reds are the five expected ones, plus G10 (fixed here), plus G63, G87 and G89. Those three were already red on `1596cb41`, from S1's preset change `e308c14f`, and are S1's to fix.
+- Its k sweep on seeds 21-30: k = 10 is best in B; at 5 km it is mixed (one seed carries the rise).
