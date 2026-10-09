@@ -3315,3 +3315,84 @@ gain, the f^0.75 extrapolation to 8 GHz.
 an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
 open for a source.
 
+
+### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
+
+*2026-10-09, S2-C (`report/S2C_RESULTS.md`; registered, `8d441fe4`).*
+- **What the seeding was.** Tag 0 started at its base camp, which is where it starts
+  (`ca_tbl_causal_sim.cc`, the `policy.Initialize` after the base-camp branch). Every subject and
+  relay peer started at its own true position. The base-camp prior's sigma was also computed from
+  the truth (`away`).
+- **What that hid.** At 5 km, 42 of 80 static 2.4 GHz subject-runs never fix, yet stay within
+  25 m 69 % of the time (`ACC_A_STATIC2P4_DIAGNOSIS`).
+- **The fix, default off.** `--unknownStart` seeds every field-node filter at the search box's
+  centre with sigma boxHalf/√3 and computes nothing from the node's position (G130).
+- **Results:** `S2C_RESULTS.md` §1.
+- **Open:**
+  - TOF-FIELD's error levels under unknown start;
+  - whether the default should change. That is a change of scenario, and every result in the
+    tree is known-start.
+
+### N.51 The subjects' covariance is overconfident after fixes, concentrated in three-anchor 2.4 GHz and mixed dual-base fixes; a uniform R multiplier is the wrong shape
+
+*2026-10-09, S2-C (training seeds 21-30, `scripts/s2c_consistency_diag.py`; held-out in
+`S2C_RESULTS.md` §2).*
+- **What the subjects' NEES shows** at `--measVarScale` 1:
+  - consistent or conservative while coasting (median 0.17);
+  - overconfident on fix rows (mean 15.2, 45 % above 5.991).
+- **Where the raw fix's 2-DOF NIS is inconsistent:**
+  - 2.4 GHz three-anchor fixes: 53 % above 9.21, median 11.4;
+  - 2.4 GHz-labelled fixes from the 868 MHz floor set, which under the dual base holds both
+    bands: 69 % above 9.21 at 4 anchors, median 23.4;
+  - 2.4 GHz fixes from 4 or more anchors are near consistent (12-15 %).
+- **What `--measVarScale` does.** ×10 lowers the share only from 0.42 to 0.21.
+- **Not the cause:** anchor-position error. Finder pseudo-anchors already carry their reported
+  variance (N.21), and gateways are surveyed.
+- **Open:**
+  - the mechanism, between three-range geometry (no redundancy, a possible wrong root) and
+    mixed-band sets;
+  - B1's per-range log is the instrument;
+  - A2 (an error-state filter) remains the principled fix for the coherent IMU error.
+
+### N.52 The preset's NLOS handling keys R on the truth, and removing it changes nothing measurable
+
+*2026-10-09, S2-C (`report/S2C_NLOS_AUDIT.md`; ablation registered, `ddc0173b`).*
+- **The chain as built:**
+  - `--nlosSource=propagation` hands the filter the engine's own `isNLOS`;
+  - `Step()` triples that range's sigma;
+  - the detectors feed only PCS term 3, whose weight is 0.0053, and the integrity check.
+- **The engine biases NLOS ranges little:**
+  - none at 868 MHz;
+  - 2.4 GHz N(1.5, 0.8) m, measured +0.4 to +0.6 m;
+  - UWB a median of 0.3 m.
+- **NLOS links are mostly lost before they are scored:** 96-98 % at 2.4 GHz.
+- **The detectors** have precision 0.02-0.08 and AUC 0.62-0.78. UWB never scores an NLOS link.
+- **`--nlosRSource`** (default operative, G131) adds `detector` (no truth reaches R) and `none`.
+  The ablation's results are in `S2C_RESULTS.md` §3.
+- **Open:**
+  - a configurable NLOS-bias physics model, calibrated, as a separate scenario;
+  - an 868 MHz RSSI-residual detector, testable only once 868 MHz NLOS biases a range.
+
+### N.53 The two Part B branches collide
+
+*2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and
+`work/2026-10-09-acc-reruns` both define `--dualBaseRelayTier`, both write
+`report/PREREG_ACC_B_HYBRID.md` and `report/ACC_B_RESULTS.md`, and both use N.35-N.37, with
+different content. Neither is merged into the S2-C branch. **Open:** the owner chooses, or
+renumbers one.
+
+### N.54 The filter has no acquisition procedure: seeded without a position, it fixes on two ranges and stays on the wrong root
+
+*2026-10-09, S2-C (diagnosed on the registered campaign's U_A cells; the rule is tested in
+`PREREG_S2C_ACQ`).*
+- **What happens.** Under `--unknownStart` at 5 km, two-thirds of `ca_tbl_full`'s first fixes were
+  two-range solves (Cases A/B in `Step()`) against a prior that cannot pick the root. The median
+  error at first fix was 611 m.
+- **Lock-in.** After such a start, even static 2.4 GHz's three- and four-anchor fixes stayed
+  328-333 m off.
+- **The rule, default off.** `--acquireMinAnchors=N` refuses two-range and one-range updates until
+  the first cycle of at least N ranges (G132). Results: `S2C_RESULTS.md` §5.
+- **Open:**
+  - re-initialising at the first multilateration solution instead of an EKF update from the box
+    centre;
+  - the scenario's pre-Step Case A, used without `--sparseInStep`, is not gated.
