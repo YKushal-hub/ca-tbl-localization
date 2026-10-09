@@ -28,6 +28,14 @@ ALLOWED = {
     "CA_TBL_SIMULATION_REPORT.md": "earlier report, deliberately untracked; G8 asserts it",
     "subject_summary.csv":         "a per-run output the scenario writes under --measuredSubjects "
                                    "> 1; registrations cite it as a metric's source, not a repo path",
+    "spec_profile.txt":            "a per-run output the scenario writes under --specProfile; cited "
+                                   "as where a run records its settings, not a repo path",
+    "gateways.csv":                "a file of the external Bonn dataset (github.com/mclab-hbrs/lora-bonn), "
+                                   "not vendored; report/TIER1_VALIDATION.md records its sha256",
+    "samples.csv":                 "a file of the external Bonn dataset (survey/samples.csv), not "
+                                   "vendored; report/TIER1_VALIDATION.md records its sha256",
+    "context.md":                  "S2's research file on branch work/2026-10-09-acc-reruns, cited by "
+                                   "report/PREREG_ACC_A_FILTER.md as the source of the 3-54x measurement",
 }
 # Bare filenames that live inside excluded results/ directories. Legitimate because
 # the directory is recorded in EXCLUDED.md; the file inside it is not separately tracked.
