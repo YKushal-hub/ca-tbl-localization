@@ -18,7 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import acc_a_analyse as aa  # noqa: E402
 import camp_spec_analyse as cs  # noqa: E402
 
-SOURCE = "source 681e90c8 dirty 0"
+# The run_id "source" line is the git HEAD of the directory the binary runs from (the campaign
+# worktree at this PREREG commit), not the commit that compiled it; PREREG sect 1 expected the
+# latter. The engine is pinned instead by the binary's own compile stamp, which ACC-A's run_ids
+# carry too, and by R1. Corrected after the run (disclosed in the results).
+SOURCE = "source 5c28eb75 dirty 0"
+BUILD = "build Oct  8 2026 20:52:37"
 NRUNS = 100
 B_T = (8, 12, 25, 100)
 KEYS = (("av", "availability", False), ("J", "J per node", True), ("c50", "tag 0 CEP50", True),
@@ -76,8 +81,9 @@ def main():
         if not cs.ok(d):
             problems.append(f"non-zero exit: {d}")
         try:
-            if SOURCE not in open(os.path.join(d, "run_id.txt")).read():
-                problems.append(f"run_id not '{SOURCE}': {d}")
+            rid = open(os.path.join(d, "run_id.txt")).read()
+            if SOURCE not in rid or BUILD not in rid:
+                problems.append(f"run_id not '{SOURCE}' with '{BUILD}': {d}")
         except OSError:
             problems.append(f"no run_id.txt: {d}")
 
