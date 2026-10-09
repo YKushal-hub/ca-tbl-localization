@@ -14963,6 +14963,11 @@ AppendOutputDigest(const std::string& outdir, const std::string& patterns)
  * plan's table and in the preset until 2026-10-03, is left out by owner decision: its RSSI
  * variability, converted to range, swamps a relayed leg's sigma (64-83 m against 3.5 m;
  * TECH_DEBT N.11). It stays a flag, and the single-hop comparator ran with it off.
+ * --imuErrorStates (Plan A, A2) joined on 2026-10-09 at the owner's request, on ACC-A2's
+ * registered evaluation (report/ACC_A2_RESULTS.md). The S2 cloud branch's --dualBaseRelayTier
+ * and --caseDInfoRatio were NOT adopted: tuned against the old filter, they cost endgame
+ * accuracy once combined with it (ACC-A2 E7). This changes the preset, so every preset-based
+ * result before it describes the 103rd setting off.
  */
 struct CaTblSpecSetting
 {
@@ -15077,6 +15082,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"tdoaInnovationGate", "true", "N.26 fix 4 / N.25: a TDoA position fused only within chi-square 99 % (owner override)"},
     {"mahalUseR", "true", "N.26 fix 3 / N.15: the integrity distance includes the fix's R (owner override)"},
     {"integrityChi2", "1992.9", "N.26 fix 3: FIXES-N26 phase 1's registered threshold fit (owner override)"},
+    {"imuErrorStates", "true", "Plan A, A2: the error-state IMU filter (ACC-A2, registered 9da4bd71: endgame CEP95 12.0 -> 5.1 m, 5 km CEP50 16.2 -> 6.5 m, no accuracy LOSS against any arm; owner request 2026-10-09)"},
 };
 
 int
@@ -18693,8 +18699,19 @@ main(int argc, char* argv[])
     }
     if (spec.imuErrorStates && !spec.imuPredict)
     {
-        std::cerr << "FATAL: --imuErrorStates needs --imuPredict=true: its states are the IMU's\n";
-        return 1;
+        // TA-1b, as the preset's routing weights: set by the preset while the user turned
+        // --imuPredict off explicitly, it is unused, not refused. Given explicitly, refused.
+        if (specProfileOn && !explicitFlags.count("imuErrorStates"))
+        {
+            std::cerr << "NOTE: the preset's --imuErrorStates is unused under an explicit "
+                         "--imuPredict=false\n";
+            spec.imuErrorStates = false;
+        }
+        else
+        {
+            std::cerr << "FATAL: --imuErrorStates needs --imuPredict=true: its states are the IMU's\n";
+            return 1;
+        }
     }
     if (spec.caseDInfoRatio > 0.0 && !spec.caseD)
     {

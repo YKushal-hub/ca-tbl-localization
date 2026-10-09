@@ -10,11 +10,12 @@ WHAT A FIRING LOOKS LIKE ON DISK (rule 9):
           x, y, psi, b, s, pxx, pxy, pyy after 200 cycles, or either did not run. The two
           agree to all 12 printed digits when written; 1e-9 leaves room for the last digit.
   RC      a simulator run that must succeed exited non-zero.
-  NULL    --imuErrorStates=false is the flag absent: every output file byte-identical
-          except run_id.txt.
-  REACH   with the flag on, tag 0's trace and every subject's trace differ from the base run
-          in both arms (the error-state filter runs in every filter of every arm). A fire is
-          an arm or a subject whose estimates did not move.
+  PRESET  the preset sets the flag (since 2026-10-09): --imuErrorStates=true given explicitly
+          is the preset, every output file byte-identical except run_id.txt and
+          spec_profile.txt (which lists explicit settings).
+  REACH   tag 0's trace and every subject's trace differ between the preset and the old
+          filter (--imuErrorStates=false) in both arms: the error-state filter runs in every
+          filter of every arm. A fire is an arm or a subject whose estimates did not move.
   REFUSE  --imuErrorStates without --imuPredict exits 1 with its FATAL line.
 """
 import filecmp
@@ -45,7 +46,7 @@ def main():
         print("usage: ie_gate.py <dir>", file=sys.stderr)
         return 2
     d = sys.argv[1]
-    for n in ["ie_cpp", "ie_py", "base", "off", "on", "r_noimu"]:
+    for n in ["ie_cpp", "ie_py", "preset", "explicit", "old", "r_noimu"]:
         if not os.path.isfile(os.path.join(d, n + ".rc")):
             print(f"  G101 MISSING input {n}")
             return 2
@@ -63,26 +64,27 @@ def main():
         ok, why = False, f"unreadable vectors: {e}"
     check("UNIT", ok, why)
 
-    bad = [n for n in ["base", "off", "on"] if rc(d, n) != 0]
+    bad = [n for n in ["preset", "explicit", "old"] if rc(d, n) != 0]
     check("RC", not bad, f"non-zero exit: {bad}")
 
-    fb = sorted(os.listdir(os.path.join(d, "base")))
-    fo = sorted(os.listdir(os.path.join(d, "off")))
-    diff = [f for f in fb if f != "run_id.txt" and (f not in fo or not filecmp.cmp(
-        os.path.join(d, "base", f), os.path.join(d, "off", f), shallow=False))]
+    skip = ("run_id.txt", "spec_profile.txt")
+    fb = sorted(os.listdir(os.path.join(d, "preset")))
+    fo = sorted(os.listdir(os.path.join(d, "explicit")))
+    diff = [f for f in fb if f not in skip and (f not in fo or not filecmp.cmp(
+        os.path.join(d, "preset", f), os.path.join(d, "explicit", f), shallow=False))]
     diff += [f for f in fo if f not in fb]
-    check("NULL", fb and not diff, f"{len(fb)} files, differing: {diff[:5]}")
+    check("PRESET", fb and not diff, f"{len(fb)} files, differing: {diff[:5]}")
 
     same = []
     n = 0
     for arm in ARMS:
         for f in [f"trace_{arm}_seed1.csv"] + [os.path.basename(p) for p in sorted(
-                glob.glob(os.path.join(d, "base", f"subjtrace_{arm}_seed1_subj*.csv")))]:
+                glob.glob(os.path.join(d, "preset", f"subjtrace_{arm}_seed1_subj*.csv")))]:
             n += 1
-            pb, po = os.path.join(d, "base", f), os.path.join(d, "on", f)
+            pb, po = os.path.join(d, "preset", f), os.path.join(d, "old", f)
             if not os.path.exists(po) or filecmp.cmp(pb, po, shallow=False):
                 same.append(f)
-    check("REACH", n >= 2 * 5 and not same, f"traces compared {n}, unchanged under the flag: {same}")
+    check("REACH", n >= 2 * 5 and not same, f"traces compared {n}, unchanged against the old filter: {same}")
 
     with open(os.path.join(d, "r_noimu.log")) as h:
         reason = "FATAL: --imuErrorStates needs --imuPredict=true" in h.read()

@@ -1772,8 +1772,9 @@ finish G113
 # ---------------- G101: Plan A, A2, the error-state filter
 # --imuErrorStates carries psi, b and s as states beside position. Read by scripts/ie_gate.py:
 # the C++ filter matches the Python reference (analytic Jacobian) to 1e-9 relative on a fixed
-# stream (A2v); false is the flag absent byte for byte; on, every filter of both arms moves;
-# without --imuPredict it is refused.
+# stream (A2v); the preset sets it (2026-10-09), so true given explicitly is the preset byte
+# for byte; against the old filter every filter of both arms moves; without --imuPredict it is
+# refused.
 # Negative fixtures in scripts/ie_gate_selftest.sh (rule 6), the Jacobian sign flip among them.
 printf '\n--- G101 error-state filter (Plan A, A2) ---\n'
 bash scripts/ie_gate.sh "$WORK/g101" || fail G101

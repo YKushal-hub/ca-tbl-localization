@@ -8,8 +8,9 @@
 #
 # A2v: scratch/ca_tbl_ie_test (the C++ filter on a fixed stream) against
 # analysis/accuracy_replay/make_ie_vectors.py (the Python reference). Then the preset's
-# endgame, ca_tbl_full and static_2p4, seed 1, 300 s: the flag absent, false, true; and the
-# refusal without --imuPredict.
+# endgame, ca_tbl_full and static_2p4, seed 1, 300 s. The preset sets --imuErrorStates since
+# 2026-10-09: the preset as is, the flag given true explicitly, and the old filter
+# (--imuErrorStates=false); and the refusal without --imuPredict.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -34,9 +35,9 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
-run base $B &
-run off $B --imuErrorStates=false &
-run on $B --imuErrorStates=true &
+run preset $B &
+run explicit $B --imuErrorStates=true &
+run old $B --imuErrorStates=false &
 run r_noimu --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --imuErrorStates=true &
 wait
 

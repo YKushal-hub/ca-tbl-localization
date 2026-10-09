@@ -67,23 +67,23 @@ echo 1 > "$T/f/ie_cpp.rc"
 check "N3  the C++ test did not run" 1 UNIT
 
 fresh
-echo 1 > "$T/f/on.rc"
-check "N4  the flagged run exited non-zero" 1 RC
+echo 1 > "$T/f/explicit.rc"
+check "N4  a run exited non-zero" 1 RC
 
 fresh
-python3 - "$T/f/off/trace_static_2p4_seed1.csv" <<'PY'
+python3 - "$T/f/explicit/trace_static_2p4_seed1.csv" <<'PY'
 import sys
 p = sys.argv[1]; L = open(p).read().split("\n"); L[5] = L[5].replace(",", ", ", 1); open(p, "w").write("\n".join(L))
 PY
-check "N5  the flag at false differs from absent" 1 NULL
+check "N5  the flag given true explicitly differs from the preset" 1 PRESET
 
 fresh
-cp "$T/f/base/trace_static_2p4_seed1.csv" "$T/f/on/trace_static_2p4_seed1.csv"
-check "N6  one arm's tag 0 did not move under the flag" 1 REACH
+cp "$T/f/preset/trace_static_2p4_seed1.csv" "$T/f/old/trace_static_2p4_seed1.csv"
+check "N6  one arm's tag 0 is the same under the old filter" 1 REACH
 
 fresh
-f=$(ls "$T/f/base"/subjtrace_ca_tbl_full_seed1_subj*.csv | head -1); cp "$f" "$T/f/on/"
-check "N7  one subject's filter did not move under the flag" 1 REACH
+f=$(ls "$T/f/preset"/subjtrace_ca_tbl_full_seed1_subj*.csv | head -1); cp "$f" "$T/f/old/"
+check "N7  one subject's filter is the same under the old filter" 1 REACH
 
 fresh
 echo 0 > "$T/f/r_noimu.rc"
