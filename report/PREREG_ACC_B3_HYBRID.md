@@ -1,8 +1,10 @@
-# PREREG — S2 Part B: hybrid range supply (N.35 + N.38)
+# PREREG ACC-B3 — S2 Part B (cloud branch): hybrid range supply (N.34 + N.38)
+
+> **Renamed 2026-10-09** from `PREREG_ACC_B_HYBRID.md`, which `work/2026-10-09-acc-part-b` also uses. The TECH_DEBT and gate identifiers were renumbered into S2's reserved ranges (`WORKSTREAMS_2026_10_09.md` §3): N.35 → N.34, N.38 kept, G91 → G112. Nothing else changed. The registration as committed is `94a200ca`.
 
 Exploratory grade. Committed before the first evaluation cell (seeds 1–20) of the candidate runs.
 **Not blind:** the flags were chosen on calibration seeds 21–30 after diagnosis on seeds 1–20 of the
-*reference* (unmodified preset), and an earlier version of N.35 alone was already run on seeds 1–20
+*reference* (unmodified preset), and an earlier version of N.34 alone was already run on seeds 1–20
 (availability endgame +0.021 WIN, accuracy ties, 5 km energy +1.25 J LOSS). What is new here is the
 combination with N.38 at k = 3, fixed before this evaluation.
 
@@ -11,7 +13,7 @@ combination with N.38 at k = 3, fixed before this evaluation.
 | | binary | flags |
 | --- | --- | --- |
 | reference | the merged tree before Part B (`100cc650`) | `--specProfile=true` |
-| candidate | `1c1886c7` (G91 commit) | `--specProfile=true --dualBaseRelayTier=true --caseDInfoRatio=3` |
+| candidate | `1c1886c7` (G112 commit) | `--specProfile=true --dualBaseRelayTier=true --caseDInfoRatio=3` |
 
 Null control before reading any number: the candidate binary with the flags off reproduces the reference's
 outputs byte for byte (seed 1, A and B, arms `ca_tbl_full,fixed_threshold,static_2p4`).

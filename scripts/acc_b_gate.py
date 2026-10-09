@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""G91: the S2-B accuracy flags (docs/TECH_DEBT.md N.35-N.38).
+"""G112: the S2-B accuracy flags (docs/TECH_DEBT.md N.33, N.34, N.38).
 
   --dualBaseRelayTier  under --loraDualBase, tag 0's relayed (C5) ranges are formed on the
-                       awake 2.4 GHz radio whatever the active tier (N.35).
-  --relayCovScale k    hybrid arms scale a relay's position covariance by k before admission (N.36).
+                       awake 2.4 GHz radio whatever the active tier (N.34).
+  --relayCovScale k    hybrid arms scale a relay's position covariance by k before admission (N.33).
   --hybridNoLone868    hybrid arms step a one-range tier-1 cycle as empty, so Case D never
-                       applies a lone 868 MHz RSSI range (N.37).
+                       applies a lone 868 MHz RSSI range (N.33).
   --caseDInfoRatio k   under --caseD a single range whose sigma exceeds k times the prior's
                        along its line of sight is refused; the cycle stays a Case D cycle (N.38).
 
@@ -62,7 +62,7 @@ def main():
     names = ["base", "off", "relay", "scale", "a_base", "a_lone", "a_info"]
     for n in names:
         if not os.path.isfile(os.path.join(d, n + ".rc")) or not os.path.isdir(os.path.join(d, n)):
-            print(f"  G91 MISSING input {n}")
+            print(f"  G112 MISSING input {n}")
             return 2
     res = []
 
@@ -116,9 +116,9 @@ def main():
 
     nbad = 0
     for name, ok, why in res:
-        print(f"  G91 {'ok  ' if ok else 'FAIL'} {name:8s} {why}")
+        print(f"  G112 {'ok  ' if ok else 'FAIL'} {name:8s} {why}")
         nbad += 0 if ok else 1
-    print(f"  G91 {len(res) - nbad}/{len(res)} checks pass")
+    print(f"  G112 {len(res) - nbad}/{len(res)} checks pass")
     return 1 if nbad else 0
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G91 runner: the S2-B accuracy flags (TECH_DEBT N.35-N.38): --dualBaseRelayTier,
+# G112 runner: the S2-B accuracy flags (TECH_DEBT N.33, N.34, N.38): --dualBaseRelayTier,
 # --relayCovScale, --hybridNoLone868, --caseDInfoRatio. What each run is for, and what a firing looks like on
 # disk, is in scripts/acc_b_gate.py, which reads them.
 #
@@ -18,7 +18,7 @@ if [ $# -ge 1 ]; then
     D=$1
     mkdir -p "$D" || exit 2
 else
-    D=$(mktemp -d "${TMPDIR:-/tmp}/g91.XXXXXX") || exit 2
+    D=$(mktemp -d "${TMPDIR:-/tmp}/g112.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
 A="--specProfile=true --arms=ca_tbl_full --seed=1 --duration=600 --trace=true"

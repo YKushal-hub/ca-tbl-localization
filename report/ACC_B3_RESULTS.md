@@ -1,6 +1,8 @@
-# ACC-B results — hybrid range supply (N.35 + N.38)
+# ACC-B3 results — hybrid range supply (N.34 + N.38)
 
-2026-10-08. Exploratory grade. Registered in `report/PREREG_ACC_B_HYBRID.md` (`94a200ca`) before the
+> Renamed 2026-10-09 from `ACC_B_RESULTS.md` and renumbered into S2's reserved ranges (N.35 → N.34, N.36/N.37 → N.33a/N.33b, G91 → G112). The same `--dualBaseRelayTier` was built independently on `work/2026-10-09-acc-part-b` (its N.35, G110); reconcile the two at merge.
+
+2026-10-08. Exploratory grade. Registered in `report/PREREG_ACC_B3_HYBRID.md` (`94a200ca`) before the
 first evaluation cell. Runs were made outside the tree (`--outdir` in a scratch directory). They are not
 tracked: they were made by a working build, and their `run_id.txt` says `source unknown, dirty 0`.
 
@@ -59,16 +61,16 @@ arm's lone 2.4 GHz ranges against a tight prior. The `ca_tbl_full` arm's own gai
 
 | flag | result | verdict |
 | --- | --- | --- |
-| N.36 `--relayCovScale` 4, 16 | no better than 1; A within 25 m −0.063 / −0.051 LOSS | kept at 1 |
-| N.37 `--hybridNoLone868` | A tie; B availability −0.013, within 25 m −0.017 LOSS | superseded by N.38 |
+| N.33a `--relayCovScale` 4, 16 | no better than 1; A within 25 m −0.063 / −0.051 LOSS | kept at 1 |
+| N.33b `--hybridNoLone868` | A tie; B availability −0.013, within 25 m −0.017 LOSS | superseded by N.38 |
 | two-range Case D (NIS ≤ 9.21) | accuracy ties; B energy +8.0 J LOSS | not committed |
 | N.38 at k = 1 | B within 25 m −0.019 LOSS (refuses useful 2.4 GHz ranges) | k = 3 chosen; k = 6 weaker |
 
 ## 5. Diagnoses that held
 
-- **Relayed legs vanished under the dual base (N.35).** The active tier is 868 MHz on about two thirds of endgame
+- **Relayed legs vanished under the dual base (N.34).** The active tier is 868 MHz on about two thirds of endgame
   cycles, and the relayed legs required the active tier.
-- **Admitted relayed ranges are over-confident.** The realised error is 2.15× the claimed σ at depth 1 under N.35
+- **Admitted relayed ranges are over-confident.** The realised error is 2.15× the claimed σ at depth 1 under N.34
   (static_2p4 1.11×). Scaling the relay covariance did not convert this into accuracy (§4).
 - **A lone 868 MHz Case D update never helps (N.38).** It was flat in every prior-σ bin and harmful when the prior
   σ exceeded 80 m: +0.6 to +5.9 m per update, and +2 374 m summed over the 5 km subjects' first 360 s, seeds 1–20.
@@ -76,7 +78,7 @@ arm's lone 2.4 GHz ranges against a tight prior. The `ca_tbl_full` arm's own gai
 
 ## 6. Diagnoses that failed, and what remains
 
-- **Per-cycle Δerror conditioned on cycle type is a selection effect, not an effect size.** It motivated N.37,
+- **Per-cycle Δerror conditioned on cycle type is a selection effect, not an effect size.** It motivated N.33b,
   which lost.
 - **Relays' own fixes do not cause the error jumps** (H2): +0.11 m per cycle, the same as coasting.
 - **The 5 km gap to `static_2p4` is mostly an initial-condition effect.** Subjects are seeded at truth with a

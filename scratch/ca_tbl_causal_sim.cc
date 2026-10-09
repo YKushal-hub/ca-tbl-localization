@@ -6172,13 +6172,13 @@ struct SpecOptions
     //! that tier's radio. Given explicitly, either value prints the binding.
     std::string queryTierBinding;
     // --- S2-B accuracy flags ---
-    //! N.35. --dualBaseRelayTier: under --loraDualBase, relayed ranging runs on 2.4 GHz
+    //! N.34. --dualBaseRelayTier: under --loraDualBase, relayed ranging runs on 2.4 GHz
     //! (the dual base's second LoRa radio, already awake and ranging) whatever the active tier.
     bool dualBaseRelayTier = false;
-    //! N.36. --relayCovScale: hybrid arms scale a relay's position covariance in tag 0's
+    //! N.33. --relayCovScale: hybrid arms scale a relay's position covariance in tag 0's
     //! relayed legs by this factor before admission and composition. 1 = unchanged.
     double relayCovScale = 1.0;
-    //! N.37. --hybridNoLone868: hybrid arms do not hand Step() a cycle whose only range is
+    //! N.33. --hybridNoLone868: hybrid arms do not hand Step() a cycle whose only range is
     //! a tier-1 RSSI range, so Case D never applies one. 0 = unchanged.
     bool hybridNoLone868 = false;
     //! N.38. --caseDInfoRatio: under --caseD a single range whose sigma exceeds k times the
@@ -10255,7 +10255,7 @@ RunArm(CaTblPolicyMode mode,
                     else if (!(preempt && act == pendT) && !(spec.subjectBatteryDeplete && sb.batteryDead))
                     {
                         chainM = dualS ? dualFusedS : (fuseS ? fusedS : actM); // N.14: relays complete the union
-                        // N.35: a dual-base subject on 868 MHz chains on its awake 2.4 GHz radio.
+                        // N.34: a dual-base subject on 868 MHz chains on its awake 2.4 GHz radio.
                         const CaTblTier chainT =
                             (spec.dualBaseRelayTier && dualS && act == CA_TBL_TIER_868 && !otherS.empty())
                                 ? CA_TBL_TIER_2P4
@@ -10411,7 +10411,7 @@ RunArm(CaTblPolicyMode mode,
                 const bool hybridS = mode == CA_TBL_MODE_FULL || mode == CA_TBL_MODE_NO_INTEGRITY ||
                                      mode == CA_TBL_MODE_FIXED_THRESHOLD;
                 const bool dropLoneS = spec.hybridNoLone868 && hybridS && measS.size() == 1 &&
-                                       fixTierS == CA_TBL_TIER_868; // N.37
+                                       fixTierS == CA_TBL_TIER_868; // N.33
                 CaTblDecision ds = sb.policy.Step(
                     dt, dropLoneS ? kNoMeasS : measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -11540,7 +11540,7 @@ RunArm(CaTblPolicyMode mode,
         // not ranged, as above. The ranges are fused at the fix selection.
         const bool dualBase = spec.loraDualBase && hybridArm;
         std::vector<CaTblRangeMeasurement> otherLoraMeas;
-        bool dual2p4Ranged = false; // N.35: the dual base's 2.4 GHz radio ranged off the active tier
+        bool dual2p4Ranged = false; // N.34: the dual base's 2.4 GHz radio ranged off the active tier
         if (dualBase)
         {
             if (active != CA_TBL_TIER_868 && !floorRanged &&
@@ -11552,7 +11552,7 @@ RunArm(CaTblPolicyMode mode,
             if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4))
             {
                 otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
-                dual2p4Ranged = true; // N.35
+                dual2p4Ranged = true; // N.34
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
@@ -11733,7 +11733,7 @@ RunArm(CaTblPolicyMode mode,
         // Both conditions are checked rather than assumed, and the A1 rejection is
         // still counted when relayTier is forced to 0, because a condition that is
         // never exercised is not evidence of anything.
-        // N.35 (--dualBaseRelayTier). Under the dual base the 2.4 GHz radio ranged this cycle
+        // N.34 (--dualBaseRelayTier). Under the dual base the 2.4 GHz radio ranged this cycle
         // off the active tier; the relayed legs go on it too, and join the dual base's set.
         const CaTblTier relayRt = static_cast<CaTblTier>(
             std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
@@ -11844,7 +11844,7 @@ RunArm(CaTblPolicyMode mode,
                     {
                         continue;
                     }
-                    if (hybridArm && spec.relayCovScale != 1.0) // N.36: after the chain composed it
+                    if (hybridArm && spec.relayCovScale != 1.0) // N.33: after the chain composed it
                     {
                         for (int ri = 0; ri < 2; ++ri)
                         {
@@ -12215,7 +12215,7 @@ RunArm(CaTblPolicyMode mode,
                 : activeMeas.size();
         static const std::vector<CaTblRangeMeasurement> kNoMeas;
         const bool dropLone = spec.hybridNoLone868 && hybridArm && meas.size() == 1 &&
-                              fixTier == CA_TBL_TIER_868; // N.37
+                              fixTier == CA_TBL_TIER_868; // N.33
         CaTblDecision d = policy.Step(dt,
                                             dropLone ? kNoMeas : meas,
                                             hopArg,
@@ -15724,7 +15724,7 @@ main(int argc, char* argv[])
                  spec.tdoaInnovationGate);
     // --- S2-B accuracy flags ---
     cmd.AddValue("dualBaseRelayTier",
-                 "N.35: under --loraDualBase, form tag 0's relayed (C5) ranges, and a short subject's "
+                 "N.34: under --loraDualBase, form tag 0's relayed (C5) ranges, and a short subject's "
                  "chain exchanges, on 2.4 GHz whenever the 2.4 GHz radio ranged this cycle, whatever "
                  "the active tier. FALSE by default: relayed ranging runs only when --relayTier is the "
                  "ACTIVE tier, because outside the dual base a second tier transmitting would break "
@@ -15735,7 +15735,7 @@ main(int argc, char* argv[])
                  "2.4 GHz radio it used. Read only under --loraDualBase and --relayedRanging.",
                  spec.dualBaseRelayTier);
     cmd.AddValue("relayCovScale",
-                 "N.36: on the hybrid arms, multiply the relay's 2x2 position covariance by this "
+                 "N.33: on the hybrid arms, multiply the relay's 2x2 position covariance by this "
                  "factor in tag 0's relayed (C5) legs, before admission (A2/A3) and before it is "
                  "projected into the range sigma. 1 by default: the relay's own filter covariance is "
                  "taken at face value. Measured (endgame, 20 seeds, --dualBaseRelayTier): the "
@@ -15748,7 +15748,7 @@ main(int argc, char* argv[])
                  "Kept at 1. OURS. Static and fusion arms ignore it.",
                  spec.relayCovScale);
     cmd.AddValue("hybridNoLone868",
-                 "N.37: on the hybrid arms, a cycle (tag 0 or a subject) whose fix set is ONE tier-1 "
+                 "N.33: on the hybrid arms, a cycle (tag 0 or a subject) whose fix set is ONE tier-1 "
                  "868 MHz range is stepped as an empty set, so Case D (DC-4) coasts instead of "
                  "applying it. FALSE by default: Case D takes any single range its NIS test admits. "
                  "Measured (20 seeds, specProfile): a lone 868 MHz range applied on a no-fix cycle "

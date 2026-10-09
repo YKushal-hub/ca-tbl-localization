@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G91 negative fixtures. Rule 6: no gate is trusted without forced-failure evidence.
+# G112 negative fixtures. Rule 6: no gate is trusted without forced-failure evidence.
 #
 # usage: bash scripts/acc_b_gate_selftest.sh [<dir written by acc_b_gate.sh>]
 #   Without a directory it makes its own real run set first.
@@ -10,7 +10,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)
 GATE="$ROOT/scripts/acc_b_gate.py"
-T=$(mktemp -d "${TMPDIR:-/tmp}/g91self.XXXXXX") || exit 2
+T=$(mktemp -d "${TMPDIR:-/tmp}/g112self.XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
 if [ $# -ge 1 ]; then
     REAL=$1
@@ -18,7 +18,7 @@ else
     REAL="$T/real"
     bash "$ROOT/scripts/acc_b_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
-[ -f "$REAL/a_lone.rc" ] || { echo "  G91 selftest: no real run set in $REAL"; exit 2; }
+[ -f "$REAL/a_lone.rc" ] || { echo "  G112 selftest: no real run set in $REAL"; exit 2; }
 
 pass=0
 fail=0
@@ -28,14 +28,14 @@ check() {  # check <name> <expected exit> <check label that must FAIL, or - >
     local rc=$?
     local reason=1
     if [ "$3" != - ]; then
-        grep -Eq "G91 FAIL +$3 " "$T/out.txt" || reason=0
+        grep -Eq "G112 FAIL +$3 " "$T/out.txt" || reason=0
     fi
     if [ "$rc" -eq "$2" ] && [ "$reason" -eq 1 ]; then
-        printf '  G91 ok    %-66s exit=%d\n' "$1" "$rc"
+        printf '  G112 ok    %-66s exit=%d\n' "$1" "$rc"
         pass=$((pass + 1))
     else
-        printf '  G91 FAIL  %-66s exit=%d expected %d, failing check %s\n' "$1" "$rc" "$2" "$3"
-        grep -E "G91 (FAIL|MISSING)" "$T/out.txt" | head -4
+        printf '  G112 FAIL  %-66s exit=%d expected %d, failing check %s\n' "$1" "$rc" "$2" "$3"
+        grep -E "G112 (FAIL|MISSING)" "$T/out.txt" | head -4
         fail=$((fail + 1))
     fi
 }
@@ -121,5 +121,5 @@ fresh
 edit "$T/f/a_info/$CD" 'r = next(r for r in rows if r["applied"] == "1"); r["nis"] = "7.5"'
 check "N13 under the ratio a row applied with NIS above 6.63" 1 INFO
 
-printf '  G91 selftest: %d ok, %d FAIL\n' "$pass" "$fail"
+printf '  G112 selftest: %d ok, %d FAIL\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

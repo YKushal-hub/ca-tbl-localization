@@ -3205,20 +3205,9 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
 
-### N.35 Under the dual base, relayed (C5) legs vanished with the active tier
+### N.33 Two Part B variants measured and not adopted
 
-Found 2026-10-08 (S2 Part B, `report/ACC_B_RESULTS.md`). Relayed ranges are formed only
-when `--relayTier` (2.4 GHz) is the active tier. Under `--loraDualBase` the active tier is
-868 MHz on about two thirds of endgame cycles, while the 2.4 GHz radio still ranges and is
-billed every cycle. Result: 214 relayed legs offered per 720 cycles in one seed, against
-static_2p4's 1 413. **Mitigation, default off:** `--dualBaseRelayTier`. It forms tag 0's
-relayed legs, and a short dual-base subject's chain exchanges, on that 2.4 GHz radio.
-Measured, seeds 1-20, with N.38 at k = 3: endgame availability +0.020 WIN; 5 km energy
-+1.24 J LOSS. Not adopted into the preset (S1's call). Gate G91.
-
-### N.36 Admitted relayed ranges are over-confident
-
-Found 2026-10-08. The realised error of an admitted relayed range, endgame, 20 seeds:
+**(a) Admitted relayed ranges are over-confident; `--relayCovScale`.** Found 2026-10-08. The realised error of an admitted relayed range, endgame, 20 seeds:
 
 | | depth 1 | depth 2 |
 | --- | --- | --- |
@@ -3231,12 +3220,21 @@ scales the relay covariance before admission. On calibration seeds k = 4 and k =
 better than 1, and lost within-25 m at 5 km. **Open:** the over-confidence is in the relays'
 filters (Part A's NEES work), not in the leg.
 
-### N.37 Stepping a lone 868 MHz cycle as empty changes more than the update
-
-Found 2026-10-08. `--hybridNoLone868` (default off) hands Step() an empty set instead of one
+**(b) Stepping a lone 868 MHz cycle as empty; `--hybridNoLone868`.** Found 2026-10-08. `--hybridNoLone868` (default off) hands Step() an empty set instead of one
 tier-1 range. It removed the harmful update but also changed the cycle's escalation and
 demotion path: endgame availability −0.013, within 25 m −0.017 (LOSS, seeds 21-30).
 Superseded by N.38. Recorded so the negative result stays reproducible.
+
+### N.34 `--dualBaseRelayTier` on the S2 cloud branch (same mechanism as `acc-part-b`'s N.35)
+
+Found 2026-10-08 (S2 Part B, cloud branch `work/2026-10-09-acc-reruns`, `report/ACC_B3_RESULTS.md`). The same flag, under the same name, was built independently on `work/2026-10-09-acc-part-b` (`caf441bb`, gate G110, its N.35). At merge, keep one implementation; this section then folds into N.35. Relayed ranges are formed only
+when `--relayTier` (2.4 GHz) is the active tier. Under `--loraDualBase` the active tier is
+868 MHz on about two thirds of endgame cycles, while the 2.4 GHz radio still ranges and is
+billed every cycle. Result: 214 relayed legs offered per 720 cycles in one seed, against
+static_2p4's 1 413. **Mitigation, default off:** `--dualBaseRelayTier`. It forms tag 0's
+relayed legs, and a short dual-base subject's chain exchanges, on that 2.4 GHz radio.
+Measured, seeds 1-20, with N.38 at k = 3: endgame availability +0.020 WIN; 5 km energy
++1.24 J LOSS. Not adopted into the preset (S1's call). Gate G112.
 
 ### N.38 Case D applies a lone RSSI range against a wide prior
 
@@ -3246,7 +3244,7 @@ per update: +2 374 m summed over the 5 km subjects' first 360 s, seeds 1-20. The
 cannot see it, because S is dominated by R. **Mitigation, default off:** `--caseDInfoRatio=k`
 refuses the update when σ_R > k·sqrt(H P H^T) and keeps the cycle a Case D cycle. k = 3 was
 chosen on calibration seeds. It acts on every arm: at 5 km it also costs `static_2p4` 0.014
-of within 25 m (LOSS). Gate G91.
+of within 25 m (LOSS). Gate G112.
 
 **Open note.** The 5 km within-25 m gap between `ca_tbl_full` and `static_2p4` is mostly an
 initial-condition effect:
