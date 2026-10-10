@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-src = open('/home/kushal/ns/ns-3-dev/scratch/multimodal_generator.py').read()
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+src = open(ROOT / 'scratch/multimodal_generator.py').read()
 assert 'import math, sys, time, json' in src, 'Patch 1 FAILED'
 assert '_load_real_tdoa_rates' in src, 'Patch 2 FAILED'
 assert 'IMU_ONLY' in src, 'Patch 3 FAILED'

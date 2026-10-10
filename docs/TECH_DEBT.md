@@ -1867,6 +1867,24 @@ commit before it), frozen at `~/catbl_prev_m10`:
 Documentation only. It is recorded here rather than edited in the rules file, because
 `RULES.md` changes are the owner's.
 
+*2026-10-10, at `4ca0dff9`:* the numbers have moved again. For the owner's next pass on
+`RULES.md`:
+- §3 and §7 say 58 gates at `c79fffd`. `grep -c '^finish ' scripts/catbl_gates.sh` gives
+  88: G1–G21, G17b, G18b, G20b, G24 and G28–G90.
+- §4 and §8 place the `cmd.AddValue` block at `:13190-15363`. It is `:15028-17577`
+  (230 flags).
+- §4 says `macRng` is seeded at `:6275`; it is created at `:6720` and seeded at `:6725`.
+- §2 cites `hopWeight` at `ca-tbl-policy.cc:103`; it is `:107`.
+- §8 cites `BuildDeployment()` at `ca_tbl_causal_sim.cc:197`; it is `:203`.
+- §5 says terrain hardcodes 868 MHz at `lora-terrain-submodule.cc:69-70`. The constant
+  now lives on `TerrainParams` (`:72-74`) and is selected per tier by
+  `--terrainPerTierFreq`, default off, so the 868 MHz behaviour is still the default but
+  it is no longer hardcoded.
+- `README.md` said the suite was five gates and that G3 fails by design; both corrected
+  in the same change that added this note. `SETUP_NEW_MACHINE.md` said 53/58; corrected
+  to the count, without a PASS figure, because the suite was not run on the machine that
+  made the change.
+
 *2026-10-03 (P7):* the numbers have moved again, and `RULES.md` still waits for the
 owner.
 - **The gate suite:** 58 gates, from G1 to G60 with G17b, G18b and G20b; G22-G23 and

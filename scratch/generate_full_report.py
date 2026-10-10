@@ -1,11 +1,15 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
 
 def generate_report():
     print("Loading dataset...")
-    df = pd.read_csv('/home/kushal/ns/ns-3-dev/results/ml_training_dataset.csv')
+    df = pd.read_csv(ROOT / 'results/ml_training_dataset.csv')
     
-    with open('/home/kushal/ns/ns-3-dev/scratch/dataset_5M_full_report.md', 'w') as f:
+    with open(ROOT / 'scratch/dataset_5M_full_report.md', 'w') as f:
         f.write("# 5M ML Training Dataset: Comprehensive Analysis Report\n\n")
         f.write("This report provides a detailed statistical summary of the final 5 Million row ML training dataset.\n\n")
         
@@ -68,7 +72,7 @@ def generate_report():
             nlos = len(df[df['NlosDb'] > 0])
             f.write(f"- **NLOS**: Active in {nlos:,} rows ({(nlos/len(df))*100:.2f}% of total dataset).\n")
             
-    print("Report generated successfully at /home/kushal/ns/ns-3-dev/scratch/dataset_5M_full_report.md")
+    print(f"Report generated successfully at {ROOT / 'scratch/dataset_5M_full_report.md'}")
 
 if __name__ == '__main__':
     generate_report()

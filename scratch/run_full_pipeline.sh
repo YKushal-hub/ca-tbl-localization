@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_full_pipeline.sh
 # Full regeneration pipeline after topology_observability_sim produces rates.
-# Run from /home/kushal/ns/ns-3-dev/
+# Run from anywhere; it changes to the repository root itself.
 #
 # Steps:
 #   1. Verify topology_rates_summary.json exists
@@ -11,7 +11,7 @@
 #   5. Run final validation
 
 set -euo pipefail
-cd "$(dirname "$0")/../.." 2>/dev/null || cd /home/kushal/ns/ns-3-dev
+cd "$(dirname "$0")/.." || exit 1   # scratch/ -> repository root (the old ../.. went one level too far)
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 

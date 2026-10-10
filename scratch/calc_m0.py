@@ -1,7 +1,11 @@
 import pandas as pd
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
 
 for top in ['WAN', 'MESH', 'HYBRID']:
-    file = f'/home/kushal/ns/ns-3-dev/results/multimodal_M0_T{top}.csv'
+    file = ROOT / f'results/multimodal_M0_T{top}.csv'
     try:
         df = pd.read_csv(file)
         if 'Error_m' in df.columns:

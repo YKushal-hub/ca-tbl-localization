@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """patch_generator.py — Apply all three fixes to multimodal_generator.py"""
 import re, sys
+from pathlib import Path
 
-PATH = "/home/kushal/ns/ns-3-dev/scratch/multimodal_generator.py"
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
+
+PATH = ROOT / "scratch/multimodal_generator.py"
 with open(PATH) as f:
     src = f.read()
 

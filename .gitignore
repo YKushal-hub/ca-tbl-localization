@@ -56,8 +56,7 @@ audit/
 # CA-TBL publication rules
 # ============================================================================
 
-# --- build artefacts, regenerable by ./ns3 build ---
-/build/
+# --- build artefacts, regenerable by ./ns3 build (/build/ is already listed above) ---
 /cmake-cache/
 
 # --- oversized pre-CA-TBL sweep data ---

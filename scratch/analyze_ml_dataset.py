@@ -1,9 +1,13 @@
 import pandas as pd
 import numpy as np
 import os
+from pathlib import Path
 
-file_path = '/home/kushal/ns/ns-3-dev/results/ml_training_dataset.csv'
-output_report = '/home/kushal/ns/ns-3-dev/results/ml_dataset_analysis.md'
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
+
+file_path = ROOT / 'results/ml_training_dataset.csv'
+output_report = ROOT / 'results/ml_dataset_analysis.md'
 
 print(f"Reading {file_path}...")
 df = pd.read_csv(file_path)

@@ -1,4 +1,6 @@
-cd /home/kushal/ns/ns-3-dev
+#!/usr/bin/env bash
+# Run from anywhere: resolve the repository root from this file's location.
+cd "$(dirname "$0")/../.." || exit 1
 export LD_LIBRARY_PATH=build/lib
 # Phase B needs per-cycle traces; the 40-run sweep used --trace=false.
 # Runs are deterministic and the caches are inert (cache-independence test), so

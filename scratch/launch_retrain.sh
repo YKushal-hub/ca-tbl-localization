@@ -1,7 +1,7 @@
 #!/bin/bash
 # launch_retrain.sh -- Full 12-variant retrain with Bug-1-fixed features
 # Kills any leftover python training processes first, then starts fresh.
-cd /home/kushal/ns/ns-3-dev
+cd "$(dirname "$0")/.." || exit 1   # scratch/ -> repository root
 
 echo "=== Killing any stale training processes ==="
 pkill -f train_stage2 2>/dev/null; sleep 2

@@ -1,4 +1,8 @@
 import pandas as pd
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
 
 # Calculate theoretical NLOS caps per env
 envs = {
@@ -14,7 +18,7 @@ for env, p in envs.items():
     print(f"  {env}: nlosAtten max={nlos_max} dB, diffraction max={diff_max} dB, total={total_cap} dB")
 
 print()
-df = pd.read_csv('/home/kushal/ns/ns-3-dev/results/smoke_test_50k.csv')
+df = pd.read_csv(ROOT / 'results/smoke_test_50k.csv')
 print("=== Actual NlosDb max by environment (50k smoke test) ===")
 print(df.groupby('Environment')['NlosDb'].max().sort_values(ascending=False).to_string())
 print()

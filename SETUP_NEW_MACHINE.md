@@ -92,7 +92,8 @@ Then the gate suite:
 bash scripts/catbl_gates.sh
 ```
 
-**Expect 53/58 with five reds** (at `c79fffd`), **and they are not your problem:**
+**Expect five reds out of 88 gates** (count at `4ca0dff9`, 2026-10-09; recount with
+`grep -c '^finish ' scripts/catbl_gates.sh`), **and they are not your problem:**
 
 - **G4, G5** — red from the environment-split correction. Recorded as true findings
   (`TECH_DEBT` K.6).

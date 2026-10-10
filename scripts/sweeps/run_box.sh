@@ -1,4 +1,6 @@
-cd /home/kushal/ns/ns-3-dev
+#!/usr/bin/env bash
+# Run from anywhere: resolve the repository root from this file's location.
+cd "$(dirname "$0")/../.." || exit 1
 export LD_LIBRARY_PATH=build/lib
 for b in 1000 1500 2000 3000 4000 6000; do
   mkdir -p results/box_$b

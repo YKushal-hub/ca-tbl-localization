@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
-df = pd.read_csv('/home/kushal/ns/ns-3-dev/results/smoke_test_50k.csv')
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
+
+df = pd.read_csv(ROOT / 'results/smoke_test_50k.csv')
 
 print(f"Rows: {len(df):,}  Cols: {len(df.columns)}")
 print()

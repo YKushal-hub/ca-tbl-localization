@@ -15,7 +15,7 @@ from ca_tbl_fusion import run_fusion
 NUM_SEEDS = 30
 MODES = ['baseline', 'ca_tbl_reject_only', 'ca_tbl_downweight_only', 'ca_tbl_escalate_only', 'ca_tbl_full']
 
-NS3_DIR = '/home/kushal/ns/ns-3-dev'
+NS3_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))  # repository root
 RESULTS_DIR = os.path.join(NS3_DIR, 'results')
 
 def run_ns3_seed(seed):

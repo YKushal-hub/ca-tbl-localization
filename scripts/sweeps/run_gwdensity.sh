@@ -1,4 +1,6 @@
-cd /home/kushal/ns/ns-3-dev
+#!/usr/bin/env bash
+# Run from anywhere: resolve the repository root from this file's location.
+cd "$(dirname "$0")/../.." || exit 1
 export LD_LIBRARY_PATH=build/lib
 # STANDING RULE: uniform 4-field job lines.
 # gwGrid=9 at boxHalf 3000 gives 81 gw / 36 km^2 = 2.25/km^2, matching boxHalf 1000

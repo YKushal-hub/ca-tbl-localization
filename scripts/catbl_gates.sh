@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward).
+# CA-TBL regression gates: 88 at 4ca0dff9 (G1-G21, G17b, G18b, G20b, G24, and G28-G90).
+# Recount with: grep -c '^finish ' scripts/catbl_gates.sh
 # Run after every code change.
 #
 # Every gate RUNS; failures are recorded and reported in the summary block at the end,

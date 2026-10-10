@@ -9,12 +9,11 @@
 #   results/stage2_M[1-4]_T*.pkl                   (line 62)
 # Nothing else is removed. No `rm -rf`, no git operations.
 #
-# NOT PORTABLE AS WRITTEN: line 17 hardcodes /home/kushal/ns/ns-3-dev. Anyone
-# running this from a clone must change that path first.
+# Runs from any clone: it resolves the repository root from its own location.
 #
 # Runs 10 parallel ns-3 processes and a PyTorch training stage; expect hours.
 set -euo pipefail
-cd /home/kushal/ns/ns-3-dev
+cd "$(dirname "$0")/.." || exit 1   # scratch/ -> repository root
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 

@@ -252,10 +252,11 @@ def run_fusion(csv_path, mode='baseline'):
 if __name__ == '__main__':
     # Local test
     import sys
+    from pathlib import Path
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        path = '/home/kushal/ns/ns-3-dev/results/ca_tbl_trajectory_multi.csv'
+        path = str(Path(__file__).resolve().parents[2] / 'results' / 'ca_tbl_trajectory_multi.csv')
         
     print(run_fusion(path, 'baseline'))
     print(run_fusion(path, 'ca_tbl_full'))

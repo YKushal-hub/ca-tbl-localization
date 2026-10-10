@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Orchestrator. Deliberately no `set -e`: no module outcome may stop the batch.
-cd /home/kushal/ns/ns-3-dev
+cd "$(dirname "$0")/../.." || exit 1   # repository root
 export DIAG_ROOT="${DIAG_ROOT:?}"
 mkdir -p "$DIAG_ROOT/raw"
 STATUS="$DIAG_ROOT/STATUS.txt"; : > "$STATUS"

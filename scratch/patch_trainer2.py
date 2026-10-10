@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """patch_trainer2.py -- Add IMU_ONLY MAE to trainer and remove stale TOPOLOGY_NOTE."""
 import sys
+from pathlib import Path
 
-PATH = "/home/kushal/ns/ns-3-dev/scratch/train_stage2_parallel.py"
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
+
+PATH = ROOT / "scratch/train_stage2_parallel.py"
 with open(PATH) as f:
     src = f.read()
 

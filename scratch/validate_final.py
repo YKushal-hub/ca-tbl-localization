@@ -10,7 +10,7 @@ Checks:
   5. Assembles final_comparison_table.csv with all metrics
 
 Usage:
-  cd /home/kushal/ns/ns-3-dev
+  cd <repository root>
   python3 scratch/validate_final.py
 """
 import json, sys

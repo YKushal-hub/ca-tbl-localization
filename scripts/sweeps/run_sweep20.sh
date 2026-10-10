@@ -1,4 +1,6 @@
-cd /home/kushal/ns/ns-3-dev
+#!/usr/bin/env bash
+# Run from anywhere: resolve the repository root from this file's location.
+cd "$(dirname "$0")/../.." || exit 1
 export LD_LIBRARY_PATH=build/lib
 # Validated by the cache-independence test: seed 7 run after seed 6 in one process
 # is byte-identical to seed 7 in a fresh process, so g_fadingComponents and

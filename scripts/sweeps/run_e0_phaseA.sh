@@ -1,4 +1,6 @@
-cd /home/kushal/ns/ns-3-dev
+#!/usr/bin/env bash
+# Run from anywhere: resolve the repository root from this file's location.
+cd "$(dirname "$0")/../.." || exit 1
 export LD_LIBRARY_PATH=build/lib
 # Every job line is EXACTLY 4 fields: kind arg1 arg2 arg3. xargs -n 4 groups by
 # token count, not by line, so a 2-field line silently swallows the next job's

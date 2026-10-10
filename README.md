@@ -101,12 +101,15 @@ Check it worked: `meanNbr_uwb` in `arm_summary.csv` should be well above zero fo
 `ca_tbl_full` (≈0.8 at these settings, against ≈0.01 with no finders), and `cycles_uwb`
 non-zero. Do **not** write new runs into `results/` — that tree is tracked evidence.
 
-`scripts/catbl_gates.sh` runs five gates: build, determinism, null ablation, the
-invariant verifier, and a self-test that checks the verifier *fails* when its inputs are
-broken. G3 currently fails by design — the integrity check fires once at seed 7, so
-byte-identity between the ablation arms is no longer available; the divergence begins at
-the firing cycle and not before, which is the treatment effect rather than RNG
-contamination.
+`scripts/catbl_gates.sh` runs the regression gate suite: 88 gates at `4ca0dff9`
+(G1–G21, G17b, G18b, G20b, G24 and G28–G90; recount with
+`grep -c '^finish ' scripts/catbl_gates.sh`). The first five are build, determinism,
+null ablation, the invariant verifier, and a self-test that checks the verifier *fails*
+when its inputs are broken; the rest are per-mechanism gates, each with a negative
+fixture. Every gate runs and a summary is printed at the end. Five are expected red and
+none is a broken build — G4, G5, G6, G11 and G24; `RULES.md` §3 says why each one is.
+G3 passes: it separates RNG contamination from the integrity check's treatment effect on
+causal order (`scripts/catbl_g3_ablation.py`). The suite takes about 25 minutes.
 
 ## Documents
 
@@ -119,6 +122,7 @@ contamination.
 | `Architecture.md` §3 | the deployment as built — **authoritative for topology** |
 | `docs/DESIGN_DECISIONS.md` | choices the project brief does not specify, each with what it was chosen over |
 | `RULES.md` | working rules; read first if you are changing anything |
+| `OBVIOUS_ISSUES.md` | repository-hygiene faults found 2026-10-10, what was fixed and what is left |
 | `docs/archive/` | superseded handoffs and scope documents, retained for their findings |
 
 ## A note on what is shipped

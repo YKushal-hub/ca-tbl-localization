@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/kushal/ns/ns-3-dev
+cd "$(dirname "$0")/.." || exit 1   # scratch/ -> repository root
 python3 scratch/train_stage2_parallel.py > /tmp/stage2_parallel.log 2>&1 &
 PID=$!
 echo "Started PID=$PID"

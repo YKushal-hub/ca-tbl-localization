@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """patch_trainer.py -- Add shared deterministic train/test split to train_stage2_parallel.py"""
 import sys
+from pathlib import Path
 
-PATH = "/home/kushal/ns/ns-3-dev/scratch/train_stage2_parallel.py"
+ROOT = Path(__file__).resolve().parents[1]  # repository root (this file lives in scratch/)
+
+
+PATH = ROOT / "scratch/train_stage2_parallel.py"
 with open(PATH) as f:
     src = f.read()
 
