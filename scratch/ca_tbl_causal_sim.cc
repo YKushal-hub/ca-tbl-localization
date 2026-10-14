@@ -783,6 +783,28 @@ struct ArmResult
     uint64_t macCollisions;
     uint64_t macCaptures;
     uint64_t macDeliveries;
+
+    // ---- C3 inertial prior. Populated and written ONLY under --imuPrior=true, to
+    // imu_summary.csv, so arm_summary.csv keeps its columns and every default run
+    // stays byte-identical.
+    //
+    // imuJ is NOT in totalJ. totalJ is radio energy, booked per tier, and the
+    // invariant that only a transmitting tier is charged is what makes the energy
+    // axis mean anything. The IMU is not a tier: it runs every cycle on every arm.
+    // System energy is totalJ + imuJ, and both are reported.
+    uint64_t imuPredicts = 0;
+    double imuJ = 0.0;
+    //! Position NEES, e^T P^-1 e with P the filter's own posterior position block.
+    //! Chi-square with 2 DOF if the filter is consistent: mean 2.0, and 5% of
+    //! cycles above 5.991. Above that the filter is overconfident -- the failure
+    //! that turns a correct fix into an integrity alarm.
+    double neesMean = 0.0;
+    double neesMeanNoFix = 0.0;
+    double neesFracOver95 = 0.0;
+    //! Filter estimate minus truth at the end of the run, for the three IMU states.
+    double thetaErrFinalDeg = 0.0;
+    double biasErrFinalDps = 0.0;
+    double strideErrFinal = 0.0;
 };
 
 /**
@@ -1937,7 +1959,12 @@ RunArm(CaTblPolicyMode mode,
        double anchorRangePeriodS,
        uint32_t anchorMaxConcurrent,
        uint32_t anchorPairsPerEpoch,
-       bool traceDiagnostic)
+       bool traceDiagnostic,
+       // C3 inertial prior. Default false: no IMU object is configured, no draw is
+       // taken from anything, no file is opened, and the predict step is the
+       // constant-velocity one every committed result was produced under.
+       bool imuPrior,
+       const CaTblImuParams& imuParams)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -2150,11 +2177,52 @@ RunArm(CaTblPolicyMode mode,
         }
     }
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
+    // C3. The FILTER is told the same parameters the sensor is built from -- the
+    // data-sheet spec, not the realised errors, which exist only inside imu below.
+    pcfg.imuPrior = imuPrior;
+    pcfg.imu = imuParams;
     CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
     policy.Initialize(pos.x, pos.y, 100.0, 5.0);
+
+    // C3: the simulated IMU. Seeded from the run seed alone, so every arm of a seed
+    // carries the SAME sensor errors along the SAME trajectory (the Tourist's stream
+    // is exclusive to it) -- the arms are paired on the IMU as they are on the path.
+    // Its generator is private: no ns-3 stream index is consumed, so the channel
+    // realisation is the one the flag-off run sees.
+    CaTblImuModel imu;
+    std::ofstream imuTrace;
+    double neesSum = 0.0;
+    double neesSumNoFix = 0.0;
+    uint64_t neesN = 0;
+    uint64_t neesNNoFix = 0;
+    uint64_t neesOver = 0;
+    if (imuPrior)
+    {
+        imu.Configure(imuParams, seed);
+        if (writeTrace)
+        {
+            // NOT named trace_*.csv: verify_causal_sim.py reads every trace_*.csv as
+            // an arm trace. A separate file also keeps the arm trace's columns fixed.
+            std::ostringstream ifn;
+            ifn << traceDir << "/imu_trace_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                << ".csv";
+            imuTrace.open(ifn.str().c_str());
+            if (!imuTrace.is_open())
+            {
+                std::cerr << "FATAL: cannot open " << ifn.str() << " for writing\n";
+                std::exit(1);
+            }
+            // true* columns are the sensor's realised errors and the trajectory: for
+            // analysis only, never seen by the filter. est* are the filter's beliefs.
+            imuTrace << "t,arm,seed,hadFix,errM,nees,trueHeadingRad,rawHeadingRad,"
+                     << "headingErrTrueRad,thetaEstRad,biasTrueRadS,biasEstRadS,"
+                     << "strideScaleTrue,strideScaleEst,distTrueM,distImuM,"
+                     << "pxx,pxy,pyy\n";
+        }
+    }
 
     // ---- S4 MAC substrate ---------------------------------------------------
     //
@@ -2476,8 +2544,22 @@ RunArm(CaTblPolicyMode mode,
     const uint64_t nSteps = static_cast<uint64_t>(std::floor(durationS / dt));
     for (uint64_t stepIdx = 0; stepIdx < nSteps; ++stepIdx)
     {
+        const Vector prevPos = pos;
         walker.Step(dt);
         pos = walker.Position();
+
+        // C3: what the tag's IMU measures over this cycle's TRUE motion, handed to
+        // the policy for the predict step it is about to take.
+        double imuDistTrue = 0.0;
+        double imuDistMeas = 0.0;
+        if (imuPrior)
+        {
+            const CaTblImuIncrement inc =
+                imu.Step(pos.x - prevPos.x, pos.y - prevPos.y, dt);
+            policy.SetImuIncrement(inc);
+            imuDistTrue = std::hypot(pos.x - prevPos.x, pos.y - prevPos.y);
+            imuDistMeas = inc.distM;
+        }
 
         // Every engine tracks position so its internal correlation/mobility
         // state stays continuous. This costs nothing physically -- no packet is
@@ -3347,6 +3429,46 @@ RunArm(CaTblPolicyMode mode,
         }
         steps++;
 
+        if (imuPrior)
+        {
+            double pxx = 0.0;
+            double pxy = 0.0;
+            double pyy = 0.0;
+            policy.GetPosCov(pxx, pxy, pyy);
+            const double ex = d.estX - pos.x;
+            const double ey = d.estY - pos.y;
+            const double det = pxx * pyy - pxy * pxy;
+            const double nees =
+                (det > 1e-12) ? (pyy * ex * ex - 2.0 * pxy * ex * ey + pxx * ey * ey) / det : -1.0;
+            if (nees >= 0.0)
+            {
+                neesSum += nees;
+                ++neesN;
+                if (nees > 5.991) // chi-square, 2 DOF, 95 %
+                {
+                    ++neesOver;
+                }
+                if (!d.hadFix)
+                {
+                    neesSumNoFix += nees;
+                    ++neesNNoFix;
+                }
+            }
+            if (imuTrace.is_open())
+            {
+                imuTrace << std::fixed << std::setprecision(4) << t << ","
+                         << CaTblPolicyModeName(mode) << "," << seed << "," << (d.hadFix ? 1 : 0)
+                         << "," << err << "," << std::setprecision(6) << nees << ","
+                         << std::setprecision(9) << imu.TrueHeadingRad() << ","
+                         << imu.RawHeadingRad() << "," << imu.TrueHeadingErrRad() << ","
+                         << policy.GetImuHeadingOffsetRad() << "," << imu.TrueBiasRadS() << ","
+                         << policy.GetImuGyroBiasRadS() << "," << imu.TrueStrideScale() << ","
+                         << policy.GetImuStrideScale() << "," << std::setprecision(6)
+                         << imuDistTrue << "," << imuDistMeas << "," << pxx << "," << pxy
+                         << "," << pyy << "\n";
+            }
+        }
+
         if (writeTrace)
         {
             trace << std::fixed << std::setprecision(4) << t << "," << CaTblPolicyModeName(mode)
@@ -3375,6 +3497,15 @@ RunArm(CaTblPolicyMode mode,
     if (writeTrace)
     {
         trace.close();
+    }
+    if (imuTrace.is_open())
+    {
+        imuTrace.close();
+        if (!imuTrace)
+        {
+            std::cerr << "FATAL: IMU trace failed to flush\n";
+            std::exit(1);
+        }
     }
 
     ArmResult res;
@@ -3449,6 +3580,25 @@ RunArm(CaTblPolicyMode mode,
     res.tn = tn;
     res.cyclesInUwbCoverage = inCov;
     res.reinitFallback = policy.GetReinitFallbackCount();
+    if (imuPrior)
+    {
+        res.imuPredicts = policy.GetImuPredicts();
+        // Charged at the radio rail: an LDO from 3.3 V passes the IMU's current, so
+        // the battery sees I x 3.3 V, not I x 1.8 V. That choice is ours.
+        res.imuJ = imuParams.currentMa * 1e-3 *
+                   energy.GetProfile(CA_TBL_TIER_868).supplyVoltageV *
+                   static_cast<double>(steps) * dt;
+        res.neesMean = (neesN > 0) ? neesSum / static_cast<double>(neesN) : -1.0;
+        res.neesMeanNoFix = (neesNNoFix > 0) ? neesSumNoFix / static_cast<double>(neesNNoFix) : -1.0;
+        res.neesFracOver95 =
+            (neesN > 0) ? static_cast<double>(neesOver) / static_cast<double>(neesN) : -1.0;
+        const double deg = M_PI / 180.0;
+        // The filter's theta estimates the IMU's raw-minus-true heading error.
+        res.thetaErrFinalDeg =
+            CaTblImuModel::Wrap(policy.GetImuHeadingOffsetRad() - imu.TrueHeadingErrRad()) / deg;
+        res.biasErrFinalDps = (policy.GetImuGyroBiasRadS() - imu.TrueBiasRadS()) / deg;
+        res.strideErrFinal = policy.GetImuStrideScale() - imu.TrueStrideScale();
+    }
     // EXCLUDE branch census, to stderr and ONLY when the policy is EXCLUDE, so default
     // output -- arm_summary.csv included -- is byte-identical. The registration promised
     // these counters per cell; without them a change in availability cannot be attributed
@@ -4005,7 +4155,85 @@ main(int argc, char* argv[])
                  "realisation. A 'severe' mode keyed on the Markov state was "
                  "deliberately NOT added -- see the CaTblNlosSource comment.",
                  nlosSourceArg);
+    // ---- C3 inertial prior ------------------------------------------------------
+    bool imuPriorArg = false;
+    CaTblImuParams imuParams; // defaults: BMI270 data sheet where cited, ours where not
+    cmd.AddValue("imuPrior",
+                 "Drive the EKF predict step from a simulated body-worn IMU doing "
+                 "pedestrian dead reckoning, instead of constant velocity. False "
+                 "(default) is the filter every committed result was produced "
+                 "under, and leaves every output byte-identical. True applies to "
+                 "EVERY arm, static ones included: an IMU given only to the tiered "
+                 "arm would manufacture an advantage, and its energy is the same "
+                 "for every arm. Writes imu_summary.csv and, with --trace, "
+                 "imu_trace_<arm>_seed<N>.csv; arm_summary.csv keeps its columns. "
+                 "IMU energy is reported separately as imuJ and is NOT added to "
+                 "totalJ, which stays radio-only by the one-tier-charged invariant.",
+                 imuPriorArg);
+    cmd.AddValue("imuGyroNoiseDps",
+                 "Gyro rate noise density, deg/s/sqrt(Hz) -- the angle random walk "
+                 "coefficient. Default 0.007 is the BMI270 data sheet value in "
+                 "performance mode (BST-BMI270-DS000-04 rev 1.2).",
+                 imuParams.gyroNoiseDpsRtHz);
+    cmd.AddValue("imuGyroBiasInitDps",
+                 "One-sigma gyro bias left after the tag's power-on calibration, "
+                 "deg/s. Default 0.15 is the data sheet's TCO_G of 0.015 deg/s/K "
+                 "times a 10 K temperature change after calibration; the 10 K is "
+                 "ours. This is the dominant heading error term, so sweep it before "
+                 "trusting any IMU result.",
+                 imuParams.gyroBiasInitDps);
+    cmd.AddValue("imuGyroBiasGmDps",
+                 "Gyro bias instability as a Gauss-Markov sigma, deg/s. Default "
+                 "0.0014 (5 deg/h) is ours: the BMI270 data sheet does not specify "
+                 "bias instability.",
+                 imuParams.gyroBiasGmDps);
+    cmd.AddValue("imuGyroBiasTauS",
+                 "Gauss-Markov correlation time of the bias, s. Default 300 is ours.",
+                 imuParams.gyroBiasTauS);
+    cmd.AddValue("imuGyroScaleErr",
+                 "One-sigma gyro scale-factor error, fraction. Default 0.004 is the "
+                 "data sheet value after component re-trim; 0.02 without it.",
+                 imuParams.gyroScaleErr);
+    cmd.AddValue("imuHeadingInitDeg",
+                 "One-sigma initial heading alignment error, degrees. Default 10 is "
+                 "ours. There is no magnetometer, so absolute heading is not measured "
+                 "after start; the filter must learn the offset from radio fixes.",
+                 imuParams.headingInitDeg);
+    cmd.AddValue("imuStrideLengthM",
+                 "Nominal stride length, m, used to count steps for the per-step "
+                 "error. Default 0.75 is ours (two steps per second at 1.5 m/s).",
+                 imuParams.strideLengthM);
+    cmd.AddValue("imuStrideScaleErr",
+                 "One-sigma per-run stride-model scale error, fraction. Default 0.03 "
+                 "is ours. Constant for a run, so the filter estimates it as a state "
+                 "rather than treating it as noise.",
+                 imuParams.strideScaleErr);
+    cmd.AddValue("imuStrideStepErr",
+                 "One-sigma per-step length error, fraction of stride. Default 0.05 "
+                 "is ours.",
+                 imuParams.strideStepErr);
+    cmd.AddValue("imuCurrentMa",
+                 "IMU supply current, mA, charged every cycle at the 3.3 V radio rail. "
+                 "Default 0.970 is the data sheet's accelerometer+gyroscope "
+                 "performance-mode figure. At 3600 s that is 11.5 J -- comparable to "
+                 "a whole static_2p4 run's radio energy, which is why it is reported "
+                 "rather than assumed negligible.",
+                 imuParams.currentMa);
     cmd.Parse(argc, argv);
+
+    if (imuPriorArg)
+    {
+        const CaTblImuParams& q = imuParams;
+        if (q.gyroNoiseDpsRtHz < 0.0 || q.gyroBiasInitDps < 0.0 || q.gyroBiasGmDps < 0.0 ||
+            q.gyroScaleErr < 0.0 || q.headingInitDeg < 0.0 || q.strideScaleErr < 0.0 ||
+            q.strideStepErr < 0.0 || q.currentMa < 0.0 || q.strideLengthM <= 0.0 ||
+            q.gyroBiasTauS <= 0.0)
+        {
+            std::cerr << "FATAL: --imu* parameters must be non-negative, and "
+                      << "--imuStrideLengthM and --imuGyroBiasTauS strictly positive\n";
+            return 1;
+        }
+    }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
 
@@ -4289,6 +4517,28 @@ main(int argc, char* argv[])
             << "meanNbr_868,meanNbr_2p4,meanNbr_uwb,blindCycles,nbrInsertions,"
             << "mac_tx,mac_collisions,mac_captures,mac_deliveries\n";
 
+    // C3: a SEPARATE file, opened only under --imuPrior, so a default run's output
+    // set is exactly what it was.
+    std::ofstream imuSummary;
+    const std::string imuSummaryPath = outdir + "/imu_summary.csv";
+    if (imuPriorArg)
+    {
+        imuSummary.open(imuSummaryPath.c_str());
+        if (!imuSummary)
+        {
+            std::cerr << "FATAL: cannot open " << imuSummaryPath << " for writing\n";
+            return 1;
+        }
+        // radioJ is arm_summary's totalJ; systemJ = radioJ + imuJ. imuPredicts must
+        // equal steps -- the mechanism's reachability, written down per row.
+        imuSummary << "arm,seed,steps,imuPredicts,radioJ,imuJ,systemJ,"
+                   << "neesMean,neesMeanNoFix,neesFracOver95,"
+                   << "thetaErrFinalDeg,biasErrFinalDps,strideErrFinal,"
+                   << "gyroNoiseDpsRtHz,gyroBiasInitDps,gyroBiasGmDps,gyroBiasTauS,"
+                   << "gyroScaleErr,headingInitDeg,strideLengthM,strideScaleErr,"
+                   << "strideStepErr,currentMa\n";
+    }
+
     std::cout << "CA-TBL causal simulation (S1 + S2 + S2.5)\n"
               << "  envWide=" << envInt << " vegWide=" << vegWideInt
               << "  envFacility=" << envFacilityInt << " vegFacility=" << vegFacilityInt << "\n"
@@ -4392,7 +4642,9 @@ main(int argc, char* argv[])
                                        anchorRangePeriodS,
                                        anchorMaxConcurrent,
                                        anchorPairsPerEpoch,
-                                       traceDiagnostic);
+                                       traceDiagnostic,
+                                       imuPriorArg,
+                                       imuParams);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the
@@ -4433,6 +4685,31 @@ main(int argc, char* argv[])
                     << r.neighbourInsertions << "," << r.macTx << "," << r.macCollisions << ","
                     << r.macCaptures << "," << r.macDeliveries << "\n";
 
+            if (imuPriorArg)
+            {
+                const CaTblImuParams& q = imuParams;
+                imuSummary << r.arm << "," << r.seed << "," << r.steps << "," << r.imuPredicts
+                           << "," << std::fixed << std::setprecision(9) << r.totalJ << ","
+                           << r.imuJ << "," << (r.totalJ + r.imuJ) << "," << std::setprecision(6)
+                           << r.neesMean << "," << r.neesMeanNoFix << "," << r.neesFracOver95
+                           << "," << r.thetaErrFinalDeg << "," << r.biasErrFinalDps << ","
+                           << r.strideErrFinal << "," << std::setprecision(9)
+                           << q.gyroNoiseDpsRtHz << "," << q.gyroBiasInitDps << ","
+                           << q.gyroBiasGmDps << "," << q.gyroBiasTauS << "," << q.gyroScaleErr
+                           << "," << q.headingInitDeg << "," << q.strideLengthM << ","
+                           << q.strideScaleErr << "," << q.strideStepErr << "," << q.currentMa
+                           << "\n";
+                if (r.imuPredicts != r.steps)
+                {
+                    // An exact count, not a tolerance: every cycle must have taken an
+                    // IMU predict, or part of the run measured the other filter.
+                    std::cerr << "FATAL: " << r.arm << " seed " << r.seed << " took "
+                              << r.imuPredicts << " IMU predicts in " << r.steps
+                              << " cycles\n";
+                    return 1;
+                }
+            }
+
             std::cout << "  " << std::left << std::setw(22) << r.arm << std::right << std::fixed
                       << std::setprecision(3) << std::setw(11) << r.rmseM << std::setw(11)
                       << r.rmseFixedM << std::setw(11) << r.cep50M << std::setw(11) << r.cep95M
@@ -4453,6 +4730,15 @@ main(int argc, char* argv[])
                   << " cycle(s) -- fix covariance unavailable, P seeded from 100 m^2\n";
     }
 
+    if (imuSummary.is_open())
+    {
+        imuSummary.close();
+        if (!imuSummary)
+        {
+            std::cerr << "FATAL: " << imuSummaryPath << " failed to flush\n";
+            return 1;
+        }
+    }
     summary.close();
     if (!summary)
     {
@@ -4463,7 +4749,12 @@ main(int argc, char* argv[])
     }
     // Every stream that this run writes is now closed, which is the precondition
     // for the digest to describe the finished artefact rather than a partial one.
-    if (!AppendOutputDigest(outdir, "arm_summary.csv trace_*.csv"))
+    // The flag-off pattern string is unchanged; the IMU outputs are added only when
+    // they can exist.
+    if (!AppendOutputDigest(outdir,
+                            imuPriorArg ? "arm_summary.csv trace_*.csv imu_summary.csv "
+                                          "imu_trace_*.csv"
+                                        : "arm_summary.csv trace_*.csv"))
     {
         return 1;
     }

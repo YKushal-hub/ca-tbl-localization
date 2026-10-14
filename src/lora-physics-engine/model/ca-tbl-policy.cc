@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 
 namespace ns3
 {
@@ -112,6 +114,8 @@ CaTblPolicyConfig::CaTblPolicyConfig()
 
     processNoiseStdPos = 1.0;
     processNoiseStdVel = 0.5;
+
+    imuPrior = false; // C3; default preserves every committed result
 
     instantEscalate = false;
 }
@@ -378,6 +382,310 @@ CaTblEkf::MahalanobisFromPriorWithR(double zx, double zy, double rxx, double rxy
 }
 
 // ---------------------------------------------------------------------------
+// C3: IMU-driven EKF, state [x, y, theta, b, s]
+// ---------------------------------------------------------------------------
+
+CaTblImuEkf::CaTblImuEkf()
+{
+    Init(0.0, 0.0, 1e4, 0.0, 0.0, 0.0);
+}
+
+void
+CaTblImuEkf::Init(double x,
+                  double y,
+                  double posVar,
+                  double thetaVar,
+                  double biasVar,
+                  double strideVar)
+{
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] = 0.0;
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = 0.0;
+        }
+    }
+    m_x[0] = x;
+    m_x[1] = y;
+    m_P[0][0] = posVar;
+    m_P[1][1] = posVar;
+    m_P[2][2] = thetaVar;
+    m_P[3][3] = biasVar;
+    m_P[4][4] = strideVar;
+    SnapshotPrior();
+}
+
+void
+CaTblImuEkf::SnapshotPrior()
+{
+    for (int i = 0; i < N; ++i)
+    {
+        m_xPrior[i] = m_x[i];
+        for (int j = 0; j < N; ++j)
+        {
+            m_PPrior[i][j] = m_P[i][j];
+        }
+    }
+}
+
+void
+CaTblImuEkf::Symmetrise()
+{
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = i + 1; j < N; ++j)
+        {
+            const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+            m_P[i][j] = avg;
+            m_P[j][i] = avg;
+        }
+    }
+}
+
+void
+CaTblImuEkf::Predict(double dt,
+                     double distM,
+                     double rawHeadingRad,
+                     double qStep2,
+                     double qTheta2,
+                     double qBias2)
+{
+    const double theta = m_x[2] + m_x[3] * dt;
+    const double phi = rawHeadingRad - theta;
+    const double c = std::cos(phi);
+    const double s = std::sin(phi);
+    const double onePlusS = 1.0 + m_x[4];
+    // Guard only against a pathological estimate; s is a few percent in practice.
+    const double denom = (onePlusS > 0.1) ? onePlusS : 0.1;
+    const double D = distM / denom;
+    const double dDds = -distM / (denom * denom);
+
+    m_x[0] += D * c;
+    m_x[1] += D * s;
+    m_x[2] = theta;
+    // m_x[3] (bias) and m_x[4] (stride scale) are constant under the prediction.
+
+    // F = d(x', y', theta', b', s') / d(x, y, theta, b, s). phi depends on theta and
+    // on b through theta' = theta + b dt, hence the dt in column 3.
+    double F[N][N] = {};
+    for (int i = 0; i < N; ++i)
+    {
+        F[i][i] = 1.0;
+    }
+    F[0][2] = D * s;
+    F[0][3] = D * s * dt;
+    F[0][4] = dDds * c;
+    F[1][2] = -D * c;
+    F[1][3] = -D * c * dt;
+    F[1][4] = dDds * s;
+    F[2][3] = dt;
+
+    double FP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            double acc = 0.0;
+            for (int k = 0; k < N; ++k)
+            {
+                acc += F[i][k] * m_P[k][j];
+            }
+            FP[i][j] = acc;
+        }
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            double acc = 0.0;
+            for (int k = 0; k < N; ++k)
+            {
+                acc += FP[i][k] * F[j][k];
+            }
+            newP[i][j] = acc;
+        }
+    }
+
+    // Q = qTheta2 g g^T + qStep2 u u^T + qBias2 e_b e_b^T. Heading noise added to
+    // theta' moves the position through phi: d x'/d theta' = D sin(phi), so its
+    // shaping vector is g = [D s, -D c, 1, 0, 0], not the theta axis alone. Adding it
+    // to theta only would leave the position block unaware of heading noise until
+    // the NEXT cycle -- a one-cycle lag in the very covariance the integrity check
+    // reads.
+    const double g[N] = {D * s, -D * c, 1.0, 0.0, 0.0};
+    const double u[N] = {c, s, 0.0, 0.0, 0.0};
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] += qTheta2 * g[i] * g[j] + qStep2 * u[i] * u[j];
+        }
+    }
+    newP[3][3] += qBias2;
+
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+    SnapshotPrior();
+}
+
+void
+CaTblImuEkf::ProcessNoise(const CaTblImuParams& p,
+                          double dt,
+                          double distM,
+                          double turnRad,
+                          double& qStep2,
+                          double& qTheta2,
+                          double& qBias2)
+{
+    const double deg = M_PI / 180.0;
+    const double n = p.gyroNoiseDpsRtHz * deg;
+    qTheta2 = n * n * dt + (p.gyroScaleErr * turnRad) * (p.gyroScaleErr * turnRad);
+    qStep2 = p.strideStepErr * p.strideStepErr * p.strideLengthM * distM;
+    qBias2 = 0.0;
+    if (p.gyroBiasTauS > 0.0)
+    {
+        const double g = p.gyroBiasGmDps * deg;
+        qBias2 = g * g * (1.0 - std::exp(-2.0 * dt / p.gyroBiasTauS));
+    }
+}
+
+void
+CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
+{
+    m_x[0] = x;
+    m_x[1] = y;
+    for (int j = 0; j < N; ++j)
+    {
+        m_P[0][j] = 0.0;
+        m_P[j][0] = 0.0;
+        m_P[1][j] = 0.0;
+        m_P[j][1] = 0.0;
+    }
+    m_P[0][0] = posVar;
+    m_P[1][1] = posVar;
+    SnapshotPrior();
+}
+
+void
+CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    // The same sequential scalar update as CaTblEkf::Update, over five states. A range
+    // depends on position only, so H = [dx/r, dy/r, 0, 0, 0]; theta, b and s are
+    // corrected through their covariance with position, which is how they are learned.
+    const size_t n = std::min(meas.size(), varM2.size());
+    for (size_t k = 0; k < n; ++k)
+    {
+        const double dx = m_x[0] - meas[k].anchorX;
+        const double dy = m_x[1] - meas[k].anchorY;
+        const double rPred = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rPred, 1e-6);
+        const double H0 = dx / rSafe;
+        const double H1 = dy / rSafe;
+
+        double PH[N];
+        for (int i = 0; i < N; ++i)
+        {
+            PH[i] = m_P[i][0] * H0 + m_P[i][1] * H1;
+        }
+        const double S = H0 * PH[0] + H1 * PH[1] + varM2[k];
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        double K[N];
+        for (int i = 0; i < N; ++i)
+        {
+            K[i] = PH[i] / S;
+        }
+        const double innovation = meas[k].rangeM - rPred;
+        for (int i = 0; i < N; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+        double newP[N][N];
+        for (int i = 0; i < N; ++i)
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                newP[i][j] = m_P[i][j] - K[i] * (H0 * m_P[0][j] + H1 * m_P[1][j]);
+            }
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                m_P[i][j] = newP[i][j];
+            }
+        }
+        Symmetrise();
+    }
+}
+
+void
+CaTblImuEkf::RevertToPrior()
+{
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] = m_xPrior[i];
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = m_PPrior[i][j];
+        }
+    }
+}
+
+void
+CaTblImuEkf::InflatePos(double factor)
+{
+    m_P[0][0] *= factor;
+    m_P[1][1] *= factor;
+}
+
+double
+CaTblImuEkf::MahalanobisFromPrior(double zx, double zy) const
+{
+    // Same statistic, same documented mis-specification, as CaTblEkf's: kept so the
+    // two filters answer the integrity question identically under mahalUseR=false.
+    const double dx = zx - m_xPrior[0];
+    const double dy = zy - m_xPrior[1];
+    const double a = m_PPrior[0][0];
+    const double b = m_PPrior[0][1];
+    const double c = m_PPrior[1][0];
+    const double d = m_PPrior[1][1];
+    const double det = a * d - b * c;
+    if (std::fabs(det) < 1e-12)
+    {
+        return 0.0;
+    }
+    return dx * ((d / det) * dx + (-b / det) * dy) + dy * ((-c / det) * dx + (a / det) * dy);
+}
+
+double
+CaTblImuEkf::MahalanobisFromPriorWithR(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    const double dx = zx - m_xPrior[0];
+    const double dy = zy - m_xPrior[1];
+    const double a = m_PPrior[0][0] + rxx;
+    const double b = m_PPrior[0][1] + rxy;
+    const double c = m_PPrior[1][0] + rxy;
+    const double d = m_PPrior[1][1] + ryy;
+    const double det = a * d - b * c;
+    if (std::fabs(det) < 1e-12)
+    {
+        return 0.0;
+    }
+    return dx * ((d / det) * dx + (-b / det) * dy) + dy * ((-c / det) * dx + (a / det) * dy);
+}
+
+// ---------------------------------------------------------------------------
 // Policy
 // ---------------------------------------------------------------------------
 
@@ -408,6 +716,12 @@ CaTblPolicy::CaTblPolicy()
     {
         m_tierCycles[i] = 0;
     }
+    // C3. Assigned here rather than in the initialiser list, whose order already
+    // differs from the declaration order.
+    m_haveImuPending = false;
+    m_prevRawHeading = 0.0;
+    m_haveRawHeading = false;
+    m_imuPredicts = 0;
 }
 
 void
@@ -435,8 +749,65 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
 void
 CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
 {
-    m_ekf.Init(x0, y0, 0.0, 0.0, posStdM * posStdM, velStdMps * velStdMps);
+    if (m_config.imuPrior)
+    {
+        // The filter starts believing alignment, bias and stride scale are zero, with
+        // the data-sheet spreads as its variances. The bias variance carries both the
+        // turn-on residual and the Gauss-Markov part, because both are present at t=0.
+        const double deg = M_PI / 180.0;
+        const CaTblImuParams& p = m_config.imu;
+        const double th = p.headingInitDeg * deg;
+        const double b0 = p.gyroBiasInitDps * deg;
+        const double bg = p.gyroBiasGmDps * deg;
+        m_imuEkf.Init(x0,
+                      y0,
+                      posStdM * posStdM,
+                      th * th,
+                      b0 * b0 + bg * bg,
+                      p.strideScaleErr * p.strideScaleErr);
+        m_haveImuPending = false;
+        m_haveRawHeading = false;
+    }
+    else
+    {
+        m_ekf.Init(x0, y0, 0.0, 0.0, posStdM * posStdM, velStdMps * velStdMps);
+    }
     m_deescalateCounter = 0;
+}
+
+void
+CaTblPolicy::SetImuIncrement(const CaTblImuIncrement& inc)
+{
+    m_imuPending = inc;
+    m_haveImuPending = inc.valid;
+}
+
+void
+CaTblPolicy::PredictWithImu(double dt)
+{
+    if (!m_haveImuPending)
+    {
+        // Not a recoverable condition. Skipping the predict would freeze the estimate
+        // for a cycle and read downstream as an unusually confident filter.
+        std::cerr << "FATAL: CaTblPolicy::Step with imuPrior set but no IMU increment "
+                  << "supplied this cycle -- call SetImuIncrement() first\n";
+        std::abort();
+    }
+    const double dist = m_imuPending.distM;
+    const double raw = m_imuPending.rawHeadingRad;
+    // The rotation is estimated from the raw heading change, which is all the tag has;
+    // it includes bias and noise, which at these magnitudes is a second-order
+    // overstatement of the scale-factor term.
+    const double turn = m_haveRawHeading ? CaTblImuModel::Wrap(raw - m_prevRawHeading) : 0.0;
+    double qStep2 = 0.0;
+    double qTheta2 = 0.0;
+    double qBias2 = 0.0;
+    CaTblImuEkf::ProcessNoise(m_config.imu, dt, dist, turn, qStep2, qTheta2, qBias2);
+    m_imuEkf.Predict(dt, dist, raw, qStep2, qTheta2, qBias2);
+    m_prevRawHeading = raw;
+    m_haveRawHeading = true;
+    m_haveImuPending = false;
+    m_imuPredicts++;
 }
 
 double
@@ -764,7 +1135,14 @@ CaTblPolicy::Step(double dt,
 
     m_tierCycles[m_tier]++;
 
-    m_ekf.Predict(dt);
+    if (m_config.imuPrior)
+    {
+        PredictWithImu(dt);
+    }
+    else
+    {
+        m_ekf.Predict(dt);
+    }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
     // somewhere". A concurrent-tier caller substitutes tier-1 ranges when the active
@@ -783,9 +1161,9 @@ CaTblPolicy::Step(double dt,
     {
         m_noFixCycles++;
         d.hadFix = false;
-        d.estX = m_ekf.X();
-        d.estY = m_ekf.Y();
-        d.traceSigma = m_ekf.TracePos();
+        d.estX = Filt().X();
+        d.estY = Filt().Y();
+        d.traceSigma = Filt().TracePos();
         d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
 
         // A dropout is evidence the current tier is not delivering. Count it
@@ -893,7 +1271,7 @@ CaTblPolicy::Step(double dt,
         double grxx = 0.0;
         double grxy = 0.0;
         double gryy = 0.0;
-        if (RawMultilaterationWeighted(meas, varM2, m_ekf.PriorX(), m_ekf.PriorY(),
+        if (RawMultilaterationWeighted(meas, varM2, Filt().PriorX(), Filt().PriorY(),
                                        gzx, gzy, grxx, grxy, gryy))
         {
             const double tr = grxx + gryy;
@@ -939,8 +1317,8 @@ CaTblPolicy::Step(double dt,
             double ryy = 0.0;
             haveFix = RawMultilaterationWeighted(meas,
                                                  varM2,
-                                                 m_ekf.PriorX(),
-                                                 m_ekf.PriorY(),
+                                                 Filt().PriorX(),
+                                                 Filt().PriorY(),
                                                  zx,
                                                  zy,
                                                  rxx,
@@ -948,7 +1326,7 @@ CaTblPolicy::Step(double dt,
                                                  ryy);
             if (haveFix)
             {
-                mahal = m_ekf.MahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
+                mahal = Filt().MahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
                 fixRxx = rxx;
                 fixRxy = rxy;
                 fixRyy = ryy;
@@ -956,10 +1334,10 @@ CaTblPolicy::Step(double dt,
         }
         else
         {
-            haveFix = RawMultilateration(meas, m_ekf.PriorX(), m_ekf.PriorY(), zx, zy);
+            haveFix = RawMultilateration(meas, Filt().PriorX(), Filt().PriorY(), zx, zy);
             if (haveFix)
             {
-                mahal = m_ekf.MahalanobisFromPrior(zx, zy);
+                mahal = Filt().MahalanobisFromPrior(zx, zy);
             }
         }
 
@@ -1026,18 +1404,18 @@ CaTblPolicy::Step(double dt,
                     double sm = 0.0;
                     if (m_config.mahalUseR)
                     {
-                        ok = RawMultilaterationWeighted(sub, subVar, m_ekf.PriorX(),
-                                                        m_ekf.PriorY(), sx, sy,
+                        ok = RawMultilaterationWeighted(sub, subVar, Filt().PriorX(),
+                                                        Filt().PriorY(), sx, sy,
                                                         srxx, srxy, sryy);
                         if (ok)
                         {
-                            sm = m_ekf.MahalanobisFromPriorWithR(sx, sy, srxx, srxy, sryy);
+                            sm = Filt().MahalanobisFromPriorWithR(sx, sy, srxx, srxy, sryy);
                         }
                     }
                     else
                     {
-                        ok = RawMultilateration(sub, m_ekf.PriorX(), m_ekf.PriorY(), sx, sy);
-                        if (ok) { sm = m_ekf.MahalanobisFromPrior(sx, sy); }
+                        ok = RawMultilateration(sub, Filt().PriorX(), Filt().PriorY(), sx, sy);
+                        if (ok) { sm = Filt().MahalanobisFromPrior(sx, sy); }
                     }
                     if (ok && sm <= m_config.mahalanobisThreshold)
                     {
@@ -1055,7 +1433,7 @@ CaTblPolicy::Step(double dt,
                         sub.push_back(meas[k]);
                         if (k < varM2.size()) { subVar.push_back(varM2[k]); }
                     }
-                    m_ekf.Update(sub, subVar);
+                    Filt().Update(sub, subVar);
                     m_excludeCleared++;
                     m_excludeRangesDropped++;
                     m_lastExcludeCleared = true;
@@ -1072,7 +1450,7 @@ CaTblPolicy::Step(double dt,
             }
             if (!recovered)
             {
-                m_ekf.RevertToPrior();
+                Filt().RevertToPrior();
             }
         }
         else if (m_config.suspectRecovery == CA_TBL_RECOVERY_BOUNDED &&
@@ -1081,7 +1459,7 @@ CaTblPolicy::Step(double dt,
             // Force-accept. Caps the lock-out at N by construction. The cost, stated:
             // during a genuine persistent fault this fuses the very measurement the
             // gate identified as faulty.
-            m_ekf.Update(meas, varM2);
+            Filt().Update(meas, varM2);
             recovered = true;
         }
         else if (m_config.suspectRecovery == CA_TBL_RECOVERY_REINIT &&
@@ -1091,7 +1469,7 @@ CaTblPolicy::Step(double dt,
             // filter-free fix, which is already computed for the test itself. Unlike
             // BOUNDED this replaces the prior instead of forcing data through it, and
             // it recovers the cycle after a transient fault clears.
-            m_ekf.RevertToPrior();
+            Filt().RevertToPrior();
             double pv = 100.0;
             if ((fixRxx + fixRyy) > 0.0)
             {
@@ -1101,17 +1479,27 @@ CaTblPolicy::Step(double dt,
             {
                 m_reinitFallbackCount++;
             }
-            m_ekf.Init(zx, zy, m_ekf.Vx(), m_ekf.Vy(), pv, 100.0);
+            if (m_config.imuPrior)
+            {
+                // Heading offset, bias and stride scale are properties of the sensor,
+                // not of the rejected fixes; resetting them would discard what the
+                // filter has learned about the IMU along with the bad position.
+                m_imuEkf.ReinitPosition(zx, zy, pv);
+            }
+            else
+            {
+                m_ekf.Init(zx, zy, m_ekf.Vx(), m_ekf.Vy(), pv, 100.0);
+            }
             recovered = true;
         }
         else
         {
-            m_ekf.RevertToPrior();
+            Filt().RevertToPrior();
             if (m_config.suspectRecovery == CA_TBL_RECOVERY_INFLATE)
             {
                 // Rejecting is the filter asserting model and data disagree; the
                 // honest consequence is more uncertainty, not the same uncertainty.
-                m_ekf.InflatePos(m_config.suspectInflateFactor);
+                Filt().InflatePos(m_config.suspectInflateFactor);
                 recovered = true;
             }
         }
@@ -1125,10 +1513,10 @@ CaTblPolicy::Step(double dt,
     else
     {
         m_consecutiveRejections = 0;
-        m_ekf.Update(meas, varM2);
+        Filt().Update(meas, varM2);
     }
 
-    const double traceSigma = m_ekf.TracePos();
+    const double traceSigma = Filt().TracePos();
     double sumVar = 0.0;
     for (size_t i = 0; i < varM2.size(); ++i)
     {
@@ -1138,7 +1526,7 @@ CaTblPolicy::Step(double dt,
     d.meanSigmaRawM =
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
-    const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
+    const double gdop = ComputeGdop(Filt().X(), Filt().Y(), meas);
     const double pcs =
         ComputePcs(traceSigma, gdop, nLos, static_cast<uint32_t>(meas.size()), hopCount, sigmaGeoM);
 
@@ -1146,8 +1534,8 @@ CaTblPolicy::Step(double dt,
     d.gdop = gdop;
     d.pcs = pcs;
     d.sigmaGeoM = sigmaGeoM;
-    d.estX = m_ekf.X();
-    d.estY = m_ekf.Y();
+    d.estX = Filt().X();
+    d.estY = Filt().Y();
 
     // ------------------------------------------------------------- decision --
 
@@ -1245,8 +1633,8 @@ CaTblPolicy::Step(double dt,
                 uint32_t vis = 0;
                 for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
                 {
-                    const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
-                    const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+                    const double dx = m_config.uwbAnchorX[i] - Filt().X();
+                    const double dy = m_config.uwbAnchorY[i] - Filt().Y();
                     // 2-D. Anchors sit at z = 2.5 and the node at z = 1.5, so the
                     // slant range exceeds this by under 0.03 m at a 20 m radius.
                     if (dx * dx + dy * dy <= r2)

@@ -4,11 +4,14 @@
 # Direction 1: the nominal model must PASS scripts/imu_closed_form_check.py.
 # Direction 2: each fixture breaks ONE term in the model while the validator prints
 # nominal parameters -- an implementation silently disagreeing with its own spec, the
-# failure class the prior study's Python IMU exhibited three ways. Each must FAIL, and
-# must fail on the case that names the broken term. A check that fails for the wrong
-# reason is not evidence that it can see the right one, so the case is asserted.
+# failure class the prior study's Python IMU exhibited three ways. The last two break
+# the FILTER instead: no stride-scale state (the per-run error treated as white
+# noise), and zero process noise. Both must push the position NEES out of its band.
+# Each must FAIL, and must fail on the case that names the broken term. A check that
+# fails for the wrong reason is not evidence that it can see the right one, so the case
+# is asserted.
 #
-# Runs in seconds: no network simulation, only the sensor model.
+# Runs in seconds: no network simulation, only the sensor model and the filter.
 
 set -u
 set -o pipefail
@@ -21,7 +24,7 @@ RC=0
 
 [ -x "$BIN" ] || { printf 'FIXTURE BROKEN: no binary at %s -- build first\n' "$BIN"; exit 2; }
 
-printf 'G17 IMU model -- nominal must pass, eight broken models must fail on their own term\n\n'
+printf 'G17 IMU model and filter -- nominal must pass, ten broken variants must fail on their own term\n\n'
 
 # ---- direction 1 --------------------------------------------------------------
 if ! "$BIN" --adevOut="$TMP/adev_none.txt" >"$TMP/none.txt" 2>"$TMP/none.err"; then
@@ -45,7 +48,9 @@ for spec in \
     "align_drop:align/" \
     "stride_scale_drop:sscale/" \
     "stride_step_x2var:sstep/" \
-    "gscale_drop:gscale/"
+    "gscale_drop:gscale/" \
+    "filter_no_stride_state:filter/" \
+    "filter_q_zero:filter/"
 do
     fx=${spec%%:*}
     want=${spec#*:}

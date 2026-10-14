@@ -49,8 +49,12 @@ import sys
 DEG = math.pi / 180.0
 
 
+NEES_BAND = (1.6, 2.6)  # fixed before any run; see the filter test's header comment
+
+
 def parse(lines):
     params, cases, stats, fixture = {}, {}, {}, None
+    filt = {}
     for raw in lines:
         f = raw.strip().split(",")
         if not f or not f[0]:
@@ -64,7 +68,9 @@ def parse(lines):
             cases[f[1]] = {k: float(v) for k, v in kv.items()}
         elif f[0] == "stat":
             stats[(f[1], f[2])] = (float(f[3]), float(f[4]))
-    return params, cases, stats, fixture
+        elif f[0] == "filt":
+            filt[f[2]] = (float(f[3]), int(f[4]))
+    return params, cases, stats, fixture, filt
 
 
 def heading_cov(p, n, dt):
@@ -165,14 +171,14 @@ def main(argv):
     if len(argv) < 2:
         print("usage: imu_closed_form_check.py <validator-stdout> [adev-stream]")
         return 2
-    params, cases, stats, fixture = parse(open(argv[1]))
+    params, cases, stats, fixture, filt = parse(open(argv[1]))
     print("IMU closed-form check  (fixture reported by validator: %s)" % fixture)
     if not cases:
         print("  ERROR no cases in %s -- the validator did not run" % argv[1])
         return 2
     failures = []
     for name, c in cases.items():
-        if name == "adev":
+        if name in ("adev", "filter"):
             continue
         p = params[name]
         mc = int(c["mc"])
@@ -198,6 +204,22 @@ def main(argv):
                 failures.append("%s/%s" % (name, metric))
                 continue
             judge(name, metric, mc, stats[(name, metric)], exp[metric], kv, failures)
+    if "filter" in cases:
+        # Position NEES of the IMU filter: chi-square, 2 DOF, mean 2.0 if the filter's
+        # covariance is honest. Scored separately in fix and outage cycles, because an
+        # overconfident dead-reckoning prior shows up only once the fixes stop.
+        lo, hi = NEES_BAND
+        for block in ("fix", "outage"):
+            if block not in filt:
+                print("  FAIL filter  %-6s missing from validator output" % block)
+                failures.append("filter/%s" % block)
+                continue
+            mean, count = filt[block]
+            ok = lo <= mean <= hi and count > 0
+            print("  %-4s filter  %-6s mean NEES %.3f over %d cycles (band %.1f-%.1f, "
+                  "consistent = 2.0)" % ("OK" if ok else "FAIL", block, mean, count, lo, hi))
+            if not ok:
+                failures.append("filter/%s" % block)
     if "adev" in cases:
         if len(argv) < 3:
             print("  FAIL adev    stream path not given")

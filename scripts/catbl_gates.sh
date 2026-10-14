@@ -452,11 +452,12 @@ finish G13
 # ------------------- G17: IMU error model against its closed forms, both directions
 # The C3 inertial prior rests on CaTblImuModel. Its expected statistics are computed in
 # closed form by scripts/imu_closed_form_check.py from the printed parameters, sharing
-# no code with the model. The fixture script runs the nominal model (must pass) and
-# eight models each broken in one term (each must fail on THAT term's case). A G17
+# no code with the model. The fixture script runs the nominal model (must pass), eight
+# models each broken in one term, and two broken filters -- no stride-scale state, zero
+# process noise -- scored on position NEES. Each must fail on THAT term's case. A G17
 # that passes without its fixtures having failed is not evidence. Seconds, no network
 # simulation. G14 and G15 are reserved by src/catbl-propagation-study/DEFECTS.md.
-printf '\n--- G17 IMU error model: closed forms and eight negative fixtures ---\n'
+printf '\n--- G17 IMU error model: closed forms, filter NEES, ten negative fixtures ---\n'
 bash scripts/catbl_imu_fixture.sh || fail G17
 finish G17
 

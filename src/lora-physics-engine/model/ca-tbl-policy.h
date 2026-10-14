@@ -39,6 +39,7 @@
  */
 
 #include "ca-tbl-energy-model.h"
+#include "ca-tbl-imu-model.h"
 
 #include <cstdint>
 #include <string>
@@ -413,6 +414,23 @@ struct CaTblPolicyConfig
     double processNoiseStdPos;
     double processNoiseStdVel;
 
+    /**
+     * C3: drive the predict step from IMU dead reckoning instead of constant
+     * velocity. Default false preserves every committed result byte-for-byte.
+     *
+     * When true the EKF state is reinterpreted as [x, y, theta, b]: theta is the
+     * offset between the IMU's integrated heading and the map heading, b the gyro
+     * bias. Neither is measured directly; both become observable through the
+     * position corrections that range updates make, because a heading error bends
+     * the dead-reckoned path. Range updates, the integrity check and PCS read only
+     * the position block, so none of them changes form.
+     *
+     * The filter is told the DATA-SHEET parameters in `imu`, never the realised
+     * errors -- those live in CaTblImuModel, on the truth side.
+     */
+    bool imuPrior;
+    CaTblImuParams imu; //!< what the FILTER assumes about the sensor
+
     bool instantEscalate; //!< if true, a new tier takes effect the same cycle
 
     /**
@@ -498,13 +516,43 @@ struct CaTblDecision
 };
 
 /**
+ * \brief What the policy needs from a filter: a position estimate, its prior, a
+ *        range update, and the integrity-check statistics over the position block.
+ *
+ * C3 introduced a second filter (CaTblImuEkf) whose state is not [x, y, vx, vy].
+ * The policy reaches whichever is active through this interface, so the
+ * constant-velocity filter's arithmetic is not edited and its results cannot move.
+ */
+class CaTblFilter
+{
+  public:
+    virtual ~CaTblFilter() = default;
+    virtual void Update(const std::vector<CaTblRangeMeasurement>& meas,
+                        const std::vector<double>& varM2) = 0;
+    virtual void RevertToPrior() = 0;
+    virtual void InflatePos(double factor) = 0;
+    virtual double X() const = 0;
+    virtual double Y() const = 0;
+    virtual double TracePos() const = 0;
+    virtual double PriorX() const = 0;
+    virtual double PriorY() const = 0;
+    virtual double MahalanobisFromPrior(double zx, double zy) const = 0;
+    virtual double MahalanobisFromPriorWithR(double zx,
+                                             double zy,
+                                             double rxx,
+                                             double rxy,
+                                             double ryy) const = 0;
+    virtual void PosCov(double& pxx, double& pxy, double& pyy) const = 0;
+};
+
+/**
  * \brief Range-only EKF over the constant-velocity state [x, y, vx, vy].
  *
  * h(x) = ||pos - anchor|| is nonlinear, so the Jacobian is recomputed at every
  * update rather than held fixed -- a wrong or stale Jacobian is the single most
  * common EKF defect and is worth stating explicitly.
  */
-class CaTblEkf
+class CaTblEkf : public CaTblFilter
 {
   public:
     CaTblEkf();
@@ -515,28 +563,37 @@ class CaTblEkf
     /** Constant-velocity prediction. Stores the prior for the integrity test. */
     void Predict(double dt);
 
+    /** Position covariance block, for consistency diagnostics (NEES). */
+    void PosCov(double& pxx, double& pxy, double& pyy) const override
+    {
+        pxx = m_P[0][0];
+        pxy = m_P[0][1];
+        pyy = m_P[1][1];
+    }
+
     /** Sequential scalar update with per-measurement variance. */
-    void Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void Update(const std::vector<CaTblRangeMeasurement>& meas,
+                const std::vector<double>& varM2) override;
 
     /** Discard this cycle's measurement: keep the prior as the posterior. */
-    void RevertToPrior();
+    void RevertToPrior() override;
 
     /** Scale the position block of P. Used by CA_TBL_RECOVERY_INFLATE so that a
      *  rejection widens the gate on the next cycle instead of leaving it unchanged. */
-    void InflatePos(double factor)
+    void InflatePos(double factor) override
     {
         m_P[0][0] *= factor;
         m_P[1][1] *= factor;
     }
 
-    double X() const { return m_x[0]; }
-    double Y() const { return m_x[1]; }
+    double X() const override { return m_x[0]; }
+    double Y() const override { return m_x[1]; }
     double Vx() const { return m_x[2]; }
     double Vy() const { return m_x[3]; }
 
-    double TracePos() const { return m_P[0][0] + m_P[1][1]; }
-    double PriorX() const { return m_xPrior[0]; }
-    double PriorY() const { return m_xPrior[1]; }
+    double TracePos() const override { return m_P[0][0] + m_P[1][1]; }
+    double PriorX() const override { return m_xPrior[0]; }
+    double PriorY() const override { return m_xPrior[1]; }
 
     /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF.
      *
@@ -547,7 +604,7 @@ class CaTblEkf
      *  error ~50% of true distance), which is why every firing observed at
      *  boxHalf 3000 was on a tier-1 fallback fix. Kept as the default only so the
      *  pre-existing baseline remains reproducible -- see MahalanobisFromPriorWithR. */
-    double MahalanobisFromPrior(double zx, double zy) const;
+    double MahalanobisFromPrior(double zx, double zy) const override;
 
     /** As above but forming S = P_prior_pos + Rfix, with \p rxx/rxy/ryy the
      *  covariance of the raw multilateration fix. This is the correctly specified
@@ -556,7 +613,7 @@ class CaTblEkf
                                      double zy,
                                      double rxx,
                                      double rxy,
-                                     double ryy) const;
+                                     double ryy) const override;
 
   private:
     double m_x[4];
@@ -565,6 +622,128 @@ class CaTblEkf
     double m_PPrior[4][4];
     double m_qPos;
     double m_qVel;
+};
+
+/**
+ * \brief C3: range-only EKF whose predict step is IMU dead reckoning.
+ *
+ * State [x, y, theta, b, s]:
+ *   theta  offset between the IMU's integrated heading and the map heading, rad
+ *   b      gyro bias, rad/s
+ *   s      stride-model scale error, fraction
+ *
+ * None of theta, b or s is measured. They become observable through the position
+ * corrections range updates make: a heading offset bends the dead-reckoned path
+ * sideways, a stride error stretches it along track.
+ *
+ * WHY s IS A STATE AND NOT PROCESS NOISE. The stride scale error is one number for
+ * the whole run. Modelled as white noise it would grow like sqrt(n) when it really
+ * grows like n: at the nominal 3 % over a 120 s outage the filter would claim
+ * 0.78 m along-track against a true 5.4 m -- seven times overconfident on exactly
+ * the cycles where a fix returns after a gap. An overconfident prior there makes
+ * the integrity check fire on a correct fix. The same argument puts b in the state.
+ *
+ * A separate class rather than a mode of CaTblEkf so the constant-velocity filter's
+ * code -- and therefore every committed result -- is not touched at all.
+ */
+class CaTblImuEkf : public CaTblFilter
+{
+  public:
+    static const int N = 5;
+
+    CaTblImuEkf();
+
+    /** All cross-covariances zero; theta = b = s = 0 with the given variances. */
+    void Init(double x,
+              double y,
+              double posVar,
+              double thetaVar,
+              double biasVar,
+              double strideVar);
+
+    /**
+     * Dead-reckoning prediction from one cycle of IMU output. Stores the prior.
+     *
+     *   theta' = theta + b dt                 bias accumulates into heading
+     *   phi    = rawHeading - theta'          map heading of this cycle's step
+     *   D      = dist / (1 + s)               stride-corrected distance
+     *   x' = x + D cos(phi),  y' = y + D sin(phi),  b' = b,  s' = s
+     *
+     * \param qStep2   per-step stride noise variance along the direction of travel,
+     *                 m^2 (the per-RUN scale error is the state s, not noise)
+     * \param qTheta2  variance added to theta this cycle, rad^2. It moves the
+     *                 position through phi, so it is propagated with the heading
+     *                 Jacobian rather than added to the position block alone
+     * \param qBias2   random-walk variance added to b, (rad/s)^2
+     */
+    void Predict(double dt,
+                 double distM,
+                 double rawHeadingRad,
+                 double qStep2,
+                 double qTheta2,
+                 double qBias2);
+
+    /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
+    void ReinitPosition(double x, double y, double posVar);
+
+    /**
+     * Process noise for one cycle, from the ASSUMED sensor parameters only -- never
+     * from a realised error. One definition, used by the policy and by the validator's
+     * consistency test, so the thing tested is the thing that runs.
+     *
+     *   qTheta2 = N^2 dt + (scale_err * turn)^2   angle random walk, plus scale factor
+     *                                            acting on this cycle's rotation
+     *   qStep2  = step_err^2 * L * dist           per-step stride noise; the per-run
+     *                                            scale error is the state s, not noise
+     *   qBias2  = sigma_gm^2 (1 - exp(-2 dt/tau)) Gauss-Markov increment, applied as a
+     *                                            random walk: never decays where the
+     *                                            true process does, so it errs wide
+     *
+     * \param turnRad  rotation this cycle as the tag sees it (raw heading change)
+     */
+    static void ProcessNoise(const CaTblImuParams& p,
+                             double dt,
+                             double distM,
+                             double turnRad,
+                             double& qStep2,
+                             double& qTheta2,
+                             double& qBias2);
+
+    void Update(const std::vector<CaTblRangeMeasurement>& meas,
+                const std::vector<double>& varM2) override;
+    void RevertToPrior() override;
+    void InflatePos(double factor) override;
+    double X() const override { return m_x[0]; }
+    double Y() const override { return m_x[1]; }
+    double TracePos() const override { return m_P[0][0] + m_P[1][1]; }
+    double PriorX() const override { return m_xPrior[0]; }
+    double PriorY() const override { return m_xPrior[1]; }
+    double MahalanobisFromPrior(double zx, double zy) const override;
+    double MahalanobisFromPriorWithR(double zx,
+                                     double zy,
+                                     double rxx,
+                                     double rxy,
+                                     double ryy) const override;
+    void PosCov(double& pxx, double& pxy, double& pyy) const override
+    {
+        pxx = m_P[0][0];
+        pxy = m_P[0][1];
+        pyy = m_P[1][1];
+    }
+
+    double HeadingOffset() const { return m_x[2]; }
+    double GyroBias() const { return m_x[3]; }
+    double StrideScale() const { return m_x[4]; }
+    double Var(int i) const { return m_P[i][i]; }
+
+  private:
+    void SnapshotPrior();
+    void Symmetrise();
+
+    double m_x[N];
+    double m_P[N][N];
+    double m_xPrior[N];
+    double m_PPrior[N][N];
 };
 
 /**
@@ -685,6 +864,23 @@ class CaTblPolicy
     uint64_t GetSuspectCount() const { return m_suspects; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
+    /**
+     * C3: hand the policy this cycle's IMU output. Must be called before every
+     * Step() when CaTblPolicyConfig::imuPrior is set; Step() aborts if it was not,
+     * because a silently skipped predict would freeze the estimate and read as a
+     * working filter with suspiciously low process noise.
+     */
+    void SetImuIncrement(const CaTblImuIncrement& inc);
+    //! Predict steps actually driven by the IMU. The reachability evidence for the
+    //! mechanism: on an IMU run it must equal the step count, on any other run 0.
+    uint64_t GetImuPredicts() const { return m_imuPredicts; }
+    //! IMU filter estimates, for the IMU trace. Meaningless when imuPrior is off.
+    double GetImuHeadingOffsetRad() const { return m_imuEkf.HeadingOffset(); }
+    double GetImuGyroBiasRadS() const { return m_imuEkf.GyroBias(); }
+    double GetImuStrideScale() const { return m_imuEkf.StrideScale(); }
+    //! Position covariance of whichever filter is active (NEES diagnostics).
+    void GetPosCov(double& pxx, double& pxy, double& pyy) const { Filt().PosCov(pxx, pxy, pyy); }
+
     /** Per-tier count of cycles spent with that tier active. */
     uint64_t GetTierCycles(CaTblTier tier) const { return m_tierCycles[tier]; }
 
@@ -732,6 +928,20 @@ class CaTblPolicy
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
+    CaTblImuEkf m_imuEkf; //!< C3; idle unless m_config.imuPrior
+
+    //! The active filter. Resolved per call rather than cached as a pointer, so a
+    //! copied policy cannot end up pointing into the object it was copied from.
+    CaTblFilter& Filt()
+    {
+        return m_config.imuPrior ? static_cast<CaTblFilter&>(m_imuEkf)
+                                 : static_cast<CaTblFilter&>(m_ekf);
+    }
+    const CaTblFilter& Filt() const
+    {
+        return m_config.imuPrior ? static_cast<const CaTblFilter&>(m_imuEkf)
+                                 : static_cast<const CaTblFilter&>(m_ekf);
+    }
     CaTblTier m_tier;
     uint32_t m_deescalateCounter;
 
@@ -752,6 +962,14 @@ class CaTblPolicy
     uint64_t m_suspects;
     uint64_t m_noFixCycles;
     uint64_t m_tierCycles[CA_TBL_TIER_COUNT];
+
+    // C3. Untouched unless imuPrior is set.
+    void PredictWithImu(double dt);
+    CaTblImuIncrement m_imuPending;
+    bool m_haveImuPending;
+    double m_prevRawHeading;
+    bool m_haveRawHeading;
+    uint64_t m_imuPredicts;
 };
 
 } // namespace ns3

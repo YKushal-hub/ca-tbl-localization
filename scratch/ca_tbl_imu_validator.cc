@@ -20,6 +20,7 @@
  */
 
 #include "ns3/ca-tbl-imu-model.h"
+#include "ns3/ca-tbl-policy.h"
 #include "ns3/command-line.h"
 
 #include <cmath>
@@ -182,6 +183,172 @@ RunCase(const std::string& name,
 
 } // namespace
 
+// ---- Filter consistency --------------------------------------------------------
+//
+// The sensor cases above test what the IMU MEASURES. This tests what the filter
+// BELIEVES about it: CaTblImuEkf run against the sensor, with ranging in alternating
+// blocks of fixes and outages, scoring the position NEES e^T P^-1 e. A filter whose
+// covariance is honest gives chi-square with 2 DOF, mean 2.0, in BOTH blocks. An
+// overconfident one -- the Python IMU's defect, which took the realised error as its
+// variance -- reads far above 2 in outages, which is where the integrity check meets
+// the first fix after a gap.
+//
+// The band [1.6, 2.6] is fixed here, before any run, as +/-~25 % about 2.0: an EKF
+// linearises a heading that reaches tens of degrees, so exact consistency is not
+// expected, and a band tighter than the linearisation error would gate on it.
+
+namespace
+{
+struct PathRng
+{
+    uint64_t s;
+
+    double U()
+    {
+        uint64_t z = (s += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        z ^= z >> 31;
+        return (static_cast<double>(z >> 11) + 0.5) * (1.0 / 9007199254740992.0);
+    }
+
+    double N()
+    {
+        const double u1 = U();
+        const double u2 = U();
+        return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
+    }
+};
+} // namespace
+
+static void
+RunFilterTest(const std::string& fixture, uint32_t mc, uint32_t n, double dt, double speed)
+{
+    const CaTblImuParams truth;
+    CaTblImuParams assumed;
+    const bool dropStride = (fixture == "filter_no_stride_state");
+    const bool zeroQ = (fixture == "filter_q_zero");
+    const double sigR = 2.0;
+    const uint32_t block = 20;
+    const uint32_t burn = 40;
+    const double ax[4] = {-300.0, 300.0, 300.0, -300.0};
+    const double ay[4] = {-300.0, -300.0, 300.0, 300.0};
+    const double deg = M_PI / 180.0;
+
+    PrintParams("filter", truth);
+    std::printf("case,filter,n,%u,dt,%.17g,speed,%.17g,turnRate,0,mc,%u,sigR,%.17g,block,%u,"
+                "burn,%u\n",
+                n,
+                dt,
+                speed,
+                mc,
+                sigR,
+                block,
+                burn);
+    double neesFix = 0.0;
+    double neesOut = 0.0;
+    uint64_t nFix = 0;
+    uint64_t nOut = 0;
+    for (uint32_t r = 0; r < mc; ++r)
+    {
+        PathRng rng{0xC0FFEEULL + 7919ULL * r};
+        CaTblImuModel imu;
+        imu.Configure(truth, 4242 + r);
+        double x = 0.0;
+        double y = 0.0;
+        double h = 2.0 * M_PI * rng.U();
+
+        CaTblImuEkf f;
+        const double b0 = assumed.gyroBiasInitDps * deg;
+        const double bg = assumed.gyroBiasGmDps * deg;
+        const double th = assumed.headingInitDeg * deg;
+        // Initial position drawn from the filter's own prior, so the start is
+        // consistent by construction rather than flattered by starting on the truth.
+        f.Init(x + rng.N(),
+               y + rng.N(),
+               1.0,
+               th * th,
+               b0 * b0 + bg * bg,
+               dropStride ? 0.0 : assumed.strideScaleErr * assumed.strideScaleErr);
+
+        double prevRaw = 0.0;
+        bool haveRaw = false;
+        for (uint32_t k = 1; k <= n; ++k)
+        {
+            // A wandering walk that turns back toward the middle of the anchor box.
+            if (std::hypot(x, y) > 220.0)
+            {
+                h = std::atan2(-y, -x) + 0.3 * rng.N();
+            }
+            else
+            {
+                h += 0.15 * rng.N();
+            }
+            const double dx = speed * dt * std::cos(h);
+            const double dy = speed * dt * std::sin(h);
+            x += dx;
+            y += dy;
+            const CaTblImuIncrement inc = imu.Step(dx, dy, dt);
+            const double turn = haveRaw ? CaTblImuModel::Wrap(inc.rawHeadingRad - prevRaw) : 0.0;
+            prevRaw = inc.rawHeadingRad;
+            haveRaw = true;
+
+            double qStep2 = 0.0;
+            double qTheta2 = 0.0;
+            double qBias2 = 0.0;
+            CaTblImuEkf::ProcessNoise(assumed, dt, inc.distM, turn, qStep2, qTheta2, qBias2);
+            if (zeroQ)
+            {
+                qStep2 = qTheta2 = qBias2 = 0.0;
+            }
+            f.Predict(dt, inc.distM, inc.rawHeadingRad, qStep2, qTheta2, qBias2);
+
+            const bool fix = ((k - 1) / block) % 2 == 0;
+            if (fix)
+            {
+                std::vector<CaTblRangeMeasurement> meas;
+                std::vector<double> var;
+                for (int a = 0; a < 4; ++a)
+                {
+                    CaTblRangeMeasurement m;
+                    m.anchorX = ax[a];
+                    m.anchorY = ay[a];
+                    m.rangeM = std::hypot(x - ax[a], y - ay[a]) + sigR * rng.N();
+                    meas.push_back(m);
+                    var.push_back(sigR * sigR);
+                }
+                f.Update(meas, var);
+            }
+            if (k <= burn)
+            {
+                continue;
+            }
+            double pxx = 0.0;
+            double pxy = 0.0;
+            double pyy = 0.0;
+            f.PosCov(pxx, pxy, pyy);
+            const double ex = f.X() - x;
+            const double ey = f.Y() - y;
+            const double det = pxx * pyy - pxy * pxy;
+            const double nees = (pyy * ex * ex - 2.0 * pxy * ex * ey + pxx * ey * ey) / det;
+            if (fix)
+            {
+                neesFix += nees;
+                ++nFix;
+            }
+            else
+            {
+                neesOut += nees;
+                ++nOut;
+            }
+        }
+    }
+    std::printf("filt,filter,fix,%.17g,%llu\n", neesFix / nFix, static_cast<unsigned long long>(nFix));
+    std::printf("filt,filter,outage,%.17g,%llu\n",
+                neesOut / nOut,
+                static_cast<unsigned long long>(nOut));
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -202,7 +369,8 @@ main(int argc, char* argv[])
     cmd.AddValue("fixture",
                  "Break one term in the MODEL while printing nominal parameters: "
                  "none|arw_var_x2|bias_drop|bias_x2|gm_white|align_drop|"
-                 "stride_scale_drop|stride_step_x2var|gscale_drop",
+                 "stride_scale_drop|stride_step_x2var|gscale_drop|"
+                 "filter_no_stride_state|filter_q_zero",
                  fixture);
     cmd.AddValue("adevOut",
                  "If set, write a stationary gyro-rate stream (ARW only) here for the "
@@ -210,6 +378,10 @@ main(int argc, char* argv[])
                  adevOut);
     cmd.AddValue("adevSamples", "Samples in the Allan stream", adevSamples);
     cmd.AddValue("adevDt", "Sample interval of the Allan stream, s", adevDt);
+    uint32_t filterMc = 200;
+    uint32_t filterN = 400;
+    cmd.AddValue("filterMc", "Realisations in the filter consistency test (0 skips it)", filterMc);
+    cmd.AddValue("filterN", "Cycles per realisation in the filter consistency test", filterN);
     cmd.Parse(argc, argv);
 
     std::printf("fixture,%s\n", fixture.c_str());
@@ -262,6 +434,11 @@ main(int argc, char* argv[])
         const CaTblImuParams model = Broken(printed, fixture);
         RunCase(s.name, printed, model, mc, n, dt, speed, s.turnRate, seedBase);
         seedBase += 10000019;
+    }
+
+    if (filterMc > 0)
+    {
+        RunFilterTest(fixture, filterMc, filterN, dt, speed);
     }
 
     if (!adevOut.empty())

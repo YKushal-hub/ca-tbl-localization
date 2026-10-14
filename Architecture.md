@@ -663,6 +663,57 @@ Three **independent** supports for "the floor was near-pure cost", and supports 
 - Tier-1 radio **stays awake and listening**, because sleeping it calls `ClearNeighbours()` — an immediate wipe, not TTL expiry — which would leave the floor unusable at exactly the moment it is needed. `[E-16]`
 - Separates the **78.8 %** of tier-1 energy that is recoverable ranging cost from the **20.7 %** that buys fallback readiness. `[E-17]`
 
+### 9.6 The predict step — constant velocity, or an inertial prior (C3)
+
+Every decision in §9.2–§9.5 reads the filter's position covariance, and the predict step is
+what grows it between fixes. Two predict steps exist; one is selected per run.
+
+| | constant velocity (default) | inertial prior, `--imuPrior=true` |
+|---|---|---|
+| filter | `CaTblEkf`, state `[x, y, vx, vy]` | `CaTblImuEkf`, state `[x, y, θ, b, s]` |
+| between fixes | extrapolates the last velocity estimate in a straight line | dead-reckons from a simulated body-worn IMU (step-and-heading) |
+| no-fix cycle | coasts on the extrapolation | coasts on the dead-reckoned path |
+| energy | — | `imuJ` = 0.970 mA × 3.3 V × T, reported **beside** `totalJ`, never in it |
+
+`θ` is the offset between the IMU's integrated heading and the map heading, `b` the gyro
+bias, `s` the stride-model scale error. None is measured; range updates make them observable
+because a heading or stride error bends or stretches the dead-reckoned path. Range updates,
+both integrity-check statistics and PCS read only the position block, so none changes form;
+the policy reaches whichever filter is active through `CaTblFilter`, and the
+constant-velocity filter's arithmetic is not edited.
+
+**The sensor** (`ca-tbl-imu-model.{h,cc}`) is an error model driven by the true trajectory:
+angle random walk, a residual turn-on bias, a Gauss–Markov bias instability, a gyro scale
+factor, an initial alignment error, a per-run stride scale error and per-step stride noise.
+Cited values are from the BMI270 data sheet `[R-26]`; the rest are labelled ours in the
+source. Strapdown double integration is rejected with a number: the data sheet's ±20 mg
+zero-g offset alone is 1 411 m of drift at 120 s. The filter is told the data-sheet
+parameters, never the realised errors.
+
+**Why `s` and `b` are states and not process noise.** Both are constant (or slowly varying)
+for a run. As white noise they would grow like √n where they really grow like n, and the
+filter would be overconfident exactly when a fix returns after an outage — where an
+overconfident prior makes the integrity check reject a correct fix. Measured on G17's
+synthetic test: mean position NEES 2.02 on fix cycles and 2.06 in outages with the state
+(2.0 is consistent); **24.6 and 31.0 without it**.
+
+**Isolation.** The sensor's generator is private (xoshiro256\*\*). An ns-3
+`RandomVariableStream` consumes an automatic stream index at construction even when
+`SetStream()` follows, which would shift every engine stream created after it and change the
+channel when the IMU is switched on. With the flag off nothing is constructed, drawn or
+written, and the output is byte-identical to the pre-change binary.
+
+**Fitted to every arm.** An IMU given only to the tiered arm would manufacture an advantage;
+its energy is the same constant for every arm.
+
+**Scope limits, stated so a reader need not find them:** planar (yaw only); no magnetometer;
+no zero-velocity or zero-rate updates, because the scenario's dwell is not stationary
+(Tourist mills about at 0.3 × walking speed); MCU energy for running PDR is not charged.
+
+**Verification:** gate G17 — closed forms for every error term, computed by a script sharing
+no code with the model, an Allan-deviation check, the filter NEES test above, and ten
+negative fixtures that must each fail on the term they break.
+
 ---
 
 ## 10. Dataset generation
@@ -819,6 +870,9 @@ flowchart BT
 | R-15 | Perkins & Bhagwat, DSDV                                                                                    | Sequence-number generational supersession                   |
 | R-16 | AODV / DSR reactive routing                                                                                | Reverse-path caching for query responses                    |
 | R-17 | Meshtastic / flooding-protocol literature                                                                  | Packet-ID dedup, hop limit, rebroadcast jitter              |
+| R-26 | Bosch Sensortec, *BMI270 data sheet*, BST-BMI270-DS000-04, rev 1.2, June 2020 | IMU gyro noise density, scale-factor error after CRT, zero-rate offset and its temperature coefficient, supply current (§9.6) |
+| R-27 | Groves, *Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems*, 2nd ed., Artech House, 2013 | Pedestrian dead reckoning (step-and-heading) and error-state filtering of inertial errors (§9.6) |
+| R-28 | IEEE Std 952, Allan-variance characterisation of gyroscopes | Angle-random-walk convention: noise density in °/s/√Hz equals the ARW coefficient in °/√s (G17) |
 
 ### 13.2 Positioning and prior art
 
@@ -840,6 +894,9 @@ flowchart BT
 - Threshold-based band switching is **not novel** — commercial dual-radio systems and duty-cycling literature.
 - Multi-hop uncertainty propagation is **not novel** — DV-Hop family `[R-23]`, Huang et al. `[R-22]`.
 - Byzantine-robust localization is **not novel** — `[R-24]`.
+- Pedestrian dead reckoning fused with RF ranging in an EKF is **not novel** — it is textbook
+  material `[R-27]`. §9.6 builds it to give the specification's predict step a substrate, and
+  measures what it changes here.
 
 **What this work contributes** is the assembly and its quantification: a self-deployable tiered topology with a coverage-and-quality-gated escalation decision, evaluated causally with per-action energy accounting across a dimensionless density sweep, with the operating window measured rather than asserted. Each component's lineage is cited above rather than left for a reviewer to find.
 
