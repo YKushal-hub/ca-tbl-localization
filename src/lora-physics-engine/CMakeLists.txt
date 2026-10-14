@@ -59,6 +59,7 @@ set(source_files
     model/ca-tbl-policy.cc         # CA-TBL Phase S1
     model/ca-tbl-header.cc         # CA-TBL Phase S4
     model/ca-tbl-mac.cc            # CA-TBL Phase S4
+    model/ca-tbl-imu-model.cc      # CA-TBL C3 inertial prior
 )
 
 set(header_files
@@ -122,6 +123,7 @@ set(header_files
     model/ca-tbl-policy.h          # CA-TBL Phase S1
     model/ca-tbl-header.h          # CA-TBL Phase S4
     model/ca-tbl-mac.h             # CA-TBL Phase S4
+    model/ca-tbl-imu-model.h       # CA-TBL C3 inertial prior
 )
 
 build_lib(
