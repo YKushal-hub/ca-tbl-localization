@@ -481,6 +481,28 @@ else
 fi
 finish G18
 
+# ------------- G19: each tier's receiver applies the data-sheet sensitivity for its config
+# D-5 / A7. The six-decibel D1 defect was in an ACCESSOR, passed every gate, and was found
+# only by an independent model refusing to reconcile. This gate calls each engine's own
+# GetSensitivityThreshold() (scratch/ca_tbl_sensitivity_probe.cc, which re-derives
+# nothing) and compares it, at the SF and bandwidth the scenario configures, with data-sheet
+# tables transcribed in scripts/sensitivity_fidelity_check.py. Fixture first.
+# RED BY DESIGN when added (2026-10-14): tier 2 applies the SX1280's 1625 kHz row (SF7
+# -106 dBm) while configured at 800 kHz, where the data sheet gives -112 dBm -- candidate
+# D-8, ~6 dB pessimistic. Fixing it moves every tier-2 result, so it is a planned campaign,
+# not a patch, and this gate stays red until that decision is taken. Tier 3 is NOT CHECKED.
+printf '\n--- G19 receiver sensitivity against the data sheets (fixture, then the engines) ---\n'
+G19_BIN=./build/scratch/ns3.47-ca_tbl_sensitivity_probe-optimized
+if ! bash scripts/catbl_sensitivity_fixture.sh; then
+    gerror G19 "the A7 fixture did not behave -- the gate's verdict would mean nothing"
+elif [ ! -x "$G19_BIN" ]; then
+    gerror G19 "no probe binary at $G19_BIN -- build ca_tbl_sensitivity_probe"
+else
+    "$G19_BIN" > "$WORK/sens_probe.csv" 2>"$WORK/sens_probe.err" || gerror G19 "probe exited non-zero"
+    python3 scripts/sensitivity_fidelity_check.py "$WORK/sens_probe.csv" scratch/ca_tbl_causal_sim.cc || fail G19
+fi
+finish G19
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
