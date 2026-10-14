@@ -75,6 +75,10 @@ physics_scale_sweep_*.csv
 /results/**
 !/results/**/
 !/results/**/arm_summary.csv
+# The --imuPrior summary: imuJ, NEES and the IMU parameters per arm, 6 rows. Without it
+# a run's sidecar digest names a file the repository cannot produce. imu_trace_*.csv
+# stays excluded with the other traces.
+!/results/**/imu_summary.csv
 !/results/**/run_id.txt
 !/results/**/probe_range_sweep.csv
 !/results/**/*.md

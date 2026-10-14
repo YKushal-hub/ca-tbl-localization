@@ -1,0 +1,93 @@
+metric,cfg,arm,n,estimate,lo,hi,note
+R0_static_rows_differing,all,static,180,0,,,
+P2_imu_rows_off,all,all,360,0,,,
+M1_ratio,ref,static_868,0,,,,
+M1_ratio,ref,static_2p4,11,0.171306,0.136534,0.220734,
+M1_ratio,ref,static_uwb,30,3.53795,2.23736,5.54605,
+M1_ratio,ref,fixed_threshold,0,,,,
+M1_ratio,ref,ca_tbl_no_integrity,0,,,,
+M1_ratio,ref,ca_tbl_full,0,,,,
+M1_ratio,sparse,static_868,9,0.482312,0.318485,0.710771,
+M1_ratio,sparse,static_2p4,30,0.150672,0.131439,0.172084,
+M1_ratio,sparse,static_uwb,30,3.10719,1.90861,4.87484,
+M1_ratio,sparse,fixed_threshold,28,0.672208,0.525811,0.861603,
+M1_ratio,sparse,ca_tbl_no_integrity,18,0.15466,0.122451,0.199903,
+M1_ratio,sparse,ca_tbl_full,19,0.181733,0.125767,0.262217,
+M2_ratio,ref,static_868,0,,,,
+M2_ratio,ref,static_2p4,0,,,,
+M2_ratio,ref,static_uwb,30,3.54565,2.27033,5.54761,
+M2_ratio,ref,fixed_threshold,0,,,,
+M2_ratio,ref,ca_tbl_no_integrity,0,,,,
+M2_ratio,ref,ca_tbl_full,0,,,,
+M2_ratio,sparse,static_868,0,,,,
+M2_ratio,sparse,static_2p4,14,0.0916131,0.0501897,0.192465,
+M2_ratio,sparse,static_uwb,30,2.97614,1.85046,4.63172,
+M2_ratio,sparse,fixed_threshold,0,,,,
+M2_ratio,sparse,ca_tbl_no_integrity,0,,,,
+M2_ratio,sparse,ca_tbl_full,0,,,,
+M3_A_fix_diff,ref,static_868,30,0.301574,0.232523,0.371806,cv mean 0.0892
+M3_A_fix_diff,ref,static_2p4,30,2.31481e-05,0,6.94444e-05,cv mean 0.9962
+M3_A_fix_diff,ref,static_uwb,30,-0.000439815,-0.000787037,-0.000115741,cv mean 0.0573
+M3_A_fix_diff,ref,fixed_threshold,30,9.25926e-05,-0.00180556,0.00171296,cv mean 0.9972
+M3_A_fix_diff,ref,ca_tbl_no_integrity,30,4.62963e-05,0,0.000115741,cv mean 0.9994
+M3_A_fix_diff,ref,ca_tbl_full,30,0.000208333,2.31481e-05,0.000439815,cv mean 0.9993
+M3_A_fix_diff,sparse,static_868,30,0.174097,0.116528,0.235162,cv mean 0.0488
+M3_A_fix_diff,sparse,static_2p4,30,0.00469907,0.00319444,0.00634259,cv mean 0.8399
+M3_A_fix_diff,sparse,static_uwb,30,-0.000416667,-0.000763889,-0.000138889,cv mean 0.0296
+M3_A_fix_diff,sparse,fixed_threshold,30,0.0368056,0.0212963,0.0529398,cv mean 0.9407
+M3_A_fix_diff,sparse,ca_tbl_no_integrity,30,0.0263889,0.0189815,0.0343519,cv mean 0.9645
+M3_A_fix_diff,sparse,ca_tbl_full,30,-0.00171296,-0.0659491,0.0351157,cv mean 0.9606
+M3_A_est_diff,ref,static_868,30,0.301597,0.230694,0.370625,cv mean 0.0896
+M3_A_est_diff,ref,static_2p4,30,2.31481e-05,0,6.94444e-05,cv mean 1.0000
+M3_A_est_diff,ref,static_uwb,30,-0.0794907,-0.137338,-0.0262037,cv mean 0.2301
+M3_A_est_diff,ref,fixed_threshold,30,-0.0019213,-0.00375,-0.000416667,cv mean 0.9998
+M3_A_est_diff,ref,ca_tbl_no_integrity,30,4.62963e-05,0,0.000115741,cv mean 0.9998
+M3_A_est_diff,ref,ca_tbl_full,30,0.000208333,2.31481e-05,0.000439815,cv mean 0.9997
+M3_A_est_diff,sparse,static_868,30,0.174491,0.116806,0.234468,cv mean 0.0496
+M3_A_est_diff,sparse,static_2p4,30,0.0247454,0.0166898,0.0334028,cv mean 0.9730
+M3_A_est_diff,sparse,static_uwb,30,-0.0157407,-0.0503241,0.022662,cv mean 0.1255
+M3_A_est_diff,sparse,fixed_threshold,30,0.0209259,0.00555556,0.0374537,cv mean 0.9639
+M3_A_est_diff,sparse,ca_tbl_no_integrity,30,0.027338,0.019375,0.0362037,cv mean 0.9699
+M3_A_est_diff,sparse,ca_tbl_full,30,0.00162037,-0.0642361,0.0395602,cv mean 0.9660
+M4_radioJ_ratio,ref,static_868,30,1,1,1,
+M4_radioJ_ratio,ref,static_2p4,30,1,1,1,
+M4_radioJ_ratio,ref,static_uwb,30,1,1,1,
+M4_radioJ_ratio,ref,fixed_threshold,30,0.668246,0.665281,0.671281,
+M4_radioJ_ratio,ref,ca_tbl_no_integrity,30,1.01321,1.01039,1.01602,
+M4_radioJ_ratio,ref,ca_tbl_full,30,0.996659,0.994021,0.999195,
+M4_radioJ_ratio,sparse,static_868,30,1,1,1,
+M4_radioJ_ratio,sparse,static_2p4,30,1,1,1,
+M4_radioJ_ratio,sparse,static_uwb,30,1,1,1,
+M4_radioJ_ratio,sparse,fixed_threshold,30,0.720482,0.715361,0.72596,
+M4_radioJ_ratio,sparse,ca_tbl_no_integrity,30,0.984701,0.977347,0.991598,
+M4_radioJ_ratio,sparse,ca_tbl_full,30,0.998877,0.995597,1.00237,
+M5_escalations_diff,ref,fixed_threshold,30,-171.6,-174.3,-168.567,cv mean 182.6
+M5_escalations_diff,ref,ca_tbl_no_integrity,30,-1.93333,-2,-1.83333,cv mean 3.0
+M5_escalations_diff,ref,ca_tbl_full,30,0.133333,0,0.366667,cv mean 3.0
+M5_escalations_diff,sparse,fixed_threshold,30,-125.467,-134.333,-116.933,cv mean 142.3
+M5_escalations_diff,sparse,ca_tbl_no_integrity,30,-4.63333,-6.63333,-2.8,cv mean 14.9
+M5_escalations_diff,sparse,ca_tbl_full,30,0.133333,-1.26667,1.53333,cv mean 14.9
+M6_nees_mean,ref,static_868,30,27.3152,12.518,51.5754,frac>chi2_95 0.4640
+M6_nees_mean,ref,static_2p4,30,1.86239,1.78698,1.94158,frac>chi2_95 0.0408
+M6_nees_mean,ref,static_uwb,30,94188.9,60600.7,130910,frac>chi2_95 0.7843
+M6_nees_mean,ref,fixed_threshold,30,2.67047,2.29093,3.07687,frac>chi2_95 0.1108
+M6_nees_mean,ref,ca_tbl_no_integrity,30,1.80656,1.73808,1.87642,frac>chi2_95 0.0343
+M6_nees_mean,ref,ca_tbl_full,30,5.01766,4.33672,5.77543,frac>chi2_95 0.2838
+M6_nees_mean,sparse,static_868,30,89.1446,9.69376,243.859,frac>chi2_95 0.3979
+M6_nees_mean,sparse,static_2p4,30,1.82259,1.71754,1.9314,frac>chi2_95 0.0390
+M6_nees_mean,sparse,static_uwb,30,30298.1,15259.4,53090,frac>chi2_95 0.7270
+M6_nees_mean,sparse,fixed_threshold,30,3.39087,2.70842,4.23392,frac>chi2_95 0.1651
+M6_nees_mean,sparse,ca_tbl_no_integrity,30,1.85645,1.72249,2.00043,frac>chi2_95 0.0400
+M6_nees_mean,sparse,ca_tbl_full,30,144.095,4.17483,423.291,frac>chi2_95 0.2992
+A0v2_A_fix_radio,ref_cv,T_vs_B,30,2.14095,2.11367,2.16985,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_est_radio,ref_cv,T_vs_B,30,2.14095,2.11395,2.17078,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_fix_radio,ref_imu,T_vs_B,30,2.1338,2.10617,2.16329,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_fix_system,ref_imu,T_vs_B,30,1.59225,1.58434,1.60059,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_est_radio,ref_imu,T_vs_B,30,2.1338,2.10652,2.16346,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_est_system,ref_imu,T_vs_B,30,1.59225,1.5844,1.60072,D_T=30 D_B=30 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_fix_radio,sparse_cv,T_vs_B,30,2.73819,2.6881,2.78826,D_T=20 D_B=1 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_est_radio,sparse_cv,T_vs_B,30,2.73819,2.68979,2.7896,D_T=23 D_B=26 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_fix_radio,sparse_imu,T_vs_B,30,2.73512,2.68507,2.78447,D_T=29 D_B=2 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_fix_system,sparse_imu,T_vs_B,30,1.70988,1.69978,1.7199,D_T=29 D_B=2 verdict(k=1)=PASS band=0.25:FAIL|0.5:FAIL|1:PASS|2:PASS
+A0v2_A_est_radio,sparse_imu,T_vs_B,30,2.73512,2.6863,2.7854,D_T=29 D_B=29 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
+A0v2_A_est_system,sparse_imu,T_vs_B,30,1.70988,1.69998,1.71974,D_T=29 D_B=29 verdict(k=1)=FAIL band=0.25:FAIL|0.5:FAIL|1:FAIL|2:FAIL
