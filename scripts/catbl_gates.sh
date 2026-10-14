@@ -461,6 +461,26 @@ printf '\n--- G17 IMU error model: closed forms, filter NEES, ten negative fixtu
 bash scripts/catbl_imu_fixture.sh || fail G17
 finish G17
 
+# ------------- G18: every results/ path a tracked document cites is held, or recorded lost
+# G10 checks backtick paths in five named documents and report/*.md. The positive-results
+# document and every experiments/*_RESULT.md sat outside that population, and five
+# directories they cite as the source of headline results were never committed and were
+# deleted with the untracked tree. G18's population is every tracked .md at the root, in
+# docs/ (not docs/archive/), report/ and src/catbl-propagation-study/. A directory passes
+# with a tracked sidecar; a citation recorded in RESULTS_NONREGENERABLE.tsv is reported and
+# passes; an allow-listed one (EXCLUDED.md reviewed-cited-evidence) passes; anything else
+# fails. RED BY DESIGN when added (2026-10-14): 14 cited paths are absent. The remedy is
+# scripts/sweeps/regen_cited_evidence.sh for the four reconstructable ones and a decision
+# for the rest -- never a widened allow-list. The fixture runs first: a G18 that cannot be
+# shown to fail proves nothing when it passes.
+printf '\n--- G18 cited results paths are held (fixture, then the tree) ---\n'
+if bash scripts/catbl_cited_evidence_fixture.sh; then
+    python3 scripts/cited_evidence_gate.py || fail G18
+else
+    gerror G18 "the G18 fixture did not behave -- the gate's verdict would mean nothing"
+fi
+finish G18
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

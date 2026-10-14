@@ -178,3 +178,15 @@ Status.md
 answers.md
 plan.md
 ```
+
+## Cited results paths allowed without evidence in the tree (G18)
+
+G18 (`scripts/cited_evidence_gate.py`) fails on any `results/<path>` a tracked document cites
+that the repository does not hold and `RESULTS_NONREGENERABLE.tsv` does not record. An entry
+here exempts one citation and must say why it is not evidence. Absent evidence that a claim
+rests on does **not** belong here — it belongs in the regeneration queue or the
+non-regenerable record.
+
+```reviewed-cited-evidence
+x A specimen of the citation form, quoted inside DEFECTS.md's citation-audit discussion, not a citation
+```
