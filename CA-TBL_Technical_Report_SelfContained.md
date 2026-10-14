@@ -67,7 +67,10 @@ Design intent, in the past tense. Nothing in this section is a claim.
 coverage, ranging by inverting RSSI through a path-loss model. Tier 2, 2.4 GHz
 (SX1280-class), SF7, 800 kHz, 12.5 dBm — mid-range refinement by symmetric two-way
 time-of-flight; measured `r80` **1149.5 m**. Tier 3, UWB (DW3000-class), 499.2 MHz at
-7.99 GHz, −16.47 dBm — precision two-way ranging at facilities, `r80` ≈ 13.5 m.
+7.99 GHz, −16.47 dBm — precision two-way ranging at facilities, measured `r80` **12.8 m**
+(corrected 2026-10-14 from a stale "≈ 13.5 m": recomputed from `results/probe_v7` as the distance
+at which PDR falls through 0.80, source `fbf2153 dirty 0`, which also reproduces the 1515.3 m and
+1149.5 m above).
 
 **The estimator.** A four-state EKF (position, velocity) with sequential scalar
 updates, process noise 1.0 m/cycle in position, fed by multilateration over the

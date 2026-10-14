@@ -28,7 +28,7 @@ from `CA-DBL_Phase1_Blueprint.md` §6 will describe a system that no longer exis
 | **DEC-E** | Chapter 12 / claim 3 | **ANSWERED: build it.** Track C in `MASTER_PLAN.md`. C1 is in the 2–3 day cut; C2–C4 are not. Chapter 12 must be written against what actually lands |
 | **DEC-B** | Estimation on Anchor/Gateway Node or Field Node | **OPEN. Blocks Ch. 9 and Ch. 10.** Recommend Field Node, matching the implementation — changing the implementation invalidates the energy model, the strongest validated component |
 | **DEC-C** | Tier-1 observable: TDoA or RSSI inversion | **OPEN. Blocks Ch. 9 §9.3, §9.6, Ch. 6 §6.4.** Recommend RSSI inversion, matching the implementation, with TDoA moved to Ch. 8 §8.6 exclusions and justified — the same treatment AoA already gets |
-| **DEC-D** | Inertial prior in the predict step | **OPEN.** Depends on A2's outcome. If the integrity check survives, the independent-prior requirement matters and an IMU model may be needed for the check to mean what §10.7.2 says |
+| **DEC-D** | Inertial prior in the predict step | **ANSWERED 2026-10-14: build it.** CAL-05 showed the integrity check is a working detector, which is the condition this decision waited on. Built behind `--imuPrior` (C3); Ch. 10 §10.3.1 now has a substrate, and Ch. 10 must describe it as built (PDR, no magnetometer, no ZUPT — `Architecture.md` §9.6), not as specified |
 | **DEC-F** | Ch. 14: specification or documentation | **OPEN.** Its scaffold says *"the existing prototype is subordinate to this specification"* — that premise has inverted. Recommend splitting: §14.1–14.9 specify, a new section documents what Phase 2.1 built and found, clearly marked out of Phase 1 scope |
 | **DEC-G** | Role of the 5M-row ML dataset | **OPEN.** Not wired into the CA-TBL decision path. Simplest coherent answer: channel-model validation artefact only, ML naming dropped |
 | DEC-01/02/03 | Front matter, institutional template, deadline | ADMIN-blocked |
@@ -91,7 +91,7 @@ expected.
 | CAL-03 | Escalation / de-escalation thresholds | Set by hand (1.55/1.70/2.30), then derived for v2 (0.0). **A6 exposes them for sweeping** |
 | CAL-04 | Hysteresis dwell N | **Never swept** — no CLI flag existed. A6 fixes this |
 | CAL-05 | Integrity threshold | Fixed at χ²₀.₉₉ = 9.21. **Precision/recall has never been computed. A2 produces it** |
-| CAL-02 | Q, R covariances | Process noise 1.0 m/cycle in position. No IMU terms, so the Allan-variance half is moot under DEC-D |
+| CAL-02 | Q, R covariances | Process noise 1.0 m/cycle in position under the default prior. With `--imuPrior` the IMU terms exist and are derived, not tuned: angle random walk from the data-sheet noise density (verified by an Allan-deviation check in G17), bias and stride terms labelled ours in `ca-tbl-imu-model.h` |
 | CAL-06 | APC loop parameters | Implemented; not swept |
 | CAL-07 | Flood control: hop limit, cache, jitter | Implemented; not swept |
 | CAL-08 | Path metric α, β, γ | **No substrate** — needs C5 |

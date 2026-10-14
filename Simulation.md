@@ -938,17 +938,33 @@ favourable result was available and honestly concluded that it was not.
 
 | Layer                         | Status                                                               |
 | ----------------------------- | -------------------------------------------------------------------- |
-| Simulator and physics         | Complete; validated against CRLB and published hardware measurements |
+> **Updated 2026-10-14.** This table used to read "Claims 1–7 established with statistical
+> support" and "Claims 8–9 awaiting compute", which the §11 ledger directly below it had
+> long contradicted. The ledger is authoritative; the table now restates it.
+
+| Layer                         | Status                                                               |
+| ----------------------------- | -------------------------------------------------------------------- |
+| Simulator and physics         | Built. Ranging precision verified against the CRLB. **Receiver sensitivity only partly verified:** tier 1 is within 1 dB of the SX1262 data sheet; **tier 2's table is the SX1280's 1625 kHz row while the tier runs at 800 kHz — about 6 dB pessimistic at SF7** (candidate D-8, found 2026-10-14, recorded not fixed); tier 3 unchecked |
 | Energy model                  | Complete; reconciles to datasheet currents to 10 significant figures |
-| MAC and regulatory compliance | Complete; emergent capture, governor enforced                        |
-| Verification apparatus        | Complete; 141 checks / 161 gates, self-tested                        |
-| **Claims 1–7**         | **Established with statistical support**                       |
-| **Claims 8–9**         | **Designed, pre-registered, awaiting compute**                 |
+| MAC and regulatory compliance | Emergent capture; the duty governor is enforced on **ranging**. The escalation handshake does **not** arm the off-time it obliges (found 2026-10-14) |
+| Inertial prior (C3)           | Built behind `--imuPrior`, default off and byte-identical when off; campaign pre-registered in `report/PREREG_IMU_PRIOR.md`, result pending |
+| Verification apparatus        | 141 checks / 161 gates, self-tested; gate G17 added for the IMU |
+| Claims 1, 3                   | **Withdrawn** (W12; W4 then W11) |
+| Claims 2, 4                   | **Proven, magnitudes re-scoped** (6.53×; 24.5 %) |
+| Claims 5, 6                   | Implemented and validated / exercised |
+| Claim 7                       | **Re-scoped** — see §11.2 and the sensitivity row above |
+| Claims 8, 9                   | **Falsified** (8 thinly, on a predicate that could not fire; 9 at `R = 25 m`) |
 
 ### 14.1 The endpoint
 
 **After the OFAT campaign there is no further experimental work in this project.** Stating
 it explicitly so the endpoint is on the record rather than implied.
+
+> **Superseded 2026-10-14.** The owner re-opened the experimental programme: the inertial
+> prior (C3) has been built and its campaign registered, and A0 has a new registration
+> (`report/PREREG_A0_V2.md`). The sequence and the open items are kept in the completion plan
+> under `docs/`. The endpoint statement above is retained as the record of what was believed
+> at the time.
 
 What remains is recorded, bounded, and none of it is a new experiment:
 

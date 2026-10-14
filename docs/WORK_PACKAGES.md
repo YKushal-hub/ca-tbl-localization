@@ -58,16 +58,19 @@ half-done things.
 
 ## Priority order
 
+> Statuses updated 2026-10-14. The rows marked READY until then were partly stale; see
+> the completion plan in this directory for the current sequence.
+
 | # | WP | Type | Cost | Status |
 |---|---|---|---|---|
-| 1 | **A0** register the joint criterion | Analysis | Hours, no compute | READY |
-| 2 | **A2** detect-and-escalate under injection | Compute only | ~160 runs | READY |
-| 3 | **D-3** CRLB gate off tier 1 | Code, small | Hours | READY |
-| 4 | **A1** `--dwell` sweep at b3000 | Compute only | ~120 runs | READY |
-| 5 | **A7** sensitivity-table fidelity check | Code + gate | Days | READY |
-| 6 | **A6** expose hysteresis params | Code, trivial | Hours + compute | READY |
-| 7 | **C1** `ESC_REQUEST`/`ESC_GRANT` on the wire | Code, moderate | ~1 week | READY |
-| 8 | **A3** intra-cycle handshake deferral | Code, small | Days | READY |
+| 1 | **A0** register the joint criterion | Analysis | Hours, no compute | DONE — A0 applied FAIL 64/64 (degenerate); **A0 v2** registered `a4d6bf4` |
+| 2 | **A2** detect-and-escalate under injection | Compute only | ~160 runs | DONE — `c9_escalate`, `c9_stage2`; CAL-05 curve. **E3** (CAL-05 with the IMU prior) prepared |
+| 3 | **D-3** CRLB gate off tier 1 | Code, small | Hours | DONE — already fixed in the code; this row was stale |
+| 4 | **A1** `--dwell` sweep at b3000 | Compute only | ~120 runs | RE-SPECIFIED on current flags (Claim 3 is withdrawn); registration prepared, `report/PREREG_A1_DWELL.md` |
+| 5 | **A7** sensitivity-table fidelity check | Code + gate | Days | CHECK BUILT; fails on tier 2 (1625 kHz table at 800 kHz, ~6 dB) — candidate D-8 |
+| 6 | **A6** expose hysteresis params | Code, trivial | Hours + compute | DONE — `--pcsHysteresisBand`, `--nDeescalate` |
+| 7 | **C1** `ESC_REQUEST`/`ESC_GRANT` on the wire | Code, moderate | ~1 week | DONE — `--sendHandshakeFrames`; collisions +41 % |
+| 8 | **A3** intra-cycle handshake deferral | Code, small | Days | IN PROGRESS — coded in a worktree; also arms the handshake off-time the model never enforced |
 | 9 | **A4** tier-1 calibration | Analysis + code | Days | READY |
 | 10 | **C2** two tags | Refactor | ~1 week | GATED on C1 landing + re-baseline |
 | 11 | **C3** `QUERY`/`RESPONSE` | Code, moderate | ~1 week | GATED on C2 |

@@ -35,6 +35,11 @@ Both are recorded in §13 as actions, not resolved here.
 
 ## 1. The situation in one page
 
+> **Read with the ledger, 2026-10-14.** This section was written on the 2026-09-05 branch and
+> predates the withdrawals made on the parallel branch: Claim 1 (W12) and Claim 3's replacement
+> (W11). `Simulation.md` §11 is the claim ledger and wins where they differ. The current
+> sequence and the defects found since are in the completion plan under `docs/`.
+
 The Phase 1 blueprint (S8) was written against an engine that was 868 MHz only, star-topology, stationary-node, with no MAC, no estimator, no energy model, and no decision layer. Its §6 table concludes: *"every CA-DBL novelty claim is currently unsimulated."* That table is now obsolete. The repository has since built three physics engines, a MAC with duty-cycle governance and emergent capture, a datasheet-traceable energy model, a four-state EKF, a confidence score, an integrity gate, and a six-arm comparative campaign at 20 seeds across three geometries, four environments and a density sweep.
 
 It has also **measured the central claims and falsified most of them.**
@@ -74,7 +79,7 @@ Status codes: **BUILT** implemented and exercised · **PARTIAL** implemented but
 | Anchor bootstrap, GPS-PPS synchronisation, GDOP | ch09 §9.6 | GDOP present (PCS term 2). **No synchronisation layer** — not needed, because there is no TDoA | S1 §2 | ABSENT (consequent) |
 | Sparse-anchor geometry resolution (Case A/B/C) | ch09 §9.7 | Fusion requires ≥ 3 anchors; otherwise coasts on prediction | S6 §3.1 | ABSENT |
 | EKF predict/correct | ch10 §10.3–10.4 | Four-state (position, velocity), sequential scalar updates, process noise 1.0 m/cycle | S2 §2 | PARTIAL |
-| **Inertial dead-reckoning prior (IMU)** | ch10 §10.3.1 | **No IMU model anywhere.** Constant-velocity prior only | S2 §2 | **ABSENT** |
+| **Inertial dead-reckoning prior (IMU)** | ch10 §10.3.1 | **Built 2026-10-14 behind `--imuPrior`** (C3): BMI270 PDR error model, 5-state filter, G17. Constant velocity remains the default | `Architecture.md` §9.6 | **BUILT, FLAG-GATED** |
 | Sequence-number supersession | ch10 §10.5.1 | Absent | S6 §3.1 | ABSENT |
 | Covariance Intersection fusion | ch10 §10.5.2 | Absent — requires multi-path fusion, which requires mesh | S6 §3.1 | ABSENT |
 | **PCS composition with weights w₁,w₂,w₃** | ch10 §10.6.4–10.6.5 | **Unweighted sum** of three [0,1] terms against threshold 1.55/1.70/2.30. The absent weighting is the direct cause of the saturation defect | S2 §2, §6.2 | **DIVERGENT** |
@@ -99,7 +104,7 @@ Status codes: **BUILT** implemented and exercised · **PARTIAL** implemented but
 
 **Count.** Of 30 rows: **11 BUILT, 4 PARTIAL, 2 DIVERGENT, 1 CONTRADICTION, 12 ABSENT.**
 
-The 12 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, sparse-anchor geometry), 4 in Ch. 10 (IMU prior, sequence supersession, CI fusion, PCS calibration), 4 in Ch. 12 (message types on the wire, mesh routing, identity query, arbitration), 1 in Ch. 13. **Chapter 12 has no implemented mechanism at all** — it is the only chapter of the framework with zero substrate.
+The 12 ABSENT rows distribute as: 3 in Ch. 9 (CIR classifier, synchronisation, sparse-anchor geometry), 4 in Ch. 10 (IMU prior, sequence supersession, CI fusion, PCS calibration) — the IMU prior was built on 2026-10-14, so 11 remain, 4 in Ch. 12 (message types on the wire, mesh routing, identity query, arbitration), 1 in Ch. 13. **Chapter 12 has no implemented mechanism at all** — it is the only chapter of the framework with zero substrate.
 
 > **Correction, 2026-09-04.** Two rows above were first written as ABSENT on the strength of S4 §7.10 item 5 (*"S7 environmental fault injection. Not implemented, no flag."*), which is dated 2026-08-05. That note is **superseded**: the harness was built and the campaigns ran on 2026-08-27. Verified against the flag registrations at `ca_tbl_causal_sim.cc:3345-3364`, the bias application at `:2496-2510`, and 162 `run_id.txt` sidecars. The F1/F3 columns in S2 §5.1 are those results. **This is a live instance of the project's own staleness problem** — a superseded status note in a working document propagated into a plan. Any agent reading S4 must check the flag table and the results tree before treating a *not implemented* note as current.
 
@@ -129,7 +134,7 @@ These cannot be documented away. One of the two sides must change.
 
 **C2 — Tier 1's observable.** ch09 §9.3 specifies TDoA multilateration with Chan and Foy solvers. The implementation is RSSI inversion. This was flagged as blueprint decision D5 and never closed. It has consequences beyond Chapter 9: an RSSI-inversion sigma is proportional to range (`estD · ln10/(10n) · shadowingStdEff`), which is what produced the ~50 %-of-distance error signature and the tier-1 calibration question in S3 §13.3. It also means the CRLB gate was applied to tier 1 for the whole project, which finding B3 of S6 calls a category error in the ranging submodule's own comment.
 
-**C3 — The prior in the predict step.** ch10 §10.3.1 specifies an inertial dead-reckoning prior and draws its derivation from the IMU source material (blueprint rank 3, "essentially complete"). The implementation has a constant-velocity prior and no IMU. The Switching-Point Integrity Check of ch10 §10.7.2 requires an **independent prior construction** — the whole point being that the prior is independent of the radio fix it is testing. A constant-velocity prior propagated from previous radio fixes is *not* independent in the sense the specification requires. **This weakens the integrity check's measured falsification as evidence about the specified mechanism**, and it cuts both ways: the thing that was measured is not quite the thing that was specified.
+**C3 — The prior in the predict step.** ch10 §10.3.1 specifies an inertial dead-reckoning prior and draws its derivation from the IMU source material (blueprint rank 3, "essentially complete"). The implementation has a constant-velocity prior and no IMU. The Switching-Point Integrity Check of ch10 §10.7.2 requires an **independent prior construction** — the whole point being that the prior is independent of the radio fix it is testing. A constant-velocity prior propagated from previous radio fixes is *not* independent in the sense the specification requires. **This weakens the integrity check's measured falsification as evidence about the specified mechanism**, and it cuts both ways: the thing that was measured is not quite the thing that was specified. **Status 2026-10-14: built** behind `--imuPrior` (`Architecture.md` §9.6, gate G17); with it on, the prior's *increment* is independent of the radio while its *origin* is still the last accepted fix.
 
 **C4 — Radio part basis.** ch09 §9.2 and the lock specify **LR1121** (868 + 2.4 GHz, one die) plus DW3000-class. The energy model uses **SX1262** and **SX1280** datasheet currents (S1 §8.2), with LR1121 cited only for the dual-band feasibility claim. This partially closes register item PROV-03 (which recorded an SX1276 basis) and opens a smaller one in its place. Not a contradiction in physics — the parts are close — but the conformance delta must be stated, not silently inherited.
 
@@ -228,7 +233,7 @@ Every gate has a negative fixture built in `/tmp`, and **every one has been obse
 | Detect-and-escalate under injected fault | The harness exists and ran, but **all 160 measured cells set `suspectForcesEscalation=false`**, isolating rejection alone. Zero runs combine injection with `=true` | **A flag flip, not a build.** See A2 | `run_id.txt` census, §6 A2 |
 | Injected-fault magnitude and window sweep | Only one bias magnitude (40 m) and one window fraction (0.2) have been run | Compute only | `run_id.txt` census |
 | Hysteresis / `nDeescalate` sweep | Parameters exist but are not exposed by `AddValue` | Reachable, trivial | S4 §7.10 item 4 |
-| IMU model and inertial prior | Nothing exists | Reachable but substantial; see C3 | §2.3 |
+| IMU model and inertial prior | **Built 2026-10-14** (`--imuPrior`, G17) | Measured under `report/PREREG_IMU_PRIOR.md` | §2.3 |
 | TDoA timing layer and solver | Nothing exists | Substantial; see C2 | §2.3 |
 
 ### 4.2 Live defects — carried knowingly

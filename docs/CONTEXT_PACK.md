@@ -123,7 +123,7 @@ exist. Full analysis in `MASTER_PLAN.md` §2.3.
 |---|---|---|
 | Tier-1 observable | TDoA multilateration (Chan, Foy) | **RSSI inversion.** No timing layer, no sync, no TDoA solver. This is why the CRLB gate does not apply to tier 1 (R-10) and why NOV-03/NOV-04 are currently moot |
 | Estimation location | Anchor/Gateway Node | **Field tag.** EKF, PCS, gates and FSM all run on the tag |
-| Predict-step prior | Inertial dead-reckoning (IMU) | **Constant velocity, 4-state.** No IMU anywhere. Consequence: the integrity check's "independent prior" is propagated from previous radio fixes, so it is not independent in the sense the specification requires |
+| Predict-step prior | Inertial dead-reckoning (IMU) | **Constant velocity, 4-state, by default.** Since 2026-10-14 an inertial prior exists behind `--imuPrior` (C3, `Architecture.md` §9.6): a BMI270-based PDR error model and a 5-state filter `[x, y, θ, b, s]`, gate G17, default off and byte-identical when off. Under the default the integrity check's "independent prior" is still propagated from previous radio fixes; with the flag on its *increment* is independent of the radio, its *origin* is still the last accepted fix. Measured effect: `report/PREREG_IMU_PRIOR.md` and its result |
 | PCS composition | Weighted sum, weights by LOOCV | **Unweighted sum** of three [0,1] terms (legacy), or `log10(σ_ref/σ_eff)` (v2). The missing weighting is the direct cause of the saturation defect |
 | Fusion | Covariance Intersection + sequence supersession | Neither implemented |
 | Network layer | Mesh routing, confidence-weighted paths, identity-scoped query, arbitration | None implemented. `hopWeight = 0`; the MAC rejects hopped frames by design |
