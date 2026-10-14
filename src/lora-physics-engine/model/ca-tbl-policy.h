@@ -159,7 +159,40 @@ enum CaTblPcsForm
     //! threshold is carried across as the SAME FRACTION OF RANGE -- the sum spans
     //! [0,3] and the min spans [0,1], so 1.70 becomes 1.70/3 -- introducing no new
     //! constant. See CaTblPolicy::ComputePcs().
-    CA_TBL_PCS_MIN
+    CA_TBL_PCS_MIN,
+    /**
+     * w1*term1 + w2*term2 + w3*term3 -- the LEGACY terms carrying the weighting
+     * the specification always asked for and the implementation never had.
+     *
+     * WHY THIS EXISTS. CAL-01 specifies weights determined by leave-one-out
+     * cross-validation. That was never attempted; LEGACY summed the three terms
+     * UNWEIGHTED, and that is the direct cause of the saturation defect. With
+     * term2 in (0,1] and term3 in [0,1] their sum alone reaches 2.0 against a
+     * threshold of 1.55, so term 1 -- the only term carrying filter uncertainty
+     * -- CANNOT VETO. It can fail to contribute; it can never block an
+     * escalation. A confidence score that cannot express its own uncertainty is
+     * not a confidence score.
+     *
+     * THE DEFAULT WEIGHTS ARE OURS, NOT CALIBRATED, and are chosen for exactly
+     * one property: w2 + w3 = 1.0 sits BELOW every pcsThresholdUp, so term1 = 0
+     * forces the score under the threshold whatever the geometry and LOS terms
+     * do. That restores the veto. It does NOT make the score informative -- that
+     * is an empirical question the monotone-of-filter-statistic control decides,
+     * and two prior forms have failed it. Report these as hand-set pending LOOCV.
+     */
+    CA_TBL_PCS_WEIGHTED,
+    /**
+     * LEGACY, except term 1 VETOES: below pcsGateFloor the score is forced to 0.
+     *
+     * The minimal repair of the same defect, and deliberately a DIFFERENT repair
+     * from CA_TBL_PCS_WEIGHTED rather than a reparameterisation of it. WEIGHTED
+     * rescales the terms and keeps the score continuous; GATED leaves the terms
+     * alone and adds a discontinuity at the point where the uncertainty term has
+     * saturated. If both behave the same way under the monotone control, that is
+     * evidence about the CONCEPT rather than about either form -- which is the
+     * question actually open after v2 failed.
+     */
+    CA_TBL_PCS_GATED
 };
 
 /** Tunables. Defaults reproduce the Python constants so results are comparable. */
@@ -211,6 +244,17 @@ struct CaTblPolicyConfig
     double pcsThresholdUp[CA_TBL_TIER_COUNT];   //!< escalate when PCS falls below this
     double pcsThresholdDown[CA_TBL_TIER_COUNT]; //!< candidate for de-escalation above this
     uint32_t nDeescalate;                       //!< consecutive good cycles before demoting
+
+    //! CA_TBL_PCS_WEIGHTED weights. HAND-SET, not calibrated -- CAL-01 asks for
+    //! LOOCV and it has still not been done. Constrained so pcsW2 + pcsW3 falls
+    //! below every pcsThresholdUp, which is what gives term 1 its veto back.
+    double pcsW1;
+    double pcsW2;
+    double pcsW3;
+    //! CA_TBL_PCS_GATED veto floor on term 1. OURS, not physical: the point below
+    //! which the uncertainty term has saturated hard enough that the rest of the
+    //! score should not be allowed to speak for it.
+    double pcsGateFloor;
     //! Demote on the FIRST cycle where the active tier addressed zero anchors. A
     //! cycle with no anchors addressed is categorically different from one whose
     //! anchors failed to answer: it means the tier has nothing there at all, after a

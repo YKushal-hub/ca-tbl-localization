@@ -207,6 +207,23 @@ struct CaTblMacConfig
     double bandwidthHz;
     uint8_t codingRate;
 
+    // ---- C1: the handshake as frames rather than as an accounting call ----
+    /**
+     * Whether ESC_REQUEST/ESC_GRANT and the DIGEST->ENTRY_PUSH reply are
+     * actually transmitted.
+     *
+     * FALSE (default) keeps the pre-existing behaviour exactly: the
+     * escalation handshake is charged through
+     * CaTblEnergyModel::AccountEscalationHandshake() as airtime and energy
+     * and no frame exists. Every duty-cycle result in the tree was measured
+     * that way, so the default has to reproduce it byte-for-byte.
+     *
+     * TRUE makes the exchange real: the frames contend for the medium, pass
+     * through CAD, and meet the duty governor AS FRAMES. Expect every
+     * escalating arm to move -- that is the treatment, not a regression.
+     */
+    bool sendHandshakeFrames;
+
     CaTblMacConfig();
 };
 
