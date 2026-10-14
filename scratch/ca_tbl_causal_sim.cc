@@ -1964,7 +1964,9 @@ RunArm(CaTblPolicyMode mode,
        // taken from anything, no file is opened, and the predict step is the
        // constant-velocity one every committed result was produced under.
        bool imuPrior,
-       const CaTblImuParams& imuParams)
+       const CaTblImuParams& imuParams,
+       // A3 intra-cycle handshake. Default false: nothing below changes.
+       bool intraCycleHandshake)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -2443,6 +2445,9 @@ RunArm(CaTblPolicyMode mode,
     //! handshake could use the duty budget. The cost is this cycle's tier-1
     //! measurements.
     uint64_t handshakePreemptions = 0;
+    // A3 census, emitted to stderr only under --intraCycleHandshake.
+    uint64_t intraCycleHandshakes = 0;
+    uint64_t tier1RangingBlocked = 0;
     //! Set when an escalation is deferred this cycle; the NEXT cycle will
     //! pre-empt ranging to send the handshake (if arbitrateDutyBudget is on).
     bool pendingHandshake = false;
@@ -2849,6 +2854,19 @@ RunArm(CaTblPolicyMode mode,
             // against what it has discovered, which is what this now does.
             const std::vector<CaTblNeighbour> nb = nodeMac[tier]->GetNeighbours(tier, t);
 
+            // A3: with the handshake now arming its own off-time, a tier-1 exchange can
+            // fall inside it, and the regulation forbids transmitting there. Without
+            // this check the model would let the ranging through and A3 would look
+            // free because the regulation was not enforced -- a wrong result that
+            // looks right. The blocked exchange is the honest cost and is counted.
+            // Default off: ranging was never governed, and every committed result is
+            // reproduced only if it stays ungoverned.
+            if (intraCycleHandshake && tier == CA_TBL_TIER_868 && !energy.CanTransmit(tier, t))
+            {
+                ++tier1RangingBlocked;
+                return out;
+            }
+
             energy.AccountCad(tier);
 
             if (nb.empty())
@@ -3184,6 +3202,21 @@ RunArm(CaTblPolicyMode mode,
                 {
                     nodeMac[active]->Send(CA_TBL_MSG_ESC_REQUEST, active, 0, 0);
                 }
+            }
+            else if (intraCycleHandshake && d.escalated &&
+                     energy.GetNextAllowedTxS(active) + energy.HandshakeFrameTimeS(active) <=
+                         t + dt)
+            {
+                // A3: the budget is spent on this cycle's ranging, but the off-time ends
+                // before the next cycle's ranging instant. Send the handshake THEN,
+                // inside this cycle, instead of pre-empting the next cycle's exchange.
+                // The handshake arms its own off-time -- AccountEscalationHandshake()
+                // does not -- so the next tier-1 exchange may be blocked, and that is
+                // counted in tier1RangingBlocked rather than assumed away.
+                const double tH = energy.GetNextAllowedTxS(active);
+                energy.AccountEscalationHandshake(active, tH);
+                energy.ArmDutyCycle(active, tH, energy.HandshakeFrameTimeS(active));
+                ++intraCycleHandshakes;
             }
             else
             {
@@ -3603,6 +3636,16 @@ RunArm(CaTblPolicyMode mode,
     // output -- arm_summary.csv included -- is byte-identical. The registration promised
     // these counters per cell; without them a change in availability cannot be attributed
     // to a branch.
+    if (intraCycleHandshake)
+    {
+        // stderr, not arm_summary.csv: the summary's columns stay those of every
+        // committed result.
+        std::cerr << "A3_CENSUS arm=" << res.arm << " seed=" << seed
+                  << " intraCycleHandshakes=" << intraCycleHandshakes
+                  << " tier1RangingBlocked=" << tier1RangingBlocked
+                  << " handshakePreemptions=" << handshakePreemptions
+                  << " handshakeDeferrals=" << handshakeDeferrals << "\n";
+    }
     if (pcfg.suspectRecovery == CA_TBL_RECOVERY_EXCLUDE)
     {
         std::cerr << "EXCLUDE_CENSUS arm=" << res.arm
@@ -4219,7 +4262,27 @@ main(int argc, char* argv[])
                  "a whole static_2p4 run's radio energy, which is why it is reported "
                  "rather than assumed negligible.",
                  imuParams.currentMa);
+    bool intraCycleHandshakeArg = false;
+    cmd.AddValue("intraCycleHandshake",
+                 "A3. When the tier-1 duty budget is spent by this cycle's ranging, send "
+                 "the escalation handshake at the instant the off-time expires, inside "
+                 "the same cycle, instead of pre-empting the next cycle's tier-1 exchange. "
+                 "Default false reproduces every committed result. True ALSO makes the "
+                 "handshake arm its own duty-cycle off-time and makes tier-1 ranging "
+                 "respect the governor -- without both, the deferral would look free only "
+                 "because the regulation was not being enforced on the handshake. Blocked "
+                 "tier-1 exchanges are reported on stderr (A3_CENSUS). Incompatible with "
+                 "--sendHandshakeFrames: a deferred frame needs a scheduled transmission "
+                 "that is not modelled.",
+                 intraCycleHandshakeArg);
     cmd.Parse(argc, argv);
+
+    if (intraCycleHandshakeArg && sendHandshakeFramesArg)
+    {
+        std::cerr << "FATAL: --intraCycleHandshake and --sendHandshakeFrames are not "
+                  << "combined: the deferred frame would need a scheduled send\n";
+        return 1;
+    }
 
     if (imuPriorArg)
     {
@@ -4644,7 +4707,8 @@ main(int argc, char* argv[])
                                        anchorPairsPerEpoch,
                                        traceDiagnostic,
                                        imuPriorArg,
-                                       imuParams);
+                                       imuParams,
+                                       intraCycleHandshakeArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

@@ -224,6 +224,15 @@ class CaTblEnergyModel
      */
     void AccountEscalationHandshake(CaTblTier currentTier, double nowS, uint32_t payloadBytes = 12);
 
+    /**
+     * A3: the over-the-air time of one escalation-request frame on \p tier, the same
+     * frame AccountEscalationHandshake() charges. Exposed so a caller that schedules the
+     * handshake can arm the duty-cycle off-time it obliges -- which
+     * AccountEscalationHandshake() itself does NOT do (only AccountRangingExchange()
+     * arms it). Pure arithmetic; charges nothing.
+     */
+    double HandshakeFrameTimeS(CaTblTier tier, uint32_t payloadBytes = 12) const;
+
     // --------------------------------------------------------- duty cycle ---
 
     /**
@@ -249,6 +258,11 @@ class CaTblEnergyModel
      */
     bool CanTransmit(CaTblTier tier, double nowS) const;
     double GetNextAllowedTxS(CaTblTier tier) const;
+
+    /** Start the off-time a transmission of \p airtimeS at \p nowS obliges (T/limit
+     *  after its start). Public since A3, so a caller that schedules a handshake can
+     *  enforce the regulation on it; AccountRangingExchange() calls it internally. */
+    void ArmDutyCycle(CaTblTier tier, double nowS, double airtimeS);
 
     /** Record that a transmission was suppressed by the governor. */
     void NoteDeferred(CaTblTier tier);
@@ -304,9 +318,6 @@ class CaTblEnergyModel
     double m_dutyLimit[CA_TBL_TIER_COUNT];
     double m_nextAllowedTxS[CA_TBL_TIER_COUNT];
     uint64_t m_deferred[CA_TBL_TIER_COUNT];
-
-    /** Arm the off-time governor after occupying the channel for \p airtimeS. */
-    void ArmDutyCycle(CaTblTier tier, double nowS, double airtimeS);
 };
 
 } // namespace ns3

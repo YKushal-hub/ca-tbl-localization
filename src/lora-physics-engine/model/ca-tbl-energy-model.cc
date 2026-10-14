@@ -435,6 +435,16 @@ CaTblEnergyModel::AccountRangingExchange(CaTblTier tier,
     ArmDutyCycle(tier, nowS, airtimeThisExchange);
 }
 
+double
+CaTblEnergyModel::HandshakeFrameTimeS(CaTblTier tier, uint32_t payloadBytes) const
+{
+    if (tier == CA_TBL_TIER_UWB)
+    {
+        return UwbFrameTimeS(payloadBytes);
+    }
+    return LoRaTimeOnAirS(m_sf[tier], m_bandwidthHz[tier], payloadBytes, m_codingRate[tier]);
+}
+
 void
 CaTblEnergyModel::AccountEscalationHandshake(CaTblTier currentTier,
                                              double nowS,
