@@ -13,8 +13,9 @@
 #   1. IMU bias sensitivity       report/PREREG_IMU_PRIOR.md §8      20 invocations, 2 arms
 #   2. A3 intra-cycle handshake   report/PREREG_A3_INTRA_CYCLE_HANDSHAKE.md   40, 6 arms
 #   3. A1 dwell                   report/PREREG_A1_DWELL.md          100, 4 arms
-#   4. E3 CAL-05 with the IMU     report/PREREG_E3_IMU_INTEGRITY.md  400, 2 arms
-#   5. reconstruction of cited evidence (not a registration -- a provenance repair)
+#   4. D-8 stage 1                report/PREREG_D8_SENSITIVITY.md    82 (2 probes), 6 arms
+#   5. E3 CAL-05 with the IMU     report/PREREG_E3_IMU_INTEGRITY.md  400, 2 arms
+#   6. reconstruction of cited evidence (not a registration -- a provenance repair)
 set -u
 set -o pipefail
 cd "$(dirname "$0")/../.." || exit 2
@@ -23,7 +24,7 @@ dirty=$(git status --porcelain --untracked-files=no -- src scratch | wc -l)
 [ "$dirty" -eq 0 ] || { echo "REFUSING: tree dirty under src/ scratch/"; exit 2; }
 echo "queue at $HEAD0, $(date -Iseconds)"
 for step in imu_prior_sensitivity.sh run_a3_handshake.sh run_a1_dwell.sh \
-            run_e3_imu_integrity.sh regen_cited_evidence.sh; do
+            run_d8_sensitivity.sh run_e3_imu_integrity.sh regen_cited_evidence.sh; do
     now=$(git rev-parse --short HEAD)
     if [ "$now" != "$HEAD0" ]; then
         echo "ABORT: HEAD moved from $HEAD0 to $now mid-queue -- later cells would carry another SHA"
