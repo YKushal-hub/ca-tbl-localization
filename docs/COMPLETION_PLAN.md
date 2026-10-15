@@ -14,7 +14,8 @@ unmeasured.
 |---|---|
 | D-2 IMU | **Build it.** Done: §2 below, commits `c7f12d7` (sensor, G17) and the wiring commit after it |
 | D-5 Python study | **Ignore unless it harms the project.** ✔ It does not: nothing under `scripts/`, `scratch/python_handoff/`, `src/`, the gates, or any authoritative document runs or cites `multimodal_generator*.py`, `evaluate_3state.py` or `validate_multimodal.py`. The one engine reference to `simstatus.md` (`lora-ranging-submodule.cc:32`) cites its §4.1 CRLB arithmetic, not the IMU. Left untouched |
-| D-3 C2–C4 | **Decide after the IMU.** Open |
+| D-3 C2–C4 | **Deferred (owner, 2026-10-15)**, after the IMU result: the architecture still fails A0 v2 at R = 25 m with or without the inertial prior, and D-8 moves every tier-2 number first. Revisit once D-8 and the evidence gaps are closed |
+| D-8 | **Planned fix campaign (owner, 2026-10-15).** `--t2SensitivityRowKHz` built in the worktree (default off; A7 passes with it); stage 1 registered in `report/PREREG_D8_SENSITIVITY.md`; stage 2 re-measures Claims 2, 4 and the joint criterion after stage 1 |
 | D-4 A0 | **May be new.** Registered as `report/PREREG_A0_V2.md`: A0's rule plus the fourth branch, on new cells only |
 | D-1 trailers / G12 | Not answered. Still open |
 
@@ -308,6 +309,20 @@ campaign registration, runner, scorer.
   `MASTER_PLAN.md` §1 dated banner.
 - A3 registration, runner and scorer written; `scripts/sweeps/run_registered_queue.sh` runs
   every new registration at one commit.
+
+**Progress, 2026-10-15 (queue at `e94d04d` running; nothing below committed yet):**
+- IMU campaign scored and committed (`89ac3b6`); result written, `report/IMU_PRIOR_RESULT.md`.
+  Bias sensitivity scored: the short-outage gain survives 0.05–0.5 dps, eroding at 0.5.
+- **IMU long-outage defect root-caused and fixed in the worktree.** Sensor states stay
+  calibrated; only the position covariance fails — the EKF drops the second-order along-track
+  shortening. An unscented predict is not enough (NEES 178 → 54 at 1000 s); moment-matched
+  coasting, variance only, is: NEES 1.5–2.7 to 1000 s, mean error unchanged.
+  `--imuCoastMomentMatch` (default off) wired; gate G20 + fixture written (plain EKF fails it).
+- **D-8 fix built in the worktree:** `--t2SensitivityRowKHz=812.5` (default off), A7 passes with
+  it, the scenario refuses a mismatched row. Stage-1 registration, runner, scorer written.
+- Final worktree flag-off null control (D-8 + coasting + diagnostics) running.
+- After the queue: land the worktree in atomic commits, wire G20, commit D-8 stage-1
+  registration, run it.
 
 **New defects found this session, recorded not fixed:**
 - **D-8 (candidate): tier-2 receiver ~6 dB pessimistic.** The SX1280 table in

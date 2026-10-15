@@ -49,7 +49,7 @@ entries in it:
 | 4 | Coverage-floor optimisation | **re-scoped** — 42.8% → **24.5%** |
 | 5 | Specialized packet taxonomy | stands |
 | 6 | Custom handshake / MAC | stands |
-| 7 | Physics realism on packets | **re-scoped** — verified for ranging and energy, unverified for receiver sensitivity |
+| 7 | Physics realism on packets | **re-scoped** — verified for ranging and energy; receiver sensitivity checked 2026-10-14: tier 1 within 1 dB of its data sheet, **tier 2 about 6 dB pessimistic** (D-8, gate G19), tier 3 unchecked |
 | 8 | Confidence model beats a flat threshold | **falsified** — and measured on a predicate since shown unable to fire |
 | 9 | Integrity check improves accuracy | **falsified**, on clean provenance |
 
@@ -57,7 +57,8 @@ entries in it:
 predicate takes tier-3 service from zero to every seed and cuts policy thrashing from 148
 oscillations per seed to 3.5. It costs 2.17× the energy of a single band and buys
 +0.0016 availability, so it does not rescue the architecture — but the defect was real
-and the repair is measured.
+and the repair is measured. (Its evidence directory, `results/siting_repair`, was never
+committed; it is being reconstructed — see gate G18 and `report/AUDIT_2026_10_15.md`.)
 
 ## Where the work is
 

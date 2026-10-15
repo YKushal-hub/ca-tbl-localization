@@ -311,6 +311,16 @@ flowchart LR
 
 ### 5.2 The six things to prove
 
+> **Corrected 2026-10-15.** Three "Final status" cells below were written before the 2026-09-04
+> withdrawals and contradicted this report's own summary line and `Simulation.md` §11. Current
+> status, from the ledger: **row 1 (Claim 3)** — replacement also **withdrawn (W11)**, no
+> replacement; **row 2 (Claim 2)** — **re-scoped to 6.53×** [5.11, 7.95], the 25.68× baseline was
+> inflated by the legacy NLOS conflation; **row 3 (Claim 1)** — **withdrawn (W12)**, the trigger never
+> fires under the corrected NLOS source. **Row 4**: the duty governor is enforced on ranging, not
+> on the escalation handshake (found 2026-10-14). **Row 6**: receiver sensitivity is now measured —
+> tier 1 within 1 dB of the data sheet, **tier 2 about 6 dB pessimistic** (D-8). The table is kept
+> as written.
+
 | # | Thing to prove | Claim | Final status |
 |---|---|---|---|
 | 1 | Architectural advantage — hybrid beats single-band | Claim 3 | ⚠️ **WITHDRAWN then narrowly replaced** — one PASS in 320 cells, M1 = 0.9531 [0.9296, 0.9775], with **five caveats** |

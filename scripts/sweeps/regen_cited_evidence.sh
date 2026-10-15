@@ -24,9 +24,12 @@
 #                    Its directory layout is not recorded anywhere that survives; the
 #                    names used here are this script's and say so in RECONSTRUCTION.md.
 #
-# Not reconstructed: p10_env_v7, p10_env_v8, p10_plane_v7 -- no surviving document states
-# their full flag sets, and guessing would produce exactly the plausible substitute the
-# regeneration policy forbids. They stay reported by G18.
+# Not reconstructed HERE: p10_env_v7, p10_env_v8, p10_plane_v7. CORRECTED 2026-10-15: an earlier
+# version of this comment said no surviving document states their flags. Wrong --
+# WORK_ORDER_PROMPT_ENVELOPE_V7.md §1 and WORK_ORDER_PROMPT_OPERATING_ENVELOPE.md §1 specify the
+# two envelope sets (untracked prompt files; instructions, not records of what ran). They are a
+# separate, larger reconstruction (320 invocations) listed in report/AUDIT_2026_10_15.md.
+# p10_plane_v7's flags are stated nowhere and can only be inferred, so it is not reconstructed.
 #
 # Refuses a dirty tree and any existing target directory.
 

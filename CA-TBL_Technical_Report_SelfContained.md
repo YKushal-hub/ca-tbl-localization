@@ -30,6 +30,14 @@ accuracy ≤ 25 m**, and a decision rule fixed before any run.
 | ~~One configuration in 320 is cheaper *and* equally reliable~~ | ~~M1 **0.9531** [0.9296, 0.9775]~~ | **WITHDRAWN (W11).** Measured under `nlosSource=legacy`; the same cell re-measures to **M1 = 1.1873 [1.1782, 1.1965]** — a FAIL — under the corrected source, and **no cell in the re-scored grid returns a PASS**. Claim 3 stands withdrawn with no replacement | `experiments/CLAIM3_NLOS_SOURCE_RESULT.md`, `experiments/P10_GRID_PROPAGATION_RESULT.md` |
 | The dimensionless axis transfers | window held at `spacing/r80` 1.02–1.23 across a **26%** change in `r80` | A result about method; independent of any claim passing. §4.3 | `results/p10_env_v7`, `_v8` |
 
+> **Read with the audit of 2026-10-15** (`report/AUDIT_2026_10_15.md`). The first row above and
+> the second describe the **same** result: it **did not reproduce** and does not stand; the first
+> row was left unstruck when the second was added. The third row is withdrawn (W11). The fourth
+> rests on `p10_env_v7` / `_v8`, which were never committed and are not in the repository (gate
+> G18); their flag sets survive in two prompt files, so they can be reconstructed. Of the rows in
+> this table, **none currently stands on evidence the repository holds**; §4.x (the inertial prior,
+> `results/imu_prior`) is the one result added since that does.
+
 **Results falsified.**
 
 - **The integrity gate does not pay** (Claim 9) — all four response policies lose
@@ -42,12 +50,18 @@ accuracy ≤ 25 m**, and a decision rule fixed before any run.
 - **Packet-level physics realism is re-scoped, not proven** (Claim 7) — the cited
   checks verify ranging precision and energy accounting, and a six-decibel sensitivity
   defect passed all of them. §5.4b.
+- **Escalation triggers correctly** (Claim 1) — **withdrawn (W12)**: under the corrected NLOS
+  source the trigger never escalates to UWB. *(Added 2026-10-15; it was missing from this list.)*
+- **Energy reduction** (Claim 2) — **re-scoped** from 25.68× to 6.53× [5.11, 7.95]. *(Added
+  2026-10-15.)*
 
 **Defects the method found.** A six-decibel sensitivity-table indexing error on the
 tier carrying 95% of active cycles; PCS confidence saturating so it cannot express a
 diverged filter; a gate suite that overwrote the evidence it verified; a degeneracy
 screen that conflated four mechanisms into one verdict. Two were found by checks
-failing, two by results being arithmetically impossible. §6.
+failing, two by results being arithmetically impossible. §6. **Added 2026-10-15:** D1's fix
+landed tier 2 on the SX1280's 1625 kHz row at 800 kHz, ~6 dB pessimistic (D-8, §6.x); and the
+escalation handshake never arms the duty-cycle off-time it obliges.
 
 **The structural finding.** The project registered a **cost** criterion for an
 architecture whose value proposition is **reliability**, and the two select for
@@ -134,7 +148,21 @@ Over 3205 directories: `tiering` 1.1%, `integrity` 27.3%, `trigger` 40.0%,
 
 ## 4. Results that stand
 
+> **Heading kept as written; its content no longer matches it (audit 2026-10-15).** §4.1 does not
+> reproduce; §4.2 is withdrawn (W11); §4.3 rests on directories the repository does not hold. §4.x
+> is the one entry backed by tracked evidence.
+
 ### 4.1 Tiering buys reliability in a degraded environment
+
+> **Does not reproduce — annotated 2026-10-15, text below kept as the record.** Two
+> independent campaigns failed to reproduce this result. `report/P10_RELIABILITY_REPRODUCTION.md`
+> ran the stated configuration at 20 seeds and got `ca_tbl_full` **1/20** and **0/20** against the
+> 19/20 below; the regenerated 320-cell grid (`report/A0_APPLIED.md`) met the requirement in
+> **0 of 320** cells. The prospectively registered joint criterion
+> (`src/catbl-propagation-study/experiments/JOINT_CRITERION_RESULT.md`, 52 fresh seeds) found the
+> reliability advantage it was testing **does not reproduce**: both arms met the requirement on
+> 52/52. The flag set the original campaign used is not on disk. Until it is recovered and the
+> result reproduces, this section is not a result that stands.
 
 Source: `results/p10_grid`, `source 0a489df dirty 0`, 20 seeds, digests verified.
 
@@ -210,6 +238,20 @@ denominator. This is a result about **method**, and it does not depend on any cl
 passing.
 
 ---
+
+### 4.x The inertial prior bridges short outages — and only short ones (C3)
+
+Source: `results/imu_prior`, `source cb60c71 dirty 0`, 120 invocations, digests verified;
+pre-registered in `report/PREREG_IMU_PRIOR.md`; full result `report/IMU_PRIOR_RESULT.md`.
+
+With `--imuPrior` (a BMI270-based pedestrian dead-reckoning prior, fitted to every arm), median
+error on no-fix cycles falls to **0.15–0.18×** of constant velocity for `static_2p4` and the
+tiered arms, and to 0.09× on cycles 25–65 s into an outage. The leak control held exactly: no
+static arm's radio-side output moved (0 of 180). **The result is bounded:** on `static_uwb`,
+whose outages last tens of minutes, the prior is **3.1–3.5× worse** than constant velocity, and
+a synthetic test with a perfectly modelled channel shows the filter consistent only to about two
+minutes of outage (NEES 2.07 at 125 s, 11.8 at 500 s). Under A0 v2 the tiered architecture still
+FAILS at `R = 25 m` with or without it.
 
 ## 5. Results that do not stand
 
@@ -389,6 +431,17 @@ Requiring a material share (>1% of total, a threshold of ours and not physical) 
 reports its own screen's false-positive rate is more credible than one that does not.
 
 ---
+
+### 6.x D1's fix landed tier 2 on the wrong bandwidth row (candidate D-8, 2026-10-14)
+
+Found by A7 (`scripts/sensitivity_fidelity_check.py`, gate G19), which calls each engine's own
+threshold accessor and compares it with data-sheet tables. Tier 2 is configured at 800 kHz and
+applies **−106.0 dBm** at SF7; the SX1280 data sheet (rev 3.2, Table 6-1, low power mode) gives
+**−112.0 dBm** at 812.5 kHz. The engine's table is the **1625 kHz** row. D1's fix comment cites
+−106 dBm as corroboration — which it is, at 1625 kHz. Tier 2's receiver is therefore about
+**6 dB pessimistic** at its own bandwidth, so every tier-2 coverage figure in this report is
+conservative. **Recorded, not fixed:** a fix moves every tier-2 result and is a planned campaign.
+Tier 1 agrees with the SX1262 data sheet to 1 dB; tier 3 is not checked.
 
 ## 7. The structural finding
 

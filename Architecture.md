@@ -128,7 +128,7 @@ flowchart TB
 | `CaTblEnergyModel`     | `…/ca-tbl-energy-model.*`                            | Datasheet-current energy accounting       |
 | `CaTblPolicy`          | `…/ca-tbl-policy.*`                                  | EKF, PCS, evidence gate, escalation FSM   |
 | Scenario harness         | `scratch/ca_tbl_causal_sim.cc`                        | Geometry, mobility, arms, sweep driver    |
-| Verifier                 | `scratch/python_handoff/verify_causal_sim.py`         | 141 checks / 161 gates                    |
+| Verifier                 | `scratch/python_handoff/verify_causal_sim.py`         | 142 checks / 160–161 gates (2026-10-15)   |
 | Gate suite               | `scripts/catbl_gates.sh`                              | G1–G5 end-to-end                         |
 
 ---
@@ -479,6 +479,12 @@ sequenceDiagram
 
 - Adaptive Power Control is a mandatory condition of the allowance and is implemented.
 - **Enforcement mechanism:** standard sub-GHz off-time rule — after occupying the channel for *T*, stay silent until *T/limit* has elapsed.
+- **Scope of that enforcement, found 2026-10-14:** only the ranging exchange arms the off-time
+  (`AccountRangingExchange()` → `ArmDutyCycle()`). The escalation handshake is charged but **never
+  arms it**, and tier-1 ranging does not consult the governor before transmitting. The averaged
+  figure below is compliant; the per-transmission rule is not enforced after a handshake. Under
+  `--intraCycleHandshake` (A3) the handshake arms its off-time and ranging respects it; the default
+  is unchanged so committed results reproduce.
 - **Measured:** `duty_868` = **0.0226** against the 0.025 cap `[E-07]`
 
 ### 7.6 A regulatory constraint that shapes the architecture
@@ -794,7 +800,7 @@ flowchart BT
 | **Causal feed-forward** | The tier chosen at cycle*k* is the tier that transmits at cycle *k+1*                                                          |
 | Digest completeness           | A run that produced fewer files than it claims                                                                                     |
 
-- Totals: **141 checks / 161 gates**, `arms_audited 6/6`. `[E-25]`
+- Totals: **142 checks / 160–161 gates** as of 2026-10-15 (141 / 161 when `[E-25]` was recorded), `arms_audited 6/6`. `[E-25]`
 - **G5 is a self-test of the verifier**: 11 cases confirming it fails on each evidence defect it is supposed to catch. `[E-26]`
 - Rationale: the gates test the simulator on every run; until G5 existed, nothing tested the gates.
 

@@ -278,6 +278,15 @@ cross-arm claim, not a refinement of a single-seed one.
 
 ## 5. Result A — reference density
 
+> **Superseded — banner added 2026-10-15; the table below is kept as the record.** Under current
+> flags (`nlosSource=propagation`, evidence gate, PCS `min`) the reference density gives
+> **52/52 against 52/52** deployments for `ca_tbl_full` and `static_2p4` on 52 fresh seeds
+> (joint criterion, `[M-34]`) and 30/30 against 30/30 in the IMU campaign's constant-velocity
+> cells (`report/IMU_PRIOR_RESULT.md`). The 19/20 against 14/20 below is from an earlier
+> configuration: `[M-09]` names no directory, and its 24.26 J equals the published figure of
+> `p10_plane_fix`, which ran under the legacy NLOS source and is recorded non-regenerable.
+
+
 **Configuration:** `spacing/r80` = 1.03 (`boxHalf` 2000), `gwGrid` 5, 20 seeds.
 **Population:** availability over all 1440 cycles. Requirement A ≥ 0.95 at R ≤ 25 m. `[M-09]`
 
@@ -318,6 +327,12 @@ cross-arm claim, not a refinement of a single-seed one.
 ---
 
 ## 6. Result B — escalation trigger quality
+
+> **Withdrawn — banner added 2026-10-15.** This is Claim 1, **withdrawn as W12** (§11 ledger
+> row 1): re-measured post-D1 under `nlosSource=propagation`, the trigger never escalates to UWB
+> (tp = fp = 0 of 90.9 opportunities per seed). The precision and F1 below were measured under the
+> legacy NLOS source and do not stand. Text kept as the record.
+
 
 **This is the cleanest and most decisive measurement in the project.**
 
@@ -376,6 +391,12 @@ flowchart TD
 
 ## 7. Result C — energy
 
+> **Re-scoped — banner added 2026-10-15.** This is Claim 2. The **25.68×** below is superseded by
+> **6.53× [5.11, 7.95]** (§11 ledger row 2, `[M-31]`): the published baseline was inflated by the
+> legacy NLOS conflation. The direction stands; the magnitude below does not. The 6.53× rests on
+> `results/claim2_rebase`, which was never committed (gate G18) and is being reconstructed.
+
+
 ### 7.1 Measured effect `[M-11]`
 
 | Metric                       | Before   | After             | Change                       |
@@ -402,6 +423,13 @@ flowchart TD
 ---
 
 ## 8. Result D — deployment envelope
+
+> **Withdrawn — banner added 2026-10-15.** This is Claim 3, **withdrawn (W4)** — the window was
+> inferred from a region where every pre-registered verdict was FAIL or INCONCLUSIVE — and its
+> replacement **withdrawn (W11)** (§11.1). "Outcome: confirmed" below refers to the prediction of a
+> window's shape, not to an architectural advantage, and no result in this section stands. Text
+> kept as the record.
+
 
 ### 8.1 The question
 
@@ -486,6 +514,12 @@ flowchart LR
 
 ## 9. Result E — coverage-floor optimisation
 
+> **Re-scoped — banner added 2026-10-15.** This is Claim 4 (§11 ledger row 4, `[M-30]`). Measured
+> under the legacy NLOS source by default; under the corrected source the saving is **24.5 %
+> [23.6, 25.3]**, about half the like-for-like 39.9 %. Direction and mechanism stand. The 24.5 %
+> rests on `results/claim4_src`, never committed (gate G18) and being reconstructed.
+
+
 ### 9.1 The finding that motivated it `[M-15]`
 
 | Property of the unconditional tier-1 floor | Value                      |
@@ -557,7 +591,7 @@ flowchart LR
 | 3 | **Architectural advantage exists and is bounded** | ❌**WITHDRAWN (W4), REPLACEMENT ALSO WITHDRAWN (W11) — see §11.1** | ~~Window 1.0–1.3 `[M-12] [M-13]`~~ withdrawn: inferred from a region where every pre-registered verdict was FAIL or INCONCLUSIVE. ~~Replaced by a single measured PASS, M1 = 0.9531 [0.9296, 0.9775]~~ **also withdrawn (W11): measured under `nlosSource=legacy`, which the same cell shows re-measures to M1 = 1.1873 [1.1782, 1.1965] — a FAIL — under the corrected source `[M-27]`.** No replacement stands |
 | 4 | **Coverage-floor optimisation** | ✅**PROVEN — MAGNITUDE RE-SCOPED** | 12/12 pre-registered predictions met at two densities`[M-16]`. **Measured under `nlosSource=legacy` by default; re-measured under the corrected source the saving is 24.5% [23.6, 25.3] against 39.9% on a like-for-like pair — it halves. Direction and mechanism stand; 99–100% of the saving is floor energy `[M-30]`** |
 | 5 | **Specialized packet taxonomy** | ✅**IMPLEMENTED & VALIDATED** | 9 message types, 4 access categories, validator 38/38`[M-20]` |
-| 6 | **Custom handshake / MAC** | ✅**IMPLEMENTED & EXERCISED** | Emergent capture 14,564 events; duty-cycle governor enforced at 0.0226 vs 0.025`[M-21]` |
+| 6 | **Custom handshake / MAC** | ✅**IMPLEMENTED & EXERCISED** | Emergent capture 14,564 events; duty-cycle governor enforced at 0.0226 vs 0.025`[M-21]` — **on ranging; the escalation handshake does not arm the off-time it obliges (found 2026-10-14)** |
 | 7 | **Physics realism on packets** | ⚠️**RE-SCOPED — see §11.2** | ~~PROVEN~~. The named checks pass and are unchanged: CRLB ratio 1.105, UWB 0.154 m, energy reconciled to 10 s.f. `[M-22]`. They verify *ranging precision and energy accounting*, not the sensitivity tables — a six-decibel indexing defect (`0d5e747`) passed every one of them |
 | 8 | **Confidence model beats a flat threshold** | ❌**FALSIFIED (thin) — MEASURED ON A PREDICATE THAT COULD NOT FIRE** | 19/20 vs 18/20 deployments at 24.26 J vs 22.77 J; the flat variance threshold escalates on nearly the same occasions `[M-23]` | **Note added 2026-09-05, no re-scoring: this claim compares PCS against a flat threshold, and PCS's sum form has since been shown structurally unable to request escalation under `nlosSource=propagation` — `term2 + term3 ≥ 1.70` on 85.18% of tier-2 cycles — while its `min` form fires readily (0 → 83.0 UWB cycles/seed). The comparison was measured on the sum form. "Thin" is not the right word for a claim whose mechanism could not act `[M-33]`.**
 | 9 | **Integrity check improves accuracy** | ❌**FALSIFIED at R = 25 m** | 240-cell ablation, 2 fault models, 4 response policies (**fault models characterised 2026-09-03**: F1 injects a bias on **4 of the 12** tier-2 anchors, F3 on all 12 — the source comment's claim of a single-anchor `h = 1` case is wrong and is corrected in `src/catbl-propagation-study/DEFECTS.md`; **no result or verdict changes**, since the numbers were produced under the model the code implements): no configuration beats `no_integrity` on availability, `rmseM` or `cep50M`. Detection is sound (separation 7.73×/16.45×, 20/20 detected); the requirement leaves no headroom `[M-24] [M-25] [M-26]`. **Re-measured on clean provenance 2026-08-29** (`results/c9_clean`, `source cd594c9 dirty 0`, 40 cells): the falsification **reproduces** — availability `full − no_integrity` −0.031 (F1) and −0.054 (F3), sign holding on 18–19 of 20 seeds. Reads as a statement about **rejection alone**: `suspectForcesEscalation=false` is in the flag set, so no escalation follows a rejection `[M-29]` |
@@ -947,8 +981,8 @@ favourable result was available and honestly concluded that it was not.
 | Simulator and physics         | Built. Ranging precision verified against the CRLB. **Receiver sensitivity only partly verified:** tier 1 is within 1 dB of the SX1262 data sheet; **tier 2's table is the SX1280's 1625 kHz row while the tier runs at 800 kHz — about 6 dB pessimistic at SF7** (candidate D-8, found 2026-10-14, recorded not fixed); tier 3 unchecked |
 | Energy model                  | Complete; reconciles to datasheet currents to 10 significant figures |
 | MAC and regulatory compliance | Emergent capture; the duty governor is enforced on **ranging**. The escalation handshake does **not** arm the off-time it obliges (found 2026-10-14) |
-| Inertial prior (C3)           | Built behind `--imuPrior`, default off and byte-identical when off; campaign pre-registered in `report/PREREG_IMU_PRIOR.md`, result pending |
-| Verification apparatus        | 141 checks / 161 gates, self-tested; gate G17 added for the IMU |
+| Inertial prior (C3)           | Built behind `--imuPrior`, default off and byte-identical when off; measured (`report/IMU_PRIOR_RESULT.md`): no-fix error ×0.15–0.18 on short outages, **×3.1–3.5 worse on `static_uwb`'s long ones**; consistent to ~2 min of outage only |
+| Verification apparatus        | 142 checks / 160–161 gates as of 2026-10-15 (was 141 / 161), self-tested; gates G17–G20 added |
 | Claims 1, 3                   | **Withdrawn** (W12; W4 then W11) |
 | Claims 2, 4                   | **Proven, magnitudes re-scoped** (6.53×; 24.5 %) |
 | Claims 5, 6                   | Implemented and validated / exercised |
