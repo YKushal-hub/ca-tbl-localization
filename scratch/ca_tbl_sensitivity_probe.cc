@@ -42,6 +42,11 @@ main(int argc, char* argv[])
     CommandLine cmd(__FILE__);
     cmd.AddValue("env", "wide-area environment, as ca_tbl_causal_sim --env", envWide);
     cmd.AddValue("envFacility", "facility environment, as --envFacility", envFacility);
+    double t2Row = 0.0;
+    cmd.AddValue("t2SensitivityRowKHz",
+                 "Apply the scenario's D-8 correction, exactly as --t2SensitivityRowKHz does, "
+                 "so the corrected configuration can be checked by the same gate",
+                 t2Row);
     cmd.Parse(argc, argv);
 
     LoRaPhysicsConfig c868 =
@@ -65,6 +70,11 @@ main(int argc, char* argv[])
                                           static_cast<VegetationType>(vegFacility),
                                           MOB_CONSTANT_VELOCITY,
                                           false);
+    if (t2Row > 0.0 && !Sx1280LowPowerSensitivityRow(t2Row, c2p4.receiver.sensitivityDbm))
+    {
+        std::fprintf(stderr, "FATAL: %.3f kHz is not a tabulated SX1280 bandwidth\n", t2Row);
+        return 1;
+    }
     c868.rangingModelMode = RANGING_PHYSICS_DERIVED;
     c2p4.rangingModelMode = RANGING_PHYSICS_DERIVED;
     cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;

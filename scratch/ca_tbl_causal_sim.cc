@@ -1107,6 +1107,12 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+// D-8. 0 keeps tier 2's committed sensitivity table -- the SX1280's 1625 kHz row applied at
+// 800 kHz, ~6 dB pessimistic there (A7, gate G19). Non-zero selects the data sheet's Table 6-1
+// row for that bandwidth, via Sx1280LowPowerSensitivityRow(). File-scope for the same reason as
+// g_terrainPerTierFreq, written once after cmd.Parse() and checked against the configured
+// tier-2 bandwidth before any run.
+static double g_t2SensitivityRowKHz = 0.0;
 
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
@@ -1138,6 +1144,10 @@ static bool g_terrainPerTierFreq = false;
         /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
         c2p4.terrain.frequencyHz = 2.4e9;                                                          \
         cUwb.terrain.frequencyHz = 7.9872e9;                                                       \
+    }                                                                                              \
+    if (g_t2SensitivityRowKHz > 0.0)                                                               \
+    {                                                                                              \
+        Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
     }
 
 /**
@@ -3835,6 +3845,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     // DEFAULT TRUE. See the note at the deferral site: with gating on but deferral
     // off, an arm still performs the escalation while paying for none of it, and
     // the size of that free ride is correlated with which arm is under test --
@@ -4159,6 +4170,16 @@ main(int argc, char* argv[])
                  "escalating arm to move when this is on; that is the "
                  "treatment, not a regression, and it needs a re-baseline.",
                  sendHandshakeFramesArg);
+    cmd.AddValue("t2SensitivityRowKHz",
+                 "D-8. Which SX1280 data-sheet sensitivity row tier 2 uses, by bandwidth in "
+                 "kHz: 0 (default) keeps the committed table, which is the data sheet's 1625 "
+                 "kHz row applied at the scenario's 800 kHz -- about 6 dB pessimistic there, "
+                 "found by gate G19. Every committed result was produced under it, so it stays "
+                 "the default. 812.5 applies the Table 6-1 row (rev 3.2, low power mode) for "
+                 "the bandwidth tier 2 actually runs at; the run is refused unless the row "
+                 "matches the configured tier-2 bandwidth within 5 %, so the correction cannot "
+                 "be applied to the wrong radio configuration.",
+                 t2SensitivityRowKHzArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -4299,6 +4320,7 @@ main(int argc, char* argv[])
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+    g_t2SensitivityRowKHz = t2SensitivityRowKHzArg;
 
     CaTblPcsForm pcsForm = CA_TBL_PCS_LEGACY;
     if (pcsFormArg == "min")
@@ -4461,6 +4483,25 @@ main(int argc, char* argv[])
     phy[CA_TBL_TIER_868] = {7, 125e3, 14.0};
     phy[CA_TBL_TIER_2P4] = {7, 800e3, 12.5};
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+
+    if (g_t2SensitivityRowKHz > 0.0)
+    {
+        double row[8];
+        const double bwKHz = phy[CA_TBL_TIER_2P4].bandwidthHz / 1e3;
+        if (!Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, row))
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " is not a tabulated SX1280 bandwidth (203.125, 406.25, 812.5, 1625)\n";
+            return 1;
+        }
+        if (std::fabs(g_t2SensitivityRowKHz - bwKHz) / g_t2SensitivityRowKHz > 0.05)
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " does not match the configured tier-2 bandwidth " << bwKHz
+                      << " kHz -- the row must describe the radio that runs\n";
+            return 1;
+        }
+    }
 
     if (probe)
     {
