@@ -8,7 +8,9 @@ ReceiverDecisionParamsUWB ReceiverDecisionParamsUWB::Defaults() {
     p.softThresholdEnabled = true;
     p.softThresholdWidthDb = 3.0;
     
-    // SX1280 Sensitivity: SF5 to SF12, BW=800kHz baseline
+    // UWB (DW3000-class) receiver sensitivity: one flat value for every index -- UWB has no
+    // spreading factor. LABEL CORRECTED 2026-10-15: this line was a copy of the SX1280 caption.
+    // The value is NOT checked against a DW3000 data sheet (gate G19 reports tier 3 NOT CHECKED).
     p.sensitivityDbm[0] = -104.0; // UWB Flat Sensitivity (-104 dBm)
     p.sensitivityDbm[1] = -104.0; // UWB Flat Sensitivity (-104 dBm)
     p.sensitivityDbm[2] = -104.0; // UWB Flat Sensitivity (-104 dBm)

@@ -152,6 +152,9 @@ double LoRa2p4PhysicsEngine::GetSensitivityThreshold(uint8_t sf, uint8_t codingR
     // indices 6 and 7 were unreachable. An eight-entry LoRa SF table cannot be
     // SF7-based: SF7..SF14 does not exist. Corroborated by the SX1280 datasheet,
     // which puts SF7 near -106 dBm, not the -100 dBm sitting at index 0.
+    // CORRECTION 2026-10-15: -106 dBm is the data sheet's SF7 value at 1625 kHz. At the
+    // 800 kHz tier 2 actually runs at it is -112 dBm, so this index fix landed on the wrong
+    // bandwidth row (D-8, gate G19, --t2SensitivityRowKHz).
     int sfIndex = std::min(7, std::max(0, static_cast<int>(sf) - 5));
     int crIndex = std::min(3, std::max(0, static_cast<int>(codingRateDenom) - 5));
     return m_config.receiver.sensitivityDbm[sfIndex] + m_config.receiver.codingRateSensitivityOffsetDb[crIndex];

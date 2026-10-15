@@ -57,7 +57,10 @@ def warn(name, condition, detail=""):
     if condition:
         WARN_OK.append(name)
     else:
-        WARN.append(f"{name}: {detail}")
+        # The name states the EXPECTED condition; it is printed only when that condition is
+        # false. Printed bare it read as the outcome ("ca_tbl_full beats fixed_threshold" when
+        # it did not) -- corrected 2026-10-15.
+        WARN.append(f"NOT MET (expected: {name}): {detail}")
 
 
 def load_csv(path):
