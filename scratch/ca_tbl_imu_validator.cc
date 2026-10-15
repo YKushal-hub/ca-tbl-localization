@@ -349,6 +349,134 @@ RunFilterTest(const std::string& fixture, uint32_t mc, uint32_t n, double dt, do
                 static_cast<unsigned long long>(nOut));
 }
 
+// ---- Diagnostic (not a gate): the site-dwell regime ------------------------------
+// static_uwb gets every fix while milling about inside a 10 m ring: 1.1 m steps, heading
+// noise up to +/-3 rad per cycle, a projection back onto the ring with a pi flip, and
+// 0.1 m UWB ranging. G17's filter test never exercised that regime. This replicates it
+// with ranging that matches the filter's R exactly, so any inconsistency it shows belongs
+// to the filter or the sensor model, not to the scenario's measurement errors.
+static bool g_dwellUkf = false;
+static bool g_dwellMM = false;
+static bool g_dwellMMNoShift = false;
+
+static void
+RunDwellDiagnostic(uint32_t mc, double dt, uint32_t nDwell, uint32_t nTransit)
+{
+    const CaTblImuParams truth;
+    const CaTblImuParams assumed;
+    const double deg = M_PI / 180.0;
+    const double ring = 10.0;
+    const double sigR = 0.1;
+    double zTh = 0.0, zB = 0.0, zS = 0.0, zTh2 = 0.0, zB2 = 0.0, zS2 = 0.0;
+    double neesDwell = 0.0, neesEnd = 0.0, errEnd = 0.0;
+    double eTh2 = 0.0, eB2 = 0.0, eS2 = 0.0, thErrDeg2 = 0.0, thSdDeg2 = 0.0;
+    uint64_t nNd = 0;
+    for (uint32_t r = 0; r < mc; ++r)
+    {
+        PathRng rng{0xD5E11ULL + 104729ULL * r};
+        CaTblImuModel imu;
+        imu.Configure(truth, 9000 + r);
+        double x = 0.0, y = 0.0, h = 2.0 * M_PI * rng.U();
+        CaTblImuEkf f;
+        f.SetMomentMatched(g_dwellMM);
+        f.SetMomentMatchedMeanShift(!g_dwellMMNoShift);
+        const double b0 = assumed.gyroBiasInitDps * deg, bg = assumed.gyroBiasGmDps * deg;
+        const double th = assumed.headingInitDeg * deg;
+        f.Init(x + 0.1 * rng.N(), y + 0.1 * rng.N(), 0.01, th * th, b0 * b0 + bg * bg,
+               assumed.strideScaleErr * assumed.strideScaleErr);
+        double prevRaw = 0.0;
+        bool haveRaw = false;
+        for (uint32_t k = 1; k <= nDwell + nTransit; ++k)
+        {
+            const double px = x, py = y;
+            if (k <= nDwell)
+            {
+                h += (2.0 * rng.U() - 1.0) * 1.2 * dt;
+                x += 0.45 * std::cos(h) * dt;
+                y += 0.45 * std::sin(h) * dt;
+                const double dr = std::hypot(x, y);
+                if (dr > ring)
+                {
+                    x *= ring / dr;
+                    y *= ring / dr;
+                    h += M_PI;
+                }
+            }
+            else
+            {
+                h += (2.0 * rng.U() - 1.0) * 0.10 * dt;
+                x += 1.5 * std::cos(h) * dt;
+                y += 1.5 * std::sin(h) * dt;
+            }
+            const CaTblImuIncrement inc = imu.Step(x - px, y - py, dt);
+            const double turn = haveRaw ? CaTblImuModel::Wrap(inc.rawHeadingRad - prevRaw) : 0.0;
+            prevRaw = inc.rawHeadingRad;
+            haveRaw = true;
+            double qs = 0.0, qt = 0.0, qb = 0.0;
+            CaTblImuEkf::ProcessNoise(assumed, dt, inc.distM, turn, qs, qt, qb);
+            if (g_dwellUkf)
+            {
+                f.PredictUnscented(dt, inc.distM, inc.rawHeadingRad, qs, qt, qb);
+            }
+            else
+            {
+                f.Predict(dt, inc.distM, inc.rawHeadingRad, qs, qt, qb);
+            }
+            if (k <= nDwell)
+            {
+                std::vector<CaTblRangeMeasurement> meas;
+                std::vector<double> var;
+                for (int a = 0; a < 5; ++a)
+                {
+                    CaTblRangeMeasurement m;
+                    m.anchorX = ring * std::cos(2.0 * M_PI * a / 5.0);
+                    m.anchorY = ring * std::sin(2.0 * M_PI * a / 5.0);
+                    m.rangeM = std::hypot(x - m.anchorX, y - m.anchorY) + sigR * rng.N();
+                    meas.push_back(m);
+                    var.push_back(sigR * sigR);
+                }
+                f.Update(meas, var);
+                double pxx, pxy, pyy;
+                f.PosCov(pxx, pxy, pyy);
+                const double ex = f.X() - x, ey = f.Y() - y, det = pxx * pyy - pxy * pxy;
+                neesDwell += (pyy * ex * ex - 2 * pxy * ex * ey + pxx * ey * ey) / det;
+                ++nNd;
+            }
+            if (k == nDwell)
+            {
+                const double a = (CaTblImuModel::Wrap(f.HeadingOffset() - imu.TrueHeadingErrRad())) / std::sqrt(f.Var(2));
+                const double b = (f.GyroBias() - imu.TrueBiasRadS()) / std::sqrt(f.Var(3));
+                const double c = (f.StrideScale() - imu.TrueStrideScale()) / std::sqrt(f.Var(4));
+                zTh += a; zB += b; zS += c; zTh2 += a * a; zB2 += b * b; zS2 += c * c;
+            }
+        }
+        double pxx, pxy, pyy;
+        f.PosCov(pxx, pxy, pyy);
+        const double ex = f.X() - x, ey = f.Y() - y, det = pxx * pyy - pxy * pxy;
+        neesEnd += (pyy * ex * ex - 2 * pxy * ex * ey + pxx * ey * ey) / det;
+        errEnd += std::hypot(ex, ey);
+        // State z-scores at the END of the outage: which state's belief has drifted from
+        // its own variance.
+        const double ta = CaTblImuModel::Wrap(f.HeadingOffset() - imu.TrueHeadingErrRad());
+        eTh2 += ta * ta / f.Var(2);
+        eB2 += std::pow(f.GyroBias() - imu.TrueBiasRadS(), 2) / f.Var(3);
+        eS2 += std::pow(f.StrideScale() - imu.TrueStrideScale(), 2) / f.Var(4);
+        thErrDeg2 += std::pow(ta / deg, 2);
+        thSdDeg2 += f.Var(2) / (deg * deg);
+    }
+    std::printf("dwelldiag,end_z_theta_rms,%.4f,end_z_bias_rms,%.4f,end_z_stride_rms,%.4f\n",
+                std::sqrt(eTh2 / mc), std::sqrt(eB2 / mc), std::sqrt(eS2 / mc));
+    std::printf("dwelldiag,end_theta_err_rms_deg,%.3f,end_theta_sigma_rms_deg,%.3f\n",
+                std::sqrt(thErrDeg2 / mc), std::sqrt(thSdDeg2 / mc));
+    const double n = mc;
+    std::printf("dwelldiag,mc,%u,nDwell,%u,nTransit,%u\n", mc, nDwell, nTransit);
+    std::printf("dwelldiag,neesDwellMean,%.4f\n", neesDwell / nNd);
+    std::printf("dwelldiag,z_theta_mean,%.4f,z_theta_rms,%.4f\n", zTh / n, std::sqrt(zTh2 / n));
+    std::printf("dwelldiag,z_bias_mean,%.4f,z_bias_rms,%.4f\n", zB / n, std::sqrt(zB2 / n));
+    std::printf("dwelldiag,z_stride_mean,%.4f,z_stride_rms,%.4f\n", zS / n, std::sqrt(zS2 / n));
+    std::printf("dwelldiag,neesEndOfOutageMean,%.4f,errEndMeanM,%.2f\n", neesEnd / n, errEnd / n);
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -382,6 +510,13 @@ main(int argc, char* argv[])
     uint32_t filterN = 400;
     cmd.AddValue("filterMc", "Realisations in the filter consistency test (0 skips it)", filterMc);
     cmd.AddValue("filterN", "Cycles per realisation in the filter consistency test", filterN);
+    uint32_t dwellDiag = 0;
+    uint32_t dwellTransit = 200;
+    cmd.AddValue("dwellTransit", "Outage cycles after the dwell in the diagnostic", dwellTransit);
+    cmd.AddValue("dwellUkf", "Diagnostic only: use the unscented predict", g_dwellUkf);
+    cmd.AddValue("dwellMM", "Diagnostic only: moment-matched coasting", g_dwellMM);
+    cmd.AddValue("dwellMMNoShift", "Diagnostic only: moment-matched variance, no mean shift", g_dwellMMNoShift);
+    cmd.AddValue("dwellDiag", "Run ONLY the site-dwell diagnostic with this many realisations", dwellDiag);
     cmd.Parse(argc, argv);
 
     std::printf("fixture,%s\n", fixture.c_str());
@@ -436,6 +571,11 @@ main(int argc, char* argv[])
         seedBase += 10000019;
     }
 
+    if (dwellDiag > 0)
+    {
+        RunDwellDiagnostic(dwellDiag, dt, 36, dwellTransit);
+        return 0;
+    }
     if (filterMc > 0)
     {
         RunFilterTest(fixture, filterMc, filterN, dt, speed);

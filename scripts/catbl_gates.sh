@@ -503,6 +503,15 @@ else
 fi
 finish G19
 
+# ------------- G20: the IMU filter stays honest through a long outage
+# G17's filter test exercises 50 s outages; the EKF's overconfidence lives beyond ~2 min
+# (NEES 11.8 at 500 s, 178 at 1000 s with a perfect channel; report/IMU_PRIOR_RESULT.md
+# §3). The fixture runs the validator's dwell + 1000 s outage diagnostic twice:
+# moment-matched coasting must pass, the plain EKF must fail on the outage line.
+printf '\n--- G20 IMU filter consistency over a 1000 s outage (fixture both ways) ---\n'
+bash scripts/catbl_imu_long_outage_fixture.sh || fail G20
+finish G20
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
