@@ -116,6 +116,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     processNoiseStdVel = 0.5;
 
     imuPrior = false; // C3; default preserves every committed result
+    imuCoastMomentMatch = false;
 
     instantEscalate = false;
 }
@@ -464,6 +465,8 @@ CaTblImuEkf::Predict(double dt,
     m_x[0] += D * c;
     m_x[1] += D * s;
     m_x[2] = theta;
+    m_pathX += D * c;
+    m_pathY += D * s;
     // m_x[3] (bias) and m_x[4] (stride scale) are constant under the prediction.
 
     // F = d(x', y', theta', b', s') / d(x, y, theta, b, s). phi depends on theta and
@@ -533,7 +536,55 @@ CaTblImuEkf::Predict(double dt,
         }
     }
     Symmetrise();
+    if (m_mm)
+    {
+        MomentMatch();
+    }
     SnapshotPrior();
+}
+
+void
+CaTblImuEkf::ResetCoast()
+{
+    m_pathX = m_pathY = 0.0;
+    m_shiftX = m_shiftY = 0.0;
+    m_varApplied = 0.0;
+}
+
+void
+CaTblImuEkf::MomentMatch()
+{
+    const double L = std::hypot(m_pathX, m_pathY);
+    if (L < 1e-9)
+    {
+        return;
+    }
+    const double ux = m_pathX / L;
+    const double uy = m_pathY / L;
+    const double s2 = std::max(0.0, m_P[2][2]);
+    // Target totals for the whole path since the last fix, at the current heading variance.
+    const double shrink = L * (1.0 - std::exp(-0.5 * s2));
+    const double tx = -shrink * ux;
+    const double ty = -shrink * uy;
+    const double varAlong =
+        L * L * std::max(0.0, 0.5 * (1.0 + std::exp(-2.0 * s2)) - std::exp(-s2));
+    // Apply only the increments; earlier cycles' corrections already travel in x and P.
+    if (m_mmShift)
+    {
+        m_x[0] += tx - m_shiftX;
+        m_x[1] += ty - m_shiftY;
+        m_shiftX = tx;
+        m_shiftY = ty;
+    }
+    const double dv = varAlong - m_varApplied;
+    if (dv > 0.0)
+    {
+        m_P[0][0] += dv * ux * ux;
+        m_P[0][1] += dv * ux * uy;
+        m_P[1][0] += dv * ux * uy;
+        m_P[1][1] += dv * uy * uy;
+        m_varApplied = varAlong;
+    }
 }
 
 void
@@ -557,6 +608,131 @@ CaTblImuEkf::ProcessNoise(const CaTblImuParams& p,
     }
 }
 
+namespace
+{
+// Lower-triangular Cholesky factor of a symmetric positive semi-definite 5x5 matrix;
+// tiny negative pivots from round-off are clamped to zero.
+void
+Cholesky5(const double A[5][5], double L[5][5])
+{
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            L[i][j] = 0.0;
+        }
+    }
+    for (int j = 0; j < 5; ++j)
+    {
+        double d = A[j][j];
+        for (int k = 0; k < j; ++k)
+        {
+            d -= L[j][k] * L[j][k];
+        }
+        L[j][j] = d > 0.0 ? std::sqrt(d) : 0.0;
+        for (int i = j + 1; i < 5; ++i)
+        {
+            double v = A[i][j];
+            for (int k = 0; k < j; ++k)
+            {
+                v -= L[i][k] * L[j][k];
+            }
+            L[i][j] = L[j][j] > 0.0 ? v / L[j][j] : 0.0;
+        }
+    }
+}
+} // namespace
+
+void
+CaTblImuEkf::PredictUnscented(double dt,
+                              double distM,
+                              double rawHeadingRad,
+                              double qStep2,
+                              double qTheta2,
+                              double qBias2)
+{
+    double scaled[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            scaled[i][j] = N * m_P[i][j];
+        }
+    }
+    double L[N][N];
+    Cholesky5(scaled, L);
+
+    auto f = [&](const double in[N], double out[N]) {
+        const double theta = in[2] + in[3] * dt;
+        const double phi = rawHeadingRad - theta;
+        const double onePlusS = 1.0 + in[4];
+        const double D = distM / (onePlusS > 0.1 ? onePlusS : 0.1);
+        out[0] = in[0] + D * std::cos(phi);
+        out[1] = in[1] + D * std::sin(phi);
+        out[2] = theta;
+        out[3] = in[3];
+        out[4] = in[4];
+    };
+
+    double pts[2 * N][N];
+    for (int k = 0; k < N; ++k)
+    {
+        double plus[N], minus[N];
+        for (int i = 0; i < N; ++i)
+        {
+            plus[i] = m_x[i] + L[i][k];
+            minus[i] = m_x[i] - L[i][k];
+        }
+        f(plus, pts[2 * k]);
+        f(minus, pts[2 * k + 1]);
+    }
+    double mean[N] = {};
+    for (int p = 0; p < 2 * N; ++p)
+    {
+        for (int i = 0; i < N; ++i)
+        {
+            mean[i] += pts[p][i] / (2.0 * N);
+        }
+    }
+    double newP[N][N] = {};
+    for (int p = 0; p < 2 * N; ++p)
+    {
+        for (int i = 0; i < N; ++i)
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                newP[i][j] += (pts[p][i] - mean[i]) * (pts[p][j] - mean[j]) / (2.0 * N);
+            }
+        }
+    }
+    // Process noise, shaped as in Predict(), at the mean heading.
+    const double phiM = rawHeadingRad - mean[2];
+    const double c = std::cos(phiM);
+    const double s = std::sin(phiM);
+    const double onePlusS = 1.0 + mean[4];
+    const double Dm = distM / (onePlusS > 0.1 ? onePlusS : 0.1);
+    const double g[N] = {Dm * s, -Dm * c, 1.0, 0.0, 0.0};
+    const double u[N] = {c, s, 0.0, 0.0, 0.0};
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] += qTheta2 * g[i] * g[j] + qStep2 * u[i] * u[j];
+        }
+    }
+    newP[3][3] += qBias2;
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] = mean[i];
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+    SnapshotPrior();
+}
+
 void
 CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 {
@@ -577,6 +753,10 @@ CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
+    if (!meas.empty())
+    {
+        ResetCoast(); // a fix re-anchors the path; the coherent correction starts again
+    }
     // The same sequential scalar update as CaTblEkf::Update, over five states. A range
     // depends on position only, so H = [dx/r, dy/r, 0, 0, 0]; theta, b and s are
     // corrected through their covariance with position, which is how they are learned.
@@ -765,6 +945,10 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
                       th * th,
                       b0 * b0 + bg * bg,
                       p.strideScaleErr * p.strideScaleErr);
+        // Variance only: the mean shrink uses the current heading sigma for the whole path
+        // and over-corrects its early part (measured: worse mean error, same consistency).
+        m_imuEkf.SetMomentMatched(m_config.imuCoastMomentMatch);
+        m_imuEkf.SetMomentMatchedMeanShift(false);
         m_haveImuPending = false;
         m_haveRawHeading = false;
     }

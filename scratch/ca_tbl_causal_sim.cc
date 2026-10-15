@@ -1976,7 +1976,8 @@ RunArm(CaTblPolicyMode mode,
        bool imuPrior,
        const CaTblImuParams& imuParams,
        // A3 intra-cycle handshake. Default false: nothing below changes.
-       bool intraCycleHandshake)
+       bool intraCycleHandshake,
+       bool imuCoastMomentMatch)
 {
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
@@ -2193,6 +2194,7 @@ RunArm(CaTblPolicyMode mode,
     // data-sheet spec, not the realised errors, which exist only inside imu below.
     pcfg.imuPrior = imuPrior;
     pcfg.imu = imuParams;
+    pcfg.imuCoastMomentMatch = imuCoastMomentMatch;
     CaTblPolicy policy;
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
@@ -4284,6 +4286,16 @@ main(int argc, char* argv[])
                  "rather than assumed negligible.",
                  imuParams.currentMa);
     bool intraCycleHandshakeArg = false;
+    bool imuCoastMomentMatchArg = false;
+    cmd.AddValue("imuCoastMomentMatch",
+                 "With --imuPrior: keep the IMU filter's position covariance honest through "
+                 "long outages. The EKF drops the second-order along-track shortening a "
+                 "heading error causes, and is measured overconfident beyond ~2 minutes of "
+                 "outage even with a perfect channel (NEES 11.8 at 500 s, 178 at 1000 s; "
+                 "report/IMU_PRIOR_RESULT.md). True adds |path|^2 Var(cos d) along track, "
+                 "variance only, reset at each fix: NEES 1.5-2.7 to 1000 s on the same test, "
+                 "mean error unchanged. Default false; refused without --imuPrior.",
+                 imuCoastMomentMatchArg);
     cmd.AddValue("intraCycleHandshake",
                  "A3. When the tier-1 duty budget is spent by this cycle's ranging, send "
                  "the escalation handshake at the instant the off-time expires, inside "
@@ -4298,6 +4310,11 @@ main(int argc, char* argv[])
                  intraCycleHandshakeArg);
     cmd.Parse(argc, argv);
 
+    if (imuCoastMomentMatchArg && !imuPriorArg)
+    {
+        std::cerr << "FATAL: --imuCoastMomentMatch needs --imuPrior\n";
+        return 1;
+    }
     if (intraCycleHandshakeArg && sendHandshakeFramesArg)
     {
         std::cerr << "FATAL: --intraCycleHandshake and --sendHandshakeFrames are not "
@@ -4749,7 +4766,8 @@ main(int argc, char* argv[])
                                        traceDiagnostic,
                                        imuPriorArg,
                                        imuParams,
-                                       intraCycleHandshakeArg);
+                                       intraCycleHandshakeArg,
+                                       imuCoastMomentMatchArg);
 
             // The headline comparison metric. Higher is better: it rewards an
             // arm for being accurate AND cheap, which is exactly the trade the

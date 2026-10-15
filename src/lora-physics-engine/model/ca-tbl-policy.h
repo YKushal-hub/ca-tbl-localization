@@ -430,6 +430,10 @@ struct CaTblPolicyConfig
      */
     bool imuPrior;
     CaTblImuParams imu; //!< what the FILTER assumes about the sensor
+    //! Moment-matched coasting (CaTblImuEkf::SetMomentMatched), variance only: during an
+    //! outage the along-track variance gains |path|^2 Var(cos d) so the position covariance
+    //! stays honest under a large heading sigma. Default false. Only meaningful with imuPrior.
+    bool imuCoastMomentMatch;
 
     bool instantEscalate; //!< if true, a new tier takes effect the same cycle
 
@@ -683,6 +687,20 @@ class CaTblImuEkf : public CaTblFilter
                  double qTheta2,
                  double qBias2);
 
+    /**
+     * The same motion model as Predict(), propagated with sigma points instead of the
+     * Jacobian. Under heading uncertainty the dead-reckoned position is curved -- a heading
+     * error rotates the path, and the along-track shortening L(1 - cos d) is second-order,
+     * which the Jacobian drops. Sigma points in theta carry it through every cycle.
+     * Symmetric set, 2N points, weights 1/(2N). Process noise is added as in Predict().
+     */
+    void PredictUnscented(double dt,
+                          double distM,
+                          double rawHeadingRad,
+                          double qStep2,
+                          double qTheta2,
+                          double qBias2);
+
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
 
@@ -734,6 +752,23 @@ class CaTblImuEkf : public CaTblFilter
     double HeadingOffset() const { return m_x[2]; }
     double GyroBias() const { return m_x[3]; }
     double StrideScale() const { return m_x[4]; }
+
+    /**
+     * Moment-matched coasting. A heading error d rotates the whole dead-reckoned path since
+     * the last fix, and the along-track consequence is second order -- E[cos d] = exp(-s^2/2),
+     * Var(cos d) = (1 + exp(-2 s^2))/2 - exp(-s^2) -- so the Jacobian drops it, and the filter
+     * is overconfident once the heading sigma s is no longer small (report/IMU_PRIOR_RESULT.md
+     * §3). With this on, after every Predict() the position mean is pulled back along the path
+     * by |path|(1 - exp(-s^2/2)) and the along-track variance gains |path|^2 Var(cos d), both
+     * applied incrementally and both reset by the next range update. The heading error is
+     * treated as common to the whole path at its CURRENT variance, which over-states the early
+     * part -- conservative by construction. Added variance is PSD, so P stays positive definite.
+     */
+    void SetMomentMatched(bool on) { m_mm = on; }
+    //! Apply the variance correction only and leave the mean on the straight dead-reckoned
+    //! path (diagnostic switch; the mean shrink uses the current heading sigma for the whole
+    //! path, which over-corrects its early part).
+    void SetMomentMatchedMeanShift(bool on) { m_mmShift = on; }
     double Var(int i) const { return m_P[i][i]; }
 
   private:
@@ -744,6 +779,16 @@ class CaTblImuEkf : public CaTblFilter
     double m_P[N][N];
     double m_xPrior[N];
     double m_PPrior[N][N];
+
+    void MomentMatch();
+    void ResetCoast();
+    bool m_mm = false;
+    bool m_mmShift = true;
+    double m_pathX = 0.0;    //!< dead-reckoned displacement since the last range update
+    double m_pathY = 0.0;
+    double m_shiftX = 0.0;   //!< mean correction already applied this outage
+    double m_shiftY = 0.0;
+    double m_varApplied = 0.0; //!< along-track variance already added this outage
 };
 
 /**
