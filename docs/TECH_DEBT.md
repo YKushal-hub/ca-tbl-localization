@@ -3354,6 +3354,12 @@ open for a source.
   - B1's per-range log is the instrument;
   - A2 (an error-state filter) remains the principled fix for the coherent IMU error.
 
+*2026-10-16, B4-SWITCHING (report/B4_SWITCHING_RESULTS.md; registered at e1c90578):* the overconfidence holds
+under every ToF preset and both configs. No arm passes the NEES band. `ca_tbl_full` R95 coverage is 0.31–0.73
+in the endgame and 0.21–0.29 at 5 km. It is worse with `--rssiRangeFromShadowing` on (muller B: 0.43 on against
+0.55 off), consistent with R not being raised to the larger, correlated 868 error. Still open; next step is a
+registered R-consistency change for the 868 measurement variance.
+
 ### N.52 The preset's NLOS handling keys R on the truth, and removing it changes nothing measurable
 
 *2026-10-09, S2-C (`report/S2C_NLOS_AUDIT.md`; ablation registered, `ddc0173b`).*
