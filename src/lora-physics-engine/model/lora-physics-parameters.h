@@ -436,6 +436,8 @@ struct FoliageParams {
     DistributionParam vegetationDepthM;
     DistributionParam seasonalMultiplier;
     DistributionParam wetFoliageAddDb;
+    //! B3f --foliageDepthClamp: clamp the drawn vegetation depth to the link length (default false).
+    bool clampDepthToLink = false;
     
     static FoliageParams DefaultsFor(VegetationType type);
 };
