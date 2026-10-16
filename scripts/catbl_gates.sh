@@ -313,8 +313,16 @@ finish G9
 # The allowance list in scripts/citation_audit.py is ENUMERATED, with a reason per
 # entry -- deliberately-untracked docs and files inside EXCLUDED.md directories. It
 # is not a blanket exemption for anything that happens to be untracked.
-printf '\n--- G10 cited paths resolve in the repository ---\n'
-python3 scripts/citation_audit.py || fail G10
+#
+# Fixture first (added 2026-10-16 -- G10 had none, against working rule 6): six throwaway
+# repos; the clean one and one citing an allow-listed untracked file pass, every unresolved
+# form fails, including an UNLISTED untracked file -- so the allowance stays an enumeration.
+printf '\n--- G10 cited paths resolve in the repository (fixture, then the tree) ---\n'
+if ! bash scripts/catbl_citation_fixture.sh; then
+    gerror G10 "the citation fixture did not behave -- the gate's verdict would mean nothing"
+else
+    python3 scripts/citation_audit.py || fail G10
+fi
 finish G10
 
 # --------------------- G12: no attribution in identity or message, any commit
@@ -1745,6 +1753,24 @@ printf '\n--- G90 PCS term 1 as the literal 1/trace (row 17) ---\n'
 bash scripts/pcs_term1_gate.sh "$WORK/g90" || fail G90
 bash scripts/pcs_term1_gate_selftest.sh "$WORK/g90" || fail G90
 finish G90
+
+# ---------------- G92: every results/ path a tracked document cites is held, or recorded lost
+# G10 checks backtick paths in named documents and report/*.md, and counts a results/ citation
+# as resolved if the directory is committed OR excluded. G92 asks the stricter question for
+# EVERY tracked .md at the root, in docs/ (not docs/archive/), report/ and the propagation
+# study: does the repository hold the evidence? A directory passes with a tracked sidecar; one
+# recorded in RESULTS_NONREGENERABLE.tsv is reported and passes; one allow-listed in
+# EXCLUDED.md ```reviewed-cited-evidence``` passes; anything else fails. Ported 2026-10-16
+# from the local line (G18 there). FAIL BY FINDING when added: 15 cited paths are not held,
+# among them p10_env_v7, p10_env_v8 and p10_plane_v7, which the Technical Report cites. The
+# remedy is regeneration or a recorded loss -- never a widened allow-list. Fixture first.
+printf '\n--- G92 cited results paths are held (fixture, then the tree) ---\n'
+if bash scripts/catbl_cited_evidence_fixture.sh; then
+    python3 scripts/cited_evidence_gate.py || fail G92
+else
+    gerror G92 "the G92 fixture did not behave -- the gate's verdict would mean nothing"
+fi
+finish G92
 
 # ---------------- G93: each tier's receiver applies the DATA-SHEET sensitivity (D-8)
 # G14 checks that the tables and their SF index agree -- the D1 defect. Nothing checked the
