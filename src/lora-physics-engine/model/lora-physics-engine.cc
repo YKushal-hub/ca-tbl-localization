@@ -468,6 +468,8 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     // branch ignores it, along with bandwidthHz and spreadingFactor, because
     // RSSI-inversion ranging is not a time-of-arrival estimator and the ToA
     // Cramer-Rao bound does not apply to it.
+    // S1 --rssiRangeFromShadowing: hand this link's shadowing draw to the ranging (read only when on).
+    state.rangingShadowingDb = result.shadowingDb;
     if (m_config.rangingModelMode == RANGING_PHYSICS_DERIVED) {
         ComputeRangingErrorM(state, RANGING_TIER_868, m_config.ranging,
                               m_config.propagation, m_config.propagation.frequencyHz,

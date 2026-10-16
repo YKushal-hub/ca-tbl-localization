@@ -85,6 +85,7 @@ struct LinkPhysicsState {
     // over-confident on tier 1 by up to 58x at 6 km and under-confident on tier 2 by
     // 5-19x, so the filter discounted good ranges and trusted bad ones.
     double rangingSigmaM      = 0.0;
+    double rangingShadowingDb = 0.0; //!< S1: this link's shadowing draw, handed to the 868 ranging
     
     bool   isTunnel           = false;
     
@@ -1092,6 +1093,22 @@ struct RangingParams {
     // 1400 m and 39 m on a suburban route up to 500 m (BW 400 kHz, SF 8).
     double tofFieldBiasM;
 
+    // S1 (master plan v2), --rssiRangeFromShadowing. false (default): the 868 MHz range error is an
+    // independent, symmetric, truncated Gaussian each reading, as in every earlier result. true: the
+    // range is the log-distance inversion of the link's path loss plus its own (Gudmundson-correlated)
+    // shadowing draw, so the error is log-normal and correlated along the motion, as RSSI ranging is
+    // (Patwari et al. 2005, p. 58-59). The Gaussian is still drawn, so no random stream moves.
+    bool rssiRangeFromShadowing;
+
+    // S2 (master plan v2, owner decision D3), --tofErrorModel. 0 (default, "engine"): the CRLB with
+    // the floors above. 1 "gottschalk": calibrated static ranging, sigma = 1.5 m + 1 % of the range,
+    // unbiased (Gottschalk et al., Internet of Things 37:101945, 2026: sub-2 m positioning to 150 m
+    // after calibration). 2 "muller": the rural-route bins of Mueller et al., ICL-GNSS 2021 (Figs. 4, 6,
+    // mean and SD per 100 m bin) with their eq. (5) correction d_c = 0.95 d + 1 applied. 3 "wolf":
+    // Wolf et al., WPNC 2019, Table II, ranges <= 500 m: LoS mean 75 m / SD 69 m, NLoS 144 m / 112 m,
+    // uncorrected. The engine's existing standard-normal draw is reused, so no random stream moves.
+    int tofErrorModel;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1101,7 +1118,9 @@ struct RangingParams {
           tofNlosBias  (DistributionParam::Normal(1.5, 0.8,           0.0, 6.0)),
           uwbNlosBias  (DistributionParam::LogNormal(std::log(0.3f), 0.6, 0.0, 3.0)),
           uwbPreambleSymbols(1024.0),
-          tofFieldBiasM(0.0)
+          tofFieldBiasM(0.0),
+          rssiRangeFromShadowing(false),
+          tofErrorModel(0)
     {}
 };
 
