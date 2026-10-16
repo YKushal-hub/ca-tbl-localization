@@ -6369,6 +6369,8 @@ struct SpecOptions
     bool acquireReinit = false;
     //! --rangeBiasStates (V3, N.51): false (default) off; true gives every filter 868 MHz consider biases.
     bool rangeBiasStates = false;
+    //! --acquireParticles (V4, N.54): false (default) off; true acquires every node with a particle filter.
+    bool acquireParticles = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6895,6 +6897,8 @@ RunArm(CaTblPolicyMode mode,
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
+    pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
+    pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
@@ -6906,6 +6910,7 @@ RunArm(CaTblPolicyMode mode,
     }
     pcfg.corroborationCheck = corroborationCheck;
     policy.Configure(pcfg);
+    policy.SetAcquireSalt(nodeId); // V4: inert unless --acquireParticles
     // Seeded at the true start position with a deliberately loose covariance:
     // the tag knows roughly where it deployed, not exactly.
     // THE FILTER STARTS WHERE THE SUBJECT WAS LAST SEEN, NOT AT THE TRUTH.
@@ -7422,6 +7427,7 @@ RunArm(CaTblPolicyMode mode,
             // the consumer's own filter carries, and admission test A3 compares
             // exactly those two quantities.
             tags[pt].policy.Configure(pcfg);
+            tags[pt].policy.SetAcquireSalt(tags[pt].nodeId); // V4
             // --- S2-C unknown-start and consistency flags --- (see tag 0's seeding)
             if (spec.unknownStart)
             {
@@ -9038,6 +9044,7 @@ RunArm(CaTblPolicyMode mode,
             sb.walker = &peerWalkers[pi];
             sb.pos = peerWalkers[pi].Position();
             sb.policy.Configure(pcfg);
+            sb.policy.SetAcquireSalt(sb.nodeId); // V4
             // --- S2-C unknown-start and consistency flags --- (see tag 0's seeding)
             if (spec.unknownStart)
             {
@@ -16182,6 +16189,15 @@ main(int argc, char* argv[])
                  "kilometres off and locks in (S2-C). Prints one ACQREINIT line per firing (ACQREINIT_REFUSED "
                  "per refusal) to stdout.",
                  spec.acquireReinit);
+    cmd.AddValue("acquireParticles",
+                 "V4 (master plan v3; TECH_DEBT N.54). False (default): each filter acquires from its prior with "
+                 "range updates, as in every earlier result. True: every node acquires with a particle filter "
+                 "(2000 particles over the prior box, robust range likelihoods: log-normal for 868 MHz, Gaussian "
+                 "otherwise, each term floored at 4 sigma), which keeps every circle-intersection root alive; the "
+                 "EKF carries the cloud's mean and covariance meanwhile, and takes over when the cloud is one mode "
+                 "(principal-axis split: a half under 2 % or Ashman's D < 4). One PFACQ_HANDOVER line per node. "
+                 "Why: R1 showed a single Gaussian started at any one root stays there.",
+                 spec.acquireParticles);
     cmd.AddValue("rangeBiasStates",
                  "V3 (master plan v3; TECH_DEBT N.51). False (default): every filter treats each range error as "
                  "independent, as in every earlier result. True: each 868 MHz range carries a per-anchor CONSIDER "

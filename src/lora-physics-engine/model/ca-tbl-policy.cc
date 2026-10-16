@@ -112,6 +112,10 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
+    acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
+    acquireParticleCount = 2000;
+    acquireSeed = 0;
+    acquireSpeedMps = 1.5;
     rangeBiasStates = false; // V3; off: every range error treated as independent, as before
     rangeBiasCorrM = 30.0;
     hopProvenanceForm = 0;
@@ -650,6 +654,36 @@ CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double r
 }
 
 void
+CaTblEkf::SetPositionCov(double x, double y, double pxx, double pxy, double pyy, double velVar)
+{
+    m_x[0] = x;
+    m_x[1] = y;
+    m_x[2] = 0.0;
+    m_x[3] = 0.0;
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            m_P[i][j] = 0.0;
+        }
+    }
+    m_P[0][0] = std::max(pxx, 1e-6);
+    m_P[1][1] = std::max(pyy, 1e-6);
+    m_P[0][1] = m_P[1][0] = pxy;
+    m_P[2][2] = m_P[3][3] = velVar;
+    for (int i = 0; i < 4; ++i)
+    {
+        m_xPrior[i] = m_x[i];
+        for (int j = 0; j < 4; ++j)
+        {
+            m_PPrior[i][j] = m_P[i][j];
+        }
+    }
+    m_cons.clear();
+    m_consPrior.clear();
+}
+
+void
 CaTblEkf::RevertToPrior()
 {
     for (int i = 0; i < 4; ++i)
@@ -952,6 +986,254 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
     m_acquired = (m_config.acquireMinAnchors == 0);
     // --acquireReinit (R1, TECH_DEBT N.54): armed until the first cycle with three or more ranges.
     m_reinitPending = m_config.acquireReinit;
+    if (m_config.acquireParticles)
+    {
+        // V4: the prior is the box the filter is told about (uniform, half-width sqrt(3) sigma).
+        PfInit(x0, y0, std::sqrt(3.0) * posStdM);
+    }
+}
+
+// ---- V4 --acquireParticles ----------------------------------------------------------------------------
+//
+// Range-only acquisition is multimodal: three km-scale RSSI ranges intersect in two or more places, and a
+// single Gaussian started anywhere commits to one of them (R1: re-initialising at a multilateration root did
+// not help). A particle filter keeps every root alive until the ranges, the node's motion and the anchors'
+// motion disambiguate them (Blanco et al., IROS 2008, sum-of-Gaussians range-only initialisation; particles
+// are the sample-based form of the same idea). Likelihoods are robust: 868 MHz ranges are log-normal in the
+// ratio r/d (the RSSI inversion's error law), the others Gaussian; each term is floored at -8 (4 sigma), so
+// a relayed or NLOS outlier cannot annihilate the true mode. Handover to the EKF when the cloud is unimodal:
+// split along its principal axis, and it is one mode when either half carries < 2 % of the weight or
+// Ashman's D between the halves is below 4 (a single Gaussian split at its mean gives D ~ 2.7).
+
+void
+CaTblPolicy::PfInit(double cx, double cy, double half)
+{
+    const uint32_t n = std::max<uint32_t>(100, m_config.acquireParticleCount);
+    m_pfRng.seed(m_config.acquireSeed * 0x9E3779B97F4A7C15ULL + m_pfSalt * 0xBF58476D1CE4E5B9ULL + 0x7700001ULL);
+    std::uniform_real_distribution<double> u(-1.0, 1.0);
+    m_pf.assign(n, PfParticle{0.0, 0.0, 1.0 / n});
+    for (auto& p : m_pf)
+    {
+        p.x = cx + half * u(m_pfRng);
+        p.y = cy + half * u(m_pfRng);
+    }
+    m_pfActive = true;
+    m_pfCycles = 0;
+}
+
+void
+CaTblPolicy::PfPredict(double dt, double ux, double uy, double qxx, double qyy)
+{
+    std::normal_distribution<double> nz(0.0, 1.0);
+    // Without a control the node may have walked anywhere within speed * dt; with one, the control's own
+    // variance plus a small floor.
+    const double sWalk = m_config.acquireSpeedMps * std::max(0.0, dt);
+    const double sx = (qxx >= 0.0) ? std::sqrt(qxx + 1.0) : sWalk;
+    const double sy = (qyy >= 0.0) ? std::sqrt(qyy + 1.0) : sWalk;
+    for (auto& p : m_pf)
+    {
+        p.x += ux + sx * nz(m_pfRng);
+        p.y += uy + sy * nz(m_pfRng);
+    }
+}
+
+bool
+CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    ++m_pfCycles;
+    const size_t n = m_pf.size();
+    // Progressive correction (Oudjane & Musso 2000): a range far sharper than the cloud would hand all the
+    // weight to whichever particles happen to sit nearest its peak, and with two mirror roots that is a coin
+    // toss that kills one (measured: 30 of 40 two-anchor trials). Each range's likelihood variance is its own
+    // plus the cloud's spread projected on the range direction, var + H C H', so the likelihood is never
+    // sharper than the cloud; the cloud then contracts geometrically and both roots keep their particles.
+    // As the cloud shrinks the term vanishes and the plain likelihood is recovered.
+    double px, py, pcxx, pcxy, pcyy;
+    PfStats(px, py, pcxx, pcxy, pcyy);
+    std::vector<double> hch(meas.size(), 0.0);
+    for (size_t i = 0; i < meas.size(); ++i)
+    {
+        const double dx = px - meas[i].anchorX, dy = py - meas[i].anchorY;
+        const double dd = std::max(1e-6, std::hypot(dx, dy));
+        const double hx = dx / dd, hy = dy / dd;
+        hch[i] = hx * hx * pcxx + 2.0 * hx * hy * pcxy + hy * hy * pcyy;
+    }
+    std::vector<double> lw(n, 0.0);
+    double lmax = -1e300;
+    for (size_t k = 0; k < n; ++k)
+    {
+        double l = std::log(std::max(m_pf[k].w, 1e-300));
+        for (size_t i = 0; i < meas.size() && i < varM2.size(); ++i)
+        {
+            const double d = std::max(1.0, std::hypot(m_pf[k].x - meas[i].anchorX, m_pf[k].y - meas[i].anchorY));
+            const double r = std::max(1.0, meas[i].rangeM);
+            const double sd = std::sqrt(std::max(varM2[i], 1e-6) + hch[i]);
+            double term;
+            if (meas[i].tier == 0)
+            {
+                const double s = std::min(2.0, std::max(0.05, sd / r));
+                const double z = (std::log(r) - std::log(d)) / s;
+                term = -0.5 * z * z;
+            }
+            else
+            {
+                const double z = (r - d) / sd;
+                term = -0.5 * z * z;
+            }
+            l += std::max(term, -8.0);
+        }
+        lw[k] = l;
+        lmax = std::max(lmax, l);
+    }
+    double sw = 0.0;
+    for (size_t k = 0; k < n; ++k)
+    {
+        m_pf[k].w = std::exp(lw[k] - lmax);
+        sw += m_pf[k].w;
+    }
+    double s2 = 0.0;
+    for (auto& p : m_pf)
+    {
+        p.w /= sw;
+        s2 += p.w * p.w;
+    }
+    const double ess = 1.0 / s2;
+    if (ess < 0.5 * static_cast<double>(n))
+    {
+        // Systematic resampling, then roughening (Gordon, Salmond & Smith 1993): jitter of K E N^(-1/2)
+        // per axis with K = 0.2 and E the cloud's extent, so resampled duplicates spread again.
+        std::vector<PfParticle> out;
+        out.reserve(n);
+        std::uniform_real_distribution<double> u01(0.0, 1.0 / static_cast<double>(n));
+        double c = m_pf[0].w;
+        size_t j = 0;
+        const double u0 = u01(m_pfRng);
+        for (size_t k = 0; k < n; ++k)
+        {
+            const double uk = u0 + static_cast<double>(k) / static_cast<double>(n);
+            while (uk > c && j + 1 < n)
+            {
+                ++j;
+                c += m_pf[j].w;
+            }
+            out.push_back(PfParticle{m_pf[j].x, m_pf[j].y, 1.0 / n});
+        }
+        double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;
+        for (const auto& p : out)
+        {
+            x0 = std::min(x0, p.x);
+            x1 = std::max(x1, p.x);
+            y0 = std::min(y0, p.y);
+            y1 = std::max(y1, p.y);
+        }
+        std::normal_distribution<double> nz(0.0, 1.0);
+        const double kj = 0.2 / std::sqrt(static_cast<double>(n));
+        for (auto& p : out)
+        {
+            p.x += kj * (x1 - x0) * nz(m_pfRng);
+            p.y += kj * (y1 - y0) * nz(m_pfRng);
+        }
+        m_pf.swap(out);
+    }
+    // Unimodality test along the principal axis.
+    double mx, my, cxx, cxy, cyy;
+    PfStats(mx, my, cxx, cxy, cyy);
+    const double tr = cxx + cyy;
+    const double l1 = 0.5 * tr + std::sqrt(std::max(0.0, 0.25 * (cxx - cyy) * (cxx - cyy) + cxy * cxy));
+    double ex = 1.0, ey = 0.0;
+    if (std::fabs(cxy) > 1e-12 || std::fabs(l1 - cxx) > 1e-12)
+    {
+        ex = cxy;
+        ey = l1 - cxx;
+        const double nn = std::hypot(ex, ey);
+        if (nn > 0.0)
+        {
+            ex /= nn;
+            ey /= nn;
+        }
+        else
+        {
+            ex = 1.0;
+            ey = 0.0;
+        }
+    }
+    double wA = 0, mA = 0, qA = 0, wB = 0, mB = 0, qB = 0;
+    for (const auto& p : m_pf)
+    {
+        const double s = (p.x - mx) * ex + (p.y - my) * ey;
+        if (s < 0.0)
+        {
+            wA += p.w;
+            mA += p.w * s;
+            qA += p.w * s * s;
+        }
+        else
+        {
+            wB += p.w;
+            mB += p.w * s;
+            qB += p.w * s * s;
+        }
+    }
+    // Linearisation guard: the EKF may take over only once the cloud is small against the ranges it will
+    // linearise (largest SD under a quarter of this cycle's median range); a km-wide cloud handed over is the
+    // R1 failure again. Then unimodality: a half under 2 % of the weight, or Ashman's D < 3 (a Gaussian split
+    // at its mean gives ~2.7, a uniform ~3.5, two separated modes far more).
+    if (m_pfTestForceOne)
+    {
+        return true; // V4 fixture: hand over at once, no guard, no unimodality test
+    }
+    std::vector<double> rr;
+    for (const auto& m : meas)
+    {
+        rr.push_back(m.rangeM);
+    }
+    std::nth_element(rr.begin(), rr.begin() + rr.size() / 2, rr.end());
+    if (std::sqrt(std::max(0.0, l1)) > 0.25 * rr[rr.size() / 2])
+    {
+        return false;
+    }
+    if (wA < 0.02 || wB < 0.02)
+    {
+        return true;
+    }
+    mA /= wA;
+    mB /= wB;
+    const double vA = std::max(1e-9, qA / wA - mA * mA);
+    const double vB = std::max(1e-9, qB / wB - mB * mB);
+    const double D = std::sqrt(2.0) * std::fabs(mA - mB) / std::sqrt(vA + vB);
+    return D < 3.0;
+}
+
+void
+CaTblPolicy::PfStats(double& mx, double& my, double& cxx, double& cxy, double& cyy) const
+{
+    mx = my = cxx = cxy = cyy = 0.0;
+    double sw = 0.0;
+    for (const auto& p : m_pf)
+    {
+        mx += p.w * p.x;
+        my += p.w * p.y;
+        sw += p.w;
+    }
+    if (sw <= 0.0)
+    {
+        return;
+    }
+    mx /= sw;
+    my /= sw;
+    for (const auto& p : m_pf)
+    {
+        const double dx = p.x - mx, dy = p.y - my;
+        cxx += p.w * dx * dx;
+        cxy += p.w * dx * dy;
+        cyy += p.w * dy * dy;
+    }
+    cxx /= sw;
+    cxy /= sw;
+    cyy /= sw;
+    // The cloud cannot resolve below its own spacing: never report less (V4 tempering).
+    cxx += m_pfFloor2;
+    cyy += m_pfFloor2;
 }
 
 double
@@ -1469,10 +1751,18 @@ CaTblPolicy::Step(double dt,
         m_imuPending = false;
         m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
         d.imuPredicted = true;
+        if (m_pfActive)
+        {
+            PfPredict(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[4]);
+        }
     }
     else
     {
         m_ekf.Predict(dt);
+        if (m_pfActive)
+        {
+            PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
+        }
     }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
@@ -1786,7 +2076,26 @@ CaTblPolicy::Step(double dt,
     // reference would be the solution itself. Off (default), acqReinitNow is false and nothing
     // below changes.
     bool acqReinitNow = false;
-    if (m_config.acquireReinit && m_reinitPending && !caseD && meas.size() >= 3)
+    if (m_pfActive && !meas.empty())
+    {
+        // V4 --acquireParticles: this cycle's ranges weight the particle cloud instead of entering the EKF.
+        // The EKF carries the cloud's mean and covariance (so every reader -- PCS, escalation, relays,
+        // finders -- sees the honest, possibly multimodal spread). When the cloud is one mode, the EKF takes
+        // over from it; these ranges are not applied again, and the integrity test does not run.
+        const bool oneMode = PfUpdate(meas, varM2);
+        double mx = 0.0, my = 0.0, cxx = 0.0, cxy = 0.0, cyy = 0.0;
+        PfStats(mx, my, cxx, cxy, cyy);
+        m_ekf.SetPositionCov(mx, my, cxx, cxy, cyy, 100.0);
+        if (oneMode)
+        {
+            m_pfActive = false;
+            ++m_pfHandovers;
+            std::cout << "PFACQ_HANDOVER cycles=" << m_pfCycles << " x=" << mx << " y=" << my
+                      << " sd=" << std::sqrt(std::max(0.0, cxx + cyy)) << "\n";
+        }
+        acqReinitNow = true;
+    }
+    if (!acqReinitNow && m_config.acquireReinit && m_reinitPending && !caseD && meas.size() >= 3)
     {
         double cx = 0.0;
         double cy = 0.0;

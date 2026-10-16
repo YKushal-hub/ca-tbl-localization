@@ -1880,6 +1880,11 @@ printf '\n--- G141 consider biases for correlated 868 MHz range errors ---\n'
 bash scripts/consider_gate.sh "$WORK/g141" || fail G141
 finish G141
 
+# ---------------- G142: V4 --acquireParticles (master plan v3; TECH_DEBT N.54)
+printf '\n--- G142 particle acquisition ---\n'
+bash scripts/pfacq_gate.sh "$WORK/g142" || fail G142
+finish G142
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

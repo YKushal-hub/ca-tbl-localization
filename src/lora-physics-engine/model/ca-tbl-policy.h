@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <string>
 #include <map>
+#include <random>
 #include <vector>
 
 namespace ns3
@@ -534,6 +535,10 @@ struct CaTblPolicyConfig
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool acquireParticles;        //!< V4 --acquireParticles: particle-filter acquisition before the EKF takes over
+    uint32_t acquireParticleCount; //!< V4: particles per node
+    uint64_t acquireSeed;         //!< V4: per-run seed; each node mixes in its own salt (SetAcquireSalt)
+    double acquireSpeedMps;       //!< V4: random-walk speed scale of the node between cycles
     bool rangeBiasStates;  //!< V3 --rangeBiasStates: 868 MHz consider biases in every filter (CaTblEkf::EnableConsider)
     double rangeBiasCorrM; //!< V3: their decorrelation distance, m (the engine's shadowing correlation distance)
     bool acquireReinit; //!< R1 --acquireReinit (N.54): re-initialise the filter at the first >= 3-range multilateration solution instead of a range update from the prior
@@ -864,6 +869,11 @@ class CaTblEkf
     double PriorX() const { return m_xPrior[0]; }
     double PriorY() const { return m_xPrior[1]; }
 
+    /** V4: overwrite the position (and its 2x2 covariance) from an external estimator -- the acquisition
+     *  particle filter -- with velocity zero at \p velVar and no position-velocity correlation. The prior
+     *  snapshot is set to the same state, so the integrity reference is this estimate. */
+    void SetPositionCov(double x, double y, double pxx, double pxy, double pyy, double velVar);
+
     /** V3 --rangeBiasStates (master plan v3; TECH_DEBT N.51). Off by default.
      *
      *  On: every 868 MHz range carries a per-(anchor, tier) CONSIDER bias (Schmidt-Kalman): its variance
@@ -943,6 +953,23 @@ class CaTblPolicy
 
     /** Seed the filter, typically from the first known position. */
     void Initialize(double x0, double y0, double posStdM = 100.0, double velStdMps = 10.0);
+
+    /** V4 --acquireParticles: a node-specific salt for the acquisition filter's random stream (call after
+     *  Configure, before Initialize). Distinct per node so two nodes never share a particle cloud. */
+    void SetAcquireSalt(uint64_t salt) { m_pfSalt = salt; }
+    bool AcquiringByParticles() const { return m_pfActive; }
+    /** V4 test hooks (scratch/v4_acquire_unit.cc only): run the acquisition filter without a scenario. */
+    void PfTestInit(double cx, double cy, double half) { PfInit(cx, cy, half); }
+    bool PfTestStep(double dt, const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2,
+                    double& mx, double& my, double& cxx, double& cxy, double& cyy)
+    {
+        PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
+        const bool one = PfUpdate(meas, varM2);
+        PfStats(mx, my, cxx, cxy, cyy);
+        return one;
+    }
+    void PfTestForceUnimodal(bool on) { m_pfTestForceOne = on; }
+    uint64_t GetPfHandovers() const { return m_pfHandovers; }
 
     /** Tier that should transmit on the next cycle. */
     CaTblTier GetActiveTier() const { return m_tier; }
@@ -1317,6 +1344,26 @@ class CaTblPolicy
     // NW-4. Appended last.
     bool m_queryEscArmed = false;
     bool m_acquired = true; //!< S2-C --acquireMinAnchors: has a fix of that many ranges been fused yet
+    // ---- V4 --acquireParticles ----
+    struct PfParticle
+    {
+        double x;
+        double y;
+        double w;
+    };
+    std::vector<PfParticle> m_pf;
+    bool m_pfActive = false;
+    uint64_t m_pfSalt = 0;
+    uint64_t m_pfHandovers = 0;
+    uint32_t m_pfCycles = 0;
+    bool m_pfTestForceOne = false; //!< V4 fixture: skip the unimodality test
+    double m_pfFloor2 = 0.0; //!< V4: squared inter-particle spacing of the last prior cloud
+    std::mt19937_64 m_pfRng;
+    void PfInit(double cx, double cy, double half);
+    void PfPredict(double dt, double ux, double uy, double qxx, double qyy);
+    /** Weight by this cycle's ranges, resample if needed; true when the cloud is one mode. */
+    bool PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void PfStats(double& mx, double& my, double& cxx, double& cxy, double& cyy) const;
     bool m_reinitPending = false; //!< R1 --acquireReinit: the first >= 3-range cycle has not yet re-initialised the filter
     uint64_t m_acqReinits = 0;    //!< R1 --acquireReinit: re-initialisations performed (0 or 1 per node)
     uint64_t m_acqReinitRefused = 0; //!< R1 --acquireReinit: candidate solutions refused by the residual guard
