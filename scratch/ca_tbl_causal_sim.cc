@@ -97,6 +97,12 @@
 #include "ns3/lora-physics-engine.h"
 #include "ns3/lora-2p4-physics-engine.h"
 #include "ns3/lora-uwb-physics-engine.h"
+
+namespace ns3
+{
+//! B3f: defined in lora-foliage-submodule.cc.
+extern uint64_t g_foliageDepthClampFirings;
+} // namespace ns3
 #include "ns3/lora-physics-parameters.h"
 #include "ns3/lora-2p4-physics-parameters.h"
 #include "ns3/lora-uwb-physics-parameters.h"
@@ -2124,6 +2130,8 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+//! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
+static bool g_foliageDepthClamp = false;
 // TECH_DEBT M.2 (report/PREREG_UWB_NLOS.md). --uwbNlosModel, a file-scope global for the
 // same reason as the one above: written once after cmd.Parse(), read by the macro.
 static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
@@ -2170,6 +2178,12 @@ static bool g_sy3Given = false;
     cUwb.randomSeed = (seed);                                                                      \
     cUwb.rangingModelMode = RANGING_PHYSICS_DERIVED;                                               \
     cUwb.nlosModel = g_uwbNlosModel;                                                               \
+    if (g_foliageDepthClamp)                                                                       \
+    {                                                                                              \
+        c868.foliage.clampDepthToLink = true;                                                      \
+        c2p4.foliage.clampDepthToLink = true;                                                      \
+        cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
     if (g_terrainPerTierFreq)                                                                      \
     {                                                                                              \
         /* Carriers from Architecture.md 2.1: 868 MHz, 2.4 GHz ISM, UWB Ch9 7.99 GHz. */           \
@@ -15193,6 +15207,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool foliageDepthClampArg = false;
     bool intraCycleHandshakeDeferArg = false;
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
@@ -16435,6 +16450,13 @@ main(int argc, char* argv[])
                  "escalating arm to move when this is on; that is the "
                  "treatment, not a regression, and it needs a re-baseline.",
                  sendHandshakeFramesArg);
+    cmd.AddValue("foliageDepthClamp",
+                 "B3f (report/FOLIAGE_DEPTH_DEFECT.md). False (default): the foliage depth is drawn "
+                 "LogNormal(ln 100, 0.6) with no reference to the link, as in every earlier result, so a "
+                 "short link is charged canopy longer than itself (up to 12.8 dB on a 10 m UWB hop). True: "
+                 "the drawn depth is clamped to the link length on all three tiers. The draw itself is kept, "
+                 "so no random stream moves; only the attenuation of links shorter than their draw changes.",
+                 foliageDepthClampArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -17862,6 +17884,7 @@ main(int argc, char* argv[])
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+    g_foliageDepthClamp = foliageDepthClampArg;
 
     // SY-2. --radioBasis is resolved here, before any energy account exists. The default
     // prints nothing, so no output moves with it.
@@ -19881,5 +19904,9 @@ main(int argc, char* argv[])
               << "    the policy is not earning its complexity -- that is a real result,\n"
               << "    not a bug to tune away.\n";
 
+    if (g_foliageDepthClamp)
+    {
+        std::cout << "FOLIAGECLAMP firings=" << ns3::g_foliageDepthClampFirings << "\n";
+    }
     return 0;
 }

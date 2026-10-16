@@ -7,6 +7,9 @@ namespace ns3 {
 // Static cache for per-link dynamic foliage variation (survives across multiple calls for same link)
 static std::map<std::pair<uint32_t, uint32_t>, std::pair<double, Time>> g_foliageDynamicCache;
 
+//! B3f: how many foliage evaluations clamped the drawn depth to the link length.
+uint64_t g_foliageDepthClampFirings = 0;
+
 double ComputeFoliageLossDb(
     Vector txPos, Vector rxPos,
     const FoliageParams& params, LoRaDistributionSampler& sampler,
@@ -20,6 +23,17 @@ double ComputeFoliageLossDb(
     double depth = sampler.Sample(params.vegetationDepthM);
     double gamma = sampler.Sample(params.specificAttenuationDbPerM);
     double A_max = sampler.Sample(params.maxAttenuationDb);
+
+    // B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): a path cannot traverse more
+    // vegetation than its own length (ITU-R P.833's depth is the vegetation along the path). The
+    // draws above are unchanged, so no random stream moves; off (default), depth is the draw.
+    if (params.clampDepthToLink) {
+        const double linkLen = CalculateDistance(txPos, rxPos);
+        if (linkLen < depth) {
+            depth = linkLen;
+            ++g_foliageDepthClampFirings;
+        }
+    }
 
     if (depth <= 0.0 || gamma <= 0.0 || A_max <= 0.0) {
         return 0.0;

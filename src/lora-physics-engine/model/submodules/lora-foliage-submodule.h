@@ -9,6 +9,10 @@
 
 namespace ns3 {
 
+//! B3f --foliageDepthClamp: foliage evaluations whose drawn depth was clamped to the link length.
+extern uint64_t g_foliageDepthClampFirings;
+
+
 /**
  * @brief Computes vegetation and foliage attenuation loss (ITU-R P.833-10)
  * A_veg = A_max * (1 - exp(-depth * gamma / A_max))

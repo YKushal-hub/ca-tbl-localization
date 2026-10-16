@@ -1829,6 +1829,15 @@ bash scripts/acqreinit_gate.sh "$WORK/g133" || fail G133
 bash scripts/acqreinit_gate_selftest.sh "$WORK/g133" || fail G133
 finish G133
 
+# ---------------- G134: --foliageDepthClamp, foliage depth clamped to the link length (B3f)
+# Read by scripts/foliage_gate.py: false given explicitly changes no byte (probe and sim); true clamps
+# (FOLIAGECLAMP firings > 0), raises UWB PDR at <= 10 m, and leaves 868 MHz probe rows >= 500 m identical.
+# Negative fixtures in scripts/foliage_gate_selftest.sh (rule 6).
+printf '\n--- G134 foliage depth clamp ---\n'
+bash scripts/foliage_gate.sh "$WORK/g134" || fail G134
+bash scripts/foliage_gate_selftest.sh "$WORK/g134" || fail G134
+finish G134
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
