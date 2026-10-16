@@ -220,8 +220,9 @@ The local line (81 commits after `56d47fb`, never merged) was copied to
 `CLAUDE.md` §2. **Messages only:** every rewritten commit has the same tree as its original
 (checked commit by commit), the count is unchanged at 81, and the first 55 carried no trailer
 and keep their SHAs. The 26 below changed. Sidecars ported from the local line cite the
-**old** SHA; this table is how they resolve (G13). The originals remain on
-`work/2026-10-16-imu-d8-audit` until the owner decides whether to delete that branch.
+**old** SHA; this table is how they resolve (G13). The originals, trailers included, were on
+`work/2026-10-16-imu-d8-audit`; that branch was deleted on the owner's decision (2026-10-16),
+so the old SHAs survive only here, each beside its tree-identical rewrite.
 
 | old | new | subject |
 |---|---|---|
