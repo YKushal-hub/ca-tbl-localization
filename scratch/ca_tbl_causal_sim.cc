@@ -6374,6 +6374,8 @@ struct SpecOptions
     uint32_t acquireMinAnchors = 0;
     //! --acquireReinit (R1, N.54): false (default) off; true re-initialises each filter at its first >= 3-range solution.
     bool acquireReinit = false;
+    //! --c2bEscalation (V5, C2b): false (default) off; true: escalate on reachability, never on confidence.
+    bool c2bEscalation = false;
     //! --rangeReplyPosition (V7, H.2): false (default) off; true: a finder's ranging reply carries its position.
     bool rangeReplyPosition = false;
     //! --rangeBiasStates (V3, N.51): false (default) off; true gives every filter 868 MHz consider biases.
@@ -6907,6 +6909,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
     pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
+    pcfg.c2bEscalation = spec.c2bEscalation;         // --- V5 --- (false by default: off)
     pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
@@ -16329,6 +16332,15 @@ main(int argc, char* argv[])
                  "kilometres off and locks in (S2-C). Prints one ACQREINIT line per firing (ACQREINIT_REFUSED "
                  "per refusal) to stdout.",
                  spec.acquireReinit);
+    cmd.AddValue("c2bEscalation",
+                 "V5 (master plan v3; claim C2b). False (default): a hybrid arm escalates when its confidence is "
+                 "low (PCS below the tier's threshold; fixed_threshold: trace above it), as in every earlier result. "
+                 "True: it always wants the next tier, and escalates when the evidence gate OBSERVES it reachable "
+                 "(a neighbour ranged on the awake radio within the UWB predicate radius), with the gate's "
+                 "estimate-quality veto skipped -- that veto waits for confidence only the next tier can give, the "
+                 "pattern Stage A found harmful. Grants, arbitration and de-escalation are unchanged. Use with "
+                 "--escalationRequiresEvidence (the preset has it), or it escalates blind.",
+                 spec.c2bEscalation);
     cmd.AddValue("rangeReplyPosition",
                  "V7 (master plan v3; TECH_DEBT H.2). False (default): a range to a finder is anchored at the "
                  "freshest table entry the ranging node holds, predicted forward and inflated by its age -- "
