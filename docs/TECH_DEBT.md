@@ -3476,6 +3476,17 @@ first sets (the N.25 family), not linearisation. The flag stays, default off, as
 
 
 
+*2026-10-16, V4 (`--acquireParticles`, G142; master plan v3).* N.54's mechanism is now addressed by a
+particle-filter acquisition: 2000 particles over the prior box and robust range likelihoods.
+- **Progressive correction** (likelihood variance + H C H') keeps both mirror roots: without it, 30 of 40
+  two-anchor unit trials collapsed onto one.
+- **Handover to the EKF** happens only for a unimodal cloud smaller than a quarter of the median range.
+- **Unit gate:** two anchors hold 40/40; a third resolves 40/40 to the true root.
+- **Dev, 4 seeds, 5 km:** `ca_tbl_full` CEP95 518 → 253 m, median error 59 → 15 m; `static_2p4` 623 → 300 m,
+  coverage 0.46 → 0.93. In the endgame the effect is mixed.
+
+Negative information (silent anchors) is not yet used.
+
 ### N.55 The 868 MHz range error leaks into 868 MHz reception
 
 *2026-10-16, found by V1-RNGKEYED's follow-up (report/V1_RNGKEYED_RESULTS.md section 3).* The `RANGING_TIER_868`
