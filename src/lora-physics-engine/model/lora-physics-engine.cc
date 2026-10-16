@@ -483,6 +483,11 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
                               (bandwidthHz > 0.0 ? bandwidthHz : 125000.0), 0.0,
                               spreadingFactor, m_sampler);
     }
+    // V2b --rangeErrorNoLinkLeak: keep the ranging bias for the report, but not in the link budget.
+    const double rangingBiasReportDb = state.propagationLossBiasDb;
+    if (m_config.ranging.rangeErrorNoLinkLeak) {
+        state.propagationLossBiasDb = 0.0;
+    }
 
     // 5. Tapped Delay Line Multipath (Coupling 3: Delay Spread scaled by NLOS)
     double effBw = (bandwidthHz > 0.0 ? bandwidthHz : 125000.0);
@@ -1031,7 +1036,8 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     result.estimatedRangeM = state.estimatedRangeM;
     result.rangeErrorM = state.rangeErrorM;
     result.positionErrorM = state.positionErrorM;
-    result.propagationLossBiasDb = state.propagationLossBiasDb;
+    result.propagationLossBiasDb = m_config.ranging.rangeErrorNoLinkLeak ? rangingBiasReportDb
+                                                                         : state.propagationLossBiasDb;
     result.rangingSigmaM = state.rangingSigmaM;
     
     // P3: Write actual sampled rain rate, not the distribution mean

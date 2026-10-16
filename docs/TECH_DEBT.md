@@ -3412,6 +3412,18 @@ registered R-consistency change for the 868 measurement variance.
   - a configurable NLOS-bias physics model, calibrated, as a separate scenario;
   - an 868 MHz RSSI-residual detector, testable only once 868 MHz NLOS biases a range.
 
+
+*2026-10-16, V2a (`--nlosRangeBias`, G139; master plan v3).* The bias half is now modelled, default off:
+- **868 MHz:** the RSSI inversion includes the NLOS loss.
+- **2.4 GHz:** an NLOS range gains an exponential excess of mean 69 m (Wolf 2019 Table II; Guvenc & Chong
+  2009 eq. 2). The unit gate confirms the mechanism.
+- **The population is still missing:** in the preset scenario only 9 of 3485 tag-0 2.4 GHz range rows were
+  NLOS (200 m box, 1200 s). NLOS is rare at short range (P = 1 - exp(-d/8000) in the forest) and kills the
+  link when it occurs.
+
+Making NLOS links occur and survive at realistic rates is V2a-2. It needs the owner's copy of 3GPP TR 38.901
+for the LOS-probability and NLOS-loss laws.
+
 ### N.53 The two Part B branches collide
 
 *2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and
@@ -3443,3 +3455,31 @@ error at 5 km, and slightly worsens endgame CEP95 (+21 m for `ca_tbl_full`). The
 km-scale three-range RSSI sets with sigma about 5 km per axis, so the lock-in is ambiguity/geometry of the
 first sets (the N.25 family), not linearisation. The flag stays, default off, as a recorded negative.
 
+
+
+### N.55 The 868 MHz range error leaks into 868 MHz reception
+
+*2026-10-16, found by V1-RNGKEYED's follow-up (report/V1_RNGKEYED_RESULTS.md section 3).* The `RANGING_TIER_868`
+branch of `ComputeRangingErrorM` writes `propagationLossBiasDb = 10 n log10(estimated / true)`, and Step 14 of
+`lora-physics-engine.cc` adds that field to `additional_loss`. The 2.4 GHz and UWB engines zero it before Step
+14, for exactly this reason (their comments say so); the 868 engine never did.
+- **Effect:** the range error becomes a random loss on reception.
+- **Under `--rssiRangeFromShadowing`** the range comes from the shadowing, so the shadowing is counted twice.
+- **Probe, 3 seeds:** 868 r80 1492 m (default), 1194 m (S1 on), 1710 m with the leak removed (S1 on or off
+  alike); the margin SD at 1500 m drops from 16.8 to 14.0 dB.
+- **Consequences:**
+  - every 868 MHz reach, availability and accuracy figure in the tree carries it;
+  - B4-5's S1 effect is partly this;
+  - S6's 868 MHz deviation from Phi(M/sigma) is partly this.
+- **Fix, default off:** `--rangeErrorNoLinkLeak` (G140). Recommended on for every new campaign.
+
+### N.56 The probe restarts time at every distance, freezing time-driven link processes
+
+`RunProbe` evaluates trial k at t = k s for each distance, so time returns to 0 at every new distance. Per-link
+processes that update only when time has advanced past their last update stop updating after the first distance:
+- fading updates when dt >= 0.15 s;
+- foliage dynamics update by coherence time.
+
+Later distances reuse the first distance's final values per site. The probe's r80 therefore rests on fewer
+independent fading draws than its 2000 trials suggest. Not fixed. A fix (monotone time across distances) changes
+every probe output; it should come with V2b's curve work.

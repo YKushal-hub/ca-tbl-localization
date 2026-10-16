@@ -177,8 +177,16 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
             // S1 --rssiRangeFromShadowing: the range a receiver would infer from its RSSI -- the
             // inversion of the path loss plus this link's correlated shadowing. err above is still
             // drawn, so the random stream is unchanged; it is replaced, not added to.
+            // V2a --nlosRangeBias: the measured RSSI includes the NLOS excess loss, so the receiver's
+            // inversion sees it too. Deterministic given the link state, so no draw moves.
+            const double nlosLossDb = (params.nlosRangeBias && state.isNLOS) ? state.nlosPenaltyDb : 0.0;
+            if (nlosLossDb > 0.0 && !params.rssiRangeFromShadowing) {
+                err += std::max(InvertPropagationLossDb(state.propagationLossDb + nlosLossDb, propParams, frequencyHz), 1.0)
+                     - estD;
+            }
             if (params.rssiRangeFromShadowing) {
-                const double estS = std::max(InvertPropagationLossDb(state.propagationLossDb + state.rangingShadowingDb,
+                const double estS = std::max(InvertPropagationLossDb(state.propagationLossDb + state.rangingShadowingDb
+                                                                         + nlosLossDb,
                                                                      propParams, frequencyHz), 1.0);
                 err = estS - state.trueRangeM;
                 sigmaM = std::max(estS * std::log(10.0) / (10.0 * n) * state.shadowingStdEff, 0.5);
@@ -255,6 +263,12 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                     reportedSigma = sd;
                 }
                 state.rangeErrorM = e;
+            }
+            // V2a --nlosRangeBias: NLOS excess path length, positive, exponential (one extra draw, only
+            // for NLOS links with the flag on; the wolf preset already includes it).
+            if (params.nlosRangeBias && state.isNLOS && params.tofErrorModel != 3 && params.tofNlosExcessMeanM > 0.0) {
+                state.rangeErrorM += sampler.Sample(DistributionParam::Exponential(1.0 / params.tofNlosExcessMeanM,
+                                                                                   0.0, 20.0 * params.tofNlosExcessMeanM));
             }
             state.estimatedRangeM       = state.trueRangeM + state.rangeErrorM;
             state.positionErrorM        = std::abs(state.rangeErrorM);

@@ -2154,6 +2154,62 @@ static double g_sensShiftDb2p4 = 0.0;
 static double g_tofFieldSigmaM = 0.0;
 //! S1 --rssiRangeFromShadowing and S2 --tofErrorModel (master plan v2); defaults reproduce every earlier result.
 static bool g_rssiRangeFromShadowing = false;
+//! V2a --nlosRangeBias (master plan v3).
+static bool g_nlosRangeBias = false;
+//! V2b --rangeErrorNoLinkLeak (master plan v3).
+static bool g_rangeErrorNoLinkLeak = false;
+//! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
+//! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
+static bool g_probeTerms = false;
+
+//! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
+struct CaTblProbeTerms
+{
+    static constexpr int kN = 11;
+    static const char* Name(int i)
+    {
+        static const char* n[kN] = {"margin", "pathloss", "shadowing", "fading", "nlos", "foliage", "terrain",
+                                    "atmospheric", "interference", "hwtx", "frontend"};
+        return n[i];
+    }
+    double s[kN] = {0};
+    double q[kN] = {0};
+    uint64_t n = 0;
+    uint64_t rx = 0;
+    uint64_t pos = 0;
+    template <class R>
+    void Add(const R& r)
+    {
+        const double v[kN] = {r.sensitivityMarginDb, r.pathLossDb, r.shadowingDb, r.fadingDb, r.nlosDb,
+                              r.foliageDb, r.terrainDb, r.atmosphericDb, r.interferencePenaltyDb,
+                              r.hwTxVariationDb, r.frontendDesensitizationDb};
+        for (int i = 0; i < kN; ++i)
+        {
+            if (!std::isfinite(v[i]))
+            {
+                return;
+            }
+        }
+        for (int i = 0; i < kN; ++i)
+        {
+            s[i] += v[i];
+            q[i] += v[i] * v[i];
+        }
+        ++n;
+        rx += r.packetReceived ? 1u : 0u;
+        pos += (r.sensitivityMarginDb > 0.0) ? 1u : 0u;
+    }
+    double Mean(int i) const { return n ? s[i] / n : std::numeric_limits<double>::quiet_NaN(); }
+    double Sd(int i) const
+    {
+        if (n < 2)
+        {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+        const double m = s[i] / n;
+        return std::sqrt(std::max(0.0, q[i] / n - m * m));
+    }
+};
 static std::string g_tofErrorModelName = "engine";
 //! S2: engine 0, gottschalk 1, muller 2, wolf 3; -1 if the name is not one of them.
 static int
@@ -2254,6 +2310,15 @@ static bool g_sy3Given = false;
     if (g_rssiRangeFromShadowing)                                                                  \
     {                                                                                              \
         c868.ranging.rssiRangeFromShadowing = true;                                                \
+    }                                                                                              \
+    if (g_rangeErrorNoLinkLeak)                                                                    \
+    {                                                                                              \
+        c868.ranging.rangeErrorNoLinkLeak = true;                                                  \
+    }                                                                                              \
+    if (g_nlosRangeBias)                                                                           \
+    {                                                                                              \
+        c868.ranging.nlosRangeBias = true;                                                         \
+        c2p4.ranging.nlosRangeBias = true;                                                         \
     }                                                                                              \
     if (CaTblTofModelIndex(g_tofErrorModelName) > 0)                                               \
     {                                                                                              \
@@ -2594,6 +2659,17 @@ RunProbe(EnvironmentClass envWide,
     // mean_snr_all_db is gated behind --traceDiagnostic so the default output is
     // byte-identical to every run that preceded this change. It is the D2 control
     // column: mean_snr_db conditioned on delivery, mean_snr_all_db over all trials.
+    std::ofstream termsOut;
+    if (g_probeTerms)
+    {
+        termsOut.open((outdir + "/probe_terms.csv").c_str());
+        termsOut << "tier,distance_m,n,pdr,p_margin_pos";
+        for (int i = 0; i < CaTblProbeTerms::kN; ++i)
+        {
+            termsOut << ",mean_" << CaTblProbeTerms::Name(i) << ",sd_" << CaTblProbeTerms::Name(i);
+        }
+        termsOut << "\n";
+    }
     out << "tier,distance_m,pdr,mean_abs_range_err_m,mean_snr_db,crlb_floor_m,"
         << "measured_over_crlb,n,coherent_gain_db,two_ray_frac,nlos_frac,"
         << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db"
@@ -2661,6 +2737,7 @@ RunProbe(EnvironmentClass envWide,
             double shadowSqSum = 0.0;
             double shadowEffSum = 0.0;
             uint32_t diagN = 0;
+            CaTblProbeTerms terms;
 
             for (int k = 0; k < trials; ++k)
             {
@@ -2714,6 +2791,10 @@ RunProbe(EnvironmentClass envWide,
                     marginDb = r.sensitivityMarginDb;
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
+                    if (g_probeTerms)
+                    {
+                        terms.Add(r);
+                    }
                 }
                 else if (tier == CA_TBL_TIER_2P4)
                 {
@@ -2729,6 +2810,10 @@ RunProbe(EnvironmentClass envWide,
                     marginDb = r.sensitivityMarginDb;
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
+                    if (g_probeTerms)
+                    {
+                        terms.Add(r);
+                    }
                 }
                 else
                 {
@@ -2744,6 +2829,10 @@ RunProbe(EnvironmentClass envWide,
                     marginDb = r.sensitivityMarginDb;
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
+                    if (g_probeTerms)
+                    {
+                        terms.Add(r);
+                    }
                 }
 
                 // Channel diagnostics are accumulated over ALL trials, not only
@@ -2787,6 +2876,17 @@ RunProbe(EnvironmentClass envWide,
             }
 
             const double pdr = static_cast<double>(rx) / static_cast<double>(trials);
+            if (g_probeTerms)
+            {
+                termsOut << CaTblTierName(tier) << ',' << ds[i] << ',' << terms.n << ','
+                         << (terms.n ? static_cast<double>(terms.rx) / terms.n : 0.0) << ','
+                         << (terms.n ? static_cast<double>(terms.pos) / terms.n : 0.0);
+                for (int j = 0; j < CaTblProbeTerms::kN; ++j)
+                {
+                    termsOut << ',' << terms.Mean(j) << ',' << terms.Sd(j);
+                }
+                termsOut << '\n';
+            }
             const double mae = (errN > 0) ? errSum / static_cast<double>(errN) : -1.0;
             // D3 (DEFECTS.md). 0.0 was indistinguishable from a genuine 0 dB
             // measurement; NaN is not a value the quantity can take. Every
@@ -15934,6 +16034,27 @@ main(int argc, char* argv[])
                  "which has no term 1.",
                  spec.pcsTerm1Inverse);
     // --- S3 evidence-fix flags ---
+    cmd.AddValue("rangeErrorNoLinkLeak",
+                 "V2b (master plan v3). False (default): the 868 MHz engine adds its own ranging bias, "
+                 "10 n log10(estimated/true range), into the link budget, so the range error changes reception "
+                 "-- a spurious random loss by default and the shadowing counted twice under "
+                 "--rssiRangeFromShadowing (probe 868 r80 1492 -> 1194 m). The 2.4 GHz and UWB engines already "
+                 "zero it. True: the 868 engine zeroes it too; the reported bias is kept.",
+                 g_rangeErrorNoLinkLeak);
+    cmd.AddValue("probeTerms",
+                 "V2b (master plan v3), with --probe only. True: also write probe_terms.csv -- per tier and "
+                 "distance, the realised sensitivity margin's mean and SD and the mean and SD of every loss "
+                 "term -- to find which terms make the delivery curve flatter than Phi(M/sigma_shadowing). "
+                 "Output only; no engine change.",
+                 g_probeTerms);
+    cmd.AddValue("nlosRangeBias",
+                 "V2a (master plan v3). False (default): an NLOS link's 868 MHz range ignores its NLOS loss and "
+                 "its 2.4 GHz range is biased by N(1.5, 0.8) m, as in every earlier result. True: the 868 MHz "
+                 "RSSI inversion includes the NLOS excess loss (over-estimating the range by 10^(L/10n)), and a "
+                 "2.4 GHz NLOS range gains an exponential positive excess of mean 69 m (Wolf et al. 2019 Table "
+                 "II, NLoS minus LoS mean error; exponential law per Guvenc & Chong 2009). Not added under "
+                 "--tofErrorModel=wolf, whose NLoS row already has it. UWB is unchanged (--uwbNlosModel).",
+                 g_nlosRangeBias);
     cmd.AddValue("rssiRangeFromShadowing",
                  "S1 (master plan v2). False (default): each 868 MHz range error is an independent, "
                  "symmetric Gaussian, as in every earlier result. True: the range is the log-distance "
@@ -19313,7 +19434,16 @@ main(int argc, char* argv[])
     if (probe)
     {
         RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir, traceDiagnostic);
-        return AppendOutputDigest(outdir, "probe_range_sweep.csv") ? 0 : 1;
+        if (g_rngKeyed)
+        {
+            // The probe returns before main's closing report, so the keyed-draw residue is printed here
+            // too (found by V1-RNGKEYED: its probe cells carried no residue line).
+            std::cout << "RNGKEYED unkeyed_draws=" << LoRaDistributionSampler::UnkeyedDraws() << "\n";
+        }
+        return AppendOutputDigest(outdir, g_probeTerms ? "probe_range_sweep.csv probe_terms.csv"
+                                                       : "probe_range_sweep.csv")
+                   ? 0
+                   : 1;
     }
 
     if (uwbAnchorsPerSite < 3 || t2AnchorsPerSite < 3)
