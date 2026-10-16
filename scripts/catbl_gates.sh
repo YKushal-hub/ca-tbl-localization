@@ -1875,6 +1875,11 @@ bash scripts/linkleak_gate.sh "$WORK/g140" || fail G140
 bash scripts/linkleak_gate_selftest.sh "$WORK/g140" || fail G140
 finish G140
 
+# ---------------- G141: V3 --rangeBiasStates, --rssiSigmaLogNormal (master plan v3; TECH_DEBT N.51)
+printf '\n--- G141 consider biases for correlated 868 MHz range errors ---\n'
+bash scripts/consider_gate.sh "$WORK/g141" || fail G141
+finish G141
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

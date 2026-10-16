@@ -190,6 +190,11 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                                                                      propParams, frequencyHz), 1.0);
                 err = estS - state.trueRangeM;
                 sigmaM = std::max(estS * std::log(10.0) / (10.0 * n) * state.shadowingStdEff, 0.5);
+                if (params.rssiSigmaLogNormal) {
+                    const double s = std::log(10.0) / (10.0 * n) * state.shadowingStdEff;
+                    const double es2 = std::exp(s * s);
+                    sigmaM = std::max(estS * std::sqrt(es2 * (es2 - 1.0)), 0.5);
+                }
             }
             state.estimatedRangeM = state.trueRangeM + err;
             state.rangeErrorM     = err;

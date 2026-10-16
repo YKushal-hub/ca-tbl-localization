@@ -2158,6 +2158,8 @@ static bool g_rssiRangeFromShadowing = false;
 static bool g_nlosRangeBias = false;
 //! V2b --rangeErrorNoLinkLeak (master plan v3).
 static bool g_rangeErrorNoLinkLeak = false;
+//! V3 --rssiSigmaLogNormal (master plan v3).
+static bool g_rssiSigmaLogNormal = false;
 //! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
 //! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
 static bool g_probeTerms = false;
@@ -2310,6 +2312,10 @@ static bool g_sy3Given = false;
     if (g_rssiRangeFromShadowing)                                                                  \
     {                                                                                              \
         c868.ranging.rssiRangeFromShadowing = true;                                                \
+    }                                                                                              \
+    if (g_rssiSigmaLogNormal)                                                                      \
+    {                                                                                              \
+        c868.ranging.rssiSigmaLogNormal = true;                                                    \
     }                                                                                              \
     if (g_rangeErrorNoLinkLeak)                                                                    \
     {                                                                                              \
@@ -4231,6 +4237,7 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
             m.nlosPropagation = false;
             m.hiddenChannelActive = false;
             m.sigmaM = sigEff;
+            m.tier = static_cast<uint8_t>(rt); // V3 --rangeBiasStates
             m.hopDepth = rr.hopDepth; // NW-1 (read only under --hopProvenance)
             meas.push_back(m);
             used.insert(rr.relayId);
@@ -4456,6 +4463,7 @@ RelayChain::RangeForSubject(size_t b,
         m.nlosPropagation = false;
         m.hiddenChannelActive = false;
         m.sigmaM = sigEff;
+        m.tier = static_cast<uint8_t>(tier); // V3 --rangeBiasStates
         m.hopDepth = rr.hopDepth;
         m.anchorId = static_cast<uint16_t>(C.nodeId);
         m.sourceKind = CaTblSourceKindOf(static_cast<uint16_t>(C.nodeId));
@@ -6359,6 +6367,8 @@ struct SpecOptions
     uint32_t acquireMinAnchors = 0;
     //! --acquireReinit (R1, N.54): false (default) off; true re-initialises each filter at its first >= 3-range solution.
     bool acquireReinit = false;
+    //! --rangeBiasStates (V3, N.51): false (default) off; true gives every filter 868 MHz consider biases.
+    bool rangeBiasStates = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6884,6 +6894,8 @@ RunArm(CaTblPolicyMode mode,
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
+    pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
+    pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -9997,6 +10009,7 @@ RunArm(CaTblPolicyMode mode,
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
                         m.sigmaM = sigmaM;
+                        m.tier = static_cast<uint8_t>(rt); // V3 --rangeBiasStates
                         // DC-11: who the range is to (rule 14's fields).
                         m.anchorId = anchorId;
                         m.sourceKind = CaTblSourceKindOf(anchorId);
@@ -10364,6 +10377,7 @@ RunArm(CaTblPolicyMode mode,
                             m.nlosPropagation = nlosP;
                             m.hiddenChannelActive = hid;
                             m.sigmaM = sigma;
+                            m.tier = static_cast<uint8_t>(tier); // V3 --rangeBiasStates
                             m.anchorId = aid;
                             m.sourceKind = CaTblSourceKindOf(aid);
                             m.fromFloor = (tier != act);
@@ -11602,6 +11616,7 @@ RunArm(CaTblPolicyMode mode,
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
                     m.sigmaM = sigmaM;
+                    m.tier = static_cast<uint8_t>(tier); // V3 --rangeBiasStates
                     m.nlosScore = nlosScore;
                     // DC-11: who the range is to, and whether this is the floor's set
                     // (the floor is the only tier ranged other than the active one).
@@ -12185,6 +12200,7 @@ RunArm(CaTblPolicyMode mode,
                     m.nlosPropagation = false;
                     m.hiddenChannelActive = false;
                     m.sigmaM = sigmaEff;
+                    m.tier = static_cast<uint8_t>(active); // V3 --rangeBiasStates
                     m.anchorId = rr.relayId; // DC-11
                     m.sourceKind = CA_TBL_SRC_RELAY;
                     m.hopDepth = rr.hopDepth;
@@ -16034,6 +16050,12 @@ main(int argc, char* argv[])
                  "which has no term 1.",
                  spec.pcsTerm1Inverse);
     // --- S3 evidence-fix flags ---
+    cmd.AddValue("rssiSigmaLogNormal",
+                 "V3 (master plan v3). False (default): the 868 MHz range sigma given to the filter is the "
+                 "first-order d ln10 sigma_S/(10 n). True, with --rssiRangeFromShadowing: the exact SD of the "
+                 "log-normal error, d sqrt(exp(s^2)(exp(s^2)-1)), s = ln10 sigma_S/(10 n) -- 1.01 d against "
+                 "0.70 d at 7 dB, n = 2.3 (per-range log: E[z^2] 2.3-2.5 with the first-order sigma).",
+                 g_rssiSigmaLogNormal);
     cmd.AddValue("rangeErrorNoLinkLeak",
                  "V2b (master plan v3). False (default): the 868 MHz engine adds its own ranging bias, "
                  "10 n log10(estimated/true range), into the link budget, so the range error changes reception "
@@ -16160,6 +16182,15 @@ main(int argc, char* argv[])
                  "kilometres off and locks in (S2-C). Prints one ACQREINIT line per firing (ACQREINIT_REFUSED "
                  "per refusal) to stdout.",
                  spec.acquireReinit);
+    cmd.AddValue("rangeBiasStates",
+                 "V3 (master plan v3; TECH_DEBT N.51). False (default): every filter treats each range error as "
+                 "independent, as in every earlier result. True: each 868 MHz range carries a per-anchor CONSIDER "
+                 "bias (Schmidt-Kalman), decorrelating as exp(-ds/d_c) over the node's and the anchor's motion, "
+                 "d_c the engine's shadowing correlation distance (30 m in forest). Repeated ranges to one "
+                 "gateway then stop shrinking the covariance as if independent. Meant with "
+                 "--rssiRangeFromShadowing, whose 868 MHz error IS the correlated shadowing; under the default "
+                 "independent-Gaussian range model it over-states the error.",
+                 spec.rangeBiasStates);
     cmd.AddValue("acquireMinAnchors",
                  "Acquisition rule for a filter that starts without a usable position (meant for "
                  "--unknownStart): until it first fuses a cycle of at least this many ranges, no "

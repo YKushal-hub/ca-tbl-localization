@@ -1129,6 +1129,13 @@ struct RangingParams {
     // reported result.propagationLossBiasDb is unchanged.
     bool rangeErrorNoLinkLeak;
 
+    // V3 (master plan v3), --rssiSigmaLogNormal. false (default): the 868 MHz range sigma reported to the
+    // filter is the first-order (delta-method) d ln10 sigma_S / (10 n). Under --rssiRangeFromShadowing the
+    // error is log-normal, est = d exp(s Z) with s = ln10 sigma_S / (10 n), whose exact SD is
+    // d sqrt(exp(s^2) (exp(s^2) - 1)): at sigma_S = 7 dB, n = 2.3 that is 1.01 d against 0.70 d, the variance
+    // ratio 2.1 measured as E[z^2] = 2.3-2.5 in the per-range log. true: report the exact SD (at d = est).
+    bool rssiSigmaLogNormal;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1143,7 +1150,8 @@ struct RangingParams {
           tofErrorModel(0),
           nlosRangeBias(false),
           tofNlosExcessMeanM(69.0),
-          rangeErrorNoLinkLeak(false)
+          rangeErrorNoLinkLeak(false),
+          rssiSigmaLogNormal(false)
     {}
 };
 
