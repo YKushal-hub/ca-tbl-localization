@@ -2147,6 +2147,48 @@ static double g_sensShiftDb2p4 = 0.0;
 //! --tofFieldSigmaM / --tofFieldBiasM: tier-2 ranging at a measured field error level
 //! instead of the 3.0 m hardware floor. 0 (both defaults) leaves the configs untouched.
 static double g_tofFieldSigmaM = 0.0;
+//! S1 --rssiRangeFromShadowing and S2 --tofErrorModel (master plan v2); defaults reproduce every earlier result.
+static bool g_rssiRangeFromShadowing = false;
+static std::string g_tofErrorModelName = "engine";
+//! S2: engine 0, gottschalk 1, muller 2, wolf 3; -1 if the name is not one of them.
+static int
+CaTblTofModelIndex(const std::string& n)
+{
+    return n == "engine" ? 0 : n == "gottschalk" ? 1 : n == "muller" ? 2 : n == "wolf" ? 3 : -1;
+}
+
+//! B2 --dualBaseOnDemand. P(at least one 2.4 GHz link works) from this cycle's 868 MHz ranges.
+//! Each range r to a (tri-band) node is log-normal around the true distance with s = ln10 sigma /
+//! (10 n) (Gezici 2008, eq. 3); a 2.4 GHz link at distance d works with p = Phi(10 n log10(r50/d) /
+//! sigma) (Goldsmith eq. 2.41, with the margin written through r50). The expectation over d uses a
+//! 9-point Gauss-Hermite rule. No RNG draw.
+static double
+CaTblOnDemandPAny(const std::vector<CaTblRangeMeasurement>& m868, double r50, double sigmaDb, double n)
+{
+    static const double kX[9] = {-4.5127458634, -3.2054290029, -2.0768479787, -1.0232556638, 0.0,
+                                 1.0232556638, 2.0768479787, 3.2054290029, 4.5127458634};
+    static const double kW[9] = {2.234584e-05, 2.789141e-03, 4.991640e-02, 2.440975e-01, 4.062500e-01,
+                                 2.440975e-01, 4.991640e-02, 2.789141e-03, 2.234584e-05};
+    const double s = std::log(10.0) * sigmaDb / (10.0 * n);
+    double pNone = 1.0;
+    for (const auto& mm : m868)
+    {
+        if (!(mm.rangeM > 0.0))
+        {
+            continue;
+        }
+        double p = 0.0;
+        for (int i = 0; i < 9; ++i)
+        {
+            // r = d exp(s z) => d = r exp(-s z); z ~ N(0,1) with probabilists' Hermite weights.
+            const double d = std::max(1.0, mm.rangeM * std::exp(-s * kX[i]));
+            const double zz = 10.0 * n * std::log10(r50 / d) / sigmaDb;
+            p += kW[i] * 0.5 * std::erfc(-zz / std::sqrt(2.0));
+        }
+        pNone *= (1.0 - std::min(1.0, std::max(0.0, p)));
+    }
+    return 1.0 - pNone;
+}
 static double g_tofFieldBiasM = 0.0;
 //! SY-3. True when any of --sf868/--bw868/--sf2p4/--bw2p4 was given: RunArm then prints the
 //! sensitivity its engines were actually configured with.
@@ -2203,6 +2245,14 @@ static bool g_sy3Given = false;
         {                                                                                          \
             c2p4.receiver.sensitivityDbm[sfi] += g_sensShiftDb2p4;                                 \
         }                                                                                          \
+    }                                                                                              \
+    if (g_rssiRangeFromShadowing)                                                                  \
+    {                                                                                              \
+        c868.ranging.rssiRangeFromShadowing = true;                                                \
+    }                                                                                              \
+    if (CaTblTofModelIndex(g_tofErrorModelName) > 0)                                               \
+    {                                                                                              \
+        c2p4.ranging.tofErrorModel = CaTblTofModelIndex(g_tofErrorModelName);                      \
     }                                                                                              \
     if (g_tofFieldSigmaM > 0.0)                                                                    \
     {                                                                                              \
@@ -6156,6 +6206,15 @@ struct SpecOptions
     //! N.26 fix 1. --loraDualBase: a hybrid arm ranges both LoRa tiers every cycle and fuses
     //! every range it took (the active tier's, the floor's, the other LoRa tier's).
     bool loraDualBase = false;
+    //! B2 --dualBaseOnDemand (master plan v2; the repo's "B5 dual base on demand"). false (default):
+    //! the dual base keeps tag 0's 2.4 GHz radio awake and ranged every cycle. true: tag 0's 2.4 GHz
+    //! radio is woken (and ranged, and billed awake) only if this cycle's 868 MHz ranges give
+    //! P(at least one 2.4 GHz link works) >= onDemandPSkip; no 868 evidence wakes it.
+    bool dualBaseOnDemand = false;
+    double onDemandR50M = 180.0;   //!< 2.4 GHz r50 for the outage model (registered from the probe)
+    double onDemandSigmaDb = 7.0;  //!< shadowing sigma (ENV_RURAL_FORESTED default)
+    double onDemandN = 2.3;        //!< path-loss exponent (ENV_RURAL_FORESTED mean)
+    double onDemandPSkip = 0.05;   //!< wake threshold
     //! N.26 fix 2. --uwbCrossTierPoll: a UWB exchange also polls the finders heard on LoRa
     //! within uwbCrossTierRadiusM of the node's estimate, not only those whose UWB beacon was
     //! decoded.
@@ -6171,6 +6230,9 @@ struct SpecOptions
     //! --traceCovariance: the posterior 2x2 position covariance on every trace row, for the
     //! filter consistency test (NEES). Off: the trace has exactly its old columns.
     bool traceCovariance = false;
+    //! B1 --traceRanges (master plan v2; the repo's R2 step 1, TECH_DEBT N.51): tag 0's ranges, one row
+    //! per range per cycle, to ranges_<arm>_seed<s>.csv, with the true range for evaluation only.
+    bool traceRanges = false;
     // --- S2-A accuracy flags ---
     //! --imuQuScale: multiplies the IMU increment covariance handed to every filter (tag 0's and
     //! the subjects'). 1 (default) multiplies by exactly 1.
@@ -7725,6 +7787,9 @@ RunArm(CaTblPolicyMode mode,
     uint64_t mlatSolved = 0;
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
+    uint64_t onDemandEvals = 0;  // B2 --dualBaseOnDemand: tag-0 cycles decided
+    uint64_t onDemandSleeps = 0; // B2 --dualBaseOnDemand: of which the 2.4 GHz radio slept
+    bool tag0Wake24 = true;      // B2: this cycle's decision (true when the flag is off)
     uint64_t crossTierPolls = 0; // N.26 fix 2: UWB polls added from the LoRa tables
     Vector prevTruePos = pos;
     // DC-10 (--entryVelocity). Each finder's last published position and time, for the
@@ -7979,6 +8044,15 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<RelayRound> subjRoundOwn;
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
     // NW-1. --hopProvenance: one row per tag-0 cycle with the depth of what it fused.
+    std::unique_ptr<std::ofstream> rangeLog; // B1 --traceRanges
+    if (spec.traceRanges)
+    {
+        std::ostringstream rfn;
+        rfn << traceDir << "/ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        rangeLog.reset(new std::ofstream(rfn.str().c_str()));
+        *rangeLog << "t,src,tier,anchorId,sourceKind,fromFloor,inSet,nSet,rangeM,sigmaM,trueRangeM,errM,"
+                     "nlosTruth,nlosScore,hadFix\n";
+    }
     std::unique_ptr<std::ofstream> hopLog;
     uint64_t hopFixesByDepth[4] = {0, 0, 0, 0};
     if (spec.hopProvenance)
@@ -11627,7 +11701,18 @@ RunArm(CaTblPolicyMode mode,
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
             }
-            if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4))
+            if (spec.dualBaseOnDemand)
+            {
+                const std::vector<CaTblRangeMeasurement>& ev868 =
+                    (active == CA_TBL_TIER_868) ? activeMeas : floorMeas;
+                tag0Wake24 = ev868.empty() ||
+                             CaTblOnDemandPAny(ev868, spec.onDemandR50M, spec.onDemandSigmaDb,
+                                               spec.onDemandN) >= spec.onDemandPSkip;
+                ++onDemandEvals;
+                onDemandSleeps += tag0Wake24 ? 0 : 1;
+            }
+            if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4) &&
+                tag0Wake24)
             {
                 otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
             }
@@ -12332,7 +12417,8 @@ RunArm(CaTblPolicyMode mode,
                                              ti == static_cast<int>(d.nextTier) ||
                                              (floorNext && ti == CA_TBL_TIER_868) ||
                                              (spec.loraDualBase && hybridArm &&
-                                              ti != static_cast<int>(CA_TBL_TIER_UWB))));
+                                              ti != static_cast<int>(CA_TBL_TIER_UWB) &&
+                                              (ti != static_cast<int>(CA_TBL_TIER_2P4) || tag0Wake24))));
                 }
             }
         }
@@ -13011,7 +13097,8 @@ RunArm(CaTblPolicyMode mode,
             const CaTblTier tr = static_cast<CaTblTier>(tierIdx);
             const bool wasAwake = FuseTierOn(mode, tierIdx) || (tr == active) ||
                                   (runFloor && tr == CA_TBL_TIER_868) ||
-                                  (spec.loraDualBase && hybridArm && tr != CA_TBL_TIER_UWB);
+                                  (spec.loraDualBase && hybridArm && tr != CA_TBL_TIER_UWB &&
+                                   (tr != CA_TBL_TIER_2P4 || tag0Wake24));
             if (mesh && nodeMac[tierIdx] != nullptr)
             {
                 // NW-0. Under mesh links the node relays others' floods on its awake radios;
@@ -13360,6 +13447,31 @@ RunArm(CaTblPolicyMode mode,
                 trace << "," << policy.Pxx() << "," << policy.Pxy() << "," << policy.Pyy();
             }
             trace << "\n";
+        }
+        if (rangeLog)
+        {
+            // B1: every range this cycle produced, with the set it fed. Evaluation columns
+            // (trueRangeM, errM, nlosTruth) are written for analysis only and read by nothing here.
+            const bool inActive = dualBase || fuseFA || !usedFloor;
+            const bool inFloor = dualBase || fuseFA || usedFloor;
+            auto emit = [&](const std::vector<CaTblRangeMeasurement>& v, const char* src, CaTblTier tr, bool in) {
+                for (const auto& m : v)
+                {
+                    const double tr2 = std::hypot(pos.x - m.anchorX, pos.y - m.anchorY);
+                    *rangeLog << std::fixed << std::setprecision(4) << t << "," << src << ","
+                              << CaTblTierName(tr) << "," << m.anchorId << "," << static_cast<int>(m.sourceKind)
+                              << "," << (m.fromFloor ? 1 : 0) << "," << (in ? 1 : 0) << "," << meas.size()
+                              << "," << m.rangeM << "," << m.sigmaM << "," << tr2 << "," << (m.rangeM - tr2)
+                              << "," << (m.nlosPropagation ? 1 : 0) << "," << m.nlosScore << ","
+                              << (d.hadFix ? 1 : 0) << "\n";
+                }
+            };
+            emit(activeMeas, "active", active, inActive);
+            if (&floorMeas != &activeMeas)
+            {
+                emit(floorMeas, "floor", CA_TBL_TIER_868, inFloor);
+            }
+            emit(otherLoraMeas, "other", CA_TBL_TIER_2P4, dualBase);
         }
 
         // DC-3. Ranges reach the base station on the measuring node's entry: once a RESPONSE
@@ -14808,6 +14920,11 @@ RunArm(CaTblPolicyMode mode,
                   << crossTierPolls << "; TDoA innovation gate refused " << gated << ", TDoA fused "
                   << fusedAux << "; integrity threshold " << pcfg.mahalanobisThreshold
                   << ", suspects " << suspects << "\n";
+        if (spec.dualBaseOnDemand)
+        {
+            std::cout << "    B2 dualBaseOnDemand: tag-0 cycles decided " << onDemandEvals << ", 2.4 GHz radio asleep "
+                      << onDemandSleeps << "\n";
+        }
     }
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
     {
@@ -15720,6 +15837,17 @@ main(int argc, char* argv[])
                  "old floor-first path, so a 1-2 range active set is discarded there as before. "
                  "Needs --fuseFloorActive.",
                  spec.fuseFloorShort);
+    cmd.AddValue("dualBaseOnDemand",
+                 "B2 (master plan v2; the repo's 'dual base on demand'). False (default): unchanged. True "
+                 "(with --loraDualBase, tag 0 only): the 2.4 GHz radio is woken, ranged and billed awake "
+                 "only if this cycle's 868 MHz ranges give P(at least one 2.4 GHz link works) >= "
+                 "--onDemandPSkip, from the log-normal RSSI range model and the outage model through "
+                 "--onDemandR50M, --onDemandSigmaDb and --onDemandN. No 868 evidence wakes it.",
+                 spec.dualBaseOnDemand);
+    cmd.AddValue("onDemandR50M", "B2: 2.4 GHz r50 (m) for the on-demand outage model", spec.onDemandR50M);
+    cmd.AddValue("onDemandSigmaDb", "B2: shadowing sigma (dB) for the on-demand model", spec.onDemandSigmaDb);
+    cmd.AddValue("onDemandN", "B2: path-loss exponent for the on-demand model", spec.onDemandN);
+    cmd.AddValue("onDemandPSkip", "B2: wake threshold on P(at least one 2.4 GHz link)", spec.onDemandPSkip);
     cmd.AddValue("loraDualBase",
                  "N.26 fix 1: a hybrid arm (ca_tbl_full, ca_tbl_no_integrity, fixed_threshold) keeps "
                  "both LoRa radios awake and ranges both every cycle -- the 868 MHz floor even where "
@@ -15770,6 +15898,20 @@ main(int argc, char* argv[])
                  "which has no term 1.",
                  spec.pcsTerm1Inverse);
     // --- S3 evidence-fix flags ---
+    cmd.AddValue("rssiRangeFromShadowing",
+                 "S1 (master plan v2). False (default): each 868 MHz range error is an independent, "
+                 "symmetric Gaussian, as in every earlier result. True: the range is the log-distance "
+                 "inversion of the link's path loss plus its own Gudmundson-correlated shadowing draw, so "
+                 "the error is log-normal and correlated along the motion (Patwari et al. 2005). The "
+                 "Gaussian is still drawn, so no random stream moves.",
+                 g_rssiRangeFromShadowing);
+    cmd.AddValue("tofErrorModel",
+                 "S2 (master plan v2, owner decision D3): the 2.4 GHz time-of-flight error law. engine "
+                 "(default): the CRLB with the 3.0/3.6 m floors. gottschalk: calibrated static, sigma 1.5 m "
+                 "+ 1 percent of range, unbiased (Gottschalk et al. 2026). muller: rural-route bins with "
+                 "eq. (5) correction (Mueller et al. 2021). wolf: Table II, <= 500 m, LoS 75/69 m, NLoS "
+                 "144/112 m mean/SD, uncorrected (Wolf et al. 2019). Reuses the engine's normal draw.",
+                 g_tofErrorModelName);
     cmd.AddValue("tofFieldSigmaM",
                  "Tier-2 (2.4 GHz ToF) ranging sigma floor in metres, raised to a MEASURED field "
                  "error level for a sensitivity run. 0 by default: the floor stays the 3.0 m LOS / "
@@ -15785,6 +15927,12 @@ main(int argc, char* argv[])
                  "error of +46.4 m (rural) and +39 m (suburban). The EKF is not told: a real "
                  "system would see the bias only through calibration.",
                  g_tofFieldBiasM);
+    cmd.AddValue("traceRanges",
+                 "B1 (master plan v2; R2 step 1, TECH_DEBT N.51). False (default): no file. True: tag 0's "
+                 "ranges, one row per range per cycle, to ranges_<arm>_seed<s>.csv: source vector, tier, "
+                 "anchor, whether it entered the fused set, the reported sigma, and for evaluation only the "
+                 "true range, the error and the propagation NLOS flag.",
+                 spec.traceRanges);
     cmd.AddValue("traceCovariance",
                  "Append the posterior 2x2 position covariance (pxx,pxy,pyy, m^2) to every trace "
                  "row, for the filter consistency test (NEES, Bar-Shalom et al. 2001 sect. 5.4). "
@@ -17844,6 +17992,11 @@ main(int argc, char* argv[])
         argv2.push_back(argv[i]);
     }
     cmd.Parse(static_cast<int>(argv2.size()), argv2.data());
+    if (CaTblTofModelIndex(g_tofErrorModelName) < 0)
+    {
+        std::cerr << "ERROR: --tofErrorModel must be engine, gottschalk, muller or wolf\n";
+        return 1;
+    }
 
     if (specProfileOn)
     {

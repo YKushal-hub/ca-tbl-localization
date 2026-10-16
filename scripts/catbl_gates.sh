@@ -1838,6 +1838,24 @@ bash scripts/foliage_gate.sh "$WORK/g134" || fail G134
 bash scripts/foliage_gate_selftest.sh "$WORK/g134" || fail G134
 finish G134
 
+# ---------------- G135: S1 --rssiRangeFromShadowing and S2 --tofErrorModel (master plan v2), via the probe
+printf '\n--- G135 RSSI-from-shadowing and ToF error presets ---\n'
+bash scripts/b3s_gate.sh "$WORK/g135" || fail G135
+bash scripts/b3s_gate_selftest.sh "$WORK/g135" || fail G135
+finish G135
+
+# ---------------- G136: B2 --dualBaseOnDemand (master plan v2)
+printf '\n--- G136 dual base on demand ---\n'
+bash scripts/b2_gate.sh "$WORK/g136" || fail G136
+bash scripts/b2_gate_selftest.sh "$WORK/g136" || fail G136
+finish G136
+
+# ---------------- G137: B1 --traceRanges (tag 0's per-range log)
+printf '\n--- G137 per-range log ---\n'
+bash scripts/rangelog_gate.sh "$WORK/g137" || fail G137
+bash scripts/rangelog_gate_selftest.sh "$WORK/g137" || fail G137
+finish G137
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
