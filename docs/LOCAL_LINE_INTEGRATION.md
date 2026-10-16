@@ -73,7 +73,47 @@ done here.
 
 ## 2. Ported
 
-(Filled in commit by commit.)
+Each piece is default-off or a pure addition; the null control is `main`'s binary at `4ca0dff`
+against this branch's, on `tools/nullcontrol/args/NC1`–`NC9` plus the cases the new flags can
+reach (§2.1).
+
+| piece | files | flag / gate | effect at defaults |
+|---|---|---|---|
+| D-8 correction | `lora-2p4-physics-parameters.{h,cc}` (`Sx1280LowPowerSensitivityRow`), scenario | `--t2SensitivityRowKHz` | none (null control) |
+| data-sheet sensitivity gate | `scratch/ca_tbl_sensitivity_probe.cc` (`--bw2p4`), `scripts/sensitivity_fidelity_check.py` (`--bw2p4`), `scripts/catbl_sensitivity_fixture.sh` (7 directions) | **G93**, FAIL BY FINDING | — |
+| IMU sensor model | `ca-tbl-imu-sensor-model.{h,cc}` (renamed from the local `ca-tbl-imu-model.*`; `main` uses that name for DC-1) | **G91** | not wired: none |
+| 5-state filter + moment-matched coasting | `ca-tbl-imu-ekf.{h,cc}` (standalone; the local `CaTblFilter` interface is not ported) | **G91**, **G94** | not wired: none |
+| validator and closed forms | `scratch/ca_tbl_imu_validator.cc`, `scripts/imu_closed_form_check.py`, `scripts/catbl_imu_fixture.sh`, `scripts/imu_long_outage_check.py`, `scripts/catbl_imu_long_outage_fixture.sh` | G91, G94 | — |
+| DC-1 turn-on bias | scenario (`Dc1ImuParams()`) | `--imuGyroBiasSigmaDps` (refused without `--imuPredict`) | none (null control) |
+| G10's negative fixture | `scripts/catbl_citation_fixture.sh` (6 directions) | G10 | — |
+| cited evidence held | `scripts/cited_evidence_gate.py`, `scripts/catbl_cited_evidence_fixture.sh` | **G92**, FAIL BY FINDING (15 paths) | — |
+| findings | `docs/TECH_DEBT.md` N.27–N.30; `Simulation.md` M-01 annotated | — | — |
+| the local line's evidence, as a record | `results/{imu_prior, imu_prior_sens, a3_handshake, a1_dwell, d8_sensitivity, e3_imu_integrity}` (summaries and sidecars only, as `.gitignore` keeps them); `report/{IMU_PRIOR,A3,A1,D8_STAGE1}_RESULT.md` with a legacy-topology banner; their registrations unedited; their runners and scorers (`run_a1_dwell.sh` as `run_a1_dwell_local.sh`, `main` having its own) | G13 resolves the sidecars through `SHA_MAP.md` | — |
+
+Not ported: the local `CaTblFilter` interface and the filter's wiring into the policy (§4.3);
+`--imuPrior`, `--imuCoastMomentMatch` and `--intraCycleHandshake` (local-line flags; the
+handshake defect is already fixed on `main`); the claims audit of 2026-09-02..16 and its
+documents (superseded by B3); `report/AUDIT_2026_10_15.md` (an audit of the local line's own
+documents); the unrun `PREREG_D8_STAGE2.md` (written for the local line's claims, which `main`
+does not make).
+
+### 2.1 Null control
+
+`main`'s binary at `4ca0dff` (built in this tree with the changes stashed) against this
+branch's, every output file except `run_id.txt` compared byte for byte:
+
+| case | arguments | files | result |
+|---|---|---|---|
+| NC1–NC9 | `tools/nullcontrol/args/NC*.args` | 41 | 9 of 9 IDENTICAL |
+| X1 | NC1's + `--imuPredict=true` (DC-1, which no NC case reaches) | 13 | IDENTICAL |
+| X2 | NC1's + `--bw2p4=1625000` (SY-3's shift, which D-8 interacts with) | 7 | IDENTICAL |
+| X3 | `--specProfile=true --duration=600` (the preset) | 329 | IDENTICAL |
+
+Run twice: on the D-8-only intermediate binary (commit 2) and on the final one (commits 2–5),
+**12 of 12 IDENTICAL both times, 390 files.** The final binary rebuilt from the committed tree is
+byte-identical to the one tested. Reachability: with `--t2SensitivityRowKHz=812.5` all 7 of NC1's
+files change (seed 7: `static_2p4` fix cycles 11 → 95 — one seed, not a result); with
+`--imuGyroBiasSigmaDps=0.15` all 13 of X1's do.
 
 ## 3. Findings carried over
 
@@ -85,6 +125,9 @@ done here.
   "collision-dominated" reading in `Simulation.md` §2.2 is right about collisions and wrong
   about whose: they are the test's, not the channel's.
 - **DC-1's gyro bias** — as §1.3.
+- **E3** (run after the archive was cut, legacy topology): the inertial prior raises the
+  integrity check's recall in every registered cell and its false-alarm rate in every cell —
+  the operating point moved, the detector was not shown better (`report/E3_RESULT.md`).
 
 ## 4. Left, in order
 
