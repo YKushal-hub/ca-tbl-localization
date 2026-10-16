@@ -2138,6 +2138,14 @@ static double g_sensShiftDb2p4 = 0.0;
 //! SY-3. True when any of --sf868/--bw868/--sf2p4/--bw2p4 was given: RunArm then prints the
 //! sensitivity its engines were actually configured with.
 static bool g_sy3Given = false;
+// D-8. 0 keeps tier 2's committed sensitivity table, which is the SX1280 data sheet's
+// 1625 kHz row (SF7 -106 dBm), not an 800 kHz one -- so it is ~6 dB pessimistic at the
+// scenario's 800 kHz, and SY-3's 10*log10(BW/800 kHz) shift inherits the error at every
+// bandwidth. Non-zero replaces the table with the data sheet's Table 6-1 row for that
+// bandwidth (Sx1280LowPowerSensitivityRow), and SY-3's shift is then not applied on top:
+// the row already describes the bandwidth. Written once after cmd.Parse(), checked against
+// the configured tier-2 bandwidth before any run, read by the macro below.
+static double g_t2SensitivityRowKHz = 0.0;
 
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
@@ -2184,6 +2192,10 @@ static bool g_sy3Given = false;
         {                                                                                          \
             c2p4.receiver.sensitivityDbm[sfi] += g_sensShiftDb2p4;                                 \
         }                                                                                          \
+    }                                                                                              \
+    if (g_t2SensitivityRowKHz > 0.0)                                                               \
+    {                                                                                              \
+        Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
     }
 
 /**
@@ -15163,6 +15175,7 @@ main(int argc, char* argv[])
     double bw868Arg = 0.0;
     uint32_t sf2p4Arg = 0;
     double bw2p4Arg = 0.0;
+    double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -17114,6 +17127,17 @@ main(int argc, char* argv[])
                  "is not an SX1280 setting -- recorded, not changed. Another value shifts the "
                  "2.4 GHz sensitivity table by 10*log10(BW/800 kHz) dB.",
                  bw2p4Arg);
+    cmd.AddValue("t2SensitivityRowKHz",
+                 "D-8. Which SX1280 data-sheet sensitivity row tier 2 uses, by bandwidth in "
+                 "kHz: 0 (default) keeps the committed table, which is the data sheet's 1625 "
+                 "kHz row applied as if it were an 800 kHz one -- about 6 dB pessimistic at the "
+                 "default 800 kHz, and SY-3's --bw2p4 shift is measured from that wrong origin. "
+                 "Every committed result was produced under it, so it stays the default. "
+                 "203.125, 406.25, 812.5 or 1625 applies Table 6-1 (rev 3.2, low power mode) "
+                 "for that bandwidth and does not add SY-3's shift on top. Refused unless the "
+                 "row matches the configured tier-2 bandwidth (--bw2p4, default 800 kHz) within "
+                 "5 %, so the correction cannot describe a radio that is not running.",
+                 t2SensitivityRowKHzArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -18875,6 +18899,29 @@ main(int argc, char* argv[])
         std::cout << line.str();
     }
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+    // D-8, after SY-3 so the row is checked against the bandwidth that will actually run.
+    g_t2SensitivityRowKHz = t2SensitivityRowKHzArg;
+    if (g_t2SensitivityRowKHz > 0.0)
+    {
+        double row[8];
+        const double bwKHz = phy[CA_TBL_TIER_2P4].bandwidthHz / 1e3;
+        if (!Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, row))
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " is not a tabulated SX1280 bandwidth (203.125, 406.25, 812.5, 1625)\n";
+            return 1;
+        }
+        if (std::fabs(g_t2SensitivityRowKHz - bwKHz) / g_t2SensitivityRowKHz > 0.05)
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " does not match the configured tier-2 bandwidth " << bwKHz
+                      << " kHz -- the row must describe the radio that runs\n";
+            return 1;
+        }
+        g_sensShiftDb2p4 = 0.0; // the row is already for this bandwidth
+        std::cout << "  D-8: tier 2 uses the SX1280 " << g_t2SensitivityRowKHz
+                  << " kHz row (SF7 " << row[2] << " dBm); SY-3's bandwidth shift not applied\n";
+    }
     // C5_INSTANT. The round's slots are disjoint in the registry only while the relay
     // tier's airtime is shorter than a slot; the engines register 2^sf / bw * 20 s
     // (lora-*-physics-engine.cc:~560), recomputed here from the same table.
