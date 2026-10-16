@@ -115,6 +115,17 @@ byte-identical to the one tested. Reachability: with `--t2SensitivityRowKHz=812.
 files change (seed 7: `static_2p4` fix cycles 11 → 95 — one seed, not a result); with
 `--imuGyroBiasSigmaDps=0.15` all 13 of X1's do.
 
+### 2.2 The full suite on this branch
+
+Built from clean (every target); the twelve unit suites all pass, 0 failed (packet validator 76,
+integrity 40, the rest as `SETUP_NEW_MACHINE.md` records). Gate suite: **82 PASS, 10 FAIL,
+0 ERROR**, tree unchanged by the run.
+- G91, G94 and G10's new fixture **pass**. G92 and G93 are FAIL BY FINDING, as intended.
+- G4, G5, G6, G11 and G24 are `main`'s recorded reds.
+- **G63, G87 and G89 are red on `main` itself**: run against `4ca0dff`'s binary they fail with
+  identical numbers. They went red with `e308c14f`, after `main`'s last full suite
+  (TECH_DEBT N.31). Not caused here, and not changed here.
+
 ## 3. Findings carried over
 
 - **D-8** — as §1.2. Not corrected by default: a correction moves every tier-2 number and is a
