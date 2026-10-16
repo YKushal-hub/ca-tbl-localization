@@ -6374,6 +6374,8 @@ struct SpecOptions
     uint32_t acquireMinAnchors = 0;
     //! --acquireReinit (R1, N.54): false (default) off; true re-initialises each filter at its first >= 3-range solution.
     bool acquireReinit = false;
+    //! --rangeReplyPosition (V7, H.2): false (default) off; true: a finder's ranging reply carries its position.
+    bool rangeReplyPosition = false;
     //! --rangeBiasStates (V3, N.51): false (default) off; true gives every filter 868 MHz consider biases.
     bool rangeBiasStates = false;
     //! --acquireParticles (V4, N.54): false (default) off; true acquires every node with a particle filter.
@@ -7671,6 +7673,29 @@ RunArm(CaTblPolicyMode mode,
             beacons.push_back(fb);
         }
     }
+    // V7 --rangeReplyPosition (master plan v3): a finder's ranging reply carries where it is NOW -- what it
+    // would publish at this instant, its GNSS position with its constant offset and variance -- instead of the
+    // ranging node reading a table entry that may be minutes old (TABLE(reverse): mean age 290-550 s).
+    uint64_t replyPosUsed = 0;
+    auto replyEntry = [&](uint16_t id, double nowS, CaTblTableEntry& out) -> bool {
+        if (id < 501 || id >= 501 + finderPos.size())
+        {
+            return false;
+        }
+        const size_t fi = id - 501;
+        out = CaTblTableEntry();
+        out.nodeId = id;
+        out.x = finderPos[fi].x + finderGpsOffset[fi].x;
+        out.y = finderPos[fi].y + finderGpsOffset[fi].y;
+        out.varX = finderPosVar;
+        out.varY = finderPosVar;
+        out.covXY = 0.0;
+        out.vx = 0.0;
+        out.vy = 0.0;
+        out.timestampS = nowS;
+        out.valid = true;
+        return true;
+    };
 
     // Application sect 4. A rescuer opens the search before anything runs, which is what
     // makes time-to-first-fix meaningful: the clock starts when the request was made,
@@ -10326,7 +10351,13 @@ RunArm(CaTblPolicyMode mode,
                             {
                                 CaTblTableEntry fe;
                                 bool feOk = false;
-                                for (size_t ti2 = 0; ti2 < peerMacs[pi].size(); ++ti2)
+                                if (spec.rangeReplyPosition && replyEntry(aid, t, fe))
+                                {
+                                    feOk = true; // V7: the reply's own position, age 0
+                                    ++replyPosUsed; // not billed separately: as tag 0 (rides on the range's return)
+                                }
+                                const bool viaReplyS = feOk;
+                                for (size_t ti2 = 0; !viaReplyS && ti2 < peerMacs[pi].size(); ++ti2)
                                 {
                                     CaTblTableEntry e2;
                                     if (peerMacs[pi][ti2] != nullptr &&
@@ -11524,7 +11555,18 @@ RunArm(CaTblPolicyMode mode,
                     if (finderPseudoAnchor && anchorId >= 501)
                     {
                         CaTblTableEntry fe;
-                        if (!freshestEntry(anchorId, fe))
+                        // V7: the finder's reply carries its position now; otherwise the table entry.
+                        const bool viaReplyT = spec.rangeReplyPosition && replyEntry(anchorId, t, fe);
+                        if (viaReplyT)
+                        {
+                            ++replyPosUsed;
+                            // Not billed separately: the ~10-byte position rides on the path that already
+                            // returns the range. On 2.4 GHz / UWB that is the two-way reply, billed with a
+                            // 20-byte payload (AccountRangingExchange); on 868 MHz it is the same return path
+                            // the RSSI range uses, which is billed only under --tier1ChargeReplies in BOTH
+                            // variants. Charging it here alone would bill V7 for a cost the default shares.
+                        }
+                        if (!viaReplyT && !freshestEntry(anchorId, fe))
                         {
                             dropT = spec.finderPseudoAnchorStrict;
                         }
@@ -15150,6 +15192,10 @@ RunArm(CaTblPolicyMode mode,
                   << crossTierPolls << "; TDoA innovation gate refused " << gated << ", TDoA fused "
                   << fusedAux << "; integrity threshold " << pcfg.mahalanobisThreshold
                   << ", suspects " << suspects << "\n";
+        if (spec.rangeReplyPosition)
+        {
+            std::cout << "    V7 rangeReplyPosition: finder ranges anchored at the reply's position " << replyPosUsed << "\n";
+        }
         if (spec.dualBaseOnDemand)
         {
             if (spec.onDemandCalibrate)
@@ -16283,6 +16329,16 @@ main(int argc, char* argv[])
                  "kilometres off and locks in (S2-C). Prints one ACQREINIT line per firing (ACQREINIT_REFUSED "
                  "per refusal) to stdout.",
                  spec.acquireReinit);
+    cmd.AddValue("rangeReplyPosition",
+                 "V7 (master plan v3; TECH_DEBT H.2). False (default): a range to a finder is anchored at the "
+                 "freshest table entry the ranging node holds, predicted forward and inflated by its age -- "
+                 "minutes old on average (TABLE(reverse): 290-550 s), so a precise range is anchored hundreds of "
+                 "metres loosely. True: the finder's reply carries where it is now (its GNSS position, with its "
+                 "own variance, age 0). Not billed separately: the ~10-byte position rides on the path that already "
+                 "returns the range -- the 2.4 GHz / UWB two-way reply, billed with a 20-byte payload, or on "
+                 "868 MHz the return the RSSI range itself needs, billed only under --tier1ChargeReplies, in both "
+                 "variants alike. The table remains the fallback.",
+                 spec.rangeReplyPosition);
     cmd.AddValue("acquireParticles",
                  "V4 (master plan v3; TECH_DEBT N.54). False (default): each filter acquires from its prior with "
                  "range updates, as in every earlier result. True: every node acquires with a particle filter "

@@ -1885,6 +1885,11 @@ printf '\n--- G142 particle acquisition ---\n'
 bash scripts/pfacq_gate.sh "$WORK/g142" || fail G142
 finish G142
 
+# ---------------- G144: V7 --rangeReplyPosition (master plan v3; TECH_DEBT H.2)
+printf '\n--- G144 finder position carried in the ranging reply ---\n'
+bash scripts/replypos_gate.sh "$WORK/g144" || fail G144
+finish G144
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

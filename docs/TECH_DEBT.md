@@ -541,6 +541,19 @@ digest period is a fixed 30 s regardless of how fast anything is moving. *Fix:* 
 age-triggered digest, or a staleness ceiling above which an entry is dropped rather than
 inflated. *Cost:* small; the question of what the ceiling should be is the expensive part.
 
+
+*2026-10-16, V7 (`--rangeReplyPosition`, G144; master plan v3).* The source-side gap is closed for ranging
+partners, which are the case that matters for position: a finder's ranging reply carries its current GNSS
+position at age 0, and stale table entries become only the fallback. Nothing is dropped.
+- **Gate:** tag 0's finder-range median sigma 134 → 53 m.
+- **Dev (indicative; that build had a subject-entry defect, fixed before commit):** 5 km CEP95 roughly halves
+  (`ca_tbl_full`, `static_2p4`); `static_868` improves several-fold. Energy rises through behaviour, not billing:
+  more UWB exchanges once finders are placed accurately.
+- **Billing:** the ~10-byte position rides on the existing return path, so nothing extra is billed. On 868 MHz that
+  return path is unbilled in both variants unless `--tier1ChargeReplies` is set.
+- **Found while doing this:** NC1–NC9 do not exercise the subject finder-entry path under the preset; only the
+  225-file preset comparison caught a regression there.
+
 ### H.3 The gate suite cannot see a mechanism that fires into a zero
 `edf73a5` fixed an accumulator cleared between its two contributors. For the whole life
 of `937a55a` the substitution counter reported 1513 firings while the term it fed read
