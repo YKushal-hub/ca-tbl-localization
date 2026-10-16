@@ -3396,3 +3396,11 @@ renumbers one.
   - re-initialising at the first multilateration solution instead of an EKF update from the box
     centre;
   - the scenario's pre-Step Case A, used without `--sparseInStep`, is not gated.
+
+*2026-10-16, R1-REINIT (report/R1_REINIT_RESULTS.md; registered at 2c402412):* N.54's linearisation
+hypothesis is **not supported**. `--acquireReinit` (re-initialise at the first >= 3-range weighted
+multilateration, residual-guarded) fires on about half the filters, does not raise w25 or lower median
+error at 5 km, and slightly worsens endgame CEP95 (+21 m for `ca_tbl_full`). The accepted solutions show
+km-scale three-range RSSI sets with sigma about 5 km per axis, so the lock-in is ambiguity/geometry of the
+first sets (the N.25 family), not linearisation. The flag stays, default off, as a recorded negative.
+
