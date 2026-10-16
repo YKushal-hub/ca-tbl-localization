@@ -1856,6 +1856,12 @@ bash scripts/rangelog_gate.sh "$WORK/g137" || fail G137
 bash scripts/rangelog_gate_selftest.sh "$WORK/g137" || fail G137
 finish G137
 
+# ---------------- G138: V1 --rngKeyed (master plan v3; TECH_DEBT 1.1)
+printf '\n--- G138 keyed random numbers ---\n'
+bash scripts/rngkeyed_gate.sh "$WORK/g138" || fail G138
+bash scripts/rngkeyed_gate_selftest.sh "$WORK/g138" || fail G138
+finish G138
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

@@ -2132,6 +2132,11 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 static bool g_terrainPerTierFreq = false;
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
+// --rngKeyed (TECH_DEBT 1.1; master plan v3 stage V1). See the flag's help text.
+static bool g_rngKeyed = false;
+// --rngKeyedProbeExtraTx: gate G138's perturbation -- one extra 868 MHz engine evaluation on a
+// link no node uses, at arm start. Test hook only; never part of a measured configuration.
+static bool g_rngKeyedProbeExtraTx = false;
 // TECH_DEBT M.2 (report/PREREG_UWB_NLOS.md). --uwbNlosModel, a file-scope global for the
 // same reason as the one above: written once after cmd.Parse(), read by the macro.
 static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
@@ -2443,6 +2448,7 @@ RunProbe(EnvironmentClass envWide,
     // Same reason as RunArm(): the probe's engines must not inherit a stream index
     // left behind by anything constructed before them.
     RngSeedManager::ResetNextStreamIndex();
+    LoRaDistributionSampler::SetKeyedMode(g_rngKeyed, seed);
 
     CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)
 
@@ -6489,6 +6495,9 @@ RunArm(CaTblPolicyMode mode,
     // (lora-foliage-submodule.cc:8) -- and the second stores a Time, which
     // Simulator::Destroy() resets to zero underneath it.
     RngSeedManager::ResetNextStreamIndex();
+    // --rngKeyed: with the flag on, engine draws are keyed to (seed, band, link, time)
+    // instead of read from these automatic streams (lora-distribution-sampler.h).
+    LoRaDistributionSampler::SetKeyedMode(g_rngKeyed, seed);
 
     CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, cfg868, cfg2p4, cfgUwb)
     if (g_sy3Given)
@@ -6859,6 +6868,31 @@ RunArm(CaTblPolicyMode mode,
     // them. Same value on every arm: arms must differ in how many draws they
     // consume, not in which sequence they consume from.
     macRng->SetStream(static_cast<int64_t>(seed) * 7919 + 104729);
+    // --rngKeyed: every MAC, beacon, query and request driver gets its OWN stream, in
+    // construction order, so one object's extra draw (a backoff, a jitter) no longer moves
+    // every other object's sequence. Off: all share macRng, as before. The stream is a
+    // construction attribute (ca-tbl-imu-model.cc), so no automatic index is consumed.
+    int64_t macStreamNext = static_cast<int64_t>(seed) * 7919 + 2000003;
+    auto macStream = [&]() -> Ptr<UniformRandomVariable> {
+        if (!g_rngKeyed)
+        {
+            return macRng;
+        }
+        const int64_t s = macStreamNext;
+        macStreamNext += 7;
+        return CreateObjectWithAttributes<UniformRandomVariable>("Stream", IntegerValue(s));
+    };
+
+    if (g_rngKeyedProbeExtraTx && !dep.anchors[CA_TBL_TIER_868].empty())
+    {
+        // G138's perturbation: one evaluation on a link (id 65000 -> first gateway) that no
+        // node in the run uses. Unkeyed, it moves every later 868 MHz draw; keyed, nothing else.
+        const Vector gw = dep.anchors[CA_TBL_TIER_868][0].pos;
+        (void)engine868.ProcessTransmission(65000, dep.anchors[CA_TBL_TIER_868][0].id,
+                                            Vector(gw.x + 900.0, gw.y, gw.z), gw,
+                                            phy[0].txPowerDbm, phy[0].sf, phy[0].bandwidthHz,
+                                            0, Seconds(0.25));
+    }
 
     EnginePhyProvider provider(engine868,
                                engine2p4,
@@ -6995,7 +7029,7 @@ RunArm(CaTblPolicyMode mode,
         macs.emplace_back();
         nodeMac[ti] = &macs.back();
         nodeMac[ti]->Configure(mc);
-        nodeMac[ti]->SetRng(macRng);
+        nodeMac[ti]->SetRng(macStream());
         chan[ti].Register(nodeMac[ti]);
     }
 
@@ -7043,7 +7077,7 @@ RunArm(CaTblPolicyMode mode,
             macs.emplace_back();
             CaTblMac* am = &macs.back();
             am->Configure(mc);
-            am->SetRng(macRng);
+            am->SetRng(macStream());
             // A gateway is surveyed and a finder has GPS, so each can state its own
             // position with small uncertainty. This is what the lost node corroborates
             // AGAINST -- without it there are no witnesses, only its own opinion.
@@ -7060,7 +7094,7 @@ RunArm(CaTblPolicyMode mode,
             bd.periodS = beaconPeriodS[ti];
             bd.jitterMaxS = beaconPeriodS[ti] * 0.25;
             bd.untilS = durationS;
-            bd.rng = macRng;
+            bd.rng = macStream();
             beacons.push_back(bd);
         }
     }
@@ -7141,7 +7175,7 @@ RunArm(CaTblPolicyMode mode,
             CaTblMac* pm = &macs.back();
             peerMacs.back().push_back(pm);
             pm->Configure(pmc);
-            pm->SetRng(macRng);
+            pm->SetRng(macStream());
             chan[ti].Register(pm);
 
             BeaconDriver pbd;
@@ -7150,7 +7184,7 @@ RunArm(CaTblPolicyMode mode,
             pbd.periodS = beaconPeriodS[ti];
             pbd.jitterMaxS = beaconPeriodS[ti] * 0.25;
             pbd.untilS = durationS;
-            pbd.rng = macRng;
+            pbd.rng = macStream();
             beacons.push_back(pbd);
         }
     }
@@ -7201,7 +7235,7 @@ RunArm(CaTblPolicyMode mode,
                 qd.jitterMaxS = identityQueryPeriodS * 0.25;
                 qd.untilS = durationS;
                 qd.manifestId = static_cast<uint8_t>(identityQueryTarget);
-                qd.rng = macRng;
+                qd.rng = macStream();
                 if (spec.queryV2)
                 {
                     qd.v2 = true;
@@ -7239,7 +7273,7 @@ RunArm(CaTblPolicyMode mode,
                     // either.
                     rd.degradation = 128;
                     rd.battery = 128;
-                    rd.rng = macRng;
+                    rd.rng = macStream();
                     peerReqs.push_back(rd);
                 }
             }
@@ -7484,7 +7518,7 @@ RunArm(CaTblPolicyMode mode,
             macs.emplace_back();
             CaTblMac* fm = &macs.back();
             fm->Configure(fc);
-            fm->SetRng(macRng);
+            fm->SetRng(macStream());
             // What it BELIEVES, with the variance that belief actually carries.
             // Publishing the true position under a non-zero variance would claim an
             // uncertainty the reported number does not have, which is the silent
@@ -7508,7 +7542,7 @@ RunArm(CaTblPolicyMode mode,
             fb.periodS = beaconPeriodS[ti];
             fb.jitterMaxS = beaconPeriodS[ti] * 0.25;
             fb.untilS = durationS;
-            fb.rng = macRng;
+            fb.rng = macStream();
             beacons.push_back(fb);
         }
     }
@@ -7560,19 +7594,19 @@ RunArm(CaTblPolicyMode mode,
     // Scheduled only after every push_back, so the addresses are final.
     for (size_t r = 0; r < peerReqs.size(); ++r)
     {
-        Simulator::Schedule(Seconds(macRng->GetValue(0.0, peerReqs[r].periodS)),
+        Simulator::Schedule(Seconds(peerReqs[r].rng->GetValue(0.0, peerReqs[r].periodS)),
                             &PeerRequestDriver::Fire,
                             &peerReqs[r]);
     }
     for (size_t q = 0; q < queries.size(); ++q)
     {
-        Simulator::Schedule(Seconds(macRng->GetValue(0.0, queries[q].periodS)),
+        Simulator::Schedule(Seconds(queries[q].rng->GetValue(0.0, queries[q].periodS)),
                             &QueryDriver::Fire,
                             &queries[q]);
     }
     for (size_t b = 0; b < beacons.size(); ++b)
     {
-        Simulator::Schedule(Seconds(macRng->GetValue(0.0, beacons[b].periodS)),
+        Simulator::Schedule(Seconds(beacons[b].rng->GetValue(0.0, beacons[b].periodS)),
                             &BeaconDriver::Fire,
                             &beacons[b]);
     }
@@ -8269,7 +8303,7 @@ RunArm(CaTblPolicyMode mode,
         qd.jitterMaxS = identityQueryPeriodS * 0.25;
         qd.untilS = durationS;
         qd.manifestId = finderSearch[fi].target;
-        qd.rng = macRng;
+        qd.rng = macStream();
         qd.v2 = true;
         qd.manifests = std::vector<uint8_t>(1, finderSearch[fi].target);
         qd.priority = spec.identityQueryUrgent ? 1 : 0;
@@ -8277,7 +8311,7 @@ RunArm(CaTblPolicyMode mode,
     }
     for (size_t q = 0; q < finderQueries.size(); ++q)
     {
-        Simulator::Schedule(Seconds(macRng->GetValue(0.0, finderQueries[q].periodS)),
+        Simulator::Schedule(Seconds(finderQueries[q].rng->GetValue(0.0, finderQueries[q].periodS)),
                             &QueryDriver::Fire,
                             &finderQueries[q]);
     }
@@ -15325,6 +15359,8 @@ main(int argc, char* argv[])
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
     bool foliageDepthClampArg = false;
+    bool rngKeyedArg = false;
+    bool rngKeyedProbeExtraTxArg = false;
     bool intraCycleHandshakeDeferArg = false;
     uint32_t nTagsArg = 1;
     bool relayedRangingArg = false;
@@ -16605,6 +16641,20 @@ main(int argc, char* argv[])
                  "the drawn depth is clamped to the link length on all three tiers. The draw itself is kept, "
                  "so no random stream moves; only the attenuation of links shorter than their draw changes.",
                  foliageDepthClampArg);
+    cmd.AddValue("rngKeyed",
+                 "V1 (TECH_DEBT 1.1). False (default): every engine draw is the next number of one "
+                 "shared stream per engine, so any change in how many transmissions happen displaces "
+                 "every later draw on every link, and magnitudes can only be compared between arms of "
+                 "one binary on paired seeds. True: each draw is a hash of (seed, band, link, time, "
+                 "occurrence, index within the evaluation) -- common random numbers -- so a link's "
+                 "channel at a given instant does not depend on what else the run did, and every MAC "
+                 "object draws from its own stream. A different realisation from the default, not a "
+                 "different distribution.",
+                 rngKeyedArg);
+    cmd.AddValue("rngKeyedProbeExtraTx",
+                 "Gate G138 only: one extra 868 MHz engine evaluation on an unused link at arm start, "
+                 "the perturbation the keyed draws must absorb. Never part of a measured configuration.",
+                 rngKeyedProbeExtraTxArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -18038,6 +18088,8 @@ main(int argc, char* argv[])
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
     g_foliageDepthClamp = foliageDepthClampArg;
+    g_rngKeyed = rngKeyedArg;
+    g_rngKeyedProbeExtraTx = rngKeyedProbeExtraTxArg;
 
     // SY-2. --radioBasis is resolved here, before any energy account exists. The default
     // prints nothing, so no output moves with it.
@@ -20060,6 +20112,12 @@ main(int argc, char* argv[])
     if (g_foliageDepthClamp)
     {
         std::cout << "FOLIAGECLAMP firings=" << ns3::g_foliageDepthClampFirings << "\n";
+    }
+    if (g_rngKeyed)
+    {
+        // Draws made outside any link evaluation fall back to a per-sampler sequence, which
+        // is still coupled to call order. Reported so the residue is visible, not assumed 0.
+        std::cout << "RNGKEYED unkeyed_draws=" << LoRaDistributionSampler::UnkeyedDraws() << "\n";
     }
     return 0;
 }

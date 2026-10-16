@@ -56,6 +56,10 @@ void LoRaPhysicsEngine::Initialize(const LoRaPhysicsConfig& config) {
     } else {
         m_fadingSampler = LoRaDistributionSampler(config.randomSeed);
     }
+    // --rngKeyed (TECH_DEBT 1.1): one salt per engine and per sampler, so the three bands
+    // and the fading draws never share a keyed sequence. Inert when keyed mode is off.
+    m_sampler.SetKeyedSalt(0x868);
+    m_fadingSampler.SetKeyedSalt(0x868 ^ 0xFADEULL);
     
     m_correlation = std::make_unique<LoRaCorrelationEngine>();
     m_spatial = std::make_unique<LoRaSpatialFieldEngine>();
@@ -229,6 +233,9 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     double bandwidthHz, uint8_t relayHops,
     Time currentTime, double nodeOrientationRadians) {
     NS_LOG_FUNCTION(this << txNodeId << rxGatewayId << txPowerDbm << (int)spreadingFactor);
+    // --rngKeyed: every draw in this evaluation is keyed to (link, time, occurrence).
+    LoRaSamplerContextGuard rngContext(m_sampler, m_fadingSampler, txNodeId, rxGatewayId,
+                                       currentTime.GetNanoSeconds());
     PhysicsResult result;
     LinkPhysicsState state;
     state.txNodeId = txNodeId;
