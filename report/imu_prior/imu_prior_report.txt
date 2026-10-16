@@ -1,0 +1,117 @@
+=== completeness (each directory: digest-verified, dirty 0, rows counted)
+  usable 120 of 120 directories
+
+=== R0 control: static arms, every non-error arm_summary column identical cv vs imu
+  0 of 180 static-arm row pairs differ outside the error columns
+
+=== P2 imuJ = 11.523600 J on every IMU row
+  0 of 360 IMU rows off (imuJ or imuPredicts != steps)
+
+=== M1 ratio of per-seed MEDIAN error on no-fix cycles, imu / cv
+  cfg     arm                     n     gmean                95% CI  median cv / imu (m)
+  ref     static_868              0   not testable (< 5 cycles in a seed)
+  ref     static_2p4             11     0.171  [  0.137,   0.221]      4.21 /     0.65
+  ref     static_uwb             30     3.538  [  2.237,   5.546]    128.91 /   613.37
+  ref     fixed_threshold         0   not testable (< 5 cycles in a seed)
+  ref     ca_tbl_no_integrity     0   not testable (< 5 cycles in a seed)
+  ref     ca_tbl_full             0   not testable (< 5 cycles in a seed)
+  sparse  static_868              9     0.482  [  0.318,   0.711]     96.78 /    59.41
+  sparse  static_2p4             30     0.151  [  0.131,   0.172]      7.34 /     1.13
+  sparse  static_uwb             30     3.107  [  1.909,   4.875]    208.95 /   946.89
+  sparse  fixed_threshold        28     0.672  [  0.526,   0.862]      8.58 /     6.16
+  sparse  ca_tbl_no_integrity    18     0.155  [  0.122,   0.200]     18.61 /     2.99
+  sparse  ca_tbl_full            19     0.182  [  0.126,   0.262]     18.04 /     3.19
+
+=== M2 ratio of per-seed MEDIAN error on deep (>=10th consecutive no-fix) cycles, imu / cv
+  cfg     arm                     n     gmean                95% CI  median cv / imu (m)
+  ref     static_868              0   not testable (< 5 cycles in a seed)
+  ref     static_2p4              0   not testable (< 5 cycles in a seed)
+  ref     static_uwb             30     3.546  [  2.270,   5.548]    134.64 /   629.59
+  ref     fixed_threshold         0   not testable (< 5 cycles in a seed)
+  ref     ca_tbl_no_integrity     0   not testable (< 5 cycles in a seed)
+  ref     ca_tbl_full             0   not testable (< 5 cycles in a seed)
+  sparse  static_868              0   not testable (< 5 cycles in a seed)
+  sparse  static_2p4             14     0.092  [  0.050,   0.192]     27.24 /     2.68
+  sparse  static_uwb             30     2.976  [  1.850,   4.632]    212.61 /   968.50
+  sparse  fixed_threshold         0   not testable (< 5 cycles in a seed)
+  sparse  ca_tbl_no_integrity     0   not testable (< 5 cycles in a seed)
+  sparse  ca_tbl_full             0   not testable (< 5 cycles in a seed)
+
+=== M3 A_fix, paired difference imu - cv
+  ref     static_868           cv 0.0892  diff +0.30157 [+0.23252, +0.37181]
+  ref     static_2p4           cv 0.9962  diff +0.00002 [+0.00000, +0.00007]
+  ref     static_uwb           cv 0.0573  diff -0.00044 [-0.00079, -0.00012]
+  ref     fixed_threshold      cv 0.9972  diff +0.00009 [-0.00181, +0.00171]
+  ref     ca_tbl_no_integrity  cv 0.9994  diff +0.00005 [+0.00000, +0.00012]
+  ref     ca_tbl_full          cv 0.9993  diff +0.00021 [+0.00002, +0.00044]
+  sparse  static_868           cv 0.0488  diff +0.17410 [+0.11653, +0.23516]
+  sparse  static_2p4           cv 0.8399  diff +0.00470 [+0.00319, +0.00634]
+  sparse  static_uwb           cv 0.0296  diff -0.00042 [-0.00076, -0.00014]
+  sparse  fixed_threshold      cv 0.9407  diff +0.03681 [+0.02130, +0.05294]
+  sparse  ca_tbl_no_integrity  cv 0.9645  diff +0.02639 [+0.01898, +0.03435]
+  sparse  ca_tbl_full          cv 0.9606  diff -0.00171 [-0.06595, +0.03512]
+
+=== M3 A_est, paired difference imu - cv
+  ref     static_868           cv 0.0896  diff +0.30160 [+0.23069, +0.37062]
+  ref     static_2p4           cv 1.0000  diff +0.00002 [+0.00000, +0.00007]
+  ref     static_uwb           cv 0.2301  diff -0.07949 [-0.13734, -0.02620]
+  ref     fixed_threshold      cv 0.9998  diff -0.00192 [-0.00375, -0.00042]
+  ref     ca_tbl_no_integrity  cv 0.9998  diff +0.00005 [+0.00000, +0.00012]
+  ref     ca_tbl_full          cv 0.9997  diff +0.00021 [+0.00002, +0.00044]
+  sparse  static_868           cv 0.0496  diff +0.17449 [+0.11681, +0.23447]
+  sparse  static_2p4           cv 0.9730  diff +0.02475 [+0.01669, +0.03340]
+  sparse  static_uwb           cv 0.1255  diff -0.01574 [-0.05032, +0.02266]
+  sparse  fixed_threshold      cv 0.9639  diff +0.02093 [+0.00556, +0.03745]
+  sparse  ca_tbl_no_integrity  cv 0.9699  diff +0.02734 [+0.01937, +0.03620]
+  sparse  ca_tbl_full          cv 0.9660  diff +0.00162 [-0.06424, +0.03956]
+
+=== M4 radio energy totalJ, ratio imu / cv (geometric mean of per-seed ratios)
+  ref     static_868           1.0000 [1.0000, 1.0000]
+  ref     static_2p4           1.0000 [1.0000, 1.0000]
+  ref     static_uwb           1.0000 [1.0000, 1.0000]
+  ref     fixed_threshold      0.6682 [0.6653, 0.6713]
+  ref     ca_tbl_no_integrity  1.0132 [1.0104, 1.0160]
+  ref     ca_tbl_full          0.9967 [0.9940, 0.9992]
+  sparse  static_868           1.0000 [1.0000, 1.0000]
+  sparse  static_2p4           1.0000 [1.0000, 1.0000]
+  sparse  static_uwb           1.0000 [1.0000, 1.0000]
+  sparse  fixed_threshold      0.7205 [0.7154, 0.7260]
+  sparse  ca_tbl_no_integrity  0.9847 [0.9773, 0.9916]
+  sparse  ca_tbl_full          0.9989 [0.9956, 1.0024]
+
+=== M5 escalations, paired difference imu - cv (dynamic arms)
+  ref     fixed_threshold      cv mean   182.6  diff  -171.60 [ -174.30,  -168.57]
+  ref     ca_tbl_no_integrity  cv mean     3.0  diff    -1.93 [   -2.00,    -1.83]
+  ref     ca_tbl_full          cv mean     3.0  diff    +0.13 [   +0.00,    +0.37]
+  sparse  fixed_threshold      cv mean   142.3  diff  -125.47 [ -134.33,  -116.93]
+  sparse  ca_tbl_no_integrity  cv mean    14.9  diff    -4.63 [   -6.63,    -2.80]
+  sparse  ca_tbl_full          cv mean    14.9  diff    +0.13 [   -1.27,    +1.53]
+
+=== M6 position NEES of the IMU filter in the simulation (descriptive; 2.0 = consistent)
+  ref     static_868           NEES 27.315 [12.518, 51.575]  frac>5.991 0.4640 (consistent: 0.05)
+  ref     static_2p4           NEES 1.862 [1.787, 1.942]  frac>5.991 0.0408 (consistent: 0.05)
+  ref     static_uwb           NEES 94188.942 [60600.736, 130909.757]  frac>5.991 0.7843 (consistent: 0.05)
+  ref     fixed_threshold      NEES 2.670 [2.291, 3.077]  frac>5.991 0.1108 (consistent: 0.05)
+  ref     ca_tbl_no_integrity  NEES 1.807 [1.738, 1.876]  frac>5.991 0.0343 (consistent: 0.05)
+  ref     ca_tbl_full          NEES 5.018 [4.337, 5.775]  frac>5.991 0.2838 (consistent: 0.05)
+  sparse  static_868           NEES 89.145 [9.694, 243.859]  frac>5.991 0.3979 (consistent: 0.05)
+  sparse  static_2p4           NEES 1.823 [1.718, 1.931]  frac>5.991 0.0390 (consistent: 0.05)
+  sparse  static_uwb           NEES 30298.135 [15259.410, 53090.018]  frac>5.991 0.7270 (consistent: 0.05)
+  sparse  fixed_threshold      NEES 3.391 [2.708, 4.234]  frac>5.991 0.1651 (consistent: 0.05)
+  sparse  ca_tbl_no_integrity  NEES 1.856 [1.722, 2.000]  frac>5.991 0.0400 (consistent: 0.05)
+  sparse  ca_tbl_full          NEES 144.095 [4.175, 423.291]  frac>5.991 0.2992 (consistent: 0.05)
+
+=== A0 v2: T = ca_tbl_full, B = static_2p4 (report/PREREG_A0_V2.md)
+  ref    cv  A_fix/primary availability, radio/primary energy D_T 30/30 D_B 30/30 rho 2.141 [2.114, 2.170] -> FAIL
+  ref    cv  A_est/secondary availability, radio/primary energy D_T 30/30 D_B 30/30 rho 2.141 [2.114, 2.171] -> FAIL
+  ref    imu A_fix/primary availability, radio/primary energy D_T 30/30 D_B 30/30 rho 2.134 [2.106, 2.163] -> FAIL
+  ref    imu A_fix/primary availability, system/secondary energy D_T 30/30 D_B 30/30 rho 1.592 [1.584, 1.601] -> FAIL
+  ref    imu A_est/secondary availability, radio/primary energy D_T 30/30 D_B 30/30 rho 2.134 [2.107, 2.163] -> FAIL
+  ref    imu A_est/secondary availability, system/secondary energy D_T 30/30 D_B 30/30 rho 1.592 [1.584, 1.601] -> FAIL
+  sparse cv  A_fix/primary availability, radio/primary energy D_T 20/30 D_B  1/30 rho 2.738 [2.688, 2.788] -> FAIL
+  sparse cv  A_est/secondary availability, radio/primary energy D_T 23/30 D_B 26/30 rho 2.738 [2.690, 2.790] -> FAIL
+  sparse imu A_fix/primary availability, radio/primary energy D_T 29/30 D_B  2/30 rho 2.735 [2.685, 2.784] -> FAIL
+  sparse imu A_fix/primary availability, system/secondary energy D_T 29/30 D_B  2/30 rho 1.710 [1.700, 1.720] -> PASS
+         kappa band: 0.25:FAIL, 0.5:FAIL, 1:PASS, 2:PASS
+  sparse imu A_est/secondary availability, radio/primary energy D_T 29/30 D_B 29/30 rho 2.735 [2.686, 2.785] -> FAIL
+  sparse imu A_est/secondary availability, system/secondary energy D_T 29/30 D_B 29/30 rho 1.710 [1.700, 1.720] -> FAIL

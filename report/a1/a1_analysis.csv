@@ -1,0 +1,11 @@
+metric,dwell,estimate,lo,hi,note
+coverage_fraction,90,0.0306597,0.0284722,0.0329861,predicted 0.0306597
+coverage_fraction,150,0.0464583,0.0427431,0.0504167,predicted 0.050076
+coverage_fraction,245,0.0714931,0.0651389,0.0783333,predicted 0.0792765
+coverage_fraction,400,0.112014,0.101979,0.122674,predicted 0.12325
+coverage_fraction,800,0.217049,0.196458,0.238403,predicted 0.219452
+A0v2,90,2.79035,2.71204,2.87321,D_T=10 D_B=0 N=20 verdict=FAIL
+A0v2,150,2.79575,2.71215,2.88164,D_T=11 D_B=0 N=20 verdict=FAIL
+A0v2,245,2.79689,2.71579,2.87934,D_T=12 D_B=0 N=20 verdict=FAIL
+A0v2,400,2.81777,2.74292,2.89634,D_T=10 D_B=0 N=20 verdict=FAIL
+A0v2,800,2.83742,2.75469,2.92139,D_T=14 D_B=1 N=20 verdict=FAIL
