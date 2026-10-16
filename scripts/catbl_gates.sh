@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward).
+# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward);
+# G91-G94 ported from the local line on 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
 # Run after every code change.
 #
 # Every gate RUNS; failures are recorded and reported in the summary block at the end,
@@ -1744,6 +1745,43 @@ printf '\n--- G90 PCS term 1 as the literal 1/trace (row 17) ---\n'
 bash scripts/pcs_term1_gate.sh "$WORK/g90" || fail G90
 bash scripts/pcs_term1_gate_selftest.sh "$WORK/g90" || fail G90
 finish G90
+
+# ---------------- G93: each tier's receiver applies the DATA-SHEET sensitivity (D-8)
+# G14 checks that the tables and their SF index agree -- the D1 defect. Nothing checked the
+# VALUES against a data sheet, and tier 2's table is the SX1280's 1625 kHz row, used as if it
+# were an 800 kHz one: ~6 dB pessimistic at the default, and SY-3's --bw2p4 shift is measured
+# from that wrong origin (~3 dB at 1625 kHz). scratch/ca_tbl_sensitivity_probe.cc calls each
+# engine's own GetSensitivityThreshold() (re-derives nothing); scripts/
+# sensitivity_fidelity_check.py holds Table 6-1 and Table 3-8, sharing no code with it.
+# Fixture first (seven directions). Then the default, which is FAIL BY FINDING until the D-8
+# campaign is decided -- and two corrected configurations, which MUST pass: if the
+# correction itself is broken that is an ERROR, not the expected red.
+# Ported from the local line (G19 there); docs/LOCAL_LINE_INTEGRATION.md.
+printf '\n--- G93 receiver sensitivity against the data sheets (fixture, corrections, default) ---\n'
+G93_BIN=./build/scratch/ns3.47-ca_tbl_sensitivity_probe-optimized
+if ! bash scripts/catbl_sensitivity_fixture.sh; then
+    gerror G93 "the G93 fixture did not behave -- the gate's verdict would mean nothing"
+elif [ ! -x "$G93_BIN" ]; then
+    gerror G93 "no probe binary at $G93_BIN -- build ca_tbl_sensitivity_probe"
+else
+    G93_OK=1
+    "$G93_BIN" --t2SensitivityRowKHz=812.5 > "$WORK/g93_row.csv" 2>/dev/null &&
+        python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row.csv" scratch/ca_tbl_causal_sim.cc > "$WORK/g93_row.txt" || G93_OK=0
+    "$G93_BIN" --t2SensitivityRowKHz=1625 --bw2p4=1625000 > "$WORK/g93_row1625.csv" 2>/dev/null &&
+        python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row1625.csv" scratch/ca_tbl_causal_sim.cc --bw2p4 1625000 > "$WORK/g93_row1625.txt" || G93_OK=0
+    if [ "$G93_OK" -ne 1 ]; then
+        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" 2>/dev/null
+        gerror G93 "the D-8 correction does not pass the data-sheet check -- the fix is broken"
+    else
+        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4)\n'
+        "$G93_BIN" > "$WORK/g93_default.csv" 2>/dev/null || gerror G93 "probe exited non-zero"
+        if ! python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_default.csv" scratch/ca_tbl_causal_sim.cc; then
+            printf '\n  G93 is FAIL BY FINDING: tier 2 applies the 1625 kHz row at 800 kHz (D-8)\n'
+            fail G93
+        fi
+    fi
+fi
+finish G93
 
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
