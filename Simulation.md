@@ -121,6 +121,9 @@ Availability  A ≥ 0.95     at     Accuracy  R ≤ 25 m
 - **Note on SF12:** not used for tier 1. Measured PDR is 0.255–0.355 even at 500 m, *below*
   SF7's 1.00 — an inversion that is collision-dominated, since SF12 airtime is ~30× SF7 and
   therefore overlaps far more interferers. `[M-01]`
+  *Annotated 2026-10-16 (`docs/TECH_DEBT.md` N.29): the interferers are the validation harness's
+  own previous frames — it transmits every 0.1 s, under SF12's airtime. At 3 s spacing SF12 PDR
+  at 500 m is 0.985–1.000. This note is kept as written; it is not a property of the channel.*
 
 ### 2.3 Mobility model — and why it is not a random walk
 

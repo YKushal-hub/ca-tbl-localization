@@ -28,6 +28,14 @@ ALLOWED = {
     "CA_TBL_SIMULATION_REPORT.md": "earlier report, deliberately untracked; G8 asserts it",
     "subject_summary.csv":         "a per-run output the scenario writes under --measuredSubjects "
                                    "> 1; registrations cite it as a metric's source, not a repo path",
+    # Local-line files cited by registrations ported 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
+    # A registration's text is not edited after it is committed, so its citation stays; the
+    # files are on archive/local-line-2026-10-16 and were not ported (the claims audit they
+    # belong to was superseded on main by B3's re-measurement).
+    "JOINT_CRITERION_RESULT.md":   "local-line result, on archive/local-line-2026-10-16; cited by "
+                                   "the ported PREREG_A0_V2.md and PREREG_A1_DWELL.md",
+    "make_figures.py":             "local-line figure script, on archive/local-line-2026-10-16; "
+                                   "cited by the ported PREREG_D8_SENSITIVITY.md",
 }
 # Bare filenames that live inside excluded results/ directories. Legitimate because
 # the directory is recorded in EXCLUDED.md; the file inside it is not separately tracked.

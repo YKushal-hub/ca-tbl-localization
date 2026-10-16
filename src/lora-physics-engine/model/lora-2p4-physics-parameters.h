@@ -9,6 +9,21 @@ namespace ns3 {
  * @brief 2.4 GHz specific Receiver Decision Parameters
  * SX1280 supports SF5-SF12.
  */
+/**
+ * D-8. The SX1280 LoRa receiver sensitivity, one bandwidth row of Semtech SX1280/SX1281 Data
+ * Sheet Rev 3.2 (March 2020), Table 6-1 "Receiver Sensitivity when using LoRa in Low Power
+ * Mode", p. 35: PER 1 %, 10-byte payload, 25 C, 3.3 V, CR 4/5. Index 0 = SF5 .. 7 = SF12.
+ *
+ * Defaults() below holds a table labelled "BW=800kHz baseline" whose values are, within 1 dB,
+ * the data sheet's 1625 kHz row -- while the scenario runs tier 2 at 800 kHz. That default is
+ * kept so every committed result reproduces; this function supplies the row for a stated
+ * bandwidth so the correction can be applied, by flag, as a planned campaign.
+ *
+ * Returns false (and leaves \p out untouched) unless \p bwKHz is one of the four tabulated
+ * bandwidths 203.125, 406.25, 812.5, 1625 within 0.5 kHz.
+ */
+bool Sx1280LowPowerSensitivityRow(double bwKHz, double out[8]);
+
 struct ReceiverDecisionParams2p4 {
     bool softThresholdEnabled;
     double softThresholdWidthDb;

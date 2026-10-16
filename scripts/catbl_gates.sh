@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward).
+# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward);
+# G91-G94 ported from the local line on 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
 # Run after every code change.
 #
 # Every gate RUNS; failures are recorded and reported in the summary block at the end,
@@ -312,8 +313,16 @@ finish G9
 # The allowance list in scripts/citation_audit.py is ENUMERATED, with a reason per
 # entry -- deliberately-untracked docs and files inside EXCLUDED.md directories. It
 # is not a blanket exemption for anything that happens to be untracked.
-printf '\n--- G10 cited paths resolve in the repository ---\n'
-python3 scripts/citation_audit.py || fail G10
+#
+# Fixture first (added 2026-10-16 -- G10 had none, against working rule 6): six throwaway
+# repos; the clean one and one citing an allow-listed untracked file pass, every unresolved
+# form fails, including an UNLISTED untracked file -- so the allowance stays an enumeration.
+printf '\n--- G10 cited paths resolve in the repository (fixture, then the tree) ---\n'
+if ! bash scripts/catbl_citation_fixture.sh; then
+    gerror G10 "the citation fixture did not behave -- the gate's verdict would mean nothing"
+else
+    python3 scripts/citation_audit.py || fail G10
+fi
 finish G10
 
 # --------------------- G12: no attribution in identity or message, any commit
@@ -1744,6 +1753,83 @@ printf '\n--- G90 PCS term 1 as the literal 1/trace (row 17) ---\n'
 bash scripts/pcs_term1_gate.sh "$WORK/g90" || fail G90
 bash scripts/pcs_term1_gate_selftest.sh "$WORK/g90" || fail G90
 finish G90
+
+# ---------------- G92: every results/ path a tracked document cites is held, or recorded lost
+# G10 checks backtick paths in named documents and report/*.md, and counts a results/ citation
+# as resolved if the directory is committed OR excluded. G92 asks the stricter question for
+# EVERY tracked .md at the root, in docs/ (not docs/archive/), report/ and the propagation
+# study: does the repository hold the evidence? A directory passes with a tracked sidecar; one
+# recorded in RESULTS_NONREGENERABLE.tsv is reported and passes; one allow-listed in
+# EXCLUDED.md ```reviewed-cited-evidence``` passes; anything else fails. Ported 2026-10-16
+# from the local line (G18 there). FAIL BY FINDING when added: 15 cited paths are not held,
+# among them p10_env_v7, p10_env_v8 and p10_plane_v7, which the Technical Report cites. The
+# remedy is regeneration or a recorded loss -- never a widened allow-list. Fixture first.
+printf '\n--- G92 cited results paths are held (fixture, then the tree) ---\n'
+if bash scripts/catbl_cited_evidence_fixture.sh; then
+    python3 scripts/cited_evidence_gate.py || fail G92
+else
+    gerror G92 "the G92 fixture did not behave -- the gate's verdict would mean nothing"
+fi
+finish G92
+
+# ---------------- G93: each tier's receiver applies the DATA-SHEET sensitivity (D-8)
+# G14 checks that the tables and their SF index agree -- the D1 defect. Nothing checked the
+# VALUES against a data sheet, and tier 2's table is the SX1280's 1625 kHz row, used as if it
+# were an 800 kHz one: ~6 dB pessimistic at the default, and SY-3's --bw2p4 shift is measured
+# from that wrong origin (~3 dB at 1625 kHz). scratch/ca_tbl_sensitivity_probe.cc calls each
+# engine's own GetSensitivityThreshold() (re-derives nothing); scripts/
+# sensitivity_fidelity_check.py holds Table 6-1 and Table 3-8, sharing no code with it.
+# Fixture first (seven directions). Then the default, which is FAIL BY FINDING until the D-8
+# campaign is decided -- and two corrected configurations, which MUST pass: if the
+# correction itself is broken that is an ERROR, not the expected red.
+# Ported from the local line (G19 there); docs/LOCAL_LINE_INTEGRATION.md.
+printf '\n--- G93 receiver sensitivity against the data sheets (fixture, corrections, default) ---\n'
+G93_BIN=./build/scratch/ns3.47-ca_tbl_sensitivity_probe-optimized
+if ! bash scripts/catbl_sensitivity_fixture.sh; then
+    gerror G93 "the G93 fixture did not behave -- the gate's verdict would mean nothing"
+elif [ ! -x "$G93_BIN" ]; then
+    gerror G93 "no probe binary at $G93_BIN -- build ca_tbl_sensitivity_probe"
+else
+    G93_OK=1
+    "$G93_BIN" --t2SensitivityRowKHz=812.5 > "$WORK/g93_row.csv" 2>/dev/null &&
+        python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row.csv" scratch/ca_tbl_causal_sim.cc > "$WORK/g93_row.txt" || G93_OK=0
+    "$G93_BIN" --t2SensitivityRowKHz=1625 --bw2p4=1625000 > "$WORK/g93_row1625.csv" 2>/dev/null &&
+        python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row1625.csv" scratch/ca_tbl_causal_sim.cc --bw2p4 1625000 > "$WORK/g93_row1625.txt" || G93_OK=0
+    if [ "$G93_OK" -ne 1 ]; then
+        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" 2>/dev/null
+        gerror G93 "the D-8 correction does not pass the data-sheet check -- the fix is broken"
+    else
+        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4)\n'
+        "$G93_BIN" > "$WORK/g93_default.csv" 2>/dev/null || gerror G93 "probe exited non-zero"
+        if ! python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_default.csv" scratch/ca_tbl_causal_sim.cc; then
+            printf '\n  G93 is FAIL BY FINDING: tier 2 applies the 1625 kHz row at 800 kHz (D-8)\n'
+            fail G93
+        fi
+    fi
+fi
+finish G93
+
+# ---------------- G91: the local line's IMU sensor model and 5-state filter, against closed forms
+# Ported 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md; G17 on the local line). CaTblImuSensorModel
+# (BMI270 data sheet) and CaTblImuEkf [x, y, theta, b, s] -- a filter that ESTIMATES the gyro
+# bias and stride scale DC-1 leaves unobserved. Not wired into the scenario, so no run output
+# moves. scripts/imu_closed_form_check.py computes the expected statistics in closed form from
+# the printed parameters, sharing no code with the model. The fixture runs the nominal model
+# (must pass), eight models broken in one term each and two broken filters (no stride state,
+# zero process noise) -- each must fail on THAT term's case. Seconds, no network simulation.
+printf '\n--- G91 IMU sensor model and 5-state filter: closed forms, NEES, ten negative fixtures ---\n'
+bash scripts/catbl_imu_fixture.sh || fail G91
+finish G91
+
+# ---------------- G94: the 5-state filter stays honest through a 1000 s outage
+# G91 exercises 50 s outages. A Gaussian predict drops the second-order along-track shortening
+# a heading error causes, L(1 - cos d), and is overconfident beyond ~2 min (NEES 11.8 at 500 s,
+# 178 at 1000 s with a perfect channel). Moment-matched coasting adds |path|^2 Var(cos d) and
+# holds NEES 1.5-2.7 to 1000 s. The fixture runs the validator's dwell + outage diagnostic
+# both ways: moment-matched must pass, the plain EKF must fail on the outage line.
+printf '\n--- G94 5-state filter consistency over a 1000 s outage (fixture both ways) ---\n'
+bash scripts/catbl_imu_long_outage_fixture.sh || fail G94
+finish G94
 
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its

@@ -1,0 +1,10 @@
+31fc53474ec21528
+build Oct 15 2026 01:22:44 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=309 --duration=3600 --boxHalf=3000 --gwGrid=5 --nlosSource=propagation --escalationRequiresEvidence=true --pcsForm=min --trace=true --arms=static_2p4,ca_tbl_full --imuPrior=true --imuGyroBiasInitDps=0.05 --outdir=results/imu_prior_sens/sparse_imu_b0.05_s309
+source e94d04d dirty 0 profile optimized
+digest sha256
+f6b0de9b7361a1dd4a1e12fb28207ade5859b611906fbfb6e660a00cc9498842  arm_summary.csv
+3fb49cba4b37dcd098a75657273f848dae55534f526611f4c4ebf8ec20889db6  imu_summary.csv
+b7962bf17d9ab363d6553b1f03c1544abbef06e71843e19790ee475ef5ff0cc6  imu_trace_ca_tbl_full_seed309.csv
+8dd8b0117384089890f341fed2106457eb22cfa0f51930345cbcc0173fd6edcf  imu_trace_static_2p4_seed309.csv
+b5a00b893f1c2c01bc68b44dc101b6d59dd18f92a6fcb933a341d48a8a54e93e  trace_ca_tbl_full_seed309.csv
+6657e05dd5a538edce83fdf15b8802fcfcf7651caf4efa4f2c11d20575886690  trace_static_2p4_seed309.csv

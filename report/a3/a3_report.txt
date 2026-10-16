@@ -1,0 +1,16 @@
+=== completeness: usable 40 of 40
+
+=== P1 static arms identical off vs on
+  0 of 60 row pairs differ -> P1 HOLDS
+
+=== P2 / P3 under the flag
+  handshakePreemptions total 0; intraCycleHandshakes total 3729 -> P2 HOLDS
+  fixed_threshold      intra-cycle handshakes mean 184.4   tier-1 exchanges blocked mean 184.4
+  ca_tbl_no_integrity  intra-cycle handshakes mean 1.0   tier-1 exchanges blocked mean 1.0
+  ca_tbl_full          intra-cycle handshakes mean 1.0   tier-1 exchanges blocked mean 1.0
+
+=== P4 paired differences, on - off
+  fixed_threshold      cep50 +0.0000 [+0.0000, +0.0000] m   A_fix +0.00000 [+0.00000, +0.00000]   esc +0.0   radioJ x0.9997   max duty_868 0.02191
+  ca_tbl_no_integrity  cep50 +0.0000 [+0.0000, +0.0000] m   A_fix +0.00000 [+0.00000, +0.00000]   esc +0.0   radioJ x1.0000   max duty_868 0.02263
+  ca_tbl_full          cep50 +0.0000 [+0.0000, +0.0000] m   A_fix +0.00000 [+0.00000, +0.00000]   esc +0.0   radioJ x1.0000   max duty_868 0.02263
+  P4 (ca_tbl_full cep50 CI includes 0): HOLDS

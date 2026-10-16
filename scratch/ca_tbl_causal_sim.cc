@@ -2138,6 +2138,32 @@ static double g_sensShiftDb2p4 = 0.0;
 //! SY-3. True when any of --sf868/--bw868/--sf2p4/--bw2p4 was given: RunArm then prints the
 //! sensitivity its engines were actually configured with.
 static bool g_sy3Given = false;
+// D-8. 0 keeps tier 2's committed sensitivity table, which is the SX1280 data sheet's
+// 1625 kHz row (SF7 -106 dBm), not an 800 kHz one -- so it is ~6 dB pessimistic at the
+// scenario's 800 kHz, and SY-3's 10*log10(BW/800 kHz) shift inherits the error at every
+// bandwidth. Non-zero replaces the table with the data sheet's Table 6-1 row for that
+// bandwidth (Sx1280LowPowerSensitivityRow), and SY-3's shift is then not applied on top:
+// the row already describes the bandwidth. Written once after cmd.Parse(), checked against
+// the configured tier-2 bandwidth before any run, read by the macro below.
+static double g_t2SensitivityRowKHz = 0.0;
+// DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
+// (8.816 deg/h) -- the floor of a running gyro's Allan deviation, not the turn-on residual a
+// filter faces. Non-zero draws the per-run bias at this sigma in deg/s instead, from the same
+// stream and in the same order, so only the magnitude moves. docs/LOCAL_LINE_INTEGRATION.md
+// sect 1.3. Written once after cmd.Parse().
+static double g_imuGyroBiasSigmaDps = 0.0;
+
+//! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
+static CaTblImuParams
+Dc1ImuParams()
+{
+    CaTblImuParams p;
+    if (g_imuGyroBiasSigmaDps > 0.0)
+    {
+        p.gyroBiasSigmaRadS = g_imuGyroBiasSigmaDps * M_PI / 180.0;
+    }
+    return p;
+}
 
 #define CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)    \
     LoRaPhysicsConfig c868 = LoRaPhysicsConfig::ForScenario((envWide),                             \
@@ -2184,6 +2210,10 @@ static bool g_sy3Given = false;
         {                                                                                          \
             c2p4.receiver.sensitivityDbm[sfi] += g_sensShiftDb2p4;                                 \
         }                                                                                          \
+    }                                                                                              \
+    if (g_t2SensitivityRowKHz > 0.0)                                                               \
+    {                                                                                              \
+        Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
     }
 
 /**
@@ -7707,7 +7737,7 @@ RunArm(CaTblPolicyMode mode,
         imuPred.reset(new ImuPredictState());
         // Its own stream (plan sect 0 rule 5): seed*7919 + 1400071, the measured node being
         // subject 0 (MS-1 adds 97 per subject).
-        imuPred->rk.Configure(CaTblImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071);
+        imuPred->rk.Configure(Dc1ImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071);
         std::ostringstream ifn;
         ifn << traceDir << "/imu_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         imuPred->log.open(ifn.str().c_str());
@@ -8755,7 +8785,7 @@ RunArm(CaTblPolicyMode mode,
             if (spec.imuPredict)
             {
                 ex.rk.reset(new CaTblImuDeadReckoner());
-                ex.rk->Configure(CaTblImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071 +
+                ex.rk->Configure(Dc1ImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071 +
                                                        97 * static_cast<int64_t>(pt));
             }
             if (spec.subjectTier1Tdoa)
@@ -15163,6 +15193,8 @@ main(int argc, char* argv[])
     double bw868Arg = 0.0;
     uint32_t sf2p4Arg = 0;
     double bw2p4Arg = 0.0;
+    double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
+    double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -17114,6 +17146,17 @@ main(int argc, char* argv[])
                  "is not an SX1280 setting -- recorded, not changed. Another value shifts the "
                  "2.4 GHz sensitivity table by 10*log10(BW/800 kHz) dB.",
                  bw2p4Arg);
+    cmd.AddValue("t2SensitivityRowKHz",
+                 "D-8. Which SX1280 data-sheet sensitivity row tier 2 uses, by bandwidth in "
+                 "kHz: 0 (default) keeps the committed table, which is the data sheet's 1625 "
+                 "kHz row applied as if it were an 800 kHz one -- about 6 dB pessimistic at the "
+                 "default 800 kHz, and SY-3's --bw2p4 shift is measured from that wrong origin. "
+                 "Every committed result was produced under it, so it stays the default. "
+                 "203.125, 406.25, 812.5 or 1625 applies Table 6-1 (rev 3.2, low power mode) "
+                 "for that bandwidth and does not add SY-3's shift on top. Refused unless the "
+                 "row matches the configured tier-2 bandwidth (--bw2p4, default 800 kHz) within "
+                 "5 %, so the correction cannot describe a radio that is not running.",
+                 t2SensitivityRowKHzArg);
     cmd.AddValue("relayTier",
                  "Which tier a relay ranges on: 0=868, 1=2.4GHz, 2=UWB. Default 1. "
                  "NOT 0, and that is an admission condition rather than a preference "
@@ -17272,6 +17315,18 @@ main(int argc, char* argv[])
                  "stream. Writes imu_<arm>_seed<N>.csv (digested) and one DC-1 line per arm. "
                  "The SHS gait engine is untouched (owner decision 2).",
                  spec.imuPredict);
+    cmd.AddValue("imuGyroBiasSigmaDps",
+                 "With --imuPredict: the sigma, in deg/s, of DC-1's per-run gyro bias. 0 "
+                 "(default) keeps 8.816 deg/h, the MPU-6050's bias INSTABILITY -- the floor of a "
+                 "running gyro's Allan deviation, not the turn-on bias a filter faces after "
+                 "power-up (the MPU-6050 data sheet gives +/-20 deg/s initial zero-rate "
+                 "tolerance), so every DC-1 result so far had a near-perfect gyro: ~2.4 deg of "
+                 "heading error in 1000 s. A calibrated MEMS gyro holds ~0.05-0.5 deg/s; the "
+                 "BMI270 data sheet (ZRO +/-0.5 deg/s, TCO 0.015 deg/s/K) gives 0.15 deg/s for a "
+                 "power-on calibration and 10 K of drift (the 10 K is OURS). Same stream, same "
+                 "draw order: only the magnitude moves. Refused without --imuPredict. "
+                 "docs/LOCAL_LINE_INTEGRATION.md sect 1.3.",
+                 imuGyroBiasSigmaDpsArg);
     cmd.AddValue("sparseInStep",
                  "Solve a two-range cycle inside Step(), after the prediction, against the "
                  "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
@@ -18875,6 +18930,46 @@ main(int argc, char* argv[])
         std::cout << line.str();
     }
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+    // DC-1 bias override.
+    if (imuGyroBiasSigmaDpsArg != 0.0)
+    {
+        if (!spec.imuPredict)
+        {
+            std::cerr << "FATAL: --imuGyroBiasSigmaDps needs --imuPredict\n";
+            return 1;
+        }
+        if (!(imuGyroBiasSigmaDpsArg > 0.0))
+        {
+            std::cerr << "FATAL: --imuGyroBiasSigmaDps must be positive\n";
+            return 1;
+        }
+        g_imuGyroBiasSigmaDps = imuGyroBiasSigmaDpsArg;
+        std::cout << "  DC-1: gyro bias sigma " << g_imuGyroBiasSigmaDps
+                  << " deg/s (default: 8.816 deg/h bias instability)\n";
+    }
+    // D-8, after SY-3 so the row is checked against the bandwidth that will actually run.
+    g_t2SensitivityRowKHz = t2SensitivityRowKHzArg;
+    if (g_t2SensitivityRowKHz > 0.0)
+    {
+        double row[8];
+        const double bwKHz = phy[CA_TBL_TIER_2P4].bandwidthHz / 1e3;
+        if (!Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, row))
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " is not a tabulated SX1280 bandwidth (203.125, 406.25, 812.5, 1625)\n";
+            return 1;
+        }
+        if (std::fabs(g_t2SensitivityRowKHz - bwKHz) / g_t2SensitivityRowKHz > 0.05)
+        {
+            std::cerr << "FATAL: --t2SensitivityRowKHz=" << g_t2SensitivityRowKHz
+                      << " does not match the configured tier-2 bandwidth " << bwKHz
+                      << " kHz -- the row must describe the radio that runs\n";
+            return 1;
+        }
+        g_sensShiftDb2p4 = 0.0; // the row is already for this bandwidth
+        std::cout << "  D-8: tier 2 uses the SX1280 " << g_t2SensitivityRowKHz
+                  << " kHz row (SF7 " << row[2] << " dBm); SY-3's bandwidth shift not applied\n";
+    }
     // C5_INSTANT. The round's slots are disjoint in the registry only while the relay
     // tier's airtime is shorter than a slot; the engines register 2^sf / bw * 20 s
     // (lora-*-physics-engine.cc:~560), recomputed here from the same table.
