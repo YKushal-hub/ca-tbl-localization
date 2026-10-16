@@ -1,0 +1,33 @@
+=== probe r80
+  fix off reproduces probe_v7: YES  868MHz 1515.3, 2.4GHz 1149.5, UWB 12.8
+  868MHz  off   1515.3 m  on 1515.3 m  ratio 1.000
+  2.4GHz  off   1149.5 m  on 1421.6 m  ratio 1.237
+  UWB     off     12.8 m  on   12.8 m  ratio 1.000
+  P1 tier-2 ratio 1.237 in [1.4, 2.1]: FAILS
+  P2 tiers 1 and 3 move < 1 %: HOLDS
+
+=== campaign completeness
+  usable 80 of 80
+
+=== ref: paired on - off, n = 20
+  static_868           A_fix 0.0854 +0.00038 [-0.00667, +0.00691]  cep50 -1.610 m  radioJ x0.9995  esc +0.0  identical rows 0/20
+  static_2p4           A_fix 0.9973 +0.00253 [+0.00149, +0.00372]  cep50 -0.111 m  radioJ x1.2094  esc +0.0  identical rows 0/20
+  static_uwb           A_fix 0.0603 -0.00372 [-0.00562, -0.00191]  cep50 +22.058 m  radioJ x1.0052  esc +0.0  identical rows 0/20
+  fixed_threshold      A_fix 0.9974 +0.00156 [+0.00101, +0.00215]  cep50 -0.129 m  radioJ x1.0640  esc +2.5  identical rows 0/20
+  ca_tbl_no_integrity  A_fix 0.9990 +0.00000 [-0.00059, +0.00062]  cep50 -0.083 m  radioJ x1.0967  esc +0.2  identical rows 0/20
+  ca_tbl_full          A_fix 0.9977 +0.00111 [-0.00049, +0.00295]  cep50 -0.059 m  radioJ x1.0955  esc +0.3  identical rows 0/20
+  A0 v2 (A_fix, radio energy), ca_tbl_full vs static_2p4:
+    fix off D_T 20/20 D_B 20/20 rho 2.151 [2.116, 2.187] -> FAIL
+    fix on  D_T 20/20 D_B 20/20 rho 1.948 [1.925, 1.973] -> FAIL
+
+=== sparse: paired on - off, n = 20
+  static_868           A_fix 0.0426 +0.00219 [-0.00389, +0.00809]  cep50 -1.531 m  radioJ x1.0002  esc +0.0  identical rows 0/20
+  static_2p4           A_fix 0.7984 +0.15851 [+0.13420, +0.18333]  cep50 -0.668 m  radioJ x1.3775  esc +0.0  identical rows 0/20
+  P3 static_2p4 A_fix rises at sparse: HOLDS
+  static_uwb           A_fix 0.0290 -0.00191 [-0.00476, +0.00049]  cep50 +32.687 m  radioJ x1.0040  esc +0.0  identical rows 0/20
+  fixed_threshold      A_fix 0.9279 +0.05698 [+0.03656, +0.08354]  cep50 -0.751 m  radioJ x1.0968  esc +5.0  identical rows 0/20
+  ca_tbl_no_integrity  A_fix 0.9474 +0.04351 [+0.02392, +0.06938]  cep50 -0.780 m  radioJ x1.1329  esc -15.3  identical rows 0/20
+  ca_tbl_full          A_fix 0.9422 +0.04438 [+0.02389, +0.07007]  cep50 -0.752 m  radioJ x1.1326  esc -15.6  identical rows 0/20
+  A0 v2 (A_fix, radio energy), ca_tbl_full vs static_2p4:
+    fix off D_T 13/20 D_B  0/20 rho 2.848 [2.781, 2.926] -> FAIL
+    fix on  D_T 19/20 D_B 16/20 rho 2.341 [2.284, 2.410] -> FAIL

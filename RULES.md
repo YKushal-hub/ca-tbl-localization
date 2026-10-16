@@ -177,6 +177,16 @@ build:
 - **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT
   N.15); it passes when they are exercised or the owner accepts them.
 
+**Added 2026-10-16** (`docs/LOCAL_LINE_INTEGRATION.md`): G91–G94, ported from the local line.
+Two of them are red, and neither is a broken build:
+- **G92:** FAIL BY FINDING. 15 cited `results/` paths are not held, three of them cited by the
+  Technical Report (TECH_DEBT N.30).
+- **G93:** FAIL BY FINDING. Tier 2 applies the SX1280's 1625 kHz sensitivity row at 800 kHz,
+  ~6 dB pessimistic (D-8, TECH_DEBT N.27). Correcting it is a registered campaign, not a patch.
+- **G63, G87, G89:** red on `main` since `e308c14f` (2026-10-08) put the N.26 fixes into the
+  preset; the last full suite ran before it. Found by this integration, identical on `4ca0dff`'s
+  own binary (TECH_DEBT N.31). Owner decision: the gates or the preset.
+
 **G3 passes.** It used to fail once the integrity check fired at seed 7. It now separates
 RNG contamination from the treatment effect on causal order (`scripts/catbl_g3_ablation.py`),
 so a divergence that begins at the firing cycle passes and one that predates it fails.

@@ -77,6 +77,7 @@ physics_scale_sweep_*.csv
 !/results/**/arm_summary.csv
 !/results/**/run_id.txt
 !/results/**/probe_range_sweep.csv
+!/results/**/imu_summary.csv
 !/results/**/*.md
 
 # --- working directories ---

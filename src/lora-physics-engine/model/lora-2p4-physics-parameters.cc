@@ -1,14 +1,41 @@
 #include "lora-2p4-physics-parameters.h"
+#include <cmath>
 #include <iostream>
 
 namespace ns3 {
+
+bool Sx1280LowPowerSensitivityRow(double bwKHz, double out[8]) {
+    // Transcribed from the data sheet's text layer in reading order, where each bandwidth label
+    // is followed by its own eight values; cross-checked against Table 3-5 (SF7/1625 kHz -106,
+    // SF12/203 kHz -130). scripts/sensitivity_fidelity_check.py holds an independent copy.
+    static const double kBw[4] = {203.125, 406.25, 812.5, 1625.0};
+    static const double kRow[4][8] = {
+        {-109, -111, -115, -118, -121, -124, -127, -130},
+        {-107, -110, -113, -116, -119, -122, -125, -128},
+        {-105, -108, -112, -115, -117, -120, -123, -126},
+        {-99, -103, -106, -109, -111, -114, -117, -120},
+    };
+    for (int b = 0; b < 4; ++b) {
+        if (std::fabs(bwKHz - kBw[b]) <= 0.5) {
+            for (int i = 0; i < 8; ++i) {
+                out[i] = kRow[b][i];
+            }
+            return true;
+        }
+    }
+    return false;
+}
 
 ReceiverDecisionParams2p4 ReceiverDecisionParams2p4::Defaults() {
     ReceiverDecisionParams2p4 p;
     p.softThresholdEnabled = true;
     p.softThresholdWidthDb = 3.0;
     
-    // SX1280 Sensitivity: SF5 to SF12, BW=800kHz baseline
+    // SX1280 sensitivity, SF5 to SF12. LABEL CORRECTED 2026-10-15: this was captioned "BW=800kHz
+    // baseline", but within 1 dB these are the data sheet's 1625 kHz row (Table 6-1, rev 3.2,
+    // low power mode), while the scenario runs tier 2 at 800 kHz, where the row is ~6 dB more
+    // sensitive (D-8, gate G19). Values unchanged so committed results reproduce; the
+    // correction is --t2SensitivityRowKHz=812.5 (Sx1280LowPowerSensitivityRow).
     p.sensitivityDbm[0] = -100.0; // SF5
     p.sensitivityDbm[1] = -103.0; // SF6
     p.sensitivityDbm[2] = -106.0; // SF7

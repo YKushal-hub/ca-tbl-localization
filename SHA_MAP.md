@@ -210,3 +210,45 @@ Pre-rewrite tips are retained locally under `refs/original/refs/heads/*`.
 | `7842c21` | `f8a6ed2` | identity-scoped QUERY and RESPONSE, answered only by the target named |
 | `2817213` | `fbcca17` | the hysteresis band becomes a swept parameter instead of a constant |
 | `1eb09f0` | `fc1f715` | lorawan links the physics engine its phy already calls |
+
+---
+
+## Local-line archive — attribution stripped, 2026-10-16
+
+The local line (81 commits after `56d47fb`, never merged) was copied to
+`archive/local-line-2026-10-16` with `Co-Authored-By` trailers removed, per the standing rule in
+`RULES.md` §2. **Messages only:** every rewritten commit has the same tree as its original
+(checked commit by commit), the count is unchanged at 81, and the first 55 carried no trailer
+and keep their SHAs. The 26 below changed. Sidecars ported from the local line cite the
+**old** SHA; this table is how they resolve (G13). The originals, trailers included, were on
+`work/2026-10-16-imu-d8-audit`; that branch was deleted on the owner's decision (2026-10-16),
+so the old SHAs survive only here, each beside its tree-identical rewrite.
+
+| old | new | subject |
+|---|---|---|
+| `c620352` | `067921f` | pre-register D-8 stage 1: tier 2 on its 812.5 kHz row, probe + 2 configs x 20 seeds |
+| `4332e89` | `ee7dcee` | G20: the IMU filter stays honest through a long outage -- the population G17 missed |
+| `21d181b` | `7c00612` | IMU: moment-matched coasting, so the filter's covariance stays honest through long outages |
+| `395cd64` | `d81a497` | D-8: --t2SensitivityRowKHz, tier 2 on its own bandwidth's data-sheet row; default unchange |
+| `3b983d8` | `a12a630` | labels that said false things: two sensitivity captions, the D1 comment, verifier warnings |
+| `42b76d8` | `ebee74b` | A3 measured: zero pre-emptions, and nothing else changes -- the same slot is lost either w |
+| `4c6843f` | `b6c98f8` | audit: describe the G12b hits without reproducing the name G12b scans for |
+| `f6b9782` | `c053877` | audit 2026-10-15: what the documents report as true that is not -- annotated, not erased |
+| `36ee51c` | `66197c1` | evidence: the IMU bias sensitivity, 20 invocations at e94d04d |
+| `aad1919` | `6c2ce51` | C3 result: the inertial prior, measured -- and why it fails on long outages |
+| `e94d04d` | `b9b1451` | docs: stop the front pages contradicting the ledger; record C3, D-8 and the plan |
+| `dd53ddf` | `8dc4048` | runners: the registered queue at one commit, and the cited-evidence reconstruction |
+| `3a17f20` | `469b00d` | runner and scorer for the IMU bias sensitivity registered at cb60c71 §8 |
+| `a28b591` | `35f4113` | pre-register A3: the intra-cycle handshake, with its blocked exchanges measured |
+| `bbbb49e` | `84f8a93` | pre-register A1, re-specified: coverage fraction against dwell, scored by A0 v2 |
+| `e9970ed` | `46fdf74` | pre-register E3: CAL-05 with the inertial prior, before any imu cell |
+| `08c726b` | `ceadc7e` | A7 / D-5: a receiver-sensitivity check the D1 defect could not have passed -- and it fails |
+| `f0b9f24` | `90cc829` | G18: every results/ path a tracked document cites is held -- red, 14 paths |
+| `e5474d9` | `2ca7e52` | A3: the escalation handshake inside the cycle -- with the off-time it obliges enforced |
+| `89ac3b6` | `d880ee8` | C3 measured: the inertial prior helps on short outages and is far worse on long ones |
+| `cb60c71` | `f5a3ffb` | pre-register the inertial-prior campaign, with its runner and scorer, before any cell |
+| `a4d6bf4` | `2f2945a` | pre-register A0 v2: A0's rule plus the branch it was missing, on new cells only |
+| `9f5085a` | `6067671` | C3: --imuPrior drives the predict step from the IMU; off is byte-identical |
+| `c7f12d7` | `7f01258` | C3: an IMU error model, checked against closed forms by code it shares nothing with |
+| `8f121da` | `3fdc550` | Merge remote-tracking branch 'origin/main' |
+| `9a636d7` | `b4d18b8` | record what results/ regenerates before it is deleted -- 2004 of 3277, and D1 is why |

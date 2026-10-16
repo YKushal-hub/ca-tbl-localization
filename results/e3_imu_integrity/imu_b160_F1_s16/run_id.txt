@@ -1,0 +1,10 @@
+f406dc46efe3cf67
+build Oct 15 2026 09:28:44 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=16 --duration=3600 --boxHalf=2000 --gwGrid=5 --escalationRequiresEvidence=true --nlosSource=propagation --pcsForm=v2 --mahalUseR=true --injectBiasFraction=0.2 --suspectRecovery=bounded --suspectForcesEscalation=true --arms=ca_tbl_full,ca_tbl_no_integrity --trace=true --injectRangeBias=160 --injectFaultAnchors=1 --imuPrior=true --outdir=results/e3_imu_integrity/imu_b160_F1_s16
+source c620352c dirty 0 profile optimized
+digest sha256
+ae13f09490c88c34a135747a90dd30bf946bd04596b8b8a4a3ec91689038d8b4  arm_summary.csv
+6b93f4a2833de37b7b6f990a144f2ecbc6cda30690bce5a8427dce970edaaede  imu_summary.csv
+1668a753fdd5fd6e72469d264b598db793c592eb5bb15bb2a708c6bf4c3f2d39  imu_trace_ca_tbl_full_seed16.csv
+4176b36daf893296d60a9ff111f9b05f77933a1d777c07991a96fa8b4ccc990d  imu_trace_ca_tbl_no_integrity_seed16.csv
+2cf9b90d85715fdec15eccf5b4f81093f1510e8a2fbeb0d9106f112d4fd60b8c  trace_ca_tbl_full_seed16.csv
+f91adc0a8a2ca5e4f60bc82c606d3856a8a0982c62f719d5e743a877dae3e73a  trace_ca_tbl_no_integrity_seed16.csv
