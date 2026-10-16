@@ -1109,6 +1109,26 @@ struct RangingParams {
     // uncorrected. The engine's existing standard-normal draw is reused, so no random stream moves.
     int tofErrorModel;
 
+    // V2a (master plan v3), --nlosRangeBias. false (default): an NLOS link's range is as unbiased as a
+    // LOS one at 868 MHz (the inversion ignores the NLOS loss) and biased by N(1.5, 0.8) m at 2.4 GHz.
+    // true: (i) 868 MHz -- the RSSI a receiver measures includes the link's NLOS excess loss, so the
+    // log-distance inversion is applied to path loss + NLOS loss (+ shadowing under S1) and the range
+    // is over-estimated by 10^(L/10n); (ii) 2.4 GHz -- an NLOS link's ToF range gains an exponentially
+    // distributed positive excess (Guvenc & Chong, IEEE COMST 11(3) 2009, p. 109, eq. (2): exponential is
+    // one of the standard NLOS-bias laws) with mean tofNlosExcessMeanM. Not applied under the "wolf" ToF
+    // preset, whose NLoS row already carries it.
+    bool nlosRangeBias;
+    // Wolf et al., WPNC 2019, Table II (SX1280, <= 500 m): mean error NLoS 144 m - LoS 75 m = 69 m.
+    double tofNlosExcessMeanM;
+
+    // V2b (master plan v3), --rangeErrorNoLinkLeak. false (default): the 868 MHz ranging branch writes
+    // propagationLossBiasDb = 10 n log10(estimated / true range) and Step 14 of the 868 engine adds it to the
+    // link budget -- so the RANGE ERROR changes RECEPTION (a spurious random loss by default; the shadowing
+    // counted twice under --rssiRangeFromShadowing: probe r80 1492 -> 1194 m). The 2.4 GHz and UWB engines
+    // already zero the field before Step 14 for this reason. true: the 868 engine does the same; the
+    // reported result.propagationLossBiasDb is unchanged.
+    bool rangeErrorNoLinkLeak;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1120,7 +1140,10 @@ struct RangingParams {
           uwbPreambleSymbols(1024.0),
           tofFieldBiasM(0.0),
           rssiRangeFromShadowing(false),
-          tofErrorModel(0)
+          tofErrorModel(0),
+          nlosRangeBias(false),
+          tofNlosExcessMeanM(69.0),
+          rangeErrorNoLinkLeak(false)
     {}
 };
 

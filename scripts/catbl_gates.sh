@@ -1860,7 +1860,20 @@ finish G137
 printf '\n--- G138 keyed random numbers ---\n'
 bash scripts/rngkeyed_gate.sh "$WORK/g138" || fail G138
 bash scripts/rngkeyed_gate_selftest.sh "$WORK/g138" || fail G138
+# keyed draws are exact: moments against the ns-3 streams, every distribution law the sampler offers
+./build/scratch/ns3.47-rngkeyed_dist_test-optimized || fail G138
 finish G138
+
+# ---------------- G139: V2a --nlosRangeBias (master plan v3)
+printf '\n--- G139 NLOS range bias ---\n'
+bash scripts/nlosbias_gate.sh "$WORK/g139" || fail G139
+finish G139
+
+# ---------------- G140: V2b --rangeErrorNoLinkLeak and --probeTerms (master plan v3)
+printf '\n--- G140 868 MHz range error kept out of reception ---\n'
+bash scripts/linkleak_gate.sh "$WORK/g140" || fail G140
+bash scripts/linkleak_gate_selftest.sh "$WORK/g140" || fail G140
+finish G140
 
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
