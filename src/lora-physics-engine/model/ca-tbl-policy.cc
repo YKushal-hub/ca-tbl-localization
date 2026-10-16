@@ -112,6 +112,8 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
+    rangeBiasStates = false; // V3; off: every range error treated as independent, as before
+    rangeBiasCorrM = 30.0;
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -208,6 +210,8 @@ CaTblEkf::Init(double x, double y, double vx, double vy, double posVar, double v
     {
         m_PPrior[i][i] = m_P[i][i];
     }
+    m_cons.clear();
+    m_consPrior.clear();
 }
 
 void
@@ -269,6 +273,17 @@ CaTblEkf::Predict(double dt)
             m_PPrior[i][j] = m_P[i][j];
         }
     }
+    if (m_consOn)
+    {
+        // V3: cross-covariances follow x <- F x; the biases decorrelate over the estimated motion.
+        for (auto& kv : m_cons)
+        {
+            kv.second.pxc[0] += dt * kv.second.pxc[2];
+            kv.second.pxc[1] += dt * kv.second.pxc[3];
+        }
+        ConsiderDecay(std::hypot(m_x[2], m_x[3]) * dt);
+        ConsiderSnapshot();
+    }
 }
 
 void
@@ -299,6 +314,17 @@ CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, doubl
             m_PPrior[i][j] = m_P[i][j];
         }
     }
+    if (m_consOn)
+    {
+        // V3: position += u is independent of the state; velocity := u/dt carries no state either.
+        for (auto& kv : m_cons)
+        {
+            kv.second.pxc[2] = 0.0;
+            kv.second.pxc[3] = 0.0;
+        }
+        ConsiderDecay(std::hypot(ux, uy));
+        ConsiderSnapshot();
+    }
 }
 
 void
@@ -307,6 +333,13 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
     const size_t n = std::min(meas.size(), varM2.size());
     for (size_t k = 0; k < n; ++k)
     {
+        if (m_consOn && meas[k].tier == 0)
+        {
+            // V3: an 868 MHz range with its consider bias, out of line; every other range takes the
+            // original arithmetic below, so arms without 868 MHz ranges stay byte-identical.
+            ConsiderUpdate(std::vector<CaTblRangeMeasurement>(1, meas[k]), std::vector<double>(1, varM2[k]));
+            continue;
+        }
         const double dx = m_x[0] - meas[k].anchorX;
         const double dy = m_x[1] - meas[k].anchorY;
         const double rPred = std::sqrt(dx * dx + dy * dy);
@@ -369,6 +402,10 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
                 m_P[i][j] = avg;
                 m_P[j][i] = avg;
             }
+        }
+        if (m_consOn && !m_cons.empty())
+        {
+            ConsiderAfterRangeGain(K, H); // V3: the state moved, so every cross-covariance moves too
         }
     }
 }
@@ -445,6 +482,24 @@ CaTblEkf::FusePosition(double zx, double zy, double varM2)
                 const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
                 m_P[i][j] = avg;
                 m_P[j][i] = avg;
+            }
+        }
+        if (m_consOn)
+        {
+            double K2[4][2];
+            for (int i = 0; i < 4; ++i)
+            {
+                K2[i][0] = K[i];
+                K2[i][1] = 0.0;
+            }
+            // One axis: shift the selected component into slot 0 for the shared helper.
+            for (auto& kv : m_cons)
+            {
+                const double h = kv.second.pxc[axis];
+                for (int i = 0; i < 4; ++i)
+                {
+                    kv.second.pxc[i] -= K2[i][0] * h;
+                }
             }
         }
     }
@@ -587,6 +642,10 @@ CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double r
             m_P[j][i] = avg;
         }
     }
+    if (m_consOn)
+    {
+        ConsiderAfterPositionGain(K, 2);
+    }
     return true;
 }
 
@@ -599,6 +658,180 @@ CaTblEkf::RevertToPrior()
         for (int j = 0; j < 4; ++j)
         {
             m_P[i][j] = m_PPrior[i][j];
+        }
+    }
+    if (m_consOn)
+    {
+        m_cons = m_consPrior;
+    }
+}
+
+// ---- V3 --rangeBiasStates: Schmidt-Kalman consider biases (TECH_DEBT N.51) ----------------------
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderDecay(double ds)
+{
+    const double rho = std::exp(-std::max(0.0, ds) / std::max(1e-6, m_consCorrM));
+    for (auto& kv : m_cons)
+    {
+        ConsiderBias& c = kv.second;
+        const double target = (1.0 - m_consWhite) * c.lastVar;
+        c.pcc = rho * rho * c.pcc + (1.0 - rho * rho) * target;
+        for (int i = 0; i < 4; ++i)
+        {
+            c.pxc[i] *= rho;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderAfterPositionGain(const double K[4][2], int nAxes)
+{
+    // A position observation H = [I 0]: every cross-covariance loses K (H P_xc).
+    for (auto& kv : m_cons)
+    {
+        double* p = kv.second.pxc;
+        const double h0 = p[0];
+        const double h1 = p[1];
+        for (int i = 0; i < 4; ++i)
+        {
+            p[i] -= K[i][0] * h0 + (nAxes > 1 ? K[i][1] * h1 : 0.0);
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderAfterRangeGain(const double K[4], const double H[4])
+{
+    for (auto& kv : m_cons)
+    {
+        double* p = kv.second.pxc;
+        const double h = H[0] * p[0] + H[1] * p[1];
+        for (int i = 0; i < 4; ++i)
+        {
+            p[i] -= K[i] * h;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    const size_t n = std::min(meas.size(), varM2.size());
+    for (size_t k = 0; k < n; ++k)
+    {
+        const double dx = m_x[0] - meas[k].anchorX;
+        const double dy = m_x[1] - meas[k].anchorY;
+        const double rPred = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rPred, 1e-6);
+        const double H[4] = {dx / rSafe, dy / rSafe, 0.0, 0.0};
+        double PH[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            PH[i] = m_P[i][0] * H[0] + m_P[i][1] * H[1];
+        }
+        const double var = varM2[k];
+        if (!(var > 0.0) || !std::isfinite(var))
+        {
+            continue;
+        }
+
+        ConsiderBias* cb = nullptr;
+        double R = var;
+        if (meas[k].tier == 0) // CA_TBL_TIER_868: correlated RSSI error
+        {
+            const uint32_t key = (static_cast<uint32_t>(meas[k].tier) << 16) | meas[k].anchorId;
+            auto it = m_cons.find(key);
+            if (it == m_cons.end())
+            {
+                ConsiderBias c;
+                c.pcc = (1.0 - m_consWhite) * var;
+                c.lastVar = var;
+                c.ax = meas[k].anchorX;
+                c.ay = meas[k].anchorY;
+                it = m_cons.emplace(key, c).first;
+            }
+            cb = &it->second;
+            // The anchor's own motion decorrelates the shadowing too.
+            const double da = std::hypot(meas[k].anchorX - cb->ax, meas[k].anchorY - cb->ay);
+            if (da > 0.0)
+            {
+                const double rho = std::exp(-da / std::max(1e-6, m_consCorrM));
+                cb->pcc = rho * rho * cb->pcc + (1.0 - rho * rho) * (1.0 - m_consWhite) * cb->lastVar;
+                for (int i = 0; i < 4; ++i)
+                {
+                    cb->pxc[i] *= rho;
+                }
+            }
+            cb->ax = meas[k].anchorX;
+            cb->ay = meas[k].anchorY;
+            // RSSI error is proportional to range: rescale the bias to this reading's variance.
+            if (cb->lastVar > 0.0 && var != cb->lastVar)
+            {
+                const double s = std::sqrt(var / cb->lastVar);
+                cb->pcc *= s * s;
+                for (int i = 0; i < 4; ++i)
+                {
+                    cb->pxc[i] *= s;
+                }
+            }
+            cb->lastVar = var;
+            R = m_consWhite * var;
+        }
+
+        // g = cov(x, z) = P H' + P_xc (the bias enters z with coefficient 1).
+        double g[4];
+        double hpc = 0.0;
+        for (int i = 0; i < 4; ++i)
+        {
+            g[i] = PH[i] + (cb ? cb->pxc[i] : 0.0);
+        }
+        if (cb)
+        {
+            hpc = H[0] * cb->pxc[0] + H[1] * cb->pxc[1];
+        }
+        const double S = H[0] * PH[0] + H[1] * PH[1] + 2.0 * hpc + (cb ? cb->pcc : 0.0) + R;
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        double K[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            K[i] = g[i] / S;
+        }
+        const double innovation = meas[k].rangeM - rPred;
+        for (int i = 0; i < 4; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+        // P <- P - K g'  (= P - g g' / S)
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                m_P[i][j] -= K[i] * g[j];
+            }
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = i + 1; j < 4; ++j)
+            {
+                const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+                m_P[i][j] = avg;
+                m_P[j][i] = avg;
+            }
+        }
+        // Every cross-covariance: P_xc,j <- P_xc,j - K (H P_xc,j + [j == this bias] pcc). The bias
+        // itself and its variance are not updated (consider, not estimate).
+        for (auto& kv : m_cons)
+        {
+            ConsiderBias& c = kv.second;
+            const double hj = H[0] * c.pxc[0] + H[1] * c.pxc[1] + (&c == cb ? c.pcc : 0.0);
+            for (int i = 0; i < 4; ++i)
+            {
+                c.pxc[i] -= K[i] * hj;
+            }
         }
     }
 }
@@ -689,6 +922,10 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
 {
     m_config = config;
     m_ekf.SetProcessNoise(config.processNoiseStdPos, config.processNoiseStdVel);
+    if (config.rangeBiasStates)
+    {
+        m_ekf.EnableConsider(config.rangeBiasCorrM, 0.05);
+    }
 
     // The static arms pin the tier for the whole run; they are the single-band
     // baselines the architectural claim is measured against.

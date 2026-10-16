@@ -3393,6 +3393,25 @@ in the endgame and 0.21–0.29 at 5 km. It is worse with `--rssiRangeFromShadowi
 0.55 off), consistent with R not being raised to the larger, correlated 868 error. Still open; next step is a
 registered R-consistency change for the 868 measurement variance.
 
+*2026-10-16, V3 (`--rangeBiasStates`, `--rssiSigmaLogNormal`, G141; master plan v3).* The per-range log
+(B1) shows which measurements are dishonest:
+
+| measurement | E[z^2] |
+|---|---|
+| 868 MHz gateway ranges | 2.3–2.5 (log-normal error against a first-order sigma) |
+| finder ranges | about 1.1 |
+| direct 2.4 GHz | about 0.9 |
+| relayed 2.4 GHz | 12–37 (the relay's overconfident P_B and early wrong-root relays) |
+
+On top of that, the filter averages the correlated 868 MHz shadowing as if independent.
+- **`--rangeBiasStates`** adds per-anchor Schmidt consider biases for 868 MHz ranges.
+  - Unit Monte Carlo: NEES 2.27 against 58.8 plain.
+  - Dev, endgame: `ca_tbl_full` median NEES 3.2 → 1.9, coverage 0.69 → 0.75, CEP95 11.4 → 8.4 m.
+- **`--rssiSigmaLogNormal`** (exact log-normal SD) is mixed: `static_868` coverage up, `ca_tbl_full` CEP95 worse,
+  as fused arms lean on the overconfident relays. It stays off.
+
+The early-run and relayed tails remain; they are V4's subject.
+
 ### N.52 The preset's NLOS handling keys R on the truth, and removing it changes nothing measurable
 
 *2026-10-09, S2-C (`report/S2C_NLOS_AUDIT.md`; ablation registered, `ddc0173b`).*

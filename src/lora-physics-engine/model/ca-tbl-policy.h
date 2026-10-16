@@ -42,6 +42,7 @@
 
 #include <cstdint>
 #include <string>
+#include <map>
 #include <vector>
 
 namespace ns3
@@ -121,6 +122,9 @@ struct CaTblRangeMeasurement
     uint8_t sourceKind = CA_TBL_SRC_UNSTATED;
     uint16_t anchorId = 0;
     uint8_t hopDepth = 0;
+    //! V3 --rangeBiasStates: the tier the range was measured on (CaTblTier; 255 unstated). Read only by
+    //! the consider-state update, which treats tier-1 (868 MHz RSSI) errors as correlated along the motion.
+    uint8_t tier = 255;
     bool fromFloor = false;
 
     CaTblRangeMeasurement();
@@ -530,6 +534,8 @@ struct CaTblPolicyConfig
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool rangeBiasStates;  //!< V3 --rangeBiasStates: 868 MHz consider biases in every filter (CaTblEkf::EnableConsider)
+    double rangeBiasCorrM; //!< V3: their decorrelation distance, m (the engine's shadowing correlation distance)
     bool acquireReinit; //!< R1 --acquireReinit (N.54): re-initialise the filter at the first >= 3-range multilateration solution instead of a range update from the prior
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
@@ -858,6 +864,24 @@ class CaTblEkf
     double PriorX() const { return m_xPrior[0]; }
     double PriorY() const { return m_xPrior[1]; }
 
+    /** V3 --rangeBiasStates (master plan v3; TECH_DEBT N.51). Off by default.
+     *
+     *  On: every 868 MHz range carries a per-(anchor, tier) CONSIDER bias (Schmidt-Kalman): its variance
+     *  is (1 - whiteFrac) of the reported range variance, the rest stays white. The bias is never
+     *  estimated; the filter only carries its cross-covariance with the state, so repeated ranges to one
+     *  anchor stop being averaged as independent. Between cycles the bias decorrelates as
+     *  exp(-ds / corrM) with ds the estimated displacement of the node plus that of the anchor (finders and
+     *  relays move): Gudmundson's exponential law with the engine's own correlation distance. A static
+     *  node keeps a fully correlated error, which is the honest case. Under the engine's default range
+     *  model (independent Gaussian draws) the errors are NOT correlated; use with --rssiRangeFromShadowing. */
+    void EnableConsider(double corrM, double whiteFrac)
+    {
+        m_consOn = true;
+        m_consCorrM = corrM;
+        m_consWhite = whiteFrac;
+    }
+    size_t ConsiderCount() const { return m_cons.size(); }
+
     /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF.
      *
      *  MIS-SPECIFIED: normalises by the prior covariance alone. A validation gate
@@ -885,6 +909,25 @@ class CaTblEkf
     double m_PPrior[4][4];
     double m_qPos;
     double m_qVel;
+
+    struct ConsiderBias
+    {
+        double pcc = 0.0;            //!< bias variance, m^2
+        double pxc[4] = {0, 0, 0, 0}; //!< cross-covariance state-bias
+        double lastVar = 0.0;        //!< range variance it was last scaled to
+        double ax = 0.0;             //!< anchor position at the last update
+        double ay = 0.0;
+    };
+    bool m_consOn = false;
+    double m_consCorrM = 30.0;
+    double m_consWhite = 0.05;
+    std::map<uint32_t, ConsiderBias> m_cons;
+    std::map<uint32_t, ConsiderBias> m_consPrior;
+    void ConsiderUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void ConsiderDecay(double ds);
+    void ConsiderAfterPositionGain(const double K[4][2], int nAxes);
+    void ConsiderAfterRangeGain(const double K[4], const double H[4]);
+    void ConsiderSnapshot() { m_consPrior = m_cons; }
 };
 
 /**
