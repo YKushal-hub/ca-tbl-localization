@@ -1820,6 +1820,15 @@ bash scripts/acq_gate.sh "$WORK/g132" || fail G132
 bash scripts/acq_gate_selftest.sh "$WORK/g132" || fail G132
 finish G132
 
+# ---------------- G133: --acquireReinit, acquisition re-initialisation under --unknownStart (R1, N.54)
+# Read by scripts/acqreinit_gate.py: false given explicitly changes no byte; true prints at most one
+# ACQREINIT line per field-node filter (at least one), the control none, and tag 0's trace changes.
+# Negative fixtures in scripts/acqreinit_gate_selftest.sh (rule 6).
+printf '\n--- G133 acquisition re-initialisation ---\n'
+bash scripts/acqreinit_gate.sh "$WORK/g133" || fail G133
+bash scripts/acqreinit_gate_selftest.sh "$WORK/g133" || fail G133
+finish G133
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
