@@ -183,6 +183,14 @@ reachable values. Worth knowing before anyone tunes a weight expecting a gradien
 >   variance budget (`ca-tbl-relay-admission.cc:120-134`). The cap is still 1 **at the
 >   default** `--maxRelayDepth=1`.
 
+> **2026-10-16, preset vs default.** Under `--specProfile` (`relayedRanging=true`,
+> `maxRelayDepth=2`, budget (156 m)²) `hopCount` is not binary-zero: B4 seed-1 logs show
+> 80-1194 admitted relayed measurements per run and `ca_tbl_full` fixes at depth 1 and 2.
+> The weight still stays 0 because the relay's covariance already widens the range
+> (σ_eff² = σ² + uᵀP_B u); a hop term would double-count it. Because every P is
+> overconfident (N.51), σ_eff is too small as well. `relayChain` made 0 relay-to-relay
+> exchanges in every B4 run checked.
+
 ### 3.3 C2-full — the peer is not a measured subject
 Rebased onto current main as `wip/c2-on-main` (`7cbfead`), builds, and the C4 conflict is
 resolved with `pcsHist` / `pcsDegradation` / `batteryUsedFrac` made **per tag** — with two
@@ -419,6 +427,8 @@ C4, C5, A6, A1 and the PCS forms were all measured on the old deployment.
 4. **Multi-hop localisation.** Flood forwarding exists; the poll set is strictly one-hop
    and relayed ranging is capped at depth 1, so "mesh" means single-hop to gateways and
    finders.
+   *(2026-10-16: true for the code default only. The preset ranges through relays to depth 2;
+   see the note under 3.2.)*
 5. **Self-deployable mesh.** Deployment is a fixed grid plus mobile finders.
 
 ## D. A methodological failure worth keeping

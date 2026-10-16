@@ -130,6 +130,15 @@ produces a wrong result that looks right.
   A non-zero weight on it changes nothing; applied to an admitted-but-unreachable peer it
   degrades the score for an **energy** defect rather than a **provenance** one — a wrong result
   that looks like a working mechanism.
+  *Correction 2026-10-16:* "structurally always 0" holds for the **code default**
+  (`--maxRelayDepth=1`, relayed ranging off). The preset (`--specProfile`) sets
+  `relayedRanging=true`, `maxRelayDepth=2`, `relayVarBudget=24336`. Under it, B4's logs show
+  80-1194 relayed measurements admitted per run and `ca_tbl_full` fixes at depth 1-2
+  (`NW-1 hop provenance` line in `run.log`), so `hopCount` is not zero there. The rule stands
+  for a different reason: a relayed range is already widened by the relay's covariance
+  (sigma_eff^2 = sigma^2 + u'P_B u, `ca-tbl-relay-admission.cc`), so a hop penalty in PCS counts
+  the same uncertainty twice (TECH_DEBT 3.2). `relayChain` (relay-to-relay) made 0 exchanges in
+  every B4 run checked; depth 2 comes from subject relays.
 - **Do not confuse the two gates.** The **evidence gate** (`Architecture.md` §9.3) is a
   suppress-only quality-and-coverage precondition on escalating to tier 3. The
   **Switching-Point Integrity Check** (`ca-tbl-policy.cc`, Mahalanobis vs χ²₀.₉₉ = 9.21) rejects
@@ -170,6 +179,9 @@ python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's f
 **The suite's expected reds** (counted at `c79fffd`, 2026-10-03; recount with
 `grep -c '^finish ' scripts/catbl_gates.sh`). Of 58 gates, five are red, and none is a broken
 build:
+*(2026-10-16: the script has 98 `finish` lines at `19470672`, not 58. The reds below were
+counted at `c79fffd`; no full suite has been run on the 2026-10-16 switching branch (only the
+new gates G133-G137 with their fixtures), so the current red set is unestablished.)*
 - **G4, G5:** red since the environment split (`docs/TECH_DEBT.md` K.6). True findings.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
