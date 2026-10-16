@@ -1890,6 +1890,11 @@ printf '\n--- G144 finder position carried in the ranging reply ---\n'
 bash scripts/replypos_gate.sh "$WORK/g144" || fail G144
 finish G144
 
+# ---------------- G145: V5 --c2bEscalation (master plan v3; claim C2b)
+printf '\n--- G145 escalation on reachability, not confidence ---\n'
+bash scripts/c2b_gate.sh "$WORK/g145" || fail G145
+finish G145
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

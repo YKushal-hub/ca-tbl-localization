@@ -112,6 +112,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
+    c2bEscalation = false; // V5; off: escalation triggered by PCS / the trace threshold, as before
     acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
     acquireParticleCount = 2000;
     acquireSeed = 0;
@@ -2449,6 +2450,15 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // V5 --c2bEscalation (master plan v3; C2b). The trigger is NEED, not low confidence: a hybrid arm always
+    // wants the next tier, and only the observation that it is reachable decides (below, the evidence gate's
+    // near-neighbour test with its estimate-quality veto skipped -- that veto is the confidence gate Stage A
+    // found harmful). 868 -> 2.4 under the dual base is already attempted every cycle; this acts on 2.4 -> UWB.
+    if (m_config.c2bEscalation && dynamic && m_tier < CA_TBL_TIER_UWB)
+    {
+        wantEscalate = true;
+    }
+
     // NW-4: an URGENT query forces the decision, whatever the PCS; the suppress-only
     // preconditions below still apply to it.
     const bool queryHook = m_queryEscArmed && dynamic && m_tier < CA_TBL_TIER_UWB && !m_uwbPending;
@@ -2564,7 +2574,8 @@ CaTblPolicy::Step(double dt,
             // the strength of an estimate, and an estimate too poor to trust is a
             // reason to stay regardless of what is audible.
             const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
-            if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+            if (!m_config.c2bEscalation &&
+                sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
             {
                 wantEscalate = false;
                 m_predictBlockedQuality++;
