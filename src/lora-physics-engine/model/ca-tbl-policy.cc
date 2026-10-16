@@ -1,5 +1,8 @@
 #include "ca-tbl-policy.h"
 
+#include <iostream>
+#include <limits>
+
 #include "ca-tbl-sparse-anchor.h"
 
 #include <algorithm>
@@ -108,6 +111,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
+    acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -709,6 +713,8 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
     m_deescalateCounter = 0;
     // --acquireMinAnchors (S2-C). 0 (default): acquired from the start, as before.
     m_acquired = (m_config.acquireMinAnchors == 0);
+    // --acquireReinit (R1, TECH_DEBT N.54): armed until the first cycle with three or more ranges.
+    m_reinitPending = m_config.acquireReinit;
 }
 
 double
@@ -1532,6 +1538,79 @@ CaTblPolicy::Step(double dt,
     // Python reference. It makes the flag specific but almost certainly costs
     // recall; the LOS-fraction cut-off is a parameter that S7 should sweep
     // rather than a value with any justification behind it.
+    // --acquireReinit (R1, TECH_DEBT N.54). Under --unknownStart the filter is seeded at a prior
+    // kilometres off, and linearising the first range update there locks it in (S2-C: every arm
+    // about 0.2 within 25 m at 5 km; --acquireMinAnchors did not help). On the first cycle with
+    // three or more ranges, solve the weighted multilateration from two starting points -- the
+    // propagated prior and the anchors' centroid -- keep the one with the smaller weighted
+    // residual, and re-initialise the filter there with the fix's own covariance (trace per axis,
+    // velocity zero, the same velocity variance the REINIT recovery uses). The ranges are not then
+    // applied again (no double count), and the integrity test does not run on this cycle: its
+    // reference would be the solution itself. Off (default), acqReinitNow is false and nothing
+    // below changes.
+    bool acqReinitNow = false;
+    if (m_config.acquireReinit && m_reinitPending && !caseD && meas.size() >= 3)
+    {
+        double cx = 0.0;
+        double cy = 0.0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            cx += meas[i].anchorX;
+            cy += meas[i].anchorY;
+        }
+        cx /= static_cast<double>(meas.size());
+        cy /= static_cast<double>(meas.size());
+        const double sx[2] = {m_ekf.PriorX(), cx};
+        const double sy[2] = {m_ekf.PriorY(), cy};
+        double bestRes = std::numeric_limits<double>::infinity();
+        double bx = 0.0, by = 0.0, brxx = 0.0, bryy = 0.0;
+        for (int k = 0; k < 2; ++k)
+        {
+            double ox = 0.0, oy = 0.0, rxx = 0.0, rxy = 0.0, ryy = 0.0;
+            if (!RawMultilaterationWeighted(meas, varM2, sx[k], sy[k], ox, oy, rxx, rxy, ryy))
+            {
+                continue;
+            }
+            double res = 0.0;
+            for (size_t i = 0; i < meas.size() && i < varM2.size(); ++i)
+            {
+                const double dd = std::hypot(ox - meas[i].anchorX, oy - meas[i].anchorY);
+                const double e = meas[i].rangeM - dd;
+                res += (varM2[i] > 0.0) ? e * e / varM2[i] : 0.0;
+            }
+            if (std::isfinite(res) && res < bestRes)
+            {
+                bestRes = res;
+                bx = ox;
+                by = oy;
+                brxx = rxx;
+                bryy = ryy;
+            }
+        }
+        // Residual guard: a solution its own ranges contradict is not an acquisition. Accept it only
+        // if the weighted residual is within chi^2(n - 2, 0.999), Wilson-Hilferty approximation
+        // (within 0.4 of the table value at k = 1 and closer above); otherwise stay armed and try
+        // the next cycle with three or more ranges.
+        const double kdof = std::max(1.0, static_cast<double>(meas.size()) - 2.0);
+        const double wh = 1.0 - 2.0 / (9.0 * kdof) + 3.0902 * std::sqrt(2.0 / (9.0 * kdof));
+        const double chi999 = kdof * wh * wh * wh;
+        if (std::isfinite(bestRes) && bestRes > chi999)
+        {
+            ++m_acqReinitRefused;
+            std::cout << "ACQREINIT_REFUSED n=" << meas.size() << " res=" << bestRes << " limit=" << chi999 << "\n";
+        }
+        if (std::isfinite(bestRes) && bestRes <= chi999)
+        {
+            const double pv = ((brxx + bryy) > 0.0 && std::isfinite(brxx + bryy)) ? (brxx + bryy) : 100.0;
+            m_ekf.Init(bx, by, 0.0, 0.0, pv, 100.0);
+            m_reinitPending = false;
+            ++m_acqReinits;
+            acqReinitNow = true;
+            std::cout << "ACQREINIT x=" << bx << " y=" << by << " pv=" << pv << " n=" << meas.size()
+                      << " res=" << bestRes << "\n";
+        }
+    }
+
     bool suspect = false;
     // Hoisted out of the MODE_FULL block: the recovery paths below need the raw fix
     // and its covariance, which were previously scoped to the test that produced
@@ -1543,7 +1622,7 @@ CaTblPolicy::Step(double dt,
     double fixRxy = 0.0;
     double fixRyy = 0.0;
     bool haveRawFix = false;
-    if (m_config.mode == CA_TBL_MODE_FULL)
+    if (m_config.mode == CA_TBL_MODE_FULL && !acqReinitNow)
     {
         bool haveFix = false;
         double mahal = 0.0;
@@ -1714,6 +1793,11 @@ CaTblPolicy::Step(double dt,
             m_consecutiveRejections = 0;
         }
         d.measurementRejected = true;
+    }
+    else if (acqReinitNow)
+    {
+        // R1: the filter was re-initialised at this cycle's solution above; nothing to fuse.
+        m_consecutiveRejections = 0;
     }
     else
     {

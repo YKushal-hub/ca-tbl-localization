@@ -530,6 +530,7 @@ struct CaTblPolicyConfig
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool acquireReinit; //!< R1 --acquireReinit (N.54): re-initialise the filter at the first >= 3-range multilateration solution instead of a range update from the prior
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 
@@ -1083,6 +1084,7 @@ class CaTblPolicy
     //! the 100 m^2 fallback -- a SECOND treatment, which must never be averaged in
     //! silently. With mahalUseR=true this should be 0; the caller announces it if not.
     uint64_t GetReinitFallbackCount() const { return m_reinitFallbackCount; }
+    uint64_t GetAcqReinits() const { return m_acqReinits; } //!< R1 --acquireReinit
     uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
     //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
     uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
@@ -1272,6 +1274,9 @@ class CaTblPolicy
     // NW-4. Appended last.
     bool m_queryEscArmed = false;
     bool m_acquired = true; //!< S2-C --acquireMinAnchors: has a fix of that many ranges been fused yet
+    bool m_reinitPending = false; //!< R1 --acquireReinit: the first >= 3-range cycle has not yet re-initialised the filter
+    uint64_t m_acqReinits = 0;    //!< R1 --acquireReinit: re-initialisations performed (0 or 1 per node)
+    uint64_t m_acqReinitRefused = 0; //!< R1 --acquireReinit: candidate solutions refused by the residual guard
     uint64_t m_queryEscRequests = 0;
     uint64_t m_queryEscFired = 0;
     uint64_t m_queryEscalations = 0;

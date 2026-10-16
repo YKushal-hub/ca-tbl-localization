@@ -6175,6 +6175,8 @@ struct SpecOptions
     std::string nlosRSource = "operative";
     //! --acquireMinAnchors: 0 (default) off; else the first fix must fuse this many ranges.
     uint32_t acquireMinAnchors = 0;
+    //! --acquireReinit (R1, N.54): false (default) off; true re-initialises each filter at its first >= 3-range solution.
+    bool acquireReinit = false;
     //! Row 17. --pcsTerm1Inverse: PCS term 1 is the spec's literal 1/trace(Sigma).
     bool pcsTerm1Inverse = false;
     //! NW-1 step 3. --hopVarianceTerms: per-hop variability and NLOS enter a leg's sigma.
@@ -6696,6 +6698,7 @@ RunArm(CaTblPolicyMode mode,
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
+    pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
     pcfg.hopProvenanceForm = hopProvenanceForm;
     pcfg.hopPenalty = hopPenalty;
@@ -15826,6 +15829,17 @@ main(int argc, char* argv[])
                  "detectors' precision is 0.02-0.08, so 'detector' is expected to inflate mostly "
                  "LOS links. Every other consumer of the tag outside Step() is unchanged.",
                  spec.nlosRSource);
+    cmd.AddValue("acquireReinit",
+                 "R1 (TECH_DEBT N.54). Default false: the first fix is a range update from the prior, "
+                 "as in every earlier result. True: on each field-node filter's first cycle with three "
+                 "or more ranges, solve the weighted multilateration from the prior and from the anchors' "
+                 "centroid, keep the smaller weighted residual, and re-initialise the filter there with "
+                 "the fix's covariance; that cycle's ranges are not applied again and the integrity test "
+                 "does not run on it. A solution whose weighted residual exceeds chi^2(n - 2, 0.999) is refused and the "
+                 "filter stays armed. Why: under --unknownStart the first update linearises at a prior "
+                 "kilometres off and locks in (S2-C). Prints one ACQREINIT line per firing (ACQREINIT_REFUSED "
+                 "per refusal) to stdout.",
+                 spec.acquireReinit);
     cmd.AddValue("acquireMinAnchors",
                  "Acquisition rule for a filter that starts without a usable position (meant for "
                  "--unknownStart): until it first fuses a cycle of at least this many ranges, no "
