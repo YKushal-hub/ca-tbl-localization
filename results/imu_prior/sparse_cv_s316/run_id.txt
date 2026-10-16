@@ -1,0 +1,11 @@
+26da833ec99c605b
+build Oct 14 2026 21:29:27 | ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed=316 --duration=3600 --gwGrid=5 --nlosSource=propagation --escalationRequiresEvidence=true --pcsForm=min --trace=true --boxHalf=3000 --outdir=results/imu_prior/sparse_cv_s316
+source cb60c71 dirty 0 profile optimized
+digest sha256
+e61e38e83d36ce9ee438652992113493788a32455d6d57e8614962d2beb733fd  arm_summary.csv
+fb76cccd5af86c2c62caaa686d5363d2fcdd1cde93be57c3585c346577730a91  trace_ca_tbl_full_seed316.csv
+08b0cc5f840300cc19e5df1972861417e7ae65780da38b7917b5e631bafabe8a  trace_ca_tbl_no_integrity_seed316.csv
+980050fc28181c95ffdc280f41b6d264a72b2bd528aef25f8e97e509475f2d21  trace_fixed_threshold_seed316.csv
+2a8fe9f9edb4924b371e163f4f670b6abe8c4416619518bede2d6254aa20c106  trace_static_2p4_seed316.csv
+f0332f43ddd1fbf2d5fa1f2bc427d39410cee3ac408b8fe1385902f5c9d0bd8f  trace_static_868_seed316.csv
+e4e399423d775e077cf0421e81e5a856882a034ab5ac0d1a02c54f1249637958  trace_static_uwb_seed316.csv

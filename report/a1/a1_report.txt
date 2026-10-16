@@ -1,0 +1,17 @@
+=== completeness: usable 100 of 100
+
+=== coverage fraction f against dwell; T fitted on 90 s only
+  fitted T = 2845.4 s (from mean f at 90 s = 0.0307)
+  dwell   90  measured 0.0307 [0.0285, 0.0330]  predicted 0.0307  fit point
+  dwell  150  measured 0.0465 [0.0427, 0.0504]  predicted 0.0501  OK
+  dwell  245  measured 0.0715 [0.0651, 0.0783]  predicted 0.0793  OK
+  dwell  400  measured 0.1120 [0.1020, 0.1227]  predicted 0.1232  MISS
+  dwell  800  measured 0.2170 [0.1965, 0.2384]  predicted 0.2195  OK
+  P1 FAILS   P2 HOLDS
+
+=== A0 v2 per dwell (primary: A_fix, radio energy)
+  dwell   90  D_T 10/20  D_B  0/20  rho 2.790 [2.712, 2.873]  -> FAIL
+  dwell  150  D_T 11/20  D_B  0/20  rho 2.796 [2.712, 2.882]  -> FAIL
+  dwell  245  D_T 12/20  D_B  0/20  rho 2.797 [2.716, 2.879]  -> FAIL
+  dwell  400  D_T 10/20  D_B  0/20  rho 2.818 [2.743, 2.896]  -> FAIL
+  dwell  800  D_T 14/20  D_B  1/20  rho 2.837 [2.755, 2.921]  -> FAIL

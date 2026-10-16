@@ -1,0 +1,20 @@
+metric,cfg,arm,estimate,lo,hi,note
+r80_868MHz,probe,,1515.31,1515.31,,lo column = fix off
+r80_2.4GHz,probe,,1421.61,1149.48,,lo column = fix off
+r80_UWB,probe,,12.8373,12.8373,,lo column = fix off
+afix_diff,ref,static_868,0.000381944,-0.00666667,0.00690972,off mean 0.0853819
+afix_diff,ref,static_2p4,0.00253472,0.00149306,0.00371528,off mean 0.997292
+afix_diff,ref,static_uwb,-0.00371528,-0.005625,-0.00190972,off mean 0.0603472
+afix_diff,ref,fixed_threshold,0.0015625,0.00100694,0.00215278,off mean 0.997396
+afix_diff,ref,ca_tbl_no_integrity,0,-0.000590278,0.000625,off mean 0.999028
+afix_diff,ref,ca_tbl_full,0.00111111,-0.000486111,0.00295139,off mean 0.997743
+A0v2,ref,fix_off,2.15078,2.11619,2.18665,D_T=20 D_B=20 N=20 verdict=FAIL
+A0v2,ref,fix_on,1.9483,1.92456,1.97316,D_T=20 D_B=20 N=20 verdict=FAIL
+afix_diff,sparse,static_868,0.0021875,-0.00388889,0.00809028,off mean 0.0425694
+afix_diff,sparse,static_2p4,0.158507,0.134201,0.183333,off mean 0.798368
+afix_diff,sparse,static_uwb,-0.00190972,-0.00475694,0.000486111,off mean 0.0289931
+afix_diff,sparse,fixed_threshold,0.0569792,0.0365625,0.0835417,off mean 0.927917
+afix_diff,sparse,ca_tbl_no_integrity,0.0435069,0.0239236,0.069375,off mean 0.947361
+afix_diff,sparse,ca_tbl_full,0.044375,0.0238889,0.0700694,off mean 0.942222
+A0v2,sparse,fix_off,2.84759,2.78052,2.9258,D_T=13 D_B=0 N=20 verdict=FAIL
+A0v2,sparse,fix_on,2.34128,2.28353,2.41015,D_T=19 D_B=16 N=20 verdict=FAIL

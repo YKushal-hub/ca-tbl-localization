@@ -1,0 +1,16 @@
+metric,arm,n,estimate,lo,hi
+tier1RangingBlocked_mean,fixed_threshold,20,184.4,,
+tier1RangingBlocked_mean,ca_tbl_no_integrity,20,1,,
+tier1RangingBlocked_mean,ca_tbl_full,20,1,,
+cep50_diff,fixed_threshold,20,0,0,0
+afix_diff,fixed_threshold,20,0,0,0
+esc_diff,fixed_threshold,20,0,0,0
+radioJ_ratio,fixed_threshold,20,0.99967,0.999651,0.999703
+cep50_diff,ca_tbl_no_integrity,20,0,0,0
+afix_diff,ca_tbl_no_integrity,20,0,0,0
+esc_diff,ca_tbl_no_integrity,20,0,0,0
+radioJ_ratio,ca_tbl_no_integrity,20,0.999998,0.999998,0.999998
+cep50_diff,ca_tbl_full,20,0,0,0
+afix_diff,ca_tbl_full,20,0,0,0
+esc_diff,ca_tbl_full,20,0,0,0
+radioJ_ratio,ca_tbl_full,20,0.999998,0.999998,0.999998
