@@ -3204,3 +3204,45 @@ all four N.26 fixes. Its consequences, measured by G24 on seeds 7, 8 and 9:
   - Pre-emptions and queue items follow from fewer escalations competing, once the
     integrity check stops flagging nearly every fix.
   - Grant tie-break verdicts were already zero.
+
+### N.27 Tier 2's sensitivity table is the SX1280's 1625 kHz row, and SY-3 shifts it from the wrong origin (D-8)
+
+Found on the local line (2026-10-14, its gate G19), carried here 2026-10-16
+(`docs/LOCAL_LINE_INTEGRATION.md`). `lora-2p4-physics-parameters.cc` labels its table
+"BW=800kHz baseline"; its values (SF7 −106 dBm) are, within 1 dB, the SX1280 data sheet's
+**1625 kHz** row (Rev 3.2, Table 6-1, low power mode). At the scenario's 800 kHz the data sheet
+gives −112 dBm: tier 2 is **~6 dB pessimistic**. SY-3's `--bw2p4` shifts the same table by
+10·log10(BW / 800 kHz), so the error follows it to every bandwidth (~3 dB at 1625 kHz). G14 checks
+the table's SF *index*, which is where D1 was; nothing checked the *values*. **G93** does, and is
+FAIL BY FINDING at the default. `--t2SensitivityRowKHz` (default off) applies the data sheet's row
+for the configured bandwidth and does not add SY-3's shift on top. On the local line (legacy
+topology) the correction moved tier-2 r80 1149.5 → 1421.6 m and, at `boxHalf = 3000`, took
+`static_2p4` from 0/20 to 16/20 deployments meeting the requirement. **Not corrected by default:**
+every tier-2 number moves, so it is a planned campaign, registered before it runs.
+
+### N.28 DC-1 draws its gyro bias at the MPU-6050's bias instability
+
+`CaTblImuParams::gyroBiasSigmaRadS` is 8.816 °/h, the MPU-6050's **bias instability** — the floor
+of a running gyro's Allan deviation. The bias a dead reckoner faces is the turn-on and temperature
+residual (MPU-6050 data sheet: ±20 °/s initial zero-rate tolerance; a calibrated MEMS gyro holds
+~0.05–0.5 °/s). At 8.816 °/h DC-1 accumulates ~2.4° of heading error in 1000 s; at 0.15 °/s, ~150°.
+DC-1's filter has no bias state, so it cannot learn the error from fixes. Case B's heading (DC-2)
+and the IMU witness (DC-9) are therefore measured with a near-perfect gyro. `--imuGyroBiasSigmaDps`
+(default off; same stream and draw order) lets the magnitude be set. The local line's 5-state
+filter, which estimates the bias (`ca-tbl-imu-ekf.h`, G91, G94), is ported but not wired in.
+
+### N.29 M-01's SF12 inversion is the validation harness colliding with itself
+
+`scratch/lora_empirical_validation.cc` metric 2 sends a frame every **0.1 s**; an SF12 frame lasts
+over a second, so each collides with the harness's own previous frame. On the local line (seed 7,
+current code) SF12 at 500 m: PDR 0.005–0.015 with 199/200 collisions at 0.1 s spacing, and
+0.985–1.000 with 0–21 collisions at 3 s. `Simulation.md` §2.2 reads M-01 as "collision-dominated,
+since SF12 airtime is ~30× SF7 and therefore overlaps far more interferers": right about collisions,
+wrong about whose. It is not a property of the channel, and it is not a reason to exclude SF12.
+
+### N.30 Two gates had no negative fixture, and cited evidence was never checked as held
+
+G10 had no negative fixture (working rule 6); `scripts/catbl_citation_fixture.sh` now runs first.
+Nothing asked whether a cited `results/` directory is actually in the repository: **G92** does and is
+FAIL BY FINDING — 15 cited paths are not held, `p10_env_v7`, `p10_env_v8` and `p10_plane_v7` among
+them, which the Technical Report cites.
