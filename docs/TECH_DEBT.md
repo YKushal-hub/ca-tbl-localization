@@ -3246,3 +3246,20 @@ G10 had no negative fixture (working rule 6); `scripts/catbl_citation_fixture.sh
 Nothing asked whether a cited `results/` directory is actually in the repository: **G92** does and is
 FAIL BY FINDING — 15 cited paths are not held, `p10_env_v7`, `p10_env_v8` and `p10_plane_v7` among
 them, which the Technical Report cites.
+
+### N.31 G63, G87 and G89 have been red since the preset adopted FIXES-N26, and no suite run saw it
+
+Found 2026-10-16 by the integration's full suite (`docs/LOCAL_LINE_INTEGRATION.md` §2.2), and
+**not caused by it**: each fails identically on `main`'s own binary at `4ca0dff` (runners copied
+with only the binary path changed). The last full suite (`1596cb41`, "80 PASS, five red") ran at
+`d7ada989`; the one engine commit after it is `e308c14f` (2026-10-08, owner override), which
+put `--loraDualBase`, `--uwbCrossTierPoll`, `--tdoaInnovationGate`, `--mahalUseR` and
+`--integrityChi2=1992.9` into `--specProfile`. The three gates run the preset and were written
+before those flags were in it:
+- **G63** (N.14 fuse): UNION 52 bad, KIND 27, TRACE 4. With `--loraDualBase=false` added to its
+  runs, **9 ok, 0 failed** — its union model predates the dual base.
+- **G87** (Poucet arm): LABEL — 3 cycles labelled UWB with no UWB neighbour; consistent with the
+  cross-tier poll, not isolated.
+- **G89** (the N.26 fixes): OFF — its flags-off control runs print an N.26 line, because the
+  preset now sets the flags; DUAL and CROSS then find no off/on contrast (213 / 213, 8 / 8).
+Which is right — the gates or the preset — is the owner's call; nothing was changed here.
