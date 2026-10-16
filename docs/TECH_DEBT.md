@@ -3487,6 +3487,16 @@ particle-filter acquisition: 2000 particles over the prior box and robust range 
 
 Negative information (silent anchors) is not yet used.
 
+*2026-10-16, V6 (`--traceOnDemand`, `--onDemandCalibrate`, G143; master plan v3).* B4-3's "on-demand almost never
+sleeps" is mostly correct behaviour.
+- **Endgame:** 97 % of tag-0 2.4 GHz attempts succeed, and the raw predictor is calibrated (0.98 predicted, 0.96
+  observed).
+- **5 km:** the predictor over-states success (0.66 predicted, 0.41 observed) and barely discriminates. The online
+  Platt fit converges to a slope of about 0.13.
+- **Little energy to save:** 2.4 GHz is 22–44 % of `ca_tbl_full`'s tag-0 energy. In the endgame UWB is 13.2 J of
+  25.7 J and the dual-base 868 MHz slot 6.8 J. The energy levers are UWB and the 868 MHz slot, not the 2.4 GHz
+  radio (V9).
+
 ### N.55 The 868 MHz range error leaks into 868 MHz reception
 
 *2026-10-16, found by V1-RNGKEYED's follow-up (report/V1_RNGKEYED_RESULTS.md section 3).* The `RANGING_TIER_868`

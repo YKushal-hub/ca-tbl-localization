@@ -2163,6 +2163,9 @@ static bool g_rssiSigmaLogNormal = false;
 //! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
 //! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
 static bool g_probeTerms = false;
+//! V6 --traceOnDemand (master plan v3): per tag-0 dual-base cycle, the on-demand predictor's P(any 2.4 GHz link)
+//! against what the 2.4 GHz attempt returned -- the reliability data the on-demand rule is judged on.
+static bool g_traceOnDemand = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -6320,6 +6323,10 @@ struct SpecOptions
     //! N.26 fix 1. --loraDualBase: a hybrid arm ranges both LoRa tiers every cycle and fuses
     //! every range it took (the active tier's, the floor's, the other LoRa tier's).
     bool loraDualBase = false;
+    //! V6 --onDemandCalibrate (master plan v3): recalibrate the on-demand predictor online (Platt scaling on
+    //! the node's own 2.4 GHz attempts) and explore with probability onDemandExplore when it says sleep.
+    bool onDemandCalibrate = false;
+    double onDemandExplore = 0.1;
     //! B2 --dualBaseOnDemand (master plan v2; the repo's "B5 dual base on demand"). false (default):
     //! the dual base keeps tag 0's 2.4 GHz radio awake and ranged every cycle. true: tag 0's 2.4 GHz
     //! radio is woken (and ranged, and billed awake) only if this cycle's 868 MHz ranges give
@@ -7939,6 +7946,22 @@ RunArm(CaTblPolicyMode mode,
     uint64_t mlatSolved = 0;
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
+    std::unique_ptr<std::ofstream> onDemandLog; // V6 --traceOnDemand
+    if (g_traceOnDemand)
+    {
+        std::ostringstream ofn;
+        ofn << traceDir << "/ondemand_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        onDemandLog.reset(new std::ofstream(ofn.str().c_str()));
+        *onDemandLog << "t,activeTier,n868,pAny,pCal,attempted24,n24\n";
+    }
+    // V6 --onDemandCalibrate: calibrated p = sigmoid(a logit(pAny) + b), fitted online by SGD on the log-loss of
+    // each attempted cycle's outcome (>= 1 range or none). Its own explicit stream for exploration draws.
+    double odA = 1.0, odB = 0.0;
+    uint64_t odExplored = 0, odUpdates = 0;
+    Ptr<UniformRandomVariable> odRng =
+        CreateObjectWithAttributes<UniformRandomVariable>("Stream", IntegerValue(static_cast<int64_t>(seed) * 7919 + 3100007));
+    bool odThisCounts = false;
+    double odThisLogit = 0.0;
     uint64_t onDemandEvals = 0;  // B2 --dualBaseOnDemand: tag-0 cycles decided
     uint64_t onDemandSleeps = 0; // B2 --dualBaseOnDemand: of which the 2.4 GHz radio slept
     bool tag0Wake24 = true;      // B2: this cycle's decision (true when the flag is off)
@@ -11861,9 +11884,28 @@ RunArm(CaTblPolicyMode mode,
             {
                 const std::vector<CaTblRangeMeasurement>& ev868 =
                     (active == CA_TBL_TIER_868) ? activeMeas : floorMeas;
-                tag0Wake24 = ev868.empty() ||
-                             CaTblOnDemandPAny(ev868, spec.onDemandR50M, spec.onDemandSigmaDb,
-                                               spec.onDemandN) >= spec.onDemandPSkip;
+                odThisCounts = false;
+                if (spec.onDemandCalibrate && !ev868.empty())
+                {
+                    const double raw = std::min(1.0 - 1e-6, std::max(1e-6, CaTblOnDemandPAny(ev868, spec.onDemandR50M,
+                                                                                            spec.onDemandSigmaDb,
+                                                                                            spec.onDemandN)));
+                    odThisLogit = std::log(raw / (1.0 - raw));
+                    const double cal = 1.0 / (1.0 + std::exp(-(odA * odThisLogit + odB)));
+                    tag0Wake24 = cal >= spec.onDemandPSkip;
+                    if (!tag0Wake24 && odRng->GetValue() < spec.onDemandExplore)
+                    {
+                        tag0Wake24 = true; // explore, so the calibration keeps seeing low-p outcomes
+                        ++odExplored;
+                    }
+                    odThisCounts = tag0Wake24;
+                }
+                else
+                {
+                    tag0Wake24 = ev868.empty() ||
+                                 CaTblOnDemandPAny(ev868, spec.onDemandR50M, spec.onDemandSigmaDb,
+                                                   spec.onDemandN) >= spec.onDemandPSkip;
+                }
                 ++onDemandEvals;
                 onDemandSleeps += tag0Wake24 ? 0 : 1;
             }
@@ -11871,6 +11913,37 @@ RunArm(CaTblPolicyMode mode,
                 tag0Wake24)
             {
                 otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
+            }
+            if (onDemandLog)
+            {
+                // V6: pure arithmetic over this cycle's 868 MHz ranges; no draw, whatever the flags.
+                const std::vector<CaTblRangeMeasurement>& ev868 =
+                    (active == CA_TBL_TIER_868) ? activeMeas : floorMeas;
+                const double pAny = ev868.empty() ? -1.0
+                                                  : CaTblOnDemandPAny(ev868, spec.onDemandR50M,
+                                                                      spec.onDemandSigmaDb, spec.onDemandN);
+                const bool att24 = (active == CA_TBL_TIER_2P4) ||
+                                   (preemptTier != static_cast<int>(CA_TBL_TIER_2P4) && tag0Wake24);
+                const size_t n24 = (active == CA_TBL_TIER_2P4) ? activeMeas.size() : otherLoraMeas.size();
+                double pCal = -1.0;
+                if (spec.onDemandCalibrate && pAny >= 0.0)
+                {
+                    const double raw = std::min(1.0 - 1e-6, std::max(1e-6, pAny));
+                    pCal = 1.0 / (1.0 + std::exp(-(odA * std::log(raw / (1.0 - raw)) + odB)));
+                }
+                *onDemandLog << std::fixed << std::setprecision(4) << t << ',' << CaTblTierName(active) << ','
+                             << ev868.size() << ',' << std::setprecision(6) << pAny << ',' << pCal << ','
+                             << (att24 ? 1 : 0) << ',' << n24 << '\n';
+            }
+            if (odThisCounts)
+            {
+                // V6: one SGD step on the log-loss of this attempted cycle (learning rate 0.05).
+                const size_t n24 = (active == CA_TBL_TIER_2P4) ? activeMeas.size() : otherLoraMeas.size();
+                const double y = (n24 > 0) ? 1.0 : 0.0;
+                const double pcal = 1.0 / (1.0 + std::exp(-(odA * odThisLogit + odB)));
+                odA -= 0.05 * (pcal - y) * odThisLogit;
+                odB -= 0.05 * (pcal - y);
+                ++odUpdates;
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
@@ -15079,6 +15152,11 @@ RunArm(CaTblPolicyMode mode,
                   << ", suspects " << suspects << "\n";
         if (spec.dualBaseOnDemand)
         {
+            if (spec.onDemandCalibrate)
+            {
+                std::cout << "    V6 onDemandCalibrate: a " << odA << " b " << odB << ", updates " << odUpdates
+                          << ", explored " << odExplored << "\n";
+            }
             std::cout << "    B2 dualBaseOnDemand: tag-0 cycles decided " << onDemandEvals << ", 2.4 GHz radio asleep "
                       << onDemandSleeps << "\n";
         }
@@ -15996,6 +16074,16 @@ main(int argc, char* argv[])
                  "old floor-first path, so a 1-2 range active set is discarded there as before. "
                  "Needs --fuseFloorActive.",
                  spec.fuseFloorShort);
+    cmd.AddValue("onDemandCalibrate",
+                 "V6 (master plan v3), with --dualBaseOnDemand. False (default): sleep when the raw predictor "
+                 "P(any 2.4 GHz link) < --onDemandPSkip. True: the predictor is recalibrated online (Platt scaling, "
+                 "SGD on the log-loss of tag 0's own attempted cycles) and compared with --onDemandPSkip; when it "
+                 "says sleep, the radio still wakes with probability --onDemandExplore so the calibration keeps "
+                 "learning there. Why: --traceOnDemand showed the raw predictor over-states success at 5 km "
+                 "(0.66 predicted, 0.41 observed) and is well calibrated in the endgame, where 97 % of attempts succeed.",
+                 spec.onDemandCalibrate);
+    cmd.AddValue("onDemandExplore", "V6: exploration probability of --onDemandCalibrate (default 0.1).",
+                 spec.onDemandExplore);
     cmd.AddValue("dualBaseOnDemand",
                  "B2 (master plan v2; the repo's 'dual base on demand'). False (default): unchanged. True "
                  "(with --loraDualBase, tag 0 only): the 2.4 GHz radio is woken, ranged and billed awake "
@@ -16070,6 +16158,12 @@ main(int argc, char* argv[])
                  "--rssiRangeFromShadowing (probe 868 r80 1492 -> 1194 m). The 2.4 GHz and UWB engines already "
                  "zero it. True: the 868 engine zeroes it too; the reported bias is kept.",
                  g_rangeErrorNoLinkLeak);
+    cmd.AddValue("traceOnDemand",
+                 "V6 (master plan v3). True: write ondemand_<arm>_seed<N>.csv, one row per tag-0 dual-base cycle -- "
+                 "the on-demand predictor's P(any 2.4 GHz link) from that cycle's 868 MHz ranges (computed whether "
+                 "or not --dualBaseOnDemand is on), whether 2.4 GHz was attempted, and how many 2.4 GHz ranges it "
+                 "returned. Output only, no draw.",
+                 g_traceOnDemand);
     cmd.AddValue("probeTerms",
                  "V2b (master plan v3), with --probe only. True: also write probe_terms.csv -- per tier and "
                  "distance, the realised sensitivity margin's mean and SD and the mean and SD of every loss "
@@ -20083,6 +20177,10 @@ main(int argc, char* argv[])
     if (fixRoutingArg)
     {
         digestPatterns += " fix_routing_*.csv";
+    }
+    if (g_traceOnDemand)
+    {
+        digestPatterns += " ondemand_*.csv"; // V6
     }
     if (tier1TdoaArg)
     {

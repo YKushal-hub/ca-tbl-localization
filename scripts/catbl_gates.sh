@@ -1885,6 +1885,11 @@ printf '\n--- G142 particle acquisition ---\n'
 bash scripts/pfacq_gate.sh "$WORK/g142" || fail G142
 finish G142
 
+# ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
+printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
+bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143
+finish G143
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
