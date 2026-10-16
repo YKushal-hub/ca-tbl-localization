@@ -1783,6 +1783,28 @@ else
 fi
 finish G93
 
+# ---------------- G91: the local line's IMU sensor model and 5-state filter, against closed forms
+# Ported 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md; G17 on the local line). CaTblImuSensorModel
+# (BMI270 data sheet) and CaTblImuEkf [x, y, theta, b, s] -- a filter that ESTIMATES the gyro
+# bias and stride scale DC-1 leaves unobserved. Not wired into the scenario, so no run output
+# moves. scripts/imu_closed_form_check.py computes the expected statistics in closed form from
+# the printed parameters, sharing no code with the model. The fixture runs the nominal model
+# (must pass), eight models broken in one term each and two broken filters (no stride state,
+# zero process noise) -- each must fail on THAT term's case. Seconds, no network simulation.
+printf '\n--- G91 IMU sensor model and 5-state filter: closed forms, NEES, ten negative fixtures ---\n'
+bash scripts/catbl_imu_fixture.sh || fail G91
+finish G91
+
+# ---------------- G94: the 5-state filter stays honest through a 1000 s outage
+# G91 exercises 50 s outages. A Gaussian predict drops the second-order along-track shortening
+# a heading error causes, L(1 - cos d), and is overconfident beyond ~2 min (NEES 11.8 at 500 s,
+# 178 at 1000 s with a perfect channel). Moment-matched coasting adds |path|^2 Var(cos d) and
+# holds NEES 1.5-2.7 to 1000 s. The fixture runs the validator's dwell + outage diagnostic
+# both ways: moment-matched must pass, the plain EKF must fail on the outage line.
+printf '\n--- G94 5-state filter consistency over a 1000 s outage (fixture both ways) ---\n'
+bash scripts/catbl_imu_long_outage_fixture.sh || fail G94
+finish G94
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
