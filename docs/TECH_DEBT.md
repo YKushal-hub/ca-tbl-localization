@@ -33,6 +33,29 @@ This is rule 8 generalised from arms to binaries, and the rule as written does n
 it. **Anyone comparing magnitudes across a code change is currently able to publish a
 stream artefact as a result.**
 
+*2026-10-16, V1 (`--rngKeyed`, G138; master plan v3).* A fix exists, **off by default**:
+- each engine draw is a hash of (seed, band, link, time, occurrence, index within the evaluation);
+- every MAC object draws from its own stream.
+
+Making it work needed three further repairs, each found by G138's perturbation run:
+- **Sampler copies.** Five submodules (symbol sync, PLL, RF nonlinearity, DSP chain, IQ stream) hold a
+  *copy* of the engine's sampler. About 32 M draws per run were outside any link context until the copy
+  learned its source.
+- **Weather.** The weather update was drawn inside whichever link came first. It is now keyed by epoch.
+- **Interferer map.** The external-interferer map was drawn inside, and centred on, the first evaluated
+  link. It is now keyed and centred on the origin. This is a model change inside keyed mode, registered
+  in `report/PREREG_V1_RNGKEYED.md`.
+
+With the flag on, one extra engine evaluation moves 0 outputs (90 unkeyed).
+
+**Still coupled with the flag on:** physical coupling, which is correct:
+- an extra transmission really interferes and occupies airtime;
+- AGC state is engine-wide (one AGC for all receivers, `lora-radio-frontend-submodule.cc`), a modelling
+  simplification, not an RNG one.
+
+Cross-binary magnitude comparisons become admissible **for runs made with `--rngKeyed=true`**, subject to
+those physical couplings.
+
 *Fix.* Assign explicit streams. *Cost:* small change, but **it invalidates every existing
 result** because the draws move. Must be a planned regeneration campaign, same class as
 the PCS change. *Status:* RULES.md §5 records it as a decision not to fix, on the grounds

@@ -48,6 +48,7 @@ public:
 private:
     WeatherState m_currentState;
     Time m_lastWeatherUpdate;
+    int64_t m_keyedWeatherEpoch = -1; // --rngKeyed only
     double m_currentRainRateMmPerHr;
     double m_currentFogAttenuationDbPerKm;
     double m_currentTemperature;
