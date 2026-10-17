@@ -50,12 +50,12 @@ def main():
     cov = lambda cfg, v, arm: np.concatenate([np.array(M[(cfg, v, arm, s)]["C"], dtype=bool) for s in range(1, 21)]).mean()
     s1 = boot(pd("W", "ca_tbl_full", "c95")); s3 = boot(pd("B", "ca_tbl_full", "c95")); s4 = boot(pd("A", "ca_tbl_full", "c95"))
     c0, c1 = cov("A", "BASE", "static_868"), cov("A", "SIG", "static_868")
-    v = {1: s1[2] < 0, 2: c1 > c0, 3: s3[0] <= 0.15 * base("B", "ca_tbl_full"), 4: s4[0] <= 0.15 * base("A", "ca_tbl_full")}
+    v = {1: s1[2] < 0, 2: (c1 > c0) if np.isfinite(c0) and np.isfinite(c1) else None, 3: s3[0] <= 0.15 * base("B", "ca_tbl_full"), 4: s4[0] <= 0.15 * base("A", "ca_tbl_full")}
     fm = lambda t, p=1: f"{t[0]:+.{p}f} [{t[1]:+.{p}f}, {t[2]:+.{p}f}]"
     L += ["", f"S1 W ca_tbl_full dCEP95 {fm(s1)} m on {base('W', 'ca_tbl_full'):.1f}", f"S2 A static_868 coverage {c0:.3f} -> {c1:.3f}",
           f"S3 B ca_tbl_full dCEP95 {fm(s3)} m on {base('B', 'ca_tbl_full'):.1f}", f"S4 A ca_tbl_full dCEP95 {fm(s4)} m on {base('A', 'ca_tbl_full'):.1f}",
           "", "## Predictions", ""]
-    L += [f"- **S{k}**: {'held' if v[k] else 'not held'}" for k in sorted(v)]
+    L += [f"- **S{k}**: {'not evaluable (the cells carry no --traceCovariance trace)' if v[k] is None else ('held' if v[k] else 'not held')}" for k in sorted(v)]
     L += ["", "Adoption rule (S1, S3, S4 all hold): " + ("ADOPT" if v[1] and v[3] and v[4] else "DO NOT ADOPT")]
     if problems:
         L += ["", "Abort conditions: " + "; ".join(problems[:20])]

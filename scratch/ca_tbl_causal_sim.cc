@@ -15662,6 +15662,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"foliageDepthClamp", "true", "B3f: foliage depth clamped to the link length (owner decision D-16)"},
     {"fadingPerBand", "true", "B7: fading I/Q state keyed per band, not shared by 868 MHz and 2.4 GHz links between the same ids (UPG-SCOPE U5; DESIGN_DECISIONS 13)"},
     {"relayNisInflate", "true", "B1: relayed-range covariance inflated by the relay's own NIS mean (UPG-SCOPE U4; DESIGN_DECISIONS 13)"},
+    {"rssiSigmaLogNormal", "true", "B2/O.7: the 868 MHz range sigma given to the filter is the exact log-normal SD, not the first-order one (SIG868 S1, S3, S4; DESIGN_DECISIONS 14)"},
 };
 
 int
