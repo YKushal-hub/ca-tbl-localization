@@ -1905,6 +1905,11 @@ printf '\n--- G147 scope flags: default identity and firing ---\n'
 bash scripts/scope_flags_gate.sh "$WORK/g147" || fail G147
 finish G147
 
+# ---------------- G148: C4 --foliageP833 (scope 2026-10-17; ITU-R P.833-10 section 2.1)
+printf '\n--- G148 ITU-R P.833-10 forest foliage ---\n'
+bash scripts/foliage_p833_gate.sh "$WORK/g148" || fail G148
+finish G148
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

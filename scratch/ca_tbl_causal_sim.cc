@@ -97,6 +97,7 @@
 #include "ns3/lora-physics-engine.h"
 #include "ns3/lora-2p4-physics-engine.h"
 #include "ns3/lora-uwb-physics-engine.h"
+#include "ns3/lora-foliage-submodule.h"
 
 namespace ns3
 {
@@ -2132,6 +2133,8 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 static bool g_terrainPerTierFreq = false;
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
+//! C4 --foliageP833 (scope 2026-10-17): forest foliage gamma and Am from ITU-R P.833-10 at each band's carrier.
+static bool g_foliageP833 = false;
 // --rngKeyed (TECH_DEBT 1.1; master plan v3 stage V1). See the flag's help text.
 static bool g_rngKeyed = false;
 // --rngKeyedProbeExtraTx: gate G138's perturbation -- one extra 868 MHz engine evaluation on a
@@ -2303,6 +2306,12 @@ static bool g_sy3Given = false;
         c868.foliage.clampDepthToLink = true;                                                      \
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
+    if (g_foliageP833)                                                                             \
+    {                                                                                              \
+        /* UWB (7.99 GHz) is outside P.833 Table 1 (105.9-2117.5 MHz) and keeps its model. */      \
+        ApplyP833Forest(c868.foliage, 868.0);                                                      \
+        ApplyP833Forest(c2p4.foliage, 2440.0);                                                     \
     }                                                                                              \
     if (g_terrainPerTierFreq)                                                                      \
     {                                                                                              \
@@ -16442,6 +16451,14 @@ main(int argc, char* argv[])
                  "reply) and for every frame its MACs transmitted (message-counter airtime), on the same radio basis "
                  "as the field nodes. Output only; no account any decision reads is touched.",
                  g_finderEnergyReport);
+    cmd.AddValue("foliageP833",
+                 "C4 (scope 2026-10-17): forest foliage (light, dense, tropical) on the 868 MHz and 2.4 GHz tiers takes "
+                 "its specific attenuation from ITU-R P.833-10 Table 1 (mixed forest, St. Petersburg; log-log in "
+                 "frequency: 0.163 dB/m at 868 MHz, 0.388 dB/m at 2440 MHz) and its maximum attenuation from eq. (2) "
+                 "Am = 1.37 f^0.42 (23.5 dB at 868 MHz, 36.3 dB at 2440 MHz), instead of the vegetation-type constants "
+                 "(dense forest: 0.20 dB/m, 25 dB on both bands, 2.4 GHz gamma x2.17). Spreads unchanged. UWB unchanged "
+                 "(outside the table). Default false.",
+                 g_foliageP833);
     cmd.AddValue("probeMonotoneTime",
                  "B5 (TECH_DEBT N.56), with --probe only. False (default): each distance's trials run at t = 0, 1, ... "
                  "s, so time restarts at every distance and link processes that update on elapsed time (fading every "
