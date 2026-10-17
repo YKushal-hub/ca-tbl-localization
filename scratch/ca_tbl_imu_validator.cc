@@ -24,6 +24,7 @@
 #include "ns3/ca-tbl-imu-sensor-model.h"
 #include "ns3/command-line.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -478,6 +479,150 @@ RunDwellDiagnostic(uint32_t mc, double dt, uint32_t nDwell, uint32_t nTransit)
     std::printf("dwelldiag,neesEndOfOutageMean,%.4f,errEndMeanM,%.2f\n", neesEnd / n, errEnd / n);
 }
 
+// weak regime of the robustness diagnostic (--robustWeak)
+static bool g_robustWeak = false;
+
+// ---- Diagnostic (not a gate): robustness of the sensor states to bad fixes (N.33) -----
+// EKF5-PRESET's catastrophic seeds all ended with the heading state wrong by > 0.3 rad, after
+// fixes ranged against stale pseudo-anchors: a finder whose position was 50-150 m off under a
+// variance DC-13 understated by ~2x. This replays that regime with truth known throughout:
+// a 1800 s walk (1.2 m/s, heading wander, a turn now and then), the BMI270 model at its
+// default residual bias, ToF ranges (sigma 3 m) to four of six surveyed anchors every cycle,
+// and with probability p per range a stale anchor: its claimed position off by U(50, 150) m,
+// its claimed variance (0.5 m/s x age)^2 with age = offset / 1.2 m/s -- DC-13's model.
+// wrongStart initialises the heading offset that many radians wrong under a tight (2 deg)
+// prior, to see whether a mode can recover from a filter that has already gone wrong.
+static void
+RunRobustDiagnostic(uint32_t mc, double dt, uint32_t n, int mode, double outlierP, double wrongStart)
+{
+    const CaTblImuSensorParams truth;
+    const CaTblImuSensorParams assumed;
+    const double deg = M_PI / 180.0;
+    const double sigR = 3.0;
+    const double R0 = 300.0;
+    double errSum = 0.0, nees = 0.0, errEnd = 0.0;
+    std::vector<double> errs;
+    uint64_t nCyc = 0, nDiv = 0, gated = 0, prot = 0, rec = 0;
+    for (uint32_t r = 0; r < mc; ++r)
+    {
+        PathRng rng{0x0B0B5ULL + 7919ULL * r};
+        CaTblImuSensorModel imu;
+        imu.Configure(truth, 31000 + r);
+        double x = 0.0, y = 0.0, h = 2.0 * M_PI * rng.U();
+        CaTblImuEkf f;
+        f.SetRobust(mode);
+        f.SetMomentMatched(true);
+        f.SetMomentMatchedMeanShift(false);
+        const double b0 = assumed.gyroBiasInitDps * deg, bg = assumed.gyroBiasGmDps * deg;
+        const double th0 = assumed.headingInitDeg * deg;
+        f.Init(x + rng.N(), y + rng.N(), 1.0, wrongStart != 0.0 ? (2.0 * deg) * (2.0 * deg) : th0 * th0,
+               b0 * b0 + bg * bg, assumed.strideScaleErr * assumed.strideScaleErr);
+        if (wrongStart != 0.0)
+        {
+            // Push the heading-offset state wrong after Init (theta is state 2).
+            f.ForceHeadingOffsetForTest(imu.TrueHeadingErrRad() + wrongStart);
+        }
+        double prevRaw = 0.0;
+        bool haveRaw = false;
+        for (uint32_t k = 1; k <= n; ++k)
+        {
+            const double px = x, py = y;
+            h += (2.0 * rng.U() - 1.0) * 0.10 * dt;
+            if (rng.U() < dt / 60.0)
+            {
+                h += (2.0 * rng.U() - 1.0) * M_PI / 2.0; // a turn now and then
+            }
+            x += 1.2 * std::cos(h) * dt;
+            y += 1.2 * std::sin(h) * dt;
+            const CaTblImuSensorIncrement inc = imu.Step(x - px, y - py, dt);
+            const double turn = haveRaw ? CaTblImuSensorModel::Wrap(inc.rawHeadingRad - prevRaw) : 0.0;
+            prevRaw = inc.rawHeadingRad;
+            haveRaw = true;
+            double qs = 0.0, qt = 0.0, qb = 0.0;
+            CaTblImuEkf::ProcessNoise(assumed, dt, inc.distM, turn, qs, qt, qb);
+            f.Predict(dt, inc.distM, inc.rawHeadingRad, qs, qt, qb);
+            std::vector<CaTblRangeMeasurement> meas;
+            std::vector<double> var;
+            // weak: the scenario's regime when it drifted -- one or two ToF ranges and six RSSI
+            // ranges whose sigma is 40 % of their distance, all to anchors at varied distances.
+            if (g_robustWeak)
+            {
+                const int nTof = (rng.U() < 0.5) ? 1 : 2;
+                for (int j = 0; j < nTof + 6; ++j)
+                {
+                    const bool tof = j < nTof;
+                    const double d = tof ? 100.0 + 500.0 * rng.U() : 200.0 + 1300.0 * rng.U();
+                    const double dir = 2.0 * M_PI * rng.U();
+                    const double ax = x + d * std::cos(dir), ay = y + d * std::sin(dir);
+                    const double sig = tof ? sigR : 0.4 * d;
+                    CaTblRangeMeasurement m;
+                    m.anchorX = ax;
+                    m.anchorY = ay;
+                    m.rangeM = std::max(1.0, d + sig * rng.N());
+                    double v = sig * sig;
+                    if (tof && rng.U() < outlierP)
+                    {
+                        const double off = 50.0 + 100.0 * rng.U(), od = 2.0 * M_PI * rng.U();
+                        m.anchorX = ax + off * std::cos(od);
+                        m.anchorY = ay + off * std::sin(od);
+                        const double age = off / 1.2, sv = 0.5 * age;
+                        v += sv * sv * 0.5;
+                    }
+                    meas.push_back(m);
+                    var.push_back(v);
+                }
+            }
+            const int first = static_cast<int>(rng.U() * 6.0);
+            for (int j = 0; j < (g_robustWeak ? 0 : 4); ++j)
+            {
+                const int a = (first + j) % 6;
+                const double ax = x + R0 * std::cos(2.0 * M_PI * a / 6.0);
+                const double ay = y + R0 * std::sin(2.0 * M_PI * a / 6.0);
+                CaTblRangeMeasurement m;
+                m.anchorX = ax;
+                m.anchorY = ay;
+                m.rangeM = std::hypot(x - ax, y - ay) + sigR * rng.N();
+                double v = sigR * sigR;
+                if (rng.U() < outlierP)
+                {
+                    const double off = 50.0 + 100.0 * rng.U(), dir = 2.0 * M_PI * rng.U();
+                    m.anchorX = ax + off * std::cos(dir); // the stale claim
+                    m.anchorY = ay + off * std::sin(dir);
+                    const double age = off / 1.2, sv = 0.5 * age;
+                    v += sv * sv * 0.5; // DC-13's isotropic variance, projected (mean 1/2)
+                }
+                meas.push_back(m);
+                var.push_back(v);
+            }
+            f.Update(meas, var);
+            double pxx, pxy, pyy;
+            f.PosCov(pxx, pxy, pyy);
+            const double ex = f.X() - x, ey = f.Y() - y, det = pxx * pyy - pxy * pxy;
+            nees += (pyy * ex * ex - 2 * pxy * ex * ey + pxx * ey * ey) / det;
+            const double e = std::hypot(ex, ey);
+            errSum += e;
+            errs.push_back(e);
+            ++nCyc;
+            if (k == n)
+            {
+                errEnd += e;
+            }
+        }
+        const double dth = CaTblImuSensorModel::Wrap(f.HeadingOffset() - imu.TrueHeadingErrRad());
+        nDiv += (std::fabs(dth) > 0.3) ? 1 : 0;
+        gated += f.RobustGated();
+        prot += f.RobustProtected();
+        rec += f.RobustRecoveries();
+    }
+    std::sort(errs.begin(), errs.end());
+    std::printf("robust,mode,%d,outlierP,%.3f,wrongStart,%.3f,mc,%u,diverged,%llu,errMean,%.3f,errP95,%.3f,errEndMean,%.3f,"
+                "nees,%.3f,gated,%llu,protected,%llu,recoveries,%llu\n",
+                mode, outlierP, wrongStart, mc, static_cast<unsigned long long>(nDiv), errSum / nCyc,
+                errs[static_cast<size_t>(0.95 * (errs.size() - 1))], errEnd / mc, nees / nCyc,
+                static_cast<unsigned long long>(gated), static_cast<unsigned long long>(prot),
+                static_cast<unsigned long long>(rec));
+}
+
 int
 main(int argc, char* argv[])
 {
@@ -511,12 +656,22 @@ main(int argc, char* argv[])
     uint32_t filterN = 400;
     cmd.AddValue("filterMc", "Realisations in the filter consistency test (0 skips it)", filterMc);
     cmd.AddValue("filterN", "Cycles per realisation in the filter consistency test", filterN);
+    uint32_t robustDiag = 0;
+    int robustMode = 0;
+    double robustOutlierP = 0.0, robustWrongStart = 0.0;
+    uint32_t robustN = 720;
     uint32_t dwellDiag = 0;
     uint32_t dwellTransit = 200;
     cmd.AddValue("dwellTransit", "Outage cycles after the dwell in the diagnostic", dwellTransit);
     cmd.AddValue("dwellUkf", "Diagnostic only: use the unscented predict", g_dwellUkf);
     cmd.AddValue("dwellMM", "Diagnostic only: moment-matched coasting", g_dwellMM);
     cmd.AddValue("dwellMMNoShift", "Diagnostic only: moment-matched variance, no mean shift", g_dwellMMNoShift);
+    cmd.AddValue("robustDiag", "Run ONLY the N.33 robustness diagnostic with this many realisations", robustDiag);
+    cmd.AddValue("robustMode", "N.33 mode bits: 1 gate, 2 protect, 4 recover", robustMode);
+    cmd.AddValue("robustOutlierP", "Probability a range is to a stale pseudo-anchor", robustOutlierP);
+    cmd.AddValue("robustWrongStart", "Heading offset wrong at start, rad", robustWrongStart);
+    cmd.AddValue("robustN", "Cycles per realisation in the robustness diagnostic", robustN);
+    cmd.AddValue("robustWeak", "Robustness diagnostic in the weak regime: 1-2 ToF + 6 RSSI ranges", g_robustWeak);
     cmd.AddValue("dwellDiag", "Run ONLY the site-dwell diagnostic with this many realisations", dwellDiag);
     cmd.Parse(argc, argv);
 
@@ -572,6 +727,11 @@ main(int argc, char* argv[])
         seedBase += 10000019;
     }
 
+    if (robustDiag > 0)
+    {
+        RunRobustDiagnostic(robustDiag, dt, robustN, robustMode, robustOutlierP, robustWrongStart);
+        return 0;
+    }
     if (dwellDiag > 0)
     {
         RunDwellDiagnostic(dwellDiag, dt, 36, dwellTransit);
