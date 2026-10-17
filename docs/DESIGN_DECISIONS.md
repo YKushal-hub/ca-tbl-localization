@@ -286,3 +286,13 @@ bias.
 flags given explicitly as false. Verified: a 600 s, 4-arm preset run is byte-identical to the B4 binary's in all 224
 simulation outputs; only `spec_profile.txt` differs, because it lists the preset. Known consequence: the 8-gateway ring
 reads worse under the realistic 868 MHz error (V8 R8: 72 → 215 m). That is the physics being truer, not a regression.
+(2026-10-17 correction: an earlier note here and at TECH_DEBT 3.2 said `relayChain` was inert. It is active on the
+preset's subject path; see TECH_DEBT O.1.)
+
+
+## 12. What counts as a fix (owner decision 2026-10-17)
+
+A cycle is a fix cycle only when the tracking filter (EKF) took a range update that cycle (`hadFix`). Cycles in which
+`--acquireParticles`' particle cloud carries the estimate are not fix cycles, although they have an estimate with an
+honest covariance. Availability under `--acquireParticles` therefore reads lower than its estimate coverage; V4 §2
+gives the size (`static_2p4` 5 km: 0.064 → 0.034).

@@ -535,6 +535,12 @@ struct CaTblPolicyConfig
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
+    double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
+    double negSigmaDb;            //!< C1: the margin spread of that delivery curve
+    bool relayNisInflate;         //!< B1 --relayNisInflate: the filter tracks its NIS so relays can scale P_B by it
+    bool tofRecal;                //!< C2 --tofRecal: learn the 868 MHz log-bias against 2.4 GHz ranges to the same anchor, apply it
+    uint32_t hold24AfterK;        //!< C3 --hold24AfterK: 0 off; K: after K straight 2.4 GHz cycles with >= 3 ranges, no UWB escalation
     bool c2bEscalation;           //!< V5 --c2bEscalation: escalate when the next tier is observed in reach, never on confidence
     bool acquireParticles;        //!< V4 --acquireParticles: particle-filter acquisition before the EKF takes over
     uint32_t acquireParticleCount; //!< V4: particles per node
@@ -893,6 +899,12 @@ class CaTblEkf
     }
     size_t ConsiderCount() const { return m_cons.size(); }
 
+    /** B1 --relayNisInflate: running mean (EWMA, weight 0.02) of this filter's normalised innovation squared over
+     *  its range updates, nu^2 / S. About 1 for a consistent filter; well above 1 for an overconfident one. Tracked
+     *  only once enabled; the default path is untouched. */
+    void EnableNisTracking() { m_trackNis = true; }
+    double NisMean() const { return m_nisN > 0 ? m_nisMean : 1.0; }
+
     /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF.
      *
      *  MIS-SPECIFIED: normalises by the prior covariance alone. A validation gate
@@ -929,6 +941,17 @@ class CaTblEkf
         double ax = 0.0;             //!< anchor position at the last update
         double ay = 0.0;
     };
+    bool m_trackNis = false;
+    double m_nisMean = 1.0;
+    uint64_t m_nisN = 0;
+    void NoteNis(double v)
+    {
+        if (std::isfinite(v))
+        {
+            m_nisMean = (m_nisN == 0) ? v : 0.98 * m_nisMean + 0.02 * v;
+            ++m_nisN;
+        }
+    }
     bool m_consOn = false;
     double m_consCorrM = 30.0;
     double m_consWhite = 0.05;
@@ -959,6 +982,15 @@ class CaTblPolicy
      *  Configure, before Initialize). Distinct per node so two nodes never share a particle cloud. */
     void SetAcquireSalt(uint64_t salt) { m_pfSalt = salt; }
     bool AcquiringByParticles() const { return m_pfActive; }
+    /** C1 --acquireNegInfo: gateways addressed this cycle that returned no range (surveyed positions), per tier. */
+    struct SilentAnchor
+    {
+        double x;
+        double y;
+        uint8_t tier;
+    };
+    void SetSilentAnchors(const std::vector<SilentAnchor>& s) { m_silent = s; }
+    uint64_t GetNegInfoApplied() const { return m_negApplied; }
     /** V4 test hooks (scratch/v4_acquire_unit.cc only): run the acquisition filter without a scenario. */
     void PfTestInit(double cx, double cy, double half) { PfInit(cx, cy, half); }
     bool PfTestStep(double dt, const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2,
@@ -1124,6 +1156,11 @@ class CaTblPolicy
                        int32_t activeTierRanges = -1,
                        int32_t activeTierNeighbours = -1,
                        uint32_t tierEvidenceMask = 0);
+    //! C2 --tofRecal: the learnt 868 MHz log-bias ln(r868 / r2.4) and how many pairs taught it.
+    double GetTofRecalBias() const { return m_recalBias; }
+    //! B1 --relayNisInflate: this filter's running NIS mean (1.0 until it has updates or when off).
+    double GetNisMean() const { return m_ekf.NisMean(); }
+    uint64_t GetTofRecalPairs() const { return m_recalPairs; }
 
     /**
      * \brief Undo the tier change the last Step() made, because the escalation
@@ -1353,6 +1390,13 @@ class CaTblPolicy
         double w;
     };
     std::vector<PfParticle> m_pf;
+    uint32_t m_streak24 = 0;
+    std::vector<SilentAnchor> m_silent; //!< C1
+    uint64_t m_negApplied = 0;          //!< C1: silent-anchor factors applied
+    double m_recalBias = 0.0;   //!< C2: EWMA of ln(r868 / r2.4) over same-anchor pairs
+    uint64_t m_recalPairs = 0;  //!< C2
+    CaTblDecision StepImpl(double dt, const std::vector<CaTblRangeMeasurement>& meas, uint32_t hopCount,
+                           int32_t activeTierRanges, int32_t activeTierNeighbours, uint32_t tierEvidenceMask); //!< C3: consecutive cycles on 2.4 GHz with >= 3 active ranges
     bool m_pfActive = false;
     uint64_t m_pfSalt = 0;
     uint64_t m_pfHandovers = 0;

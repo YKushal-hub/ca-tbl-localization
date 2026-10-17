@@ -269,6 +269,10 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                 }
                 state.rangeErrorM = e;
             }
+            // C5 --tofCalibrate: remove the mean LoS offset a static field calibration would have measured.
+            if (params.tofCalibrate) {
+                state.rangeErrorM -= (params.tofErrorModel == 3) ? 75.0 : params.tofFieldBiasM;
+            }
             // V2a --nlosRangeBias: NLOS excess path length, positive, exponential (one extra draw, only
             // for NLOS links with the flag on; the wolf preset already includes it).
             if (params.nlosRangeBias && state.isNLOS && params.tofErrorModel != 3 && params.tofNlosExcessMeanM > 0.0) {

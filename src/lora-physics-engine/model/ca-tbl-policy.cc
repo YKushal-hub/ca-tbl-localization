@@ -112,6 +112,14 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
+    hold24AfterK = 0; // C3; off: UWB escalation as before
+    tofRecal = false; // C2; off: 868 MHz ranges used as measured
+    acquireNegInfo = false; // C1; off: non-detections ignored
+    relayNisInflate = false; // B1; off: a relay's P_B is used as it stands
+    negR50M[0] = 3600.0; // 868 MHz: probe r80 ~1700 m with sigma 9 dB, n 2.3 (V1/V2 probes), r50 = r80 10^(0.84 sigma / 10 n)
+    negR50M[1] = 328.0;  // 2.4 GHz: fitted to the B3F clamped probe (b4_fit_ondemand.py)
+    negR50M[2] = 15.0;   // UWB: probe r80 ~7 m (B3F/V1), unused for gateways
+    negSigmaDb = 9.1;
     c2bEscalation = false; // V5; off: escalation triggered by PCS / the trace threshold, as before
     acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
     acquireParticleCount = 2000;
@@ -374,6 +382,10 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
         }
 
         const double innovation = meas[k].rangeM - rPred;
+        if (m_trackNis)
+        {
+            NoteNis(innovation * innovation / S); // B1
+        }
         for (int i = 0; i < 4; ++i)
         {
             m_x[i] += K[i] * innovation;
@@ -961,6 +973,10 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
     {
         m_ekf.EnableConsider(config.rangeBiasCorrM, 0.05);
     }
+    if (config.relayNisInflate)
+    {
+        m_ekf.EnableNisTracking();
+    }
 
     // The static arms pin the tier for the whole run; they are the single-band
     // baselines the architectural claim is measured against.
@@ -1082,6 +1098,19 @@ CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std:
                 term = -0.5 * z * z;
             }
             l += std::max(term, -8.0);
+        }
+        // C1 --acquireNegInfo: an addressed gateway that stayed silent says "probably not within its reach":
+        // weight by 1 - P(link | d), P = Phi(10 n log10(r50 / d) / sigma) with the engine-fitted curve (n = 2.3).
+        if (m_config.acquireNegInfo)
+        {
+            for (const auto& sa : m_silent)
+            {
+                const double d = std::max(1.0, std::hypot(m_pf[k].x - sa.x, m_pf[k].y - sa.y));
+                const double r50 = m_config.negR50M[std::min<int>(sa.tier, 2)];
+                const double z = 10.0 * 2.3 * std::log10(r50 / d) / std::max(0.1, m_config.negSigmaDb);
+                const double p = 0.5 * std::erfc(-z / std::sqrt(2.0));
+                l += std::log(std::max(1e-3, 1.0 - std::min(p, 0.999)));
+            }
         }
         lw[k] = l;
         lmax = std::max(lmax, l);
@@ -1711,6 +1740,60 @@ CaTblPolicy::Step(double dt,
                   int32_t activeTierNeighbours,
                   uint32_t tierEvidenceMask)
 {
+    if (!m_config.tofRecal)
+    {
+        return StepImpl(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    // C2 --tofRecal (scope 2026-10-17; U9). A tri-band anchor ranged on both 868 MHz (RSSI) and 2.4 GHz (ToF) in one
+    // cycle gives e = ln(r868 / r2.4): the 868 MHz range's log-error, with the ToF range as reference. Its running
+    // mean (EWMA, weight 0.05) is the systematic part of the RSSI error -- path-loss model mismatch and the bias
+    // toward short ranges that reception selects for -- and is divided out of every 868 MHz range once >= 5 pairs
+    // have taught it. The sigma scales with the range, as the RSSI sigma does.
+    for (const auto& a : meas)
+    {
+        if (a.tier != 0 || !(a.rangeM > 0.0))
+        {
+            continue;
+        }
+        for (const auto& b : meas)
+        {
+            if (b.tier == 1 && b.anchorId == a.anchorId && b.rangeM > 1.0)
+            {
+                const double e = std::log(a.rangeM / b.rangeM);
+                if (std::isfinite(e))
+                {
+                    m_recalBias = (m_recalPairs == 0) ? e : 0.95 * m_recalBias + 0.05 * e;
+                    ++m_recalPairs;
+                }
+                break;
+            }
+        }
+    }
+    if (m_recalPairs < 5)
+    {
+        return StepImpl(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    std::vector<CaTblRangeMeasurement> adj(meas);
+    const double f = std::exp(-m_recalBias);
+    for (auto& m : adj)
+    {
+        if (m.tier == 0)
+        {
+            m.rangeM *= f;
+            m.sigmaM *= f;
+        }
+    }
+    return StepImpl(dt, adj, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+}
+
+CaTblDecision
+CaTblPolicy::StepImpl(double dt,
+                  const std::vector<CaTblRangeMeasurement>& meas,
+                  uint32_t hopCount,
+                  int32_t activeTierRanges,
+                  int32_t activeTierNeighbours,
+                  uint32_t tierEvidenceMask)
+{
     CaTblDecision d;
     // NW-7. A request is pending only on 2.4 GHz; a demotion since (coverage loss, which
     // the freeze allows) has cancelled it. Otherwise this is one more cycle waiting.
@@ -2083,6 +2166,7 @@ CaTblPolicy::Step(double dt,
         // The EKF carries the cloud's mean and covariance (so every reader -- PCS, escalation, relays,
         // finders -- sees the honest, possibly multimodal spread). When the cloud is one mode, the EKF takes
         // over from it; these ranges are not applied again, and the integrity test does not run.
+        m_negApplied += m_config.acquireNegInfo ? m_silent.size() : 0;
         const bool oneMode = PfUpdate(meas, varM2);
         double mx = 0.0, my = 0.0, cxx = 0.0, cxy = 0.0, cyy = 0.0;
         PfStats(mx, my, cxx, cxy, cyy);
@@ -2450,6 +2534,14 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // C3 --hold24AfterK: while 2.4 GHz has delivered a fix on its own (>= 3 ranges) for K straight cycles, the node
+    // holds on 2.4 GHz -- no UWB escalation -- because in the endgame 2.4 GHz alone matched the hybrid at ~40 % of the
+    // energy (V8) and UWB is the largest share of it (V6). A cycle below 3 ranges resets the streak and releases.
+    if (m_config.hold24AfterK > 0)
+    {
+        m_streak24 = (m_tier == CA_TBL_TIER_2P4 && activeTierRanges >= 3) ? m_streak24 + 1 : 0;
+    }
+
     // V5 --c2bEscalation (master plan v3; C2b). The trigger is NEED, not low confidence: a hybrid arm always
     // wants the next tier, and only the observation that it is reachable decides (below, the evidence gate's
     // near-neighbour test with its estimate-quality veto skipped -- that veto is the confidence gate Stage A
@@ -2469,6 +2561,10 @@ CaTblPolicy::Step(double dt,
         ++m_queryEscFired;
     }
     d.wantedEscalation = wantEscalate; // DC-4: before any precondition suppresses it
+    if (m_config.hold24AfterK > 0 && m_streak24 >= m_config.hold24AfterK && m_tier == CA_TBL_TIER_2P4 && !queryHook)
+    {
+        wantEscalate = false; // C3 hold: 2.4 GHz is solving on its own
+    }
     // ------------------------------------------ availability precondition (B.2+) --
     // Escalate only into a tier there are grounds to believe can deliver. Applied
     // AFTER wantEscalate is formed, so it can only ever SUPPRESS an escalation the
@@ -2759,6 +2855,8 @@ CaTblPolicy::Step(double dt,
         {
             m_deescalateCounter = 0;
         }
+        // (C3 dev, 2026-10-17: also vetoing this de-escalation during the hold kept the node on 2.4 GHz, where every
+        // broken streak let PCS escalate to UWB: UWB cycles 37 -> 87, tag-0 energy 30.3 -> 43.1 J. Not kept.)
 
         if (m_deescalateCounter >= m_config.nDeescalate)
         {

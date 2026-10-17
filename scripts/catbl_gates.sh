@@ -1900,6 +1900,11 @@ printf '\n--- G146 3GPP RMa LOS probability and NLOS loss ---\n'
 bash scripts/nlos3gpp_gate.sh "$WORK/g146" || fail G146
 finish G146
 
+# ---------------- G147: the scope-2026-10-17 flags (B5, B6, B7, B11, C1, C2, C3, C5, B1)
+printf '\n--- G147 scope flags: default identity and firing ---\n'
+bash scripts/scope_flags_gate.sh "$WORK/g147" || fail G147
+finish G147
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

@@ -3548,3 +3548,55 @@ processes that update only when time has advanced past their last update stop up
 Later distances reuse the first distance's final values per site. The probe's r80 therefore rests on fewer
 independent fading draws than its 2000 trials suggest. Not fixed. A fix (monotone time across distances) changes
 every probe output; it should come with V2b's curve work.
+
+
+---
+## O. Scope 2026-10-17 (prof_review/model/PENDING_SCOPE.md), closures and corrections
+
+### O.1 Correction: the relay chain is not inert
+The notes at 3.2 and in DESIGN_DECISIONS 10 said `relayChain` made 0 relay-to-relay exchanges. That read the
+**peer-relay** line (L.1.2 relay chain), a path the preset does not run, because its relays are measured subjects. The
+preset's path is the **subject chain** (L.1.2 subject chain).
+
+| run | 600 s, seed 3 | subject chain |
+|---|---|---|
+| `ca_tbl_full` | 5 km | 284 exchanges, 63 fused (59 at depth 1, 4 at depth 2) |
+| `ca_tbl_full` | endgame | 9 exchanges, 3 fused |
+| `static_2p4` | 5 km | inert by necessity: no subject ever holds a fix to chain from |
+
+### O.2 Closed in code (default off; gate G147 with unit parts; NC1–NC10 byte-identical with all of them off)
+- **N.56 / B5 `--probeMonotoneTime`:** probe time runs on across distances and tiers, so fading is no longer frozen
+  after the first distance.
+- **B7 `--fadingPerBand`:** the file-scope fading I/Q state is keyed per band. Before, 868 MHz and 2.4 GHz links
+  between the same two node ids shared one process.
+- **B6 `--agcPerReceiver`:** the radio front end's AGC state is per receiver.
+  - Unit test: by default a strong frame on receiver A desensitised an unrelated receiver B by 12 dB; per receiver,
+    0 dB.
+  - In the scenario no link exceeds the −40 dBm AGC knee, so it is inert there.
+- **B11 `--finderEnergyReport`:** finders' energy was billed nowhere. This writes `finder_summary_*.csv`: each finder's
+  side of every ranging exchange it answered, plus its MACs' transmit airtime. Dev, 600 s endgame: 6.2–7.6 J per
+  finder, mostly 868 MHz.
+  - **Correction:** the tag's own 868 MHz return path *is* billed by default (`--gatewayEdgeServer` with one downlink
+    per fix). The V7 note calling it unbilled meant the finder-return case only.
+- **C3 `--dualBase868OnNeed`, `--hold24AfterK`:** skip the 868 MHz slot when 2.4 GHz alone gave >= 3 ranges; hold on
+  2.4 GHz (no UWB escalation) after K such cycles.
+  - Dev, endgame, 6 seeds: K = 3 gives tag-0 energy 30.3 → 27.6 J at CEP95 4.7 → 5.0 m.
+  - Also vetoing de-escalation was worse (UWB cycles 37 → 87, 43 J) and was not kept.
+- **C2 `--tofRecal`:** every filter learns the systematic 868 MHz log-error against same-anchor 2.4 GHz ranges and
+  divides it out. It addresses B4's short-range selection bias where both bands reach, but not at the 868 MHz edge.
+- **C5 / B13 `--tofCalibrate`:** subtracts the mean LoS offset a static field calibration measures (wolf 75 m). Gate:
+  wolf 2.4 GHz mean range error 53.8 → −2.1 m.
+- **C1 `--acquireNegInfo`:** addressed gateways that stayed silent weight the acquisition particles by
+  1 − P(link | d).
+- **B1 / C6 `--relayNisInflate`:** every filter tracks its running NIS (no truth needed); a relay's P_B is scaled by
+  max(1, NIS) before it widens a relayed range.
+
+### O.3 Closed by reasoning (no code)
+**B3 (IMM static/walking).** The preset already drives prediction from the synthetic IMU (`--imuPredict`): a static
+node's displacement is about 0 with a small Qu, and a walking node's is its steps. The static/walking distinction is
+therefore in the prediction already. The residual inconsistency is the IMU's coherent error, which the EKF treats as
+white (`--imuQuScale` help); the principled fix is an error-state filter (MASTER_PLAN A2), not an IMM.
+
+### O.4 Gates re-pointed
+G63, G87 and G89 (red since 2026-10-08): their runners now pin the preset they were written against (`PIN`: the
+FIXES-N26 additions and the 2026-10-17 additions off, the LR1121 basis). All three pass, and their selftests pass.

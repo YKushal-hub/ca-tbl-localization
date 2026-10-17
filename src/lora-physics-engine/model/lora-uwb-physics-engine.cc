@@ -486,7 +486,7 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
         state.kFactor = effFading.ricianKFactor.mean;
     }
     FadingState& fs = m_fadingStates[linkId];
-    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, linkId, fs.lastUpdateTime, fs.lastFadingDb);
+    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, FadingKey(linkId, 3), fs.lastUpdateTime, fs.lastFadingDb);
     result.sampledKFactor = state.kFactor;
     result.fadingDb = std::max(rawFadingDb, -20.0); // Remove hard upper cap per Fix E1
     

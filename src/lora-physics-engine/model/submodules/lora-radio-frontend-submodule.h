@@ -1,6 +1,7 @@
 #ifndef LORA_RADIO_FRONTEND_SUBMODULE_H
 #define LORA_RADIO_FRONTEND_SUBMODULE_H
 
+#include <map>
 #include "ns3/core-module.h"
 #include "ns3/lora-physics-parameters.h"
 #include "ns3/lora-distribution-sampler.h"
@@ -37,8 +38,15 @@ public:
         Time simulationTime, double rxPowerDbm, 
         double strongestInterfererPowerDbm);
 
+    /** B6 --agcPerReceiver (scope 2026-10-17). Off (default): one AGC state per engine, so a strong link desensitises
+     *  every later receiver in the window, as before. On: the state is kept per receiver id. */
+    static void SetAgcPerReceiver(bool on);
+    void SetReceiver(uint32_t rxId) { m_rxId = rxId; }
+
 private:
     RadioFrontendConfigParams m_params;
+    uint32_t m_rxId = 0;
+    std::map<uint32_t, std::pair<Time, double>> m_agcPerRx; // B6
     LoRaDistributionSampler& m_sampler;
     
     // Memory state for AGC hysteresis and memory effects
