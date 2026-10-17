@@ -3741,3 +3741,16 @@ Coverage of `ca_tbl_full`'s 95 % ellipse under DESIGN_DECISIONS 15:
 Scaling the 868 MHz variance until coverage reads 0.95 would be tuning a finding away (RULES.md §9), so it is not
 done. **This is the measured limit of B2 under the current model.** No Σ-based rule in the preset depends on it, since
 PCS earns nothing (CAMP-FINAL2 Q2).
+
+### O.13 O.10 closed in accuracy terms; the energy cost under Wolf is a design property (CORRW)
+Calibrated-Wolf endgame hybrid CEP95:
+- 53.4 m (CAMP-FINAL2);
+- 34.4 m (DD 14 + 15);
+- 23.8 m with `--rssiCorrInflate`, below 2.4 GHz alone (28.5 m).
+
+The flag was not adopted: CORRW's rule missed at 5 km by 0.3 m (`report/CORRW_RESULTS.md`). Use it with
+calibrated-hardware ToF errors or 868 MHz alone.
+
+The hybrid's energy under Wolf (about 80 J against 8.8 J) comes from about 20 % UWB occupancy, which Wolf's wide
+2.4 GHz σ triggers through the escalation rule. That is the rule doing its job, not a defect. Choosing whether that
+UWB time is worth its accuracy is the accuracy/energy decision C3 (`--hold24AfterK`) exposes.
