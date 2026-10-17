@@ -31,7 +31,7 @@ Checks (each prints "G61 ok|FAIL|MISSING <LABEL> ..."):
            7.8/5.3 (to the 6 decimals printed), with gossip sent > 0 somewhere.
   LINE     the SY-2 line is printed under lr1121 with the profile's currents, and never
            under sx.
-  PRESET   the preset sets --radioBasis=lr1121 (spec_profile.txt) and prints the line.
+  PRESET   the preset sets --radioBasis=sx (spec_profile.txt; DESIGN_DECISIONS 11) and prints no SY-2 line.
   R        an unknown basis exits 1 with the reason.
 """
 import csv
@@ -223,9 +223,10 @@ def main():
 
     sp = read(os.path.join(d, "pre", "spec_profile.txt")) or ""
     pl = read(os.path.join(d, "pre.log")) or ""
-    report(re.search(r"^radioBasis=lr1121 ", sp, re.M) is not None and re.search(pat, pl) is not None, "PRESET",
-           f"the preset sets --radioBasis=lr1121 {bool(re.search(r'^radioBasis=lr1121 ', sp, re.M))}, "
-           f"prints the SY-2 line {bool(re.search(pat, pl))}")
+    # DESIGN_DECISIONS 11 (2026-10-17): the preset is SX1262 + SX1280 (--radioBasis=sx), so it sets sx and prints no SY-2 line.
+    report(re.search(r"^radioBasis=sx ", sp, re.M) is not None and "SY-2 radio basis" not in pl, "PRESET",
+           f"the preset sets --radioBasis=sx {bool(re.search(r'^radioBasis=sx ', sp, re.M))}, "
+           f"prints no SY-2 line {'SY-2 radio basis' not in pl}")
 
     t = read(os.path.join(d, "r_bad.log")) or ""
     report(rc(d, "r_bad") == 1 and "--radioBasis must be sx or lr1121" in t, "R",

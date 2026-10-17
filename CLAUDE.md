@@ -178,8 +178,8 @@ bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers u
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (re-established 2026-10-17 on the final preset; `docs/TECH_DEBT.md` O.6 classifies
-each). Five are red, and none is a broken build or a regression:
+**The suite's expected reds** (re-established 2026-10-17 on the final preset, `fa39262a`; `docs/TECH_DEBT.md` O.6
+classifies each, and O.11 records five stale gate expectations fixed after that run). Five are red, and none is a broken build or a regression:
 - **G4, G5:** FINDING (K.6, re-checked in O.6). In the code-default deployment, `static_2p4` fixes on 41 of 1440
   cycles while ≥ 3 anchors are in view on 1293, so the arm is delivery-limited, not geometry-limited. G5 fails only
   because its healthy fixture is G4's run.
