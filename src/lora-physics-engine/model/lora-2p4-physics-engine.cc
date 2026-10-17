@@ -460,7 +460,7 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
         state.kFactor = effFading.ricianKFactor.mean;
     }
     FadingState& fs = m_fadingStates[linkId];
-    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, linkId, fs.lastUpdateTime, fs.lastFadingDb);
+    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, FadingKey(linkId, 2), fs.lastUpdateTime, fs.lastFadingDb);
     result.sampledKFactor = state.kFactor;
     result.fadingDb = std::max(rawFadingDb, -20.0); // Remove hard upper cap per Fix E1
     
@@ -816,6 +816,7 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     
     // 1. Radio Frontend
     ambientTemp = m_atmospheric ? m_atmospheric->GetCurrentTemperature() : m_config.atmospheric.temperatureCelsius.mean;
+    m_radioFrontend->SetReceiver(rxGatewayId); // B6: inert unless --agcPerReceiver
     RadioFrontendResult rfRes6 = m_radioFrontend->ProcessAnalogFrontend(
         result.timestamp.cfoHz, ambientTemp + m_sampler.Sample(DistributionParam::Normal(0.0, 5.0, -10.0, 10.0)),
         currentTime, result.rxPowerDbm, result.strongestInterfererDbm);

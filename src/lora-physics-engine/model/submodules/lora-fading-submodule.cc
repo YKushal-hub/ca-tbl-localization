@@ -4,6 +4,17 @@
 namespace ns3 {
 
 static std::map<uint64_t, std::pair<double, double>> g_fadingComponents;
+static bool g_fadingPerBand = false;
+
+void SetFadingPerBand(bool on)
+{
+    g_fadingPerBand = on;
+}
+
+uint64_t FadingKey(uint64_t linkId, uint32_t band)
+{
+    return g_fadingPerBand ? (linkId ^ (static_cast<uint64_t>(band) << 56)) : linkId;
+}
 
 double ComputeFadingDb(
     LinkPhysicsState& state, Time currentTime,

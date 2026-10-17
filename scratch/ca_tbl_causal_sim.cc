@@ -2168,6 +2168,16 @@ static bool g_probeTerms = false;
 //! V6 --traceOnDemand (master plan v3): per tag-0 dual-base cycle, the on-demand predictor's P(any 2.4 GHz link)
 //! against what the 2.4 GHz attempt returned -- the reliability data the on-demand rule is judged on.
 static bool g_traceOnDemand = false;
+//! B5 --probeMonotoneTime (scope 2026-10-17; TECH_DEBT N.56).
+static bool g_probeMonotoneTime = false;
+//! B7 --fadingPerBand (scope 2026-10-17).
+static bool g_fadingPerBandArg = false;
+//! B11 --finderEnergyReport (scope 2026-10-17): finders' energy, which no account carried.
+static bool g_finderEnergyReport = false;
+//! C5 --tofCalibrate (scope 2026-10-17).
+static bool g_tofCalibrate = false;
+//! B6 --agcPerReceiver (scope 2026-10-17).
+static bool g_agcPerReceiverArg = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2317,6 +2327,10 @@ static bool g_sy3Given = false;
     if (g_rssiRangeFromShadowing)                                                                  \
     {                                                                                              \
         c868.ranging.rssiRangeFromShadowing = true;                                                \
+    }                                                                                              \
+    if (g_tofCalibrate)                                                                            \
+    {                                                                                              \
+        c2p4.ranging.tofCalibrate = true;                                                          \
     }                                                                                              \
     if (g_rssiSigmaLogNormal)                                                                      \
     {                                                                                              \
@@ -2757,7 +2771,10 @@ RunProbe(EnvironmentClass envWide,
 
             for (int k = 0; k < trials; ++k)
             {
-                const Time now = Seconds(static_cast<double>(k) * 1.0);
+                // B5 --probeMonotoneTime: without it time restarts at every distance, so link processes that update
+                // on elapsed time (fading every 0.15 s, foliage dynamics) freeze after the first distance (N.56).
+                const Time now = Seconds(static_cast<double>(k) * 1.0 +
+                                         (g_probeMonotoneTime ? static_cast<double>((t * 64 + i) * trials) : 0.0));
                 bool received = false;
                 double range = 0.0;
                 double snr = 0.0;
@@ -6333,6 +6350,17 @@ struct SpecOptions
     //! V6 --onDemandCalibrate (master plan v3): recalibrate the on-demand predictor online (Platt scaling on
     //! the node's own 2.4 GHz attempts) and explore with probability onDemandExplore when it says sleep.
     bool onDemandCalibrate = false;
+    //! C3 --dualBase868OnNeed (scope 2026-10-17): skip the dual base's 868 MHz slot when 2.4 GHz gave >= 3 ranges.
+    bool dualBase868OnNeed = false;
+    //! C3 --hold24AfterK (scope 2026-10-17): 0 off; K: hold on 2.4 GHz (no UWB escalation, no 868 MHz slot) after K
+    //! straight 2.4 GHz cycles with >= 3 ranges.
+    uint32_t hold24AfterK = 0;
+    //! C2 --tofRecal (scope 2026-10-17): ToF-anchored recalibration of 868 MHz RSSI ranges in every filter.
+    bool tofRecal = false;
+    //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
+    bool acquireNegInfo = false;
+    //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
+    bool relayNisInflate = false;
     double onDemandExplore = 0.1;
     //! B2 --dualBaseOnDemand (master plan v2; the repo's "B5 dual base on demand"). false (default):
     //! the dual base keeps tag 0's 2.4 GHz radio awake and ranged every cycle. true: tag 0's 2.4 GHz
@@ -6917,6 +6945,10 @@ RunArm(CaTblPolicyMode mode,
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
     pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
     pcfg.c2bEscalation = spec.c2bEscalation;         // --- V5 --- (false by default: off)
+    pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
+    pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
+    pcfg.acquireNegInfo = spec.acquireNegInfo;       // --- C1 --- (false by default: off)
+    pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
     pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
@@ -7687,6 +7719,24 @@ RunArm(CaTblPolicyMode mode,
     // would publish at this instant, its GNSS position with its constant offset and variance -- instead of the
     // ranging node reading a table entry that may be minutes old (TABLE(reverse): mean age 290-550 s).
     uint64_t replyPosUsed = 0;
+    // B11 --finderEnergyReport: one account per finder, configured as a field node's; billed for its side of every
+    // ranging exchange it answers (a symmetric approximation: one exchange, one reply) and, at the end, for every frame
+    // its MACs transmitted (CaTblMsgCounters airtime). Output only: no decision reads it.
+    std::vector<CaTblEnergyModel> finderEnergy(g_finderEnergyReport ? finderPos.size() : 0);
+    for (auto& fe : finderEnergy)
+    {
+        ApplyRadioBasis(fe);
+        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+        {
+            fe.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz, 1);
+        }
+    }
+    auto billFinder = [&](uint16_t id, CaTblTier tier, double nowS) {
+        if (!finderEnergy.empty() && id >= 501 && id < 501 + finderEnergy.size())
+        {
+            finderEnergy[id - 501].AccountRangingExchange(tier, 1, 1, nowS);
+        }
+    };
     auto replyEntry = [&](uint16_t id, double nowS, CaTblTableEntry& out) -> bool {
         if (id < 501 || id >= 501 + finderPos.size())
         {
@@ -7981,6 +8031,7 @@ RunArm(CaTblPolicyMode mode,
     uint64_t mlatSolved = 0;
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
+    uint64_t dual868Skipped = 0; // C3 --dualBase868OnNeed
     std::unique_ptr<std::ofstream> onDemandLog; // V6 --traceOnDemand
     if (g_traceOnDemand)
     {
@@ -10361,6 +10412,7 @@ RunArm(CaTblPolicyMode mode,
                             {
                                 CaTblTableEntry fe;
                                 bool feOk = false;
+                                billFinder(aid, tier, t); // B11: the finder answered this exchange
                                 if (spec.rangeReplyPosition && replyEntry(aid, t, fe))
                                 {
                                     feOk = true; // V7: the reply's own position, age 0
@@ -11242,14 +11294,27 @@ RunArm(CaTblPolicyMode mode,
             return floorHealthyRun + 1 < floorSkipK; // K = 1 => never blocks
         };
         bool floorRanged = false;
+        // C3 --dualBase868OnNeed: the 868 MHz floor/dual-base slot is not ranged on a cycle where the active
+        // 2.4 GHz tier already returned >= 3 ranges (a fix on its own).
+        auto skip868Now = [&](CaTblTier act, size_t activeDelivered) -> bool {
+            const bool s = (spec.dualBase868OnNeed || spec.hold24AfterK > 0) && hybridArm &&
+                           act == CA_TBL_TIER_2P4 && activeDelivered >= 3;
+            if (s)
+            {
+                ++dual868Skipped;
+            }
+            return s;
+        };
         size_t crossAddedThisCycle = 0; // N.26 fix 2: UWB polls taken from the LoRa tables
 
         // Range against one tier and return its measurement set. Charges CAD and the
         // ranging exchange, including the RX-timeout cost of anchors that did not
         // answer -- which is why escalating into a tier that is out of range is
         // expensive rather than merely useless.
+        std::vector<CaTblPolicy::SilentAnchor> silentThisCycle; // C1 --acquireNegInfo
         auto rangeTier = [&](CaTblTier tier) {
             std::vector<CaTblRangeMeasurement> out;
+            (void)0; // C1: silentThisCycle (declared before this lambda) collects non-answers
             size_t droppedT = 0; // N.21 strict: finder replies whose position tag 0 lacks
             // A DEAD BATTERY STOPS THE RANGING, NOT JUST THE CHATTER.
             //
@@ -11566,6 +11631,7 @@ RunArm(CaTblPolicyMode mode,
                     {
                         CaTblTableEntry fe;
                         // V7: the finder's reply carries its position now; otherwise the table entry.
+                        billFinder(anchorId, tier, t); // B11: the finder answered this exchange
                         const bool viaReplyT = spec.rangeReplyPosition && replyEntry(anchorId, t, fe);
                         if (viaReplyT)
                         {
@@ -11752,6 +11818,29 @@ RunArm(CaTblPolicyMode mode,
             {
                 tdoa->NoteExchange(out.size());
             }
+            if (spec.acquireNegInfo)
+            {
+                // C1: gateways addressed on this tier that returned no range. Surveyed positions only (101..500);
+                // a finder's true position is never used (N.21).
+                for (const auto& n : nb)
+                {
+                    if (n.id < 101 || n.id > 500)
+                    {
+                        continue;
+                    }
+                    bool answered = false;
+                    for (const auto& m : out)
+                    {
+                        answered = answered || (m.anchorId == n.id);
+                    }
+                    auto it = anchorPosById.find(n.id);
+                    if (!answered && it != anchorPosById.end())
+                    {
+                        silentThisCycle.push_back(CaTblPolicy::SilentAnchor{it->second.x, it->second.y,
+                                                                            static_cast<uint8_t>(tier)});
+                    }
+                }
+            }
             return out;
         };
 
@@ -11878,7 +11967,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 energy.AccountCad(active);
             }
-            if (runFloor && FloorRangingWanted(activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
             {
                 if (pendingHandshakeTier != CA_TBL_TIER_868)
                 {
@@ -11912,7 +12001,7 @@ RunArm(CaTblPolicyMode mode,
         {
             pendingHandshake = false;  // consumed or stale
             activeMeas = rangeTier(active);
-            if (runFloor && FloorRangingWanted(activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
@@ -11926,7 +12015,11 @@ RunArm(CaTblPolicyMode mode,
         std::vector<CaTblRangeMeasurement> otherLoraMeas;
         if (dualBase)
         {
-            if (active != CA_TBL_TIER_868 && !floorRanged &&
+            // C3 --dualBase868OnNeed: when the active 2.4 GHz tier already returned enough ranges for a fix on its
+            // own (>= 3), the dual base's 868 MHz slot is skipped this cycle -- the energy lever V6/V9 located.
+            const bool skip868 = (spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
+                                 activeMeas.size() >= 3;
+            if (active != CA_TBL_TIER_868 && !floorRanged && !skip868 &&
                 preemptTier != static_cast<int>(CA_TBL_TIER_868))
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
@@ -12269,6 +12362,19 @@ RunArm(CaTblPolicyMode mode,
                     rr.relayP[0][1] = tags[pt].policy.Pxy();
                     rr.relayP[1][0] = tags[pt].policy.Pxy();
                     rr.relayP[1][1] = tags[pt].policy.Pyy();
+                    if (spec.relayNisInflate)
+                    {
+                        // B1: a relay whose own innovations say it is overconfident (NIS mean > 1) hands out
+                        // its covariance scaled by that factor; never shrunk below what it reports.
+                        const double lam = std::max(1.0, tags[pt].policy.GetNisMean());
+                        for (int a = 0; a < 2; ++a)
+                        {
+                            for (int b = 0; b < 2; ++b)
+                            {
+                                rr.relayP[a][b] *= lam;
+                            }
+                        }
+                    }
                     // The relay filtered this same cycle, so its covariance is current.
                     rr.relayAgeS = 0.0;
                     rr.relayFixIntervalS = dt;
@@ -12641,6 +12747,11 @@ RunArm(CaTblPolicyMode mode,
             (dualBase && !activeMeas.empty() && meas.size() >= 3)
                 ? std::max<size_t>(3, activeMeas.size())
                 : activeMeas.size();
+        if (spec.acquireNegInfo)
+        {
+            policy.SetSilentAnchors(silentThisCycle); // C1
+        }
+        silentThisCycle.clear();
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -15206,6 +15317,64 @@ RunArm(CaTblPolicyMode mode,
         {
             std::cout << "    V7 rangeReplyPosition: finder ranges anchored at the reply's position " << replyPosUsed << "\n";
         }
+        if (spec.tofRecal)
+        {
+            std::cout << "    C2 tofRecal (" << CaTblPolicyModeName(mode) << "): tag-0 learnt 868 MHz log-bias "
+                      << policy.GetTofRecalBias() << " from " << policy.GetTofRecalPairs() << " pairs\n";
+        }
+        if (spec.acquireNegInfo)
+        {
+            std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
+                      << policy.GetNegInfoApplied() << "\n";
+        }
+        if (spec.relayNisInflate)
+        {
+            std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(mode) << "): tag-0 running NIS "
+                      << policy.GetNisMean() << "\n";
+        }
+        if (spec.dualBase868OnNeed || spec.hold24AfterK > 0)
+        {
+            std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(mode) << "): 868 MHz slots skipped "
+                      << dual868Skipped << "\n";
+        }
+        if (!finderEnergy.empty())
+        {
+            std::ostringstream ffn;
+            ffn << traceDir << "/finder_summary_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+            std::ofstream fs(ffn.str().c_str());
+            fs << "finderId,totalJ,j_868,j_2p4,j_uwb,rangingAnswered\n";
+            double sumJ = 0.0;
+            for (size_t fi = 0; fi < finderEnergy.size(); ++fi)
+            {
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    const CaTblMac* m = (fi < finderMacAll.size()) ? finderMacAll[fi][ti] : nullptr;
+                    if (m == nullptr)
+                    {
+                        continue;
+                    }
+                    double air = 0.0;
+                    uint64_t frames = 0;
+                    for (int mt = 1; mt <= 10; ++mt)
+                    {
+                        const CaTblMsgCounters& c = m->GetCounters(static_cast<CaTblMsgType>(mt));
+                        air += c.airtimeS;
+                        frames += c.sent + c.rebroadcast;
+                    }
+                    finderEnergy[fi].AccountTx(static_cast<CaTblTier>(ti), air, frames);
+                }
+                const CaTblEnergyModel& e = finderEnergy[fi];
+                const double j0 = e.GetAccount(CA_TBL_TIER_868).TotalJ(), j1 = e.GetAccount(CA_TBL_TIER_2P4).TotalJ(),
+                             j2 = e.GetAccount(CA_TBL_TIER_UWB).TotalJ();
+                const uint64_t ans = e.GetAccount(CA_TBL_TIER_868).rangingExchanges +
+                                     e.GetAccount(CA_TBL_TIER_2P4).rangingExchanges +
+                                     e.GetAccount(CA_TBL_TIER_UWB).rangingExchanges;
+                fs << (501 + fi) << ',' << (j0 + j1 + j2) << ',' << j0 << ',' << j1 << ',' << j2 << ',' << ans << '\n';
+                sumJ += j0 + j1 + j2;
+            }
+            std::cout << "    B11 finderEnergyReport (" << CaTblPolicyModeName(mode) << "): " << finderEnergy.size()
+                      << " finders, " << sumJ << " J in all\n";
+        }
         if (spec.dualBaseOnDemand)
         {
             if (spec.onDemandCalibrate)
@@ -16140,6 +16309,38 @@ main(int argc, char* argv[])
                  "old floor-first path, so a 1-2 range active set is discarded there as before. "
                  "Needs --fuseFloorActive.",
                  spec.fuseFloorShort);
+    cmd.AddValue("dualBase868OnNeed",
+                 "C3 (scope 2026-10-17). False (default): under --loraDualBase tag 0 ranges 868 MHz every cycle beside "
+                 "2.4 GHz. True: when the active 2.4 GHz tier already returned >= 3 ranges -- a fix on its own -- the "
+                 "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
+                 "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
+                 spec.dualBase868OnNeed);
+    cmd.AddValue("relayNisInflate",
+                 "B1 / C6 (scope 2026-10-17). False (default): a relayed range is widened by the relay's covariance as "
+                 "the relay reports it, sigma_eff^2 = sigma^2 + u'P_B u -- and every filter's P is overconfident, so "
+                 "relayed ranges come out with E[z^2] 12-37 (V3 per-range log). True: every filter tracks the running "
+                 "mean of its own normalised innovations (nu^2/S, ~1 when consistent; needs no truth), and a relay's P_B "
+                 "is scaled by max(1, that mean) before it widens the range.",
+                 spec.relayNisInflate);
+    cmd.AddValue("acquireNegInfo",
+                 "C1 (scope 2026-10-17), with --acquireParticles. False (default): only received ranges weight the "
+                 "acquisition particles. True: every gateway tag 0 addressed but that returned no range weights each "
+                 "particle by 1 - P(link | its distance), from the engine-fitted delivery curve (868 MHz r50 3600 m, "
+                 "2.4 GHz 328 m, sigma 9.1 dB) -- the non-detection evidence a range-only filter otherwise discards "
+                 "(Koch 2007). Gateways only: surveyed positions; no finder's true position is used.",
+                 spec.acquireNegInfo);
+    cmd.AddValue("tofRecal",
+                 "C2 (scope 2026-10-17; U9). False (default): 868 MHz RSSI ranges are used as measured. True: every "
+                 "filter learns the systematic 868 MHz log-error from cycles where one tri-band anchor gave both an "
+                 "868 MHz and a 2.4 GHz range (EWMA of ln(r868 / r2.4), weight 0.05) and divides it out of every "
+                 "868 MHz range once >= 5 pairs have taught it.",
+                 spec.tofRecal);
+    cmd.AddValue("hold24AfterK",
+                 "C3 (scope 2026-10-17). 0 (default): off. K > 0: after K straight cycles on 2.4 GHz with >= 3 ranges "
+                 "(a fix on its own), the hybrid arms hold on 2.4 GHz -- no UWB escalation and no dual-base 868 MHz "
+                 "slot -- until a cycle falls short. Why: in the endgame 2.4 GHz alone matched the hybrid at about 40 % "
+                 "of the energy (V8); UWB is the largest share of that energy (V6).",
+                 spec.hold24AfterK);
     cmd.AddValue("onDemandCalibrate",
                  "V6 (master plan v3), with --dualBaseOnDemand. False (default): sleep when the raw predictor "
                  "P(any 2.4 GHz link) < --onDemandPSkip. True: the predictor is recalibrated online (Platt scaling, "
@@ -16224,6 +16425,33 @@ main(int argc, char* argv[])
                  "--rssiRangeFromShadowing (probe 868 r80 1492 -> 1194 m). The 2.4 GHz and UWB engines already "
                  "zero it. True: the 868 engine zeroes it too; the reported bias is kept.",
                  g_rangeErrorNoLinkLeak);
+    cmd.AddValue("agcPerReceiver",
+                 "B6 (scope 2026-10-17). False (default): the radio front end keeps ONE AGC state per engine, so a strong "
+                 "link desensitises unrelated receivers evaluated within its recovery time. True: the state is kept per "
+                 "receiver id, as each receiver has its own AGC.",
+                 g_agcPerReceiverArg);
+    cmd.AddValue("tofCalibrate",
+                 "C5 (scope 2026-10-17). False (default): a 2.4 GHz range carries its preset's mean offset (wolf: +75 m "
+                 "LoS, uncorrected). True: the mean LoS offset a static field calibration measures is subtracted (75 m "
+                 "under wolf; --tofFieldBiasM otherwise; gottschalk is unbiased and muller already applies its eq. (5)). "
+                 "The spread and the NLoS excess remain.",
+                 g_tofCalibrate);
+    cmd.AddValue("finderEnergyReport",
+                 "B11 (scope 2026-10-17). True: write finder_summary_<arm>_seed<N>.csv -- each finder's energy, billed "
+                 "for its side of every ranging exchange it answered (a symmetric approximation: one exchange, one "
+                 "reply) and for every frame its MACs transmitted (message-counter airtime), on the same radio basis "
+                 "as the field nodes. Output only; no account any decision reads is touched.",
+                 g_finderEnergyReport);
+    cmd.AddValue("probeMonotoneTime",
+                 "B5 (TECH_DEBT N.56), with --probe only. False (default): each distance's trials run at t = 0, 1, ... "
+                 "s, so time restarts at every distance and link processes that update on elapsed time (fading every "
+                 "0.15 s, foliage dynamics) freeze after the first distance. True: time runs on across distances and "
+                 "tiers, so every distance sees fresh fading draws.",
+                 g_probeMonotoneTime);
+    cmd.AddValue("fadingPerBand",
+                 "B7 (scope 2026-10-17). False (default): the fading I/Q state is keyed by link id only, so 868 MHz and "
+                 "2.4 GHz links between the same two nodes share one fading process. True: keyed per band.",
+                 g_fadingPerBandArg);
     cmd.AddValue("traceOnDemand",
                  "V6 (master plan v3). True: write ondemand_<arm>_seed<N>.csv, one row per tag-0 dual-base cycle -- "
                  "the on-demand predictor's P(any 2.4 GHz link) from that cycle's 868 MHz ranges (computed whether "
@@ -18443,6 +18671,8 @@ main(int argc, char* argv[])
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
     g_foliageDepthClamp = foliageDepthClampArg;
+    SetFadingPerBand(g_fadingPerBandArg); // B7
+    RadioFrontendSubmodule::SetAgcPerReceiver(g_agcPerReceiverArg); // B6
     g_rngKeyed = rngKeyedArg;
     g_rngKeyedProbeExtraTx = rngKeyedProbeExtraTxArg;
 
@@ -20274,6 +20504,10 @@ main(int argc, char* argv[])
     if (g_traceOnDemand)
     {
         digestPatterns += " ondemand_*.csv"; // V6
+    }
+    if (g_finderEnergyReport)
+    {
+        digestPatterns += " finder_summary_*.csv"; // B11
     }
     if (tier1TdoaArg)
     {

@@ -1143,6 +1143,12 @@ struct RangingParams {
     // ratio 2.1 measured as E[z^2] = 2.3-2.5 in the per-range log. true: report the exact SD (at d = est).
     bool rssiSigmaLogNormal;
 
+    // C5 (scope 2026-10-17), --tofCalibrate. false (default): a 2.4 GHz range carries its preset's mean offset (wolf:
+    // +75 m LoS, Wolf 2019 Table II, uncorrected; --tofFieldBiasM if set). true: the mean LoS offset a static field
+    // calibration measures is subtracted -- 75 m under wolf, --tofFieldBiasM otherwise (gottschalk is unbiased,
+    // muller already applies its eq. (5) correction). The spread and any NLoS excess remain.
+    bool tofCalibrate;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1158,7 +1164,8 @@ struct RangingParams {
           nlosRangeBias(false),
           tofNlosExcessMeanM(69.0),
           rangeErrorNoLinkLeak(false),
-          rssiSigmaLogNormal(false)
+          rssiSigmaLogNormal(false),
+          tofCalibrate(false)
     {}
 };
 
