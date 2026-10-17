@@ -15472,6 +15472,16 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"tdoaInnovationGate", "true", "N.26 fix 4 / N.25: a TDoA position fused only within chi-square 99 % (owner override)"},
     {"mahalUseR", "true", "N.26 fix 3 / N.15: the integrity distance includes the fix's R (owner override)"},
     {"integrityChi2", "1992.9", "N.26 fix 3: FIXES-N26 phase 1's registered threshold fit (owner override)"},
+    // OWNER DECISION 2026-10-17 (master plan v3, after V8-REGEN, report/V8_REGEN_RESULTS.md): the preset adopts the
+    // engine-correctness flags and the two fixes that held up. Every result before this commit reproduces with these
+    // seven given explicitly as false (they are all default-off flags), exactly as before.
+    {"rngKeyed", "true", "V1: keyed draws, so a transmission elsewhere no longer moves every later draw (TECH_DEBT 1.1)"},
+    {"rangeErrorNoLinkLeak", "true", "V2b: the 868 MHz range error no longer leaks into 868 MHz reception (N.55)"},
+    {"rssiRangeFromShadowing", "true", "S1: the 868 MHz range error is the link's own correlated shadowing (realistic)"},
+    {"nlosRangeBias", "true", "V2a: NLOS biases ranges (868 inversion sees the NLOS loss; 2.4 GHz +Exp(69 m), Wolf 2019)"},
+    {"rangeReplyPosition", "true", "V7: a finder's ranging reply carries its current position (H.2; 5 km CEP95 842 -> 271 m)"},
+    {"acquireParticles", "true", "V4: particle-filter acquisition, no wrong-root lock (N.54; consistency)"},
+    {"foliageDepthClamp", "true", "B3f: foliage depth clamped to the link length (owner decision D-16)"},
 };
 
 int

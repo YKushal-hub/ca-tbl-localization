@@ -264,3 +264,25 @@ own registered campaign. None of these decisions overrides a registered adoption
 | FIXES-N26 | **Adopted into the preset by owner override of the registered rule.** FIXES-N26's rule said DO NOT ADOPT on one term: subject energy at 5 km rose from 12.37 to 16.69 J. The owner took the fixes for what the same registered campaign measured: availability +0.111 / +0.139 / +0.133 (5 km, endgame, N8_ring), 5 km tag 0 CEP95 −151.8 m, and UWB-delivered fixes on 20 of 20 endgame seeds. | `--specProfile` gains `--loraDualBase`, `--uwbCrossTierPoll`, `--tdoaInnovationGate`, `--mahalUseR` and `--integrityChi2=1992.9`. The preset alone reproduces FIXES-N26's registered ALL cell byte for byte. G24 re-run. **This is the one place a registered adoption rule is overridden, and it is the owner's.** |
 | Row 17, PCS term 1 | **The literal 1/trace(Σ) is built behind `--pcsTerm1Inverse` (G90); the preset keeps the bounded form.** | Switching the preset would need the PCS re-calibrated on the literal term, which this call did not ask for. |
 | Row 6 | **Unchanged: stays PARTIAL, as decided on 2026-10-04.** | No code. |
+
+## 10. The preset adopts the master-plan-v3 fixes (owner decision, 2026-10-17)
+
+`--specProfile` now also sets `--rngKeyed --rangeErrorNoLinkLeak --rssiRangeFromShadowing --nlosRangeBias
+--rangeReplyPosition --acquireParticles --foliageDepthClamp`. This is the set V8-REGEN measured
+(report/V8_REGEN_RESULTS.md), plus the B3f clamp every V-stage run already used.
+
+**Chosen over** keeping them opt-in. The owner took them after V8: the endgame `ca_tbl_full` CEP95 went 12.6 → 5.3 m,
+the static lost node 48.4 → 20.2 m, and at 5 km the reply positions were worth 289 m. Three of the seven are
+physics-correctness fixes rather than improvements: the leak (N.55), the realistic 868 MHz error (S1) and NLOS range
+bias.
+
+**Not adopted:**
+- `--rangeBiasStates` (V3: accuracy cost);
+- `--c2bEscalation` (V5: NOT SUPPORTED);
+- `--dualBaseOnDemand` / `--onDemandCalibrate` (V6: nothing to save);
+- `--nlos3gppRMa` (V2a-2: being measured; adoption is the owner's call after its read-out).
+
+**Reproducing earlier results:** every result before this decision reproduces under `--specProfile` with the seven
+flags given explicitly as false. Verified: a 600 s, 4-arm preset run is byte-identical to the B4 binary's in all 224
+simulation outputs; only `spec_profile.txt` differs, because it lists the preset. Known consequence: the 8-gateway ring
+reads worse under the realistic 868 MHz error (V8 R8: 72 → 215 m). That is the physics being truer, not a regression.
