@@ -15660,6 +15660,8 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"rangeReplyPosition", "true", "V7: a finder's ranging reply carries its current position (H.2; 5 km CEP95 842 -> 271 m)"},
     {"acquireParticles", "true", "V4: particle-filter acquisition, no wrong-root lock (N.54; consistency)"},
     {"foliageDepthClamp", "true", "B3f: foliage depth clamped to the link length (owner decision D-16)"},
+    {"fadingPerBand", "true", "B7: fading I/Q state keyed per band, not shared by 868 MHz and 2.4 GHz links between the same ids (UPG-SCOPE U5; DESIGN_DECISIONS 13)"},
+    {"relayNisInflate", "true", "B1: relayed-range covariance inflated by the relay's own NIS mean (UPG-SCOPE U4; DESIGN_DECISIONS 13)"},
 };
 
 int
