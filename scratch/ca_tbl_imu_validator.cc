@@ -20,6 +20,7 @@
  */
 
 #include "ns3/ca-tbl-imu-ekf.h"
+#include "ns3/ca-tbl-policy.h"
 #include "ns3/ca-tbl-imu-sensor-model.h"
 #include "ns3/command-line.h"
 

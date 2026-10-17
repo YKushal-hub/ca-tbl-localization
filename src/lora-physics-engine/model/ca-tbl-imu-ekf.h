@@ -14,12 +14,15 @@
 #define CA_TBL_IMU_EKF_H
 
 #include "ca-tbl-imu-sensor-model.h"
-#include "ca-tbl-policy.h" // CaTblRangeMeasurement
 
 #include <vector>
 
 namespace ns3
 {
+
+// Forward-declared, not included: ca-tbl-policy.h includes this header (--imuFilter=ekf5).
+// Only references are taken here; ca-tbl-imu-ekf.cc includes the full definition.
+struct CaTblRangeMeasurement;
 
 /**
  * \brief C3: range-only EKF whose predict step is IMU dead reckoning.
@@ -94,6 +97,13 @@ class CaTblImuEkf
                           double qTheta2,
                           double qBias2);
 
+    /**
+     * A cycle with no displacement: theta' = theta + b dt with its variance grown by qTheta2 and the
+     * bias's, the position unmoved but given posVar2 per axis (the dwell noise). The prior is
+     * re-snapshotted, as every prediction does.
+     */
+    void PredictDwell(double dt, double qTheta2, double qBias2, double posVar2);
+
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
 
@@ -142,6 +152,24 @@ class CaTblImuEkf
         pyy = m_P[1][1];
     }
 
+    // --- The rest of the interface CaTblPolicy uses on its filter (--imuFilter=ekf5) ---
+    // Each mirrors the constant-velocity CaTblEkf's method of the same name over five states;
+    // a position observation corrects theta, b and s through their covariance with position.
+
+    /** Fuse an absolute position with isotropic variance (CaTblEkf::FusePosition). Leaves the
+     *  stored prior alone, as that one does. Ends a coast. */
+    void FusePosition(double zx, double zy, double varM2);
+    /** NIS of a position observation with covariance R against the current state, or -1. */
+    double PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const;
+    /** Fuse a position with a full 2x2 covariance; false (nothing changed) if R or S is bad. */
+    bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
+    double Pxx() const { return m_P[0][0]; }
+    double Pxy() const { return 0.5 * (m_P[0][1] + m_P[1][0]); }
+    double Pyy() const { return m_P[1][1]; }
+    /** Velocity is not a state here: the last prediction's displacement over its dt. */
+    double Vx() const { return m_vx; }
+    double Vy() const { return m_vy; }
+
     double HeadingOffset() const { return m_x[2]; }
     double GyroBias() const { return m_x[3]; }
     double StrideScale() const { return m_x[4]; }
@@ -182,6 +210,9 @@ class CaTblImuEkf
     double m_shiftX = 0.0;   //!< mean correction already applied this outage
     double m_shiftY = 0.0;
     double m_varApplied = 0.0; //!< along-track variance already added this outage
+    double m_vx = 0.0;         //!< last prediction's displacement / dt (Vx())
+    double m_vy = 0.0;
+    void FuseAxis(int axis, double z, double varM2);
 };
 
 } // namespace ns3
