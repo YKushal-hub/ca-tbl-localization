@@ -6370,6 +6370,8 @@ struct SpecOptions
     bool acquireNegInfo = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
     bool relayNisInflate = false;
+    //! B2 --rssiCorrInflate (scope 2026-10-17).
+    bool rssiCorrInflate = false;
     double onDemandExplore = 0.1;
     //! B2 --dualBaseOnDemand (master plan v2; the repo's "B5 dual base on demand"). false (default):
     //! the dual base keeps tag 0's 2.4 GHz radio awake and ranged every cycle. true: tag 0's 2.4 GHz
@@ -6958,6 +6960,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
     pcfg.acquireNegInfo = spec.acquireNegInfo;       // --- C1 --- (false by default: off)
     pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
+    pcfg.rssiCorrInflate = spec.rssiCorrInflate;     // --- B2 --- (false by default: off)
     pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
@@ -15336,6 +15339,11 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
                       << policy.GetNegInfoApplied() << "\n";
         }
+        if (spec.rssiCorrInflate)
+        {
+            std::cout << "    B2 rssiCorrInflate (" << CaTblPolicyModeName(mode) << "): tag-0 868 MHz ranges inflated "
+                      << policy.GetRssiCorrApplied() << ", mean variance factor " << policy.GetRssiCorrMeanFactor() << "\n";
+        }
         if (spec.relayNisInflate)
         {
             std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(mode) << "): tag-0 running NIS "
@@ -16327,6 +16335,13 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("rssiCorrInflate",
+                 "B2 (scope 2026-10-17). False (default): successive 868 MHz RSSI ranges are fused as independent, though "
+                 "their error is the link's shadowing, spatially correlated (Gudmundson, rho = exp(-moved/30 m), the "
+                 "engine's own forested model): a static node's Sigma collapses (static_868 median NEES ~240 at 5 km). "
+                 "True: each 868 MHz range's variance is scaled by the AR(1) long-run factor (1+rho)/(1-rho), capped at "
+                 "100, with rho from how far the filter's estimate and the anchor moved since that anchor's last range.",
+                 spec.rssiCorrInflate);
     cmd.AddValue("relayNisInflate",
                  "B1 / C6 (scope 2026-10-17). False (default): a relayed range is widened by the relay's covariance as "
                  "the relay reports it, sigma_eff^2 = sigma^2 + u'P_B u -- and every filter's P is overconfident, so "
