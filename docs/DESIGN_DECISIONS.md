@@ -303,3 +303,24 @@ A cycle is a fix cycle only when the tracking filter (EKF) took a range update t
 `--acquireParticles`' particle cloud carries the estimate are not fix cycles, although they have an estimate with an
 honest covariance. Availability under `--acquireParticles` therefore reads lower than its estimate coverage; V4 §2
 gives the size (`static_2p4` 5 km: 0.064 → 0.034).
+
+## 13. The preset adopts B7 `--fadingPerBand` and B1 `--relayNisInflate` (2026-10-17, UPG-SCOPE)
+Evidence: `report/UPG_SCOPE_RESULTS.md` (exploratory; 20 paired seeds, configs A and B).
+
+**Adopted:**
+- **B7 `--fadingPerBand`** removes a modelling defect: 868 MHz and 2.4 GHz links between the same node ids shared one
+  fading process. It does not move accuracy: B −0.4 [−0.9, +0.1] m on 5.6 m; A −4.6 m on 333 m (interval spans 0).
+  Energy is 2–3 % lower.
+- **B1 `--relayNisInflate`** inflates a relayed range's covariance by the relay's own NIS mean, the dominant
+  overconfident class (B1, E[z²] 12–37). Coverage rises (A 0.577 → 0.587, B 0.858 → 0.873) at no accuracy cost.
+  Endgame energy is 5 % lower.
+
+**Not adopted:**
+- C1 `--acquireNegInfo` and C2 `--tofRecal`: no supported gain, and lower 5 km coverage.
+- C3 `--hold24AfterK`: −10 % endgame energy with post-acquisition accuracy unchanged, but its registered prediction
+  (per-run CEP95 within +20 %) missed at +21 %. It is available as an energy mode.
+
+**C5 `--tofCalibrate`** belongs with `--tofErrorModel=wolf` (calibrated hardware), not with the preset.
+
+**Reproducing earlier preset results:** add `--fadingPerBand=false --relayNisInflate=false`. NC10, G63, G87, G89 and
+G147's base run pin both.
