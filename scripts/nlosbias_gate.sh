@@ -14,7 +14,7 @@ for f in excess wolf loss868; do
     if "$UNIT" --break=$f > "$D/fix_$f.txt" 2>&1; then echo "G139 FAIL FIXTURE   --break=$f did not turn the unit check red"; bad=1
     else echo "G139 PASS FIXTURE   --break=$f is red"; fi
 done
-B="--specProfile=true --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --rssiRangeFromShadowing=true"
+B="--specProfile=true --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --rssiRangeFromShadowing=true --nlosRangeBias=false"  # pinned: the preset turns it on (DESIGN_DECISIONS 10)
 mkdir -p "$D/base" "$D/off"
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 & "$BIN" $B --nlosRangeBias=false --outdir="$D/off" > "$D/off.log" 2>&1 & wait
 n=0; for f in $(cd "$D/base" && ls); do [ "$f" = run_id.txt ] && continue; cmp -s "$D/base/$f" "$D/off/$f" || n=$((n + 1)); done

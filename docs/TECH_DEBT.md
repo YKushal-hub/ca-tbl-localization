@@ -3685,3 +3685,23 @@ The rest of the gap, and the 10× energy, sit with:
 - UWB escalations driven by Wolf's large 2.4 GHz σ (about 23 % UWB occupancy).
 
 Open.
+
+### O.11 Final suite on `fa39262a`: five stale gate expectations, fixed in the gate scripts
+The full suite (`~/catbl_work/gates_final3/suite.log`, `fa39262a`) gave 97 PASS and ten reds. The five known reds
+are G4, G5, G6, G11 and G24 (O.6). The other five held expectations about the preset that DESIGN_DECISIONS 10, 11,
+13 and 14 changed:
+
+| gate | stale expectation | fix |
+|---|---|---|
+| G61 | PRESET expected `radioBasis=lr1121` and the SY-2 line | expects `sx` and no SY-2 line (DD 11) |
+| G134 | DEFAULT compared against explicit `--foliageDepthClamp=false` | the base pins it off |
+| G139 | DEFAULT compared against explicit `--nlosRangeBias=false` | the base pins it off |
+| G100 | REACH: a cycle population that the adopted fixes shrank (tag 0 at 10: 15 cycles, need 20) | pinned to the pre-adoption preset (the G63 PIN string) |
+| G130 | UNK: unknown-start rows, which the particle-filter acquisition changes | pinned to the pre-adoption preset |
+
+All five, and their self-tests, pass on re-run.
+- **Reading note:** a self-test's negative fixtures print indented `FAIL` lines by design. The G61 "SAME …
+  fixCycles" line in the suite log is fixture N1's output, not the real run.
+- **Process note:** the `8190ef1e` suite (`gates_final2`) passed G134 and G139, although the preset had already
+  adopted their flags. The binary in `~/catbl_v2` was probably not rebuilt after `11b4dce8`. Rebuild in the suite
+  worktree before every suite run (done for `fa39262a`).
