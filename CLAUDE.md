@@ -197,9 +197,11 @@ line in each script).
   --rangeReplyPosition --acquireParticles --foliageDepthClamp`.
 - DD 11: `--radioBasis=sx --halfDuplexChip=false` (SX1262 + SX1280 as two chips).
 - DD 13: `--fadingPerBand --relayNisInflate`.
+- DD 14: `--rssiSigmaLogNormal`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
-Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`.
+Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14. `static_868` figures are superseded
+by `report/SIG868_RESULTS.md`; the hybrid's lie within its intervals.
 
 **Default-off flags added 2026-10-17, each behind a gate:**
 - G146: `--nlos3gppRMa`;

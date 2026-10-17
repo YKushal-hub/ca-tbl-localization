@@ -43,7 +43,7 @@
 > |---|---|---|
 > | `ca_tbl_full` | 324 m | 4.6 m |
 > | `static_2p4` | 397 m | 8.7 m |
-> | `static_868` | 494 m | 52.4 m |
+> | `static_868` | 494 m (452 m after DD 14) | 52.4 m (25.1 m after DD 14) |
 >
 > PCS-gated switching is indistinguishable from a trace threshold. The current claim status is the Technical Report
 > §0a.
