@@ -38,10 +38,14 @@ Six held, four not.
 | `poucet_fusion` | **276.3** | 187.7 | 459.8 | 4.7 | 4.7 | 382.7 |
 
 ## 3. Reading
-- **What changed against CAMP-FINAL (2026-10-04):**
-  - The 5 km hybrid CEP95 went from about 1150 to 324 m, mostly through V7's reply positions.
-  - The endgame hybrid CEP95 went from tens of metres to 4.6 m.
-  - The 868-alone arm is worse in the endgame (52 m), because its error model is now correlated shadowing.
+- **Against CAMP-FINAL (2026-10-04).**
+  - **5 km figures are not comparable.** CAMP-FINAL ran with the start position known (A `ca_tbl_full` CEP95
+    209.6 m), while this campaign starts unknown, like every campaign since 2026-10-09. So the 5 km figures include
+    acquisition.
+  - **The endgame is comparable in kind** (the start is near anyway):
+    - `ca_tbl_full`: 18.4 → 4.6 m;
+    - `static_2p4`: 10.8 → 8.7 m;
+    - `static_868`: 20.6 → 52.4 m, worse because its error model is now correlated shadowing (DESIGN_DECISIONS 10).
 - **The hybrid against its comparators:**
   - **5 km:** best on availability, but not on CEP95. `poucet_fusion` is lower (276 m) at 28× the energy. After
     acquisition, 2.4 GHz alone is far lower (97 m), over a fix share of 1.7 %.
@@ -52,7 +56,7 @@ Six held, four not.
 - **Calibrated Wolf (W_end)** repeats TECH_DEBT O.7 at 20 seeds. The hybrid is 53.4 m at 89 J; 2.4 GHz alone is
   28.3 m at 8.8 J. Under Wolf errors the hybrid's endgame is worse than 2.4 alone, and costs ten times as much.
 - **The integrity check** fires with precision 0.05–0.32 and recall 0.02–0.13. Its in-window CEP95 is lower than
-  without it in every fault, but its out-of-window CEP95 is higher (414–426 against 202–243 m), so overall it costs
+  without it in 7 of the 8 fault × recovery cells (not `rb_single`/none: 128.0 against 121.6 m), but its out-of-window CEP95 is higher (414–426 against 202–243 m), so overall it costs
   accuracy. This is consistent with its withdrawal as a claim (DESIGN_DECISIONS, thesis §8.8).
 - **Relayed depth:** at 5 km, depth-1 fused sets have a median error of 37.6 m against 15.6 m at depth 0. Relays
   remain the weaker class even with `--relayNisInflate`.
