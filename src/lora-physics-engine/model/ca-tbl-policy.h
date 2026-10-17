@@ -39,6 +39,7 @@
  */
 
 #include "ca-tbl-energy-model.h"
+#include "ca-tbl-imu-ekf.h"
 
 #include <cstdint>
 #include <string>
@@ -604,6 +605,21 @@ struct CaTblPolicyConfig
     //! absorbed and never as a pass. Counting only: the witness's decision is unchanged.
     bool witnessCounts = false;
 
+    //! --imuFilter=ekf5 (TECH_DEBT N.28). False (default): every result so far -- the constant-
+    //! velocity filter, and under DC-1 its control-input prediction. True: the policy's filter is
+    //! the 5-state [x, y, theta, b, s] CaTblImuEkf, predicting from the SAME IMU output DC-1 hands
+    //! SetImuControl() -- stride |u| and raw heading atan2(u) -- and estimating the heading offset,
+    //! gyro bias and stride scale DC-1's filter has no state for. Its assumed model is DC-1's own
+    //! error model, the parameters below; the scenario copies them from the IMU it runs.
+    bool imuFilterEkf5 = false;
+    double ekf5NoiseDensity = 1.6682e-4;  //!< DC-1's angle random walk, rad/s/sqrt(Hz)
+    double ekf5BiasSigma = 4.2742e-5;     //!< DC-1's per-run gyro bias sigma, rad/s (the prior on b)
+    double ekf5ScaleSigma = 0.0266;       //!< DC-1's per-run step scale sigma (the prior on s)
+    double ekf5DwellSigma = 0.05;         //!< DC-1's dwell noise, m per axis per cycle
+    double ekf5ThetaVar0 = 1e-6;          //!< heading-offset prior, rad^2: DC-1's error starts at 0. OURS
+    double ekf5StepSigma = 0.01;          //!< per-step stride noise, m: DC-1 has none; a floor. OURS
+    bool ekf5MomentMatch = true;          //!< variance-only moment-matched coasting (G94)
+
     /**
      * \brief Apply the pre-registered v2 thresholds.
      *
@@ -931,12 +947,12 @@ class CaTblPolicy
 
     //! Position estimate and its covariance -- what a RELAY must report for its
     //! measurement to be admissible at all. See ca-tbl-relay-admission.h.
-    double EstX() const { return m_ekf.X(); }
-    double EstY() const { return m_ekf.Y(); }
+    double EstX() const { return FltX(); }
+    double EstY() const { return FltY(); }
     //! DC-10. The filter's velocity estimate, m/s: what a table entry's velocity
     //! fields carry under --entryVelocity (Physical 2.1).
-    double EstVx() const { return m_ekf.Vx(); }
-    double EstVy() const { return m_ekf.Vy(); }
+    double EstVx() const { return FltVx(); }
+    double EstVy() const { return FltVy(); }
     /** Fuse an absolute position observation into the filter -- the door the
      *  inertial engine needs, since every other measurement path takes a range.
      *  The caller owns the error model: this takes the variance it is given and
@@ -944,12 +960,20 @@ class CaTblPolicy
      *  been running unaided. See CaTblEkf::FusePosition. */
     void FusePosition(double zx, double zy, double varM2)
     {
-        m_ekf.FusePosition(zx, zy, varM2);
+        FltFusePosition(zx, zy, varM2);
     }
 
-    double Pxx() const { return m_ekf.Pxx(); }
-    double Pxy() const { return m_ekf.Pxy(); }
-    double Pyy() const { return m_ekf.Pyy(); }
+    //! --imuFilter=ekf5: predictions from a moving IMU step / with no displacement, and the
+    //! filter's current heading-offset, gyro-bias (rad/s) and stride-scale estimates.
+    uint64_t GetEkf5Moving() const { return m_ekf5Moving; }
+    uint64_t GetEkf5Dwell() const { return m_ekf5Dwell; }
+    double Ekf5HeadingOffset() const { return m_ekf5.HeadingOffset(); }
+    double Ekf5Bias() const { return m_ekf5.GyroBias(); }
+    double Ekf5Scale() const { return m_ekf5.StrideScale(); }
+
+    double Pxx() const { return FltPxx(); }
+    double Pxy() const { return FltPxy(); }
+    double Pyy() const { return FltPyy(); }
 
     /** Queue one absolute position observation with its full covariance for the NEXT
      *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast
@@ -1157,6 +1181,60 @@ class CaTblPolicy
 
     CaTblPolicyConfig m_config;
     CaTblEkf m_ekf;
+    //! --imuFilter=ekf5: the 5-state filter, used instead of m_ekf when m_config.imuFilterEkf5.
+    CaTblImuEkf m_ekf5;
+    double m_ekf5Heading = 0.0;   //!< raw heading of the last moving IMU step, rad
+    bool m_ekf5HaveHeading = false;
+    uint64_t m_ekf5Moving = 0;    //!< predictions from a moving IMU step
+    uint64_t m_ekf5Dwell = 0;     //!< predictions with no displacement (or no IMU input)
+    void Ekf5Predict(double dt, bool haveImu, double ux, double uy);
+
+    // Every read and update of the filter routes through these, so --imuFilter=ekf5 swaps the
+    // filter without touching the logic around it. Off, each is one bool test and the same call.
+    bool E5() const { return m_config.imuFilterEkf5; }
+    double FltX() const { return E5() ? m_ekf5.X() : m_ekf.X(); }
+    double FltY() const { return E5() ? m_ekf5.Y() : m_ekf.Y(); }
+    double FltVx() const { return E5() ? m_ekf5.Vx() : m_ekf.Vx(); }
+    double FltVy() const { return E5() ? m_ekf5.Vy() : m_ekf.Vy(); }
+    double FltPxx() const { return E5() ? m_ekf5.Pxx() : m_ekf.Pxx(); }
+    double FltPxy() const { return E5() ? m_ekf5.Pxy() : m_ekf.Pxy(); }
+    double FltPyy() const { return E5() ? m_ekf5.Pyy() : m_ekf.Pyy(); }
+    double FltTracePos() const { return E5() ? m_ekf5.TracePos() : m_ekf.TracePos(); }
+    double FltPriorX() const { return E5() ? m_ekf5.PriorX() : m_ekf.PriorX(); }
+    double FltPriorY() const { return E5() ? m_ekf5.PriorY() : m_ekf.PriorY(); }
+    void FltUpdate(const std::vector<CaTblRangeMeasurement>& m, const std::vector<double>& v)
+    {
+        if (E5()) { m_ekf5.Update(m, v); } else { m_ekf.Update(m, v); }
+    }
+    void FltFusePosition(double x, double y, double v)
+    {
+        if (E5()) { m_ekf5.FusePosition(x, y, v); } else { m_ekf.FusePosition(x, y, v); }
+    }
+    bool FltFusePositionCov(double x, double y, double a, double b, double c)
+    {
+        return E5() ? m_ekf5.FusePositionCov(x, y, a, b, c) : m_ekf.FusePositionCov(x, y, a, b, c);
+    }
+    double FltPositionNis(double x, double y, double a, double b, double c) const
+    {
+        return E5() ? m_ekf5.PositionNis(x, y, a, b, c) : m_ekf.PositionNis(x, y, a, b, c);
+    }
+    void FltRevertToPrior()
+    {
+        if (E5()) { m_ekf5.RevertToPrior(); } else { m_ekf.RevertToPrior(); }
+    }
+    void FltInflatePos(double f)
+    {
+        if (E5()) { m_ekf5.InflatePos(f); } else { m_ekf.InflatePos(f); }
+    }
+    double FltMahalanobisFromPrior(double x, double y) const
+    {
+        return E5() ? m_ekf5.MahalanobisFromPrior(x, y) : m_ekf.MahalanobisFromPrior(x, y);
+    }
+    double FltMahalanobisFromPriorWithR(double x, double y, double a, double b, double c) const
+    {
+        return E5() ? m_ekf5.MahalanobisFromPriorWithR(x, y, a, b, c)
+                    : m_ekf.MahalanobisFromPriorWithR(x, y, a, b, c);
+    }
     double m_imuDispM = 0.0;
     double m_imuTolM = 0.0;
     double m_relayedVarFrac = 0.0;
