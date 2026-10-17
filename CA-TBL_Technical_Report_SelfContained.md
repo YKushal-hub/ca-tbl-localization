@@ -54,7 +54,7 @@ The current measured tables are in `report/CAMP_FINAL2_RESULTS.md`. Conditions: 
 | Tiering (ranging both LoRa bands opportunistically) | **supported in the robustness sense.** Best endgame CEP95 (4.6 m) and best 5 km availability (0.352), at 1.2–2.9× the tag-0 energy of a single LoRa band | CAMP-FINAL2 §2; B4 |
 | Confidence-aware switching (PCS) | **not supported.** Indistinguishable from a covariance-trace threshold in every cell | CAMP-FINAL2 Q2; B4-4 |
 | Integrity-gated escalation | **not supported as a claim.** Precision 0.05–0.32, recall 0.02–0.13; overall it costs accuracy outside the fault window | CAMP-FINAL2 fault matrix |
-| 2.4 GHz ToF over 868 MHz RSSI (same geometry) | **supported for calibrated ToF on tracking accuracy:** 97 vs 418 m after acquisition at 5 km; 8.7 vs 25.1 m in the endgame (868 MHz with the honest σ of DD 14; SIG868). **Not** for uncalibrated ToF (Wolf: 130 vs 52 m) | CAMP-FINAL2; UPG-SCOPE U6; V8 |
+| 2.4 GHz ToF over 868 MHz RSSI (same geometry) | **supported for calibrated ToF on tracking accuracy:** 89 vs 412 m after acquisition at 5 km; 12.3 vs 27.5 m CEP95 in the endgame (the final preset, DD 14 + 15; CORRW BASE rows). **Not** for uncalibrated ToF (Wolf: 130 vs 52 m) | CAMP-FINAL2; UPG-SCOPE U6; V8 |
 | Reply positions (anchor staleness) | **supported, the largest single gain:** 5 km hybrid CEP95 842 → 271 m | V7 |
 | Under calibrated Wolf errors the hybrid works | **in accuracy, with `--rssiCorrInflate`:** 23.8 m against 2.4 alone 28.5 m (34.4 m without it, on the DD 14 + 15 preset). The flag is not in the preset (CORRW W3 missed by 0.3 m). The energy is about 10× | CAMP-FINAL2 W_end; SIG868; CORRW; TECH_DEBT O.13 |
 
