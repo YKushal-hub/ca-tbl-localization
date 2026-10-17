@@ -357,3 +357,16 @@ NC10, G63, G87, G89, G100 and G130 pin it.
 
 **`--rssiCorrInflate` (B2's other candidate) is not adopted.** It is right for 868 MHz alone (NEES 36 → 8), but its
 rule failed on the hybrid's endgame coverage.
+
+## 16. The code-default deployment shrinks to `--boxHalf=340` (owner decision 2026-10-18; TECH_DEBT K.6)
+**Why.** At 1000 m the default 3×3 gateway grid had a 900 m pitch. The corrected probe puts the 2.4 GHz r80 at 156 m,
+so tier 2 could not cover the deployment: `static_2p4` fixed on 41 of 1440 cycles, and G4/G5 had been red since the
+environment split. At 340 m the pitch is 306 m, under 2 × r80.
+
+**Measured** (seed 7, 3600 s, G3's configuration): `static_2p4` fix share 0.80 and the G4 verifier passes. The run took
+113 s, so K.6's feared 5× suite slowdown (measured at 400 m under an older engine) does not materialise.
+
+**Scope.** This is the code default only. The preset (`--specProfile`) sets its own `--boxHalf=5000`, so no preset
+campaign moves.
+
+**Reproducing earlier default-config results:** add `--boxHalf=1000`. NC1, NC6, NC7 and NC8 pin it.
