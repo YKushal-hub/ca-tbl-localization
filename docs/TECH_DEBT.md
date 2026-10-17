@@ -3456,6 +3456,18 @@ The early-run and relayed tails remain; they are V4's subject.
 Making NLOS links occur and survive at realistic rates is V2a-2. It needs the owner's copy of 3GPP TR 38.901
 for the LOS-probability and NLOS-loss laws.
 
+*2026-10-17, V2a-2 (`--nlos3gppRMa`, G146).* 3GPP TR 38.901 v17.0.0 (ETSI TR 138 901, read from the PDF, pp. 27 and 30)
+is implemented, default off.
+- **Scope:** for links with an end at >= 10 m (gateways), the RMa LOS probability (Table 7.4.2-1) and the RMa NLOS
+  excess loss (Table 7.4.1-1, max(PL_LOS, PL'_NLOS) − PL_LOS, h = 5 m, W = 20 m).
+- **Lower links** (finders, handheld) keep the old model; RMa is defined for base stations of 10–150 m only.
+- **Unit gate:** the NLOS fraction at 1 km is 0.629 against 0.628; the excess loss matches an independent
+  evaluation within 4e-7 dB.
+- **Effect:** NLOS becomes far commoner (0.63 at 1 km against 0.12) and costs 22–35 dB against the old ~15 dB.
+  In a dev run tag 0's 868 MHz gateway ranges fell from 241 to 15 in 600 s.
+- **Caveat:** RMa's NLOS term assumes rural buildings (h, W), not forest canopy. It is the standard model, not a
+  forest one.
+
 ### N.53 The two Part B branches collide
 
 *2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and

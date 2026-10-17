@@ -1895,6 +1895,11 @@ printf '\n--- G145 escalation on reachability, not confidence ---\n'
 bash scripts/c2b_gate.sh "$WORK/g145" || fail G145
 finish G145
 
+# ---------------- G146: V2a-2 --nlos3gppRMa (master plan v3; 3GPP TR 38.901 v17.0.0 RMa)
+printf '\n--- G146 3GPP RMa LOS probability and NLOS loss ---\n'
+bash scripts/nlos3gpp_gate.sh "$WORK/g146" || fail G146
+finish G146
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

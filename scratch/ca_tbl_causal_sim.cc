@@ -2156,6 +2156,8 @@ static double g_tofFieldSigmaM = 0.0;
 static bool g_rssiRangeFromShadowing = false;
 //! V2a --nlosRangeBias (master plan v3).
 static bool g_nlosRangeBias = false;
+//! V2a-2 --nlos3gppRMa (master plan v3).
+static bool g_nlos3gppRMa = false;
 //! V2b --rangeErrorNoLinkLeak (master plan v3).
 static bool g_rangeErrorNoLinkLeak = false;
 //! V3 --rssiSigmaLogNormal (master plan v3).
@@ -2323,6 +2325,11 @@ static bool g_sy3Given = false;
     if (g_rangeErrorNoLinkLeak)                                                                    \
     {                                                                                              \
         c868.ranging.rangeErrorNoLinkLeak = true;                                                  \
+    }                                                                                              \
+    if (g_nlos3gppRMa)                                                                             \
+    {                                                                                              \
+        c868.nlos.rma3gpp = true;                                                                  \
+        c2p4.nlos.rma3gpp = true;                                                                  \
     }                                                                                              \
     if (g_nlosRangeBias)                                                                           \
     {                                                                                              \
@@ -16219,6 +16226,14 @@ main(int argc, char* argv[])
                  "term -- to find which terms make the delivery curve flatter than Phi(M/sigma_shadowing). "
                  "Output only; no engine change.",
                  g_probeTerms);
+    cmd.AddValue("nlos3gppRMa",
+                 "V2a-2 (master plan v3). False (default): NLOS occurs with P = 1 - exp(-d/scale) and costs a loss drawn "
+                 "from the environment's Normal (values OURS). True: on 868 MHz and 2.4 GHz links whose higher end is "
+                 ">= 10 m (the gateways; 3GPP RMa's base-station range is 10-150 m), LOS probability and NLOS excess loss "
+                 "follow 3GPP TR 38.901 v17.0.0 RMa -- Table 7.4.2-1 and Table 7.4.1-1 (max(PL_LOS, PL'_NLOS) - PL_LOS, "
+                 "h = 5 m, W = 20 m, note 5 breakpoint). Lower links (finders, handheld) keep the default model, RMa "
+                 "not being defined for them. Read the PDF: ETSI TR 138 901 V17.0.0, pp. 27 and 30.",
+                 g_nlos3gppRMa);
     cmd.AddValue("nlosRangeBias",
                  "V2a (master plan v3). False (default): an NLOS link's 868 MHz range ignores its NLOS loss and "
                  "its 2.4 GHz range is biased by N(1.5, 0.8) m, as in every earlier result. True: the 868 MHz "
