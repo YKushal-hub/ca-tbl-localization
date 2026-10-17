@@ -198,6 +198,7 @@ line in each script).
 - DD 11: `--radioBasis=sx --halfDuplexChip=false` (SX1262 + SX1280 as two chips).
 - DD 13: `--fadingPerBand --relayNisInflate`.
 - DD 14: `--rssiSigmaLogNormal`.
+- DD 15: `--imuQuScale=30` (campaigns no longer pass it).
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14. `static_868` figures are superseded
@@ -207,7 +208,8 @@ by `report/SIG868_RESULTS.md`; the hybrid's lie within its intervals.
 - G146: `--nlos3gppRMa`;
 - G147: `--probeMonotoneTime`, `--agcPerReceiver`, `--finderEnergyReport`, `--dualBase868OnNeed`,
   `--hold24AfterK`, `--tofRecal`, `--tofCalibrate`, `--acquireNegInfo`;
-- G148: `--foliageP833`.
+- G148: `--foliageP833`;
+- G149: `--rssiCorrInflate`.
 
 **G3 passes.** It used to fail once the integrity check fired at seed 7. It now separates
 RNG contamination from the treatment effect on causal order (`scripts/catbl_g3_ablation.py`),

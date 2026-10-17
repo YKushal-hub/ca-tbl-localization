@@ -3705,3 +3705,19 @@ All five, and their self-tests, pass on re-run.
 - **Process note:** the `8190ef1e` suite (`gates_final2`) passed G134 and G139, although the preset had already
   adopted their flags. The binary in `~/catbl_v2` was probably not rebuilt after `11b4dce8`. Rebuild in the suite
   worktree before every suite run (done for `fa39262a`).
+
+### O.12 B2 closed as far as a Gaussian filter allows (B2CONS)
+Coverage of `ca_tbl_full`'s 95 % ellipse:
+
+| scale | coverage | against the target |
+|---|---|---|
+| endgame | 0.96 | at the 0.95 target, under DESIGN_DECISIONS 15 |
+| 5 km | 0.69 | short |
+
+Neither the IMU scale (+0.05) nor the 868 MHz correlation inflation (+0.03) closes the 5 km gap. What remains is
+acquisition-era error: unknown start, few anchors, multimodal posteriors, which a single Gaussian cannot cover.
+`--acquireParticles` holds the multimodal phase, and the handover threshold (cloud smaller than a quarter of the
+median range) decides when the Gaussian takes over.
+
+A stricter handover is the lever if 5 km consistency matters for a Σ-based decision. Recorded, not pursued: no
+Σ-based rule in the preset needs it, because PCS earns nothing (CAMP-FINAL2 Q2).

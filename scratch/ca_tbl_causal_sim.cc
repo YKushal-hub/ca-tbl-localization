@@ -15671,6 +15671,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"fadingPerBand", "true", "B7: fading I/Q state keyed per band, not shared by 868 MHz and 2.4 GHz links between the same ids (UPG-SCOPE U5; DESIGN_DECISIONS 13)"},
     {"relayNisInflate", "true", "B1: relayed-range covariance inflated by the relay's own NIS mean (UPG-SCOPE U4; DESIGN_DECISIONS 13)"},
     {"rssiSigmaLogNormal", "true", "B2/O.7: the 868 MHz range sigma given to the filter is the exact log-normal SD, not the first-order one (SIG868 S1, S3, S4; DESIGN_DECISIONS 14)"},
+    {"imuQuScale", "30", "B2: IMU increment covariance x 30 -- the dead-reckoner's coherent error the EKF treats as white (measured 3-54x; B2CONS adoption rule; DESIGN_DECISIONS 15)"},
 };
 
 int
