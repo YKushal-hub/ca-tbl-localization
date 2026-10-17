@@ -3246,7 +3246,12 @@ gyro.** CA-TBL's availability lead survives in A and B and is lost on the ring a
 every node's policy filter on DC-1's own output, learning the heading offset, bias and stride
 scale from fixes; its assumed model is DC-1's parameters. Gate G95. On the endgame at 0.5 °/s,
 seed 7 (one seed, not a result) it recovered the bias to 95 % and the heading error to 0.02 rad.
-Measured on the preset only by a registered campaign.
+**Measured on the preset, 2026-10-18** (`report/EKF5_PRESET_RESULTS.md`, 189 cells, every
+registered prediction held): CA-TBL tag 0 CEP95 at 0.5 °/s, cv → ekf5: 1976.4 → 766.0 m (5 km),
+283.0 → 43.9 m (endgame), 881.6 → 127.8 m (ring); and at the preset's own near-perfect gyro it is
+better too (57.8 → 28.1, 12.0 → 5.1, 44.7 → 10.1 m). Two costs: at 5 km recovery is partial (fixes
+are sparse), and in the endgame at 0.5 °/s CA-TBL becomes less accurate than LoRa fusion and Poucet
+(+34 to +37 m), which ekf5 helps more. Making ekf5 the default is the owner's decision.
 
 ### N.29 M-01's SF12 inversion is the validation harness colliding with itself
 
