@@ -3219,6 +3219,11 @@ for the configured bandwidth and does not add SY-3's shift on top. On the local 
 topology) the correction moved tier-2 r80 1149.5 → 1421.6 m and, at `boxHalf = 3000`, took
 `static_2p4` from 0/20 to 16/20 deployments meeting the requirement. **Not corrected by default:**
 every tier-2 number moves, so it is a planned campaign, registered before it runs.
+**Measured on the preset, 2026-10-17** (`report/D8_MAIN_RESULTS.md`, D8-MAIN, 120 cells): the
+correction raises CA-TBL's availability in A, B and C (+0.041, +0.022, +0.044) and widens its
+lead over Poucet and over LoRa fusion in A and C; it **removes** CA-TBL's endgame CEP95 advantage
+over both (significant before, not after), and at 5 km CA-TBL then costs +0.57 J per subject
+more than LoRa fusion. Making the row the default remains the owner's decision.
 
 ### N.28 DC-1 draws its gyro bias at the MPU-6050's bias instability
 
