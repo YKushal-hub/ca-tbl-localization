@@ -12,6 +12,7 @@
  *     block is zero, u = v dt and Qu = the constant-velocity Q, and it snapshots the prior.
  */
 
+#include "ns3/ca-tbl-imu-ekf.h"
 #include "ns3/ca-tbl-imu-model.h"
 #include "ns3/ca-tbl-policy.h"
 #include "ns3/core-module.h"
@@ -181,6 +182,73 @@ main(int argc, char* argv[])
               "PredictWithControl = Predict in mean and position block (zero velocity block)");
         Check(b.PriorX() == b.X() && b.PriorY() == b.Y(),
               "PredictWithControl snapshots the prior the integrity check reads");
+    }
+
+    // --- N.33 CONSIDER: a fix of fewer than 3 ranges is a Schmidt update -------------------
+    // One or two ranges cannot observe theta, b or s; under mode 8 they must not move those
+    // states or their variances, while position still moves. Three ranges are not considered,
+    // and mode 0 lets one range move theta -- the defect the mode exists for.
+    {
+        auto primed = [](int mode) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 25.0, 0.01, 1e-6, 1e-4);
+            f.SetRobust(mode);
+            for (int k = 0; k < 20; ++k)
+            {
+                f.Predict(2.5, 3.0, 0.3, 1e-4, 1e-5, 1e-10); // builds pos-theta covariance
+            }
+            return f;
+        };
+        auto ranges = [](const CaTblImuEkf& f, int n, std::vector<CaTblRangeMeasurement>& m,
+                         std::vector<double>& v) {
+            const double ax[3] = {200.0, -150.0, 40.0}, ay[3] = {30.0, 120.0, -180.0};
+            for (int i = 0; i < n; ++i)
+            {
+                CaTblRangeMeasurement r;
+                r.anchorX = f.X() + ax[i];
+                r.anchorY = f.Y() + ay[i];
+                r.rangeM = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i]) + 7.0; // a 7 m innovation
+                m.push_back(r);
+                v.push_back(9.0);
+            }
+        };
+        for (int n = 1; n <= 3; ++n)
+        {
+            for (int mode : {0, 8})
+            {
+                CaTblImuEkf f = primed(mode);
+                std::vector<CaTblRangeMeasurement> m;
+                std::vector<double> v;
+                ranges(f, n, m, v);
+                const double x0 = f.X(), y0 = f.Y(), t0 = f.HeadingOffset(), b0 = f.GyroBias(),
+                             s0 = f.StrideScale(), p22 = f.Cov(2, 2), p33 = f.Cov(3, 3),
+                             p44 = f.Cov(4, 4);
+                f.Update(m, v);
+                const bool posMoved = std::hypot(f.X() - x0, f.Y() - y0) > 1e-3;
+                const bool sensorsFixed = f.HeadingOffset() == t0 && f.GyroBias() == b0 &&
+                                          f.StrideScale() == s0 && f.Cov(2, 2) == p22 &&
+                                          f.Cov(3, 3) == p33 && f.Cov(4, 4) == p44;
+                bool psd = true;
+                for (int i = 0; i < CaTblImuEkf::N; ++i)
+                {
+                    psd = psd && f.Cov(i, i) >= 0.0;
+                    for (int j = 0; j < CaTblImuEkf::N; ++j)
+                    {
+                        psd = psd && f.Cov(i, j) == f.Cov(j, i);
+                    }
+                }
+                const bool considered = (mode == 8 && n < 3);
+                std::string what = "N.33 mode " + std::to_string(mode) + ", " +
+                                   std::to_string(n) + " range(s): position moves, " +
+                                   (considered ? "theta/b/s and their variances unchanged"
+                                               : "theta moves through its covariance") +
+                                   ", P symmetric with a non-negative diagonal";
+                Check(posMoved && psd &&
+                          (considered ? sensorsFixed : std::fabs(f.HeadingOffset() - t0) > 1e-9) &&
+                          f.RobustConsidered() == (considered ? 1u : 0u),
+                      what.c_str());
+            }
+        }
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
