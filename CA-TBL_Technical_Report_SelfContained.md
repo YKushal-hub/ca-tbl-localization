@@ -44,6 +44,32 @@ on disk. **One exception exists and is named in §9.**
 
 ---
 
+## 0a. Claim record, restated 2026-10-17 (supersedes §0 where they differ)
+
+The current measured tables are in `report/CAMP_FINAL2_RESULTS.md`. Conditions: the final preset (DESIGN_DECISIONS 10,
+11, 13), an unknown start, 20 paired seeds, 221 cells, `source 06ea4386 dirty 0`.
+
+| claim | status 2026-10-17 | evidence |
+|---|---|---|
+| Tiering (ranging both LoRa bands opportunistically) | **supported in the robustness sense.** Best endgame CEP95 (4.6 m) and best 5 km availability (0.352), at 2–3× the tag-0 energy of a single LoRa band | CAMP-FINAL2 §2; B4 |
+| Confidence-aware switching (PCS) | **not supported.** Indistinguishable from a covariance-trace threshold in every cell | CAMP-FINAL2 Q2; B4-4 |
+| Integrity-gated escalation | **not supported as a claim.** Precision 0.05–0.32, recall 0.02–0.13; overall it costs accuracy outside the fault window | CAMP-FINAL2 fault matrix |
+| 2.4 GHz ToF over 868 MHz RSSI (same geometry) | **supported for calibrated ToF on tracking accuracy:** 97 vs 465 m after acquisition at 5 km; 8.7 vs 52.4 m in the endgame. **Not** for uncalibrated ToF (Wolf: 130 vs 52 m) | CAMP-FINAL2; UPG-SCOPE U6; V8 |
+| Reply positions (anchor staleness) | **supported, the largest single gain:** 5 km hybrid CEP95 842 → 271 m | V7 |
+| Under calibrated Wolf errors the hybrid works | **refuted (open defect).** Hybrid 53.4 m at 89 J against 2.4 alone 28.3 m at 8.8 J | CAMP-FINAL2 W_end; TECH_DEBT O.7 |
+
+**Engine corrections behind these numbers:**
+- correlated-shadowing RSSI error;
+- no range-error leak into reception;
+- NLOS as a range bias;
+- keyed RNG;
+- particle-filter acquisition;
+- foliage depth clamped to the link;
+- per-band fading;
+- relayed-range NIS inflation.
+
+Each is default-off in code, gated, and null-controlled; the preset turns them on. The text from §0 on is kept as written.
+
 ## 0. Claim record, restated 2026-09-29
 
 **Why this section exists.** The scope banner says every number in this report is
