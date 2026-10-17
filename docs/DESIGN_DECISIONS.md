@@ -324,3 +324,18 @@ Evidence: `report/UPG_SCOPE_RESULTS.md` (exploratory; 20 paired seeds, configs A
 
 **Reproducing earlier preset results:** add `--fadingPerBand=false --relayNisInflate=false`. NC10, G63, G87, G89 and
 G147's base run pin both.
+
+## 14. The preset adopts `--rssiSigmaLogNormal` (2026-10-17, SIG868)
+The 868 MHz range σ given to the filter becomes the exact SD of the log-normal RSSI range error, not the first-order
+one. The registered adoption rule fired (S1, S3 and S4 held; `report/SIG868_RESULTS.md`):
+- calibrated-Wolf endgame hybrid CEP95 53.4 → 34.7 m (−18.6 [−25.8, −11.6]);
+- engine-ToF endgame unchanged (+0.4 [−0.2, +1.1] m);
+- 5 km +20 m on 324 m, interval spanning 0;
+- 868 MHz alone improves: 52.4 → 25.1 m in the endgame.
+
+It is the B2 consistency fix on the 868 MHz class, and it explains most of TECH_DEBT O.7.
+
+**Reproducing earlier preset results:** add `--rssiSigmaLogNormal=false`. NC10, G63, G87, G89, G141 and G147 pin it.
+
+**Headline tables:** CAMP-FINAL2 was measured before this adoption. Its `ca_tbl_full` endgame and 5 km figures are
+within the SIG868 intervals above. Its `static_868` figures are superseded by SIG868's SIG rows.

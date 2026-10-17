@@ -3675,3 +3675,13 @@ realised loss biases ranges long. Not diagnosed.
 
 Any change to the foliage model should carry the RSSI ranging model with it, or be measured as a model mismatch on
 purpose (a real deployment's fitted model would be fitted on site; E1's calibration spots do exactly that).
+
+### O.10 O.7 mostly explained: overconfident 868 MHz σ (closed in part by DESIGN_DECISIONS 14)
+SIG868: with the exact log-normal σ, the calibrated-Wolf endgame hybrid improves 53.4 → 34.7 m. 2.4 GHz alone is
+28.3 m.
+
+The rest of the gap, and the 10× energy, sit with:
+- the dual-base 868 MHz slot (diagnostic: off → 33 m, 51 J);
+- UWB escalations driven by Wolf's large 2.4 GHz σ (about 23 % UWB occupancy).
+
+Open.
