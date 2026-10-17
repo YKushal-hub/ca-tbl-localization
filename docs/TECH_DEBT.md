@@ -3768,3 +3768,13 @@ Fixed in the gate scripts:
 | G136 | the base pins `--imuQuScale=1` | `--dualBaseOnDemand` costs +0.38 J instead of saving (9.59 vs 9.21 J). It is default-off and unused |
 
 All three, and G136's self-test, pass on re-run.
+
+### O.14 K.6 closed: G4/G5 green under DESIGN_DECISIONS 16
+The code-default `--boxHalf` is now 340 (owner decision 2026-10-18). `static_2p4` fixes on 80 % of G3's cycles, and
+the verifier passes. Run time is 113 s per 3600 s run, not K.6's feared 5×.
+
+Two gates had defined their populations at the old default box, and now pin `--boxHalf=1000`:
+- **G28 TD2P4:** 2.4 GHz de-escalation is not reached in the small box.
+- **G30 OFF:** the all-LOS structural zero no longer holds; the small box has 4 all-LOS fixes.
+
+Both, and their self-tests, pass. The expected reds are now G6, G11 and G24.

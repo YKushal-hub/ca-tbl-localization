@@ -178,12 +178,9 @@ bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers u
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (verified 2026-10-18 on the final preset, `ea38dd2b`: 105 PASS and these five;
-`~/catbl_work/gates_final5/suite.log`. `docs/TECH_DEBT.md` O.6 classifies each, and O.11 records the stale gate
-expectations fixed on the way). Five are red, and none is a broken build or a regression:
-- **G4, G5:** FINDING (K.6, re-checked in O.6). In the code-default deployment, `static_2p4` fixes on 41 of 1440
-  cycles while ≥ 3 anchors are in view on 1293, so the arm is delivery-limited, not geometry-limited. G5 fails only
-  because its healthy fixture is G4's run.
+**The suite's expected reds** (2026-10-18, after DESIGN_DECISIONS 16; `docs/TECH_DEBT.md` O.6 classifies each, O.11 and
+O.14 record the stale gate expectations fixed on the way). Three are red, and none is a broken build or a regression:
+- **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
 - **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
