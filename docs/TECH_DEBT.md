@@ -3235,6 +3235,13 @@ DC-1's filter has no bias state, so it cannot learn the error from fixes. Case B
 and the IMU witness (DC-9) are therefore measured with a near-perfect gyro. `--imuGyroBiasSigmaDps`
 (default off; same stream and draw order) lets the magnitude be set. The local line's 5-state
 filter, which estimates the bias (`ca-tbl-imu-ekf.h`, G91, G94), is ported but not wired in.
+**Measured on the preset, 2026-10-17** (`report/DC1_BIAS_RESULTS.md`, DC1-BIAS, 180 cells): at a
+realistic bias every arm's tag 0 CEP95 rises by hundreds of metres to kilometres (CA-TBL: 57.8 →
+1976.4 m at 5 km, 12.0 → 283.0 m in the endgame, at 0.5 °/s), and it is a **plateau**: per seed the
+loss does not track the drawn |bias| (r = −0.08), and 0.005 °/s already costs ~180 m. DC-1's heading
+error is never corrected, so any bias that integrates to tens of degrees over the run makes the
+dead-reckoned direction arbitrary. **Every preset accuracy figure is conditional on a near-perfect
+gyro.** CA-TBL's availability lead survives in A and B and is lost on the ring at 0.5 °/s.
 
 ### N.29 M-01's SF12 inversion is the validation harness colliding with itself
 
