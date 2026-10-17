@@ -178,7 +178,7 @@ bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers u
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-18, after DESIGN_DECISIONS 16; `docs/TECH_DEBT.md` O.6 classifies each, O.11 and
+**The suite's expected reds** (2026-10-18, verified on `a8ab3bd9`: 107 PASS and these three; `~/catbl_work/gates_final7/suite.log`. `docs/TECH_DEBT.md` O.6 classifies each, O.11 and
 O.14 record the stale gate expectations fixed on the way). Three are red, and none is a broken build or a regression:
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
