@@ -539,6 +539,9 @@ struct CaTblPolicyConfig
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
     double negSigmaDb;            //!< C1: the margin spread of that delivery curve
     bool relayNisInflate;         //!< B1 --relayNisInflate: the filter tracks its NIS so relays can scale P_B by it
+    bool rssiCorrInflate;         //!< B2 --rssiCorrInflate: 868 MHz RSSI variance x (1+rho)/(1-rho), rho = exp(-moved/dcorr)
+    double rssiCorrDistM;         //!< B2: shadowing decorrelation distance (engine ENV_RURAL_FORESTED: 30 m)
+    double rssiCorrMaxFactor;     //!< B2: cap on the variance factor
     bool tofRecal;                //!< C2 --tofRecal: learn the 868 MHz log-bias against 2.4 GHz ranges to the same anchor, apply it
     uint32_t hold24AfterK;        //!< C3 --hold24AfterK: 0 off; K: after K straight 2.4 GHz cycles with >= 3 ranges, no UWB escalation
     bool c2bEscalation;           //!< V5 --c2bEscalation: escalate when the next tier is observed in reach, never on confidence
@@ -1161,6 +1164,9 @@ class CaTblPolicy
     //! B1 --relayNisInflate: this filter's running NIS mean (1.0 until it has updates or when off).
     double GetNisMean() const { return m_ekf.NisMean(); }
     uint64_t GetTofRecalPairs() const { return m_recalPairs; }
+    //! B2 --rssiCorrInflate: 868 MHz ranges inflated, and their mean variance factor.
+    uint64_t GetRssiCorrApplied() const { return m_corrN; }
+    double GetRssiCorrMeanFactor() const { return m_corrN ? m_corrSum / static_cast<double>(m_corrN) : 1.0; }
 
     /**
      * \brief Undo the tier change the last Step() made, because the escalation
@@ -1395,6 +1401,12 @@ class CaTblPolicy
     uint64_t m_negApplied = 0;          //!< C1: silent-anchor factors applied
     double m_recalBias = 0.0;   //!< C2: EWMA of ln(r868 / r2.4) over same-anchor pairs
     uint64_t m_recalPairs = 0;  //!< C2
+    struct CorrRef { double nx, ny, ax, ay; };
+    std::map<uint16_t, CorrRef> m_corrLast; //!< B2: per 868 MHz anchor, node estimate and anchor position at its last range
+    uint64_t m_corrN = 0;                   //!< B2
+    double m_corrSum = 0.0;                 //!< B2
+    CaTblDecision StepRecal(double dt, const std::vector<CaTblRangeMeasurement>& meas, uint32_t hopCount,
+                            int32_t activeTierRanges, int32_t activeTierNeighbours, uint32_t tierEvidenceMask);
     CaTblDecision StepImpl(double dt, const std::vector<CaTblRangeMeasurement>& meas, uint32_t hopCount,
                            int32_t activeTierRanges, int32_t activeTierNeighbours, uint32_t tierEvidenceMask); //!< C3: consecutive cycles on 2.4 GHz with >= 3 active ranges
     bool m_pfActive = false;

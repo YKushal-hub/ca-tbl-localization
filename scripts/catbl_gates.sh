@@ -1910,6 +1910,11 @@ printf '\n--- G148 ITU-R P.833-10 forest foliage ---\n'
 bash scripts/foliage_p833_gate.sh "$WORK/g148" || fail G148
 finish G148
 
+# ---------------- G149: B2 --rssiCorrInflate (scope 2026-10-17; correlated-shadowing variance inflation)
+printf '\n--- G149 868 MHz RSSI correlation inflation ---\n'
+bash scripts/rssicorr_gate.sh "$WORK/g149" || fail G149
+finish G149
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

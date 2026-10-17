@@ -116,6 +116,9 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     tofRecal = false; // C2; off: 868 MHz ranges used as measured
     acquireNegInfo = false; // C1; off: non-detections ignored
     relayNisInflate = false; // B1; off: a relay's P_B is used as it stands
+    rssiCorrInflate = false; // B2; off: successive 868 MHz RSSI ranges are fused as independent, as before
+    rssiCorrDistM = 30.0;    // ShadowingParams::DefaultsFor(ENV_RURAL_FORESTED).correlationDistanceM
+    rssiCorrMaxFactor = 100.0;
     negR50M[0] = 3600.0; // 868 MHz: probe r80 ~1700 m with sigma 9 dB, n 2.3 (V1/V2 probes), r50 = r80 10^(0.84 sigma / 10 n)
     negR50M[1] = 328.0;  // 2.4 GHz: fitted to the B3F clamped probe (b4_fit_ondemand.py)
     negR50M[2] = 15.0;   // UWB: probe r80 ~7 m (B3F/V1), unused for gateways
@@ -1739,6 +1742,51 @@ CaTblPolicy::Step(double dt,
                   int32_t activeTierRanges,
                   int32_t activeTierNeighbours,
                   uint32_t tierEvidenceMask)
+{
+    if (!m_config.rssiCorrInflate)
+    {
+        return StepRecal(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    // B2 --rssiCorrInflate (scope 2026-10-17). An 868 MHz RSSI range's error is the link's shadowing, which is
+    // spatially correlated: Gudmundson, rho = exp(-moved / d_corr), the engine's own model. A static or slow node
+    // re-reads nearly the same shadowing every cycle, and fusing those readings as independent collapses Sigma
+    // (static_868 median NEES ~240 at 5 km). For an AR(1) error sequence the variance of the mean grows by the
+    // long-run factor (1 + rho) / (1 - rho); each reading's variance is scaled by it, with rho from the distance the
+    // node's ESTIMATE and the anchor moved since that anchor's previous range (no truth used). Capped.
+    std::vector<CaTblRangeMeasurement> adj(meas);
+    const double ex = EstX();
+    const double ey = EstY();
+    for (auto& m : adj)
+    {
+        if (m.tier != 0 || !(m.rangeM > 0.0))
+        {
+            continue;
+        }
+        double k = 1.0;
+        auto it = m_corrLast.find(m.anchorId);
+        if (it != m_corrLast.end())
+        {
+            const double moved = std::hypot(ex - it->second.nx, ey - it->second.ny) +
+                                 std::hypot(m.anchorX - it->second.ax, m.anchorY - it->second.ay);
+            const double rho = std::exp(-moved / std::max(1e-6, m_config.rssiCorrDistM));
+            k = (rho >= 1.0) ? m_config.rssiCorrMaxFactor
+                             : std::min(m_config.rssiCorrMaxFactor, (1.0 + rho) / (1.0 - rho));
+        }
+        m_corrLast[m.anchorId] = CorrRef{ex, ey, m.anchorX, m.anchorY};
+        m.sigmaM *= std::sqrt(k);
+        m_corrSum += k;
+        ++m_corrN;
+    }
+    return StepRecal(dt, adj, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+}
+
+CaTblDecision
+CaTblPolicy::StepRecal(double dt,
+                       const std::vector<CaTblRangeMeasurement>& meas,
+                       uint32_t hopCount,
+                       int32_t activeTierRanges,
+                       int32_t activeTierNeighbours,
+                       uint32_t tierEvidenceMask)
 {
     if (!m_config.tofRecal)
     {
