@@ -10,6 +10,38 @@ static std::map<std::pair<uint32_t, uint32_t>, std::pair<double, Time>> g_foliag
 //! B3f: how many foliage evaluations clamped the drawn depth to the link length.
 uint64_t g_foliageDepthClampFirings = 0;
 
+double P833GammaDbPerM(double fMHz)
+{
+    static const double kF[5] = {105.9, 466.475, 949.0, 1852.2, 2117.5};
+    static const double kG[5] = {0.04, 0.12, 0.17, 0.30, 0.34};
+    if (!(fMHz > 0.0)) {
+        return 0.0;
+    }
+    int i = 0;
+    while (i < 3 && fMHz > kF[i + 1]) {
+        ++i;
+    }
+    const double slope = std::log(kG[i + 1] / kG[i]) / std::log(kF[i + 1] / kF[i]);
+    return kG[i] * std::pow(fMHz / kF[i], slope);
+}
+
+double P833AmDb(double fMHz)
+{
+    return (fMHz > 0.0) ? 1.37 * std::pow(fMHz, 0.42) : 0.0;
+}
+
+bool ApplyP833Forest(FoliageParams& f, double fMHz)
+{
+    if (f.type != VEG_LIGHT_FOREST && f.type != VEG_DENSE_FOREST && f.type != VEG_TROPICAL_FOREST) {
+        return false;
+    }
+    const double g = P833GammaDbPerM(fMHz);
+    const double a = P833AmDb(fMHz);
+    f.specificAttenuationDbPerM = DistributionParam::Normal(g, g * 0.25, g * 0.2, g * 1.8);
+    f.maxAttenuationDb = DistributionParam::Normal(a, a * 0.2, a * 0.5, a * 2.0);
+    return true;
+}
+
 double ComputeFoliageLossDb(
     Vector txPos, Vector rxPos,
     const FoliageParams& params, LoRaDistributionSampler& sampler,
