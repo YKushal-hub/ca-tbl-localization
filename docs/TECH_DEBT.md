@@ -3663,3 +3663,15 @@ Open points:
 2. **Table 1 is one forest** (St. Petersburg mixed forest, 16 m trees). The Recommendation calls its values "only
    typical".
 3. **Not in the preset.** No campaign has measured it yet; it is registered for the next one.
+
+### O.9 RSSI ranging's path-loss model does not follow the foliage model (C4-P833 F3)
+With `--foliageP833`:
+- 868 MHz links lose about 1.5 dB less to foliage;
+- `static_868`'s 5 km CEP95 nevertheless rises, 494 → 537 m (+43.3 [−1.7, +98.2]);
+- its fix share rises, 0.794 → 0.832.
+
+A plausible cause: the RSSI inversion's path-loss model keeps the vegetation-type foliage constant, so a lower
+realised loss biases ranges long. Not diagnosed.
+
+Any change to the foliage model should carry the RSSI ranging model with it, or be measured as a model mismatch on
+purpose (a real deployment's fitted model would be fitted on site; E1's calibration spots do exactly that).
