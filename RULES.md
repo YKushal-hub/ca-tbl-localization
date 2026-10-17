@@ -47,7 +47,9 @@ the system.
 control relates them, and `baseline_v7` does not reproduce under the corrected topology and is
 not supposed to. Switching it is a change of *scenario*, not of *configuration*.
 
-**Every result in `results/` predates the correction and is provisional until re-run.**
+**Every result in `results/` dated before 2026-09-07 predates the correction and is provisional until re-run.** The
+current headline set is `results/camp_final2_2026-10-17/` (`report/CAMP_FINAL2_RESULTS.md`), measured on the final
+preset (section 3).
 
 **Your remit is the engine.** ns-3 code, experiments, gates, analysis scripts. **Do not write
 thesis prose, chapters, or literature review in this repository.** That work is Phase 1 and
@@ -171,23 +173,39 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # 58 gates; runs ALL of them and reports a summary (~25 min)
+bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers unused, b-suffixed sub-gates); ALL run, summary at the end (hours on a loaded machine)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (counted at `c79fffd`, 2026-10-03; recount with
-`grep -c '^finish ' scripts/catbl_gates.sh`). Of 58 gates, five are red, and none is a broken
-build:
-*(2026-10-16: the script has 98 `finish` lines at `19470672`, not 58. The reds below were
-counted at `c79fffd`; no full suite has been run on the 2026-10-16 switching branch (only the
-new gates G133-G137 with their fixtures), so the current red set is unestablished.)*
-- **G4, G5:** red since the environment split (`docs/TECH_DEBT.md` K.6). True findings.
+**The suite's expected reds** (re-established 2026-10-17 on the final preset; `docs/TECH_DEBT.md` O.6 classifies
+each). Five are red, and none is a broken build or a regression:
+- **G4, G5:** FINDING (K.6, re-checked in O.6). In the code-default deployment, `static_2p4` fixes on 41 of 1440
+  cycles while ≥ 3 anchors are in view on 1293, so the arm is delivery-limited, not geometry-limited. G5 fails only
+  because its healthy fixture is G4's run.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
 - **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
-- **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT
-  N.15); it passes when they are exercised or the owner accepts them.
+- **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
+  are exercised or the owner accepts them.
+
+G63, G87 and G89 were red from 2026-10-08 until 2026-10-17. Their runners now pin the pre-adoption preset (the PIN
+line in each script).
+
+**The preset, 2026-10-17** (`kSpecProfile[]` in `scratch/ca_tbl_causal_sim.cc`; explicit arguments win):
+- DESIGN_DECISIONS 10: `--rngKeyed --rangeErrorNoLinkLeak --rssiRangeFromShadowing --nlosRangeBias
+  --rangeReplyPosition --acquireParticles --foliageDepthClamp`.
+- DD 11: `--radioBasis=sx --halfDuplexChip=false` (SX1262 + SX1280 as two chips).
+- DD 13: `--fadingPerBand --relayNisInflate`.
+
+To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
+Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`.
+
+**Default-off flags added 2026-10-17, each behind a gate:**
+- G146: `--nlos3gppRMa`;
+- G147: `--probeMonotoneTime`, `--agcPerReceiver`, `--finderEnergyReport`, `--dualBase868OnNeed`,
+  `--hold24AfterK`, `--tofRecal`, `--tofCalibrate`, `--acquireNegInfo`;
+- G148: `--foliageP833`.
 
 **G3 passes.** It used to fail once the integrity check fired at seed 7. It now separates
 RNG contamination from the treatment effect on causal order (`scripts/catbl_g3_ablation.py`),
