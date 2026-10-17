@@ -1845,6 +1845,20 @@ bash scripts/ekf5_gate.sh "$WORK/g95" || fail G95
 bash scripts/ekf5_gate_selftest.sh "$WORK/g95" || fail G95
 finish G95
 
+# ---------------- G96: --ekf5Robust=8, CONSIDER, is wired, reached and off by default (N.33)
+# EKF5-PRESET's worst cell (the N8 ring, seed 4, 0.15 deg/s) ended with the heading state 3 rad
+# wrong. --ekf5Robust=8 takes a fix of fewer than 3 ranges -- in practice Case D's single range --
+# as a Schmidt update: position only, theta, b and s and their variances untouched.
+# scripts/ekf5_consider_gate.py reads that cell at 600 s: the mode's line is present, it
+# considered > 0 updates and set no other bit, base's heading error exceeds 0.3 rad and the
+# mode's is under 0.2; --ekf5Robust=0 is the flag absent byte for byte; the mode does not leak
+# into a default run; and it is refused without ekf5 or out of range. The filter-level property
+# is ca_tbl_imu_test's N.33 cases. Negative fixtures in scripts/ekf5_consider_gate_selftest.sh.
+printf '\n--- G96 Schmidt updates for sparse fixes in the 5-state filter (--ekf5Robust=8; N.33) ---\n'
+bash scripts/ekf5_consider_gate.sh "$WORK/g96" || fail G96
+bash scripts/ekf5_consider_gate_selftest.sh "$WORK/g96" || fail G96
+finish G96
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
