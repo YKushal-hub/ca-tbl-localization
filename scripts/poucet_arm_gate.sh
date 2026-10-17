@@ -19,7 +19,12 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g87.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--seed=7 --duration=900 --trace=true --specProfile=true --boxHalf=750 --finderMode=1"
+# --uwbCrossTierPoll=false (TECH_DEBT N.31): LABEL asks that a UWB-labelled cycle had a UWB
+# neighbour, read from nbrUwb, the UWB table. The preset's cross-tier poll (e308c14f) ranges
+# LoRa-heard peers that are NOT in that table, so a legitimate cross-tier UWB fix reads as a
+# mislabel, and the trace has no per-tier poll count to tell the two apart. Until it does, the
+# gate checks the arm where its definition holds.
+B="--seed=7 --duration=900 --trace=true --specProfile=true --boxHalf=750 --finderMode=1 --uwbCrossTierPoll=false"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

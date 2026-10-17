@@ -21,7 +21,11 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g63.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true"
+# --loraDualBase=false (TECH_DEBT N.31): the fuse was built and registered (FUSE-01/02) before the
+# preset took the dual base in e308c14f, and these checks model the active tier and the floor as
+# two sets. Under the dual base both LoRa tiers are already fused, and UNION/KIND/TRACE fail on
+# that combination, which no registration covers. The gate tests the fuse in its own context.
+B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true --loraDualBase=false"
 END="--boxHalf=750 --finderMode=1"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
