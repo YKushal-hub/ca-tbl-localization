@@ -6118,6 +6118,7 @@ struct SpecOptions
     bool imuPredict = false;
     //! N.28. --imuFilter=ekf5: the policy's filter is the 5-state CaTblImuEkf, fed DC-1's output.
     bool imuFilterEkf5 = false;
+    int ekf5Robust = 0; //!< N.33, --ekf5Robust
     //! DC-4. --caseD: a single range as a constraint on the propagated state.
     bool caseD = false;
     //! DC-13. --entryPrediction: held entries propagated as x + v age, P + Q_src age^2.
@@ -6702,6 +6703,7 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5BiasSigma = ip.gyroBiasSigmaRadS;
         pcfg.ekf5ScaleSigma = ip.scaleSigma;
         pcfg.ekf5DwellSigma = ip.dwellSigmaM;
+        pcfg.ekf5Robust = spec.ekf5Robust;
     }
     policy.Configure(pcfg);
     // Seeded at the true start position with a deliberately loose covariance:
@@ -14079,6 +14081,13 @@ RunArm(CaTblPolicyMode mode,
                  << imuPred->rk.Bias() << ") rad/s, scale est " << policy.Ekf5Scale() << " (true "
                  << imuPred->rk.Scale() << "), heading offset est " << policy.Ekf5HeadingOffset()
                  << " (true " << imuPred->rk.Heading() << ") rad\n";
+            if (spec.ekf5Robust != 0)
+            {
+                const CaTblImuEkf& f5 = policy.Ekf5();
+                line << "    N.33 ekf5 mode " << spec.ekf5Robust << ": gated " << f5.RobustGated()
+                     << ", protected " << f5.RobustProtected() << ", recoveries "
+                     << f5.RobustRecoveries() << ", considered " << f5.RobustConsidered() << "\n";
+            }
         }
         std::cout << line.str();
     }
@@ -15220,6 +15229,7 @@ main(int argc, char* argv[])
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     std::string imuFilterArg = "cv";     // N.28; see --imuFilter
+    int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -17352,6 +17362,17 @@ main(int argc, char* argv[])
                  "Its assumed model is DC-1's own parameters; variance-only moment-matched "
                  "coasting is on. Applies to every node with an IMU. Refused without --imuPredict.",
                  imuFilterArg);
+    cmd.AddValue("ekf5Robust",
+                 "With --imuFilter=ekf5: the 5-state filter's update mode, a bit set (TECH_DEBT "
+                 "N.33). 0 (default) is the update every ekf5 result used. 8 CONSIDER takes a fix "
+                 "of fewer than 3 ranges as a Schmidt update -- position only, Joseph covariance "
+                 "-- because one or two ranges cannot observe heading, bias or scale, and an EKF "
+                 "that lets them try learns those states from its own linearisation: on the "
+                 "EKF5-PRESET seeds that diverged, that is how the heading went wrong. 1 GATE, "
+                 "2 PROTECT and 4 RECOVER are diagnostic modes the validator's robustness study "
+                 "rejected (gating locks a weakly observed filter out of its only good ranges); "
+                 "they are kept for that study, not for use. Refused without ekf5.",
+                 ekf5RobustArg);
     cmd.AddValue("imuGyroBiasSigmaDps",
                  "With --imuPredict: the sigma, in deg/s, of DC-1's per-run gyro bias. 0 "
                  "(default) keeps 8.816 deg/h, the MPU-6050's bias INSTABILITY -- the floor of a "
@@ -18982,6 +19003,16 @@ main(int argc, char* argv[])
         }
         spec.imuFilterEkf5 = true;
         std::cout << "  N.28: the policy filter is the 5-state ekf5 on DC-1's output\n";
+    }
+    if (ekf5RobustArg != 0)
+    {
+        if (!spec.imuFilterEkf5 || ekf5RobustArg < 0 || ekf5RobustArg > 15)
+        {
+            std::cerr << "FATAL: --ekf5Robust needs --imuFilter=ekf5 and a mode in 1..15\n";
+            return 1;
+        }
+        spec.ekf5Robust = ekf5RobustArg;
+        std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
     if (imuGyroBiasSigmaDpsArg != 0.0)
