@@ -339,3 +339,21 @@ It is the B2 consistency fix on the 868 MHz class, and it explains most of TECH_
 
 **Headline tables:** CAMP-FINAL2 was measured before this adoption. Its `ca_tbl_full` endgame and 5 km figures are
 within the SIG868 intervals above. Its `static_868` figures are superseded by SIG868's SIG rows.
+
+## 15. The preset sets `--imuQuScale=30` (2026-10-17, B2CONS)
+The IMU increment covariance handed to every filter is scaled by 30. Before this, the preset left it at the code
+default of 1, and every campaign since S2 passed 10. The dead-reckoner's error is coherent, so its variance per cycle
+is measured 3–54× too small. The registered adoption rule fired (`report/B2CONS_RESULTS.md`):
+- `ca_tbl_full` coverage 0.647 → 0.692 (5 km) and 0.901 → 0.959 (endgame);
+- CEP95 within +10 % (+20.9 m on 344 m; −0.1 m on 5.0 m).
+
+**Campaigns** stop passing `--imuQuScale` (an explicit value still wins).
+
+**Reproducing earlier results:**
+- add `--imuQuScale=1` for pre-S2 preset runs;
+- add `--imuQuScale=10` for 2026-10 campaigns.
+
+NC10, G63, G87, G89, G100 and G130 pin it.
+
+**`--rssiCorrInflate` (B2's other candidate) is not adopted.** It is right for 868 MHz alone (NEES 36 → 8), but its
+rule failed on the hybrid's endgame coverage.
