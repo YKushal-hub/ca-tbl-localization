@@ -3754,3 +3754,17 @@ calibrated-hardware ToF errors or 868 MHz alone.
 The hybrid's energy under Wolf (about 80 J against 8.8 J) comes from about 20 % UWB occupancy, which Wolf's wide
 2.4 GHz σ triggers through the escalation rule. That is the rule doing its job, not a defect. Choosing whether that
 UWB time is worth its accuracy is the accuracy/energy decision C3 (`--hold24AfterK`) exposes.
+
+**O.11 addendum (2026-10-18).** The `fa39262a` summary was read through a 10-line cut, which hid two more reds:
+**G142 and G144 failed there too.** Both are the same stale DEFAULT pattern, with flags the preset has set since DD 10.
+
+The suite on `c967d56f` (`~/catbl_work/gates_final4`) gave 102 PASS, the five known reds, and G136, G142 and G144.
+Fixed in the gate scripts:
+
+| gate | fix | measured effect on the final preset |
+|---|---|---|
+| G142 | the base pins `--acquireParticles=false` | |
+| G144 | the base pins `--rangeReplyPosition=false` and the pre-DD-11/13/14/15 values | reply positions cut finder-range σ 44–48 % (139 → 73 m), against ≥ 50 % before |
+| G136 | the base pins `--imuQuScale=1` | `--dualBaseOnDemand` costs +0.38 J instead of saving (9.59 vs 9.21 J). It is default-off and unused |
+
+All three, and G136's self-test, pass on re-run.

@@ -12,7 +12,7 @@ if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDI
 bad=0
 "$UNIT" || bad=1
 if "$UNIT" --break=force > "$D/fix.txt" 2>&1; then echo "G142 FAIL FIXTURE  --break=force did not turn the unit checks red"; bad=1; else echo "G142 PASS FIXTURE  --break=force is red"; fi
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true --unknownStart=true --boxHalf=750 --finderMode=1"
+B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true --unknownStart=true --boxHalf=750 --finderMode=1 --acquireParticles=false"  # pinned: the preset turns it on (DESIGN_DECISIONS 10); later arguments win
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --acquireParticles=false --outdir="$D/off" > "$D/off.log" 2>&1 &
