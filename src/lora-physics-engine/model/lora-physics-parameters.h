@@ -366,6 +366,13 @@ struct NLOSParams {
     DistributionParam buildingPenetrationDb;
     DistributionParam floorLossDbPerFloor;
     int defaultNumberOfFloors;
+    // V2a-2 (master plan v3), --nlos3gppRMa. false (default): P_NLOS = 1 - exp(-d / scale) and the NLOS loss is drawn
+    // from the per-environment Normal above (values OURS). true: for links whose higher end is >= 10 m (the RMa
+    // base-station range, 10-150 m; the gateways), P_LOS and the NLOS excess loss follow 3GPP TR 38.901 v17.0.0 RMa:
+    // Table 7.4.2-1 (Pr_LOS = 1 for d2D <= 10 m, else exp(-(d2D - 10)/1000)) and Table 7.4.1-1 (excess =
+    // max(PL_LOS, PL'_NLOS) - PL_LOS, h = 5 m, W = 20 m, note 5's breakpoint). Lower links (finders, handheld) keep the
+    // model above: RMa is not defined for them.
+    bool rma3gpp = false;
     
     static NLOSParams DefaultsFor(EnvironmentClass env);
 };
