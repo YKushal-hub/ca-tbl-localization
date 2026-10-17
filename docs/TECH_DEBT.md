@@ -3610,3 +3610,56 @@ equal to P(margin > 0), within 0.002 on 868 MHz and 0.03 on 2.4 GHz and UWB.
 - S6 compared against the shadowing σ alone.
 
 Fitted outage constants (B4 on-demand; C1's 9.1 dB) absorb this. A Φ(M/σ_shadowing) rule would not. No engine change.
+
+### O.6 B12: the remaining red gates, classified (suite at `8190ef1e`, `~/catbl_work/gates_final2/suite.log`)
+The scope batch (`350fa493`) re-pointed G63, G87 and G89: their runners pin the pre-adoption preset. Five reds remain.
+None is a broken build or a regression.
+
+| gate | class | why | what turns it green |
+|---|---|---|---|
+| G4 | **finding** (K.6) | default deployment (code default, not the preset): `static_2p4` fixes on 41/1440 cycles | resize the default deployment (tier 2 needs spacing < ~312 m), see below |
+| G5 | **follows G4** | its "healthy input" fixture is G4's run; all six negative fixtures still fire | as G4 |
+| G6 | **by design** | pre-D1 evidence still cited; overwriting `results/{causal,det_a,det_b}` would reintroduce `e21666d`'s defect | regenerate to new paths and move the citations (baseline_v7) |
+| G11 | **by design** (J.1) | the analytic propagation model and the engines disagree at the registered criterion; terrain is transcription-only | rescope terrain or re-register the criterion (owner) |
+| G24 | **finding** (N.15) | mechanisms with no population under the preset | exercise them, or owner acceptance |
+
+**G4, re-checked 2026-10-17** (default config, seed 7, 3600 s, the `be9b8f21` binary):
+- `static_2p4` has 3 or more geometrically visible 2.4 GHz anchors (`vis2p4 ≥ 3`) on 1293 of 1440 cycles;
+- it has 3 or more discovered neighbours (`nbr2p4 ≥ 3`) on 561;
+- it holds a fix on 41.
+
+So a coverage exemption on geometric visibility, like UWB's, is **not** justified: the arm has anchors in view and
+fails to fix through link delivery, about 0.5 per link at the 300–450 m spacing. K.6's remedy stands. The
+deployment-size change multiplies suite time about 5× (K1), which is an owner tooling decision.
+
+### O.7 Calibrated Wolf ToF does not reach the hybrid (UPG-SCOPE, report/UPG_SCOPE_RESULTS.md 2.1)
+In the endgame under `--tofErrorModel=wolf`:
+
+| arm | CEP95 without `--tofCalibrate` | CEP95 with it | tag-0 energy |
+|---|---|---|---|
+| `static_2p4` | 130.3 m | 30.1 m | |
+| `ca_tbl_full` | 58.8 m | 56.2 m | doubles, 42.7 → 85.0 J |
+
+So, under Wolf errors, the hybrid's endgame accuracy is limited by something other than the 2.4 GHz bias. The energy
+says the policy keeps escalating. Suspects:
+- the integrity and NLOS checks keyed to the engine model's error scale;
+- the UWB escalation rule reading Wolf's wider σ as degradation.
+
+Not diagnosed. CAMP-FINAL2's W_end cell carries the measurement.
+
+### O.8 C4 `--foliageP833` (gate G148), and what it leaves open
+ITU-R P.833-10 (09/2021), section 2.1: γ from Table 1, Am from eq. (2). The PDF and its SHA-256 are in
+`~/catbl_work/c4_p833` (not tracked).
+
+On the probe:
+- 868 MHz forest loss −1.5 dB;
+- 2.4 GHz +4.5 dB, so 2.4 GHz r80 156 → 112 m (seed 1);
+- UWB unchanged.
+
+Open points:
+1. **Depth is not path geometry.** The drawn depth is lognormal around 100 m (clamped to the link by B3f), not the
+   length of the path inside the woodland. P.833's d is that length, so one-terminal-in-woodland geometry would need
+   a canopy map.
+2. **Table 1 is one forest** (St. Petersburg mixed forest, 16 m trees). The Recommendation calls its values "only
+   typical".
+3. **Not in the preset.** No campaign has measured it yet; it is registered for the next one.
