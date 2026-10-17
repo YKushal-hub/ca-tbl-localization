@@ -619,6 +619,7 @@ struct CaTblPolicyConfig
     double ekf5ThetaVar0 = 1e-6;          //!< heading-offset prior, rad^2: DC-1's error starts at 0. OURS
     double ekf5StepSigma = 0.01;          //!< per-step stride noise, m: DC-1 has none; a floor. OURS
     bool ekf5MomentMatch = true;          //!< variance-only moment-matched coasting (G94)
+    int ekf5Robust = 0;                   //!< N.33: CaTblImuEkf::SetRobust mode; 0 = original update
 
     /**
      * \brief Apply the pre-registered v2 thresholds.
@@ -969,6 +970,7 @@ class CaTblPolicy
     uint64_t GetEkf5Dwell() const { return m_ekf5Dwell; }
     double Ekf5HeadingOffset() const { return m_ekf5.HeadingOffset(); }
     double Ekf5Bias() const { return m_ekf5.GyroBias(); }
+    const CaTblImuEkf& Ekf5() const { return m_ekf5; }
     double Ekf5Scale() const { return m_ekf5.StrideScale(); }
 
     double Pxx() const { return FltPxx(); }

@@ -1,6 +1,6 @@
 # Scenario flags — `ca_tbl_causal_sim`
 
-**Snapshot of 2026-09-30.** It lists 236 flags. It was generated from the binary built from
+**Snapshot of 2026-09-30.** It lists 237 flags. It was generated from the binary built from
 `ff4f8bb`'s `src/` and `scratch/`, which later commits up to this file's own leave
 unchanged. **Rows have changed since, on 2026-09-30, 2026-10-01 and 2026-10-02, and §3 was regenerated
 for each change.** Row numbers below are as of the latest regeneration:
@@ -137,6 +137,7 @@ for each change.** Row numbers below are as of the latest regeneration:
 - `--t2SensitivityRowKHz` (row 196 of §3, and its §1 row): added 2026-10-16 with its default, `0` (TECH_DEBT N.27).
 - `--imuGyroBiasSigmaDps` (row 211 of §3, and its §1 row): added 2026-10-16 with its default, `0` (TECH_DEBT N.28).
 - `--imuFilter` (row 210 of §3, and its §1 row): added 2026-10-17 with its default, `cv` (TECH_DEBT N.28).
+- `--ekf5Robust` (row 211 of §3, and its §1 row): added 2026-10-18 with its default, `0` (TECH_DEBT N.33). Every row after it moved down one; `--imuGyroBiasSigmaDps` is now row 212.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
 eighty-nine names. Three flags changed meaning without changing their printed default, and §1
@@ -265,6 +266,7 @@ precondition missing.
 | `--t2SensitivityRowKHz` | double: 0, 203.125, 406.25, 812.5, 1625 | `0` | added 2026-10-16 | D-8. Tier 2 on the SX1280 data sheet's Table 6-1 row for its configured bandwidth; 0 keeps the committed table, which is the 1625 kHz row applied at 800 kHz (~6 dB pessimistic). SY-3's 10*log10(BW/800 kHz) shift is not added on top. Refused unless the row is tabulated and matches the configured tier-2 bandwidth within 5 % | Null control 12/12 against `4ca0dff` (390 files). G93. Measured on the preset by D8-MAIN (`report/D8_MAIN_RESULTS.md`) |
 | `--imuGyroBiasSigmaDps` | double, deg/s | `0` | added 2026-10-16 | DC-1's per-run gyro bias sigma. 0 keeps 8.816 deg/h, the MPU-6050's bias instability, not a turn-on residual. Same stream, same draw order: only the magnitude moves. Refused without `--imuPredict` and when not positive | Null control 12/12 against `4ca0dff`. Measured on the preset by DC1-BIAS (`report/DC1_BIAS_RESULTS.md`): at 0.15-0.5 deg/s every arm's CEP95 rises by hundreds of metres to kilometres |
 | `--imuFilter` | string: `cv`, `ekf5` | `cv` | added 2026-10-17 | With `--imuPredict`, the policy's filter. `cv`: every result so far, the constant-velocity filter with DC-1's displacement as a control input and no heading, bias or scale state. `ekf5`: the 5-state [x, y, theta, b, s] `CaTblImuEkf` on the same IMU output (stride |u|, raw heading atan2 u), learning heading offset, bias and stride scale from fixes; assumed model = DC-1's parameters; variance-only moment-matched coasting. Every node with an IMU. Refused without `--imuPredict`; any other value FATAL | Null control 11/12 byte-identical, NC6 summaries identical with 1-ulp `estXhp`/`estYhp` (TECH_DEBT 4.1 class). G95 |
+| `--ekf5Robust` | int bit set, 0-15 | `0` | added 2026-10-18 | With `--imuFilter=ekf5`, the 5-state filter's update mode (TECH_DEBT N.33). 0: the update every ekf5 result used. 8 CONSIDER: a fix of fewer than 3 ranges (in practice Case D's single range) is a Schmidt update -- position only, theta/b/s and their variances untouched, Joseph covariance. 1 GATE, 2 PROTECT, 4 RECOVER: diagnostic modes the validator's robustness study rejected, kept for that study. Refused without ekf5 or outside 1-15 | Null control 14/14 byte-identical (NC1-9, X1-X5, traces included). G96 |
 
 ## 2. Help text corrected, default unchanged
 
@@ -502,29 +504,30 @@ prints it.
 | 208 | `--caseD` | `false` |
 | 209 | `--imuPredict` | `false` |
 | 210 | `--imuFilter` | `cv` |
-| 211 | `--imuGyroBiasSigmaDps` | `0` |
-| 212 | `--sparseInStep` | `false` |
-| 213 | `--subjectEdgeUplink` | `false` |
-| 214 | `--edgeUplinkRanges` | `false` |
-| 215 | `--deadBatteryNoDraw` | `false` |
-| 216 | `--subjectIntegrityWitness` | `false` |
-| 217 | `--subjectNlosClassifier` | `false` |
-| 218 | `--subjectTier1Tdoa` | `false` |
-| 219 | `--halfDuplex` | `0` |
-| 220 | `--reportAirtime` | `false` |
-| 221 | `--collisionBothLost` | `false` |
-| 222 | `--halfDuplexChip` | `false` |
-| 223 | `--silenceStopsRelay` | `false` |
-| 224 | `--finderPseudoAnchorStrict` | `false` |
-| 225 | `--subjectFinderPseudoAnchor` | `false` |
-| 226 | `--subjectBatteryDeplete` | `false` |
-| 227 | `--subjectTriggeredUpdates` | `false` |
-| 228 | `--triggeredUpdates` | `false` |
-| 229 | `--triggeredUpdateK` | `1` |
-| 230 | `--handshakeFixes` | `false` |
-| 231 | `--queryTierBinding` | (empty) |
-| 232 | `--uwbArbitration` | `false` |
-| 233 | `--arbBatteryCapJ` | `1000` |
-| 234 | `--anchorGrantGossipS` | `0` |
-| 235 | `--suspectForcesEscalation` | `true` |
-| 236 | `--nlosSource` | `legacy` |
+| 211 | `--ekf5Robust` | `0` |
+| 212 | `--imuGyroBiasSigmaDps` | `0` |
+| 213 | `--sparseInStep` | `false` |
+| 214 | `--subjectEdgeUplink` | `false` |
+| 215 | `--edgeUplinkRanges` | `false` |
+| 216 | `--deadBatteryNoDraw` | `false` |
+| 217 | `--subjectIntegrityWitness` | `false` |
+| 218 | `--subjectNlosClassifier` | `false` |
+| 219 | `--subjectTier1Tdoa` | `false` |
+| 220 | `--halfDuplex` | `0` |
+| 221 | `--reportAirtime` | `false` |
+| 222 | `--collisionBothLost` | `false` |
+| 223 | `--halfDuplexChip` | `false` |
+| 224 | `--silenceStopsRelay` | `false` |
+| 225 | `--finderPseudoAnchorStrict` | `false` |
+| 226 | `--subjectFinderPseudoAnchor` | `false` |
+| 227 | `--subjectBatteryDeplete` | `false` |
+| 228 | `--subjectTriggeredUpdates` | `false` |
+| 229 | `--triggeredUpdates` | `false` |
+| 230 | `--triggeredUpdateK` | `1` |
+| 231 | `--handshakeFixes` | `false` |
+| 232 | `--queryTierBinding` | (empty) |
+| 233 | `--uwbArbitration` | `false` |
+| 234 | `--arbBatteryCapJ` | `1000` |
+| 235 | `--anchorGrantGossipS` | `0` |
+| 236 | `--suspectForcesEscalation` | `true` |
+| 237 | `--nlosSource` | `legacy` |
