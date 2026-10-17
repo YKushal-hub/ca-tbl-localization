@@ -21,8 +21,18 @@ Registration: `report/PREREG_B2CONS.md` (`a62902d1`, before any cell). 120 cells
 - **The hybrid's consistency** is now 0.96 in the endgame, at the 0.95 target, and 0.69 at 5 km.
   - The 5 km gap that remains is not in the motion model: Q30 moved it only 0.05.
   - Nor is it in 868 MHz correlation: CORR moved it 0.03.
-  - It is acquisition-era error (multimodal starts) that a Gaussian Σ cannot represent. That is the particle filter's
-    job before handover, so TECH_DEBT O.12 records this as the remaining B2 limit, not a defect to tune.
+  - It is **not** acquisition-era. Under Q30, coverage by time window is 0.646 (120–300 s), 0.653 (300–900 s) and
+    0.723 (900–1800 s).
+  - **Where it is (Q30, A, t ≥ 900 s, tag 0 and subjects):**
+
+    | cycle class | coverage |
+    |---|---|
+    | 2.4 GHz fix | 0.80–0.83 |
+    | 868 MHz fix | 0.59–0.64 |
+    | tag 0 coasting | 0.50 |
+    | subjects coasting | 0.76 |
+
+    The residual is overconfidence in 868 MHz fixes. TECH_DEBT O.12 records it.
 - **`--rssiCorrInflate` is the right physics for 868 MHz alone:**
   - median NEES 36 → 8 (5 km) and 10.6 → 2.4 (endgame);
   - coverage 0.38 → 0.58 and 0.52 → 0.83;

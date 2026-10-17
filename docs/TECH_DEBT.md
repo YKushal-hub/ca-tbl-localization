@@ -3706,18 +3706,38 @@ All five, and their self-tests, pass on re-run.
   adopted their flags. The binary in `~/catbl_v2` was probably not rebuilt after `11b4dce8`. Rebuild in the suite
   worktree before every suite run (done for `fa39262a`).
 
-### O.12 B2 closed as far as a Gaussian filter allows (B2CONS)
-Coverage of `ca_tbl_full`'s 95 % ellipse:
+### O.12 B2: endgame consistency met; at 5 km the residual is 868 MHz-fix overconfidence (B2CONS)
+Coverage of `ca_tbl_full`'s 95 % ellipse under DESIGN_DECISIONS 15:
 
 | scale | coverage | against the target |
 |---|---|---|
-| endgame | 0.96 | at the 0.95 target, under DESIGN_DECISIONS 15 |
+| endgame | 0.96 | met |
 | 5 km | 0.69 | short |
 
-Neither the IMU scale (+0.05) nor the 868 MHz correlation inflation (+0.03) closes the 5 km gap. What remains is
-acquisition-era error: unknown start, few anchors, multimodal posteriors, which a single Gaussian cannot cover.
-`--acquireParticles` holds the multimodal phase, and the handover threshold (cloud smaller than a quarter of the
-median range) decides when the Gaussian takes over.
+**It is not acquisition-era.** By time window: 0.65, 0.65 and 0.72.
 
-A stricter handover is the lever if 5 km consistency matters for a Σ-based decision. Recorded, not pursued: no
-Σ-based rule in the preset needs it, because PCS earns nothing (CAMP-FINAL2 Q2).
+**Late-window classes** (t ≥ 900 s, tag 0 and subjects):
+
+| class | coverage |
+|---|---|
+| 2.4 GHz fix | 0.80–0.83 |
+| **868 MHz fix** | **0.59–0.64** |
+| tag 0 coasting | 0.50 |
+| subjects coasting | 0.76 |
+
+**Principled 868 MHz fixes tried, and what each bought at 5 km:**
+
+| fix | gain |
+|---|---|
+| exact log-normal σ (DD 14) | adopted |
+| correlation inflation (`--rssiCorrInflate`) | +0.03 hybrid coverage, endgame cost |
+| ToF-anchored recalibration (C2) | none (UPG-SCOPE) |
+| consider bias states (V3) | backfired |
+
+**What is left:**
+- the RSSI range's conditional bias given that the link was received (B4's mean z of −0.4, selection by reception);
+- the tag's coasting between sparse fixes.
+
+Scaling the 868 MHz variance until coverage reads 0.95 would be tuning a finding away (CLAUDE.md §9), so it is not
+done. **This is the measured limit of B2 under the current model.** No Σ-based rule in the preset depends on it, since
+PCS earns nothing (CAMP-FINAL2 Q2).
