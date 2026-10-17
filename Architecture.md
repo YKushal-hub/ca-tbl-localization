@@ -11,6 +11,21 @@
 | **Platform**            | ns-3.47, C++17, custom`lora-physics-engine` module                             |
 | **Evidence convention** | Every factual claim carries a tag`[E-nn]` resolved in §12                     |
 
+> ## As built, 2026-10-17
+>
+> - **Radios:** Tier 1 SX1262, Tier 2 SX1280 (two separate chips: `--radioBasis=sx --halfDuplexChip=false`), Tier 3
+>   DW3000-class. DESIGN_DECISIONS 11. The LR1121 single-die row in §2 describes an option, not the build.
+> - **The preset** (`--specProfile`) carries the engine corrections of DESIGN_DECISIONS 10 and 13:
+>   - correlated-shadowing RSSI error;
+>   - NLOS as range bias;
+>   - reply positions;
+>   - particle-filter acquisition;
+>   - per-band fading;
+>   - relayed-range NIS inflation.
+> - **Default-off physics options:** 3GPP TR 38.901 RMa NLOS (`--nlos3gppRMa`) and ITU-R P.833-10 forest foliage
+>   (`--foliageP833`).
+> - **Current measured numbers:** `report/CAMP_FINAL2_RESULTS.md`. RULES.md §3 lists the flags and gates.
+
 ---
 
 ## Table of contents

@@ -34,6 +34,20 @@
 > registered prediction and §13.3's coverage-limit diagnosis in particular — is reasoning
 > about the legacy geometry and does not carry over unexamined.
 
+> ## Current results, 2026-10-17
+>
+> The results below (§4 on) are the legacy-topology record. The current measured tables are
+> `report/CAMP_FINAL2_RESULTS.md`: the final preset, an unknown start, 20 paired seeds.
+>
+> | arm | 5 km tag-0 CEP95 | endgame tag-0 CEP95 |
+> |---|---|---|
+> | `ca_tbl_full` | 324 m | 4.6 m |
+> | `static_2p4` | 397 m | 8.7 m |
+> | `static_868` | 494 m | 52.4 m |
+>
+> PCS-gated switching is indistinguishable from a trace threshold. The current claim status is the Technical Report
+> §0a.
+
 ---
 
 ## Table of contents
