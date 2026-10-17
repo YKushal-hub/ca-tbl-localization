@@ -183,9 +183,9 @@ Two of them are red, and neither is a broken build:
   Technical Report (TECH_DEBT N.30).
 - **G93:** FAIL BY FINDING. Tier 2 applies the SX1280's 1625 kHz sensitivity row at 800 kHz,
   ~6 dB pessimistic (D-8, TECH_DEBT N.27). Correcting it is a registered campaign, not a patch.
-- **G63, G87, G89:** red on `main` since `e308c14f` (2026-10-08) put the N.26 fixes into the
-  preset; the last full suite ran before it. Found by this integration, identical on `4ca0dff`'s
-  own binary (TECH_DEBT N.31). Owner decision: the gates or the preset.
+- **G63, G87, G89** went red when `e308c14f` (2026-10-08) put the N.26 fixes into the preset, and
+  are green again since their runners state the flags their checks were written for (TECH_DEBT
+  N.31). G87 then checks the Poucet arm without the cross-tier poll; see N.31 for why.
 
 **G3 passes.** It used to fail once the integrity check fired at seed 7. It now separates
 RNG contamination from the treatment effect on causal order (`scripts/catbl_g3_ablation.py`),

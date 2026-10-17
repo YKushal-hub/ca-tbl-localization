@@ -3275,3 +3275,17 @@ before those flags were in it:
 - **G89** (the N.26 fixes): OFF — its flags-off control runs print an N.26 line, because the
   preset now sets the flags; DUAL and CROSS then find no off/on contrast (213 / 213, 8 / 8).
 Which is right — the gates or the preset — is the owner's call; nothing was changed here.
+
+**Proposed repair (2026-10-17, its own pull request, for the owner to accept or not).** Each
+gate's runner states the flags its checks were written for, and nothing else changes:
+- **G89:** every run starts from all four fixes explicitly off at their pre-preset values
+  (`integrityChi2 = 9.21`) and turns on only the one it tests. This restores what the gate was for
+  — each fix off against on — and is the least discretionary of the three.
+- **G63:** `--loraDualBase=false`, the context FUSE-01/02 registered the fuse in. The fuse with
+  the dual base is a combination no registration covers.
+- **G87:** `--uwbCrossTierPoll=false`. LABEL reads the UWB table (`nbrUwb`), which a cross-tier
+  poll bypasses by design, and the trace carries no per-tier poll count to tell a legitimate
+  cross-tier UWB fix from a mislabel. Adding that column (an engine change) would let G87 check
+  the preset as it is; until then the gate checks the arm where its definition holds.
+Measured against `main`'s binary: G89 7/7, G63 9/9, G87 6/6 on the runners exactly as committed,
+and each self-test unchanged in verdict (9, 14 and 7 negative fixtures, all as expected).
