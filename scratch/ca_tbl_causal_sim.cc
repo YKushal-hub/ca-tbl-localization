@@ -15706,7 +15706,12 @@ main(int argc, char* argv[])
     bool traceDiagnostic = false;
     // All four defaults below are set from results/causal/probe_range_sweep.csv,
     // not chosen. See BuildDeployment() for the derivation of each.
-    double boxHalfM = 1000.0;      // 868 r80 = 1000 m; 3x3 grid pitch 900 m
+    // DESIGN_DECISIONS 16 (owner decision 2026-10-18; TECH_DEBT K.6): 340 m, so the default 3x3 grid's pitch
+    // (0.9 boxHalf = 306 m) is below 2 x the 2.4 GHz r80 (156 m) and tier 2 covers the default deployment
+    // (static_2p4 fix share 0.80 at seed 7, 3600 s). It was 1000 m ("868 r80 = 1000 m", pitch 900 m), which the
+    // corrected probe left tier 2 unable to cover (41/1440 fixes; G4 red). --boxHalf=1000 reproduces every
+    // earlier default-config result.
+    double boxHalfM = 340.0;
     // 0.0 = off. See --baseCampFrac.
     double baseCampFrac = 0.0;
     double subjectKeepOutM = 0.0;
