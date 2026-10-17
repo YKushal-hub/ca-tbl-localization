@@ -3600,3 +3600,13 @@ white (`--imuQuScale` help); the principled fix is an error-state filter (MASTER
 ### O.4 Gates re-pointed
 G63, G87 and G89 (red since 2026-10-08): their runners now pin the preset they were written against (`PIN`: the
 FIXES-N26 additions and the 2026-10-17 additions off, the LR1121 basis). All three pass, and their selftests pass.
+
+### O.5 B8 / S6 closed: the delivery curve is Φ(M/σ_margin), not Φ(M/σ_shadowing)
+report/B8_DELIVERY_CURVE.md. The probe with `--probeTerms --probeMonotoneTime` under the preset shows delivery
+equal to P(margin > 0), within 0.002 on 868 MHz and 0.03 on 2.4 GHz and UWB.
+- The margin's SD is 9–17 dB, against a shadowing SD of 7–9 dB.
+- The growth comes chiefly from NLOS excess: its SD rises to 9–13 dB beyond 1.5 km, and it is 24–47 % of the
+  variance there.
+- S6 compared against the shadowing σ alone.
+
+Fitted outage constants (B4 on-demand; C1's 9.1 dB) absorb this. A Φ(M/σ_shadowing) rule would not. No engine change.
