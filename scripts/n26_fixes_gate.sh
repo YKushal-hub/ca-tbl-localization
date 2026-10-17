@@ -21,6 +21,12 @@ else
 fi
 E="--specProfile=true --seed=7 --duration=900 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full,static_868"
 K="--specProfile=true --seed=1 --duration=1800 --trace=true --arms=static_868"
+# Every run states all four fixes explicitly (TECH_DEBT N.31). Since e308c14f the preset turns
+# them ON, so a run that left them to the preset was no longer an "off" control, and a single-fix
+# run had the other three on too. Each run below starts from all four off at the pre-preset
+# values (integrityChi2 = 9.21, chi-square 0.99) and turns on only the one it tests; a later
+# flag overrides an earlier one, so "$OFF4 --loraDualBase=true" is the dual base alone.
+OFF4="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift
@@ -29,13 +35,13 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
-run e_off $E &
-run e_dual $E --loraDualBase=true &
-run e_cross $E --uwbCrossTierPoll=true &
+run e_off $E $OFF4 &
+run e_dual $E $OFF4 --loraDualBase=true &
+run e_cross $E $OFF4 --uwbCrossTierPoll=true &
 wait
-run e_chi $E --mahalUseR=true --integrityChi2=20 &
-run k_off $K &
-run k_gate $K --tdoaInnovationGate=true &
+run e_chi $E $OFF4 --mahalUseR=true --integrityChi2=20 &
+run k_off $K $OFF4 &
+run k_gate $K $OFF4 --tdoaInnovationGate=true &
 wait
 
 python3 scripts/n26_fixes_gate.py "$D"
