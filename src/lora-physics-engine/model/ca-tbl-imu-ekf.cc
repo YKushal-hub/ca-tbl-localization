@@ -1,5 +1,7 @@
 #include "ca-tbl-imu-ekf.h"
 
+#include "ca-tbl-policy.h" // CaTblRangeMeasurement
+
 #include <algorithm>
 #include <cmath>
 
@@ -89,6 +91,8 @@ CaTblImuEkf::Predict(double dt,
     m_x[0] += D * c;
     m_x[1] += D * s;
     m_x[2] = theta;
+    m_vx = (dt > 0.0) ? D * c / dt : 0.0; // Vx()/Vy(): velocity is not a state here
+    m_vy = (dt > 0.0) ? D * s / dt : 0.0;
     m_pathX += D * c;
     m_pathY += D * s;
     // m_x[3] (bias) and m_x[4] (stride scale) are constant under the prediction.
@@ -487,6 +491,179 @@ CaTblImuEkf::MahalanobisFromPriorWithR(double zx, double zy, double rxx, double 
         return 0.0;
     }
     return dx * ((d / det) * dx + (-b / det) * dy) + dy * ((-c / det) * dx + (a / det) * dy);
+}
+
+// ---------------------------------------------------------------------------
+// Position observations, as CaTblEkf's, over five states
+// ---------------------------------------------------------------------------
+
+void
+CaTblImuEkf::FuseAxis(int axis, double z, double varM2)
+{
+    double PH[N];
+    for (int i = 0; i < N; ++i)
+    {
+        PH[i] = m_P[i][axis];
+    }
+    const double S = PH[axis] + varM2;
+    if (!(S > 0.0) || !std::isfinite(S))
+    {
+        return;
+    }
+    double K[N];
+    for (int i = 0; i < N; ++i)
+    {
+        K[i] = PH[i] / S;
+    }
+    const double innovation = z - m_x[axis];
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] += K[i] * innovation;
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i] * m_P[axis][j];
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+}
+
+void
+CaTblImuEkf::FusePosition(double zx, double zy, double varM2)
+{
+    if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) || !std::isfinite(zy))
+    {
+        return;
+    }
+    ResetCoast();
+    FuseAxis(0, zx, varM2);
+    FuseAxis(1, zy, varM2);
+}
+
+double
+CaTblImuEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) || !std::isfinite(rxy) ||
+        !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) || !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return -1.0;
+    }
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = 0.5 * (m_P[0][1] + m_P[1][0]) + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return -1.0;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    return (s11 * v0 * v0 - 2.0 * s01 * v0 * v1 + s00 * v1 * v1) / det;
+}
+
+bool
+CaTblImuEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) || !std::isfinite(rxy) ||
+        !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) || !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return false;
+    }
+    const double pxy = 0.5 * (m_P[0][1] + m_P[1][0]);
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = pxy + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return false;
+    }
+    ResetCoast();
+    const double i00 = s11 / det;
+    const double i01 = -s01 / det;
+    const double i11 = s00 / det;
+    double K[N][2];
+    for (int i = 0; i < N; ++i)
+    {
+        K[i][0] = m_P[i][0] * i00 + m_P[i][1] * i01;
+        K[i][1] = m_P[i][0] * i01 + m_P[i][1] * i11;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] += K[i][0] * v0 + K[i][1] * v1;
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i][0] * m_P[0][j] - K[i][1] * m_P[1][j];
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+    return true;
+}
+
+void
+CaTblImuEkf::PredictDwell(double dt, double qTheta2, double qBias2, double posVar2)
+{
+    // theta' = theta + b dt is the only state that moves: F = I except d theta' / d b = dt.
+    // P' = F P F^T, written out for that single off-diagonal.
+    m_x[2] += m_x[3] * dt;
+    double P[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            P[i][j] = m_P[i][j];
+        }
+    }
+    for (int j = 0; j < N; ++j)
+    {
+        P[2][j] = m_P[2][j] + dt * m_P[3][j]; // row 2 of F P
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        m_P[i][2] = P[i][2] + dt * P[i][3]; // column 2 of (F P) F^T
+        m_P[2][i] = m_P[i][2];
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            if (i != 2 && j != 2)
+            {
+                m_P[i][j] = P[i][j];
+            }
+        }
+    }
+    m_P[2][2] += qTheta2;
+    m_P[3][3] += qBias2;
+    m_P[0][0] += posVar2;
+    m_P[1][1] += posVar2;
+    m_vx = 0.0;
+    m_vy = 0.0;
+    Symmetrise();
+    SnapshotPrior();
 }
 
 } // namespace ns3
