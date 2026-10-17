@@ -1831,6 +1831,20 @@ printf '\n--- G94 5-state filter consistency over a 1000 s outage (fixture both 
 bash scripts/catbl_imu_long_outage_fixture.sh || fail G94
 finish G94
 
+# ---------------- G95: --imuFilter=ekf5 is wired, learns, and is off by default (N.28)
+# DC1-BIAS measured DC-1's filter failing with any realistic gyro bias: it has no heading, bias
+# or scale state, so DC-1's heading error is never corrected. --imuFilter=ekf5 runs the 5-state
+# CaTblImuEkf on the same IMU output. scripts/ekf5_gate.py reads the preset's endgame at
+# 0.5 deg/s (seed 7, 900 s): every prediction went through ekf5 (moving + dwell = DC-1's cycles),
+# the bias estimate is within 50 % of DC-1's true bias and the heading offset within 0.2 rad of
+# its true error; the default is byte-identical to an explicit cv; ekf5 does not leak into a
+# default run; and the two meaningless combinations are refused.
+# Negative fixtures in scripts/ekf5_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G95 the 5-state filter on DC-1 (--imuFilter=ekf5; N.28) ---\n'
+bash scripts/ekf5_gate.sh "$WORK/g95" || fail G95
+bash scripts/ekf5_gate_selftest.sh "$WORK/g95" || fail G95
+finish G95
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
