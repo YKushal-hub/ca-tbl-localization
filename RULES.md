@@ -201,7 +201,8 @@ line in each script).
 - DD 15: `--imuQuScale=30` (campaigns no longer pass it).
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
-Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14. `static_868` figures are superseded
+Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own
+per-config figures are CORRW's BASE rows (`report/CORRW_RESULTS.md`): hybrid 5 km 365 m, endgame 5.0 m. `static_868` figures are superseded
 by `report/SIG868_RESULTS.md`; the hybrid's lie within its intervals.
 
 **Default-off flags added 2026-10-17, each behind a gate:**
