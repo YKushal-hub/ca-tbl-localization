@@ -290,6 +290,13 @@ reads worse under the realistic 868 MHz error (V8 R8: 72 → 215 m). That is the
 preset's subject path; see TECH_DEBT O.1.)
 
 
+## 11. Tier 2 is the SX1280, as two separate chips (owner decision 2026-10-16, applied 2026-10-17)
+
+The preset's `--radioBasis` moves from `lr1121` (tiers 1 and 2 on one LR1121 die) to `sx`: an SX1262 at 868 MHz and an
+SX1280 at 2.4 GHz, the documented ranging chip (POUCET p. 4, Wolf p. 2). `--halfDuplexChip` moves to false: the two
+bands no longer share a die. Each transceiver's own half-duplex limit (`--halfDuplex=2`) is unchanged. Earlier
+results reproduce with `--radioBasis=lr1121 --halfDuplexChip=true`; NC10 pins both.
+
 ## 12. What counts as a fix (owner decision 2026-10-17)
 
 A cycle is a fix cycle only when the tracking filter (EKF) took a range update that cycle (`hadFix`). Cycles in which
