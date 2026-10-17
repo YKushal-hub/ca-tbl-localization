@@ -3242,6 +3242,11 @@ loss does not track the drawn |bias| (r = −0.08), and 0.005 °/s already costs
 error is never corrected, so any bias that integrates to tens of degrees over the run makes the
 dead-reckoned direction arbitrary. **Every preset accuracy figure is conditional on a near-perfect
 gyro.** CA-TBL's availability lead survives in A and B and is lost on the ring at 0.5 °/s.
+**Remedy built, 2026-10-17:** `--imuFilter=ekf5` (default `cv`) runs the 5-state `CaTblImuEkf` as
+every node's policy filter on DC-1's own output, learning the heading offset, bias and stride
+scale from fixes; its assumed model is DC-1's parameters. Gate G95. On the endgame at 0.5 °/s,
+seed 7 (one seed, not a result) it recovered the bias to 95 % and the heading error to 0.02 rad.
+Measured on the preset only by a registered campaign.
 
 ### N.29 M-01's SF12 inversion is the validation harness colliding with itself
 
