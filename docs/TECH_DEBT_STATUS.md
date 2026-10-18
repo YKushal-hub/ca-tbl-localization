@@ -21,7 +21,7 @@ them.
 | T4 | ~~M.11 / RULES.md~~ | ~~Stale counts in RULES.md §7 ("58 gates at c79fffd", `cmd.AddValue` line ranges, the unit-suite count)~~ **DONE** RULES.md counts replaced by the commands that produce them. | ENG (doc) |
 | T5 | ~~I.4~~ | ~~`--bidirectionalDigest`, `--finderPseudoAnchor`, `--corroborationCheck` silently need `--sendHandshakeFrames`; their help text does not say so~~ **DONE** help text of --bidirectionalDigest and --finderPseudoAnchor states the dependency (verified by run); --corroborationCheck already did. | ENG (doc) |
 | T6 | H.3 / I.5 | No gate asserts that a mechanism's input is non-zero whenever its firing counter is | ENG (gate) |
-| T7 | N.29 | M-01's SF12 "inversion" is the validation harness colliding with itself (0.1 s spacing) | ENG |
+| T7 | ~~N.29~~ | ~~M-01's SF12 "inversion" is the validation harness colliding with itself (0.1 s spacing)~~ **DONE** harness spaces frames at 2× time on air; SF12 500 m PDR 0.015 → 1.000 (seed 7). | ENG |
 | T8 | 4.1 / 4.2 | The 1-ulp trace divergence is undiagnosed; `-march=native` makes byte identity machine-dependent. Suggested test: rebuild with `-march=x86-64` | ENG (diagnosis) |
 | T9 | 6 | `src/lorawan` link fix never upstreamed; the optimized profile is not enforced | ENG (minor) |
 | T10 | 2.1 | Four loss terms (antenna gain, Doppler, multipath, soil) are computed then zeroed: wire them in or delete them | OWNER → CAMP |

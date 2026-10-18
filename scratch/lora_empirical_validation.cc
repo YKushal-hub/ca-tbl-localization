@@ -152,6 +152,20 @@ bool RunMetric1_SensitivityThreshold(uint32_t seed, const std::string& outputDir
 // ============================================================================
 // METRIC 2: PDR VS DISTANCE PER SF (Petäjäjärvi 2015)
 // ============================================================================
+// TECH_DEBT N.29 (2026-10-18): Metric 2 used to send a frame every 0.1 s, but an SF12 frame lasts over a second,
+// so each one collided with the harness's own previous frame (SF12 at 500 m: 199 of 200 lost). Frames are now spaced
+// at twice their time on air (20-byte payload, CR 4/5, explicit header, 8-symbol preamble, LDRO at SF11/12), never
+// closer than 0.1 s. --metric2SpacingS=0.1 restores the old spacing and reproduces earlier outputs.
+static double g_metric2SpacingS = -1.0; // < 0: automatic (2 x time on air)
+static double LoRaToaS(uint8_t sf, double bwHz, uint32_t payloadBytes)
+{
+    const double tSym = std::pow(2.0, sf) / bwHz;
+    const int de = (sf >= 11 && bwHz <= 125e3) ? 1 : 0;
+    const double num = 8.0 * payloadBytes - 4.0 * sf + 28.0 + 16.0; // CRC on, explicit header
+    const double nPayload = 8.0 + std::max(std::ceil(num / (4.0 * (sf - 2.0 * de))) * 5.0, 0.0);
+    return (8.0 + 4.25) * tSym + nPayload * tSym;
+}
+
 bool RunMetric2_PDRvsDistance(uint32_t seed, const std::string& outputDir)
 {
     NS_LOG_UNCOND("=== Metric 2: PDR vs Distance per SF ===");
@@ -198,10 +212,13 @@ bool RunMetric2_PDRvsDistance(uint32_t seed, const std::string& outputDir)
                 uint32_t received = 0;
                 std::vector<double> rssiValues;
                 
+                const double spacingS = (g_metric2SpacingS >= 0.0)
+                                            ? g_metric2SpacingS
+                                            : std::max(0.1, 2.0 * LoRaToaS(sf, bandwidthHz, 20));
                 for (uint32_t pkt = 0; pkt < packetsPerPoint; ++pkt) {
                     PhysicsResult r = engine.ProcessTransmission(
                         pkt + 1, 0, txPos, rxPos, txPowerDbm, sf, bandwidthHz, 0, Seconds(timeS));
-                    timeS += 0.1;
+                    timeS += spacingS;
                     if (r.packetReceived) {
                         received++;
                         rssiValues.push_back(r.measuredRssiDbm);
@@ -883,6 +900,10 @@ int main(int argc, char* argv[])
     cmd.AddValue("seed", "Random seed", seed);
     cmd.AddValue("metric", "Which metric to run (1-10 or all)", metric);
     cmd.AddValue("output_dir", "Output directory", outputDir);
+    cmd.AddValue("metric2SpacingS",
+                 "Metric 2 frame spacing in seconds. Negative (default): twice each SF's time on air, at least 0.1 s, so "
+                 "the harness's frames do not collide with each other (TECH_DEBT N.29). 0.1 reproduces the old spacing.",
+                 g_metric2SpacingS);
     cmd.Parse(argc, argv);
     
     NS_LOG_UNCOND("LoRa Physics Engine — Empirical Validation Suite");

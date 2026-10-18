@@ -3298,6 +3298,10 @@ current code) SF12 at 500 m: PDR 0.005–0.015 with 199/200 collisions at 0.1 s 
 since SF12 airtime is ~30× SF7 and therefore overlaps far more interferers": right about collisions,
 wrong about whose. It is not a property of the channel, and it is not a reason to exclude SF12.
 
+*2026-10-18, fixed in the harness.* Metric 2 spaces frames at twice each SF's time on air (20-byte payload), never
+closer than 0.1 s; `--metric2SpacingS=0.1` restores the old spacing. Seed 7, SF12: urban 500 m 0.015 → 1.000,
+suburban 0.005 → 0.985, and delivery now falls with distance (urban 10 km 0.340). No gate runs the harness.
+
 ### N.30 Two gates had no negative fixture, and cited evidence was never checked as held
 
 G10 had no negative fixture (working rule 6); `scripts/catbl_citation_fixture.sh` now runs first.
