@@ -1188,7 +1188,7 @@ class CaTblPolicy
     //! C2 --tofRecal: the learnt 868 MHz log-bias ln(r868 / r2.4) and how many pairs taught it.
     double GetTofRecalBias() const { return m_recalBias; }
     //! B1 --relayNisInflate: this filter's running NIS mean (1.0 until it has updates or when off).
-    double GetNisMean() const { return m_ekf.NisMean(); }
+    double GetNisMean() const { return m_config.imuFilterEkf5 ? m_ekf5.NisMean() : m_ekf.NisMean(); }
     uint64_t GetTofRecalPairs() const { return m_recalPairs; }
     //! B2 --rssiCorrInflate: 868 MHz ranges inflated, and their mean variance factor.
     uint64_t GetRssiCorrApplied() const { return m_corrN; }
