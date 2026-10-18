@@ -22,7 +22,7 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (Case A fixes|arbitration pre-emptions|queue gossip items|grant tie-break verdicts)'
+KNOWN='POP (Case A fixes|arbitration pre-emptions|grant tie-break verdicts)'  # 2026-10-18: queue gossip has a population again; the two STRUCT zeros are exempt (T17 part)
 
 pass=0
 fail=0
@@ -49,7 +49,7 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
         other=$(grep -E "G24 (FAIL|MISSING)" "$T/out.txt" | grep -vE "$KNOWN" | wc -l)
         local known
         known=$(grep -E "G24 FAIL" "$T/out.txt" | grep -cE "$KNOWN")
-        [ "$rc" -eq 1 ] && [ "$other" -eq 0 ] && [ "$known" -eq 4 ] && ok=1
+        [ "$rc" -eq 1 ] && [ "$other" -eq 0 ] && [ "$known" -eq 3 ] && ok=1
     else
         grep -Eq "G24 (FAIL|MISSING) +$2" "$T/out.txt" && [ "$rc" -eq 1 ] && ok=1
     fi
@@ -65,7 +65,7 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
 }
 
 fresh
-check "P0 the real run set fails only on its four zero populations" -
+check "P0 the real run set fails only on its three zero populations" -
 fresh; f=$(ls "$T"/f/eq_flags/trace_*.csv | head -1); sed -i '2s/,/,9/' "$f"
 check "N1 the preset and its flags written out disagree" EQUIV
 fresh; sed -i '/^boxHalf: explicit/d' "$T/f/end/spec_profile.txt"

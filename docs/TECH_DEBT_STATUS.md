@@ -31,7 +31,7 @@ them.
 | T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
 | T15 | ~~1.3 / N.30(main) / G92~~ | ~~15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report~~ **DONE** G92 PASSES: 13 lost paths in RESULTS_NONREGENERABLE.tsv with reasons and successors, 3 allow-listed in EXCLUDED.md; citing documents note it. | ENG (re-point or exclude) |
 | T16 | I.6 / G6 | G6 red while pre-D1 evidence is cited; the remedy is regenerating to new paths and moving citations | CAMP |
-| T17 | N.15 / G24 | G24 FAIL BY FINDING: mechanisms with no population under the preset | OWNER (accept) or ENG |
+| T17 | N.15 / G24 | G24 FAIL BY FINDING: mechanisms with no population under the preset -- *2026-10-18:* two zeros now exempt as structural (O.15); 3 genuine zeros remain for O2. | OWNER (accept) or ENG |
 | T18 | J.1 / 4.4 / G11 | The analytic model and engines disagree (the 2.4 GHz gap grows with distance). Must not be tuned; research | LIMIT |
 | T19 | 2.3 | UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained | LIMIT |
 | T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
@@ -53,7 +53,7 @@ them.
 | T36 | N.42 | Lim, Hofer, Robyns values still lack a source | LIMIT |
 | T37 | H.4 / B | Constants ours and uncited (finder GNSS sigma, corroboration k=3/30 m/0.5) | LIMIT (record) |
 | T38 | K.9 | SHS gait calibration diverges where fixes are sparse (debt by owner decision) | OWNER |
-| T39 | M.3 | `--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset | ENG (preset entry + NC) |
+| T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
 | T40 | 5.1 | 137 published commits carry the wrong author email; fixing needs a force-push to protected `main` | OWNER |
 | T41 | 5.3 | No gate catches stale documents | ENG (gate, partial) |
 | T42 | L.3 claim 3 | Identity-scoped arbitration has never been measured as a claim | CAMP |
@@ -91,3 +91,4 @@ them.
 | id | decision | evidence |
 |---|---|---|
 | O1 | adopt `--publishAfterStep` into the preset? (T2) | G150; correctness only, entries 2.5 s fresher |
+| O2 | accept G24's three zero populations (Case A fixes, arbitration pre-emptions, grant tie-break verdicts)? (T17) | O.15; they follow from N.26's fused sets |

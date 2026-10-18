@@ -1666,6 +1666,9 @@ tree, where `source` reads `unknown`) can be matched to a built binary by its ha
   which commit built it. That needs the build to record HEAD (ns-3's
   `--enable-build-version`, or a generated header), which is a build-system change.
 
+*2026-10-18 (T39): both stamps are in the preset.* Under `--specProfile`, `run_id.txt` names the binary's SHA-256 and the
+commit and dirty count that built it. Only the sidecar changes (NC10: 224 files identical).
+
 *2026-10-04, `--stampBuildCommit` (G82), the other half.* `run_id.txt` gains one more line:
 `build source <commit> dirty <n>`. It names the tree that COMPILED the binary.
 - `scratch/catbl_build_stamp.cmake` runs as a custom target before every build of
@@ -3983,3 +3986,14 @@ Two gates had defined their populations at the old default box, and now pin `--b
 - **G30 OFF:** the all-LOS structural zero no longer holds; the small box has 4 all-LOS fixes.
 
 Both, and their self-tests, pass. The expected reds are now G6, G11 and G24.
+
+### O.15 G24's zero set, 2026-10-18 (T17, the part that is not a decision)
+The preset now runs `halfDuplexChip=false` (DD 11) and `rangeReplyPosition=true` (DD 10). Two of G24's populations are
+therefore zero by construction:
+- **receptions lost to the other band:** two chips cannot deafen each other;
+- **tag 0's finder ranges dropped:** every finder reply carries a position.
+
+G24 reports each as STRUCT while the preset's `spec_profile.txt` shows the deciding setting, and falls back to the
+population rule otherwise. Queue gossip items have a population again. **The three zeros left:** Case A fixes,
+arbitration pre-emptions and grant tie-break verdicts (N.26's fused sets and fewer competing escalations). Accepting
+them is the owner's (TECH_DEBT_STATUS O2).
