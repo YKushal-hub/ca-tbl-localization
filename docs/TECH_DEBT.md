@@ -4101,3 +4101,9 @@ Poucet's endgame lead (2.6 m against 5.3 m) is bought with UWB on every cycle, a
 of 40) and cuts them for every arm; the endgame gain (7.2 → 4.3 m) is not significant; at 5 km CA-TBL then ties
 Poucet at 1/24 of its energy, and its availability is not below any comparator. Five heading failures remain:
 range innovations still drive theta against the reference.
+
+**N.59 addendum (REAL-STACK, `report/REAL_STACK_RESULTS.md`).** With 2 m finder GNSS error (`--finderPosSigma=2`) the
+realistic world's two remaining inconsistencies were repeated ranges to an offset finder fused as independent and
+overconfident relayed ranges. `--ekf5FinderConsider` and `--ekf5RelayGate` fix the endgame (10.5 → 4.4 m), where
+CA-TBL then ties Poucet's accuracy with higher availability at 1/17 the energy. Not proposed: 5 km availability
+−0.011 [−0.028, +0.004] against a registered −0.01 bound.
