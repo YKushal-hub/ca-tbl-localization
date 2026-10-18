@@ -210,6 +210,12 @@ class CaTblImuEkf
     //           carried in P but no single-range innovation is spent learning them.
     static const int ROBUST_CONSIDER = 8;
     void SetRobust(int mode) { m_robust = mode; }
+    /** --ekf5StateBounds: estimate projection onto the physically admissible region (Simon & Chia 2002): after
+     *  every update the gyro bias and stride scale are clamped to +/- k times their prior sigmas. A 34 % stride
+     *  error is not a step estimator's; letting the linear update put the scale there converts a position
+     *  inconsistency into a dead-reckoning runaway. k <= 0 (default): no projection. */
+    void SetStateBounds(double k, double sigmaB, double sigmaS) { m_bndK = k; m_bndB = sigmaB; m_bndS = sigmaS; }
+    uint64_t BoundsApplied() const { return m_bndN; }
     /** --ekf5FinderConsider: each finder's GNSS position offset is a Schmidt consider parameter -- not
      *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
      *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
@@ -282,6 +288,15 @@ class CaTblImuEkf
         double X[N][2] = {}; //!< cross-covariance state x anchor offset
     };
     bool m_consOn = false;
+    double m_bndK = 0.0;
+    double m_bndB = 0.0;
+    double m_bndS = 0.0;
+    uint64_t m_bndN = 0;
+    void ApplyBounds();
+    void UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void FuseHeadingBody(double z, double r);
+    bool FusePositionCovBody(double zx, double zy, double rxx, double rxy, double ryy);
+    void FusePositionBody(double zx, double zy, double varM2);
     bool m_relayGate = false;
     uint64_t m_relayGated = 0;
     uint64_t m_relaySeen = 0;
