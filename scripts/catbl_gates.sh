@@ -2030,6 +2030,11 @@ else
 fi
 finish G152
 
+# ---------------- G153: T29 --interferenceDistance (TECH_DEBT M.1): an interferer is scored at this receiver
+printf '\n--- G153 interference attenuated by distance ---\n'
+bash scripts/interference_distance_gate.sh "$WORK/g153" || fail G153
+finish G153
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

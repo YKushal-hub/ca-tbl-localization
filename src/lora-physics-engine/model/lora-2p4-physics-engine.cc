@@ -567,7 +567,7 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     // 13. Active Packet Interference & Collision Overlap Tracking
     Time airtime = Time::FromDouble(std::pow(2, spreadingFactor) / effBw * 20.0, Time::S); // Nominal airtime approximation
     m_interference->RegisterActiveTransmission(
-        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition);
+        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition, dist_m);
         
     double interferenceDb = m_interference->ComputeInterferencePenaltyDb(
         txNodeId, spreadingFactor, effBw, currentTime, airtime, txPosition, rxPosition, currentTime,

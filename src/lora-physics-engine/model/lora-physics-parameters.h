@@ -464,6 +464,11 @@ struct InterferenceParams {
     DistributionParam adjacentChannelLeakageDb;
     bool selfInterferenceEnabled;
     double selfInterferenceWindowMs;
+    //! T29 --interferenceDistance (TECH_DEBT M.1): false (default) scores a registered interferer at the power its OWN
+    //! link delivered at its own receiver, wherever this receiver is. True: corrected to this receiver by
+    //! 10 n log10(d_this / d_own), with n the engine's path-loss exponent.
+    bool attenuateByDistance = false;
+    double attenuationExponent = 2.0;
     
     static InterferenceParams DefaultsFor(EnvironmentClass env);
 };

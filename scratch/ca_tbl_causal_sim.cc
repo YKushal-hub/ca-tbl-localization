@@ -2183,6 +2183,8 @@ static bool g_tofCalibrate = false;
 static bool g_agcPerReceiverArg = false;
 //! T2 --publishAfterStep (TECH_DEBT L.2 note): re-publish tag 0's entry after this cycle's Step.
 static bool g_publishAfterStep = false;
+//! T29 --interferenceDistance (TECH_DEBT M.1).
+static bool g_interferenceDistance = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2334,6 +2336,15 @@ Dc1ImuParams()
         c868.foliage.clampDepthToLink = true;                                                      \
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
+    if (g_interferenceDistance)                                                                    \
+    {                                                                                              \
+        c868.interference.attenuateByDistance = true;                                              \
+        c868.interference.attenuationExponent = c868.propagation.pathLossExponent.mean;            \
+        c2p4.interference.attenuateByDistance = true;                                              \
+        c2p4.interference.attenuationExponent = c2p4.propagation.pathLossExponent.mean;            \
+        cUwb.interference.attenuateByDistance = true;                                              \
+        cUwb.interference.attenuationExponent = cUwb.propagation.pathLossExponent.mean;            \
     }                                                                                              \
     if (g_foliageP833)                                                                             \
     {                                                                                              \
@@ -16466,6 +16477,14 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("interferenceDistance",
+                 "T29 (TECH_DEBT M.1). False (default): the engines' interference registry scores every overlapping "
+                 "transmission at the power its OWN link delivered at its own receiver, whatever this receiver's distance "
+                 "from it (the distance is computed and not used), so a distant interferer is as loud as a near one. True: "
+                 "the interferer's power is corrected to this receiver by 10 n log10(d_this / d_own), n the engine's own "
+                 "path-loss exponent; shadowing and fading of the interferer-to-receiver path are not drawn. Default "
+                 "false: every result so far carries the old rule.",
+                 g_interferenceDistance);
     cmd.AddValue("publishAfterStep",
                  "T2 (TECH_DEBT L.2 note). False (default): tag 0 publishes its table entry before this cycle's Step, so "
                  "the entry stamped t carries the estimate of t - dt, and every entry age in the project is understated by "

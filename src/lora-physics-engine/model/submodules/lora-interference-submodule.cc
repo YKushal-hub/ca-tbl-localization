@@ -50,9 +50,10 @@ void InterferenceSubmodule::RegisterActiveTransmission(
     uint32_t txNodeId, uint32_t rxGatewayId,
     Time startTime, Time airtime,
     uint8_t sf, double bw, uint8_t cr,
-    double txPowerDbm, Vector txPosition)
+    double txPowerDbm, Vector txPosition, double ownLinkDistM)
 {
     ActiveTransmission t;
+    t.ownLinkDistM = ownLinkDistM;
     t.txNodeId = txNodeId;
     t.startTime = startTime;
     t.endTime = startTime + airtime;
@@ -144,6 +145,10 @@ double InterferenceSubmodule::ComputeInterferencePenaltyDb(
             // Use the actual received power recorded at the gateway for raw
             // collision telemetry, then apply SIC only to the residual penalty.
             double rawRxPowerAtGw = node.rxPowerDbmAtGateway - isolation;
+            if (params.attenuateByDistance && node.ownLinkDistM > 0.0) {
+                // T29: the interferer as heard HERE, not at its own receiver.
+                rawRxPowerAtGw -= 10.0 * params.attenuationExponent * std::log10(dist / node.ownLinkDistM);
+            }
             double rxPowerAtGw = rawRxPowerAtGw;
             if (node.isCanceled) {
                 rxPowerAtGw -= 30.0; // 30 dB SIC cancellation depth
