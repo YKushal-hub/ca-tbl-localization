@@ -35,8 +35,8 @@ V[FOLB]="--foliageScaleBounds=true"
 V[INTERF]="--interferenceDistance=true"
 V[RXPOW]="--rssiRangeFromRxPower=true"
 V[SUBNOTDOA]="--subjectTier1Tdoa=false"
-V[EDGEOFF]="--gatewayEdgeServer=false"
-V[ARBOFF]="--arbitrationV2=false"
+V[EDGEOFF]="--gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false"  # amendment 1
+V[ARBOFF]="--arbitrationV2=false --requesterEscalation=false --gossipQueue=false"  # amendment 1
 declare -A G
 G[A]=""
 G[B]="--boxHalf=750 --finderMode=1"
