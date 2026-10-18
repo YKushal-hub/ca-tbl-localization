@@ -20128,6 +20128,12 @@ main(int argc, char* argv[])
         spec.imuFilterEkf5 = true;
         std::cout << "  N.28: the policy filter is the 5-state ekf5 on DC-1's output\n";
     }
+    if (spec.imuFilterEkf5 && spec.rangeBiasStates)
+    {
+        // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
+        std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
+        return 1;
+    }
     if (ekf5RobustArg != 0)
     {
         if (!spec.imuFilterEkf5 || ekf5RobustArg < 0 || ekf5RobustArg > 15)
