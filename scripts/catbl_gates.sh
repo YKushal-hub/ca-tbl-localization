@@ -2040,6 +2040,11 @@ printf '\n--- G154 foliage scaling not capped by the clamp ---\n'
 bash scripts/foliage_bounds_gate.sh "$WORK/g154" || fail G154
 finish G154
 
+# ---------------- G155: T46 --rssiRangeFromRxPower (TECH_DEBT O.9): the RSSI range carries foliage and fading
+printf '\n--- G155 RSSI range from the received power ---\n'
+bash scripts/rssi_rxpower_gate.sh "$WORK/g155" || fail G155
+finish G155
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

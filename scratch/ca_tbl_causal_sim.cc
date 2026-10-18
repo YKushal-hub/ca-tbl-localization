@@ -2187,6 +2187,8 @@ static bool g_publishAfterStep = false;
 static bool g_interferenceDistance = false;
 //! T12 --foliageScaleBounds (TECH_DEBT N.41).
 static bool g_foliageScaleBounds = false;
+//! T46 --rssiRangeFromRxPower (TECH_DEBT O.9).
+static bool g_rssiRangeFromRxPower = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2338,6 +2340,10 @@ Dc1ImuParams()
         c868.foliage.clampDepthToLink = true;                                                      \
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
+    if (g_rssiRangeFromRxPower)                                                                    \
+    {                                                                                              \
+        c868.ranging.rssiRangeFromRxPower = true;                                                  \
     }                                                                                              \
     if (g_foliageScaleBounds)                                                                      \
     {                                                                                              \
@@ -16490,6 +16496,14 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("rssiRangeFromRxPower",
+                 "T46 (TECH_DEBT O.9). False (default): under --rssiRangeFromShadowing the 868 MHz RSSI range inverts path "
+                 "loss plus shadowing only, so it omits the foliage and fading a real receiver's RSSI carries, and its error "
+                 "is the shadowing alone (about 7 dB) against the 9-17 dB realised margin spread (B8). True (needs "
+                 "--rssiRangeFromShadowing and --rangeErrorNoLinkLeak, both in the preset): the range also carries this "
+                 "link's foliage less the foliage a site-fitted model expects, and its fading less the mean; its sigma uses "
+                 "the total spread. The 4.4/4.0 dB SDs and the 1.2 dB fading mean are OURS, from B8's probe.",
+                 g_rssiRangeFromRxPower);
     cmd.AddValue("foliageScaleBounds",
                  "T12 (TECH_DEBT N.41). False (default): the 2.4 GHz and UWB foliage specific attenuation is the 868 MHz "
                  "distribution with only its MEAN multiplied (x2.17, x5.28, ITU-R P.833 f^0.75); its spread and clamp bounds "
