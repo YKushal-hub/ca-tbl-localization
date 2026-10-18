@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""G100: --ekf5FinderConsider is wired, takes the finder GNSS variance out of each range's R and into the filter, and is
+"""G150: --ekf5FinderConsider is wired, takes the finder GNSS variance out of each range's R and into the filter, and is
 off by default.
 
 Reads the run set scripts/finder_consider_gate.sh writes. What each failure looks like on disk:
@@ -28,13 +28,13 @@ def report(ok, label, msg):
     global nok, nfail
     nok += ok
     nfail += not ok
-    print(f"  G100 {'ok     ' if ok else 'FAIL   '} {label:<8}{msg}")
+    print(f"  G150 {'ok     ' if ok else 'FAIL   '} {label:<8}{msg}")
 
 
 def missing(label, msg):
     global nmiss
     nmiss += 1
-    print(f"  G100 MISSING {label:<8}{msg}")
+    print(f"  G150 MISSING {label:<8}{msg}")
 
 
 def rc(d, n):
@@ -86,7 +86,7 @@ def main():
     report(not leak, "CONTROL", f"runs without the flag printing its lines: {leak} (need none)")
     rr = {n: rc(d, n) for n in ("r_cv", "r_rob")}
     report(all(v == 1 for v in rr.values()), "REFUSE", f"exit codes {rr} (need 1, 1)")
-    print(f"  G100: {nok} ok, {nfail} failed, {nmiss} missing input")
+    print(f"  G150: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1
 
 
