@@ -107,6 +107,16 @@ class CaTblImuEkf
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
 
+    /** Set the position and its full 2x2 covariance, as CaTblEkf::SetPositionCov does for
+     *  --acquireParticles' handover. Position's cross-covariance with theta, b and s is zeroed:
+     *  the cloud says nothing about them, and what the filter has learned of them is kept. */
+    void SetPositionCov(double x, double y, double pxx, double pxy, double pyy);
+
+    /** --relayNisInflate: running mean (EWMA, weight 0.02) of the range updates' NIS, nu^2 / S,
+     *  exactly as CaTblEkf's. Observation only: the update's arithmetic is unchanged. */
+    void EnableNisTracking() { m_trackNis = true; }
+    double NisMean() const { return m_nisN > 0 ? m_nisMean : 1.0; }
+
     /**
      * Process noise for one cycle, from the ASSUMED sensor parameters only -- never
      * from a realised error. One definition, used by the policy and by the validator's
@@ -251,6 +261,17 @@ class CaTblImuEkf
     uint64_t m_nProtected = 0;
     uint64_t m_nRecoveries = 0;
     uint64_t m_nConsidered = 0;
+    bool m_trackNis = false;
+    double m_nisMean = 1.0;
+    uint64_t m_nisN = 0;
+    void NoteNis(double v)
+    {
+        if (m_trackNis && std::isfinite(v))
+        {
+            m_nisMean = (m_nisN == 0) ? v : 0.98 * m_nisMean + 0.02 * v;
+            ++m_nisN;
+        }
+    }
     void UpdateRobust(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
     bool FusePositionCovRobust(double zx, double zy, double rxx, double rxy, double ryy);
     void JosephScalar(const double H[5], const double K[5], double r);
