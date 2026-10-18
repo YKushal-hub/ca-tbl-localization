@@ -47,6 +47,10 @@
 >
 > PCS-gated switching is indistinguishable from a trace threshold. The current claim status is the Technical Report
 > §0a.
+>
+> **Lost evidence (G92):** `results/campaign_20260810`, `campaign_recovery`, `p10_env`, `p10_plane_fix`,
+> `p10_plane_v7` and `metric2_pdr_distance_seed7.csv`, cited below, are not in the repository and cannot be
+> regenerated on the current engine. `RESULTS_NONREGENERABLE.tsv` records each.
 
 ---
 

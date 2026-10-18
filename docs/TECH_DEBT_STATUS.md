@@ -29,7 +29,7 @@ them.
 | T12 | N.41 | Foliage scaling on 2.4 GHz/UWB is capped by the sampler clamp (×1.8 instead of ×2.17/×5.28) | CAMP (engine fix + campaign) |
 | T13 | N.27 / G93 | Tier 2's sensitivity table is the 1625 kHz row at 800 kHz (~6 dB pessimistic); `--t2SensitivityRowKHz` measured (D8-MAIN), not default | OWNER |
 | T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
-| T15 | 1.3 / N.30(main) / G92 | 15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report | ENG (re-point or exclude) |
+| T15 | ~~1.3 / N.30(main) / G92~~ | ~~15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report~~ **DONE** G92 PASSES: 13 lost paths in RESULTS_NONREGENERABLE.tsv with reasons and successors, 3 allow-listed in EXCLUDED.md; citing documents note it. | ENG (re-point or exclude) |
 | T16 | I.6 / G6 | G6 red while pre-D1 evidence is cited; the remedy is regenerating to new paths and moving citations | CAMP |
 | T17 | N.15 / G24 | G24 FAIL BY FINDING: mechanisms with no population under the preset | OWNER (accept) or ENG |
 | T18 | J.1 / 4.4 / G11 | The analytic model and engines disagree (the 2.4 GHz gap grows with distance). Must not be tuned; research | LIMIT |
