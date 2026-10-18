@@ -5,6 +5,14 @@
 
 namespace ns3 {
 
+static bool g_agcPerReceiver = false;
+
+void RadioFrontendSubmodule::SetAgcPerReceiver(bool on)
+{
+    g_agcPerReceiver = on;
+}
+
+
 NS_LOG_COMPONENT_DEFINE("LoRaRadioFrontendSubmodule");
 
 RadioFrontendSubmodule::RadioFrontendSubmodule(const RadioFrontendConfigParams& params, LoRaDistributionSampler& sampler)
@@ -18,6 +26,9 @@ RadioFrontendResult RadioFrontendSubmodule::ProcessAnalogFrontend(
     Time simulationTime, double rxPowerDbm, 
     double strongestInterfererPowerDbm)
 {
+    // B6: select the AGC state -- the engine's single one (default) or this receiver's own.
+    Time& agcTime = g_agcPerReceiver ? m_agcPerRx[m_rxId].first : m_lastAgcTriggerTime;
+    double& agcAtt = g_agcPerReceiver ? m_agcPerRx[m_rxId].second : m_lastAgcAttenuationDb;
     NS_LOG_FUNCTION(this << initialCfoHz << ambientTemperatureCelsius << simulationTime.GetSeconds() << rxPowerDbm << strongestInterfererPowerDbm);
 
     RadioFrontendResult res;
@@ -54,28 +65,28 @@ RadioFrontendResult RadioFrontendSubmodule::ProcessAnalogFrontend(
     }
 
     // 5. AGC Hysteresis and Frontend Desensitization
-    double timeSinceLastAgcMs = (simulationTime - m_lastAgcTriggerTime).GetMilliSeconds();
+    double timeSinceLastAgcMs = (simulationTime - agcTime).GetMilliSeconds();
     
     if (strongestInterfererPowerDbm > -40.0 || rxPowerDbm > -40.0) {
         // Front-end saturation triggered (Smooth nonlinear compression)
         double maxPower = std::max(strongestInterfererPowerDbm, rxPowerDbm);
         double attenuationDb = (maxPower + 40.0); // 1 dB attenuation for every dB over -40 dBm
         
-        m_lastAgcAttenuationDb = std::min(50.0, attenuationDb);
-        m_lastAgcTriggerTime = simulationTime;
-        res.agcRecoveryTimeMs = m_params.agcRecoveryTimeMs * m_lastAgcAttenuationDb; // Dynamic recovery time
-        res.frontendDesensitizationDb = m_lastAgcAttenuationDb;
+        agcAtt = std::min(50.0, attenuationDb);
+        agcTime = simulationTime;
+        res.agcRecoveryTimeMs = m_params.agcRecoveryTimeMs * agcAtt; // Dynamic recovery time
+        res.frontendDesensitizationDb = agcAtt;
     } else {
         // Recovery phase: time constants govern gain recovery
-        if (timeSinceLastAgcMs > 0.0 && m_lastAgcAttenuationDb > 0.0) {
-            double decayRate = m_lastAgcAttenuationDb / m_params.agcRecoveryTimeMs;
-            double remainingAttenuation = m_lastAgcAttenuationDb - (timeSinceLastAgcMs * decayRate);
+        if (timeSinceLastAgcMs > 0.0 && agcAtt > 0.0) {
+            double decayRate = agcAtt / m_params.agcRecoveryTimeMs;
+            double remainingAttenuation = agcAtt - (timeSinceLastAgcMs * decayRate);
             
             if (remainingAttenuation > 0.0) {
                 res.frontendDesensitizationDb = remainingAttenuation;
                 res.agcRecoveryTimeMs = remainingAttenuation / decayRate;
             } else {
-                m_lastAgcAttenuationDb = 0.0;
+                agcAtt = 0.0;
             }
         }
     }

@@ -5,7 +5,7 @@
 namespace ns3 {
 
 /**
- * @brief Normal(μ, σ) NLOS Loss Model per 3GPP TR 38.901 / Hofer 2015
+ * @brief Normal(μ, σ) NLOS Loss Model per 3GPP TR 38.901; values OURS (the cited 'Hofer 2015' was not found)
  *
  * NLOS attenuation is drawn from the per-environment Normal distribution
  * already configured in NLOSParams::DefaultsFor() (lora-physics-parameters.cc).
@@ -36,6 +36,36 @@ double ComputeNLOSPenaltyDb(
         d = 1.0;
     }
 
+    // V2a-2 --nlos3gppRMa: 3GPP TR 38.901 v17.0.0, RMa, for links with a >= 10 m end (see NLOSParams::rma3gpp).
+    {
+        const double hBS = std::max(txPos.z, rxPos.z);
+        const double hUT = std::min(10.0, std::max(1.0, std::min(txPos.z, rxPos.z)));
+        if (params.rma3gpp && hBS >= 10.0) {
+            const double d2D = std::max(1.0, std::sqrt(dx * dx + dy * dy));
+            const double prLos = (d2D <= 10.0) ? 1.0 : std::exp(-(d2D - 10.0) / 1000.0); // Table 7.4.2-1
+            const double u3 = sampler.Sample(DistributionParam::Uniform(0.0, 1.0));
+            if (u3 >= 1.0 - prLos) {
+                return 0.0; // LOS
+            }
+            const double fc = params.frequencyHz / 1e9; // GHz (note 6)
+            const double h = 5.0, W = 20.0;             // RMa defaults, Table 7.4.1-1
+            const double dBP = 2.0 * M_PI * hBS * hUT * params.frequencyHz / 3.0e8; // note 5
+            auto pl1 = [&](double dd) {
+                return 20.0 * std::log10(40.0 * M_PI * dd * fc / 3.0) +
+                       std::min(0.03 * std::pow(h, 1.72), 10.0) * std::log10(dd) -
+                       std::min(0.044 * std::pow(h, 1.72), 14.77) + 0.002 * std::log10(h) * dd;
+            };
+            const double d3 = std::max(d, 1.0);
+            const double dBP3 = std::sqrt(dBP * dBP + (hBS - hUT) * (hBS - hUT));
+            const double plLos = (d2D <= dBP) ? pl1(d3) : pl1(dBP3) + 40.0 * std::log10(d3 / dBP3);
+            const double plN = 161.04 - 7.1 * std::log10(W) + 7.5 * std::log10(h) -
+                               (24.37 - 3.7 * (h / hBS) * (h / hBS)) * std::log10(hBS) +
+                               (43.42 - 3.1 * std::log10(hBS)) * (std::log10(d3) - 3.0) + 20.0 * std::log10(fc) -
+                               (3.2 * std::pow(std::log10(11.75 * hUT), 2.0) - 4.97);
+            return std::max(plLos, plN) - plLos; // excess over LOS, >= 0
+        }
+    }
+
     // 2. Compute NLOS probability
     double P_nlos = 0.0;
     if (params.envClass == ENV_URBAN_DENSE || params.envClass == ENV_URBAN_MODERATE) {
@@ -53,7 +83,7 @@ double ComputeNLOSPenaltyDb(
 
     // 4. If NLOS: draw loss from Normal(mu, sigma) with hard 3σ cap
     // This replaces the Poisson compound accumulation which had unbounded tails.
-    // Spec reference: 3GPP TR 38.901, Hofer 2015 IEEE VTC.
+    // Spec reference: 3GPP TR 38.901. The cited 'Hofer 2015 IEEE VTC' was not found: values OURS.
     if (u < P_nlos) {
         if (params.envClass == ENV_URBAN_DENSE || params.envClass == ENV_URBAN_MODERATE) {
             double f_GHz = params.frequencyHz / 1e9;

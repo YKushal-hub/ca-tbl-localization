@@ -47,7 +47,9 @@ the system.
 control relates them, and `baseline_v7` does not reproduce under the corrected topology and is
 not supposed to. Switching it is a change of *scenario*, not of *configuration*.
 
-**Every result in `results/` predates the correction and is provisional until re-run.**
+**Every result in `results/` dated before 2026-09-07 predates the correction and is provisional until re-run.** The
+current headline set is `results/camp_final2_2026-10-17/` (`report/CAMP_FINAL2_RESULTS.md`), measured on the final
+preset (section 3).
 
 **Your remit is the engine.** ns-3 code, experiments, gates, analysis scripts. **Do not write
 thesis prose, chapters, or literature review in this repository.** That work is Phase 1 and
@@ -130,6 +132,15 @@ produces a wrong result that looks right.
   A non-zero weight on it changes nothing; applied to an admitted-but-unreachable peer it
   degrades the score for an **energy** defect rather than a **provenance** one — a wrong result
   that looks like a working mechanism.
+  *Correction 2026-10-16:* "structurally always 0" holds for the **code default**
+  (`--maxRelayDepth=1`, relayed ranging off). The preset (`--specProfile`) sets
+  `relayedRanging=true`, `maxRelayDepth=2`, `relayVarBudget=24336`. Under it, B4's logs show
+  80-1194 relayed measurements admitted per run and `ca_tbl_full` fixes at depth 1-2
+  (`NW-1 hop provenance` line in `run.log`), so `hopCount` is not zero there. The rule stands
+  for a different reason: a relayed range is already widened by the relay's covariance
+  (sigma_eff^2 = sigma^2 + u'P_B u, `ca-tbl-relay-admission.cc`), so a hop penalty in PCS counts
+  the same uncertainty twice (TECH_DEBT 3.2). `relayChain` (relay-to-relay) made 0 exchanges in
+  every B4 run checked; depth 2 comes from subject relays.
 - **Do not confuse the two gates.** The **evidence gate** (`Architecture.md` §9.3) is a
   suppress-only quality-and-coverage precondition on escalating to tier 3. The
   **Switching-Point Integrity Check** (`ca-tbl-policy.cc`, Mahalanobis vs χ²₀.₉₉ = 9.21) rejects
@@ -162,20 +173,42 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # 58 gates; runs ALL of them and reports a summary (~25 min)
+bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers unused, b-suffixed sub-gates); ALL run, summary at the end (hours on a loaded machine)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (counted at `c79fffd`, 2026-10-03; recount with
-`grep -c '^finish ' scripts/catbl_gates.sh`). Of 58 gates, five are red, and none is a broken
-build:
-- **G4, G5:** red since the environment split (`docs/TECH_DEBT.md` K.6). True findings.
+**The suite's expected reds** (2026-10-18, verified on `a8ab3bd9`: 107 PASS and these three; `~/catbl_work/gates_final7/suite.log`. `docs/TECH_DEBT.md` O.6 classifies each, O.11 and
+O.14 record the stale gate expectations fixed on the way). Three are red, and none is a broken build or a regression:
+- **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
 - **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
-- **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT
-  N.15); it passes when they are exercised or the owner accepts them.
+- **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
+  are exercised or the owner accepts them.
+
+G63, G87 and G89 were red from 2026-10-08 until 2026-10-17. Their runners now pin the pre-adoption preset (the PIN
+line in each script).
+
+**The preset, 2026-10-17** (`kSpecProfile[]` in `scratch/ca_tbl_causal_sim.cc`; explicit arguments win):
+- DESIGN_DECISIONS 10: `--rngKeyed --rangeErrorNoLinkLeak --rssiRangeFromShadowing --nlosRangeBias
+  --rangeReplyPosition --acquireParticles --foliageDepthClamp`.
+- DD 11: `--radioBasis=sx --halfDuplexChip=false` (SX1262 + SX1280 as two chips).
+- DD 13: `--fadingPerBand --relayNisInflate`.
+- DD 14: `--rssiSigmaLogNormal`.
+- DD 15: `--imuQuScale=30` (campaigns no longer pass it).
+
+To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
+Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own
+per-config figures are CORRW's BASE rows (`report/CORRW_RESULTS.md`): hybrid 5 km 365 m, endgame 5.0 m. `static_868` figures are superseded
+by `report/SIG868_RESULTS.md`; the hybrid's lie within its intervals.
+
+**Default-off flags added 2026-10-17, each behind a gate:**
+- G146: `--nlos3gppRMa`;
+- G147: `--probeMonotoneTime`, `--agcPerReceiver`, `--finderEnergyReport`, `--dualBase868OnNeed`,
+  `--hold24AfterK`, `--tofRecal`, `--tofCalibrate`, `--acquireNegInfo`;
+- G148: `--foliageP833`;
+- G149: `--rssiCorrInflate`.
 
 **Added 2026-10-16** (`docs/LOCAL_LINE_INTEGRATION.md`): G91–G94, ported from the local line.
 Two of them are red, and neither is a broken build:

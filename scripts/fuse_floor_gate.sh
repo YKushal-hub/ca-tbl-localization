@@ -25,7 +25,11 @@ fi
 # preset took the dual base in e308c14f, and these checks model the active tier and the floor as
 # two sets. Under the dual base both LoRa tiers are already fused, and UNION/KIND/TRACE fail on
 # that combination, which no registration covers. The gate tests the fuse in its own context.
-B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true --loraDualBase=false"
+# B12 (scope 2026-10-17): this gate was written against the preset before FIXES-N26 (2026-10-08) and the master-plan-v3
+# adoption (2026-10-17). PIN restores that preset, so the gate tests what it was written to test; the flags it
+# exercises come after PIN and override it.
+PIN="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"
+B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true $PIN"
 END="--boxHalf=750 --finderMode=1"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
