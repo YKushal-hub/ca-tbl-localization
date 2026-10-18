@@ -107,6 +107,10 @@ class CaTblImuEkf
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
 
+    /** --imuMagSigmaDeg: a direct reading z of the heading offset theta with variance r (a magnetometer's
+     *  raw-minus-magnetic heading). Scalar update, H = e_theta, innovation wrapped to (-pi, pi]. */
+    void FuseHeading(double z, double r);
+
     /** Set the position and its full 2x2 covariance, as CaTblEkf::SetPositionCov does for
      *  --acquireParticles' handover. Position's cross-covariance with theta, b and s is zeroed:
      *  the cloud says nothing about them, and what the filter has learned of them is kept. */

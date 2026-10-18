@@ -1111,6 +1111,15 @@ class CaTblPolicy
     /** DC-1. Queue this cycle's IMU control for the next Step(), which then predicts with
      *  PredictWithControl() instead of Predict(). Consumed by that Step(), like the aux
      *  fix. Never queued, Step() is exactly as before. */
+    /** --imuMagSigmaDeg: this cycle's magnetometer reading of the heading offset, fused after the IMU prediction
+     *  when the policy filter is ekf5 (the CV filter has no heading state and ignores it). */
+    void SetMagHeading(double z, double var)
+    {
+        m_magPending = true;
+        m_magZ = z;
+        m_magVar = var;
+    }
+    uint64_t GetMagFused() const { return m_magFused; }
     void SetImuControl(double ux, double uy, double quxx, double quxy, double quyy)
     {
         m_imuPending = true;
@@ -1308,6 +1317,10 @@ class CaTblPolicy
     CaTblEkf m_ekf;
     //! --imuFilter=ekf5: the 5-state filter, used instead of m_ekf when m_config.imuFilterEkf5.
     CaTblImuEkf m_ekf5;
+    bool m_magPending = false;
+    double m_magZ = 0.0;
+    double m_magVar = 0.0;
+    uint64_t m_magFused = 0;
     double m_ekf5Heading = 0.0;   //!< raw heading of the last moving IMU step, rad
     bool m_ekf5HaveHeading = false;
     uint64_t m_ekf5Moving = 0;    //!< predictions from a moving IMU step

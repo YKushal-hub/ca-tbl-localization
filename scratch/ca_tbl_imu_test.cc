@@ -286,6 +286,34 @@ main(int argc, char* argv[])
         Check(ux == d && uy == 0.0 && q[0] == 0.0, "stride noise off: the stride is exact and Q_u is zero, as before");
     }
 
+    // --- --imuMagSigmaDeg: the magnetometer reads psi with its stated noise; ekf5 fuses it as a theta reading --
+    {
+        CaTblImuParams p;
+        p.gyroBiasSigmaRadS = 0.01; // a large bias, so psi wanders far
+        p.magSigmaRad = 5.0 * M_PI / 180.0;
+        p.magGmSigmaRad = 3.0 * M_PI / 180.0;
+        p.magGmTauS = 120.0;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(p, 99);
+        double se = 0.0;
+        const int n = 40000;
+        for (int k = 0; k < n; ++k)
+        {
+            double ux, uy, q[3];
+            rk.Step(3.0, 0.0, 2.5, ux, uy, q);
+            const double e = rk.MagTheta() - rk.Heading();
+            se += e * e;
+        }
+        Check(std::fabs(se / n / rk.MagVar() - 1.0) < 0.10,
+              "magnetometer: reading - psi has the stated variance (white + Gauss-Markov) within 10 % over 40 000 cycles");
+        CaTblImuEkf f;
+        f.Init(0.0, 0.0, 25.0, 0.5, 1e-6, 1e-4);
+        const double p0 = f.Cov(2, 2);
+        f.FuseHeading(0.3, 0.01);
+        Check(f.Cov(2, 2) < p0 && std::fabs(f.HeadingOffset() - 0.3 * 0.5 / 0.51) < 1e-12,
+              "magnetometer: ekf5 FuseHeading is the scalar update on theta (gain P/(P+r), variance shrinks)");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }
