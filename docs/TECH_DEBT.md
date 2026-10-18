@@ -105,6 +105,24 @@ UWB ~3.7 dB and 868 MHz ~3.5 dB near-field. Conclusions are currently drawn by r
 under ±4 dB of margin offset chosen to bracket exactly these. That is a defensible
 workaround and not a fix; the residuals remain unexplained.
 
+*2026-10-18, explained (T19; the method of J.1's diagnosis).* The probe at probe_v7's configuration, compared term by
+term with the analytic model on all three tiers, shows path loss agreeing within 0.1 dB everywhere. The residuals sit
+in the engine's **effective sensitivity**, which is not a constant:
+- the hysteresis bonus (1.5 dB at 868 MHz, 2 dB at 2.4 GHz/UWB) on links that were receiving;
+- receiver hardware variation and the soft-degradation penalties (EVM, CFO; preamble/PLL/CRC on failures), applied
+  to the threshold.
+
+| tier | effective sensitivity, decoding → failing | model |
+|---|---|---|
+| UWB | −101.8 dBm at 2 m → −97.9 at 180 m | −104 |
+| 868 MHz | −124.9 → −118.3 dBm | −123 |
+| 2.4 GHz | −107.2 → −99.8 dBm | |
+
+The UWB "near-field residual" is the 2–20 m rise of that threshold (+2.7 dB) plus a constant offset on decoded links.
+The model's 2.3–3.8 dB higher foliage accounts for most of the rest. These residuals live in the threshold, which is
+why every enumeration of the loss sum missed them (RULES.md rule 10). Conclusions bracketed by ±4 dB of margin offset
+stand. Reproduce with `scripts/g11_term_diagnosis.py`, a 2.4 GHz table; the same loop runs per tier.
+
 ### 2.4 Sensitivity values are still unvalidated in absolute terms
 G14 (added this session) verifies the SF-index arithmetic against each table's declared
 base, and its six negative fixtures all fire. It does **not** check the absolute dBm

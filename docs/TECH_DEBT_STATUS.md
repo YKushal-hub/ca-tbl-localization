@@ -33,7 +33,7 @@ them.
 | T16 | ~~I.6 / G6~~ | ~~G6 red while pre-D1 evidence is cited; the remedy is regenerating to new paths and moving citations~~ **DONE** results/causal_v12 + det_a_v12 (clean, e93f35c0) and G6 repointed; a fresh run matches. | CAMP |
 | T17 | N.15 / G24 | G24 FAIL BY FINDING: mechanisms with no population under the preset -- *2026-10-18:* two zeros now exempt as structural (O.15); 3 genuine zeros remain for O2. | OWNER (accept) or ENG |
 | T18 | ~~J.1 / 4.4 / G11~~ | ~~The analytic model and engines disagree (the 2.4 GHz gap grows with distance). Must not be tuned; research~~ **CLOSED (diagnosed)** path loss agrees; the gap is the engine's outcome-dependent effective sensitivity (−107.2 → −99.8 dBm, soft-degradation penalty) + engine-only terrain (0 → 4.8 dB). G11 stays red by design; a fair criterion is an owner change (O3). | LIMIT |
-| T19 | 2.3 | UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained | LIMIT |
+| T19 | ~~2.3~~ | ~~UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained~~ **CLOSED (explained)** the residuals sit in the engine's outcome-dependent effective sensitivity (hysteresis, hardware variation, soft-degradation penalties), not in any loss term; path loss agrees on all tiers. | LIMIT |
 | T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
 | T21 | N.15 tail / N.32 | The integrity check detects almost nothing at χ² 1992.9 (recall ≤ 0.03); re-fit after a consistent covariance | CAMP |
 | T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence | LIMIT |
