@@ -3620,6 +3620,23 @@ gain, the f^0.75 extrapolation to 8 GHz.
 an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
 open for a source.
 
+*2026-10-18 (T36), checked against sources in hand:*
+- **"Hofer 2015", NLOS loss.** The urban branch is 3GPP TR 38.901 v17.0.0 Table 7.4.1-1 UMa, verified on the PDF: PL1 LOS
+  28.0 + 22 log d + 20 log fc and PL'NLOS 13.54 + 39.08 log d + 20 log fc. Two departures: a fixed 1000 m breakpoint for
+  d'_BP, and h_UT 1.5 m. The comment now cites it. The other environments' Normal(μ, σ) losses stay OURS.
+- **"Lim 2018", delay spread.** Still no source; OURS. For comparison, TR 38.901 Table 7.5-6 medians at 2.4 GHz:
+
+  | scenario | LOS | NLOS | engine (LOS / NLOS) |
+  |---|---|---|---|
+  | RMa | 32 ns | 37 ns | rural open: 50 / 120 ns |
+  | UMa | 102 ns | 439 ns | urban moderate: 150 / 480 ns |
+
+  The urban values are close to 3GPP's; the rural NLOS one is about 3× high.
+- **"Robyns 2017", CFO-temperature coefficient.** Still OURS. 1.5 Hz/°C at 868 MHz is 0.0017 ppm/°C, one to two orders
+  of magnitude below the frequency-temperature slope of a crystal or TCXO (typically 0.01–0.5 ppm/°C). So
+  temperature-driven CFO is probably understated. A vendor figure (Semtech AN1200.59) could not be retrieved
+  (download blocked), so none is cited. Changing the value is an engine change for its own campaign.
+
 
 ### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
 

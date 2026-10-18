@@ -83,7 +83,9 @@ double ComputeNLOSPenaltyDb(
 
     // 4. If NLOS: draw loss from Normal(mu, sigma) with hard 3σ cap
     // This replaces the Poisson compound accumulation which had unbounded tails.
-    // Spec reference: 3GPP TR 38.901. The cited 'Hofer 2015 IEEE VTC' was not found: values OURS.
+    // Spec reference: 3GPP TR 38.901. The cited 'Hofer 2015 IEEE VTC' was not found. The URBAN branch below is TR 38.901
+    // v17.0.0 Table 7.4.1-1 UMa (PL1 LOS = 28.0 + 22 log d + 20 log fc; PL'NLOS = 13.54 + 39.08 log d + 20 log fc, h_UT 1.5 m),
+    // read from the PDF 2026-10-18 (T36), with a fixed 1000 m breakpoint in place of d'_BP. Other environments: values OURS.
     if (u < P_nlos) {
         if (params.envClass == ENV_URBAN_DENSE || params.envClass == ENV_URBAN_MODERATE) {
             double f_GHz = params.frequencyHz / 1e9;

@@ -36,10 +36,10 @@ them.
 | T19 | ~~2.3~~ | ~~UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained~~ **CLOSED (explained)** the residuals sit in the engine's outcome-dependent effective sensitivity (hysteresis, hardware variation, soft-degradation penalties), not in any loss term; path loss agrees on all tiers. | LIMIT |
 | T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
 | T21 | ~~N.15 tail / N.32~~ | ~~The integrity check detects almost nothing at χ² 1992.9 (recall ≤ 0.03); re-fit after a consistent covariance~~ **CLOSED (measured limit)** INTEG2: fit 9303.8 (not lower); recall 0.046 → 0.012; the fault-free tail (p99 21 322 at 5 km) blinds any threshold. | CAMP |
-| T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence | LIMIT |
+| T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
 | T23 | O.13 / O.10 | Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m) | OWNER |
 | T24 | ~~O.9~~ | ~~RSSI ranging's path-loss model does not follow the foliage model~~ **CLOSED (diagnosed)** hypothesis refuted: the inversion has no foliage term; P.833 admits 11 % more links at unchanged per-range error; F3 was within noise. Exposed T46. | ENG (diagnose) |
-| T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only | LIMIT |
+| T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
 | T26 | ~~N.35–N.37~~ | ~~5 km within-25 m loss of the hybrid's subjects against static 2.4 GHz unexplained; H2 TDoA form untested~~ **CLOSED (measured negative)** H2-TDoA falsified (subjects' TDoA off changes nothing); cause remains an open finding. | CAMP |
 | T27 | ~~N.52~~ | ~~The preset keys R on NLOS truth (`--nlosSource=propagation`); `--nlosRSource=detector` exists~~ **MEASURED (DEBT-A)** detector costs nothing; adoption O4. | CAMP |
 | T28 | N.50 | `--unknownStart` is not the code default (all recent campaigns pass it) | OWNER |
@@ -49,16 +49,16 @@ them.
 | T32 | N.3 | Two copies of the per-node cycle core (tag 0 and subjects); per-subject SHS not built | ENG (refactor, large) |
 | T33 | ~~M.10~~ | ~~C6's 20-seed edge-server energy figure not re-measured under the fix-tier downlink bill~~ **CLOSED** C6 re-measured: edge saves 26 % (868 alone), 13–15 % (hybrid). | CAMP |
 | T34 | N.8 / N.13 | Explicit DENY frames cost airtime (design choice); Case C shapes coarse and rarely reach the base station | OWNER |
-| T35 | N.11 | Converting RSSI variability to a ToF-tier range sigma is OURS and open (flag out of preset) | LIMIT |
-| T36 | N.42 | Lim, Hofer, Robyns values still lack a source | LIMIT |
-| T37 | H.4 / B | Constants ours and uncited (finder GNSS sigma, corroboration k=3/30 m/0.5) | LIMIT (record) |
+| T35 | N.11 | Converting RSSI variability to a ToF-tier range sigma is OURS and open (flag out of preset) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
+| T36 | N.42 | Lim, Hofer, Robyns values still lack a source -- *2026-10-18:* Hofer's urban branch sourced (TR 38.901 UMa, verified); Lim/Robyns stay OURS with 3GPP comparison and a CFO finding (likely 10-100x too small). | LIMIT |
+| T37 | H.4 / B | Constants ours and uncited (finder GNSS sigma, corroboration k=3/30 m/0.5) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (record) |
 | T38 | K.9 | SHS gait calibration diverges where fixes are sparse (debt by owner decision) | OWNER |
 | T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
 | T40 | 5.1 | 137 published commits carry the wrong author email; fixing needs a force-push to protected `main` | OWNER |
 | T41 | ~~5.3~~ | ~~No gate catches stale documents~~ **DONE (the checkable part)** G152: documents name only real flags; RULES.md preset list ⊆ kSpecProfile; fake-flag fixture. | ENG (gate, partial) |
 | T42 | ~~L.3 claim 3~~ | ~~Identity-scoped arbitration has never been measured as a claim~~ **MEASURED** arbitration V2: −18 % energy when off, no accuracy loss; claim 3 unsupported on these metrics; O8. | CAMP |
 | T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) | OWNER (scope) |
-| T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) | LIMIT (stated) |
+| T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (stated) |
 | T45 | E1 | Same-site field test | HW |
 | T46 | ~~O.9 diagnosis~~ | ~~The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread)~~ **DONE (code + DEBT-A)** G155; 868 alone worse as expected; adoption O7. | CAMP |
 
@@ -98,3 +98,4 @@ them.
 | O6 | adopt `--interferenceDistance` (interferers attenuated by distance)? (T29) | DEBT-A: endgame 5.0 → 4.1 m |
 | O7 | adopt `--rssiRangeFromRxPower` (RSSI range includes foliage/fading)? (T46) | DEBT-A: 868 alone 448 → 494 m; hybrid unharmed |
 | O8 | keep `--arbitrationV2` (and requester escalation, queue gossip) in the preset? (T42) | DEBT-A: off saves 18 % endgame energy, no accuracy loss |
+| O9 | refactor the two per-node cycle copies into one (T32)? multi-day, every code path, no result change | N.3 |
