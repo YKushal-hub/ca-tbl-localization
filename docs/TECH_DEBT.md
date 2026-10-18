@@ -4131,3 +4131,24 @@ thresholds (CAMP-FINAL2 Q2: PCS earns nothing over the trace).
 
 So closing this gap means choosing thresholds that buy availability with energy: an accuracy / availability /
 energy weighting. That is the owner's decision (C3 `--hold24AfterK` exposes the same trade), not a correction.
+
+### N.61 The magnetometer disturbance as an estimated state: consistent, not decisive — kept as a patch, not committed
+
+An augmented 6th state for the magnetometer's Gauss-Markov disturbance d (z = theta + d + white; fused at the white
+variance; d carried with its cross-covariance around the 5-state core) was built and tested.
+- **Monte Carlo (unit level):** heading NEES 1.11, against 86.5 for the white variance without the state.
+- **On the realistic stack, seeds 1–20, against REAL-STACK's S (exploratory, not citable):**
+  - 5 km CA-TBL 620.8 → 488.2 m, −132.6 [−335.4, +22.3];
+  - availability +0.010 [−0.001, +0.022];
+  - heading divergences 4 → 5;
+  - Poucet 684.3 → 990.9 m [−36.5, +900.6];
+  - the endgame unchanged.
+
+**Reading.** The 5 km heading failures persist under a consistent 3° reference, so they are not caused by a weak
+heading reference. Their position goes wrong first (acquisition, or a bad fix), and the range innovations then pull
+every state. Not worth a registered campaign on this evidence. The code is
+`~/ns/catbl-work/wip_mag_gm_state.patch` (filter, policy, scenario, two unit cases, 33/33).
+
+**The endgame floor.** With 2 m finder GNSS error (`--finderPosSigma=2`), CA-TBL, Poucet and `fixed_threshold` all
+reach about 4 m CEP95 in the endgame (REAL-BEST: 4.0, 4.4, 4.1). No method localises more precisely than its
+anchors' positions are known, so ties there are physics, not a shortfall of any arm.
