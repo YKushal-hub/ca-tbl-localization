@@ -9,7 +9,14 @@ Reads the run set scripts/ekf5_gate.sh writes. What each failure looks like on d
            offset est within 0.2 rad of DC-1's true error    (a filter that runs but learns nothing)
   OFF      def/ and cv/ byte-identical, run_id.txt aside     (the default not being cv)
   CONTROL  def.log and cv.log carry no "N.28 ekf5:" line     (ekf5 leaking into the default)
-  REFUSE   r_noimu and r_bogus exit 1                        (a meaningless combination accepted)
+  ACQ      on.log has >= 1 PFACQ_HANDOVER                    (the preset's --acquireParticles cloud
+                                                              not reaching ekf5: it is predicted and
+                                                              handed over on the policy filter)
+  NIS      on.log's "B1 relayNisInflate ... running NIS" is
+           not exactly 1                                     (ekf5 not tracking NIS: 1 is the value
+                                                              of a filter that never noted one)
+  REFUSE   r_noimu, r_bogus, r_rbs exit 1                    (a meaningless combination accepted;
+                                                              r_rbs: --rangeBiasStates is CV-only)
 """
 import math
 import os
@@ -78,8 +85,15 @@ def main():
 
     leak = [n for n in ("def", "cv") if "N.28 ekf5:" in (log(d, n) or "")]
     report(not leak, "CONTROL", f"runs without ekf5 printing its line: {leak} (need none)")
-    rr = {n: rc(d, n) for n in ("r_noimu", "r_bogus")}
-    report(all(v == 1 for v in rr.values()), "REFUSE", f"exit codes {rr} (need 1, 1)")
+    nh = on.count("PFACQ_HANDOVER")
+    report(nh >= 1, "ACQ", f"particle-cloud handovers in on.log: {nh} (need >= 1)")
+    mn = re.search(r"B1 relayNisInflate \(ca_tbl_full\): tag-0 running NIS (\S+)", on)
+    if not mn:
+        missing("NIS", "no B1 relayNisInflate line for ca_tbl_full in on.log")
+    else:
+        report(float(mn.group(1)) != 1.0, "NIS", f"tag-0 running NIS {mn.group(1)} (need not exactly 1)")
+    rr = {n: rc(d, n) for n in ("r_noimu", "r_bogus", "r_rbs")}
+    report(all(v == 1 for v in rr.values()), "REFUSE", f"exit codes {rr} (need 1, 1, 1)")
     print(f"  G95: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1
 
