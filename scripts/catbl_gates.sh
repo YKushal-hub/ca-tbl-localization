@@ -2035,6 +2035,11 @@ printf '\n--- G153 interference attenuated by distance ---\n'
 bash scripts/interference_distance_gate.sh "$WORK/g153" || fail G153
 finish G153
 
+# ---------------- G154: T12 --foliageScaleBounds (TECH_DEBT N.41): the foliage scaling is what the parameter file states
+printf '\n--- G154 foliage scaling not capped by the clamp ---\n'
+bash scripts/foliage_bounds_gate.sh "$WORK/g154" || fail G154
+finish G154
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143

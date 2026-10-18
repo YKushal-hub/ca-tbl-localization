@@ -2185,6 +2185,8 @@ static bool g_agcPerReceiverArg = false;
 static bool g_publishAfterStep = false;
 //! T29 --interferenceDistance (TECH_DEBT M.1).
 static bool g_interferenceDistance = false;
+//! T12 --foliageScaleBounds (TECH_DEBT N.41).
+static bool g_foliageScaleBounds = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2336,6 +2338,17 @@ Dc1ImuParams()
         c868.foliage.clampDepthToLink = true;                                                      \
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
+    if (g_foliageScaleBounds)                                                                      \
+    {                                                                                              \
+        /* N.41: the 2.4 GHz / UWB parameter files scale only the MEAN of the specific attenuation */  \
+        /* (x2.17, x5.28); the spread and clamp bounds stay at the 868 MHz value, so the sampler's */  \
+        /* clamp caps the effective scaling near x1.8. Rebuild the distribution around the scaled */   \
+        /* mean with FoliageParams::DefaultsFor's own relative shape. */                              \
+        const double g2 = c2p4.foliage.specificAttenuationDbPerM.mean;                             \
+        c2p4.foliage.specificAttenuationDbPerM = DistributionParam::Normal(g2, g2 * 0.25, g2 * 0.2, g2 * 1.8); \
+        const double gu = cUwb.foliage.specificAttenuationDbPerM.mean;                             \
+        cUwb.foliage.specificAttenuationDbPerM = DistributionParam::Normal(gu, gu * 0.25, gu * 0.2, gu * 1.8); \
     }                                                                                              \
     if (g_interferenceDistance)                                                                    \
     {                                                                                              \
@@ -16477,6 +16490,14 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("foliageScaleBounds",
+                 "T12 (TECH_DEBT N.41). False (default): the 2.4 GHz and UWB foliage specific attenuation is the 868 MHz "
+                 "distribution with only its MEAN multiplied (x2.17, x5.28, ITU-R P.833 f^0.75); its spread and clamp bounds "
+                 "stay at the unscaled values, so the sampler's clamp caps the effective factor near x1.8 on both tiers "
+                 "(+1.6 dB at the median depth, not +2.1 / +4.2). True: the distribution is rebuilt around the scaled mean "
+                 "with DefaultsFor's own relative spread and bounds, so the factor is what the parameter file states. "
+                 "Under --foliageP833 the 2.4 GHz forest values are P.833's either way.",
+                 g_foliageScaleBounds);
     cmd.AddValue("interferenceDistance",
                  "T29 (TECH_DEBT M.1). False (default): the engines' interference registry scores every overlapping "
                  "transmission at the power its OWN link delivered at its own receiver, whatever this receiver's distance "
