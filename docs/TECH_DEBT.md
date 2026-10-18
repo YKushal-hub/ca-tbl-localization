@@ -4031,3 +4031,35 @@ failed. Heading divergence 19 → 15 of 120 (discordant 11 against 7, short of t
 `static_2p4` diverges 3 → 18 at L3. One-range updates teach θ, b, s correctly far more often than
 they corrupt them; the pilot was regression to the mean. Open: an update that is consistent
 rather than rank-limited (FEJ / observability-constrained EKF, iterated or unscented update).
+
+### N.57 O.12's "conditional bias given reception" is selection; a censoring correction predicts its shape, not its size — not built
+
+Exploratory, 2026-10-18, not citable (`~/ns/catbl-work/cens_pilot`: the preset at 5 km, `--unknownStart`,
+`--traceRanges`, `static_868` and `ca_tbl_full`, seeds 1–6, 1800 s; the merged branch's binary at defaults).
+Tag 0's 868 MHz ranges to surveyed gateways, z = ln(r̂/d)/s with s recovered exactly from the logged
+σ/r̂ (DD 14's log-normal SD, mean s 0.743): mean z −0.30 at 2–3 km, −0.61 at 3–4 km, −0.69 at 4–6 km
+(n 797, 1185, 651), sd ≈ 0.95; short pseudo-anchor links +0.05 to +0.09. Received far links read short:
+O.12's first residual, reproduced.
+
+**Why it happens.** Per cycle the complete likelihood is p(r̂ | d) P(rx | r̂) for each received link
+and (1 − PDR(d)) for each missed one. The filter uses the first and ignores the misses, which is
+exactly the combination that is biased at fixed d. Two consistent alternatives exist: keep the misses
+(negative information, which `--acquireNegInfo` applies to the acquisition cloud only), or condition
+each received range on its reception, p(r̂ | d, rx) = p(r̂ | d) P(rx | r̂) / PDR(d).
+
+**The conditional form, tested against the data.** With PDR(d) = Φ((ln r50 − ln d)/s_m) from the
+probe's own delivery curve (O.5's form; 868 MHz r80 1698.8 m, r50 3377.4 m, s_m 0.817), the predicted
+selection bias at the TRUE distance, −(s/s_m) λ(u) with u = (ln r50 − ln d)/s_m, has the observed shape
+but not its size: −0.53, −0.76, −0.92 against −0.30, −0.61, −0.69, and a predicted sd of 0.62–0.74
+against 0.91–0.98. The probe's curve gives the ranging shadowing too large a share of reception's
+variability; the field links differ from the probe's sites (body height, foliage, fading, and the
+1.5 dB hysteresis that keeps a received link up), so their selection is weaker. A correction
+calibrated on the probe would leave +0.15 to +0.23 in place of −0.30 to −0.69, and shrinking σ as
+the model says would add overconfidence. Applied instead as a single-range posterior under a flat
+prior in ln d to 60 km, the conditional likelihood over-corrects grossly (mean z +0.52 to +0.73,
+mean error 1830 → 9155 m): the 1/PDR factor needs the filter's informative prior, not a flat one.
+
+**Not built.** A correction calibrated on the field links' own delivery, or negative information
+from missed gateways in the EKF (not only in the acquisition cloud), is the principled next step.
+The per-range 95 % coverage is already 0.91–0.94, so this residual alone does not explain O.12's
+fix-level 0.59–0.64; per-link temporal correlation of shadowing (CORRW) stays the other candidate.
