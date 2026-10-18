@@ -4152,3 +4152,9 @@ every state. Not worth a registered campaign on this evidence. The code is
 **The endgame floor.** With 2 m finder GNSS error (`--finderPosSigma=2`), CA-TBL, Poucet and `fixed_threshold` all
 reach about 4 m CEP95 in the endgame (REAL-BEST: 4.0, 4.4, 4.1). No method localises more precisely than its
 anchors' positions are known, so ties there are physics, not a shortfall of any arm.
+
+**N.60 addendum (REAL-SPEC, out of sample on seeds 41–60).** The Switching-Point Integrity Check at its specified 9.21
+on the consistent stack raises CA-TBL's endgame availability (+0.012) but costs endgame accuracy (+1.4 m; mean per-seed
+ratio +41.5 %) and +30 % energy. `fixed_threshold` and Poucet are then significantly more accurate. Not proposed.
+CA-TBL's integrity threshold, like its escalation thresholds, moves it along an accuracy / availability / energy
+frontier.
