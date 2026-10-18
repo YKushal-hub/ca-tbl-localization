@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""G96: --ekf5Robust=8 (CONSIDER) is wired, reached, decides the case it exists for, and is off
-by default (TECH_DEBT N.33).
+"""G96: --ekf5Robust=8 (CONSIDER) is wired, reached on the population it claims, and is off by
+default (TECH_DEBT N.33). EKF5-CONSIDER rejected the mode; nothing here says it helps.
 
 Reads the run set scripts/ekf5_consider_gate.sh writes. What each failure looks like on disk:
   RUNS     on/, base/, def/, zero/ exit 0                    (a crash under the flag)
@@ -8,22 +8,22 @@ Reads the run set scripts/ekf5_consider_gate.sh writes. What each failure looks 
   REACHED  considered > 0, and gated = protected =
            recoveries = 0                                    (a mode that never fired, or the
                                                               wrong bits set: rule 4)
-  DECIDES  base's final heading offset error > 0.3 rad and
-           on's < 0.2 rad, against DC-1's true error         (the mechanism not changing the
-                                                              outcome where it was motivated)
+  COUNTS   considered == Case D's applied updates            (the mode firing on some other
+                                                              population than the one-range fixes)
+  DIFFERS  on/ and base/ differ in arm_summary.csv           (a mode that fired but changed nothing:
+                                                              not wired into the arithmetic)
   OFF      def/ and zero/ byte-identical, run_id.txt aside   (the default not being mode 0)
   CONTROL  base, def and zero logs carry no "N.33 ekf5" line (the mode leaking into the default)
   REFUSE   r_cv and r_range exit 1                           (a meaningless combination accepted)
 The filter-level property -- one or two ranges leave theta, b, s and their variances unchanged,
 three do not -- is ca_tbl_imu_test's N.33 cases.
 """
-import math
 import os
 import re
 import sys
 
 nok = nfail = nmiss = 0
-HEAD = re.compile(r"heading offset est (\S+) \(true (\S+)\) rad")
+CASED = re.compile(r"DC-4 Case D: cycles \d+, updates applied (\d+)")
 LINE = re.compile(r"N\.33 ekf5 mode (\d+): gated (\d+), protected (\d+), recoveries (\d+), considered (\d+)")
 
 
@@ -53,12 +53,9 @@ def log(d, n):
     return open(p, errors="replace").read() if os.path.exists(p) else None
 
 
-def herr(text):
-    m = HEAD.search(text or "")
-    if not m:
-        return None
-    e, t = float(m.group(1)), float(m.group(2))
-    return abs(math.atan2(math.sin(e - t), math.cos(e - t)))
+def summary(d, n):
+    p = os.path.join(d, n, "arm_summary.csv")
+    return open(p, "rb").read() if os.path.exists(p) else None
 
 
 def main():
@@ -76,12 +73,17 @@ def main():
         report(c > 0 and g == p == r == 0, "REACHED",
                f"considered {c}, gated {g}, protected {p}, recoveries {r} (need > 0, 0, 0, 0)")
 
-    eo, eb = herr(on), herr(log(d, "base"))
-    if eo is None or eb is None:
-        missing("DECIDES", "no heading offset line in on.log or base.log")
+    cd = CASED.search(on)
+    if not m or not cd:
+        missing("COUNTS", "no N.33 or DC-4 Case D line in on.log")
     else:
-        report(eb > 0.3 and eo < 0.2, "DECIDES",
-               f"final heading offset error: base {eb:.3f} rad (need > 0.3), on {eo:.3f} rad (need < 0.2)")
+        report(int(m.group(5)) == int(cd.group(1)), "COUNTS",
+               f"considered {m.group(5)} against Case D updates applied {cd.group(1)} (need equal)")
+    so, sb = summary(d, "on"), summary(d, "base")
+    if so is None or sb is None:
+        missing("DIFFERS", "on/ or base/ arm_summary.csv absent")
+    else:
+        report(so != sb, "DIFFERS", f"on/ against base/ arm_summary.csv: {'differ' if so != sb else 'identical'} (need differ)")
 
     a, b = os.path.join(d, "def"), os.path.join(d, "zero")
     if os.path.isdir(a) and os.path.isdir(b):

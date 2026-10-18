@@ -44,8 +44,8 @@ fresh; echo 3 > "$T/f/on.rc"; check "N1 the mode-8 run crashed" 1 RUNS
 fresh; sed -i '/N.33 ekf5 mode/d' "$T/f/on.log"; check "N2 the flag silently not taking effect" 1 LINE
 fresh; sed -i -E 's/considered [0-9]+/considered 0/' "$T/f/on.log"; check "N3 a mode that never fired" 1 REACHED
 fresh; sed -i -E 's/gated [0-9]+,/gated 7,/' "$T/f/on.log"; check "N4 the gate bit set alongside CONSIDER" 1 REACHED
-fresh; sed -i -E 's/heading offset est \S+ \(true (\S+)\)/heading offset est \1 (true \1)/' "$T/f/base.log"; check "N5 a base run that never went wrong" 1 DECIDES
-fresh; sed -i -E 's/heading offset est \S+ \(true/heading offset est 9.0 (true/' "$T/f/on.log"; check "N6 the mode not changing the outcome" 1 DECIDES
+fresh; sed -i -E 's/updates applied ([0-9]+)/updates applied 99\1/' "$T/f/on.log"; check "N5 the mode firing on another population" 1 COUNTS
+fresh; cp "$T/f/base/arm_summary.csv" "$T/f/on/arm_summary.csv"; check "N6 a mode that fired but changed nothing" 1 DIFFERS
 fresh; f=$(ls "$T/f/zero" | grep -v run_id.txt | head -1); echo x >> "$T/f/zero/$f"; check "N7 the default not being mode 0" 1 OFF
 fresh; grep "N.33 ekf5 mode" "$T/f/on.log" >> "$T/f/def.log"; check "N8 the mode leaking into the default" 1 CONTROL
 fresh; echo 0 > "$T/f/r_cv.rc"; check "N9 the mode accepted without ekf5" 1 REFUSE
