@@ -4081,3 +4081,9 @@ them is the owner's (TECH_DEBT_STATUS O2).
 - **L.3 claim 3 / T42:** arbitration V2 costs 18 % of endgame tag-0 energy and half its UWB time, with no accuracy
   gain. Claim 3 is unsupported on accuracy and energy. Its fairness objective has no metric in the traces. Owner, O8:
   keep arbitration V2 in the preset?
+
+### O.17 INTEG2 (T21): no integrity threshold is useful under the final preset (report/INTEG2_RESULTS.md)
+FIXES-N26's fit procedure, re-run on the final preset, gives 9303.8, not a value below 1992.9. At it, recall falls to
+0.012. The fault-free distance's bulk is consistent (endgame p50 1.8), but its tail reaches thousands (5 km p99
+21 322): fixes whose error R does not carry. The check stays in the preset at 1992.9, a withdrawn claim. The tail's
+cause (N.15) is the only lever left; recorded as a limit.
