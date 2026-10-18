@@ -1860,6 +1860,28 @@ bash scripts/ekf5_consider_gate.sh "$WORK/g96" || fail G96
 bash scripts/ekf5_consider_gate_selftest.sh "$WORK/g96" || fail G96
 finish G96
 
+# ---------------- G97: --imuStrideSigmaPct adds per-step stride noise to DC-1 as specified, off by default
+# DC-1's dead reckoning had no per-cycle noise at all (its stride exact up to one per-run scale). The flag adds
+# a per-step relative stride error; scripts/imu_stride_gate.py reads tag 0's imu_ trace at 5 km, seed 7, 600 s,
+# 5 %: the along-track residual's mean square over the moving cycles is the model's sigma^2 l |d| within 25 %;
+# the flag at 0 is the flag absent byte for byte; it does not leak; it is refused without --imuPredict or
+# negative. The per-cycle law and its stated Q_u are ca_tbl_imu_test's stride cases.
+printf '\n--- G97 per-step stride noise in DC-1 (--imuStrideSigmaPct) ---\n'
+bash scripts/imu_stride_gate.sh "$WORK/g97" || fail G97
+bash scripts/imu_stride_gate_selftest.sh "$WORK/g97" || fail G97
+finish G97
+
+# ---------------- G98: --acquireHandoverCurvature is wired, reached and off by default (N.58)
+# The acquisition cloud handed over once its SD was under a quarter of the cycle's MEDIAN range, which km-long
+# 868 MHz ranges dominate; precise ToF ranges were then linearised hundreds of metres off. The flag also requires
+# l1 <= 2 r sigma for every range. scripts/acq_curvature_gate.py reads the preset at 5 km, seed 5, unknown start,
+# 600 s: the guard held > 0 cycles, its run differs from the unguarded one, false is the flag absent byte for
+# byte, it does not leak, and it is refused without --acquireParticles.
+printf '\n--- G98 the acquisition cloud curvature guard (--acquireHandoverCurvature; N.58) ---\n'
+bash scripts/acq_curvature_gate.sh "$WORK/g98" || fail G98
+bash scripts/acq_curvature_gate_selftest.sh "$WORK/g98" || fail G98
+finish G98
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
