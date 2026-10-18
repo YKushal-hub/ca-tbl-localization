@@ -16,7 +16,7 @@ them.
 | id | entry | what is open | class |
 |---|---|---|---|
 | T1 | ~~K.3~~ | ~~RULES.md §6 still states "exactly one tier transmits per cycle"; the floor, the dual base (preset) and `poucet_fusion` all transmit two tiers in a cycle. Restate the invariant that actually holds~~ **DONE** RULES.md §6 restated (2026-10-18). | ENG (doc) |
-| T2 | L.2 note | The casualty's table entry carries the previous cycle's estimate (published before `Step`): every entry age is understated by one cycle (2.5 s) | ENG |
+| T2 | ~~L.2 note~~ | ~~The casualty's table entry carries the previous cycle's estimate (published before `Step`): every entry age is understated by one cycle (2.5 s)~~ **DONE (code)** `--publishAfterStep`, gate G150 (927/927 entries fresh). Preset adoption: owner (O1). | ENG |
 | T3 | M.9 | The RECEDING eager push is not counted per subject | ENG |
 | T4 | ~~M.11 / RULES.md~~ | ~~Stale counts in RULES.md §7 ("58 gates at c79fffd", `cmd.AddValue` line ranges, the unit-suite count)~~ **DONE** RULES.md counts replaced by the commands that produce them. | ENG (doc) |
 | T5 | ~~I.4~~ | ~~`--bidirectionalDigest`, `--finderPseudoAnchor`, `--corroborationCheck` silently need `--sendHandshakeFrames`; their help text does not say so~~ **DONE** help text of --bidirectionalDigest and --finderPseudoAnchor states the dependency (verified by run); --corroborationCheck already did. | ENG (doc) |
@@ -85,3 +85,8 @@ them.
 - sidecars are evidence;
 - A8 closed by result;
 - the unseeded sampler at code defaults.
+
+## Owner decisions collected while striking
+| id | decision | evidence |
+|---|---|---|
+| O1 | adopt `--publishAfterStep` into the preset? (T2) | G150; correctness only, entries 2.5 s fresher |

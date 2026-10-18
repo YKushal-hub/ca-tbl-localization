@@ -1242,6 +1242,9 @@ produce, so each is a change of its own, with its own null control:
   the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in
   `sparse_t1` equal the trace estimate of the cycle before their timestamp. Every entry age
   in the project is understated by 2.5 s.
+  - *2026-10-18, `--publishAfterStep` (G150), default off:* the entry is re-published after `Step` at the same
+    stamp. G150: flag off, 927/927 held entries carry the previous cycle's estimate; on, 927/927 the same cycle's.
+    Default unchanged; whether the preset takes it is the owner's.
 
 ### L.2 status, 2026-09-29
 

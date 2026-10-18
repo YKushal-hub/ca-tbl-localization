@@ -2181,6 +2181,8 @@ static bool g_finderEnergyReport = false;
 static bool g_tofCalibrate = false;
 //! B6 --agcPerReceiver (scope 2026-10-17).
 static bool g_agcPerReceiverArg = false;
+//! T2 --publishAfterStep (TECH_DEBT L.2 note): re-publish tag 0's entry after this cycle's Step.
+static bool g_publishAfterStep = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -12868,6 +12870,35 @@ RunArm(CaTblPolicyMode mode,
             v2FixTier[0] = static_cast<uint8_t>(fixTier); // TA-1
             v2FixHop[0] = static_cast<uint8_t>(std::min<uint32_t>(255u, hopCountAtFix));
         }
+        // T2 --publishAfterStep: the entry published before Step carried the previous cycle's estimate under this
+        // cycle's stamp. Re-publish it now, at the same stamp, so its age is what it says.
+        if (g_publishAfterStep)
+        {
+            if (spec.queryV2)
+            {
+                const bool onUwb = policy.GetActiveTier() == CA_TBL_TIER_UWB;
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                                                   CaTblQuantise(1.0 - batteryUsedFrac),
+                                                   CaTblQuantise(pcsDegradation), onUwb,
+                                                   onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
+                                                   v2FixHop[0], reachOf(nodeId, t));
+                    }
+                }
+            }
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(), policy.Pxx(), policy.Pyy(),
+                                                  policy.Pxy(), spec.entryVelocity ? policy.EstVx() : 0.0,
+                                                  spec.entryVelocity ? policy.EstVy() : 0.0, t);
+                }
+            }
+        }
         if (grantLog)
         {
             if (policy.GetUwbCoverageClears() > covBefore)
@@ -16433,6 +16464,13 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("publishAfterStep",
+                 "T2 (TECH_DEBT L.2 note). False (default): tag 0 publishes its table entry before this cycle's Step, so "
+                 "the entry stamped t carries the estimate of t - dt, and every entry age in the project is understated by "
+                 "one cycle (2.5 s; 264 of 265 held entries in the L.2.5 runs). True: the entry is published again just "
+                 "after Step, at the same stamp, so it carries this cycle's estimate. Costs no airtime: publishing writes "
+                 "the node's own table slot.",
+                 g_publishAfterStep);
     cmd.AddValue("rssiCorrInflate",
                  "B2 (scope 2026-10-17). False (default): successive 868 MHz RSSI ranges are fused as independent, though "
                  "their error is the link's shadowing, spatially correlated (Gudmundson, rho = exp(-moved/30 m), the "

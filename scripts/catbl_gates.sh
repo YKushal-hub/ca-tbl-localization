@@ -2001,6 +2001,11 @@ printf '\n--- G149 868 MHz RSSI correlation inflation ---\n'
 bash scripts/rssicorr_gate.sh "$WORK/g149" || fail G149
 finish G149
 
+# ---------------- G150: T2 --publishAfterStep (TECH_DEBT L.2 note): an entry carries the estimate of its own stamp
+printf '\n--- G150 entry published after Step ---\n'
+bash scripts/publish_after_step_gate.sh "$WORK/g150" || fail G150
+finish G150
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143
