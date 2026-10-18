@@ -379,6 +379,25 @@ CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 }
 
 void
+CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double pyy)
+{
+    m_x[0] = x;
+    m_x[1] = y;
+    for (int j = 0; j < N; ++j)
+    {
+        m_P[0][j] = 0.0;
+        m_P[j][0] = 0.0;
+        m_P[1][j] = 0.0;
+        m_P[j][1] = 0.0;
+    }
+    m_P[0][0] = pxx;
+    m_P[0][1] = pxy;
+    m_P[1][0] = pxy;
+    m_P[1][1] = pyy;
+    SnapshotPrior();
+}
+
+void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
     if (m_robust != 0)
@@ -419,6 +438,7 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
             K[i] = PH[i] / S;
         }
         const double innovation = meas[k].rangeM - rPred;
+        NoteNis(innovation * innovation / S); // --relayNisInflate; a no-op unless enabled
         for (int i = 0; i < N; ++i)
         {
             m_x[i] += K[i] * innovation;
@@ -810,6 +830,7 @@ CaTblImuEkf::UpdateRobust(const std::vector<CaTblRangeMeasurement>& meas, const 
             continue;
         }
         const double v = meas[k].rangeM - r;
+        NoteNis(v * v / S); // --relayNisInflate; a no-op unless enabled
         if (gate && v * v / S > kGate1)
         {
             ++m_nGated;
