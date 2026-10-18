@@ -211,8 +211,12 @@ mkdir -p "$WORK/g6_nodeside"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
     --trace=false --gatewayEdgeServer=false --outdir="$WORK/g6_nodeside" \
     > "$WORK/g6_nodeside.log" 2>&1 || gerror G6 "node-side run exited non-zero"
-for spec in "causal_v11/arm_summary.csv:g6_nodeside/arm_summary.csv" \
-            "det_a_v11/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
+# REPOINTED 2026-10-18 (T16), the remedy applied a third time: DESIGN_DECISIONS 16 moved the code-default box
+# (1000 -> 340 m), so causal_v11/det_a_v11 describe a deployment the default no longer builds. causal_v12 and
+# det_a_v12 are NEW paths, one run at exactly this gate's arguments on a clean tree (source e93f35c0 dirty 0). v11 stays
+# tracked and cited as what those runs produced.
+for spec in "causal_v12/arm_summary.csv:g6_nodeside/arm_summary.csv" \
+            "det_a_v12/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then

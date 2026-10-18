@@ -713,6 +713,12 @@ figure most worth re-establishing first is the §7 reliability result — 82% mo
 deployments for 27% more energy — because it is the project's one headline number that
 is not a negative, and it currently rests on the old geometry.
 
+*2026-10-18 (T16): G6's comparison is green again.* DESIGN_DECISIONS 16 moved the default box, so G6's tracked pair
+(`causal_v11`, `det_a_v11`) described a deployment the default no longer builds. Per G6's own remedy,
+`results/causal_v12` and `det_a_v12` were generated as new paths: one run at G6's exact arguments on a clean tree,
+`source e93f35c0 dirty 0`. G6 now compares against them; v11 stays tracked. The wider I.6 (campaigns measured on the
+legacy topology) is covered by the B3 regeneration, CAMP-FINAL2 and RESULTS_NONREGENERABLE.tsv.
+
 ## J. Moved here by owner decision, 2026-09-08
 
 ### J.1 G11 — which of the analytic model and the engines is wrong
