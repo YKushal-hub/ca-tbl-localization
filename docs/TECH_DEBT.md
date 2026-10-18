@@ -3862,6 +3862,25 @@ realised loss biases ranges long. Not diagnosed.
 Any change to the foliage model should carry the RSSI ranging model with it, or be measured as a model mismatch on
 purpose (a real deployment's fitted model would be fitted on site; E1's calibration spots do exactly that).
 
+*2026-10-18, diagnosed (T24); the hypothesis above is refuted.* The 868 MHz RSSI inversion
+(`lora-ranging-submodule.cc`, `RANGING_TIER_868`) has no foliage term at all. Under `--rssiRangeFromShadowing` it
+inverts path loss + this link's shadowing (+ NLOS under `--nlosRangeBias`), so neither foliage model enters the
+range. Range traces, preset 5 km, `static_868`, seeds 1–3, gateway ranges:
+
+| foliage model | gateway ranges | median \|err\| at 2–4 km | median err/d at 2–4 km | at 4–9 km |
+|---|---|---|---|---|
+| base | 1365 | 1523 m | −0.30 | 2042 m, −0.38 |
+| P.833 | 1521 (+11 %) | 1522 m | −0.22 | 2028 m, −0.38 |
+
+So per-range quality at a given distance is unchanged. P.833's 1.5 dB lower 868 MHz loss admits about 11 % more links,
+slightly less biased toward short ranges (the reception selection of B4 weakens). C4-P833's F3 shift (+43 m,
+interval [−1.7, +98.2]) was never significant, so there is no mismatch to fix.
+
+**What the diagnosis exposes instead (new, T46):** the RSSI a real receiver measures includes foliage and fading.
+The simulated RSSI range omits both, so its error is the shadowing alone (about 7 dB), against the 9–17 dB realised
+margin spread B8 measured. Making the RSSI range read the full received power is an engine change for its own
+registered campaign.
+
 ### O.10 O.7 mostly explained: overconfident 868 MHz σ (closed in part by DESIGN_DECISIONS 14)
 SIG868: with the exact log-normal σ, the calibrated-Wolf endgame hybrid improves 53.4 → 34.7 m. 2.4 GHz alone is
 28.3 m.

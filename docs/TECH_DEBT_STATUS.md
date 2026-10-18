@@ -38,7 +38,7 @@ them.
 | T21 | N.15 tail / N.32 | The integrity check detects almost nothing at χ² 1992.9 (recall ≤ 0.03); re-fit after a consistent covariance | CAMP |
 | T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence | LIMIT |
 | T23 | O.13 / O.10 | Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m) | OWNER |
-| T24 | O.9 | RSSI ranging's path-loss model does not follow the foliage model | ENG (diagnose) |
+| T24 | ~~O.9~~ | ~~RSSI ranging's path-loss model does not follow the foliage model~~ **CLOSED (diagnosed)** hypothesis refuted: the inversion has no foliage term; P.833 admits 11 % more links at unchanged per-range error; F3 was within noise. Exposed T46. | ENG (diagnose) |
 | T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only | LIMIT |
 | T26 | N.35–N.37 | 5 km within-25 m loss of the hybrid's subjects against static 2.4 GHz unexplained; H2 TDoA form untested | CAMP |
 | T27 | N.52 | The preset keys R on NLOS truth (`--nlosSource=propagation`); `--nlosRSource=detector` exists | CAMP |
@@ -60,6 +60,7 @@ them.
 | T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) | OWNER (scope) |
 | T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) | LIMIT (stated) |
 | T45 | E1 | Same-site field test | HW |
+| T46 | O.9 diagnosis | The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread) | CAMP |
 
 ## Closed or deliberate (no action)
 
