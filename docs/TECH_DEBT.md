@@ -4096,3 +4096,8 @@ magnetometer for exactly this; DC-1 models none (`--imuMagSigmaDeg`, in developm
 `work/2026-10-18-magnetometer`).
 
 Poucet's endgame lead (2.6 m against 5.3 m) is bought with UWB on every cycle, at 17× the energy.
+
+**N.59 addendum (MAG, `report/MAG_RESULTS.md`).** `--imuMagSigmaDeg=3` halves CA-TBL's heading divergences (10 → 5
+of 40) and cuts them for every arm; the endgame gain (7.2 → 4.3 m) is not significant; at 5 km CA-TBL then ties
+Poucet at 1/24 of its energy, and its availability is not below any comparator. Five heading failures remain:
+range innovations still drive theta against the reference.
