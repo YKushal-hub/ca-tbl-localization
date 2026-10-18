@@ -25,7 +25,7 @@ them.
 | T8 | ~~4.1 / 4.2~~ | ~~The 1-ulp trace divergence is undiagnosed; `-march=native` makes byte identity machine-dependent. Suggested test: rebuild with `-march=x86-64`~~ **CLOSED (diagnosed)** native vs portable build: summaries identical at defaults, last-digit trace columns only (≤1.7e-12); under the preset only the MLAT comparator flips (5–20 %); see 4.1 note. | ENG (diagnosis) |
 | T9 | ~~6~~ | ~~`src/lorawan` link fix never upstreamed; the optimized profile is not enforced~~ **DONE** G1 refuses a non-optimized configuration (fixture: debug cache); the lorawan fix stays in-tree (upstreaming is external). | ENG (minor) |
 | T10 | 2.1 | Four loss terms (antenna gain, Doppler, multipath, soil) are computed then zeroed: wire them in or delete them | OWNER → CAMP |
-| T11 | 2.2 | Terrain uses 868 MHz for every tier; `--terrainPerTierFreq` exists, default off, not in the preset | CAMP |
+| T11 | ~~2.2~~ | ~~Terrain uses 868 MHz for every tier; `--terrainPerTierFreq` exists, default off, not in the preset~~ **CLOSED** the preset already sets `--terrainPerTierFreq=true` (kSpecProfile, physics fix D-4); only the code default is off. | CAMP |
 | T12 | N.41 | Foliage scaling on 2.4 GHz/UWB is capped by the sampler clamp (×1.8 instead of ×2.17/×5.28) | CAMP (engine fix + campaign) |
 | T13 | N.27 / G93 | Tier 2's sensitivity table is the 1625 kHz row at 800 kHz (~6 dB pessimistic); `--t2SensitivityRowKHz` measured (D8-MAIN), not default | OWNER |
 | T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
