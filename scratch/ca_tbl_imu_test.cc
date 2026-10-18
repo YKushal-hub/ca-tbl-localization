@@ -400,6 +400,34 @@ main(int argc, char* argv[])
         Check(mv > 1.0 && g == 0, "relay gate off: the relayed range is fused as before");
     }
 
+    // --- --ekf5StateBounds: bias and stride scale are projected onto +/- k prior sigmas, nothing else moves -------
+    {
+        auto drive = [](double k, double& sOut, double& xOut, uint64_t& n) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 1.0, 1e-6, 1e-12, 0.0266 * 0.0266);
+            f.SetStateBounds(k, 4.2742e-5, 0.0266);
+            for (int c = 0; c < 200; ++c)
+            {
+                f.Predict(2.5, 3.0, 0.0, 1e-4, 1e-8, 0.0); // walking east by dead reckoning
+                std::vector<CaTblRangeMeasurement> m(1);
+                std::vector<double> v(1, 1.0);
+                m[0].anchorX = 0.0; // a range from the origin that says the walk is twice as long
+                m[0].anchorY = 0.0;
+                m[0].rangeM = 6.0 * (c + 1);
+                f.Update(m, v);
+            }
+            sOut = f.StrideScale();
+            xOut = f.X();
+            n = f.BoundsApplied();
+        };
+        double s0, x0, s4, x4;
+        uint64_t n0, n4;
+        drive(0.0, s0, x0, n0);
+        drive(4.0, s4, x4, n4);
+        Check(std::fabs(s0) > 4.0 * 0.0266 && n0 == 0, "state bounds off: the scale runs past 4 sigma, as the linear update lets it");
+        Check(std::fabs(s4) <= 4.0 * 0.0266 + 1e-12 && n4 > 0, "state bounds on: the scale stays within 4 prior sigmas, and projections are counted");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

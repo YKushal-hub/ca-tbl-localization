@@ -2294,6 +2294,7 @@ static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov),
 static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
 static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
 static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
+static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -7048,6 +7049,7 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5Robust = spec.ekf5Robust;
         pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
         pcfg.ekf5RelayGate = g_ekf5RelayGate;
+        pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
@@ -14793,6 +14795,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 line << "    magnetometer: headings fused " << policy.GetMagFused() << "\n";
             }
+            if (g_ekf5StateBoundsK > 0.0)
+            {
+                line << "    ekf5 state bounds: projections " << policy.Ekf5().BoundsApplied() << "\n";
+            }
             if (g_ekf5RelayGate)
             {
                 line << "    ekf5 relay gate: relayed ranges " << policy.Ekf5().RelaySeen() << ", gated "
@@ -18581,6 +18587,12 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("ekf5StateBounds",
+                 "With --imuFilter=ekf5: after every update the gyro bias and stride scale are clamped to +/- this many of "
+                 "their prior sigmas (estimate projection onto the admissible region, Simon & Chia 2002). 0 (default): no "
+                 "projection. Why: at 5 km seed 12 of the realistic world the filter acquired, then learned a stride "
+                 "scale of -0.34 (13 sigma; true +0.011) and dead-reckoned 3 km away.",
+                 g_ekf5StateBoundsK);
     cmd.AddValue("ekf5RelayGate",
                  "With --imuFilter=ekf5: a RELAYED range whose NIS against the filter's prior exceeds chi^2_1(0.999) = "
                  "10.83 is not fused. Only that class -- a range anchored on another field node's estimate -- so the "
@@ -20234,6 +20246,11 @@ main(int argc, char* argv[])
     {
         // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
+        return 1;
+    }
+    if (g_ekf5StateBoundsK != 0.0 && (!spec.imuFilterEkf5 || !(g_ekf5StateBoundsK > 0.0)))
+    {
+        std::cerr << "FATAL: --ekf5StateBounds needs --imuFilter=ekf5 and a positive value\n";
         return 1;
     }
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))

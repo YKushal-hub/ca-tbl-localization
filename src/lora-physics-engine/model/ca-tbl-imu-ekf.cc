@@ -369,6 +369,13 @@ CaTblImuEkf::PredictUnscented(double dt,
 void
 CaTblImuEkf::FuseHeading(double z, double r)
 {
+    FuseHeadingBody(z, r);
+    ApplyBounds();
+}
+
+void
+CaTblImuEkf::FuseHeadingBody(double z, double r)
+{
     if (!(r > 0.0) || !std::isfinite(z))
     {
         return;
@@ -458,6 +465,13 @@ CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double p
 
 void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    UpdateBody(meas, varM2);
+    ApplyBounds(); // --ekf5StateBounds; a no-op unless on
+}
+
+void
+CaTblImuEkf::UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
     if (m_robust != 0)
     {
@@ -649,6 +663,13 @@ CaTblImuEkf::FuseAxis(int axis, double z, double varM2)
 void
 CaTblImuEkf::FusePosition(double zx, double zy, double varM2)
 {
+    FusePositionBody(zx, zy, varM2);
+    ApplyBounds();
+}
+
+void
+CaTblImuEkf::FusePositionBody(double zx, double zy, double varM2)
+{
     if (m_robust != 0)
     {
         FusePositionCovRobust(zx, zy, varM2, 0.0, varM2); // N.33
@@ -686,6 +707,14 @@ CaTblImuEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ry
 
 bool
 CaTblImuEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    const bool ok = FusePositionCovBody(zx, zy, rxx, rxy, ryy);
+    ApplyBounds();
+    return ok;
+}
+
+bool
+CaTblImuEkf::FusePositionCovBody(double zx, double zy, double rxx, double rxy, double ryy)
 {
     if (m_robust != 0)
     {
@@ -1198,6 +1227,26 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
         {
             ++m_consN;
         }
+    }
+}
+
+void
+CaTblImuEkf::ApplyBounds()
+{
+    if (!(m_bndK > 0.0))
+    {
+        return;
+    }
+    const double bb = m_bndK * m_bndB, bs = m_bndK * m_bndS;
+    if (bb > 0.0 && std::fabs(m_x[3]) > bb)
+    {
+        m_x[3] = std::copysign(bb, m_x[3]);
+        ++m_bndN;
+    }
+    if (bs > 0.0 && std::fabs(m_x[4]) > bs)
+    {
+        m_x[4] = std::copysign(bs, m_x[4]);
+        ++m_bndN;
     }
 }
 
