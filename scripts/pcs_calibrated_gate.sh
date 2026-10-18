@@ -19,8 +19,8 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g28.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-BASE="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true"
-SHORT="--arms=ca_tbl_full --seed=7 --duration=30 --trace=false"
+BASE="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --boxHalf=1000"  # pinned: TD2P4 needs the pre-DD-16 default box, where 2.4 GHz de-escalation is reached
+SHORT="--arms=ca_tbl_full --seed=7 --duration=30 --trace=false --boxHalf=1000"
 EV="--escalationRequiresEvidence=false"
 LEG_THR="--pcsThrUp868=1.55 --pcsThrUp2p4=1.70 --pcsThrUpUwb=2.30 --pcsThrDown2p4=1.90 --pcsThrDownUwb=2.55"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc

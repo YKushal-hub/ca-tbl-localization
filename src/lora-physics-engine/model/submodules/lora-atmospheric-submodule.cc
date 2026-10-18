@@ -30,6 +30,22 @@ void AtmosphericSubmodule::UpdateWeatherState(Time currentTime)
 
     bool isFirst = (m_lastWeatherUpdate == Time(0));
     bool isExpired = (currentTime - m_lastWeatherUpdate).GetSeconds() >= m_params.weatherUpdateIntervalS;
+    // --rngKeyed: weather is a function of time alone -- one state per update epoch
+    // floor(t / interval), drawn on its own keyed sub-sequence -- instead of being re-drawn
+    // inside whichever link evaluation happens to arrive first (TECH_DEBT 1.1, plan v3 V1).
+    int64_t epoch = -1;
+    if (LoRaDistributionSampler::KeyedMode())
+    {
+        const double iv = std::max(1e-9, m_params.weatherUpdateIntervalS);
+        epoch = static_cast<int64_t>(std::floor(currentTime.GetSeconds() / iv));
+        isFirst = (m_keyedWeatherEpoch < 0);
+        isExpired = (epoch != m_keyedWeatherEpoch);
+        if (isFirst || isExpired)
+        {
+            m_keyedWeatherEpoch = epoch;
+            m_sampler.BeginSubContext(0x5745415448455200ULL, static_cast<uint64_t>(epoch));
+        }
+    }
 
     if (isFirst || isExpired) {
         m_currentRainRateMmPerHr = m_sampler.Sample(m_params.rainRateMmPerHr);
@@ -54,6 +70,10 @@ void AtmosphericSubmodule::UpdateWeatherState(Time currentTime)
         }
         
         m_lastWeatherUpdate = currentTime;
+        if (epoch >= 0)
+        {
+            m_sampler.EndSubContext();
+        }
     }
 }
 

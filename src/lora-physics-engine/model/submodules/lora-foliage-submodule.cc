@@ -7,6 +7,41 @@ namespace ns3 {
 // Static cache for per-link dynamic foliage variation (survives across multiple calls for same link)
 static std::map<std::pair<uint32_t, uint32_t>, std::pair<double, Time>> g_foliageDynamicCache;
 
+//! B3f: how many foliage evaluations clamped the drawn depth to the link length.
+uint64_t g_foliageDepthClampFirings = 0;
+
+double P833GammaDbPerM(double fMHz)
+{
+    static const double kF[5] = {105.9, 466.475, 949.0, 1852.2, 2117.5};
+    static const double kG[5] = {0.04, 0.12, 0.17, 0.30, 0.34};
+    if (!(fMHz > 0.0)) {
+        return 0.0;
+    }
+    int i = 0;
+    while (i < 3 && fMHz > kF[i + 1]) {
+        ++i;
+    }
+    const double slope = std::log(kG[i + 1] / kG[i]) / std::log(kF[i + 1] / kF[i]);
+    return kG[i] * std::pow(fMHz / kF[i], slope);
+}
+
+double P833AmDb(double fMHz)
+{
+    return (fMHz > 0.0) ? 1.37 * std::pow(fMHz, 0.42) : 0.0;
+}
+
+bool ApplyP833Forest(FoliageParams& f, double fMHz)
+{
+    if (f.type != VEG_LIGHT_FOREST && f.type != VEG_DENSE_FOREST && f.type != VEG_TROPICAL_FOREST) {
+        return false;
+    }
+    const double g = P833GammaDbPerM(fMHz);
+    const double a = P833AmDb(fMHz);
+    f.specificAttenuationDbPerM = DistributionParam::Normal(g, g * 0.25, g * 0.2, g * 1.8);
+    f.maxAttenuationDb = DistributionParam::Normal(a, a * 0.2, a * 0.5, a * 2.0);
+    return true;
+}
+
 double ComputeFoliageLossDb(
     Vector txPos, Vector rxPos,
     const FoliageParams& params, LoRaDistributionSampler& sampler,
@@ -20,6 +55,17 @@ double ComputeFoliageLossDb(
     double depth = sampler.Sample(params.vegetationDepthM);
     double gamma = sampler.Sample(params.specificAttenuationDbPerM);
     double A_max = sampler.Sample(params.maxAttenuationDb);
+
+    // B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): a path cannot traverse more
+    // vegetation than its own length (ITU-R P.833's depth is the vegetation along the path). The
+    // draws above are unchanged, so no random stream moves; off (default), depth is the draw.
+    if (params.clampDepthToLink) {
+        const double linkLen = CalculateDistance(txPos, rxPos);
+        if (linkLen < depth) {
+            depth = linkLen;
+            ++g_foliageDepthClampFirings;
+        }
+    }
 
     if (depth <= 0.0 || gamma <= 0.0 || A_max <= 0.0) {
         return 0.0;
@@ -51,7 +97,7 @@ double ComputeFoliageLossDb(
 
 // Feature 5: Dynamic wind-induced foliage variation with per-link caching
 // Uses Ornstein-Uhlenbeck process for time-correlated stochastic variation
-// Reference: Meng et al. 2009 IEEE TAP
+// Reference: Cheffena & Ekman, EURASIP JWCN 2009, doi 10.1155/2009/306876 (wind-induced fading); parameter values OURS
 FoliageVariationResult ComputeDynamicFoliageLossDb(
     Vector txPos, Vector rxPos,
     const FoliageParams& params,
@@ -72,7 +118,7 @@ FoliageVariationResult ComputeDynamicFoliageLossDb(
     }
     
     // Feature 5: Wind-induced dynamic variation using Ornstein-Uhlenbeck process
-    // Meng et al. 2009: foliage loss varies with wind-induced branch motion
+    // Cheffena & Ekman 2009: foliage loss varies with wind-induced branch motion (Meng 2009 TAP is static near-ground path loss)
     
     double windSpeed = sampler.Sample(windParams.windSpeedMps);
     double windAmplitude = sampler.Sample(windParams.windAmplitudeDb);

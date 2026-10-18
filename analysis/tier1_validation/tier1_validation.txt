@@ -1,0 +1,24 @@
+samples.csv sha256 0332836a044d8ca2b9b04eb18f48924a5e39724c9fbcea33ec9807e891687841
+gateways.csv sha256 c7b2e2e25ab0e43aab511630579de4adf61cb36cbfd6279129b5bccbab1cd3cc
+probe UrbanModerate (--env=3) sha256 3e950a4390631a8f2510a92f109de315baaefb251b66979e3f14a9f2d178861f
+probe RuralForested (--env=1, scenario default) sha256 8c0c3b6d9f563754b755b7901303672bfb5d57c477a6b284e2492a9a63b69a80
+measured samples: 131057 (paper: 112,372 after its post-processing; Table I: 112,404)
+refit on this file, the paper's procedure: n = 1.597, PL1km = 132.51 dB, residual SD = 9.82 dB (paper: n = 1.58, PL1km = 132.41, sigma = 9.9)
+engine (UrbanModerate (--env=3)) - measured median, per engine distance (bin holding it):
+      250 m: PL term -35.96 dB, total  -0.71 ..  +0.79 dB (engine pdr 0.978, measured n 107)
+      500 m: PL term -43.35 dB, total  +0.15 ..  +1.65 dB (engine pdr 0.796, measured n 1046)
+     1000 m: PL term -44.73 dB, total  +6.15 ..  +7.65 dB (engine pdr 0.429, measured n 5975)
+     1500 m: PL term -48.01 dB, total  +3.59 ..  +5.09 dB (engine pdr 0.305, measured n 9075)
+     2000 m: PL term -47.91 dB, total  +3.92 ..  +5.42 dB (engine pdr 0.250, measured n 11485)
+     3000 m: PL term -46.19 dB, total  +5.88 ..  +7.38 dB (engine pdr 0.187, measured n 15985)
+     4000 m: PL term -43.69 dB, total  +9.26 .. +10.76 dB (engine pdr 0.125, measured n 14492)
+     6000 m: PL term -40.97 dB, total +12.36 .. +13.86 dB (engine pdr 0.081, measured n 10251)
+engine (RuralForested (--env=1, scenario default)) - measured median, per engine distance (bin holding it):
+      250 m: PL term -22.71 dB, total  -9.42 ..  -7.92 dB (engine pdr 0.995, measured n 107)
+      500 m: PL term -29.62 dB, total -15.44 .. -13.94 dB (engine pdr 0.967, measured n 1046)
+     1000 m: PL term -30.72 dB, total -14.59 .. -13.09 dB (engine pdr 0.904, measured n 5975)
+     1500 m: PL term -33.61 dB, total -15.30 .. -13.80 dB (engine pdr 0.803, measured n 9075)
+     2000 m: PL term -33.06 dB, total -12.95 .. -11.45 dB (engine pdr 0.705, measured n 11485)
+     3000 m: PL term -30.79 dB, total  -7.17 ..  -5.67 dB (engine pdr 0.531, measured n 15985)
+     4000 m: PL term -27.93 dB, total  -1.27 ..  +0.23 dB (engine pdr 0.399, measured n 14492)
+     6000 m: PL term -24.57 dB, total  +5.34 ..  +6.84 dB (engine pdr 0.261, measured n 10251)

@@ -1,0 +1,38 @@
+kind,distance_m,n,pl_p10_db,pl_median_db,pl_p90_db,pl_term_db,total_lo_db,total_hi_db,pdr
+measured,216.9,107,94.60,109.00,125.80,,,,
+measured,270.6,413,100.00,115.00,132.24,,,,
+measured,337.7,759,103.00,116.00,133.00,,,,
+measured,421.3,1046,106.50,123.00,135.00,,,,
+measured,525.6,2099,105.00,122.00,135.80,,,,
+measured,655.8,3388,109.00,126.00,139.00,,,,
+measured,818.2,5975,111.00,131.00,142.50,,,,
+measured,1020.8,10749,114.00,134.00,144.20,,,,
+measured,1273.5,9075,122.00,137.80,148.80,,,,
+measured,1588.9,11485,124.00,140.20,150.20,,,,
+measured,1982.4,12092,126.00,141.20,151.20,,,,
+measured,2473.3,15985,128.00,142.00,152.00,,,,
+measured,3085.8,16414,128.00,141.00,151.80,,,,
+measured,3850.0,14492,129.50,142.00,151.20,,,,
+measured,4803.4,10251,132.00,142.80,151.50,,,,
+measured,5992.9,7386,134.00,144.50,152.20,,,,
+measured,7476.9,5460,133.80,144.80,152.20,,,,
+measured,9328.5,3365,139.00,148.00,153.20,,,,
+measured,11638.6,516,143.20,150.00,154.50,,,,
+engine UrbanModerate (--env=3),100.0,2000,,,,64.36,88.69,90.19,0.9995
+engine UrbanModerate (--env=3),250.0,2000,,,,73.04,108.29,109.79,0.9780
+engine UrbanModerate (--env=3),500.0,2000,,,,79.65,123.15,124.65,0.7965
+engine UrbanModerate (--env=3),1000.0,2000,,,,86.27,137.15,138.65,0.4295
+engine UrbanModerate (--env=3),1500.0,2000,,,,89.79,141.39,142.89,0.3050
+engine UrbanModerate (--env=3),2000.0,2000,,,,92.29,144.12,145.62,0.2500
+engine UrbanModerate (--env=3),3000.0,2000,,,,95.81,147.88,149.38,0.1870
+engine UrbanModerate (--env=3),4000.0,2000,,,,98.31,151.26,152.76,0.1250
+engine UrbanModerate (--env=3),6000.0,2000,,,,101.83,155.16,156.66,0.0810
+"engine RuralForested (--env=1, scenario default)",100.0,2000,,,,77.33,89.90,91.40,1.0000
+"engine RuralForested (--env=1, scenario default)",250.0,2000,,,,86.29,99.58,101.08,0.9950
+"engine RuralForested (--env=1, scenario default)",500.0,2000,,,,93.38,107.56,109.06,0.9670
+"engine RuralForested (--env=1, scenario default)",1000.0,2000,,,,100.28,116.41,117.91,0.9040
+"engine RuralForested (--env=1, scenario default)",1500.0,2000,,,,104.19,122.50,124.00,0.8030
+"engine RuralForested (--env=1, scenario default)",2000.0,2000,,,,107.14,127.25,128.75,0.7050
+"engine RuralForested (--env=1, scenario default)",3000.0,2000,,,,111.21,134.83,136.33,0.5315
+"engine RuralForested (--env=1, scenario default)",4000.0,2000,,,,114.07,140.73,142.23,0.3990
+"engine RuralForested (--env=1, scenario default)",6000.0,2000,,,,118.23,148.14,149.64,0.2610

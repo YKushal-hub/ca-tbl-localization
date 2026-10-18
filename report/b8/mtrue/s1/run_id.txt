@@ -1,0 +1,6 @@
+acde9902ef476579
+build Oct 17 2026 07:27:04 | /home/nethi/catbl_v3/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --probe=true --probeTerms=true --probeMonotoneTime=true --seed=1 --outdir=/tmp/claude-1000/-home-nethi/9c42669a-9ea6-4b4e-9888-726f6483f1ce/scratchpad/b8/mtrue/s1
+source unknown dirty 0 profile optimized
+digest sha256
+f95584b407bd78ecb41cd7d59ccc89219606124ed146c9de6f090cfe5a64357a  probe_range_sweep.csv
+faca8ed0808729f57dc72d499f6cc06f2f1bbce56055c5399ae0aa3ca844a6aa  probe_terms.csv

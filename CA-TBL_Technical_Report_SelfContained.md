@@ -44,6 +44,34 @@ on disk. **One exception exists and is named in §9.**
 
 ---
 
+## 0a. Claim record, restated 2026-10-17 (supersedes §0 where they differ)
+
+The current measured tables are in `report/CAMP_FINAL2_RESULTS.md`. Conditions: the final preset (DESIGN_DECISIONS 10,
+11, 13), an unknown start, 20 paired seeds, 221 cells, `source 06ea4386 dirty 0`.
+
+| claim | status 2026-10-17 | evidence |
+|---|---|---|
+| Tiering (ranging both LoRa bands opportunistically) | **supported in the robustness sense.** Best endgame CEP95 (4.6 m) and best 5 km availability (0.352), at 1.2–2.9× the tag-0 energy of a single LoRa band | CAMP-FINAL2 §2; B4 |
+| Confidence-aware switching (PCS) | **not supported.** Indistinguishable from a covariance-trace threshold in every cell | CAMP-FINAL2 Q2; B4-4 |
+| Integrity-gated escalation | **not supported as a claim.** Precision 0.05–0.32, recall 0.02–0.13; overall it costs accuracy outside the fault window | CAMP-FINAL2 fault matrix |
+| 2.4 GHz ToF over 868 MHz RSSI (same geometry) | **supported for calibrated ToF on tracking accuracy:** 89 vs 412 m after acquisition at 5 km; 12.3 vs 27.5 m CEP95 in the endgame (the final preset, DD 14 + 15; CORRW BASE rows). **Not** for uncalibrated ToF (Wolf: 130 vs 52 m) | CAMP-FINAL2; UPG-SCOPE U6; V8 |
+| Reply positions (anchor staleness) | **supported, the largest single gain:** 5 km hybrid CEP95 842 → 271 m | V7 |
+| Under calibrated Wolf errors the hybrid works | **in accuracy, with `--rssiCorrInflate`:** 23.8 m against 2.4 alone 28.5 m (34.4 m without it, on the DD 14 + 15 preset). The flag is not in the preset (CORRW W3 missed by 0.3 m). The energy is about 10× | CAMP-FINAL2 W_end; SIG868; CORRW; TECH_DEBT O.13 |
+
+**Engine corrections behind these numbers:**
+- correlated-shadowing RSSI error;
+- no range-error leak into reception;
+- NLOS as a range bias;
+- keyed RNG;
+- particle-filter acquisition;
+- foliage depth clamped to the link;
+- per-band fading;
+- relayed-range NIS inflation;
+- the exact log-normal 868 MHz σ (DD 14, adopted after CAMP-FINAL2);
+- the IMU increment covariance ×30 (DD 15, B2CONS: endgame consistency 0.96).
+
+Each is default-off in code, gated, and null-controlled; the preset turns them on. The text from §0 on is kept as written.
+
 ## 0. Claim record, restated 2026-09-29
 
 **Why this section exists.** The scope banner says every number in this report is
