@@ -6406,6 +6406,8 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! N.58 --acquireHandoverCurvature: the cloud hands over only once every range is linearisable.
+    bool acquireHandoverCurvature = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
     bool relayNisInflate = false;
     //! B2 --rssiCorrInflate (scope 2026-10-17).
@@ -7004,6 +7006,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
     pcfg.acquireNegInfo = spec.acquireNegInfo;       // --- C1 --- (false by default: off)
+    pcfg.acquireHandoverCurvature = spec.acquireHandoverCurvature; // N.58 (false by default: off)
     pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
     pcfg.rssiCorrInflate = spec.rssiCorrInflate;     // --- B2 --- (false by default: off)
     pcfg.acquireSeed = seed;
@@ -15449,6 +15452,11 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    C2 tofRecal (" << CaTblPolicyModeName(mode) << "): tag-0 learnt 868 MHz log-bias "
                       << policy.GetTofRecalBias() << " from " << policy.GetTofRecalPairs() << " pairs\n";
         }
+        if (spec.acquireHandoverCurvature)
+        {
+            std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(mode) << "): cycles the curvature guard kept the cloud "
+                      << policy.GetPfCurvatureHolds() << "\n";
+        }
         if (spec.acquireNegInfo)
         {
             std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
@@ -16497,6 +16505,13 @@ main(int argc, char* argv[])
                  "2.4 GHz 328 m, sigma 9.1 dB) -- the non-detection evidence a range-only filter otherwise discards "
                  "(Koch 2007). Gateways only: surveyed positions; no finder's true position is used.",
                  spec.acquireNegInfo);
+    cmd.AddValue("acquireHandoverCurvature",
+                 "N.58, with --acquireParticles. False (default): the cloud hands over to the filter once its largest SD "
+                 "is under a quarter of the cycle's MEDIAN range, which km-long 868 MHz ranges dominate. True: also only "
+                 "once linearising each range at the cloud's spread costs no more than that range's own sigma, "
+                 "l1 <= 2 r sigma for every range in the set. Why: at 5 km seed 5 the cloud handed over at SD 320 m and "
+                 "six 3 m ToF ranges linearised 250 m off moved the estimate 180 m the wrong way and shrank its SD to 9 m.",
+                 spec.acquireHandoverCurvature);
     cmd.AddValue("tofRecal",
                  "C2 (scope 2026-10-17; U9). False (default): 868 MHz RSSI ranges are used as measured. True: every "
                  "filter learns the systematic 868 MHz log-error from cycles where one tri-band anchor gave both an "
@@ -20161,6 +20176,11 @@ main(int argc, char* argv[])
         std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
+    if (spec.acquireHandoverCurvature && !spec.acquireParticles)
+    {
+        std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";
+        return 1;
+    }
     if (imuStrideSigmaPctArg != 0.0)
     {
         if (!spec.imuPredict || !(imuStrideSigmaPctArg > 0.0))

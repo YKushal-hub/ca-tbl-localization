@@ -115,6 +115,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     hold24AfterK = 0; // C3; off: UWB escalation as before
     tofRecal = false; // C2; off: 868 MHz ranges used as measured
     acquireNegInfo = false; // C1; off: non-detections ignored
+    acquireHandoverCurvature = false; // N.58; off: the median-range guard alone
     relayNisInflate = false; // B1; off: a relay's P_B is used as it stands
     rssiCorrInflate = false; // B2; off: successive 868 MHz RSSI ranges are fused as independent, as before
     rssiCorrDistM = 30.0;    // ShadowingParams::DefaultsFor(ENV_RURAL_FORESTED).correlationDistanceM
@@ -1268,6 +1269,21 @@ CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std:
     if (std::sqrt(std::max(0.0, l1)) > 0.25 * rr[rr.size() / 2])
     {
         return false;
+    }
+    if (m_config.acquireHandoverCurvature)
+    {
+        // N.58: the guard above compares the cloud with the MEDIAN range, which km-long 868 MHz ranges
+        // dominate; a few metres of ToF then get linearised 300 m from the truth. Linearising a range r at a
+        // point delta off adds about delta^2 / (2 r): hand over only when that, at the cloud's largest variance
+        // l1, is within each range's own sigma -- l1 <= 2 r sigma for every range in the set.
+        for (size_t i = 0; i < meas.size() && i < varM2.size(); ++i)
+        {
+            if (meas[i].rangeM > 0.0 && l1 > 2.0 * meas[i].rangeM * std::sqrt(std::max(varM2[i], 0.0)))
+            {
+                ++m_pfCurvatureHolds;
+                return false;
+            }
+        }
     }
     if (wA < 0.02 || wB < 0.02)
     {
