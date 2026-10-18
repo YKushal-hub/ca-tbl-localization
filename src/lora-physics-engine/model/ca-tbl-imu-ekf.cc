@@ -502,6 +502,15 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
             K[i] = PH[i] / S;
         }
         const double innovation = meas[k].rangeM - rPred;
+        if (m_relayGate && meas[k].sourceKind == CA_TBL_SRC_RELAY)
+        {
+            ++m_relaySeen;
+            if (innovation * innovation / S > 10.83)
+            {
+                ++m_relayGated;
+                continue;
+            }
+        }
         NoteNis(innovation * innovation / S); // --relayNisInflate; a no-op unless enabled
         for (int i = 0; i < N; ++i)
         {
@@ -1134,6 +1143,15 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             K[i] = (PH[i] + XH[i]) / S;
         }
         const double innovation = mm.rangeM - rPred;
+        if (m_relayGate && mm.sourceKind == CA_TBL_SRC_RELAY)
+        {
+            ++m_relaySeen;
+            if (innovation * innovation / S > 10.83)
+            {
+                ++m_relayGated;
+                continue;
+            }
+        }
         NoteNis(innovation * innovation / S);
         // Cross-covariances first, from pre-update values. For the ranged finder:
         // X_a <- X_a - K (H X_a + Ha C) = X_a - K (H X_a - var h). Every other finder: X_b <- X_b - K (H X_b).

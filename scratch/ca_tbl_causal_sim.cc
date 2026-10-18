@@ -2293,6 +2293,7 @@ static double g_imuMagSigmaDeg = 0.0;    //!< --imuMagSigmaDeg (white)
 static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov), OURS
 static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
 static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
+static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -7046,6 +7047,7 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5StrideLenM = ip.strideLenM;
         pcfg.ekf5Robust = spec.ekf5Robust;
         pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
+        pcfg.ekf5RelayGate = g_ekf5RelayGate;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
@@ -14791,6 +14793,11 @@ RunArm(CaTblPolicyMode mode,
             {
                 line << "    magnetometer: headings fused " << policy.GetMagFused() << "\n";
             }
+            if (g_ekf5RelayGate)
+            {
+                line << "    ekf5 relay gate: relayed ranges " << policy.Ekf5().RelaySeen() << ", gated "
+                     << policy.Ekf5().RelayGated() << "\n";
+            }
             if (g_ekf5FinderConsider)
             {
                 line << "    ekf5 finder consider: ranges to finders " << policy.Ekf5().ConsiderUpdates() << "\n";
@@ -18574,6 +18581,14 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("ekf5RelayGate",
+                 "With --imuFilter=ekf5: a RELAYED range whose NIS against the filter's prior exceeds chi^2_1(0.999) = "
+                 "10.83 is not fused. Only that class -- a range anchored on another field node's estimate -- so the "
+                 "filter's own ranges are never gated and it cannot lock itself out. FALSE by default. Why: in the "
+                 "endgame a relay through a peer whose own estimate was 270 m off at a claimed ~10 m gave z = -25 "
+                 "and threw tag 0 69 m off; with relaying off the endgame CEP95 fell 9.4 -> 3.4 m but availability "
+                 "fell 0.045. Refused without ekf5 or with --ekf5Robust.",
+                 g_ekf5RelayGate);
     cmd.AddValue("ekf5FinderConsider",
                  "With --imuFilter=ekf5: each finder's GNSS position offset is a Schmidt consider parameter of the "
                  "5-state filter -- not estimated, but its covariance and its cross-covariance with the state are "
@@ -20219,6 +20234,11 @@ main(int argc, char* argv[])
     {
         // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
+        return 1;
+    }
+    if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
+    {
+        std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
         return 1;
     }
     if (ekf5FinderConsiderArg)
