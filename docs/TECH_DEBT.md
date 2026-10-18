@@ -377,6 +377,10 @@ mechanism at all"* with three built capabilities listed ABSENT. Previously:
 directories used it. *Fix:* a periodic re-audit, or a gate that flags matrix rows whose
 cited code path exists.
 
+*2026-10-18 (T41), the part a gate can hold:* G152 refuses a `--flag` named in RULES.md, DESIGN_DECISIONS or
+TECH_DEBT_STATUS that no scratch program registers, and a RULES.md preset-list flag that `kSpecProfile[]` does not
+set. It has a fake-flag fixture. Stale numbers in prose stay a review matter.
+
 ---
 
 ## 6. Build and tooling

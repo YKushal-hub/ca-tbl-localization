@@ -198,6 +198,7 @@ line in each script).
 - DD 13: `--fadingPerBand --relayNisInflate`.
 - DD 14: `--rssiSigmaLogNormal`.
 - DD 15: `--imuQuScale=30` (campaigns no longer pass it).
+- Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

@@ -55,7 +55,7 @@ them.
 | T38 | K.9 | SHS gait calibration diverges where fixes are sparse (debt by owner decision) | OWNER |
 | T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
 | T40 | 5.1 | 137 published commits carry the wrong author email; fixing needs a force-push to protected `main` | OWNER |
-| T41 | 5.3 | No gate catches stale documents | ENG (gate, partial) |
+| T41 | ~~5.3~~ | ~~No gate catches stale documents~~ **DONE (the checkable part)** G152: documents name only real flags; RULES.md preset list ⊆ kSpecProfile; fake-flag fixture. | ENG (gate, partial) |
 | T42 | L.3 claim 3 | Identity-scoped arbitration has never been measured as a claim | CAMP |
 | T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) | OWNER (scope) |
 | T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) | LIMIT (stated) |

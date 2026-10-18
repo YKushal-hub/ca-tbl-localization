@@ -2019,6 +2019,17 @@ printf '\n--- G151 preset mechanisms each change the output ---\n'
 bash scripts/preset_efficacy_gate.sh "$WORK/g151" || fail G151
 finish G151
 
+# ---------------- G152: T41 (TECH_DEBT 5.3): current documents name only real flags; RULES.md's preset list is the code's
+printf '\n--- G152 documents name real flags ---\n'
+python3 scripts/doc_flags_gate.py || fail G152
+printf 'A doc naming --thisFlagDoesNotExist=true.\n' > "$WORK/g152_fixture.md"
+if python3 scripts/doc_flags_gate.py --docs "$WORK/g152_fixture.md" > /dev/null; then
+    echo "  G152 fixture: a fake flag passed"; fail G152
+else
+    echo "  G152 fixture: a fake flag is refused"
+fi
+finish G152
+
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
 bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143
