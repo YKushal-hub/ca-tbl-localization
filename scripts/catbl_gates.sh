@@ -1882,6 +1882,17 @@ bash scripts/acq_curvature_gate.sh "$WORK/g98" || fail G98
 bash scripts/acq_curvature_gate_selftest.sh "$WORK/g98" || fail G98
 finish G98
 
+# ---------------- G99: --imuMagSigmaDeg, a magnetometer heading reference fused by ekf5
+# A gyro-only heading's error grows without bound (REAL-IMU 5 km seed 5: 1.87 rad at 0.15 deg/s). The flag adds a
+# magnetometer reading of the IMU's accumulated heading error each cycle (white + Gauss-Markov), fused by ekf5 as a
+# direct theta reading at the independent-equivalent variance. scripts/imu_mag_gate.py reads that cell: the reading
+# is fused on every IMU cycle, the final heading error is 1.869 rad without it and under 0.2 with it; 0 is the flag
+# absent byte for byte; it does not leak; refused without ekf5 or negative. Unit cases in ca_tbl_imu_test.
+printf '\n--- G99 a magnetometer heading reference (--imuMagSigmaDeg) ---\n'
+bash scripts/imu_mag_gate.sh "$WORK/g99" || fail G99
+bash scripts/imu_mag_gate_selftest.sh "$WORK/g99" || fail G99
+finish G99
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
