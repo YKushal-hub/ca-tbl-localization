@@ -1893,6 +1893,25 @@ bash scripts/imu_mag_gate.sh "$WORK/g99" || fail G99
 bash scripts/imu_mag_gate_selftest.sh "$WORK/g99" || fail G99
 finish G99
 
+# ---------------- G100: --ekf5FinderConsider, finder GNSS offsets as consider parameters
+# scripts/finder_consider_gate.py reads the endgame, seed 1, realistic IMU, --finderPosSigma=2, 600 s: the flag
+# applied to > 0 finder ranges, and the fused 2.4 GHz finder ranges' R lost exactly the GNSS part (base^2 - on^2
+# within [3, 5] m^2: measured 4.00); false is the flag absent byte for byte; no leak; refused without ekf5 or with
+# a robust mode. The consistency property is ca_tbl_imu_test's (NEES 2.08 against 53 naive).
+printf '\n--- G100 finder GNSS offsets as consider parameters (--ekf5FinderConsider) ---\n'
+bash scripts/finder_consider_gate.sh "$WORK/g100" || fail G100
+bash scripts/finder_consider_gate_selftest.sh "$WORK/g100" || fail G100
+finish G100
+
+# ---------------- G101: --ekf5RelayGate, a chi^2 gate on relayed ranges only
+# scripts/relay_gate_gate.py reads the endgame, seed 3, 300 s, the cell where a relay gave z = -25: relayed > 0,
+# 0 < gated < relayed, the run differs from the ungated one; false is the flag absent byte for byte; no leak;
+# refused without ekf5 or with a robust mode. That it gates relays only is ca_tbl_imu_test's relay gate cases.
+printf '\n--- G101 a chi^2 gate on relayed ranges (--ekf5RelayGate) ---\n'
+bash scripts/relay_gate_gate.sh "$WORK/g101" || fail G101
+bash scripts/relay_gate_gate_selftest.sh "$WORK/g101" || fail G101
+finish G101
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
