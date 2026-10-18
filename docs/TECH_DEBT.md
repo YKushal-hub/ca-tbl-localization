@@ -4107,3 +4107,9 @@ realistic world's two remaining inconsistencies were repeated ranges to an offse
 overconfident relayed ranges. `--ekf5FinderConsider` and `--ekf5RelayGate` fix the endgame (10.5 → 4.4 m), where
 CA-TBL then ties Poucet's accuracy with higher availability at 1/17 the energy. Not proposed: 5 km availability
 −0.011 [−0.028, +0.004] against a registered −0.01 bound.
+
+**N.59 addendum (REAL-BEST, `report/REAL_BEST_RESULTS.md`, out of sample on seeds 21–40).** The realistic world
+with the full stack (ekf5, magnetometer, finder consider, relay gate) holds out of sample. No comparator is
+significantly more accurate than CA-TBL in either configuration. In the endgame CA-TBL ties Poucet's accuracy
+with higher availability at ~1/20 the energy. One gap remains: endgame availability −0.010 [−0.017, −0.002]
+against `fixed_threshold`. Put to the owner as the preset; state bounds alone not supported (P5).
