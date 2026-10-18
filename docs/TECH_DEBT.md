@@ -3288,6 +3288,16 @@ loss does not track the drawn |bias| (r = −0.08), and 0.005 °/s already costs
 error is never corrected, so any bias that integrates to tens of degrees over the run makes the
 dead-reckoned direction arbitrary. **Every preset accuracy figure is conditional on a near-perfect
 gyro.** CA-TBL's availability lead survives in A and B and is lost on the ring at 0.5 °/s.
+**Remedy built, 2026-10-17:** `--imuFilter=ekf5` (default `cv`) runs the 5-state `CaTblImuEkf` as
+every node's policy filter on DC-1's own output, learning the heading offset, bias and stride
+scale from fixes; its assumed model is DC-1's parameters. Gate G95. On the endgame at 0.5 °/s,
+seed 7 (one seed, not a result) it recovered the bias to 95 % and the heading error to 0.02 rad.
+**Measured on the preset, 2026-10-18** (`report/EKF5_PRESET_RESULTS.md`, 189 cells, every
+registered prediction held): CA-TBL tag 0 CEP95 at 0.5 °/s, cv → ekf5: 1976.4 → 766.0 m (5 km),
+283.0 → 43.9 m (endgame), 881.6 → 127.8 m (ring); and at the preset's own near-perfect gyro it is
+better too (57.8 → 28.1, 12.0 → 5.1, 44.7 → 10.1 m). Two costs: at 5 km recovery is partial (fixes
+are sparse), and in the endgame at 0.5 °/s CA-TBL becomes less accurate than LoRa fusion and Poucet
+(+34 to +37 m), which ekf5 helps more. Making ekf5 the default is the owner's decision.
 
 ### N.29 M-01's SF12 inversion is the validation harness colliding with itself
 
@@ -3944,3 +3954,207 @@ Two gates had defined their populations at the old default box, and now pin `--b
 - **G30 OFF:** the all-LOS structural zero no longer holds; the small box has 4 all-LOS fixes.
 
 Both, and their self-tests, pass. The expected reds are now G6, G11 and G24.
+
+> **Numbering note (merge of 2026-10-18, IMU line).** N.32 appears a third time below, from the IMU line
+> (`work/2026-10-18-ekf5-consider`), whose commits and `report/PREREG_EKF5_CONSIDER.md` cite it with N.33.
+> Not renumbered, for the same reason as above: read a citation of N.32 by its subject (finder entries
+> under DC-13 here; forced escalation on SUSPECT in the accuracy line).
+
+### N.32 A finder's entry, extrapolated by its last velocity, can be tens of metres off while DC-13 says it is not — measured, the proposed remedy rejected
+
+Found 2026-10-18 diagnosing EKF5-PRESET's worst cell (`C_ekf5_L2/s4`, tag 0 CEP95 2537.6 m).
+Finder 501, tasked to converge on tag 0, re-aims each time its goal updates (t = 200, 220, 235 s)
+and stops in between. Tag 0 held its report from t = 190 s (seq 77) and carried it forward under
+`--entryPrediction` at that report's velocity, (−1.04, −0.60) m/s, for 35 s. By t = 225 s the
+substituted anchor was **46.6 m** from the finder (`pseudo_` and `nodes_` traces), against DC-13's
+claimed σ = 0.5 m/s × 35 s = 17.5 m. Tag 0 was ranging that finder every cycle at 26–32 m on
+2.4 GHz, accurately (ToF within 3 m), so an accurate range against a misplaced anchor rotated the
+filter. Holding the report without extrapolating would have been 23.6 m off. The finder's
+DISCOVERY beacons reach tag 0 every 2.5 s, but carry no position (5 bytes), so the subject heard
+the finder every cycle and still used a 35-s-old position.
+
+**Proposed remedy, rejected on measurement.** `--entryAgeVariance=travel` (the travel bound
+(finder speed × age)² in place of DC-13's) was built in a working tree, not committed. Before
+running it, every tag 0 substitution in the 60 L2 cells was audited against truth
+(`entrypred_` ⋈ `nodes_`). By entry age, DC-13's extrapolation beats holding the report about
+ten-fold — A, 40–80 s: 4.8 m mean against 67.0 m; B 13.9 against 51.6; C 4.4 against 67.0 — and
+exceeds its own 3σ in under 1 % of entries below 160 s. The travel bound would have inflated
+the variance of those accurate entries by about ten. C s4 is a minority mechanism (a converging
+finder that turns), not a miscalibrated DC-13. Not built. A remedy that targets it — the finder
+re-publishing when a receiver's extrapolation of it would be off by more than a threshold, the
+dead-reckoning rule of IEEE 1278.1 DIS, or a position in the mobile anchor's beacon — is a MAC
+change (wire sizes, airtime, energy), unbuilt.
+
+### N.33 One-range updates teach the 5-state filter's heading from its own linearisation
+
+Found 2026-10-18 from EKF5-PRESET at L2 (0.15 °/s). Every arm's catastrophic seeds end with
+a heading offset error above 0.3 rad, and they dominate every mean; without them CA-TBL is close
+to its comparators (endgame ≈ 6 m against 8 and 6; ring ≈ 21 against 21 and 14 — still behind
+Poucet there). At 5 km seed 17, `static_2p4` — same tier, same filter, same IMU — fused 0.26 ranges
+per cycle, learned the bias to 1 % and the heading offset to 0.05 rad, and ended at CEP95 49 m;
+`ca_tbl_full` fused 1.9 per cycle, ended 1.97 rad wrong in heading and −0.084 in stride scale
+(true +0.002), CEP95 1791.7 m, with its claimed σ 7–15 m against an error up to 1.9 km. Its
+ranges were not bad (2.4 GHz ToF within 4 m, the finder's substituted position within 0.7 m);
+101 were Case D single-range updates. One range observes position along one direction;
+`CaTblImuEkf::Update` also moves θ, b and s through their covariance with position, which an
+EKF whose linearisation point is wrong gets wrong.
+
+**Built, default off (`--ekf5Robust`, a bit set).** `8` CONSIDER: an update of fewer than 3
+ranges is a Schmidt update — gain on θ, b, s zeroed, Joseph covariance, which stays correct for
+any gain — so θ, b, s and their variances are unchanged and position still moves.
+`ca_tbl_imu_test` N.33 cases: 6 new, 19/19 (with the gain-zeroing removed: the two mode-8 sparse
+cases fail, 17/19). Null control 14/14 byte-identical, traces included (NC1–9, X1–X3, and X4/X5
+under ekf5, X5 the ring at 0.15 °/s). G96, 11 negative fixtures.
+
+**Also built and rejected** (validator `--robustDiag`, synthetic walks with truth, 100 per row):
+`1` GATE (drop a range with NIS > χ²₁ 0.999), `2` PROTECT (position-only when a fix's mean NIS >
+χ²₁ 0.99), `4` RECOVER (reopen P after 3 majority-gated fixes). With outliers but a correct
+start, no mode diverged in 100, mode 0 included — the synthetic regime did not reproduce the
+scenario's failure. Started 1.5 rad wrong with 4 good ranges per cycle: mode 0 0/100 diverged,
+GATE 89, PROTECT 80, both 74; with RECOVER 0. With 1–2 ToF and 6 wide RSSI ranges per cycle
+(`--robustWeak`): mode 0 0/100, GATE+RECOVER **86/100** — wide RSSI ranges are never gated, so
+RECOVER's majority never forms, and gating locks a weakly observed filter out of its only
+informative ranges. CONSIDER+PROTECT (10) on the scenario: control 5 km seed 13 6.0 → 294.0 m,
+seed 14 258.4 → 1019.6 m. Kept as diagnostic modes; not for use.
+
+**What is not established.** On 16 hand-picked cells at L2 (12 chosen because they diverged),
+mode 8 against mode 0: C s4 2537.8 → 23.4 m, 5 km s17 1791.7 → 549.4, s6 880.7 → 170.8, s12
+795.5 → 330.5; worse at s9 250.7 → 342.5 and s19 1461.4 → 2131.1 — the two cells with the most
+considered updates (279, 221) — and control s13 6.0 → 9.5. Several large changes follow few
+considered updates (C s4 10, endgame s20 4), which a chaotic re-roll explains as well as a
+cause. Selected cells regress to the mean under any perturbation; this is not a result. The
+registered test is EKF5-CONSIDER.
+
+**Measured (EKF5-CONSIDER, `report/EKF5_CONSIDER_RESULTS.md`): rejected.** R1 held; P1, P2 and P3
+failed. Heading divergence 19 → 15 of 120 (discordant 11 against 7, short of the registered 2 : 1);
+5 km CEP95 at the near-perfect gyro +105.7 % per seed; subjects worse almost everywhere; the ring's
+`static_2p4` diverges 3 → 18 at L3. One-range updates teach θ, b, s correctly far more often than
+they corrupt them; the pilot was regression to the mean. Open: an update that is consistent
+rather than rank-limited (FEJ / observability-constrained EKF, iterated or unscented update).
+
+### N.57 O.12's "conditional bias given reception" is selection; a censoring correction predicts its shape, not its size — not built
+
+Exploratory, 2026-10-18, not citable (`~/ns/catbl-work/cens_pilot`: the preset at 5 km, `--unknownStart`,
+`--traceRanges`, `static_868` and `ca_tbl_full`, seeds 1–6, 1800 s; the merged branch's binary at defaults).
+Tag 0's 868 MHz ranges to surveyed gateways, z = ln(r̂/d)/s with s recovered exactly from the logged
+σ/r̂ (DD 14's log-normal SD, mean s 0.743): mean z −0.30 at 2–3 km, −0.61 at 3–4 km, −0.69 at 4–6 km
+(n 797, 1185, 651), sd ≈ 0.95; short pseudo-anchor links +0.05 to +0.09. Received far links read short:
+O.12's first residual, reproduced.
+
+**Why it happens.** Per cycle the complete likelihood is p(r̂ | d) P(rx | r̂) for each received link
+and (1 − PDR(d)) for each missed one. The filter uses the first and ignores the misses, which is
+exactly the combination that is biased at fixed d. Two consistent alternatives exist: keep the misses
+(negative information, which `--acquireNegInfo` applies to the acquisition cloud only), or condition
+each received range on its reception, p(r̂ | d, rx) = p(r̂ | d) P(rx | r̂) / PDR(d).
+
+**The conditional form, tested against the data.** With PDR(d) = Φ((ln r50 − ln d)/s_m) from the
+probe's own delivery curve (O.5's form; 868 MHz r80 1698.8 m, r50 3377.4 m, s_m 0.817), the predicted
+selection bias at the TRUE distance, −(s/s_m) λ(u) with u = (ln r50 − ln d)/s_m, has the observed shape
+but not its size: −0.53, −0.76, −0.92 against −0.30, −0.61, −0.69, and a predicted sd of 0.62–0.74
+against 0.91–0.98. The probe's curve gives the ranging shadowing too large a share of reception's
+variability; the field links differ from the probe's sites (body height, foliage, fading, and the
+1.5 dB hysteresis that keeps a received link up), so their selection is weaker. A correction
+calibrated on the probe would leave +0.15 to +0.23 in place of −0.30 to −0.69, and shrinking σ as
+the model says would add overconfidence. Applied instead as a single-range posterior under a flat
+prior in ln d to 60 km, the conditional likelihood over-corrects grossly (mean z +0.52 to +0.73,
+mean error 1830 → 9155 m): the 1/PDR factor needs the filter's informative prior, not a flat one.
+
+**Not built.** A correction calibrated on the field links' own delivery, or negative information
+from missed gateways in the EKF (not only in the acquisition cloud), is the principled next step.
+The per-range 95 % coverage is already 0.91–0.94, so this residual alone does not explain O.12's
+fix-level 0.59–0.64; per-link temporal correlation of shadowing (CORRW) stays the other candidate.
+
+### N.58 Under ekf5 at 5 km the position covariance collapses during acquisition, and the sensor states absorb the error
+
+EKF5-MAIN (`report/EKF5_MAIN_RESULTS.md`): at 5 km with the preset's gyro, ekf5's median NEES is 789
+against cv's 4.5, and CA-TBL's CEP95 rises 365.1 → 613.7 m; with a realistic gyro ekf5 wins everywhere.
+Traced on A L0 seed 5 (exploratory): the claimed position σ collapses 178 → 8.3 m between t = 82 and
+122 s, after the particle handover, while the error is 213 m. The state then converges over 150 s, but
+the persistent innovations are absorbed as stride scale (0 → +0.53) and heading (→ −1.05 rad), and it
+dead-reckons the wrong way afterwards. A single linearised update of precise ToF ranges taken about
+200 m from the truth reduces P as if the update were linear.
+
+Exploratory remedies tried on seeds 1–6 (single arm, 1800 s, not citable):
+- `--rssiCorrInflate`: helps 4 of 6 (seed 1 55 → 9 m), not seeds 3 or 5 (NEES 374, 10 858).
+- `--ekf5Robust=16` (RSSI ranges do not update θ, b, s; built in the working tree, uncommitted):
+  seed 4 371 → 58 m, seed 1 55 → 22 m; seed 5's scale error stays +0.125 — RSSI is not its route.
+- `--ekf5Robust=4` (RECOVER): never fires on seed 5 (recoveries 0) — the wide 868 MHz ranges in each
+  fix are never outliers, so its majority test cannot trip.
+The principled remedy for a covariance that collapses before a large-offset state converges is an
+iterated update (IEKF: re-linearise around the improving estimate, Gauss-Newton). Not yet built.
+
+### N.59 With a realistic IMU the preset collapses under its own filter; ekf5 recovers most, and heading drift is the 5 km residual
+
+REAL-IMU (`report/REAL_IMU_RESULTS.md`): a BMI270-class gyro (0.15 °/s) and 5 % per-step stride noise
+(`--imuStrideSigmaPct`, `aa538bb8`). Under cv, CA-TBL's CEP95 is 1545 m at 5 km and 122 m in the endgame, against
+365 m and 5.0 m with DC-1's defaults. ekf5 brings them to 865 m and 7.2 m. `--acquireHandoverCurvature` is not
+supported on 20 seeds.
+
+At 5 km the remaining failures are heading-driven: a seed with a −0.149 °/s bias drifts 268° in 1800 s, and
+ekf5's bias estimate, learned 23 % high and with no random walk, cannot follow. A body-worn IMU carries a
+magnetometer for exactly this; DC-1 models none (`--imuMagSigmaDeg`, in development on
+`work/2026-10-18-magnetometer`).
+
+Poucet's endgame lead (2.6 m against 5.3 m) is bought with UWB on every cycle, at 17× the energy.
+
+**N.59 addendum (MAG, `report/MAG_RESULTS.md`).** `--imuMagSigmaDeg=3` halves CA-TBL's heading divergences (10 → 5
+of 40) and cuts them for every arm; the endgame gain (7.2 → 4.3 m) is not significant; at 5 km CA-TBL then ties
+Poucet at 1/24 of its energy, and its availability is not below any comparator. Five heading failures remain:
+range innovations still drive theta against the reference.
+
+**N.59 addendum (REAL-STACK, `report/REAL_STACK_RESULTS.md`).** With 2 m finder GNSS error (`--finderPosSigma=2`) the
+realistic world's two remaining inconsistencies were repeated ranges to an offset finder fused as independent and
+overconfident relayed ranges. `--ekf5FinderConsider` and `--ekf5RelayGate` fix the endgame (10.5 → 4.4 m), where
+CA-TBL then ties Poucet's accuracy with higher availability at 1/17 the energy. Not proposed: 5 km availability
+−0.011 [−0.028, +0.004] against a registered −0.01 bound.
+
+**N.59 addendum (REAL-BEST, `report/REAL_BEST_RESULTS.md`, out of sample on seeds 21–40).** The realistic world
+with the full stack (ekf5, magnetometer, finder consider, relay gate) holds out of sample. No comparator is
+significantly more accurate than CA-TBL in either configuration. In the endgame CA-TBL ties Poucet's accuracy
+with higher availability at ~1/20 the energy. One gap remains: endgame availability −0.010 [−0.017, −0.002]
+against `fixed_threshold`. Put to the owner as the preset; state bounds alone not supported (P5).
+
+### N.60 The last gap to `fixed_threshold` (endgame availability −0.010) is a trade within CA-TBL's design, not a defect
+
+REAL-BEST (out of sample) leaves one significant deficit for CA-TBL under the realistic-world stack: endgame
+availability −0.010 [−0.017, −0.002] against `fixed_threshold`, the same stack under a fixed-variance escalation
+rule. Measured on REAL-BEST's endgame F cells (subjects): `fixed_threshold` spends more cycles on the upper tiers
+(2.4 GHz 0.464 against 0.453, UWB 0.035 against 0.031) and escalates less often but stays longer (35.3 against 40.7
+escalations), for a fix share of 0.589 against 0.579, at 20.18 against 18.78 J (+7 %).
+
+**Why a recalibration was not run.** CAL-03 is the project's threshold fit. It fits to escalation labels by F1,
+not to availability. Its held-out evaluation found the calibrated rule within 0.001–0.007 of the legacy rule's
+availability, with `fixed_threshold` still higher (endgame 0.438 against 0.417). Its UWB-entry thresholds are
+UNFITTED: there are no positive labels. Re-running it under the realistic stack cannot be expected to move
+availability. The PCS weights (2.995, 0, 0.005) are essentially the trace, which `fixed_threshold` also
+thresholds (CAMP-FINAL2 Q2: PCS earns nothing over the trace).
+
+So closing this gap means choosing thresholds that buy availability with energy: an accuracy / availability /
+energy weighting. That is the owner's decision (C3 `--hold24AfterK` exposes the same trade), not a correction.
+
+### N.61 The magnetometer disturbance as an estimated state: consistent, not decisive — kept as a patch, not committed
+
+An augmented 6th state for the magnetometer's Gauss-Markov disturbance d (z = theta + d + white; fused at the white
+variance; d carried with its cross-covariance around the 5-state core) was built and tested.
+- **Monte Carlo (unit level):** heading NEES 1.11, against 86.5 for the white variance without the state.
+- **On the realistic stack, seeds 1–20, against REAL-STACK's S (exploratory, not citable):**
+  - 5 km CA-TBL 620.8 → 488.2 m, −132.6 [−335.4, +22.3];
+  - availability +0.010 [−0.001, +0.022];
+  - heading divergences 4 → 5;
+  - Poucet 684.3 → 990.9 m [−36.5, +900.6];
+  - the endgame unchanged.
+
+**Reading.** The 5 km heading failures persist under a consistent 3° reference, so they are not caused by a weak
+heading reference. Their position goes wrong first (acquisition, or a bad fix), and the range innovations then pull
+every state. Not worth a registered campaign on this evidence. The code is
+`~/ns/catbl-work/wip_mag_gm_state.patch` (filter, policy, scenario, two unit cases, 33/33).
+
+**The endgame floor.** With 2 m finder GNSS error (`--finderPosSigma=2`), CA-TBL, Poucet and `fixed_threshold` all
+reach about 4 m CEP95 in the endgame (REAL-BEST: 4.0, 4.4, 4.1). No method localises more precisely than its
+anchors' positions are known, so ties there are physics, not a shortfall of any arm.
+
+**N.60 addendum (REAL-SPEC, out of sample on seeds 41–60).** The Switching-Point Integrity Check at its specified 9.21
+on the consistent stack raises CA-TBL's endgame availability (+0.012) but costs endgame accuracy (+1.4 m; mean per-seed
+ratio +41.5 %) and +30 % energy. `fixed_threshold` and Poucet are then significantly more accurate. Not proposed.
+CA-TBL's integrity threshold, like its escalation thresholds, moves it along an accuracy / availability / energy
+frontier.

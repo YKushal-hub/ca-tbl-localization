@@ -14,12 +14,16 @@
 #define CA_TBL_IMU_EKF_H
 
 #include "ca-tbl-imu-sensor-model.h"
-#include "ca-tbl-policy.h" // CaTblRangeMeasurement
 
+#include <map>
 #include <vector>
 
 namespace ns3
 {
+
+// Forward-declared, not included: ca-tbl-policy.h includes this header (--imuFilter=ekf5).
+// Only references are taken here; ca-tbl-imu-ekf.cc includes the full definition.
+struct CaTblRangeMeasurement;
 
 /**
  * \brief C3: range-only EKF whose predict step is IMU dead reckoning.
@@ -94,8 +98,29 @@ class CaTblImuEkf
                           double qTheta2,
                           double qBias2);
 
+    /**
+     * A cycle with no displacement: theta' = theta + b dt with its variance grown by qTheta2 and the
+     * bias's, the position unmoved but given posVar2 per axis (the dwell noise). The prior is
+     * re-snapshotted, as every prediction does.
+     */
+    void PredictDwell(double dt, double qTheta2, double qBias2, double posVar2);
+
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
+
+    /** --imuMagSigmaDeg: a direct reading z of the heading offset theta with variance r (a magnetometer's
+     *  raw-minus-magnetic heading). Scalar update, H = e_theta, innovation wrapped to (-pi, pi]. */
+    void FuseHeading(double z, double r);
+
+    /** Set the position and its full 2x2 covariance, as CaTblEkf::SetPositionCov does for
+     *  --acquireParticles' handover. Position's cross-covariance with theta, b and s is zeroed:
+     *  the cloud says nothing about them, and what the filter has learned of them is kept. */
+    void SetPositionCov(double x, double y, double pxx, double pxy, double pyy);
+
+    /** --relayNisInflate: running mean (EWMA, weight 0.02) of the range updates' NIS, nu^2 / S,
+     *  exactly as CaTblEkf's. Observation only: the update's arithmetic is unchanged. */
+    void EnableNisTracking() { m_trackNis = true; }
+    double NisMean() const { return m_nisN > 0 ? m_nisMean : 1.0; }
 
     /**
      * Process noise for one cycle, from the ASSUMED sensor parameters only -- never
@@ -142,6 +167,74 @@ class CaTblImuEkf
         pyy = m_P[1][1];
     }
 
+    // --- The rest of the interface CaTblPolicy uses on its filter (--imuFilter=ekf5) ---
+    // Each mirrors the constant-velocity CaTblEkf's method of the same name over five states;
+    // a position observation corrects theta, b and s through their covariance with position.
+
+    /** Fuse an absolute position with isotropic variance (CaTblEkf::FusePosition). Leaves the
+     *  stored prior alone, as that one does. Ends a coast. */
+    void FusePosition(double zx, double zy, double varM2);
+    /** NIS of a position observation with covariance R against the current state, or -1. */
+    double PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const;
+    /** Fuse a position with a full 2x2 covariance; false (nothing changed) if R or S is bad. */
+    bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
+    double Pxx() const { return m_P[0][0]; }
+    double Pxy() const { return 0.5 * (m_P[0][1] + m_P[1][0]); }
+    double Pyy() const { return m_P[1][1]; }
+    /** Any covariance element, read only (the unit suite's CONSIDER cases). */
+    double Cov(int i, int j) const { return m_P[i][j]; }
+    /** Velocity is not a state here: the last prediction's displacement over its dt. */
+    double Vx() const { return m_vx; }
+    double Vy() const { return m_vy; }
+
+    // --- N.33: robustness of the sensor states to bad fixes (default off: mode 0) ---------
+    // Bad fixes -- a range to a stale pseudo-anchor, an NLOS excess -- reach theta, b and s
+    // through their covariance with position, and can rotate the heading estimate until the
+    // filter dead-reckons the wrong way and never recovers (EKF5-PRESET: every catastrophic
+    // seed had a final heading error > 0.3 rad). Bits, combinable:
+    //   GATE     skip a range whose innovation NIS > gate1 (chi^2_1 0.999 = 10.83), a position
+    //            fix whose NIS > gate2 (chi^2_2 0.999 = 13.82)
+    //   PROTECT  when the fix as a whole is inconsistent with the prior (mean range NIS >
+    //            protect1 = 6.63, or position NIS > protect2 = 9.21), update position only:
+    //            zero gain on theta, b, s; Joseph-form covariance, valid for that gain
+    //   RECOVER  if a majority of a fix's ranges fail the gate on recoverAfter consecutive
+    //            fixes, the FILTER is presumed wrong, not the ranges: reopen position and
+    //            heading variance and take that fix ungated -- so gating cannot lock it out
+    // Mode 0 runs exactly the original arithmetic. All thresholds OURS except the chi^2 values.
+    static const int ROBUST_GATE = 1;
+    static const int ROBUST_PROTECT = 2;
+    static const int ROBUST_RECOVER = 4;
+    // CONSIDER  a range update with fewer than 3 ranges cannot observe heading, bias or scale
+    //           (one range fixes a circle, two a pair of points): a Schmidt (consider) update --
+    //           zero gain on theta, b, s, Joseph covariance, so their uncertainty is kept and
+    //           carried in P but no single-range innovation is spent learning them.
+    static const int ROBUST_CONSIDER = 8;
+    void SetRobust(int mode) { m_robust = mode; }
+    /** --ekf5StateBounds: estimate projection onto the physically admissible region (Simon & Chia 2002): after
+     *  every update the gyro bias and stride scale are clamped to +/- k times their prior sigmas. A 34 % stride
+     *  error is not a step estimator's; letting the linear update put the scale there converts a position
+     *  inconsistency into a dead-reckoning runaway. k <= 0 (default): no projection. */
+    void SetStateBounds(double k, double sigmaB, double sigmaS) { m_bndK = k; m_bndB = sigmaB; m_bndS = sigmaS; }
+    uint64_t BoundsApplied() const { return m_bndN; }
+    /** --ekf5FinderConsider: each finder's GNSS position offset is a Schmidt consider parameter -- not
+     *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
+     *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
+    void SetFinderConsider(bool on, double var) { m_consOn = on; m_consVar = var; }
+    uint64_t ConsiderUpdates() const { return m_consN; }
+    /** --ekf5RelayGate: a RELAYED range (anchored on another node's estimate) whose NIS against this filter's
+     *  prior exceeds chi^2_1(0.999) = 10.83 is not fused. Only that class: the filter's own ranges are never
+     *  gated, so it cannot lock itself out. Off (default): every range is fused. */
+    void SetRelayGate(bool on) { m_relayGate = on; }
+    uint64_t RelayGated() const { return m_relayGated; }
+    uint64_t RelaySeen() const { return m_relaySeen; }
+    //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
+    void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
+    int Robust() const { return m_robust; }
+    uint64_t RobustGated() const { return m_nGated; }
+    uint64_t RobustProtected() const { return m_nProtected; }
+    uint64_t RobustRecoveries() const { return m_nRecoveries; }
+    uint64_t RobustConsidered() const { return m_nConsidered; }
+
     double HeadingOffset() const { return m_x[2]; }
     double GyroBias() const { return m_x[3]; }
     double StrideScale() const { return m_x[4]; }
@@ -182,6 +275,54 @@ class CaTblImuEkf
     double m_shiftX = 0.0;   //!< mean correction already applied this outage
     double m_shiftY = 0.0;
     double m_varApplied = 0.0; //!< along-track variance already added this outage
+    double m_vx = 0.0;         //!< last prediction's displacement / dt (Vx())
+    double m_vy = 0.0;
+    int m_robust = 0;
+    uint32_t m_badStreak = 0;
+    uint64_t m_nGated = 0;
+    uint64_t m_nProtected = 0;
+    uint64_t m_nRecoveries = 0;
+    uint64_t m_nConsidered = 0;
+    struct ConsAnchor
+    {
+        double X[N][2] = {}; //!< cross-covariance state x anchor offset
+    };
+    bool m_consOn = false;
+    double m_bndK = 0.0;
+    double m_bndB = 0.0;
+    double m_bndS = 0.0;
+    uint64_t m_bndN = 0;
+    void ApplyBounds();
+    void UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void FuseHeadingBody(double z, double r);
+    bool FusePositionCovBody(double zx, double zy, double rxx, double rxy, double ryy);
+    void FusePositionBody(double zx, double zy, double varM2);
+    bool m_relayGate = false;
+    uint64_t m_relayGated = 0;
+    uint64_t m_relaySeen = 0;
+    double m_consVar = 4.0;
+    uint64_t m_consN = 0;
+    std::map<uint16_t, ConsAnchor> m_cons;
+    std::map<uint16_t, ConsAnchor> m_consPrior;
+    void ConsAfterGain(const double* K, int nK, const double* HP); //!< X_b -= K (H X_b), every anchor
+    void ConsAfterTransition(const double F[N][N]);
+    void UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    bool m_trackNis = false;
+    double m_nisMean = 1.0;
+    uint64_t m_nisN = 0;
+    void NoteNis(double v)
+    {
+        if (m_trackNis && std::isfinite(v))
+        {
+            m_nisMean = (m_nisN == 0) ? v : 0.98 * m_nisMean + 0.02 * v;
+            ++m_nisN;
+        }
+    }
+    void UpdateRobust(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    bool FusePositionCovRobust(double zx, double zy, double rxx, double rxy, double ryy);
+    void JosephScalar(const double H[5], const double K[5], double r);
+    bool NoteFixVerdict(bool majorityOut);
+    void FuseAxis(int axis, double z, double varM2);
 };
 
 } // namespace ns3

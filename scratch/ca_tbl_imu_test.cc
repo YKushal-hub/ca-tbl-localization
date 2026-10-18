@@ -12,6 +12,7 @@
  *     block is zero, u = v dt and Qu = the constant-velocity Q, and it snapshots the prior.
  */
 
+#include "ns3/ca-tbl-imu-ekf.h"
 #include "ns3/ca-tbl-imu-model.h"
 #include "ns3/ca-tbl-policy.h"
 #include "ns3/core-module.h"
@@ -181,6 +182,250 @@ main(int argc, char* argv[])
               "PredictWithControl = Predict in mean and position block (zero velocity block)");
         Check(b.PriorX() == b.X() && b.PriorY() == b.Y(),
               "PredictWithControl snapshots the prior the integrity check reads");
+    }
+
+    // --- N.33 CONSIDER: a fix of fewer than 3 ranges is a Schmidt update -------------------
+    // One or two ranges cannot observe theta, b or s; under mode 8 they must not move those
+    // states or their variances, while position still moves. Three ranges are not considered,
+    // and mode 0 lets one range move theta -- the defect the mode exists for.
+    {
+        auto primed = [](int mode) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 25.0, 0.01, 1e-6, 1e-4);
+            f.SetRobust(mode);
+            for (int k = 0; k < 20; ++k)
+            {
+                f.Predict(2.5, 3.0, 0.3, 1e-4, 1e-5, 1e-10); // builds pos-theta covariance
+            }
+            return f;
+        };
+        auto ranges = [](const CaTblImuEkf& f, int n, std::vector<CaTblRangeMeasurement>& m,
+                         std::vector<double>& v) {
+            const double ax[3] = {200.0, -150.0, 40.0}, ay[3] = {30.0, 120.0, -180.0};
+            for (int i = 0; i < n; ++i)
+            {
+                CaTblRangeMeasurement r;
+                r.anchorX = f.X() + ax[i];
+                r.anchorY = f.Y() + ay[i];
+                r.rangeM = std::sqrt(ax[i] * ax[i] + ay[i] * ay[i]) + 7.0; // a 7 m innovation
+                m.push_back(r);
+                v.push_back(9.0);
+            }
+        };
+        for (int n = 1; n <= 3; ++n)
+        {
+            for (int mode : {0, 8})
+            {
+                CaTblImuEkf f = primed(mode);
+                std::vector<CaTblRangeMeasurement> m;
+                std::vector<double> v;
+                ranges(f, n, m, v);
+                const double x0 = f.X(), y0 = f.Y(), t0 = f.HeadingOffset(), b0 = f.GyroBias(),
+                             s0 = f.StrideScale(), p22 = f.Cov(2, 2), p33 = f.Cov(3, 3),
+                             p44 = f.Cov(4, 4);
+                f.Update(m, v);
+                const bool posMoved = std::hypot(f.X() - x0, f.Y() - y0) > 1e-3;
+                const bool sensorsFixed = f.HeadingOffset() == t0 && f.GyroBias() == b0 &&
+                                          f.StrideScale() == s0 && f.Cov(2, 2) == p22 &&
+                                          f.Cov(3, 3) == p33 && f.Cov(4, 4) == p44;
+                bool psd = true;
+                for (int i = 0; i < CaTblImuEkf::N; ++i)
+                {
+                    psd = psd && f.Cov(i, i) >= 0.0;
+                    for (int j = 0; j < CaTblImuEkf::N; ++j)
+                    {
+                        psd = psd && f.Cov(i, j) == f.Cov(j, i);
+                    }
+                }
+                const bool considered = (mode == 8 && n < 3);
+                std::string what = "N.33 mode " + std::to_string(mode) + ", " +
+                                   std::to_string(n) + " range(s): position moves, " +
+                                   (considered ? "theta/b/s and their variances unchanged"
+                                               : "theta moves through its covariance") +
+                                   ", P symmetric with a non-negative diagonal";
+                Check(posMoved && psd &&
+                          (considered ? sensorsFixed : std::fabs(f.HeadingOffset() - t0) > 1e-9) &&
+                          f.RobustConsidered() == (considered ? 1u : 0u),
+                      what.c_str());
+            }
+        }
+    }
+
+    // --- --imuStrideSigmaPct: per-step stride noise, its spread and its stated variance agree --------
+    {
+        CaTblImuParams p;
+        p.gyroNoiseDensityRadSqrtS = 0.0;
+        p.gyroBiasSigmaRadS = 0.0;
+        p.scaleSigma = 0.0;
+        p.strideSigmaRel = 0.05;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(p, 4242);
+        double se = 0.0, sq = 0.0;
+        const int n = 20000;
+        const double d = 3.0;
+        for (int k = 0; k < n; ++k)
+        {
+            double ux, uy, q[3];
+            rk.Step(d, 0.0, 2.5, ux, uy, q);
+            se += (ux - d) * (ux - d);
+            sq += q[0];
+            rk.ResetAccumulation();
+        }
+        const double want = 0.05 * 0.05 * 0.7 * d; // sigma_rel^2 l |d|
+        Check(std::fabs(se / n / want - 1.0) < 0.05,
+              "stride noise: per-cycle along-track variance = sigma_rel^2 l |d| within 5 % (20 000 cycles)");
+        Check(std::fabs(sq / n / want - 1.0) < 1e-9, "stride noise: Q_u's along-track increment states exactly that variance");
+        CaTblImuParams off;
+        off.gyroNoiseDensityRadSqrtS = 0.0;
+        off.gyroBiasSigmaRadS = 0.0;
+        off.scaleSigma = 0.0;
+        CaTblImuDeadReckoner r0;
+        r0.Configure(off, 4242);
+        double ux, uy, q[3];
+        r0.Step(d, 0.0, 2.5, ux, uy, q);
+        Check(ux == d && uy == 0.0 && q[0] == 0.0, "stride noise off: the stride is exact and Q_u is zero, as before");
+    }
+
+    // --- --imuMagSigmaDeg: the magnetometer reads psi with its stated noise; ekf5 fuses it as a theta reading --
+    {
+        CaTblImuParams p;
+        p.gyroBiasSigmaRadS = 0.01; // a large bias, so psi wanders far
+        p.magSigmaRad = 5.0 * M_PI / 180.0;
+        p.magGmSigmaRad = 3.0 * M_PI / 180.0;
+        p.magGmTauS = 120.0;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(p, 99);
+        double se = 0.0;
+        const int n = 40000;
+        for (int k = 0; k < n; ++k)
+        {
+            double ux, uy, q[3];
+            rk.Step(3.0, 0.0, 2.5, ux, uy, q);
+            const double e = rk.MagTheta() - rk.Heading();
+            se += e * e;
+        }
+        Check(std::fabs(se / n / rk.MagVar() - 1.0) < 0.10,
+              "magnetometer: reading - psi has the stated variance (white + Gauss-Markov) within 10 % over 40 000 cycles");
+        CaTblImuEkf f;
+        f.Init(0.0, 0.0, 25.0, 0.5, 1e-6, 1e-4);
+        const double p0 = f.Cov(2, 2);
+        f.FuseHeading(0.3, 0.01);
+        Check(f.Cov(2, 2) < p0 && std::fabs(f.HeadingOffset() - 0.3 * 0.5 / 0.51) < 1e-12,
+              "magnetometer: ekf5 FuseHeading is the scalar update on theta (gain P/(P+r), variance shrinks)");
+    }
+
+    // --- --ekf5FinderConsider: a constant finder offset is not averaged away ------------------------------
+    // A static tag at the origin ranges, 60 times, one finder whose reported position is off by a constant
+    // N(0, 4 I) offset, and two surveyed anchors; ToF sigma 0.3 m. Naive: the offset variance folded into
+    // every range's R, fused as independent. Consider: R is the ToF part only, the offset a consider parameter.
+    {
+        auto run = [](bool consider, double& meanNees) {
+            uint64_t z = 1234567891234567ull;
+            auto u01 = [&z]() {
+                z ^= z << 13;
+                z ^= z >> 7;
+                z ^= z << 17;
+                return ((z >> 11) + 0.5) / 9007199254740992.0;
+            };
+            auto gauss = [&u01]() { return std::sqrt(-2.0 * std::log(u01())) * std::cos(2.0 * M_PI * u01()); };
+            double sn = 0.0;
+            const int nmc = 300;
+            for (int k = 0; k < nmc; ++k)
+            {
+                CaTblImuEkf f;
+                f.Init(0.0, 0.0, 100.0, 1e-6, 1e-12, 1e-8);
+                f.SetFinderConsider(consider, 4.0);
+                const double ox = 2.0 * gauss(), oy = 2.0 * gauss();
+                const double fx = 40.0, fy = 10.0; // the finder's TRUE position
+                for (int c = 0; c < 60; ++c)
+                {
+                    std::vector<CaTblRangeMeasurement> m(3);
+                    std::vector<double> v(3);
+                    m[0].anchorX = fx + ox; // reported, offset
+                    m[0].anchorY = fy + oy;
+                    m[0].anchorId = 501;
+                    m[0].sourceKind = CA_TBL_SRC_FINDER;
+                    m[0].rangeM = std::hypot(fx, fy) + 0.3 * gauss();
+                    v[0] = consider ? 0.09 : 0.09 + 4.0;
+                    const double gx[2] = {-60.0, 5.0}, gy[2] = {20.0, -70.0};
+                    for (int a = 0; a < 2; ++a)
+                    {
+                        m[1 + a].anchorX = gx[a];
+                        m[1 + a].anchorY = gy[a];
+                        m[1 + a].anchorId = 101 + a;
+                        m[1 + a].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+                        m[1 + a].rangeM = std::hypot(gx[a], gy[a]) + 25.0 * gauss();
+                        v[1 + a] = 625.0;
+                    }
+                    f.Update(m, v);
+                }
+                const double ex = f.X(), ey = f.Y();
+                const double det = f.Pxx() * f.Pyy() - f.Pxy() * f.Pxy();
+                sn += (f.Pyy() * ex * ex - 2.0 * f.Pxy() * ex * ey + f.Pxx() * ey * ey) / det;
+            }
+            meanNees = sn / nmc;
+        };
+        double nNaive, nCons;
+        run(false, nNaive);
+        run(true, nCons);
+        std::cout << "    finder consider: mean position NEES naive " << nNaive << ", consider " << nCons << "\n";
+        Check(nCons > 1.0 && nCons < 3.5, "finder consider: position NEES within [1, 3.5] (chi^2_2 mean 2) with a constant 2 m offset");
+        Check(nNaive > 2.0 * nCons, "finder consider: the naive fusion is more than twice as overconfident (the defect)");
+    }
+
+    // --- --ekf5RelayGate: a relayed range far outside the prior is not fused; the filter's own range is --------
+    {
+        auto one = [](uint8_t kind, bool gate, double& moved, uint64_t& gated) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 25.0, 1e-4, 1e-10, 1e-6);
+            f.SetRelayGate(gate);
+            std::vector<CaTblRangeMeasurement> m(1);
+            std::vector<double> v(1, 9.0);
+            m[0].anchorX = 100.0;
+            m[0].anchorY = 0.0;
+            m[0].anchorId = 3;
+            m[0].sourceKind = kind;
+            m[0].rangeM = 160.0; // 60 m off a 5 m prior: NIS ~ 3600 / 34
+            f.Update(m, v);
+            moved = std::hypot(f.X(), f.Y());
+            gated = f.RelayGated();
+        };
+        double mv;
+        uint64_t g;
+        one(CA_TBL_SRC_RELAY, true, mv, g);
+        Check(mv == 0.0 && g == 1, "relay gate: a relayed range with NIS far above 10.83 is not fused, and is counted");
+        one(CA_TBL_SRC_FINDER, true, mv, g);
+        Check(mv > 1.0 && g == 0, "relay gate: the filter's own range with the same innovation is fused (no self-lock-out)");
+        one(CA_TBL_SRC_RELAY, false, mv, g);
+        Check(mv > 1.0 && g == 0, "relay gate off: the relayed range is fused as before");
+    }
+
+    // --- --ekf5StateBounds: bias and stride scale are projected onto +/- k prior sigmas, nothing else moves -------
+    {
+        auto drive = [](double k, double& sOut, double& xOut, uint64_t& n) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 1.0, 1e-6, 1e-12, 0.0266 * 0.0266);
+            f.SetStateBounds(k, 4.2742e-5, 0.0266);
+            for (int c = 0; c < 200; ++c)
+            {
+                f.Predict(2.5, 3.0, 0.0, 1e-4, 1e-8, 0.0); // walking east by dead reckoning
+                std::vector<CaTblRangeMeasurement> m(1);
+                std::vector<double> v(1, 1.0);
+                m[0].anchorX = 0.0; // a range from the origin that says the walk is twice as long
+                m[0].anchorY = 0.0;
+                m[0].rangeM = 6.0 * (c + 1);
+                f.Update(m, v);
+            }
+            sOut = f.StrideScale();
+            xOut = f.X();
+            n = f.BoundsApplied();
+        };
+        double s0, x0, s4, x4;
+        uint64_t n0, n4;
+        drive(0.0, s0, x0, n0);
+        drive(4.0, s4, x4, n4);
+        Check(std::fabs(s0) > 4.0 * 0.0266 && n0 == 0, "state bounds off: the scale runs past 4 sigma, as the linear update lets it");
+        Check(std::fabs(s4) <= 4.0 * 0.0266 + 1e-12 && n4 > 0, "state bounds on: the scale stays within 4 prior sigmas, and projections are counted");
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";

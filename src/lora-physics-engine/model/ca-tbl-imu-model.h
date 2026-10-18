@@ -44,6 +44,7 @@
 #include "ns3/ptr.h"
 #include "ns3/random-variable-stream.h"
 
+#include <cmath>
 #include <cstdint>
 
 namespace ns3
@@ -55,6 +56,18 @@ struct CaTblImuParams
     double gyroBiasSigmaRadS = 8.816 * 3.14159265358979323846 / 180.0 / 3600.0; //!< sigma_b
     double scaleSigma = 0.0266; //!< sigma_s, OURS (IMU_SHS_DESIGN.md straight traverse)
     double dwellSigmaM = 0.05;  //!< sigma_w, OURS
+    //! --imuStrideSigmaPct: per-STEP random stride-length error, relative, independent between steps.
+    //! 0 (default): none -- DC-1's stride is exact up to the per-run scale. Acceleration-based step-length
+    //! estimators err by a few percent of distance walked (Jahn et al., IPIN 2010; Harle, IEEE COMST 2013).
+    double strideSigmaRel = 0.0;
+    double strideLenM = 0.7; //!< a step's length, m, to count steps in a cycle. OURS (adult walking stride)
+    //! --imuMagSigmaDeg: a magnetometer heading reference. 0 (default): none, gyro-only heading (every result
+    //! so far). Its reading of the IMU's accumulated heading error has white noise magSigmaRad plus a
+    //! first-order Gauss-Markov disturbance (local anomalies, the body), sigma magGmSigmaRad, time constant
+    //! magGmTauS. Outdoor heading errors of a few degrees; indoors far worse (Afzal, Renaudin, Lachapelle 2011).
+    double magSigmaRad = 0.0;
+    double magGmSigmaRad = 0.0;
+    double magGmTauS = 120.0;
 };
 
 class CaTblImuDeadReckoner
@@ -70,6 +83,19 @@ class CaTblImuDeadReckoner
     void ResetAccumulation();
 
     double Heading() const { return m_psi; }
+    //! --imuMagSigmaDeg: after Step(), the magnetometer's reading of the accumulated heading error psi (raw heading
+    //! minus magnetic heading), and its variance. Valid only when magSigmaRad > 0.
+    double MagTheta() const { return m_magTheta; }
+    double MagVar() const { return m_p.magSigmaRad * m_p.magSigmaRad + m_p.magGmSigmaRad * m_p.magGmSigmaRad; }
+    //! The variance a filter fusing one reading per dt as if independent must use: the white part as is, the
+    //! Gauss-Markov part times the AR(1) long-run factor (1 + rho) / (1 - rho), rho = exp(-dt / tau) -- otherwise
+    //! a disturbance held for tau is counted tau / dt times.
+    double MagFuseVar(double dt) const
+    {
+        const double rho = std::exp(-dt / std::max(m_p.magGmTauS, 1e-6));
+        return m_p.magSigmaRad * m_p.magSigmaRad +
+               m_p.magGmSigmaRad * m_p.magGmSigmaRad * (1.0 + rho) / std::max(1e-9, 1.0 - rho);
+    }
     double Bias() const { return m_bias; }
     double Scale() const { return m_scale; }
     double ElapsedS() const { return m_t; }
@@ -89,6 +115,9 @@ class CaTblImuDeadReckoner
     double m_dx = 0.0;
     double m_dy = 0.0;
     double m_sigAcc[3] = {0.0, 0.0, 0.0};
+    double m_strideAcc[3] = {0.0, 0.0, 0.0}; //!< accumulated stride-noise covariance
+    double m_magGm = 0.0;    //!< the magnetometer's Gauss-Markov disturbance
+    double m_magTheta = 0.0; //!< the last magnetometer reading of psi
 };
 
 /** Project a symmetric 2x2 matrix (xx, xy, yy) onto the positive semi-definite cone. */

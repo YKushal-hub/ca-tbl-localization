@@ -2288,6 +2288,14 @@ static double g_t2SensitivityRowKHz = 0.0;
 // stream and in the same order, so only the magnitude moves. docs/LOCAL_LINE_INTEGRATION.md
 // sect 1.3. Written once after cmd.Parse().
 static double g_imuGyroBiasSigmaDps = 0.0;
+static double g_imuStrideSigmaPct = 0.0; //!< --imuStrideSigmaPct
+static double g_imuMagSigmaDeg = 0.0;    //!< --imuMagSigmaDeg (white)
+static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov), OURS
+static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
+static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
+static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
+static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
 static CaTblImuParams
@@ -2297,6 +2305,16 @@ Dc1ImuParams()
     if (g_imuGyroBiasSigmaDps > 0.0)
     {
         p.gyroBiasSigmaRadS = g_imuGyroBiasSigmaDps * M_PI / 180.0;
+    }
+    if (g_imuStrideSigmaPct > 0.0)
+    {
+        p.strideSigmaRel = g_imuStrideSigmaPct / 100.0;
+    }
+    if (g_imuMagSigmaDeg > 0.0)
+    {
+        p.magSigmaRad = g_imuMagSigmaDeg * M_PI / 180.0;
+        p.magGmSigmaRad = g_imuMagGmSigmaDeg * M_PI / 180.0;
+        p.magGmTauS = g_imuMagGmTauS;
     }
     return p;
 }
@@ -6350,6 +6368,9 @@ struct SpecOptions
     bool sparseInStep = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
     bool imuPredict = false;
+    //! N.28. --imuFilter=ekf5: the policy's filter is the 5-state CaTblImuEkf, fed DC-1's output.
+    bool imuFilterEkf5 = false;
+    int ekf5Robust = 0; //!< N.33, --ekf5Robust
     //! DC-4. --caseD: a single range as a constraint on the propagated state.
     bool caseD = false;
     //! DC-13. --entryPrediction: held entries propagated as x + v age, P + Q_src age^2.
@@ -6398,6 +6419,8 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! N.58 --acquireHandoverCurvature: the cloud hands over only once every range is linearisable.
+    bool acquireHandoverCurvature = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
     bool relayNisInflate = false;
     //! B2 --rssiCorrInflate (scope 2026-10-17).
@@ -6996,6 +7019,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
     pcfg.acquireNegInfo = spec.acquireNegInfo;       // --- C1 --- (false by default: off)
+    pcfg.acquireHandoverCurvature = spec.acquireHandoverCurvature; // N.58 (false by default: off)
     pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
     pcfg.rssiCorrInflate = spec.rssiCorrInflate;     // --- B2 --- (false by default: off)
     pcfg.acquireSeed = seed;
@@ -7009,6 +7033,25 @@ RunArm(CaTblPolicyMode mode,
         pcfg.witnessCounts = true; // DC-9
     }
     pcfg.corroborationCheck = corroborationCheck;
+    if (spec.imuFilterEkf5)
+    {
+        // The filter's assumed model is the IMU this run actually simulates: DC-1's parameters,
+        // the --imuGyroBiasSigmaDps override included. pcfg also configures every peer tag and
+        // measured subject, so each node's filter matches its own IMU.
+        const CaTblImuParams ip = Dc1ImuParams();
+        pcfg.imuFilterEkf5 = true;
+        pcfg.ekf5NoiseDensity = ip.gyroNoiseDensityRadSqrtS;
+        pcfg.ekf5BiasSigma = ip.gyroBiasSigmaRadS;
+        pcfg.ekf5ScaleSigma = ip.scaleSigma;
+        pcfg.ekf5DwellSigma = ip.dwellSigmaM;
+        pcfg.ekf5StrideRel = ip.strideSigmaRel;
+        pcfg.ekf5StrideLenM = ip.strideLenM;
+        pcfg.ekf5Robust = spec.ekf5Robust;
+        pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
+        pcfg.ekf5RelayGate = g_ekf5RelayGate;
+        pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
+    }
     policy.Configure(pcfg);
     policy.SetAcquireSalt(nodeId); // V4: inert unless --acquireParticles
     // Seeded at the true start position with a deliberately loose covariance:
@@ -10519,8 +10562,10 @@ RunArm(CaTblPolicyMode mode,
                                     }
                                     if (un > 1e-6)
                                     {
-                                        const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
-                                                                  {fe.covXY, fe.varY + ageVar}};
+                                        // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
+                                        const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+                                        const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
+                                                                  {gk * fe.covXY, gk * fe.varY + ageVar}};
                                         const double proj =
                                             CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
                                         if (proj < 0.0 && spec.finderPseudoAnchorStrict)
@@ -10782,6 +10827,10 @@ RunArm(CaTblPolicyMode mode,
                 {
                     double ux, uy, qu[3];
                     ex.rk->Step(sb.pos.x - ex.prevX, sb.pos.y - ex.prevY, dt, ux, uy, qu);
+                    if (g_imuMagSigmaDeg > 0.0)
+                    {
+                        sb.policy.SetMagHeading(ex.rk->MagTheta(), ex.rk->MagFuseVar(dt));
+                    }
                     sb.policy.SetImuControl(ux, uy, qu[0] * spec.imuQuScale, qu[1] * spec.imuQuScale,
                                             qu[2] * spec.imuQuScale);
                     uxW = ux;
@@ -11791,8 +11840,10 @@ RunArm(CaTblPolicyMode mode,
                                 const double travel = walkSpeedMps * ageS;
                                 const double ageVar = (fePredVar >= 0.0) ? fePredVar
                                                                          : travel * travel;
-                                const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
-                                                          {fe.covXY, fe.varY + ageVar}};
+                                // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
+                                const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+                                const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
+                                                          {gk * fe.covXY, gk * fe.varY + ageVar}};
                                 const double proj =
                                     CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
                                 if (proj >= 0.0)
@@ -12745,6 +12796,10 @@ RunArm(CaTblPolicyMode mode,
             imuPred->dx = imuPred->havePrev ? pos.x - imuPred->prevX : 0.0;
             imuPred->dy = imuPred->havePrev ? pos.y - imuPred->prevY : 0.0;
             imuPred->rk.Step(imuPred->dx, imuPred->dy, dt, imuPred->ux, imuPred->uy, imuPred->qu);
+            if (g_imuMagSigmaDeg > 0.0)
+            {
+                policy.SetMagHeading(imuPred->rk.MagTheta(), imuPred->rk.MagFuseVar(dt));
+            }
             policy.SetImuControl(imuPred->ux, imuPred->uy, imuPred->qu[0] * spec.imuQuScale,
                                  imuPred->qu[1] * spec.imuQuScale, imuPred->qu[2] * spec.imuQuScale);
             imuPred->prevX = pos.x;
@@ -14727,6 +14782,40 @@ RunArm(CaTblPolicyMode mode,
         line << "    DC-1 IMU: bias " << std::setprecision(9) << imuPred->rk.Bias()
              << " rad/s, scale " << imuPred->rk.Scale() << ", cycles " << imuPred->cycles
              << ", resets " << imuPred->resets << "\n";
+        if (spec.imuFilterEkf5)
+        {
+            // N.28: what the 5-state filter learned, beside what DC-1 actually drew. Its theta
+            // estimates DC-1's accumulated heading error psi, b the bias, s the stride scale.
+            line << "    N.28 ekf5: moving " << policy.GetEkf5Moving() << ", dwell "
+                 << policy.GetEkf5Dwell() << ", bias est " << policy.Ekf5Bias() << " (true "
+                 << imuPred->rk.Bias() << ") rad/s, scale est " << policy.Ekf5Scale() << " (true "
+                 << imuPred->rk.Scale() << "), heading offset est " << policy.Ekf5HeadingOffset()
+                 << " (true " << imuPred->rk.Heading() << ") rad\n";
+            if (g_imuMagSigmaDeg > 0.0)
+            {
+                line << "    magnetometer: headings fused " << policy.GetMagFused() << "\n";
+            }
+            if (g_ekf5StateBoundsK > 0.0)
+            {
+                line << "    ekf5 state bounds: projections " << policy.Ekf5().BoundsApplied() << "\n";
+            }
+            if (g_ekf5RelayGate)
+            {
+                line << "    ekf5 relay gate: relayed ranges " << policy.Ekf5().RelaySeen() << ", gated "
+                     << policy.Ekf5().RelayGated() << "\n";
+            }
+            if (g_ekf5FinderConsider)
+            {
+                line << "    ekf5 finder consider: ranges to finders " << policy.Ekf5().ConsiderUpdates() << "\n";
+            }
+            if (spec.ekf5Robust != 0)
+            {
+                const CaTblImuEkf& f5 = policy.Ekf5();
+                line << "    N.33 ekf5 mode " << spec.ekf5Robust << ": gated " << f5.RobustGated()
+                     << ", protected " << f5.RobustProtected() << ", recoveries "
+                     << f5.RobustRecoveries() << ", considered " << f5.RobustConsidered() << "\n";
+            }
+        }
         std::cout << line.str();
     }
     // DC-11. The two-range cycles Step() decided. Printed only under the flag.
@@ -15409,6 +15498,11 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    C2 tofRecal (" << CaTblPolicyModeName(mode) << "): tag-0 learnt 868 MHz log-bias "
                       << policy.GetTofRecalBias() << " from " << policy.GetTofRecalPairs() << " pairs\n";
         }
+        if (spec.acquireHandoverCurvature)
+        {
+            std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(mode) << "): cycles the curvature guard kept the cloud "
+                      << policy.GetPfCurvatureHolds() << "\n";
+        }
         if (spec.acquireNegInfo)
         {
             std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
@@ -15980,6 +16074,11 @@ main(int argc, char* argv[])
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
+    double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
+    double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
+    bool ekf5FinderConsiderArg = false;  // see --ekf5FinderConsider
+    std::string imuFilterArg = "cv";     // N.28; see --imuFilter
+    int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -16454,6 +16553,13 @@ main(int argc, char* argv[])
                  "2.4 GHz 328 m, sigma 9.1 dB) -- the non-detection evidence a range-only filter otherwise discards "
                  "(Koch 2007). Gateways only: surveyed positions; no finder's true position is used.",
                  spec.acquireNegInfo);
+    cmd.AddValue("acquireHandoverCurvature",
+                 "N.58, with --acquireParticles. False (default): the cloud hands over to the filter once its largest SD "
+                 "is under a quarter of the cycle's MEDIAN range, which km-long 868 MHz ranges dominate. True: also only "
+                 "once linearising each range at the cloud's spread costs no more than that range's own sigma, "
+                 "l1 <= 2 r sigma for every range in the set. Why: at 5 km seed 5 the cloud handed over at SD 320 m and "
+                 "six 3 m ToF ranges linearised 250 m off moved the estimate 180 m the wrong way and shrank its SD to 9 m.",
+                 spec.acquireHandoverCurvature);
     cmd.AddValue("tofRecal",
                  "C2 (scope 2026-10-17; U9). False (default): 868 MHz RSSI ranges are used as measured. True: every "
                  "filter learns the systematic 868 MHz log-error from cycles where one tri-band anchor gave both an "
@@ -18429,6 +18535,29 @@ main(int argc, char* argv[])
                  "stream. Writes imu_<arm>_seed<N>.csv (digested) and one DC-1 line per arm. "
                  "The SHS gait engine is untouched (owner decision 2).",
                  spec.imuPredict);
+    cmd.AddValue("imuFilter",
+                 "With --imuPredict: which filter the policy runs. cv (default) is every result "
+                 "so far: the constant-velocity filter, driven by DC-1's displacement as a control "
+                 "input, with no state for the heading offset, gyro bias or stride scale -- so "
+                 "DC-1's heading error is never corrected, and with any realistic gyro bias every "
+                 "arm's accuracy collapses (DC1-BIAS: CEP95 57.8 -> 1976.4 m at 5 km, 0.5 deg/s; "
+                 "TECH_DEBT N.28). ekf5 runs the 5-state [x, y, theta, b, s] filter "
+                 "(ca-tbl-imu-ekf.h; G91, G94) on the SAME IMU output -- stride |u|, raw heading "
+                 "atan2(u) -- so it learns the heading offset, bias and stride scale from fixes. "
+                 "Its assumed model is DC-1's own parameters; variance-only moment-matched "
+                 "coasting is on. Applies to every node with an IMU. Refused without --imuPredict.",
+                 imuFilterArg);
+    cmd.AddValue("ekf5Robust",
+                 "With --imuFilter=ekf5: the 5-state filter's update mode, a bit set (TECH_DEBT "
+                 "N.33). 0 (default) is the update every ekf5 result used. 8 CONSIDER takes a fix "
+                 "of fewer than 3 ranges as a Schmidt update -- position only, Joseph covariance "
+                 "-- because one or two ranges cannot observe heading, bias or scale. REJECTED by "
+                 "EKF5-CONSIDER: those updates teach the sensor states correctly far more often "
+                 "than they corrupt them (5 km CEP95 +106 % per seed at the near-perfect gyro). 1 GATE, "
+                 "2 PROTECT and 4 RECOVER are diagnostic modes the validator's robustness study "
+                 "rejected (gating locks a weakly observed filter out of its only good ranges); "
+                 "they are kept for that study, not for use. Refused without ekf5.",
+                 ekf5RobustArg);
     cmd.AddValue("imuGyroBiasSigmaDps",
                  "With --imuPredict: the sigma, in deg/s, of DC-1's per-run gyro bias. 0 "
                  "(default) keeps 8.816 deg/h, the MPU-6050's bias INSTABILITY -- the floor of a "
@@ -18441,6 +18570,49 @@ main(int argc, char* argv[])
                  "draw order: only the magnitude moves. Refused without --imuPredict. "
                  "docs/LOCAL_LINE_INTEGRATION.md sect 1.3.",
                  imuGyroBiasSigmaDpsArg);
+    cmd.AddValue("imuStrideSigmaPct",
+                 "With --imuPredict: random stride-length error per STEP, in percent, independent between "
+                 "steps (steps counted at 0.7 m, ours). 0 (default) keeps DC-1 as every result so far: the "
+                 "stride exact up to one per-run scale error, so its dead reckoning has no per-cycle noise "
+                 "at all -- an IMU no pedestrian carries. Acceleration-based step-length estimators err by "
+                 "a few percent of distance (Jahn et al. 2010; Harle 2013). Both filters are told: DC-1's "
+                 "reported Q_u gains the along-track term, and ekf5's stride noise becomes the same model.",
+                 imuStrideSigmaPctArg);
+    cmd.AddValue("imuMagSigmaDeg",
+                 "With --imuPredict and --imuFilter=ekf5: a magnetometer heading reference, its white noise per reading "
+                 "in degrees, plus a Gauss-Markov disturbance (--imuMagGmSigmaDeg, default 3, tau --imuMagGmTauS, "
+                 "default 120 s; both ours). 0 (default): no heading reference -- every result so far, a gyro-only "
+                 "heading whose error grows without bound (5 km seed 3 at 0.15 deg/s: 268 deg in 1800 s). Body-worn "
+                 "IMUs pair the gyro with one (BMI270 + BMM150); outdoor errors are a few degrees, indoor far worse "
+                 "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
+                 "the CV filter has no heading state and does not use it.",
+                 imuMagSigmaDegArg);
+    cmd.AddValue("ekf5StateBounds",
+                 "With --imuFilter=ekf5: after every update the gyro bias and stride scale are clamped to +/- this many of "
+                 "their prior sigmas (estimate projection onto the admissible region, Simon & Chia 2002). 0 (default): no "
+                 "projection. Why: at 5 km seed 12 of the realistic world the filter acquired, then learned a stride "
+                 "scale of -0.34 (13 sigma; true +0.011) and dead-reckoned 3 km away.",
+                 g_ekf5StateBoundsK);
+    cmd.AddValue("ekf5RelayGate",
+                 "With --imuFilter=ekf5: a RELAYED range whose NIS against the filter's prior exceeds chi^2_1(0.999) = "
+                 "10.83 is not fused. Only that class -- a range anchored on another field node's estimate -- so the "
+                 "filter's own ranges are never gated and it cannot lock itself out. FALSE by default. Why: in the "
+                 "endgame a relay through a peer whose own estimate was 270 m off at a claimed ~10 m gave z = -25 "
+                 "and threw tag 0 69 m off; with relaying off the endgame CEP95 fell 9.4 -> 3.4 m but availability "
+                 "fell 0.045. Refused without ekf5 or with --ekf5Robust.",
+                 g_ekf5RelayGate);
+    cmd.AddValue("ekf5FinderConsider",
+                 "With --imuFilter=ekf5: each finder's GNSS position offset is a Schmidt consider parameter of the "
+                 "5-state filter -- not estimated, but its covariance and its cross-covariance with the state are "
+                 "carried, so repeated ranges to one offset finder are not fused as independent. The offset's "
+                 "variance is --finderPosSigma squared, or the 4 m^2 every finder entry claims when that is 0; the "
+                 "range's own R then leaves the GNSS part out. FALSE by default. Why: with --finderPosSigma=2 (a "
+                 "finder's realistic GNSS error, constant per finder) CA-TBL's endgame CEP95 rose 4.3 -> 10.5 m, the "
+                 "arm that ranges finders most. Refused without ekf5 or with --ekf5Robust.",
+                 ekf5FinderConsiderArg);
+    cmd.AddValue("imuMagGmSigmaDeg", "With --imuMagSigmaDeg: the magnetometer's Gauss-Markov disturbance sigma, deg (ours)",
+                 g_imuMagGmSigmaDeg);
+    cmd.AddValue("imuMagGmTauS", "With --imuMagSigmaDeg: that disturbance's time constant, s (ours)", g_imuMagGmTauS);
     cmd.AddValue("sparseInStep",
                  "Solve a two-range cycle inside Step(), after the prediction, against the "
                  "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
@@ -20054,7 +20226,88 @@ main(int argc, char* argv[])
         std::cout << line.str();
     }
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+    // N.28. --imuFilter.
+    if (imuFilterArg != "cv" && imuFilterArg != "ekf5")
+    {
+        std::cerr << "FATAL: --imuFilter must be cv or ekf5, not " << imuFilterArg << "\n";
+        return 1;
+    }
+    if (imuFilterArg == "ekf5")
+    {
+        if (!spec.imuPredict)
+        {
+            std::cerr << "FATAL: --imuFilter=ekf5 needs --imuPredict (it filters DC-1's output)\n";
+            return 1;
+        }
+        spec.imuFilterEkf5 = true;
+        std::cout << "  N.28: the policy filter is the 5-state ekf5 on DC-1's output\n";
+    }
+    if (spec.imuFilterEkf5 && spec.rangeBiasStates)
+    {
+        // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
+        std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
+        return 1;
+    }
+    if (g_ekf5StateBoundsK != 0.0 && (!spec.imuFilterEkf5 || !(g_ekf5StateBoundsK > 0.0)))
+    {
+        std::cerr << "FATAL: --ekf5StateBounds needs --imuFilter=ekf5 and a positive value\n";
+        return 1;
+    }
+    if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
+    {
+        std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (ekf5FinderConsiderArg)
+    {
+        if (!spec.imuFilterEkf5 || ekf5RobustArg != 0)
+        {
+            std::cerr << "FATAL: --ekf5FinderConsider needs --imuFilter=ekf5 and no --ekf5Robust\n";
+            return 1;
+        }
+        g_ekf5FinderConsider = true;
+        g_ekf5FinderConsiderVar = (finderPosSigmaMArg > 0.0) ? finderPosSigmaMArg * finderPosSigmaMArg : 4.0;
+        std::cout << "  ekf5: finder GNSS offsets carried as consider parameters, variance " << g_ekf5FinderConsiderVar
+                  << " m^2\n";
+    }
+    if (ekf5RobustArg != 0)
+    {
+        if (!spec.imuFilterEkf5 || ekf5RobustArg < 0 || ekf5RobustArg > 15)
+        {
+            std::cerr << "FATAL: --ekf5Robust needs --imuFilter=ekf5 and a mode in 1..15\n";
+            return 1;
+        }
+        spec.ekf5Robust = ekf5RobustArg;
+        std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
+    }
     // DC-1 bias override.
+    if (spec.acquireHandoverCurvature && !spec.acquireParticles)
+    {
+        std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";
+        return 1;
+    }
+    if (imuMagSigmaDegArg != 0.0)
+    {
+        if (!spec.imuPredict || !spec.imuFilterEkf5 || !(imuMagSigmaDegArg > 0.0) || !(g_imuMagGmSigmaDeg >= 0.0) ||
+            !(g_imuMagGmTauS > 0.0))
+        {
+            std::cerr << "FATAL: --imuMagSigmaDeg needs --imuPredict, --imuFilter=ekf5 and positive values\n";
+            return 1;
+        }
+        g_imuMagSigmaDeg = imuMagSigmaDegArg;
+        std::cout << "  DC-1: magnetometer heading reference, white " << g_imuMagSigmaDeg << " deg, Gauss-Markov "
+                  << g_imuMagGmSigmaDeg << " deg / " << g_imuMagGmTauS << " s\n";
+    }
+    if (imuStrideSigmaPctArg != 0.0)
+    {
+        if (!spec.imuPredict || !(imuStrideSigmaPctArg > 0.0))
+        {
+            std::cerr << "FATAL: --imuStrideSigmaPct needs --imuPredict and a positive value\n";
+            return 1;
+        }
+        g_imuStrideSigmaPct = imuStrideSigmaPctArg;
+        std::cout << "  DC-1: stride noise " << imuStrideSigmaPctArg << " % per step\n";
+    }
     if (imuGyroBiasSigmaDpsArg != 0.0)
     {
         if (!spec.imuPredict)
