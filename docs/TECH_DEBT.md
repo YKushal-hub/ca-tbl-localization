@@ -648,6 +648,12 @@ A gate asserting that a mechanism's *input* is non-zero whenever its *firing cou
 is. Both defects above had a counter reporting healthy activity while the quantity it
 fed read zero. Nothing in the suite compares the two.
 
+*2026-10-18, built for the preset (T6, G151).* Each adopted preset setting (DD 10, 11, 13, 14, 15; twelve) is turned
+back to its default in turn on the preset's endgame, and each run must differ from the preset's. All twelve do. The
+negative fixture is `--agcPerReceiver=true`, inert in this scenario, which the same comparison calls INERT. This
+checks the class (switched on, changes nothing) for every adopted mechanism. A default-off flag is still checked only
+by its own gate's FIRES line.
+
 ### I.6 The evidence tree predates the deployment it describes — THE LARGEST ITEM
 **Most of the results tree was measured on the pre-2026-09-07 topology and is
 provisional.** Of the 98 directories under `results/`, only a handful carry a sidecar

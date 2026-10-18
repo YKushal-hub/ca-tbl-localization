@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward);
+# CA-TBL regression gates (count: grep -c '^finish ' scripts/catbl_gates.sh; numbers are not contiguous);
 # G91-G94 ported from the local line on 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
 # Run after every code change.
 #
@@ -2005,6 +2005,11 @@ finish G149
 printf '\n--- G150 entry published after Step ---\n'
 bash scripts/publish_after_step_gate.sh "$WORK/g150" || fail G150
 finish G150
+
+# ---------------- G151: T6 (TECH_DEBT H.3 / I.5): no adopted preset mechanism fires into a zero
+printf '\n--- G151 preset mechanisms each change the output ---\n'
+bash scripts/preset_efficacy_gate.sh "$WORK/g151" || fail G151
+finish G151
 
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
