@@ -17706,7 +17706,7 @@ main(int argc, char* argv[])
                  "868 while up on UWB would charge a tier outside the cycle's "
                  "transmission and break the sect 6 invariant, and because each tier "
                  "owns its own table, so the answer must land in the one the ranging "
-                 "path reads.",
+                 "path reads. Needs --sendHandshakeFrames: without it the digest exchange never runs and this flag changes nothing (TECH_DEBT I.4; checked 2026-10-18).",
                  bidirectionalDigestArg);
     cmd.AddValue("finderPosSigma",
                  "Metres of GNSS position error a finder carries, as a per-finder "
@@ -17730,7 +17730,7 @@ main(int argc, char* argv[])
                  "flatters every result that depends on finders -- which, since finders "
                  "are what make tier 3 reachable at all, is most of them. The physics is "
                  "unaffected either way: the radio link is physical and does not care "
-                 "what anyone believes.",
+                 "what anyone believes. Needs --sendHandshakeFrames and --bidirectionalDigest: the finder entries it reads arrive only through that exchange, and without them this flag changes nothing (TECH_DEBT I.4; checked 2026-10-18).",
                  finderPseudoAnchorArg);
     cmd.AddValue("hopProvenanceForm",
                  "How hop provenance enters the confidence score. 0 (default) is the "

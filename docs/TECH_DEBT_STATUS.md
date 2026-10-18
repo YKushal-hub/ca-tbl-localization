@@ -15,11 +15,11 @@ them.
 
 | id | entry | what is open | class |
 |---|---|---|---|
-| T1 | K.3 | RULES.md §6 still states "exactly one tier transmits per cycle"; the floor, the dual base (preset) and `poucet_fusion` all transmit two tiers in a cycle. Restate the invariant that actually holds | ENG (doc) |
+| T1 | ~~K.3~~ | ~~RULES.md §6 still states "exactly one tier transmits per cycle"; the floor, the dual base (preset) and `poucet_fusion` all transmit two tiers in a cycle. Restate the invariant that actually holds~~ **DONE** RULES.md §6 restated (2026-10-18). | ENG (doc) |
 | T2 | L.2 note | The casualty's table entry carries the previous cycle's estimate (published before `Step`): every entry age is understated by one cycle (2.5 s) | ENG |
 | T3 | M.9 | The RECEDING eager push is not counted per subject | ENG |
-| T4 | M.11 / RULES.md | Stale counts in RULES.md §7 ("58 gates at c79fffd", `cmd.AddValue` line ranges, the unit-suite count) | ENG (doc) |
-| T5 | I.4 | `--bidirectionalDigest`, `--finderPseudoAnchor`, `--corroborationCheck` silently need `--sendHandshakeFrames`; their help text does not say so | ENG (doc) |
+| T4 | ~~M.11 / RULES.md~~ | ~~Stale counts in RULES.md §7 ("58 gates at c79fffd", `cmd.AddValue` line ranges, the unit-suite count)~~ **DONE** RULES.md counts replaced by the commands that produce them. | ENG (doc) |
+| T5 | ~~I.4~~ | ~~`--bidirectionalDigest`, `--finderPseudoAnchor`, `--corroborationCheck` silently need `--sendHandshakeFrames`; their help text does not say so~~ **DONE** help text of --bidirectionalDigest and --finderPseudoAnchor states the dependency (verified by run); --corroborationCheck already did. | ENG (doc) |
 | T6 | H.3 / I.5 | No gate asserts that a mechanism's input is non-zero whenever its firing counter is | ENG (gate) |
 | T7 | N.29 | M-01's SF12 "inversion" is the validation harness colliding with itself (0.1 s spacing) | ENG |
 | T8 | 4.1 / 4.2 | The 1-ulp trace divergence is undiagnosed; `-march=native` makes byte identity machine-dependent. Suggested test: rebuild with `-march=x86-64` | ENG (diagnosis) |

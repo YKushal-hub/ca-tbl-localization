@@ -173,7 +173,7 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers unused, b-suffixed sub-gates); ALL run, summary at the end (hours on a loaded machine)
+bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scripts/catbl_gates.sh); ALL run, summary at the end (hours on a loaded machine)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
@@ -236,8 +236,8 @@ flag-set difference, not a reproduction failure.
 Every new mechanism follows this or it is not mergeable.
 
 1. **Default-off CLI flag**, registered with `cmd.AddValue` in the block in `main()` of
-   `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it with
-   `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`). Write the help text as an argument, not a label —
+   `scratch/ca_tbl_causal_sim.cc` (find it with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`;
+   line numbers drift with every change). Write the help text as an argument, not a label —
    the existing flags explain *why* the default is what it is, and that is the house style.
 2. **Null-control test:** with the flag off, output is byte-identical to the pre-change binary.
    Diff `arm_summary.csv` and every trace. This is not optional — arms consume the shared RNG
@@ -292,8 +292,18 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
 
 ## 6. The invariant that makes the experiment valid
 
-**Exactly one tier transmits per cycle, and only that tier is charged.** An arm that never
-escalates accrues exactly zero energy on the tiers it never used.
+**Every transmission happens inside the per-cycle loop, and a radio is charged only for what it transmitted or
+received.** An arm that never uses a tier accrues exactly zero energy on that tier.
+
+*Restated 2026-10-18 (TECH_DEBT K.3).* The older wording, "exactly one tier transmits per cycle", is false as a literal
+statement, and has been for a long time. Three things put two or three tiers on the air in one cycle, each charged for
+what it did:
+- the 868 MHz floor (`FloorRangingWanted`) ranges alongside the active tier on most hybrid cycles;
+- the preset's dual base (`--loraDualBase`, DD 10) ranges both LoRa bands every cycle;
+- `poucet_fusion` ranges all three by design.
+
+So tier-1 energy is not proportional to `cycles_868`. What the energy axis needs, and what holds, is the restated
+invariant: no transmission outside the loop, and no charge to a radio that stayed silent.
 
 This was not always true. An earlier pipeline generated all three tiers' data unconditionally and
 selected afterwards, under which *the energy saved by not escalating was structurally
@@ -317,10 +327,10 @@ src/lora-physics-engine/model/
   lora-uwb-physics-engine.*   UWB        | submodules/               ~35 per engine
 scratch/
   ca_tbl_causal_sim.cc        the scenario: geometry, mobility, arms, sweeps, CLI flags
-  ca_tbl_packet_validator.cc  MAC unit suite (62 checks; one of twelve suites, 356 checks)
+  ca_tbl_packet_validator.cc  MAC unit suite (one of the unit suites; counts drift, see G1/G9 output)
   python_handoff/verify_causal_sim.py    the invariant gate
 scripts/
-  catbl_gates.sh              the regression gates (58 at `c79fffd`)
+  catbl_gates.sh              the regression gates (`grep -c '^finish ' scripts/catbl_gates.sh`; 111 PASS at the 2026-10-18 merge)
   publication_ready.sh        manifest assertions; parses EXCLUDED.md as its source of truth
 report/
   PCS_REDESIGN_RESULTS.md     working evidence chain, Parts 0-8, with corrections registers
@@ -360,8 +370,8 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `--injectBiasFraction` exist and 162 results directories use them.
 
 **Before treating any "not implemented" note as current, check two things:** the
-`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it
-with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`), and
+`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (find it with
+`grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`; line numbers drift with every change), and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
 
