@@ -1912,6 +1912,15 @@ bash scripts/relay_gate_gate.sh "$WORK/g101" || fail G101
 bash scripts/relay_gate_gate_selftest.sh "$WORK/g101" || fail G101
 finish G101
 
+# ---------------- G102: --ekf5StateBounds, the bias and stride scale projected onto +/- k prior sigmas
+# scripts/state_bounds_gate.py reads REAL-STACK's 5 km seed 12 under the full stack, 1800 s: the projection fired,
+# the final scale is inside 4 x 0.0266 with it (-0.1064) and outside without it (-0.3397), the bias inside its
+# bound; 0 is the flag absent byte for byte; no leak; refused without ekf5 or negative.
+printf '\n--- G102 the bias and stride scale held to their physical bounds (--ekf5StateBounds) ---\n'
+bash scripts/state_bounds_gate.sh "$WORK/g102" || fail G102
+bash scripts/state_bounds_gate_selftest.sh "$WORK/g102" || fail G102
+finish G102
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
