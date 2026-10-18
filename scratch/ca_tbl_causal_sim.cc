@@ -2288,6 +2288,7 @@ static double g_t2SensitivityRowKHz = 0.0;
 // stream and in the same order, so only the magnitude moves. docs/LOCAL_LINE_INTEGRATION.md
 // sect 1.3. Written once after cmd.Parse().
 static double g_imuGyroBiasSigmaDps = 0.0;
+static double g_imuStrideSigmaPct = 0.0; //!< --imuStrideSigmaPct
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
 static CaTblImuParams
@@ -2297,6 +2298,10 @@ Dc1ImuParams()
     if (g_imuGyroBiasSigmaDps > 0.0)
     {
         p.gyroBiasSigmaRadS = g_imuGyroBiasSigmaDps * M_PI / 180.0;
+    }
+    if (g_imuStrideSigmaPct > 0.0)
+    {
+        p.strideSigmaRel = g_imuStrideSigmaPct / 100.0;
     }
     return p;
 }
@@ -7023,6 +7028,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5BiasSigma = ip.gyroBiasSigmaRadS;
         pcfg.ekf5ScaleSigma = ip.scaleSigma;
         pcfg.ekf5DwellSigma = ip.dwellSigmaM;
+        pcfg.ekf5StrideRel = ip.strideSigmaRel;
+        pcfg.ekf5StrideLenM = ip.strideLenM;
         pcfg.ekf5Robust = spec.ekf5Robust;
     }
     policy.Configure(pcfg);
@@ -16013,6 +16020,7 @@ main(int argc, char* argv[])
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
+    double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
     std::string imuFilterArg = "cv";     // N.28; see --imuFilter
     int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
@@ -18499,6 +18507,14 @@ main(int argc, char* argv[])
                  "draw order: only the magnitude moves. Refused without --imuPredict. "
                  "docs/LOCAL_LINE_INTEGRATION.md sect 1.3.",
                  imuGyroBiasSigmaDpsArg);
+    cmd.AddValue("imuStrideSigmaPct",
+                 "With --imuPredict: random stride-length error per STEP, in percent, independent between "
+                 "steps (steps counted at 0.7 m, ours). 0 (default) keeps DC-1 as every result so far: the "
+                 "stride exact up to one per-run scale error, so its dead reckoning has no per-cycle noise "
+                 "at all -- an IMU no pedestrian carries. Acceleration-based step-length estimators err by "
+                 "a few percent of distance (Jahn et al. 2010; Harle 2013). Both filters are told: DC-1's "
+                 "reported Q_u gains the along-track term, and ekf5's stride noise becomes the same model.",
+                 imuStrideSigmaPctArg);
     cmd.AddValue("sparseInStep",
                  "Solve a two-range cycle inside Step(), after the prediction, against the "
                  "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
@@ -20145,6 +20161,16 @@ main(int argc, char* argv[])
         std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
+    if (imuStrideSigmaPctArg != 0.0)
+    {
+        if (!spec.imuPredict || !(imuStrideSigmaPctArg > 0.0))
+        {
+            std::cerr << "FATAL: --imuStrideSigmaPct needs --imuPredict and a positive value\n";
+            return 1;
+        }
+        g_imuStrideSigmaPct = imuStrideSigmaPctArg;
+        std::cout << "  DC-1: stride noise " << imuStrideSigmaPctArg << " % per step\n";
+    }
     if (imuGyroBiasSigmaDpsArg != 0.0)
     {
         if (!spec.imuPredict)

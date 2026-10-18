@@ -251,6 +251,41 @@ main(int argc, char* argv[])
         }
     }
 
+    // --- --imuStrideSigmaPct: per-step stride noise, its spread and its stated variance agree --------
+    {
+        CaTblImuParams p;
+        p.gyroNoiseDensityRadSqrtS = 0.0;
+        p.gyroBiasSigmaRadS = 0.0;
+        p.scaleSigma = 0.0;
+        p.strideSigmaRel = 0.05;
+        CaTblImuDeadReckoner rk;
+        rk.Configure(p, 4242);
+        double se = 0.0, sq = 0.0;
+        const int n = 20000;
+        const double d = 3.0;
+        for (int k = 0; k < n; ++k)
+        {
+            double ux, uy, q[3];
+            rk.Step(d, 0.0, 2.5, ux, uy, q);
+            se += (ux - d) * (ux - d);
+            sq += q[0];
+            rk.ResetAccumulation();
+        }
+        const double want = 0.05 * 0.05 * 0.7 * d; // sigma_rel^2 l |d|
+        Check(std::fabs(se / n / want - 1.0) < 0.05,
+              "stride noise: per-cycle along-track variance = sigma_rel^2 l |d| within 5 % (20 000 cycles)");
+        Check(std::fabs(sq / n / want - 1.0) < 1e-9, "stride noise: Q_u's along-track increment states exactly that variance");
+        CaTblImuParams off;
+        off.gyroNoiseDensityRadSqrtS = 0.0;
+        off.gyroBiasSigmaRadS = 0.0;
+        off.scaleSigma = 0.0;
+        CaTblImuDeadReckoner r0;
+        r0.Configure(off, 4242);
+        double ux, uy, q[3];
+        r0.Step(d, 0.0, 2.5, ux, uy, q);
+        Check(ux == d && uy == 0.0 && q[0] == 0.0, "stride noise off: the stride is exact and Q_u is zero, as before");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }
