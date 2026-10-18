@@ -4063,3 +4063,22 @@ mean error 1830 → 9155 m): the 1/PDR factor needs the filter's informative pri
 from missed gateways in the EKF (not only in the acquisition cloud), is the principled next step.
 The per-range 95 % coverage is already 0.91–0.94, so this residual alone does not explain O.12's
 fix-level 0.59–0.64; per-link temporal correlation of shadowing (CORRW) stays the other candidate.
+
+### N.58 Under ekf5 at 5 km the position covariance collapses during acquisition, and the sensor states absorb the error
+
+EKF5-MAIN (`report/EKF5_MAIN_RESULTS.md`): at 5 km with the preset's gyro, ekf5's median NEES is 789
+against cv's 4.5, and CA-TBL's CEP95 rises 365.1 → 613.7 m; with a realistic gyro ekf5 wins everywhere.
+Traced on A L0 seed 5 (exploratory): the claimed position σ collapses 178 → 8.3 m between t = 82 and
+122 s, after the particle handover, while the error is 213 m. The state then converges over 150 s, but
+the persistent innovations are absorbed as stride scale (0 → +0.53) and heading (→ −1.05 rad), and it
+dead-reckons the wrong way afterwards. A single linearised update of precise ToF ranges taken about
+200 m from the truth reduces P as if the update were linear.
+
+Exploratory remedies tried on seeds 1–6 (single arm, 1800 s, not citable):
+- `--rssiCorrInflate`: helps 4 of 6 (seed 1 55 → 9 m), not seeds 3 or 5 (NEES 374, 10 858).
+- `--ekf5Robust=16` (RSSI ranges do not update θ, b, s; built in the working tree, uncommitted):
+  seed 4 371 → 58 m, seed 1 55 → 22 m; seed 5's scale error stays +0.125 — RSSI is not its route.
+- `--ekf5Robust=4` (RECOVER): never fires on seed 5 (recoveries 0) — the wide 868 MHz ranges in each
+  fix are never outliers, so its majority test cannot trip.
+The principled remedy for a covariance that collapses before a large-offset state converges is an
+iterated update (IEKF: re-linearise around the improving estimate, Gauss-Newton). Not yet built.
