@@ -4024,3 +4024,10 @@ considered updates (279, 221) — and control s13 6.0 → 9.5. Several large cha
 considered updates (C s4 10, endgame s20 4), which a chaotic re-roll explains as well as a
 cause. Selected cells regress to the mean under any perturbation; this is not a result. The
 registered test is EKF5-CONSIDER.
+
+**Measured (EKF5-CONSIDER, `report/EKF5_CONSIDER_RESULTS.md`): rejected.** R1 held; P1, P2 and P3
+failed. Heading divergence 19 → 15 of 120 (discordant 11 against 7, short of the registered 2 : 1);
+5 km CEP95 at the near-perfect gyro +105.7 % per seed; subjects worse almost everywhere; the ring's
+`static_2p4` diverges 3 → 18 at L3. One-range updates teach θ, b, s correctly far more often than
+they corrupt them; the pilot was regression to the mean. Open: an update that is consistent
+rather than rank-limited (FEJ / observability-constrained EKF, iterated or unscented update).
