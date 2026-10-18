@@ -18480,9 +18480,9 @@ main(int argc, char* argv[])
                  "With --imuFilter=ekf5: the 5-state filter's update mode, a bit set (TECH_DEBT "
                  "N.33). 0 (default) is the update every ekf5 result used. 8 CONSIDER takes a fix "
                  "of fewer than 3 ranges as a Schmidt update -- position only, Joseph covariance "
-                 "-- because one or two ranges cannot observe heading, bias or scale, and an EKF "
-                 "that lets them try learns those states from its own linearisation: on the "
-                 "EKF5-PRESET seeds that diverged, that is how the heading went wrong. 1 GATE, "
+                 "-- because one or two ranges cannot observe heading, bias or scale. REJECTED by "
+                 "EKF5-CONSIDER: those updates teach the sensor states correctly far more often "
+                 "than they corrupt them (5 km CEP95 +106 % per seed at the near-perfect gyro). 1 GATE, "
                  "2 PROTECT and 4 RECOVER are diagnostic modes the validator's robustness study "
                  "rejected (gating locks a weakly observed filter out of its only good ranges); "
                  "they are kept for that study, not for use. Refused without ekf5.",

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # G96 runner: --ekf5Robust=8, CONSIDER -- fixes of fewer than 3 ranges are Schmidt updates of
-# the 5-state filter (TECH_DEBT N.33). What each run is for, and what a firing looks like on
+# the 5-state filter (TECH_DEBT N.33). EKF5-CONSIDER rejected the mode; this gate keeps its wiring
+# honest, it does not claim the mode helps. What each run is for, and what a firing looks like on
 # disk, is in scripts/ekf5_consider_gate.py.
 #
 # usage: bash scripts/ekf5_consider_gate.sh [<workdir>]
 #   With <workdir> the runs are left there for the self-test; without one, a mktemp dir.
 #
-# on/base  the N8 ring, seed 4, 600 s, DC-1 at 0.15 deg/s, ekf5 -- EKF5-PRESET's worst cell, where
-#          one- and two-range fixes rotated the heading state; base is the same with mode 0
+# on/base  the preset at 5 km, seed 19, 600 s, DC-1 at 0.15 deg/s, ekf5 -- a cell where Case D fires
+#          under the current preset (27 single-range updates); base is the same with mode 0
 # def/zero the same at 300 s with --ekf5Robust absent and given as 0: must be byte-identical
 # r_*      refusals: the mode without ekf5, and a mode out of range
 set -u
@@ -20,7 +21,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g96.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true --seed=4 --trace=true --nGateways=8 --gwLayout=legacy --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.15 --imuFilter=ekf5"
+P="--specProfile=true --seed=19 --trace=true --reportAirtime=true --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.15 --imuFilter=ekf5"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift
