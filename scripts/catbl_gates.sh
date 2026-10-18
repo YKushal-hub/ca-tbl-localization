@@ -1856,6 +1856,175 @@ bash scripts/spec_profile_gate.sh "$WORK/g24" || fail G24
 bash scripts/spec_profile_gate_selftest.sh "$WORK/g24" || fail G24
 finish G24
 
+# ---------------- G120: tier-2 field-error flags and the covariance trace columns
+# --tofFieldSigmaM, --tofFieldBiasM (Mueller et al., ICL-GNSS 2021, doi
+# 10.1109/ICL-GNSS51451.2021.9452277) and --traceCovariance. Read by scripts/tof_field_gate.py:
+# the flags at their defaults change no byte; the covariance columns are appended and are the
+# filter's (pxx + pyy = traceSigma); the sigma floor reaches every tier-2 fix; the bias moves
+# the probe's tier-2 error by the bias and moves no random draw.
+# Negative fixtures in scripts/tof_field_gate_selftest.sh (rule 6).
+printf '\n--- G120 tier-2 field error and covariance trace ---\n'
+bash scripts/tof_field_gate.sh "$WORK/g120" || fail G120
+bash scripts/tof_field_gate_selftest.sh "$WORK/g120" || fail G120
+finish G120
+
+# ---------------- G100: --imuQuScale, the IMU increment covariance multiplier (S2 Part A, A1)
+# Read by scripts/acc_a_gate.py: the flag at 1 changes no byte; at 10 the per-cycle growth of
+# trace(P) on cycles without a fix is >= 5x that at 1, for tag 0 and for the subjects (both call
+# sites). Negative fixtures in scripts/acc_a_gate_selftest.sh (rule 6).
+printf '\n--- G100 IMU increment covariance multiplier ---\n'
+bash scripts/acc_a_gate.sh "$WORK/g100" || fail G100
+bash scripts/acc_a_gate_selftest.sh "$WORK/g100" || fail G100
+finish G100
+
+# ---------------- G130: --unknownStart, --traceSubjectConsistency, --measVarScale (S2-C)
+# Read by scripts/unk_start_gate.py: the three flags at their defaults change no byte; the
+# consistency columns are appended to the subject traces and nothing else moves; under
+# --unknownStart no filter starts at its truth and range-free first rows sit at the box centre;
+# --measVarScale=4 doubles the first fused cycle's RMS sigma exactly. Negative fixtures in
+# scripts/unk_start_gate_selftest.sh (rule 6).
+printf '\n--- G130 unknown start, subject consistency trace, range-variance multiplier ---\n'
+bash scripts/unk_start_gate.sh "$WORK/g130" || fail G130
+bash scripts/unk_start_gate_selftest.sh "$WORK/g130" || fail G130
+finish G130
+
+# ---------------- G131: --nlosRSource, which NLOS tag keys R and the LOS count in Step() (S2-C)
+# Read by scripts/nlos_r_gate.py: 'operative' given explicitly changes no byte; 'none' leaves no
+# NLOS count; 'detector' counts NLOS only on cycles the detector called NLOS, and the oracle run
+# is shown to differ from it. Negative fixtures in scripts/nlos_r_gate_selftest.sh (rule 6).
+printf '\n--- G131 NLOS tag source for R ---\n'
+bash scripts/nlos_r_gate.sh "$WORK/g131" || fail G131
+bash scripts/nlos_r_gate_selftest.sh "$WORK/g131" || fail G131
+finish G131
+
+# ---------------- G132: --acquireMinAnchors, the acquisition rule under --unknownStart (S2-C)
+# Read by scripts/acq_gate.py: 0 given explicitly changes no byte; at 3 no node fixes from fewer
+# than 3 ranges before its first fix from 3 or more, where the control does. Negative fixtures in
+# scripts/acq_gate_selftest.sh (rule 6).
+printf '\n--- G132 acquisition rule ---\n'
+bash scripts/acq_gate.sh "$WORK/g132" || fail G132
+bash scripts/acq_gate_selftest.sh "$WORK/g132" || fail G132
+finish G132
+
+# ---------------- G133: --acquireReinit, acquisition re-initialisation under --unknownStart (R1, N.54)
+# Read by scripts/acqreinit_gate.py: false given explicitly changes no byte; true prints at most one
+# ACQREINIT line per field-node filter (at least one), the control none, and tag 0's trace changes.
+# Negative fixtures in scripts/acqreinit_gate_selftest.sh (rule 6).
+printf '\n--- G133 acquisition re-initialisation ---\n'
+bash scripts/acqreinit_gate.sh "$WORK/g133" || fail G133
+bash scripts/acqreinit_gate_selftest.sh "$WORK/g133" || fail G133
+finish G133
+
+# ---------------- G134: --foliageDepthClamp, foliage depth clamped to the link length (B3f)
+# Read by scripts/foliage_gate.py: false given explicitly changes no byte (probe and sim); true clamps
+# (FOLIAGECLAMP firings > 0), raises UWB PDR at <= 10 m, and leaves 868 MHz probe rows >= 500 m identical.
+# Negative fixtures in scripts/foliage_gate_selftest.sh (rule 6).
+printf '\n--- G134 foliage depth clamp ---\n'
+bash scripts/foliage_gate.sh "$WORK/g134" || fail G134
+bash scripts/foliage_gate_selftest.sh "$WORK/g134" || fail G134
+finish G134
+
+# ---------------- G135: S1 --rssiRangeFromShadowing and S2 --tofErrorModel (master plan v2), via the probe
+printf '\n--- G135 RSSI-from-shadowing and ToF error presets ---\n'
+bash scripts/b3s_gate.sh "$WORK/g135" || fail G135
+bash scripts/b3s_gate_selftest.sh "$WORK/g135" || fail G135
+finish G135
+
+# ---------------- G136: B2 --dualBaseOnDemand (master plan v2)
+printf '\n--- G136 dual base on demand ---\n'
+bash scripts/b2_gate.sh "$WORK/g136" || fail G136
+bash scripts/b2_gate_selftest.sh "$WORK/g136" || fail G136
+finish G136
+
+# ---------------- G137: B1 --traceRanges (tag 0's per-range log)
+printf '\n--- G137 per-range log ---\n'
+bash scripts/rangelog_gate.sh "$WORK/g137" || fail G137
+bash scripts/rangelog_gate_selftest.sh "$WORK/g137" || fail G137
+finish G137
+
+# ---------------- G138: V1 --rngKeyed (master plan v3; TECH_DEBT 1.1)
+printf '\n--- G138 keyed random numbers ---\n'
+bash scripts/rngkeyed_gate.sh "$WORK/g138" || fail G138
+bash scripts/rngkeyed_gate_selftest.sh "$WORK/g138" || fail G138
+# keyed draws are exact: moments against the ns-3 streams, every distribution law the sampler offers
+./build/scratch/ns3.47-rngkeyed_dist_test-optimized || fail G138
+finish G138
+
+# ---------------- G139: V2a --nlosRangeBias (master plan v3)
+printf '\n--- G139 NLOS range bias ---\n'
+bash scripts/nlosbias_gate.sh "$WORK/g139" || fail G139
+finish G139
+
+# ---------------- G140: V2b --rangeErrorNoLinkLeak and --probeTerms (master plan v3)
+printf '\n--- G140 868 MHz range error kept out of reception ---\n'
+bash scripts/linkleak_gate.sh "$WORK/g140" || fail G140
+bash scripts/linkleak_gate_selftest.sh "$WORK/g140" || fail G140
+finish G140
+
+# ---------------- G141: V3 --rangeBiasStates, --rssiSigmaLogNormal (master plan v3; TECH_DEBT N.51)
+printf '\n--- G141 consider biases for correlated 868 MHz range errors ---\n'
+bash scripts/consider_gate.sh "$WORK/g141" || fail G141
+finish G141
+
+# ---------------- G142: V4 --acquireParticles (master plan v3; TECH_DEBT N.54)
+printf '\n--- G142 particle acquisition ---\n'
+bash scripts/pfacq_gate.sh "$WORK/g142" || fail G142
+finish G142
+
+# ---------------- G144: V7 --rangeReplyPosition (master plan v3; TECH_DEBT H.2)
+printf '\n--- G144 finder position carried in the ranging reply ---\n'
+bash scripts/replypos_gate.sh "$WORK/g144" || fail G144
+finish G144
+
+# ---------------- G145: V5 --c2bEscalation (master plan v3; claim C2b)
+printf '\n--- G145 escalation on reachability, not confidence ---\n'
+bash scripts/c2b_gate.sh "$WORK/g145" || fail G145
+finish G145
+
+# ---------------- G146: V2a-2 --nlos3gppRMa (master plan v3; 3GPP TR 38.901 v17.0.0 RMa)
+printf '\n--- G146 3GPP RMa LOS probability and NLOS loss ---\n'
+bash scripts/nlos3gpp_gate.sh "$WORK/g146" || fail G146
+finish G146
+
+# ---------------- G147: the scope-2026-10-17 flags (B5, B6, B7, B11, C1, C2, C3, C5, B1)
+printf '\n--- G147 scope flags: default identity and firing ---\n'
+bash scripts/scope_flags_gate.sh "$WORK/g147" || fail G147
+finish G147
+
+# ---------------- G148: C4 --foliageP833 (scope 2026-10-17; ITU-R P.833-10 section 2.1)
+printf '\n--- G148 ITU-R P.833-10 forest foliage ---\n'
+bash scripts/foliage_p833_gate.sh "$WORK/g148" || fail G148
+finish G148
+
+# ---------------- G149: B2 --rssiCorrInflate (scope 2026-10-17; correlated-shadowing variance inflation)
+printf '\n--- G149 868 MHz RSSI correlation inflation ---\n'
+bash scripts/rssicorr_gate.sh "$WORK/g149" || fail G149
+finish G149
+
+# ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
+printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'
+bash scripts/ondemand_cal_gate.sh "$WORK/g143" || fail G143
+finish G143
+# ---------------- G110: --dualBaseRelayTier, relay legs on 2.4 GHz under the dual base (S2 Part B, F1)
+# Read by scripts/acc_b_gate.py: the flag given as false changes no byte or stdout line; on, tag 0's
+# legs on 2.4 GHz with 868 MHz active, their admissions and the subjects' re-tiered exchanges are
+# all > 0 and billed on 2.4 GHz; static_2p4 and lora_fusion are byte-identical on and off.
+# Negative fixtures in scripts/acc_b_gate_selftest.sh (rule 6).
+printf '\n--- G110 dual-base relay tier ---\n'
+bash scripts/acc_b_gate.sh "$WORK/g110" || fail G110
+bash scripts/acc_b_gate_selftest.sh "$WORK/g110" || fail G110
+finish G110
+
+# ---------------- G111: --subjectPreciseOnly, subjects fuse precise ranges without 868 MHz (S2 Part B, F2)
+# Read by scripts/acc_b2_gate.py: the flag given as false changes no byte or stdout line; on, subject-
+# cycles fused without 868 MHz and the ranges left out are > 0 and the subjects' traces change;
+# static_2p4 and lora_fusion are byte-identical on and off. Negative fixtures in
+# scripts/acc_b2_gate_selftest.sh (rule 6).
+printf '\n--- G111 subject precise-only ---\n'
+bash scripts/acc_b2_gate.sh "$WORK/g111" || fail G111
+bash scripts/acc_b2_gate_selftest.sh "$WORK/g111" || fail G111
+finish G111
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0

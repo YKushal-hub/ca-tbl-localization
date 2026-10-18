@@ -33,6 +33,29 @@ This is rule 8 generalised from arms to binaries, and the rule as written does n
 it. **Anyone comparing magnitudes across a code change is currently able to publish a
 stream artefact as a result.**
 
+*2026-10-16, V1 (`--rngKeyed`, G138; master plan v3).* A fix exists, **off by default**:
+- each engine draw is a hash of (seed, band, link, time, occurrence, index within the evaluation);
+- every MAC object draws from its own stream.
+
+Making it work needed three further repairs, each found by G138's perturbation run:
+- **Sampler copies.** Five submodules (symbol sync, PLL, RF nonlinearity, DSP chain, IQ stream) hold a
+  *copy* of the engine's sampler. About 32 M draws per run were outside any link context until the copy
+  learned its source.
+- **Weather.** The weather update was drawn inside whichever link came first. It is now keyed by epoch.
+- **Interferer map.** The external-interferer map was drawn inside, and centred on, the first evaluated
+  link. It is now keyed and centred on the origin. This is a model change inside keyed mode, registered
+  in `report/PREREG_V1_RNGKEYED.md`.
+
+With the flag on, one extra engine evaluation moves 0 outputs (90 unkeyed).
+
+**Still coupled with the flag on:** physical coupling, which is correct:
+- an extra transmission really interferes and occupies airtime;
+- AGC state is engine-wide (one AGC for all receivers, `lora-radio-frontend-submodule.cc`), a modelling
+  simplification, not an RNG one.
+
+Cross-binary magnitude comparisons become admissible **for runs made with `--rngKeyed=true`**, subject to
+those physical couplings.
+
 *Fix.* Assign explicit streams. *Cost:* small change, but **it invalidates every existing
 result** because the draws move. Must be a planned regeneration campaign, same class as
 the PCS change. *Status:* RULES.md §5 records it as a decision not to fix, on the grounds
@@ -182,6 +205,14 @@ reachable values. Worth knowing before anyone tunes a weight expecting a gradien
 > - A2 is no longer a fixed depth-1 cap. It admits depth up to `--maxRelayDepth` under a
 >   variance budget (`ca-tbl-relay-admission.cc:120-134`). The cap is still 1 **at the
 >   default** `--maxRelayDepth=1`.
+
+> **2026-10-16, preset vs default.** Under `--specProfile` (`relayedRanging=true`,
+> `maxRelayDepth=2`, budget (156 m)²) `hopCount` is not binary-zero: B4 seed-1 logs show
+> 80-1194 admitted relayed measurements per run and `ca_tbl_full` fixes at depth 1 and 2.
+> The weight still stays 0 because the relay's covariance already widens the range
+> (σ_eff² = σ² + uᵀP_B u); a hop term would double-count it. Because every P is
+> overconfident (N.51), σ_eff is too small as well. `relayChain` made 0 relay-to-relay
+> exchanges in every B4 run checked.
 
 ### 3.3 C2-full — the peer is not a measured subject
 Rebased onto current main as `wip/c2-on-main` (`7cbfead`), builds, and the C4 conflict is
@@ -419,6 +450,8 @@ C4, C5, A6, A1 and the PCS forms were all measured on the old deployment.
 4. **Multi-hop localisation.** Flood forwarding exists; the poll set is strictly one-hop
    and relayed ranging is capped at depth 1, so "mesh" means single-hop to gateways and
    finders.
+   *(2026-10-16: true for the code default only. The preset ranges through relays to depth 2;
+   see the note under 3.2.)*
 5. **Self-deployable mesh.** Deployment is a fixed grid plus mobile finders.
 
 ## D. A methodological failure worth keeping
@@ -507,6 +540,19 @@ entries of similar age, with no maximum and no re-request when an entry goes sta
 digest period is a fixed 30 s regardless of how fast anything is moving. *Fix:* an
 age-triggered digest, or a staleness ceiling above which an entry is dropped rather than
 inflated. *Cost:* small; the question of what the ceiling should be is the expensive part.
+
+
+*2026-10-16, V7 (`--rangeReplyPosition`, G144; master plan v3).* The source-side gap is closed for ranging
+partners, which are the case that matters for position: a finder's ranging reply carries its current GNSS
+position at age 0, and stale table entries become only the fallback. Nothing is dropped.
+- **Gate:** tag 0's finder-range median sigma 134 → 53 m.
+- **Dev (indicative; that build had a subject-entry defect, fixed before commit):** 5 km CEP95 roughly halves
+  (`ca_tbl_full`, `static_2p4`); `static_868` improves several-fold. Energy rises through behaviour, not billing:
+  more UWB exchanges once finders are placed accurately.
+- **Billing:** the ~10-byte position rides on the existing return path, so nothing extra is billed. On 868 MHz that
+  return path is unbilled in both variants unless `--tier1ChargeReplies` is set.
+- **Found while doing this:** NC1–NC9 do not exercise the subject finder-entry path under the preset; only the
+  225-file preset comparison caught a regression there.
 
 ### H.3 The gate suite cannot see a mechanism that fires into a zero
 `edf73a5` fixed an accumulator cleared between its two contributors. For the whole life
@@ -3289,3 +3335,612 @@ gate's runner states the flags its checks were written for, and nothing else cha
   the preset as it is; until then the gate checks the arm where its definition holds.
 Measured against `main`'s binary: G89 7/7, G63 9/9, G87 6/6 on the runners exactly as committed,
 and each self-test unchanged in verdict (9, 14 and 7 negative fixtures, all as expected).
+
+> **Numbering note (merge of 2026-10-18).** N.30 and N.31 appear twice. The first pair, above, is the main line's
+> (cited by RULES.md, `docs/LOCAL_LINE_INTEGRATION.md` and the G63/G87/G89 runners). The pair below is the accuracy
+> line's (cited by `report/PREREG_ACC_A_FILTER.md` as N.30–N.32). Neither is renumbered, because committed
+> registrations cite both. Read a citation of N.30/N.31 by its subject.
+
+### N.30 The EKF's covariance is 20-50x too small, because persistent IMU errors enter as independent increments
+
+*2026-10-09, S2 Part A (`report/ACC_A_RESULTS.md`; registered, `681e90c8`; exploratory).*
+- **The problem.** Tag 0's median ANEES under the preset is 105 (5 km) and 46 (endgame).
+  Consistent would be 2.
+- **The stand-in fix.** `--imuQuScale=k` multiplies the IMU increment covariance. ANEES falls
+  to 15.6 / 5.7 at k = 10 and 3.3 / 2.3 at k = 30.
+- **What k = 10 buys `ca_tbl_full`:**
+  - endgame CEP95 12.0 → 7.5 m (−4.5 [−6.5, −2.7]);
+  - 5 km CEP50 24.4 → 16.6 m;
+  - +0.013 endgame availability;
+  - at +3.0 J per node in the endgame.
+- **It is filter-wide.** Every arm's endgame improves except LoRa fusion's. At 5 km the pooled
+  CEP95 tail worsens for `fixed_threshold`, LoRa fusion and Poucet.
+- **Open:**
+  - an error-state filter (S2's A2), the principled fix;
+  - the PCS thresholds (CAL-03) were fitted at k = 1;
+  - k is not tuned. The local machine's sweep on seeds 21-30 is the input.
+
+### N.31 PCS adds nothing over P even with a corrected covariance: the stop rule is met
+
+*2026-10-09, S2 Part A.* PCS − trace informativeness (−Spearman(pcs, err) − Spearman(trace,
+err), paired by seed):
+- k = 1: −0.082 [−0.189, 0.020] at 5 km and −0.004 in the endgame;
+- k = 10: −0.165 [−0.258, −0.093] and −0.002.
+
+PCS is no better, and at 5 km worse, than the covariance trace it is computed from. This is the
+third test, after `PCS_FORMS_RESULTS`, to say so. Per Part A §11 and MASTER_PLAN A8: **no
+further PCS form.**
+
+### N.32 Forced escalation on SUSPECT is redundant in the preset; the integrity check has little effect at chi2 1992.9
+
+*2026-10-09, S2 Part A.*
+- **`--suspectForcesEscalation=true` changes no byte** of `ca_tbl_full`'s output: 80 of 80
+  seed-cells, A and B, k = 1 and 10.
+- **Why (control flow, proven on the data).** The preset's `downweight` recovery multiplies a
+  SUSPECT fix's PCS by 0.5. On all 350 SUSPECT rows that already puts PCS below the tier's up
+  threshold, so the fix escalates anyway.
+- **The integrity check itself.** It fires on 1-8 fixes per run. Turning it off
+  (`ca_tbl_no_integrity`) changes nothing at k = 1. At k = 10 the arm without it has +0.013
+  availability at 5 km and 3 fewer endgame escalations.
+- **Open:** whether a consistent covariance makes the check worth re-fitting (S2's appendix:
+  re-fit `--integrityChi2` on seeds 21-40 and run the fault matrix).
+
+### N.40 Tier 2's 3.0 m ToF floor carries every endgame accuracy figure; at measured outdoor error the endgame CEP95 triples
+
+*2026-10-09, S3 (`report/TOF_FIELD_RESULTS.md`; registered, `17472fe7`).*
+
+Mueller et al., ICL-GNSS 2021, measured outdoor SX1280 ranging at SD 83.6 m / bias +46.4 m
+(rural) and 45 m / +39 m (suburban). The engine's tier-2 floor is 3.0 m, from ranges measured
+within tens of metres. At the measured levels (`--tofFieldSigmaM`, `--tofFieldBiasM`), paired
+over 20 seeds:
+- **The preset's endgame tag 0 CEP95 is 12.0 m at the floor and 35-39 m at field error.** At
+  5 km it is 57.8 m against 80-96 m. Every arm degrades.
+- **Static 2.4 GHz degrades most.** It is not significantly more accurate than the preset even
+  at the floor, and at rural field error it is 30.7 m [22.6, 39.2] worse in the endgame. The
+  unmodelled bias does it: with the bias removed the difference is not significant.
+- **The decision rule:** against `fixed_threshold` with the same measurements, it gains +0.01 to
+  +0.02 availability at the floor and no accuracy anywhere. Under field error it costs +9 to
+  +12 J per node in the endgame.
+
+**Open.**
+- The floor is still 3.0 m by default. Every tier-2 accuracy claim must be cited as conditional
+  on it, or re-run at a field level.
+- Static 2.4 GHz loses 0.031 availability at R1 in the endgame. Mechanism (post-hoc, from the
+  cells' traces): its two-range solves stop solving because the circles no longer intersect.
+  Tag 0's two-range no-fix cycles go from 36 to 469, and the subjects' from 67 to 1 440
+  (`report/TOF_FIELD_RESULTS.md`, addendum).
+
+### N.35 Under the dual base, tag 0 is offered ~6x fewer relay legs than static 2.4 GHz, and its subjects are refused on 868 MHz
+
+*2026-10-09, S2 Part B, B2 (exploratory diagnosis; `work/2026-10-09-acc-part-b`).*
+
+**Data.** TOF-FIELD's D0 cells, read only: the 102-setting preset, 1 800 s, this cloud machine,
+seeds 1-15 (14 in B). The arms are `ca_tbl_full` and `static_2p4` from the same cells. The
+counts are the run logs' C5 and L.1.2 lines, means per run.
+
+| | `ca_tbl_full` B | `static_2p4` B | `ca_tbl_full` A | `static_2p4` A |
+|---|---|---|---|---|
+| tag 0 active tier 2.4 GHz, share of cycles | 0.364 | 1.000 | 0.691 | 1.000 |
+| tag 0 relay legs offered (all depths) | 204 | 1 240 | 107 | 279 |
+| ... admitted | 174 | 1 129 | 101 | 267 |
+| ... refused by A1 / A2 / A3 | 0 / 11.0 / 18.6 | 0 / 6.1 / 105.2 | 0 / 0.1 / 6.0 | 0 / 0.5 / 11.8 |
+| subject-cycles short of a fix | 1 768 | 2 742 | 2 469 | 2 880 |
+| ... of which on 868 MHz, refused before any exchange | 904 | 0 | 999 | 0 |
+| subject relay exchanges / admitted / fused | 558 / 192 / 130 | 13 / 7 / 7 | 188 / 30 / 26 | 0 / 0 / 0 |
+
+**Cause, tag 0 (H1, confirmed in the code).**
+- A relay leg forms only when the relay tier equals the active tier (the C5 block,
+  `rt == active`, `ca_tbl_causal_sim.cc`).
+- A1 never refused one: zero in every cell. The legs are never *formed*.
+- Under the dual base the 2.4 GHz radio ranges every cycle (`otherLoraMeas`), but the active
+  tier is 868 MHz on 64 % of endgame cycles. On those cycles no relay leg is attempted.
+- The count is lower than the 36 % share alone predicts (204 against ~450), because the block
+  also requires `!usedFloor`.
+
+**Cause, subjects.** `RangeForSubject` returns before any exchange when the subject's active tier
+is 868 MHz (A1 would refuse the range). That happens on 904 of 1 768 short subject-cycles in B.
+Yet the dual-base subjects exchange far more than `static_2p4`'s, whose subjects are short on 2 731
+cycles with "no exchange possible". So "a holder has a fix" is not the limit for `static_2p4`. The
+hybrid's limit is the tier.
+
+**The 5 km subjects (H2/H3), median error over all cycles (m), subjects 2-5.**
+- `ca_tbl_full`: 16.1 / 15.9 / 18.1 / 22.2, fixing on 39 / 24 / 8 / 1.6 % of cycles.
+- `static_2p4`: 12.5 / 15.8 / 12.9 / 17.7, fixing on under 1.1 %.
+- The hybrid subjects' error is the same with the active tier on 868 MHz or 2.4 GHz (median
+  18.4 against 18.2 m), so time off 2.4 GHz (H3) does not explain it.
+- Fewer fixes with lower error is *consistent with* H2: the hybrid's extra tier-1 / TDoA fixes
+  pull a dead-reckoned estimate off. **Not established.** Q5 needs a per-subject range log and a
+  replay with and without those fixes, which this session did not build.
+
+**Fix built:** F1, `--dualBaseRelayTier` (G110), for H1, tag 0 and subjects. Measured in
+`report/PREREG_ACC_B_HYBRID.md`. F2 (H2) is not built.
+
+### N.36 F1 (`--dualBaseRelayTier`) restores tag 0's relay supply; it buys endgame availability, not accuracy, and the 5 km within-25 m loss stays
+
+*2026-10-09, S2 Part B (`report/ACC_B_RESULTS.md`; registered, `0f68d454`; exploratory).*
+- **Relay supply:** with the flag on, tag 0's endgame relay legs go from 198 to 894 per run, and
+  admitted from 170 to 765. Static 2.4 GHz has 1 202.
+- **Availability and accuracy:** endgame availability +0.030 [0.019, 0.043]; endgame CEP
+  unchanged; 5 km CEP50 −5.2 m [−10.0, −1.5].
+- **Energy:** +0.82 J per node at 5 km.
+- **The loss it was meant to close stays:** five-node within 25 m at 5 km against static
+  2.4 GHz, −0.064 [−0.122, −0.012].
+
+**Not done:**
+- F2 / H2, the subjects' tier-1 and TDoA fixes (N.35);
+- the fixed-threshold arm with F1;
+- B1's range log.
+
+**Not adopted:** S1 decides.
+
+### N.37 F2 (`--subjectPreciseOnly`) falsifies H2 in its range form; the 5 km within-25 m loss to static 2.4 GHz is still unexplained
+
+*2026-10-09, S2 Part B (`report/ACC_B2_RESULTS.md`; registered, `66338f26`; exploratory).*
+- **What F2 does.** It leaves the dual-base subjects' 868 MHz ranges out of their fused set
+  whenever there are >= 2 precise ranges.
+- **At 5 km** it changes nothing: subjects' median error +0.74 m n.s., within 25 m −0.011 n.s.
+- **In the endgame** it is worse: availability −0.042 [−0.051, −0.034], subjects' error
+  +0.74 m [0.28, 1.25], +2.30 J per node.
+- **The loss to static 2.4 GHz stays** (−0.082). H1 (N.35/N.36) and H2 in its range form are
+  both ruled out as its cause.
+- **Open:** H2 in its TDoA form (the subjects' TDoA fixes), and the per-subject range log (B1)
+  needed to see what else differs.
+
+### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
+
+*2026-10-09, S3 (`report/UWB_REACH.md`).*
+
+**Engine defect, recorded and not fixed.**
+- `lora-uwb-physics-parameters.cc:116` and `lora-2p4-physics-parameters.cc:77` scale only the
+  mean of the foliage specific attenuation, by ×5.28 and ×2.17 (ITU-R P.833, f^0.75).
+- The bounds stay at 0.2γ and 1.8γ of the unscaled value, and `SampleNormal` clamps
+  (`lora-distribution-sampler.cc:76`).
+- So the effective scaling is ×1.80 (UWB) and ×1.79 (2.4 GHz): +1.6 dB at the median depth on
+  both tiers, not +4.15 / +2.06.
+- A fix (scale the bounds, or the whole distribution) changes the engine and every result. It
+  is a planned change with its own null control and campaign, not a bug fix.
+
+**The independent model now carries the engine's behaviour** (`linkbudget.py`, `5018c7aa`).
+- UWB residual (D-7): the plateau falls by 1.70 dB. The 2-20 m rise is unchanged (~4.3 dB), so
+  this is NOT the open residual.
+- 2.4 GHz: the near-field gap (10-430 m) widens from −0.5..−1.3 dB to −2.2..−3.0 dB. Some term
+  on the engine's 2.4 GHz side is not what the model assumes. OPEN.
+
+**OURS in tier 3's reach:** the −104 dBm sensitivity (DW3000 datasheet: −99.3 dBm), 0 dB antenna
+gain, the f^0.75 extrapolation to 8 GHz.
+
+### N.42 Physics-engine citations that do not support the values they are attached to
+
+*2026-10-08, S3 (`WORKSTREAMS_2026_10_09.md`).* Comment and documentation only; no value moved.
+
+| cited | finding | now |
+|---|---|---|
+| Petäjäjärvi 2015, for n = 2.2 (`RURAL_OPEN`) and 2.75 (`SUBURBAN`) | the paper reports an on-water exponent of 1.76; Rademacher 2021 quotes its Oulu fit as n = 2.65, PL(d0) = 132.25 dB | OURS (CONTEXT_PACK PROV-01) |
+| Rademacher 2021, n = 1.58 | confirmed verbatim (§IV), with PL1km = 132.41 dB and σ = 9.9 dB; a single-slope urban fit; samples 112,372 (§III), 112,404 in Table I | ADAPTED as the far slope (PROV-02, Architecture R-18) |
+| "Oliveira 2017, ~0.075 dB/°C" | the figure is not traced to Oliveira 2017; the measured LoRa temperature effect is Boano, Cattani & Römer 2018: 3-4 dB over 0-50 °C (RFM95), 5-6 dB (SX1272) | Boano 2018 (R-20); the term is 0 in code |
+| "Meng et al. 2009 TAP", wind variation | Meng 2009 is near-ground foliage path loss, not wind dynamics; the wind fading source is Cheffena & Ekman 2009 | Cheffena & Ekman (R-19); values OURS |
+| "Lim et al. 2018 (MDPI Sensors)", delay spread | not found | OURS |
+| "Hofer 2015 IEEE VTC", NLOS loss | not found | OURS |
+| "Robyns 2017 ACM WiSec", 1-2 Hz/°C CFO coefficient | a fingerprinting paper (closed access); no CFO-temperature coefficient visible | OURS |
+
+**Not changed:** the values. Relabelling a value OURS does not make it wrong, and changing one is
+an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
+open for a source.
+
+
+### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
+
+*2026-10-09, S2-C (`report/S2C_RESULTS.md`; registered, `8d441fe4`).*
+- **What the seeding was.** Tag 0 started at its base camp, which is where it starts
+  (`ca_tbl_causal_sim.cc`, the `policy.Initialize` after the base-camp branch). Every subject and
+  relay peer started at its own true position. The base-camp prior's sigma was also computed from
+  the truth (`away`).
+- **What that hid.** At 5 km, 42 of 80 static 2.4 GHz subject-runs never fix, yet stay within
+  25 m 69 % of the time (`ACC_A_STATIC2P4_DIAGNOSIS`).
+- **The fix, default off.** `--unknownStart` seeds every field-node filter at the search box's
+  centre with sigma boxHalf/√3 and computes nothing from the node's position (G130).
+- **Results:** `S2C_RESULTS.md` §1.
+- **Open:**
+  - TOF-FIELD's error levels under unknown start;
+  - whether the default should change. That is a change of scenario, and every result in the
+    tree is known-start.
+
+### N.51 The subjects' covariance is overconfident after fixes, concentrated in three-anchor 2.4 GHz and mixed dual-base fixes; a uniform R multiplier is the wrong shape
+
+*2026-10-09, S2-C (training seeds 21-30, `scripts/s2c_consistency_diag.py`; held-out in
+`S2C_RESULTS.md` §2).*
+- **What the subjects' NEES shows** at `--measVarScale` 1:
+  - consistent or conservative while coasting (median 0.17);
+  - overconfident on fix rows (mean 15.2, 45 % above 5.991).
+- **Where the raw fix's 2-DOF NIS is inconsistent:**
+  - 2.4 GHz three-anchor fixes: 53 % above 9.21, median 11.4;
+  - 2.4 GHz-labelled fixes from the 868 MHz floor set, which under the dual base holds both
+    bands: 69 % above 9.21 at 4 anchors, median 23.4;
+  - 2.4 GHz fixes from 4 or more anchors are near consistent (12-15 %).
+- **What `--measVarScale` does.** ×10 lowers the share only from 0.42 to 0.21.
+- **Not the cause:** anchor-position error. Finder pseudo-anchors already carry their reported
+  variance (N.21), and gateways are surveyed.
+- **Open:**
+  - the mechanism, between three-range geometry (no redundancy, a possible wrong root) and
+    mixed-band sets;
+  - B1's per-range log is the instrument;
+  - A2 (an error-state filter) remains the principled fix for the coherent IMU error.
+
+*2026-10-16, B4-SWITCHING (report/B4_SWITCHING_RESULTS.md; registered at e1c90578):* the overconfidence holds
+under every ToF preset and both configs. No arm passes the NEES band. `ca_tbl_full` R95 coverage is 0.31–0.73
+in the endgame and 0.21–0.29 at 5 km. It is worse with `--rssiRangeFromShadowing` on (muller B: 0.43 on against
+0.55 off), consistent with R not being raised to the larger, correlated 868 error. Still open; next step is a
+registered R-consistency change for the 868 measurement variance.
+
+*2026-10-16, V3 (`--rangeBiasStates`, `--rssiSigmaLogNormal`, G141; master plan v3).* The per-range log
+(B1) shows which measurements are dishonest:
+
+| measurement | E[z^2] |
+|---|---|
+| 868 MHz gateway ranges | 2.3–2.5 (log-normal error against a first-order sigma) |
+| finder ranges | about 1.1 |
+| direct 2.4 GHz | about 0.9 |
+| relayed 2.4 GHz | 12–37 (the relay's overconfident P_B and early wrong-root relays) |
+
+On top of that, the filter averages the correlated 868 MHz shadowing as if independent.
+- **`--rangeBiasStates`** adds per-anchor Schmidt consider biases for 868 MHz ranges.
+  - Unit Monte Carlo: NEES 2.27 against 58.8 plain.
+  - Dev, endgame: `ca_tbl_full` median NEES 3.2 → 1.9, coverage 0.69 → 0.75, CEP95 11.4 → 8.4 m.
+- **`--rssiSigmaLogNormal`** (exact log-normal SD) is mixed: `static_868` coverage up, `ca_tbl_full` CEP95 worse,
+  as fused arms lean on the overconfident relays. It stays off.
+
+The early-run and relayed tails remain; they are V4's subject.
+
+### N.52 The preset's NLOS handling keys R on the truth, and removing it changes nothing measurable
+
+*2026-10-09, S2-C (`report/S2C_NLOS_AUDIT.md`; ablation registered, `ddc0173b`).*
+- **The chain as built:**
+  - `--nlosSource=propagation` hands the filter the engine's own `isNLOS`;
+  - `Step()` triples that range's sigma;
+  - the detectors feed only PCS term 3, whose weight is 0.0053, and the integrity check.
+- **The engine biases NLOS ranges little:**
+  - none at 868 MHz;
+  - 2.4 GHz N(1.5, 0.8) m, measured +0.4 to +0.6 m;
+  - UWB a median of 0.3 m.
+- **NLOS links are mostly lost before they are scored:** 96-98 % at 2.4 GHz.
+- **The detectors** have precision 0.02-0.08 and AUC 0.62-0.78. UWB never scores an NLOS link.
+- **`--nlosRSource`** (default operative, G131) adds `detector` (no truth reaches R) and `none`.
+  The ablation's results are in `S2C_RESULTS.md` §3.
+- **Open:**
+  - a configurable NLOS-bias physics model, calibrated, as a separate scenario;
+  - an 868 MHz RSSI-residual detector, testable only once 868 MHz NLOS biases a range.
+
+
+*2026-10-16, V2a (`--nlosRangeBias`, G139; master plan v3).* The bias half is now modelled, default off:
+- **868 MHz:** the RSSI inversion includes the NLOS loss.
+- **2.4 GHz:** an NLOS range gains an exponential excess of mean 69 m (Wolf 2019 Table II; Guvenc & Chong
+  2009 eq. 2). The unit gate confirms the mechanism.
+- **The population is still missing:** in the preset scenario only 9 of 3485 tag-0 2.4 GHz range rows were
+  NLOS (200 m box, 1200 s). NLOS is rare at short range (P = 1 - exp(-d/8000) in the forest) and kills the
+  link when it occurs.
+
+Making NLOS links occur and survive at realistic rates is V2a-2. It needs the owner's copy of 3GPP TR 38.901
+for the LOS-probability and NLOS-loss laws.
+
+*2026-10-17, V2a-2 (`--nlos3gppRMa`, G146).* 3GPP TR 38.901 v17.0.0 (ETSI TR 138 901, read from the PDF, pp. 27 and 30)
+is implemented, default off.
+- **Scope:** for links with an end at >= 10 m (gateways), the RMa LOS probability (Table 7.4.2-1) and the RMa NLOS
+  excess loss (Table 7.4.1-1, max(PL_LOS, PL'_NLOS) − PL_LOS, h = 5 m, W = 20 m).
+- **Lower links** (finders, handheld) keep the old model; RMa is defined for base stations of 10–150 m only.
+- **Unit gate:** the NLOS fraction at 1 km is 0.629 against 0.628; the excess loss matches an independent
+  evaluation within 4e-7 dB.
+- **Effect:** NLOS becomes far commoner (0.63 at 1 km against 0.12) and costs 22–35 dB against the old ~15 dB.
+  In a dev run tag 0's 868 MHz gateway ranges fell from 241 to 15 in 600 s.
+- **Caveat:** RMa's NLOS term assumes rural buildings (h, W), not forest canopy. It is the standard model, not a
+  forest one.
+
+### N.53 The two Part B branches collide
+
+*2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and
+`work/2026-10-09-acc-reruns` both define `--dualBaseRelayTier`, both write
+`report/PREREG_ACC_B_HYBRID.md` and `report/ACC_B_RESULTS.md`, and both use N.35-N.37, with
+different content. Neither is merged into the S2-C branch. **Open:** the owner chooses, or
+renumbers one.
+
+### N.54 The filter has no acquisition procedure: seeded without a position, it fixes on two ranges and stays on the wrong root
+
+*2026-10-09, S2-C (diagnosed on the registered campaign's U_A cells; the rule is tested in
+`PREREG_S2C_ACQ`).*
+- **What happens.** Under `--unknownStart` at 5 km, two-thirds of `ca_tbl_full`'s first fixes were
+  two-range solves (Cases A/B in `Step()`) against a prior that cannot pick the root. The median
+  error at first fix was 611 m.
+- **Lock-in.** After such a start, even static 2.4 GHz's three- and four-anchor fixes stayed
+  328-333 m off.
+- **The rule, default off.** `--acquireMinAnchors=N` refuses two-range and one-range updates until
+  the first cycle of at least N ranges (G132). Results: `S2C_RESULTS.md` §5.
+- **Open:**
+  - re-initialising at the first multilateration solution instead of an EKF update from the box
+    centre;
+  - the scenario's pre-Step Case A, used without `--sparseInStep`, is not gated.
+
+*2026-10-16, R1-REINIT (report/R1_REINIT_RESULTS.md; registered at 2c402412):* N.54's linearisation
+hypothesis is **not supported**. `--acquireReinit` (re-initialise at the first >= 3-range weighted
+multilateration, residual-guarded) fires on about half the filters, does not raise w25 or lower median
+error at 5 km, and slightly worsens endgame CEP95 (+21 m for `ca_tbl_full`). The accepted solutions show
+km-scale three-range RSSI sets with sigma about 5 km per axis, so the lock-in is ambiguity/geometry of the
+first sets (the N.25 family), not linearisation. The flag stays, default off, as a recorded negative.
+
+
+
+*2026-10-16, V4 (`--acquireParticles`, G142; master plan v3).* N.54's mechanism is now addressed by a
+particle-filter acquisition: 2000 particles over the prior box and robust range likelihoods.
+- **Progressive correction** (likelihood variance + H C H') keeps both mirror roots: without it, 30 of 40
+  two-anchor unit trials collapsed onto one.
+- **Handover to the EKF** happens only for a unimodal cloud smaller than a quarter of the median range.
+- **Unit gate:** two anchors hold 40/40; a third resolves 40/40 to the true root.
+- **Dev, 4 seeds, 5 km:** `ca_tbl_full` CEP95 518 → 253 m, median error 59 → 15 m; `static_2p4` 623 → 300 m,
+  coverage 0.46 → 0.93. In the endgame the effect is mixed.
+
+Negative information (silent anchors) is not yet used.
+
+*2026-10-16, V6 (`--traceOnDemand`, `--onDemandCalibrate`, G143; master plan v3).* B4-3's "on-demand almost never
+sleeps" is mostly correct behaviour.
+- **Endgame:** 97 % of tag-0 2.4 GHz attempts succeed, and the raw predictor is calibrated (0.98 predicted, 0.96
+  observed).
+- **5 km:** the predictor over-states success (0.66 predicted, 0.41 observed) and barely discriminates. The online
+  Platt fit converges to a slope of about 0.13.
+- **Little energy to save:** 2.4 GHz is 22–44 % of `ca_tbl_full`'s tag-0 energy. In the endgame UWB is 13.2 J of
+  25.7 J and the dual-base 868 MHz slot 6.8 J. The energy levers are UWB and the 868 MHz slot, not the 2.4 GHz
+  radio (V9).
+
+### N.55 The 868 MHz range error leaks into 868 MHz reception
+
+*2026-10-16, found by V1-RNGKEYED's follow-up (report/V1_RNGKEYED_RESULTS.md section 3).* The `RANGING_TIER_868`
+branch of `ComputeRangingErrorM` writes `propagationLossBiasDb = 10 n log10(estimated / true)`, and Step 14 of
+`lora-physics-engine.cc` adds that field to `additional_loss`. The 2.4 GHz and UWB engines zero it before Step
+14, for exactly this reason (their comments say so); the 868 engine never did.
+- **Effect:** the range error becomes a random loss on reception.
+- **Under `--rssiRangeFromShadowing`** the range comes from the shadowing, so the shadowing is counted twice.
+- **Probe, 3 seeds:** 868 r80 1492 m (default), 1194 m (S1 on), 1710 m with the leak removed (S1 on or off
+  alike); the margin SD at 1500 m drops from 16.8 to 14.0 dB.
+- **Consequences:**
+  - every 868 MHz reach, availability and accuracy figure in the tree carries it;
+  - B4-5's S1 effect is partly this;
+  - S6's 868 MHz deviation from Phi(M/sigma) is partly this.
+- **Fix, default off:** `--rangeErrorNoLinkLeak` (G140). Recommended on for every new campaign.
+
+### N.56 The probe restarts time at every distance, freezing time-driven link processes
+
+`RunProbe` evaluates trial k at t = k s for each distance, so time returns to 0 at every new distance. Per-link
+processes that update only when time has advanced past their last update stop updating after the first distance:
+- fading updates when dt >= 0.15 s;
+- foliage dynamics update by coherence time.
+
+Later distances reuse the first distance's final values per site. The probe's r80 therefore rests on fewer
+independent fading draws than its 2000 trials suggest. Not fixed. A fix (monotone time across distances) changes
+every probe output; it should come with V2b's curve work.
+
+
+---
+## O. Scope 2026-10-17 (prof_review/model/PENDING_SCOPE.md), closures and corrections
+
+### O.1 Correction: the relay chain is not inert
+The notes at 3.2 and in DESIGN_DECISIONS 10 said `relayChain` made 0 relay-to-relay exchanges. That read the
+**peer-relay** line (L.1.2 relay chain), a path the preset does not run, because its relays are measured subjects. The
+preset's path is the **subject chain** (L.1.2 subject chain).
+
+| run | 600 s, seed 3 | subject chain |
+|---|---|---|
+| `ca_tbl_full` | 5 km | 284 exchanges, 63 fused (59 at depth 1, 4 at depth 2) |
+| `ca_tbl_full` | endgame | 9 exchanges, 3 fused |
+| `static_2p4` | 5 km | inert by necessity: no subject ever holds a fix to chain from |
+
+### O.2 Closed in code (default off; gate G147 with unit parts; NC1–NC10 byte-identical with all of them off)
+- **N.56 / B5 `--probeMonotoneTime`:** probe time runs on across distances and tiers, so fading is no longer frozen
+  after the first distance.
+- **B7 `--fadingPerBand`:** the file-scope fading I/Q state is keyed per band. Before, 868 MHz and 2.4 GHz links
+  between the same two node ids shared one process.
+- **B6 `--agcPerReceiver`:** the radio front end's AGC state is per receiver.
+  - Unit test: by default a strong frame on receiver A desensitised an unrelated receiver B by 12 dB; per receiver,
+    0 dB.
+  - In the scenario no link exceeds the −40 dBm AGC knee, so it is inert there.
+- **B11 `--finderEnergyReport`:** finders' energy was billed nowhere. This writes `finder_summary_*.csv`: each finder's
+  side of every ranging exchange it answered, plus its MACs' transmit airtime. Dev, 600 s endgame: 6.2–7.6 J per
+  finder, mostly 868 MHz.
+  - **Correction:** the tag's own 868 MHz return path *is* billed by default (`--gatewayEdgeServer` with one downlink
+    per fix). The V7 note calling it unbilled meant the finder-return case only.
+- **C3 `--dualBase868OnNeed`, `--hold24AfterK`:** skip the 868 MHz slot when 2.4 GHz alone gave >= 3 ranges; hold on
+  2.4 GHz (no UWB escalation) after K such cycles.
+  - Dev, endgame, 6 seeds: K = 3 gives tag-0 energy 30.3 → 27.6 J at CEP95 4.7 → 5.0 m.
+  - Also vetoing de-escalation was worse (UWB cycles 37 → 87, 43 J) and was not kept.
+- **C2 `--tofRecal`:** every filter learns the systematic 868 MHz log-error against same-anchor 2.4 GHz ranges and
+  divides it out. It addresses B4's short-range selection bias where both bands reach, but not at the 868 MHz edge.
+- **C5 / B13 `--tofCalibrate`:** subtracts the mean LoS offset a static field calibration measures (wolf 75 m). Gate:
+  wolf 2.4 GHz mean range error 53.8 → −2.1 m.
+- **C1 `--acquireNegInfo`:** addressed gateways that stayed silent weight the acquisition particles by
+  1 − P(link | d).
+- **B1 / C6 `--relayNisInflate`:** every filter tracks its running NIS (no truth needed); a relay's P_B is scaled by
+  max(1, NIS) before it widens a relayed range.
+
+### O.3 Closed by reasoning (no code)
+**B3 (IMM static/walking).** The preset already drives prediction from the synthetic IMU (`--imuPredict`): a static
+node's displacement is about 0 with a small Qu, and a walking node's is its steps. The static/walking distinction is
+therefore in the prediction already. The residual inconsistency is the IMU's coherent error, which the EKF treats as
+white (`--imuQuScale` help); the principled fix is an error-state filter (MASTER_PLAN A2), not an IMM.
+
+### O.4 Gates re-pointed
+G63, G87 and G89 (red since 2026-10-08): their runners now pin the preset they were written against (`PIN`: the
+FIXES-N26 additions and the 2026-10-17 additions off, the LR1121 basis). All three pass, and their selftests pass.
+
+### O.5 B8 / S6 closed: the delivery curve is Φ(M/σ_margin), not Φ(M/σ_shadowing)
+report/B8_DELIVERY_CURVE.md. The probe with `--probeTerms --probeMonotoneTime` under the preset shows delivery
+equal to P(margin > 0), within 0.002 on 868 MHz and 0.03 on 2.4 GHz and UWB.
+- The margin's SD is 9–17 dB, against a shadowing SD of 7–9 dB.
+- The growth comes chiefly from NLOS excess: its SD rises to 9–13 dB beyond 1.5 km, and it is 24–47 % of the
+  variance there.
+- S6 compared against the shadowing σ alone.
+
+Fitted outage constants (B4 on-demand; C1's 9.1 dB) absorb this. A Φ(M/σ_shadowing) rule would not. No engine change.
+
+### O.6 B12: the remaining red gates, classified (suite at `8190ef1e`, `~/catbl_work/gates_final2/suite.log`)
+The scope batch (`350fa493`) re-pointed G63, G87 and G89: their runners pin the pre-adoption preset. Five reds remain.
+None is a broken build or a regression.
+
+| gate | class | why | what turns it green |
+|---|---|---|---|
+| G4 | **finding** (K.6) | default deployment (code default, not the preset): `static_2p4` fixes on 41/1440 cycles | resize the default deployment (tier 2 needs spacing < ~312 m), see below |
+| G5 | **follows G4** | its "healthy input" fixture is G4's run; all six negative fixtures still fire | as G4 |
+| G6 | **by design** | pre-D1 evidence still cited; overwriting `results/{causal,det_a,det_b}` would reintroduce `e21666d`'s defect | regenerate to new paths and move the citations (baseline_v7) |
+| G11 | **by design** (J.1) | the analytic propagation model and the engines disagree at the registered criterion; terrain is transcription-only | rescope terrain or re-register the criterion (owner) |
+| G24 | **finding** (N.15) | mechanisms with no population under the preset | exercise them, or owner acceptance |
+
+**G4, re-checked 2026-10-17** (default config, seed 7, 3600 s, the `be9b8f21` binary):
+- `static_2p4` has 3 or more geometrically visible 2.4 GHz anchors (`vis2p4 ≥ 3`) on 1293 of 1440 cycles;
+- it has 3 or more discovered neighbours (`nbr2p4 ≥ 3`) on 561;
+- it holds a fix on 41.
+
+So a coverage exemption on geometric visibility, like UWB's, is **not** justified: the arm has anchors in view and
+fails to fix through link delivery, about 0.5 per link at the 300–450 m spacing. K.6's remedy stands. The
+deployment-size change multiplies suite time about 5× (K1), which is an owner tooling decision.
+
+### O.7 Calibrated Wolf ToF does not reach the hybrid (UPG-SCOPE, report/UPG_SCOPE_RESULTS.md 2.1)
+In the endgame under `--tofErrorModel=wolf`:
+
+| arm | CEP95 without `--tofCalibrate` | CEP95 with it | tag-0 energy |
+|---|---|---|---|
+| `static_2p4` | 130.3 m | 30.1 m | |
+| `ca_tbl_full` | 58.8 m | 56.2 m | doubles, 42.7 → 85.0 J |
+
+So, under Wolf errors, the hybrid's endgame accuracy is limited by something other than the 2.4 GHz bias. The energy
+says the policy keeps escalating. Suspects:
+- the integrity and NLOS checks keyed to the engine model's error scale;
+- the UWB escalation rule reading Wolf's wider σ as degradation.
+
+Not diagnosed. CAMP-FINAL2's W_end cell carries the measurement.
+
+### O.8 C4 `--foliageP833` (gate G148), and what it leaves open
+ITU-R P.833-10 (09/2021), section 2.1: γ from Table 1, Am from eq. (2). The PDF and its SHA-256 are in
+`~/catbl_work/c4_p833` (not tracked).
+
+On the probe:
+- 868 MHz forest loss −1.5 dB;
+- 2.4 GHz +4.5 dB, so 2.4 GHz r80 156 → 112 m (seed 1);
+- UWB unchanged.
+
+Open points:
+1. **Depth is not path geometry.** The drawn depth is lognormal around 100 m (clamped to the link by B3f), not the
+   length of the path inside the woodland. P.833's d is that length, so one-terminal-in-woodland geometry would need
+   a canopy map.
+2. **Table 1 is one forest** (St. Petersburg mixed forest, 16 m trees). The Recommendation calls its values "only
+   typical".
+3. **Not in the preset.** No campaign has measured it yet; it is registered for the next one.
+
+### O.9 RSSI ranging's path-loss model does not follow the foliage model (C4-P833 F3)
+With `--foliageP833`:
+- 868 MHz links lose about 1.5 dB less to foliage;
+- `static_868`'s 5 km CEP95 nevertheless rises, 494 → 537 m (+43.3 [−1.7, +98.2]);
+- its fix share rises, 0.794 → 0.832.
+
+A plausible cause: the RSSI inversion's path-loss model keeps the vegetation-type foliage constant, so a lower
+realised loss biases ranges long. Not diagnosed.
+
+Any change to the foliage model should carry the RSSI ranging model with it, or be measured as a model mismatch on
+purpose (a real deployment's fitted model would be fitted on site; E1's calibration spots do exactly that).
+
+### O.10 O.7 mostly explained: overconfident 868 MHz σ (closed in part by DESIGN_DECISIONS 14)
+SIG868: with the exact log-normal σ, the calibrated-Wolf endgame hybrid improves 53.4 → 34.7 m. 2.4 GHz alone is
+28.3 m.
+
+The rest of the gap, and the 10× energy, sit with:
+- the dual-base 868 MHz slot (diagnostic: off → 33 m, 51 J);
+- UWB escalations driven by Wolf's large 2.4 GHz σ (about 23 % UWB occupancy).
+
+Open.
+
+### O.11 Final suite on `fa39262a`: five stale gate expectations, fixed in the gate scripts
+The full suite (`~/catbl_work/gates_final3/suite.log`, `fa39262a`) gave 97 PASS and ten reds. The five known reds
+are G4, G5, G6, G11 and G24 (O.6). The other five held expectations about the preset that DESIGN_DECISIONS 10, 11,
+13 and 14 changed:
+
+| gate | stale expectation | fix |
+|---|---|---|
+| G61 | PRESET expected `radioBasis=lr1121` and the SY-2 line | expects `sx` and no SY-2 line (DD 11) |
+| G134 | DEFAULT compared against explicit `--foliageDepthClamp=false` | the base pins it off |
+| G139 | DEFAULT compared against explicit `--nlosRangeBias=false` | the base pins it off |
+| G100 | REACH: a cycle population that the adopted fixes shrank (tag 0 at 10: 15 cycles, need 20) | pinned to the pre-adoption preset (the G63 PIN string) |
+| G130 | UNK: unknown-start rows, which the particle-filter acquisition changes | pinned to the pre-adoption preset |
+
+All five, and their self-tests, pass on re-run.
+- **Reading note:** a self-test's negative fixtures print indented `FAIL` lines by design. The G61 "SAME …
+  fixCycles" line in the suite log is fixture N1's output, not the real run.
+- **Process note:** the `8190ef1e` suite (`gates_final2`) passed G134 and G139, although the preset had already
+  adopted their flags. The binary in `~/catbl_v2` was probably not rebuilt after `11b4dce8`. Rebuild in the suite
+  worktree before every suite run (done for `fa39262a`).
+
+### O.12 B2: endgame consistency met; at 5 km the residual is 868 MHz-fix overconfidence (B2CONS)
+Coverage of `ca_tbl_full`'s 95 % ellipse under DESIGN_DECISIONS 15:
+
+| scale | coverage | against the target |
+|---|---|---|
+| endgame | 0.96 | met |
+| 5 km | 0.69 | short |
+
+**It is not acquisition-era.** By time window: 0.65, 0.65 and 0.72.
+
+**Late-window classes** (t ≥ 900 s, tag 0 and subjects):
+
+| class | coverage |
+|---|---|
+| 2.4 GHz fix | 0.80–0.83 |
+| **868 MHz fix** | **0.59–0.64** |
+| tag 0 coasting | 0.50 |
+| subjects coasting | 0.76 |
+
+**Principled 868 MHz fixes tried, and what each bought at 5 km:**
+
+| fix | gain |
+|---|---|
+| exact log-normal σ (DD 14) | adopted |
+| correlation inflation (`--rssiCorrInflate`) | +0.03 hybrid coverage, endgame cost |
+| ToF-anchored recalibration (C2) | none (UPG-SCOPE) |
+| consider bias states (V3) | backfired |
+
+**What is left:**
+- the RSSI range's conditional bias given that the link was received (B4's mean z of −0.4, selection by reception);
+- the tag's coasting between sparse fixes.
+
+Scaling the 868 MHz variance until coverage reads 0.95 would be tuning a finding away (RULES.md §9), so it is not
+done. **This is the measured limit of B2 under the current model.** No Σ-based rule in the preset depends on it, since
+PCS earns nothing (CAMP-FINAL2 Q2).
+
+### O.13 O.10 closed in accuracy terms; the energy cost under Wolf is a design property (CORRW)
+Calibrated-Wolf endgame hybrid CEP95:
+- 53.4 m (CAMP-FINAL2);
+- 34.4 m (DD 14 + 15);
+- 23.8 m with `--rssiCorrInflate`, below 2.4 GHz alone (28.5 m).
+
+The flag was not adopted: CORRW's rule missed at 5 km by 0.3 m (`report/CORRW_RESULTS.md`). Use it with
+calibrated-hardware ToF errors or 868 MHz alone.
+
+The hybrid's energy under Wolf (about 80 J against 8.8 J) comes from about 20 % UWB occupancy, which Wolf's wide
+2.4 GHz σ triggers through the escalation rule. That is the rule doing its job, not a defect. Choosing whether that
+UWB time is worth its accuracy is the accuracy/energy decision C3 (`--hold24AfterK`) exposes.
+
+**O.11 addendum (2026-10-18).** The `fa39262a` summary was read through a 10-line cut, which hid two more reds:
+**G142 and G144 failed there too.** Both are the same stale DEFAULT pattern, with flags the preset has set since DD 10.
+
+The suite on `c967d56f` (`~/catbl_work/gates_final4`) gave 102 PASS, the five known reds, and G136, G142 and G144.
+Fixed in the gate scripts:
+
+| gate | fix | measured effect on the final preset |
+|---|---|---|
+| G142 | the base pins `--acquireParticles=false` | |
+| G144 | the base pins `--rangeReplyPosition=false` and the pre-DD-11/13/14/15 values | reply positions cut finder-range σ 44–48 % (139 → 73 m), against ≥ 50 % before |
+| G136 | the base pins `--imuQuScale=1` | `--dualBaseOnDemand` costs +0.38 J instead of saving (9.59 vs 9.21 J). It is default-off and unused |
+
+All three, and G136's self-test, pass on re-run.
+
+### O.14 K.6 closed: G4/G5 green under DESIGN_DECISIONS 16
+The code-default `--boxHalf` is now 340 (owner decision 2026-10-18). `static_2p4` fixes on 80 % of G3's cycles, and
+the verifier passes. Run time is 113 s per 3600 s run, not K.6's feared 5×.
+
+Two gates had defined their populations at the old default box, and now pin `--boxHalf=1000`:
+- **G28 TD2P4:** 2.4 GHz de-escalation is not reached in the small box.
+- **G30 OFF:** the all-LOS structural zero no longer holds; the small box has 4 all-LOS fixes.
+
+Both, and their self-tests, pass. The expected reds are now G6, G11 and G24.

@@ -20,7 +20,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g30.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-BASE="--seed=7 --duration=900 --trace=true --nlosClassifier=true"
+BASE="--seed=7 --duration=900 --trace=true --nlosClassifier=true --boxHalf=1000"  # pinned: the OFF structural zero and populations were defined at the pre-DD-16 default box
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

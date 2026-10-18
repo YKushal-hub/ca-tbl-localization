@@ -1,5 +1,8 @@
 #include "ca-tbl-policy.h"
 
+#include <iostream>
+#include <limits>
+
 #include "ca-tbl-sparse-anchor.h"
 
 #include <algorithm>
@@ -105,6 +108,28 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     uwbEvidenceFromNeighbours = false; // default preserves the pre-existing baseline
     traceRef = 10.0;
     hopWeight = 0.0; // no mesh yet -- see header note
+    measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
+    nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
+    acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
+    acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
+    hold24AfterK = 0; // C3; off: UWB escalation as before
+    tofRecal = false; // C2; off: 868 MHz ranges used as measured
+    acquireNegInfo = false; // C1; off: non-detections ignored
+    relayNisInflate = false; // B1; off: a relay's P_B is used as it stands
+    rssiCorrInflate = false; // B2; off: successive 868 MHz RSSI ranges are fused as independent, as before
+    rssiCorrDistM = 30.0;    // ShadowingParams::DefaultsFor(ENV_RURAL_FORESTED).correlationDistanceM
+    rssiCorrMaxFactor = 100.0;
+    negR50M[0] = 3600.0; // 868 MHz: probe r80 ~1700 m with sigma 9 dB, n 2.3 (V1/V2 probes), r50 = r80 10^(0.84 sigma / 10 n)
+    negR50M[1] = 328.0;  // 2.4 GHz: fitted to the B3F clamped probe (b4_fit_ondemand.py)
+    negR50M[2] = 15.0;   // UWB: probe r80 ~7 m (B3F/V1), unused for gateways
+    negSigmaDb = 9.1;
+    c2bEscalation = false; // V5; off: escalation triggered by PCS / the trace threshold, as before
+    acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
+    acquireParticleCount = 2000;
+    acquireSeed = 0;
+    acquireSpeedMps = 1.5;
+    rangeBiasStates = false; // V3; off: every range error treated as independent, as before
+    rangeBiasCorrM = 30.0;
     hopProvenanceForm = 0;
     hopPenalty = 0.0;
 
@@ -201,6 +226,8 @@ CaTblEkf::Init(double x, double y, double vx, double vy, double posVar, double v
     {
         m_PPrior[i][i] = m_P[i][i];
     }
+    m_cons.clear();
+    m_consPrior.clear();
 }
 
 void
@@ -262,6 +289,17 @@ CaTblEkf::Predict(double dt)
             m_PPrior[i][j] = m_P[i][j];
         }
     }
+    if (m_consOn)
+    {
+        // V3: cross-covariances follow x <- F x; the biases decorrelate over the estimated motion.
+        for (auto& kv : m_cons)
+        {
+            kv.second.pxc[0] += dt * kv.second.pxc[2];
+            kv.second.pxc[1] += dt * kv.second.pxc[3];
+        }
+        ConsiderDecay(std::hypot(m_x[2], m_x[3]) * dt);
+        ConsiderSnapshot();
+    }
 }
 
 void
@@ -292,6 +330,17 @@ CaTblEkf::PredictWithControl(double dt, double ux, double uy, double quxx, doubl
             m_PPrior[i][j] = m_P[i][j];
         }
     }
+    if (m_consOn)
+    {
+        // V3: position += u is independent of the state; velocity := u/dt carries no state either.
+        for (auto& kv : m_cons)
+        {
+            kv.second.pxc[2] = 0.0;
+            kv.second.pxc[3] = 0.0;
+        }
+        ConsiderDecay(std::hypot(ux, uy));
+        ConsiderSnapshot();
+    }
 }
 
 void
@@ -300,6 +349,13 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
     const size_t n = std::min(meas.size(), varM2.size());
     for (size_t k = 0; k < n; ++k)
     {
+        if (m_consOn && meas[k].tier == 0)
+        {
+            // V3: an 868 MHz range with its consider bias, out of line; every other range takes the
+            // original arithmetic below, so arms without 868 MHz ranges stay byte-identical.
+            ConsiderUpdate(std::vector<CaTblRangeMeasurement>(1, meas[k]), std::vector<double>(1, varM2[k]));
+            continue;
+        }
         const double dx = m_x[0] - meas[k].anchorX;
         const double dy = m_x[1] - meas[k].anchorY;
         const double rPred = std::sqrt(dx * dx + dy * dy);
@@ -329,6 +385,10 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
         }
 
         const double innovation = meas[k].rangeM - rPred;
+        if (m_trackNis)
+        {
+            NoteNis(innovation * innovation / S); // B1
+        }
         for (int i = 0; i < 4; ++i)
         {
             m_x[i] += K[i] * innovation;
@@ -362,6 +422,10 @@ CaTblEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vect
                 m_P[i][j] = avg;
                 m_P[j][i] = avg;
             }
+        }
+        if (m_consOn && !m_cons.empty())
+        {
+            ConsiderAfterRangeGain(K, H); // V3: the state moved, so every cross-covariance moves too
         }
     }
 }
@@ -438,6 +502,24 @@ CaTblEkf::FusePosition(double zx, double zy, double varM2)
                 const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
                 m_P[i][j] = avg;
                 m_P[j][i] = avg;
+            }
+        }
+        if (m_consOn)
+        {
+            double K2[4][2];
+            for (int i = 0; i < 4; ++i)
+            {
+                K2[i][0] = K[i];
+                K2[i][1] = 0.0;
+            }
+            // One axis: shift the selected component into slot 0 for the shared helper.
+            for (auto& kv : m_cons)
+            {
+                const double h = kv.second.pxc[axis];
+                for (int i = 0; i < 4; ++i)
+                {
+                    kv.second.pxc[i] -= K2[i][0] * h;
+                }
             }
         }
     }
@@ -580,7 +662,41 @@ CaTblEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double r
             m_P[j][i] = avg;
         }
     }
+    if (m_consOn)
+    {
+        ConsiderAfterPositionGain(K, 2);
+    }
     return true;
+}
+
+void
+CaTblEkf::SetPositionCov(double x, double y, double pxx, double pxy, double pyy, double velVar)
+{
+    m_x[0] = x;
+    m_x[1] = y;
+    m_x[2] = 0.0;
+    m_x[3] = 0.0;
+    for (int i = 0; i < 4; ++i)
+    {
+        for (int j = 0; j < 4; ++j)
+        {
+            m_P[i][j] = 0.0;
+        }
+    }
+    m_P[0][0] = std::max(pxx, 1e-6);
+    m_P[1][1] = std::max(pyy, 1e-6);
+    m_P[0][1] = m_P[1][0] = pxy;
+    m_P[2][2] = m_P[3][3] = velVar;
+    for (int i = 0; i < 4; ++i)
+    {
+        m_xPrior[i] = m_x[i];
+        for (int j = 0; j < 4; ++j)
+        {
+            m_PPrior[i][j] = m_P[i][j];
+        }
+    }
+    m_cons.clear();
+    m_consPrior.clear();
 }
 
 void
@@ -592,6 +708,180 @@ CaTblEkf::RevertToPrior()
         for (int j = 0; j < 4; ++j)
         {
             m_P[i][j] = m_PPrior[i][j];
+        }
+    }
+    if (m_consOn)
+    {
+        m_cons = m_consPrior;
+    }
+}
+
+// ---- V3 --rangeBiasStates: Schmidt-Kalman consider biases (TECH_DEBT N.51) ----------------------
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderDecay(double ds)
+{
+    const double rho = std::exp(-std::max(0.0, ds) / std::max(1e-6, m_consCorrM));
+    for (auto& kv : m_cons)
+    {
+        ConsiderBias& c = kv.second;
+        const double target = (1.0 - m_consWhite) * c.lastVar;
+        c.pcc = rho * rho * c.pcc + (1.0 - rho * rho) * target;
+        for (int i = 0; i < 4; ++i)
+        {
+            c.pxc[i] *= rho;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderAfterPositionGain(const double K[4][2], int nAxes)
+{
+    // A position observation H = [I 0]: every cross-covariance loses K (H P_xc).
+    for (auto& kv : m_cons)
+    {
+        double* p = kv.second.pxc;
+        const double h0 = p[0];
+        const double h1 = p[1];
+        for (int i = 0; i < 4; ++i)
+        {
+            p[i] -= K[i][0] * h0 + (nAxes > 1 ? K[i][1] * h1 : 0.0);
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderAfterRangeGain(const double K[4], const double H[4])
+{
+    for (auto& kv : m_cons)
+    {
+        double* p = kv.second.pxc;
+        const double h = H[0] * p[0] + H[1] * p[1];
+        for (int i = 0; i < 4; ++i)
+        {
+            p[i] -= K[i] * h;
+        }
+    }
+}
+
+__attribute__((noinline)) void
+CaTblEkf::ConsiderUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    const size_t n = std::min(meas.size(), varM2.size());
+    for (size_t k = 0; k < n; ++k)
+    {
+        const double dx = m_x[0] - meas[k].anchorX;
+        const double dy = m_x[1] - meas[k].anchorY;
+        const double rPred = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rPred, 1e-6);
+        const double H[4] = {dx / rSafe, dy / rSafe, 0.0, 0.0};
+        double PH[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            PH[i] = m_P[i][0] * H[0] + m_P[i][1] * H[1];
+        }
+        const double var = varM2[k];
+        if (!(var > 0.0) || !std::isfinite(var))
+        {
+            continue;
+        }
+
+        ConsiderBias* cb = nullptr;
+        double R = var;
+        if (meas[k].tier == 0) // CA_TBL_TIER_868: correlated RSSI error
+        {
+            const uint32_t key = (static_cast<uint32_t>(meas[k].tier) << 16) | meas[k].anchorId;
+            auto it = m_cons.find(key);
+            if (it == m_cons.end())
+            {
+                ConsiderBias c;
+                c.pcc = (1.0 - m_consWhite) * var;
+                c.lastVar = var;
+                c.ax = meas[k].anchorX;
+                c.ay = meas[k].anchorY;
+                it = m_cons.emplace(key, c).first;
+            }
+            cb = &it->second;
+            // The anchor's own motion decorrelates the shadowing too.
+            const double da = std::hypot(meas[k].anchorX - cb->ax, meas[k].anchorY - cb->ay);
+            if (da > 0.0)
+            {
+                const double rho = std::exp(-da / std::max(1e-6, m_consCorrM));
+                cb->pcc = rho * rho * cb->pcc + (1.0 - rho * rho) * (1.0 - m_consWhite) * cb->lastVar;
+                for (int i = 0; i < 4; ++i)
+                {
+                    cb->pxc[i] *= rho;
+                }
+            }
+            cb->ax = meas[k].anchorX;
+            cb->ay = meas[k].anchorY;
+            // RSSI error is proportional to range: rescale the bias to this reading's variance.
+            if (cb->lastVar > 0.0 && var != cb->lastVar)
+            {
+                const double s = std::sqrt(var / cb->lastVar);
+                cb->pcc *= s * s;
+                for (int i = 0; i < 4; ++i)
+                {
+                    cb->pxc[i] *= s;
+                }
+            }
+            cb->lastVar = var;
+            R = m_consWhite * var;
+        }
+
+        // g = cov(x, z) = P H' + P_xc (the bias enters z with coefficient 1).
+        double g[4];
+        double hpc = 0.0;
+        for (int i = 0; i < 4; ++i)
+        {
+            g[i] = PH[i] + (cb ? cb->pxc[i] : 0.0);
+        }
+        if (cb)
+        {
+            hpc = H[0] * cb->pxc[0] + H[1] * cb->pxc[1];
+        }
+        const double S = H[0] * PH[0] + H[1] * PH[1] + 2.0 * hpc + (cb ? cb->pcc : 0.0) + R;
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        double K[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            K[i] = g[i] / S;
+        }
+        const double innovation = meas[k].rangeM - rPred;
+        for (int i = 0; i < 4; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+        // P <- P - K g'  (= P - g g' / S)
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                m_P[i][j] -= K[i] * g[j];
+            }
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = i + 1; j < 4; ++j)
+            {
+                const double avg = 0.5 * (m_P[i][j] + m_P[j][i]);
+                m_P[i][j] = avg;
+                m_P[j][i] = avg;
+            }
+        }
+        // Every cross-covariance: P_xc,j <- P_xc,j - K (H P_xc,j + [j == this bias] pcc). The bias
+        // itself and its variance are not updated (consider, not estimate).
+        for (auto& kv : m_cons)
+        {
+            ConsiderBias& c = kv.second;
+            const double hj = H[0] * c.pxc[0] + H[1] * c.pxc[1] + (&c == cb ? c.pcc : 0.0);
+            for (int i = 0; i < 4; ++i)
+            {
+                c.pxc[i] -= K[i] * hj;
+            }
         }
     }
 }
@@ -682,6 +972,14 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
 {
     m_config = config;
     m_ekf.SetProcessNoise(config.processNoiseStdPos, config.processNoiseStdVel);
+    if (config.rangeBiasStates)
+    {
+        m_ekf.EnableConsider(config.rangeBiasCorrM, 0.05);
+    }
+    if (config.relayNisInflate)
+    {
+        m_ekf.EnableNisTracking();
+    }
 
     // The static arms pin the tier for the whole run; they are the single-band
     // baselines the architectural claim is measured against.
@@ -704,6 +1002,271 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
 {
     m_ekf.Init(x0, y0, 0.0, 0.0, posStdM * posStdM, velStdMps * velStdMps);
     m_deescalateCounter = 0;
+    // --acquireMinAnchors (S2-C). 0 (default): acquired from the start, as before.
+    m_acquired = (m_config.acquireMinAnchors == 0);
+    // --acquireReinit (R1, TECH_DEBT N.54): armed until the first cycle with three or more ranges.
+    m_reinitPending = m_config.acquireReinit;
+    if (m_config.acquireParticles)
+    {
+        // V4: the prior is the box the filter is told about (uniform, half-width sqrt(3) sigma).
+        PfInit(x0, y0, std::sqrt(3.0) * posStdM);
+    }
+}
+
+// ---- V4 --acquireParticles ----------------------------------------------------------------------------
+//
+// Range-only acquisition is multimodal: three km-scale RSSI ranges intersect in two or more places, and a
+// single Gaussian started anywhere commits to one of them (R1: re-initialising at a multilateration root did
+// not help). A particle filter keeps every root alive until the ranges, the node's motion and the anchors'
+// motion disambiguate them (Blanco et al., IROS 2008, sum-of-Gaussians range-only initialisation; particles
+// are the sample-based form of the same idea). Likelihoods are robust: 868 MHz ranges are log-normal in the
+// ratio r/d (the RSSI inversion's error law), the others Gaussian; each term is floored at -8 (4 sigma), so
+// a relayed or NLOS outlier cannot annihilate the true mode. Handover to the EKF when the cloud is unimodal:
+// split along its principal axis, and it is one mode when either half carries < 2 % of the weight or
+// Ashman's D between the halves is below 4 (a single Gaussian split at its mean gives D ~ 2.7).
+
+void
+CaTblPolicy::PfInit(double cx, double cy, double half)
+{
+    const uint32_t n = std::max<uint32_t>(100, m_config.acquireParticleCount);
+    m_pfRng.seed(m_config.acquireSeed * 0x9E3779B97F4A7C15ULL + m_pfSalt * 0xBF58476D1CE4E5B9ULL + 0x7700001ULL);
+    std::uniform_real_distribution<double> u(-1.0, 1.0);
+    m_pf.assign(n, PfParticle{0.0, 0.0, 1.0 / n});
+    for (auto& p : m_pf)
+    {
+        p.x = cx + half * u(m_pfRng);
+        p.y = cy + half * u(m_pfRng);
+    }
+    m_pfActive = true;
+    m_pfCycles = 0;
+}
+
+void
+CaTblPolicy::PfPredict(double dt, double ux, double uy, double qxx, double qyy)
+{
+    std::normal_distribution<double> nz(0.0, 1.0);
+    // Without a control the node may have walked anywhere within speed * dt; with one, the control's own
+    // variance plus a small floor.
+    const double sWalk = m_config.acquireSpeedMps * std::max(0.0, dt);
+    const double sx = (qxx >= 0.0) ? std::sqrt(qxx + 1.0) : sWalk;
+    const double sy = (qyy >= 0.0) ? std::sqrt(qyy + 1.0) : sWalk;
+    for (auto& p : m_pf)
+    {
+        p.x += ux + sx * nz(m_pfRng);
+        p.y += uy + sy * nz(m_pfRng);
+    }
+}
+
+bool
+CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    ++m_pfCycles;
+    const size_t n = m_pf.size();
+    // Progressive correction (Oudjane & Musso 2000): a range far sharper than the cloud would hand all the
+    // weight to whichever particles happen to sit nearest its peak, and with two mirror roots that is a coin
+    // toss that kills one (measured: 30 of 40 two-anchor trials). Each range's likelihood variance is its own
+    // plus the cloud's spread projected on the range direction, var + H C H', so the likelihood is never
+    // sharper than the cloud; the cloud then contracts geometrically and both roots keep their particles.
+    // As the cloud shrinks the term vanishes and the plain likelihood is recovered.
+    double px, py, pcxx, pcxy, pcyy;
+    PfStats(px, py, pcxx, pcxy, pcyy);
+    std::vector<double> hch(meas.size(), 0.0);
+    for (size_t i = 0; i < meas.size(); ++i)
+    {
+        const double dx = px - meas[i].anchorX, dy = py - meas[i].anchorY;
+        const double dd = std::max(1e-6, std::hypot(dx, dy));
+        const double hx = dx / dd, hy = dy / dd;
+        hch[i] = hx * hx * pcxx + 2.0 * hx * hy * pcxy + hy * hy * pcyy;
+    }
+    std::vector<double> lw(n, 0.0);
+    double lmax = -1e300;
+    for (size_t k = 0; k < n; ++k)
+    {
+        double l = std::log(std::max(m_pf[k].w, 1e-300));
+        for (size_t i = 0; i < meas.size() && i < varM2.size(); ++i)
+        {
+            const double d = std::max(1.0, std::hypot(m_pf[k].x - meas[i].anchorX, m_pf[k].y - meas[i].anchorY));
+            const double r = std::max(1.0, meas[i].rangeM);
+            const double sd = std::sqrt(std::max(varM2[i], 1e-6) + hch[i]);
+            double term;
+            if (meas[i].tier == 0)
+            {
+                const double s = std::min(2.0, std::max(0.05, sd / r));
+                const double z = (std::log(r) - std::log(d)) / s;
+                term = -0.5 * z * z;
+            }
+            else
+            {
+                const double z = (r - d) / sd;
+                term = -0.5 * z * z;
+            }
+            l += std::max(term, -8.0);
+        }
+        // C1 --acquireNegInfo: an addressed gateway that stayed silent says "probably not within its reach":
+        // weight by 1 - P(link | d), P = Phi(10 n log10(r50 / d) / sigma) with the engine-fitted curve (n = 2.3).
+        if (m_config.acquireNegInfo)
+        {
+            for (const auto& sa : m_silent)
+            {
+                const double d = std::max(1.0, std::hypot(m_pf[k].x - sa.x, m_pf[k].y - sa.y));
+                const double r50 = m_config.negR50M[std::min<int>(sa.tier, 2)];
+                const double z = 10.0 * 2.3 * std::log10(r50 / d) / std::max(0.1, m_config.negSigmaDb);
+                const double p = 0.5 * std::erfc(-z / std::sqrt(2.0));
+                l += std::log(std::max(1e-3, 1.0 - std::min(p, 0.999)));
+            }
+        }
+        lw[k] = l;
+        lmax = std::max(lmax, l);
+    }
+    double sw = 0.0;
+    for (size_t k = 0; k < n; ++k)
+    {
+        m_pf[k].w = std::exp(lw[k] - lmax);
+        sw += m_pf[k].w;
+    }
+    double s2 = 0.0;
+    for (auto& p : m_pf)
+    {
+        p.w /= sw;
+        s2 += p.w * p.w;
+    }
+    const double ess = 1.0 / s2;
+    if (ess < 0.5 * static_cast<double>(n))
+    {
+        // Systematic resampling, then roughening (Gordon, Salmond & Smith 1993): jitter of K E N^(-1/2)
+        // per axis with K = 0.2 and E the cloud's extent, so resampled duplicates spread again.
+        std::vector<PfParticle> out;
+        out.reserve(n);
+        std::uniform_real_distribution<double> u01(0.0, 1.0 / static_cast<double>(n));
+        double c = m_pf[0].w;
+        size_t j = 0;
+        const double u0 = u01(m_pfRng);
+        for (size_t k = 0; k < n; ++k)
+        {
+            const double uk = u0 + static_cast<double>(k) / static_cast<double>(n);
+            while (uk > c && j + 1 < n)
+            {
+                ++j;
+                c += m_pf[j].w;
+            }
+            out.push_back(PfParticle{m_pf[j].x, m_pf[j].y, 1.0 / n});
+        }
+        double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;
+        for (const auto& p : out)
+        {
+            x0 = std::min(x0, p.x);
+            x1 = std::max(x1, p.x);
+            y0 = std::min(y0, p.y);
+            y1 = std::max(y1, p.y);
+        }
+        std::normal_distribution<double> nz(0.0, 1.0);
+        const double kj = 0.2 / std::sqrt(static_cast<double>(n));
+        for (auto& p : out)
+        {
+            p.x += kj * (x1 - x0) * nz(m_pfRng);
+            p.y += kj * (y1 - y0) * nz(m_pfRng);
+        }
+        m_pf.swap(out);
+    }
+    // Unimodality test along the principal axis.
+    double mx, my, cxx, cxy, cyy;
+    PfStats(mx, my, cxx, cxy, cyy);
+    const double tr = cxx + cyy;
+    const double l1 = 0.5 * tr + std::sqrt(std::max(0.0, 0.25 * (cxx - cyy) * (cxx - cyy) + cxy * cxy));
+    double ex = 1.0, ey = 0.0;
+    if (std::fabs(cxy) > 1e-12 || std::fabs(l1 - cxx) > 1e-12)
+    {
+        ex = cxy;
+        ey = l1 - cxx;
+        const double nn = std::hypot(ex, ey);
+        if (nn > 0.0)
+        {
+            ex /= nn;
+            ey /= nn;
+        }
+        else
+        {
+            ex = 1.0;
+            ey = 0.0;
+        }
+    }
+    double wA = 0, mA = 0, qA = 0, wB = 0, mB = 0, qB = 0;
+    for (const auto& p : m_pf)
+    {
+        const double s = (p.x - mx) * ex + (p.y - my) * ey;
+        if (s < 0.0)
+        {
+            wA += p.w;
+            mA += p.w * s;
+            qA += p.w * s * s;
+        }
+        else
+        {
+            wB += p.w;
+            mB += p.w * s;
+            qB += p.w * s * s;
+        }
+    }
+    // Linearisation guard: the EKF may take over only once the cloud is small against the ranges it will
+    // linearise (largest SD under a quarter of this cycle's median range); a km-wide cloud handed over is the
+    // R1 failure again. Then unimodality: a half under 2 % of the weight, or Ashman's D < 3 (a Gaussian split
+    // at its mean gives ~2.7, a uniform ~3.5, two separated modes far more).
+    if (m_pfTestForceOne)
+    {
+        return true; // V4 fixture: hand over at once, no guard, no unimodality test
+    }
+    std::vector<double> rr;
+    for (const auto& m : meas)
+    {
+        rr.push_back(m.rangeM);
+    }
+    std::nth_element(rr.begin(), rr.begin() + rr.size() / 2, rr.end());
+    if (std::sqrt(std::max(0.0, l1)) > 0.25 * rr[rr.size() / 2])
+    {
+        return false;
+    }
+    if (wA < 0.02 || wB < 0.02)
+    {
+        return true;
+    }
+    mA /= wA;
+    mB /= wB;
+    const double vA = std::max(1e-9, qA / wA - mA * mA);
+    const double vB = std::max(1e-9, qB / wB - mB * mB);
+    const double D = std::sqrt(2.0) * std::fabs(mA - mB) / std::sqrt(vA + vB);
+    return D < 3.0;
+}
+
+void
+CaTblPolicy::PfStats(double& mx, double& my, double& cxx, double& cxy, double& cyy) const
+{
+    mx = my = cxx = cxy = cyy = 0.0;
+    double sw = 0.0;
+    for (const auto& p : m_pf)
+    {
+        mx += p.w * p.x;
+        my += p.w * p.y;
+        sw += p.w;
+    }
+    if (sw <= 0.0)
+    {
+        return;
+    }
+    mx /= sw;
+    my /= sw;
+    for (const auto& p : m_pf)
+    {
+        const double dx = p.x - mx, dy = p.y - my;
+        cxx += p.w * dx * dx;
+        cxy += p.w * dx * dy;
+        cyy += p.w * dy * dy;
+    }
+    cxx /= sw;
+    cxy /= sw;
+    cyy /= sw;
+    // The cloud cannot resolve below its own spacing: never report less (V4 tempering).
+    cxx += m_pfFloor2;
+    cyy += m_pfFloor2;
 }
 
 double
@@ -1180,6 +1743,105 @@ CaTblPolicy::Step(double dt,
                   int32_t activeTierNeighbours,
                   uint32_t tierEvidenceMask)
 {
+    if (!m_config.rssiCorrInflate)
+    {
+        return StepRecal(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    // B2 --rssiCorrInflate (scope 2026-10-17). An 868 MHz RSSI range's error is the link's shadowing, which is
+    // spatially correlated: Gudmundson, rho = exp(-moved / d_corr), the engine's own model. A static or slow node
+    // re-reads nearly the same shadowing every cycle, and fusing those readings as independent collapses Sigma
+    // (static_868 median NEES ~240 at 5 km). For an AR(1) error sequence the variance of the mean grows by the
+    // long-run factor (1 + rho) / (1 - rho); each reading's variance is scaled by it, with rho from the distance the
+    // node's ESTIMATE and the anchor moved since that anchor's previous range (no truth used). Capped.
+    std::vector<CaTblRangeMeasurement> adj(meas);
+    const double ex = EstX();
+    const double ey = EstY();
+    for (auto& m : adj)
+    {
+        if (m.tier != 0 || !(m.rangeM > 0.0))
+        {
+            continue;
+        }
+        double k = 1.0;
+        auto it = m_corrLast.find(m.anchorId);
+        if (it != m_corrLast.end())
+        {
+            const double moved = std::hypot(ex - it->second.nx, ey - it->second.ny) +
+                                 std::hypot(m.anchorX - it->second.ax, m.anchorY - it->second.ay);
+            const double rho = std::exp(-moved / std::max(1e-6, m_config.rssiCorrDistM));
+            k = (rho >= 1.0) ? m_config.rssiCorrMaxFactor
+                             : std::min(m_config.rssiCorrMaxFactor, (1.0 + rho) / (1.0 - rho));
+        }
+        m_corrLast[m.anchorId] = CorrRef{ex, ey, m.anchorX, m.anchorY};
+        m.sigmaM *= std::sqrt(k);
+        m_corrSum += k;
+        ++m_corrN;
+    }
+    return StepRecal(dt, adj, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+}
+
+CaTblDecision
+CaTblPolicy::StepRecal(double dt,
+                       const std::vector<CaTblRangeMeasurement>& meas,
+                       uint32_t hopCount,
+                       int32_t activeTierRanges,
+                       int32_t activeTierNeighbours,
+                       uint32_t tierEvidenceMask)
+{
+    if (!m_config.tofRecal)
+    {
+        return StepImpl(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    // C2 --tofRecal (scope 2026-10-17; U9). A tri-band anchor ranged on both 868 MHz (RSSI) and 2.4 GHz (ToF) in one
+    // cycle gives e = ln(r868 / r2.4): the 868 MHz range's log-error, with the ToF range as reference. Its running
+    // mean (EWMA, weight 0.05) is the systematic part of the RSSI error -- path-loss model mismatch and the bias
+    // toward short ranges that reception selects for -- and is divided out of every 868 MHz range once >= 5 pairs
+    // have taught it. The sigma scales with the range, as the RSSI sigma does.
+    for (const auto& a : meas)
+    {
+        if (a.tier != 0 || !(a.rangeM > 0.0))
+        {
+            continue;
+        }
+        for (const auto& b : meas)
+        {
+            if (b.tier == 1 && b.anchorId == a.anchorId && b.rangeM > 1.0)
+            {
+                const double e = std::log(a.rangeM / b.rangeM);
+                if (std::isfinite(e))
+                {
+                    m_recalBias = (m_recalPairs == 0) ? e : 0.95 * m_recalBias + 0.05 * e;
+                    ++m_recalPairs;
+                }
+                break;
+            }
+        }
+    }
+    if (m_recalPairs < 5)
+    {
+        return StepImpl(dt, meas, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+    }
+    std::vector<CaTblRangeMeasurement> adj(meas);
+    const double f = std::exp(-m_recalBias);
+    for (auto& m : adj)
+    {
+        if (m.tier == 0)
+        {
+            m.rangeM *= f;
+            m.sigmaM *= f;
+        }
+    }
+    return StepImpl(dt, adj, hopCount, activeTierRanges, activeTierNeighbours, tierEvidenceMask);
+}
+
+CaTblDecision
+CaTblPolicy::StepImpl(double dt,
+                  const std::vector<CaTblRangeMeasurement>& meas,
+                  uint32_t hopCount,
+                  int32_t activeTierRanges,
+                  int32_t activeTierNeighbours,
+                  uint32_t tierEvidenceMask)
+{
     CaTblDecision d;
     // NW-7. A request is pending only on 2.4 GHz; a demotion since (coverage loss, which
     // the freeze allows) has cancelled it. Otherwise this is one more cycle waiting.
@@ -1221,10 +1883,18 @@ CaTblPolicy::Step(double dt,
         m_imuPending = false;
         m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
         d.imuPredicted = true;
+        if (m_pfActive)
+        {
+            PfPredict(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[4]);
+        }
     }
     else
     {
         m_ekf.Predict(dt);
+        if (m_pfActive)
+        {
+            PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
+        }
     }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
@@ -1246,7 +1916,11 @@ CaTblPolicy::Step(double dt,
     // relays appended the set has three or more and takes the full path instead. A
     // solved cycle is a fix and does not count toward demotion. A refused one falls
     // through to the coast below, exactly as before.
-    if (m_config.sparseInStep && meas.size() == 2)
+    // --acquireMinAnchors (S2-C): before the first cycle that fuses at least that many ranges,
+    // the prior cannot pick a two-range root or anchor a one-range update, so neither runs and
+    // any cycle with fewer ranges coasts. Off (0), acqBlock is false and nothing changes.
+    const bool acqBlock = !m_acquired;
+    if (m_config.sparseInStep && meas.size() == 2 && !acqBlock)
     {
         const bool bothSurveyed = meas[0].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY &&
                                   meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
@@ -1286,7 +1960,7 @@ CaTblPolicy::Step(double dt,
 
     // DC-4. Case D: exactly one range, under the flag, goes down the ordinary path below
     // as a scalar update on the propagated state (NIS-guarded), and reaches the decision.
-    const bool caseD = m_config.caseD && meas.size() == 1;
+    const bool caseD = m_config.caseD && meas.size() == 1 && !acqBlock;
 
     // Fewer than three ranges cannot constrain a 2-D fix. Coast on the
     // prediction. Cases A and B now exist (ca-tbl-sparse-anchor, since ac5766f). By
@@ -1294,7 +1968,8 @@ CaTblPolicy::Step(double dt,
     // so a two-range cycle still arrives here, is counted a no-fix and counts toward
     // demotion. Under sparseInStep (DC-11) they run above, and only a refused one
     // arrives here. Case C only classifies; Case D does not exist yet (DC-4).
-    if (meas.size() < 3 && !caseD)
+    if ((meas.size() < 3 && !caseD) ||
+        (acqBlock && meas.size() < static_cast<size_t>(m_config.acquireMinAnchors)))
     {
         m_noFixCycles++;
         d.hadFix = false;
@@ -1370,6 +2045,7 @@ CaTblPolicy::Step(double dt,
     }
 
     d.hadFix = true;
+    m_acquired = true; // --acquireMinAnchors (S2-C): the first full fix acquires; already true when off
     d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
     if (m_config.sparseInStep)
     {
@@ -1400,11 +2076,19 @@ CaTblPolicy::Step(double dt,
         // produced, and they are wrong by large factors against the measured error:
         // losSigmaM[868] = 50 m against a tier-1 error reaching 2907 m at 6 km, and
         // losSigmaM[2p4] = 15 m against a tier-2 error of ~3 m.
+        // --nlosRSource (S2-C). 0 (default): the operative tag `nlos`, built by --nlosSource
+        // (under the preset, the propagation truth). 1: the detector's verdict only (score at or
+        // above integrityNlosScoreThreshold; an unscored link counts as LOS), so no truth reaches
+        // R or the LOS count. 2: no link is treated as NLOS here. Off, `nl` is `nlos` exactly.
+        const bool nl = (m_config.nlosRSource == 0)   ? meas[i].nlos
+                        : (m_config.nlosRSource == 1) ? (meas[i].nlosScore >= 0.0 &&
+                                                         meas[i].nlosScore >= m_config.integrityNlosScoreThreshold)
+                                                      : false;
         double sigma;
         if (meas[i].sigmaM > 0.0)
         {
             sigma = meas[i].sigmaM;
-            if (meas[i].nlos)
+            if (nl)
             {
                 // The physics sigma already uses the NLOS hardware floor, but it does
                 // NOT contain the NLOS excess-delay BIAS, which is an unmodelled
@@ -1415,19 +2099,22 @@ CaTblPolicy::Step(double dt,
         }
         else
         {
-            sigma = meas[i].nlos ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
+            sigma = nl ? m_config.nlosSigmaM[m_tier] : m_config.losSigmaM[m_tier];
         }
-        varM2.push_back(sigma * sigma);
+        // --measVarScale (S2-C): one multiplier on every range variance this Step() fuses.
+        // 1.0 multiplies exactly; the TDoA position (FuseAux) and the scenario's sparse
+        // solves form their own variances and are not scaled.
+        varM2.push_back(sigma * sigma * m_config.measVarScale);
         // Raw = pre-inflation. Recomputed rather than captured above so the two
         // branches of the sigma selection stay legible.
         {
             const double raw = (meas[i].sigmaM > 0.0)
                                    ? meas[i].sigmaM
-                                   : (meas[i].nlos ? m_config.nlosSigmaM[m_tier]
-                                                   : m_config.losSigmaM[m_tier]);
+                                   : (nl ? m_config.nlosSigmaM[m_tier]
+                                         : m_config.losSigmaM[m_tier]);
             sumVarRaw += raw * raw;
         }
-        if (!meas[i].nlos)
+        if (!nl)
         {
             nLos++;
         }
@@ -1510,6 +2197,99 @@ CaTblPolicy::Step(double dt,
     // Python reference. It makes the flag specific but almost certainly costs
     // recall; the LOS-fraction cut-off is a parameter that S7 should sweep
     // rather than a value with any justification behind it.
+    // --acquireReinit (R1, TECH_DEBT N.54). Under --unknownStart the filter is seeded at a prior
+    // kilometres off, and linearising the first range update there locks it in (S2-C: every arm
+    // about 0.2 within 25 m at 5 km; --acquireMinAnchors did not help). On the first cycle with
+    // three or more ranges, solve the weighted multilateration from two starting points -- the
+    // propagated prior and the anchors' centroid -- keep the one with the smaller weighted
+    // residual, and re-initialise the filter there with the fix's own covariance (trace per axis,
+    // velocity zero, the same velocity variance the REINIT recovery uses). The ranges are not then
+    // applied again (no double count), and the integrity test does not run on this cycle: its
+    // reference would be the solution itself. Off (default), acqReinitNow is false and nothing
+    // below changes.
+    bool acqReinitNow = false;
+    if (m_pfActive && !meas.empty())
+    {
+        // V4 --acquireParticles: this cycle's ranges weight the particle cloud instead of entering the EKF.
+        // The EKF carries the cloud's mean and covariance (so every reader -- PCS, escalation, relays,
+        // finders -- sees the honest, possibly multimodal spread). When the cloud is one mode, the EKF takes
+        // over from it; these ranges are not applied again, and the integrity test does not run.
+        m_negApplied += m_config.acquireNegInfo ? m_silent.size() : 0;
+        const bool oneMode = PfUpdate(meas, varM2);
+        double mx = 0.0, my = 0.0, cxx = 0.0, cxy = 0.0, cyy = 0.0;
+        PfStats(mx, my, cxx, cxy, cyy);
+        m_ekf.SetPositionCov(mx, my, cxx, cxy, cyy, 100.0);
+        if (oneMode)
+        {
+            m_pfActive = false;
+            ++m_pfHandovers;
+            std::cout << "PFACQ_HANDOVER cycles=" << m_pfCycles << " x=" << mx << " y=" << my
+                      << " sd=" << std::sqrt(std::max(0.0, cxx + cyy)) << "\n";
+        }
+        acqReinitNow = true;
+    }
+    if (!acqReinitNow && m_config.acquireReinit && m_reinitPending && !caseD && meas.size() >= 3)
+    {
+        double cx = 0.0;
+        double cy = 0.0;
+        for (size_t i = 0; i < meas.size(); ++i)
+        {
+            cx += meas[i].anchorX;
+            cy += meas[i].anchorY;
+        }
+        cx /= static_cast<double>(meas.size());
+        cy /= static_cast<double>(meas.size());
+        const double sx[2] = {m_ekf.PriorX(), cx};
+        const double sy[2] = {m_ekf.PriorY(), cy};
+        double bestRes = std::numeric_limits<double>::infinity();
+        double bx = 0.0, by = 0.0, brxx = 0.0, bryy = 0.0;
+        for (int k = 0; k < 2; ++k)
+        {
+            double ox = 0.0, oy = 0.0, rxx = 0.0, rxy = 0.0, ryy = 0.0;
+            if (!RawMultilaterationWeighted(meas, varM2, sx[k], sy[k], ox, oy, rxx, rxy, ryy))
+            {
+                continue;
+            }
+            double res = 0.0;
+            for (size_t i = 0; i < meas.size() && i < varM2.size(); ++i)
+            {
+                const double dd = std::hypot(ox - meas[i].anchorX, oy - meas[i].anchorY);
+                const double e = meas[i].rangeM - dd;
+                res += (varM2[i] > 0.0) ? e * e / varM2[i] : 0.0;
+            }
+            if (std::isfinite(res) && res < bestRes)
+            {
+                bestRes = res;
+                bx = ox;
+                by = oy;
+                brxx = rxx;
+                bryy = ryy;
+            }
+        }
+        // Residual guard: a solution its own ranges contradict is not an acquisition. Accept it only
+        // if the weighted residual is within chi^2(n - 2, 0.999), Wilson-Hilferty approximation
+        // (within 0.4 of the table value at k = 1 and closer above); otherwise stay armed and try
+        // the next cycle with three or more ranges.
+        const double kdof = std::max(1.0, static_cast<double>(meas.size()) - 2.0);
+        const double wh = 1.0 - 2.0 / (9.0 * kdof) + 3.0902 * std::sqrt(2.0 / (9.0 * kdof));
+        const double chi999 = kdof * wh * wh * wh;
+        if (std::isfinite(bestRes) && bestRes > chi999)
+        {
+            ++m_acqReinitRefused;
+            std::cout << "ACQREINIT_REFUSED n=" << meas.size() << " res=" << bestRes << " limit=" << chi999 << "\n";
+        }
+        if (std::isfinite(bestRes) && bestRes <= chi999)
+        {
+            const double pv = ((brxx + bryy) > 0.0 && std::isfinite(brxx + bryy)) ? (brxx + bryy) : 100.0;
+            m_ekf.Init(bx, by, 0.0, 0.0, pv, 100.0);
+            m_reinitPending = false;
+            ++m_acqReinits;
+            acqReinitNow = true;
+            std::cout << "ACQREINIT x=" << bx << " y=" << by << " pv=" << pv << " n=" << meas.size()
+                      << " res=" << bestRes << "\n";
+        }
+    }
+
     bool suspect = false;
     // Hoisted out of the MODE_FULL block: the recovery paths below need the raw fix
     // and its covariance, which were previously scoped to the test that produced
@@ -1521,7 +2301,7 @@ CaTblPolicy::Step(double dt,
     double fixRxy = 0.0;
     double fixRyy = 0.0;
     bool haveRawFix = false;
-    if (m_config.mode == CA_TBL_MODE_FULL)
+    if (m_config.mode == CA_TBL_MODE_FULL && !acqReinitNow)
     {
         bool haveFix = false;
         double mahal = 0.0;
@@ -1693,6 +2473,11 @@ CaTblPolicy::Step(double dt,
         }
         d.measurementRejected = true;
     }
+    else if (acqReinitNow)
+    {
+        // R1: the filter was re-initialised at this cycle's solution above; nothing to fuse.
+        m_consecutiveRejections = 0;
+    }
     else
     {
         m_consecutiveRejections = 0;
@@ -1797,6 +2582,23 @@ CaTblPolicy::Step(double dt,
         }
     }
 
+    // C3 --hold24AfterK: while 2.4 GHz has delivered a fix on its own (>= 3 ranges) for K straight cycles, the node
+    // holds on 2.4 GHz -- no UWB escalation -- because in the endgame 2.4 GHz alone matched the hybrid at ~40 % of the
+    // energy (V8) and UWB is the largest share of it (V6). A cycle below 3 ranges resets the streak and releases.
+    if (m_config.hold24AfterK > 0)
+    {
+        m_streak24 = (m_tier == CA_TBL_TIER_2P4 && activeTierRanges >= 3) ? m_streak24 + 1 : 0;
+    }
+
+    // V5 --c2bEscalation (master plan v3; C2b). The trigger is NEED, not low confidence: a hybrid arm always
+    // wants the next tier, and only the observation that it is reachable decides (below, the evidence gate's
+    // near-neighbour test with its estimate-quality veto skipped -- that veto is the confidence gate Stage A
+    // found harmful). 868 -> 2.4 under the dual base is already attempted every cycle; this acts on 2.4 -> UWB.
+    if (m_config.c2bEscalation && dynamic && m_tier < CA_TBL_TIER_UWB)
+    {
+        wantEscalate = true;
+    }
+
     // NW-4: an URGENT query forces the decision, whatever the PCS; the suppress-only
     // preconditions below still apply to it.
     const bool queryHook = m_queryEscArmed && dynamic && m_tier < CA_TBL_TIER_UWB && !m_uwbPending;
@@ -1807,6 +2609,10 @@ CaTblPolicy::Step(double dt,
         ++m_queryEscFired;
     }
     d.wantedEscalation = wantEscalate; // DC-4: before any precondition suppresses it
+    if (m_config.hold24AfterK > 0 && m_streak24 >= m_config.hold24AfterK && m_tier == CA_TBL_TIER_2P4 && !queryHook)
+    {
+        wantEscalate = false; // C3 hold: 2.4 GHz is solving on its own
+    }
     // ------------------------------------------ availability precondition (B.2+) --
     // Escalate only into a tier there are grounds to believe can deliver. Applied
     // AFTER wantEscalate is formed, so it can only ever SUPPRESS an escalation the
@@ -1912,7 +2718,8 @@ CaTblPolicy::Step(double dt,
             // the strength of an estimate, and an estimate too poor to trust is a
             // reason to stay regardless of what is audible.
             const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
-            if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+            if (!m_config.c2bEscalation &&
+                sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
             {
                 wantEscalate = false;
                 m_predictBlockedQuality++;
@@ -2096,6 +2903,8 @@ CaTblPolicy::Step(double dt,
         {
             m_deescalateCounter = 0;
         }
+        // (C3 dev, 2026-10-17: also vetoing this de-escalation during the hold kept the node on 2.4 GHz, where every
+        // broken streak let PCS escalate to UWB: UWB cycles 37 -> 87, tag-0 energy 30.3 -> 43.1 J. Not kept.)
 
         if (m_deescalateCounter >= m_config.nDeescalate)
         {

@@ -85,6 +85,7 @@ struct LinkPhysicsState {
     // over-confident on tier 1 by up to 58x at 6 km and under-confident on tier 2 by
     // 5-19x, so the filter discounted good ranges and trusted bad ones.
     double rangingSigmaM      = 0.0;
+    double rangingShadowingDb = 0.0; //!< S1: this link's shadowing draw, handed to the 868 ranging
     
     bool   isTunnel           = false;
     
@@ -365,6 +366,13 @@ struct NLOSParams {
     DistributionParam buildingPenetrationDb;
     DistributionParam floorLossDbPerFloor;
     int defaultNumberOfFloors;
+    // V2a-2 (master plan v3), --nlos3gppRMa. false (default): P_NLOS = 1 - exp(-d / scale) and the NLOS loss is drawn
+    // from the per-environment Normal above (values OURS). true: for links whose higher end is >= 10 m (the RMa
+    // base-station range, 10-150 m; the gateways), P_LOS and the NLOS excess loss follow 3GPP TR 38.901 v17.0.0 RMa:
+    // Table 7.4.2-1 (Pr_LOS = 1 for d2D <= 10 m, else exp(-(d2D - 10)/1000)) and Table 7.4.1-1 (excess =
+    // max(PL_LOS, PL'_NLOS) - PL_LOS, h = 5 m, W = 20 m, note 5's breakpoint). Lower links (finders, handheld) keep the
+    // model above: RMa is not defined for them.
+    bool rma3gpp = false;
     
     static NLOSParams DefaultsFor(EnvironmentClass env);
 };
@@ -436,6 +444,8 @@ struct FoliageParams {
     DistributionParam vegetationDepthM;
     DistributionParam seasonalMultiplier;
     DistributionParam wetFoliageAddDb;
+    //! B3f --foliageDepthClamp: clamp the drawn vegetation depth to the link length (default false).
+    bool clampDepthToLink = false;
     
     static FoliageParams DefaultsFor(VegetationType type);
 };
@@ -838,7 +848,7 @@ struct AdaptiveEnvironmentConfigParams {
 
 /**
  * @brief Dynamic delay spread parameters (Feature 7)
- * Reference: Lim et al. 2018 (MDPI Sensors): measured delay spread distribution
+ * Values OURS: the cited 'Lim et al. 2018 (MDPI Sensors)' source was not found
  */
 struct DelaySpreadParams {
     bool enabled;
@@ -851,7 +861,7 @@ struct DelaySpreadParams {
 
 /**
  * @brief Wind-induced foliage variation parameters (Feature 5)
- * Reference: Meng et al. 2009 (IEEE TAP): seasonal and dynamic variation
+ * Values OURS. Wind fading model: Cheffena & Ekman, EURASIP JWCN 2009, doi 10.1155/2009/306876 (Meng 2009 TAP is static path loss)
  */
 struct WindVariationParams {
     bool windVariationEnabled;
@@ -863,7 +873,7 @@ struct WindVariationParams {
 
 /**
  * @brief Temperature-dependent CFO and jitter parameters (Feature 6)
- * Reference: Robyns et al. 2017 (ACM WiSec): temperature coefficient ~1-2 Hz/°C for SX1272
+ * Values OURS: ~1-2 Hz/°C for SX1272. Robyns et al. 2017 (WiSec, fingerprinting) shows no such coefficient
  */
 struct TemperatureCfoParams {
     DistributionParam temperatureCoefficientHzPerC;
@@ -1082,6 +1092,63 @@ struct RangingParams {
     // and energy against accuracy), not a fitting knob, and S7 can sweep it.
     double uwbPreambleSymbols;
 
+    // Tier 2 field bias, metres, added to EVERY tier-2 range, LOS or NLOS, with no
+    // random draw. 0 (the default) adds exactly 0. Set only by --tofFieldBiasM, the
+    // sensitivity to measured outdoor SX1280 ranging: Mueller et al., ICL-GNSS 2021
+    // (doi 10.1109/ICL-GNSS51451.2021.9452277), sect. III, report a positive mean
+    // distance error -- the range over-estimated -- of 46.4 m on a rural route up to
+    // 1400 m and 39 m on a suburban route up to 500 m (BW 400 kHz, SF 8).
+    double tofFieldBiasM;
+
+    // S1 (master plan v2), --rssiRangeFromShadowing. false (default): the 868 MHz range error is an
+    // independent, symmetric, truncated Gaussian each reading, as in every earlier result. true: the
+    // range is the log-distance inversion of the link's path loss plus its own (Gudmundson-correlated)
+    // shadowing draw, so the error is log-normal and correlated along the motion, as RSSI ranging is
+    // (Patwari et al. 2005, p. 58-59). The Gaussian is still drawn, so no random stream moves.
+    bool rssiRangeFromShadowing;
+
+    // S2 (master plan v2, owner decision D3), --tofErrorModel. 0 (default, "engine"): the CRLB with
+    // the floors above. 1 "gottschalk": calibrated static ranging, sigma = 1.5 m + 1 % of the range,
+    // unbiased (Gottschalk et al., Internet of Things 37:101945, 2026: sub-2 m positioning to 150 m
+    // after calibration). 2 "muller": the rural-route bins of Mueller et al., ICL-GNSS 2021 (Figs. 4, 6,
+    // mean and SD per 100 m bin) with their eq. (5) correction d_c = 0.95 d + 1 applied. 3 "wolf":
+    // Wolf et al., WPNC 2019, Table II, ranges <= 500 m: LoS mean 75 m / SD 69 m, NLoS 144 m / 112 m,
+    // uncorrected. The engine's existing standard-normal draw is reused, so no random stream moves.
+    int tofErrorModel;
+
+    // V2a (master plan v3), --nlosRangeBias. false (default): an NLOS link's range is as unbiased as a
+    // LOS one at 868 MHz (the inversion ignores the NLOS loss) and biased by N(1.5, 0.8) m at 2.4 GHz.
+    // true: (i) 868 MHz -- the RSSI a receiver measures includes the link's NLOS excess loss, so the
+    // log-distance inversion is applied to path loss + NLOS loss (+ shadowing under S1) and the range
+    // is over-estimated by 10^(L/10n); (ii) 2.4 GHz -- an NLOS link's ToF range gains an exponentially
+    // distributed positive excess (Guvenc & Chong, IEEE COMST 11(3) 2009, p. 109, eq. (2): exponential is
+    // one of the standard NLOS-bias laws) with mean tofNlosExcessMeanM. Not applied under the "wolf" ToF
+    // preset, whose NLoS row already carries it.
+    bool nlosRangeBias;
+    // Wolf et al., WPNC 2019, Table II (SX1280, <= 500 m): mean error NLoS 144 m - LoS 75 m = 69 m.
+    double tofNlosExcessMeanM;
+
+    // V2b (master plan v3), --rangeErrorNoLinkLeak. false (default): the 868 MHz ranging branch writes
+    // propagationLossBiasDb = 10 n log10(estimated / true range) and Step 14 of the 868 engine adds it to the
+    // link budget -- so the RANGE ERROR changes RECEPTION (a spurious random loss by default; the shadowing
+    // counted twice under --rssiRangeFromShadowing: probe r80 1492 -> 1194 m). The 2.4 GHz and UWB engines
+    // already zero the field before Step 14 for this reason. true: the 868 engine does the same; the
+    // reported result.propagationLossBiasDb is unchanged.
+    bool rangeErrorNoLinkLeak;
+
+    // V3 (master plan v3), --rssiSigmaLogNormal. false (default): the 868 MHz range sigma reported to the
+    // filter is the first-order (delta-method) d ln10 sigma_S / (10 n). Under --rssiRangeFromShadowing the
+    // error is log-normal, est = d exp(s Z) with s = ln10 sigma_S / (10 n), whose exact SD is
+    // d sqrt(exp(s^2) (exp(s^2) - 1)): at sigma_S = 7 dB, n = 2.3 that is 1.01 d against 0.70 d, the variance
+    // ratio 2.1 measured as E[z^2] = 2.3-2.5 in the per-range log. true: report the exact SD (at d = est).
+    bool rssiSigmaLogNormal;
+
+    // C5 (scope 2026-10-17), --tofCalibrate. false (default): a 2.4 GHz range carries its preset's mean offset (wolf:
+    // +75 m LoS, Wolf 2019 Table II, uncorrected; --tofFieldBiasM if set). true: the mean LoS offset a static field
+    // calibration measures is subtracted -- 75 m under wolf, --tofFieldBiasM otherwise (gottschalk is unbiased,
+    // muller already applies its eq. (5) correction). The spread and any NLoS excess remain.
+    bool tofCalibrate;
+
     RangingParams()
         : enabled(true),
           tofLosFloorM (3.0),
@@ -1090,7 +1157,15 @@ struct RangingParams {
           uwbNlosFloorM(0.25),
           tofNlosBias  (DistributionParam::Normal(1.5, 0.8,           0.0, 6.0)),
           uwbNlosBias  (DistributionParam::LogNormal(std::log(0.3f), 0.6, 0.0, 3.0)),
-          uwbPreambleSymbols(1024.0)
+          uwbPreambleSymbols(1024.0),
+          tofFieldBiasM(0.0),
+          rssiRangeFromShadowing(false),
+          tofErrorModel(0),
+          nlosRangeBias(false),
+          tofNlosExcessMeanM(69.0),
+          rangeErrorNoLinkLeak(false),
+          rssiSigmaLogNormal(false),
+          tofCalibrate(false)
     {}
 };
 

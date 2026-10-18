@@ -174,6 +174,28 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                 DistributionParam::Normal(0.0, sigmaM,
                                           -3.0 * sigmaM, 3.0 * sigmaM));
 
+            // S1 --rssiRangeFromShadowing: the range a receiver would infer from its RSSI -- the
+            // inversion of the path loss plus this link's correlated shadowing. err above is still
+            // drawn, so the random stream is unchanged; it is replaced, not added to.
+            // V2a --nlosRangeBias: the measured RSSI includes the NLOS excess loss, so the receiver's
+            // inversion sees it too. Deterministic given the link state, so no draw moves.
+            const double nlosLossDb = (params.nlosRangeBias && state.isNLOS) ? state.nlosPenaltyDb : 0.0;
+            if (nlosLossDb > 0.0 && !params.rssiRangeFromShadowing) {
+                err += std::max(InvertPropagationLossDb(state.propagationLossDb + nlosLossDb, propParams, frequencyHz), 1.0)
+                     - estD;
+            }
+            if (params.rssiRangeFromShadowing) {
+                const double estS = std::max(InvertPropagationLossDb(state.propagationLossDb + state.rangingShadowingDb
+                                                                         + nlosLossDb,
+                                                                     propParams, frequencyHz), 1.0);
+                err = estS - state.trueRangeM;
+                sigmaM = std::max(estS * std::log(10.0) / (10.0 * n) * state.shadowingStdEff, 0.5);
+                if (params.rssiSigmaLogNormal) {
+                    const double s = std::log(10.0) / (10.0 * n) * state.shadowingStdEff;
+                    const double es2 = std::exp(s * s);
+                    sigmaM = std::max(estS * std::sqrt(es2 * (es2 - 1.0)), 0.5);
+                }
+            }
             state.estimatedRangeM = state.trueRangeM + err;
             state.rangeErrorM     = err;
             state.positionErrorM  = std::abs(err);
@@ -208,12 +230,60 @@ double ComputeRangingErrorM(LinkPhysicsState& state,
                 DistributionParam::Normal(0.0, sigmaM,
                                           -3.0 * sigmaM, 3.0 * sigmaM));
 
-            state.rangeErrorM           = bias + noise;
+            // --tofFieldBiasM: a measured field over-estimate, deterministic, so it moves
+            // no draw. Skipped entirely at its default of 0.
+            state.rangeErrorM           = (params.tofFieldBiasM != 0.0)
+                                              ? bias + noise + params.tofFieldBiasM
+                                              : bias + noise;
+            double reportedSigma = sigmaM;
+            // S2 --tofErrorModel: a published field error law, driven by the SAME standard-normal
+            // draw (z = noise / sigma), so no random stream moves. 0 leaves everything above as is.
+            if (params.tofErrorModel != 0) {
+                const double z = (sigmaM > 0.0) ? noise / sigmaM : 0.0;
+                const double d = state.trueRangeM;
+                double e = 0.0;
+                if (params.tofErrorModel == 1) {           // Gottschalk 2026, calibrated
+                    reportedSigma = 1.5 + 0.01 * d;
+                    e = reportedSigma * z;
+                } else if (params.tofErrorModel == 2) {    // Mueller 2021 bins + eq. (5)
+                    static const double kBin[14]  = {50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 1050, 1150, 1250, 1350};
+                    static const double kMean[14] = {3.2, 11.6, 46.7, 23.2, 35.4, 33.5, 29.0, 62.8, 60.5, 90.5, 67.0, 66.3, 48.0, 47.6};
+                    static const double kSd[14]   = {13.1, 33.8, 99.2, 49.2, 71.7, 56.6, 62.6, 95.5, 90.1, 103.9, 97.8, 88.8, 95.1, 59.6};
+                    auto interp = [&](const double* y) {
+                        if (d <= kBin[0]) return y[0];
+                        if (d >= kBin[13]) return y[13];
+                        int i = 0;
+                        while (i < 12 && d > kBin[i + 1]) ++i;
+                        const double t = (d - kBin[i]) / (kBin[i + 1] - kBin[i]);
+                        return y[i] + t * (y[i + 1] - y[i]);
+                    };
+                    const double mu = interp(kMean), sd = interp(kSd);
+                    const double raw = d + mu + sd * z;
+                    e = (0.95 * raw + 1.0) - d;
+                    reportedSigma = 0.95 * sd;
+                } else {                                   // Wolf 2019 Table II, uncorrected
+                    const double mu = state.isNLOS ? 144.0 : 75.0;
+                    const double sd = state.isNLOS ? 112.0 : 69.0;
+                    e = mu + sd * z;
+                    reportedSigma = sd;
+                }
+                state.rangeErrorM = e;
+            }
+            // C5 --tofCalibrate: remove the mean LoS offset a static field calibration would have measured.
+            if (params.tofCalibrate) {
+                state.rangeErrorM -= (params.tofErrorModel == 3) ? 75.0 : params.tofFieldBiasM;
+            }
+            // V2a --nlosRangeBias: NLOS excess path length, positive, exponential (one extra draw, only
+            // for NLOS links with the flag on; the wolf preset already includes it).
+            if (params.nlosRangeBias && state.isNLOS && params.tofErrorModel != 3 && params.tofNlosExcessMeanM > 0.0) {
+                state.rangeErrorM += sampler.Sample(DistributionParam::Exponential(1.0 / params.tofNlosExcessMeanM,
+                                                                                   0.0, 20.0 * params.tofNlosExcessMeanM));
+            }
             state.estimatedRangeM       = state.trueRangeM + state.rangeErrorM;
             state.positionErrorM        = std::abs(state.rangeErrorM);
             state.propagationLossBiasDb = 0.0;
-            state.rangingSigmaM         = sigmaM;
-            return sigmaM;
+            state.rangingSigmaM         = reportedSigma;
+            return reportedSigma;
         }
 
         case RANGING_TIER_UWB: {

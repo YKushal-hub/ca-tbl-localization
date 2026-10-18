@@ -94,6 +94,13 @@ VEGETATION = {
 TIER_VEG = {"868MHz": "VEG_DENSE_FOREST",
             "2.4GHz": "VEG_SPARSE_SHRUBS",
             "UWB": "VEG_SPARSE_SHRUBS"}
+# The engine re-derives foliage per tier by ITU-R P.833's f^0.75 from 868 MHz, multiplying the
+# MEAN of specificAttenuationDbPerM only (lora-2p4-physics-parameters.cc:77, x2.17;
+# lora-uwb-physics-parameters.cc:116, x5.28). The bounds stay at 0.2*gamma and 1.8*gamma of the
+# unscaled value, and SampleNormal CLAMPS (lora-distribution-sampler.cc:76), so the draws pile
+# up at the upper bound: E[gamma] = 1.79x at 2.4 GHz and 1.80x at UWB, not 2.17x and 5.28x.
+# Omitted here until 2026-10-09 (HANDOFF_2026_10_08 item 7); "veg_scale" overrides it.
+TIER_VEG_SCALE = {"868MHz": 1.0, "2.4GHz": 2.17, "UWB": 5.28}
 FOLIAGE_DEPTH_LOG_MU = math.log(100.0)   # lora-physics-parameters.cc:293
 FOLIAGE_DEPTH_LOG_SD = 0.6               # lora-physics-parameters.cc:293
 FOLIAGE_DEPTH_MAX_M = 500.0              # lora-physics-parameters.cc:293
@@ -127,12 +134,33 @@ def _veg_nodes(g0, a0, k=21):
     return nodes
 
 
+def _veg_nodes_scaled(g0, a0, scale, k=41):
+    """The engine's draw when only gamma's mean is scaled: Normal(scale*g0, 0.25*g0) CLAMPED to
+    [0.2*g0, 1.8*g0], so the mass beyond each bound sits AT the bound; A_max as in _veg_nodes."""
+    key = (g0, a0, scale, k)
+    if key in _VEG_NODES:
+        return _VEG_NODES[key]
+    mu, sd, lo, hi = g0 * scale, g0 * 0.25, g0 * 0.2, g0 * 1.8
+    cdf = lambda x: 0.5 * (1.0 + math.erf((x - mu) / (sd * math.sqrt(2.0))))  # noqa: E731
+    gs = [(lo, cdf(lo)), (hi, 1.0 - cdf(hi))]
+    for i in range(k):
+        x0, x1 = lo + (hi - lo) * i / k, lo + (hi - lo) * (i + 1) / k
+        gs.append((0.5 * (x0 + x1), cdf(x1) - cdf(x0)))
+    tot = sum(w for _, w in gs)
+    an = [(a, wa) for g, a, wa in _veg_nodes(g0, a0) if g == _veg_nodes(g0, a0)[0][0]]
+    ta = sum(w for _, w in an)
+    nodes = [(g, a, (wg / tot) * (wa / ta)) for g, wg in gs for a, wa in an]
+    _VEG_NODES[key] = nodes
+    return nodes
+
+
 def foliage_loss_db(tier, u_depth, overrides=None):
     """E[A_veg] for one realization's depth, integrated over the engine's gamma and
     A_max distributions. u_depth is a unit-normal draw from the corpus."""
     o = overrides or {}
     veg = dict(VEGETATION[TIER_VEG[tier]])
     veg.update(o.get("veg", {}))
+    scale = o.get("veg_scale", TIER_VEG_SCALE[tier])
     depth = math.exp(FOLIAGE_DEPTH_LOG_MU + FOLIAGE_DEPTH_LOG_SD * u_depth)
     depth = min(max(depth, 0.0), FOLIAGE_DEPTH_MAX_M)
     g0, a0 = veg["gamma"], veg["amax"]
@@ -140,6 +168,9 @@ def foliage_loss_db(tier, u_depth, overrides=None):
         return 0.0
     if o.get("veg_at_mean"):
         a = a0 * (1.0 - math.exp(-depth * g0 / a0))
+    elif scale != 1.0:
+        a = sum(w * a1 * (1.0 - math.exp(-depth * g1 / a1))
+                for g1, a1, w in _veg_nodes_scaled(g0, a0, scale))
     else:
         a = sum(w * a1 * (1.0 - math.exp(-depth * g1 / a1))
                 for g1, a1, w in _veg_nodes(g0, a0))
@@ -343,7 +374,7 @@ def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env, overrides=None):
 
 
 KNOWN_OVERRIDES = frozenset((
-    "phy", "n", "sensitivity", "shadow_sd", "veg", "veg_at_mean",
+    "phy", "n", "sensitivity", "shadow_sd", "veg", "veg_at_mean", "veg_scale",
     "h_t", "h_r", "no_two_ray", "no_fading", "margin_offset",
     "nlos_scale_m", "rician_k",
 ))

@@ -264,3 +264,109 @@ own registered campaign. None of these decisions overrides a registered adoption
 | FIXES-N26 | **Adopted into the preset by owner override of the registered rule.** FIXES-N26's rule said DO NOT ADOPT on one term: subject energy at 5 km rose from 12.37 to 16.69 J. The owner took the fixes for what the same registered campaign measured: availability +0.111 / +0.139 / +0.133 (5 km, endgame, N8_ring), 5 km tag 0 CEP95 −151.8 m, and UWB-delivered fixes on 20 of 20 endgame seeds. | `--specProfile` gains `--loraDualBase`, `--uwbCrossTierPoll`, `--tdoaInnovationGate`, `--mahalUseR` and `--integrityChi2=1992.9`. The preset alone reproduces FIXES-N26's registered ALL cell byte for byte. G24 re-run. **This is the one place a registered adoption rule is overridden, and it is the owner's.** |
 | Row 17, PCS term 1 | **The literal 1/trace(Σ) is built behind `--pcsTerm1Inverse` (G90); the preset keeps the bounded form.** | Switching the preset would need the PCS re-calibrated on the literal term, which this call did not ask for. |
 | Row 6 | **Unchanged: stays PARTIAL, as decided on 2026-10-04.** | No code. |
+
+## 10. The preset adopts the master-plan-v3 fixes (owner decision, 2026-10-17)
+
+`--specProfile` now also sets `--rngKeyed --rangeErrorNoLinkLeak --rssiRangeFromShadowing --nlosRangeBias
+--rangeReplyPosition --acquireParticles --foliageDepthClamp`. This is the set V8-REGEN measured
+(report/V8_REGEN_RESULTS.md), plus the B3f clamp every V-stage run already used.
+
+**Chosen over** keeping them opt-in. The owner took them after V8: the endgame `ca_tbl_full` CEP95 went 12.6 → 5.3 m,
+the static lost node 48.4 → 20.2 m, and at 5 km the reply positions were worth 289 m. Three of the seven are
+physics-correctness fixes rather than improvements: the leak (N.55), the realistic 868 MHz error (S1) and NLOS range
+bias.
+
+**Not adopted:**
+- `--rangeBiasStates` (V3: accuracy cost);
+- `--c2bEscalation` (V5: NOT SUPPORTED);
+- `--dualBaseOnDemand` / `--onDemandCalibrate` (V6: nothing to save);
+- `--nlos3gppRMa` (V2a-2: being measured; adoption is the owner's call after its read-out).
+
+**Reproducing earlier results:** every result before this decision reproduces under `--specProfile` with the seven
+flags given explicitly as false. Verified: a 600 s, 4-arm preset run is byte-identical to the B4 binary's in all 224
+simulation outputs; only `spec_profile.txt` differs, because it lists the preset. Known consequence: the 8-gateway ring
+reads worse under the realistic 868 MHz error (V8 R8: 72 → 215 m). That is the physics being truer, not a regression.
+(2026-10-17 correction: an earlier note here and at TECH_DEBT 3.2 said `relayChain` was inert. It is active on the
+preset's subject path; see TECH_DEBT O.1.)
+
+
+## 11. Tier 2 is the SX1280, as two separate chips (owner decision 2026-10-16, applied 2026-10-17)
+
+The preset's `--radioBasis` moves from `lr1121` (tiers 1 and 2 on one LR1121 die) to `sx`: an SX1262 at 868 MHz and an
+SX1280 at 2.4 GHz, the documented ranging chip (POUCET p. 4, Wolf p. 2). `--halfDuplexChip` moves to false: the two
+bands no longer share a die. Each transceiver's own half-duplex limit (`--halfDuplex=2`) is unchanged. Earlier
+results reproduce with `--radioBasis=lr1121 --halfDuplexChip=true`; NC10 pins both.
+
+## 12. What counts as a fix (owner decision 2026-10-17)
+
+A cycle is a fix cycle only when the tracking filter (EKF) took a range update that cycle (`hadFix`). Cycles in which
+`--acquireParticles`' particle cloud carries the estimate are not fix cycles, although they have an estimate with an
+honest covariance. Availability under `--acquireParticles` therefore reads lower than its estimate coverage; V4 §2
+gives the size (`static_2p4` 5 km: 0.064 → 0.034).
+
+## 13. The preset adopts B7 `--fadingPerBand` and B1 `--relayNisInflate` (2026-10-17, UPG-SCOPE)
+Evidence: `report/UPG_SCOPE_RESULTS.md` (exploratory; 20 paired seeds, configs A and B).
+
+**Adopted:**
+- **B7 `--fadingPerBand`** removes a modelling defect: 868 MHz and 2.4 GHz links between the same node ids shared one
+  fading process. It does not move accuracy: B −0.4 [−0.9, +0.1] m on 5.6 m; A −4.6 m on 333 m (interval spans 0).
+  Energy is 2–3 % lower.
+- **B1 `--relayNisInflate`** inflates a relayed range's covariance by the relay's own NIS mean, the dominant
+  overconfident class (B1, E[z²] 12–37). Coverage rises (A 0.577 → 0.587, B 0.858 → 0.873) at no accuracy cost.
+  Endgame energy is 5 % lower.
+
+**Not adopted:**
+- C1 `--acquireNegInfo` and C2 `--tofRecal`: no supported gain, and lower 5 km coverage.
+- C3 `--hold24AfterK`: −10 % endgame energy with post-acquisition accuracy unchanged, but its registered prediction
+  (per-run CEP95 within +20 %) missed at +21 %. It is available as an energy mode.
+
+**C5 `--tofCalibrate`** belongs with `--tofErrorModel=wolf` (calibrated hardware), not with the preset.
+
+**Reproducing earlier preset results:** add `--fadingPerBand=false --relayNisInflate=false`. NC10, G63, G87, G89 and
+G147's base run pin both.
+
+## 14. The preset adopts `--rssiSigmaLogNormal` (2026-10-17, SIG868)
+The 868 MHz range σ given to the filter becomes the exact SD of the log-normal RSSI range error, not the first-order
+one. The registered adoption rule fired (S1, S3 and S4 held; `report/SIG868_RESULTS.md`):
+- calibrated-Wolf endgame hybrid CEP95 53.4 → 34.7 m (−18.6 [−25.8, −11.6]);
+- engine-ToF endgame unchanged (+0.4 [−0.2, +1.1] m);
+- 5 km +20 m on 324 m, interval spanning 0;
+- 868 MHz alone improves: 52.4 → 25.1 m in the endgame.
+
+It is the B2 consistency fix on the 868 MHz class, and it explains most of TECH_DEBT O.7.
+
+**Reproducing earlier preset results:** add `--rssiSigmaLogNormal=false`. NC10, G63, G87, G89, G141 and G147 pin it.
+
+**Headline tables:** CAMP-FINAL2 was measured before this adoption. Its `ca_tbl_full` endgame and 5 km figures are
+within the SIG868 intervals above. Its `static_868` figures are superseded by SIG868's SIG rows.
+
+## 15. The preset sets `--imuQuScale=30` (2026-10-17, B2CONS)
+The IMU increment covariance handed to every filter is scaled by 30. Before this, the preset left it at the code
+default of 1, and every campaign since S2 passed 10. The dead-reckoner's error is coherent, so its variance per cycle
+is measured 3–54× too small. The registered adoption rule fired (`report/B2CONS_RESULTS.md`):
+- `ca_tbl_full` coverage 0.647 → 0.692 (5 km) and 0.901 → 0.959 (endgame);
+- CEP95 within +10 % (+20.9 m on 344 m; −0.1 m on 5.0 m).
+
+**Campaigns** stop passing `--imuQuScale` (an explicit value still wins).
+
+**Reproducing earlier results:**
+- add `--imuQuScale=1` for pre-S2 preset runs;
+- add `--imuQuScale=10` for 2026-10 campaigns.
+
+NC10, G63, G87, G89, G100 and G130 pin it.
+
+**`--rssiCorrInflate` (B2's other candidate) is not adopted.** It is right for 868 MHz alone (NEES 36 → 8), but its
+rule failed on the hybrid's endgame coverage.
+
+## 16. The code-default deployment shrinks to `--boxHalf=340` (owner decision 2026-10-18; TECH_DEBT K.6)
+**Why.** At 1000 m the default 3×3 gateway grid had a 900 m pitch. The corrected probe puts the 2.4 GHz r80 at 156 m,
+so tier 2 could not cover the deployment: `static_2p4` fixed on 41 of 1440 cycles, and G4/G5 had been red since the
+environment split. At 340 m the pitch is 306 m, under 2 × r80.
+
+**Measured** (seed 7, 3600 s, G3's configuration): `static_2p4` fix share 0.80 and the G4 verifier passes. The run took
+113 s, so K.6's feared 5× suite slowdown (measured at 400 m under an older engine) does not materialise.
+
+**Scope.** This is the code default only. The preset (`--specProfile`) sets its own `--boxHalf=5000`, so no preset
+campaign moves.
+
+**Reproducing earlier default-config results:** add `--boxHalf=1000`. NC1, NC6, NC7 and NC8 pin it.
