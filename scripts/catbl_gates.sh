@@ -438,6 +438,9 @@ finish G12
 # precedent is G6, which sat red by design with its remedy recorded beside it.
 # The propagation sweeps stay blocked while it is red -- that is the point.
 printf '\n--- G11 propagation study: corpus, reconciliation, tracking ---\n'
+# T18: the corpus is deterministic (seed 20260819), git-ignored and digest-checked by assertion 1; regenerate it when
+# absent, so a fresh tree reaches the comparison instead of stopping at a missing file.
+[ -f src/catbl-propagation-study/results/corpus.json ] || ( cd src/catbl-propagation-study && python3 corpus.py > /dev/null )
 python3 scripts/propagation_study_gate.py || fail G11
 finish G11
 

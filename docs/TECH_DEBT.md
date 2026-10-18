@@ -755,6 +755,30 @@ class, in exchange for a green line.
 days, and the answer may be that the engines are wrong, which would invalidate results.
 *Status:* **stays red, deliberately. 14/15 is the ceiling and that is correct.**
 
+*2026-10-18, diagnosed (T18; `scripts/g11_term_diagnosis.py`).* The engine probe was re-run at probe_v7's configuration
+(`--probe --probeTerms --envFacility=0 --vegFacility=1`), which reproduces probe_v7's margins exactly. Each 2.4 GHz
+term was then compared with the analytic model's mean over its corpus.
+
+**Path loss agrees** to 0.04 dB at every distance. Both apply two-ray to LOS links (89 % at 6 km), and their NLOS
+fractions agree.
+
+**The distance-growing gap (model above engine by −3.0 dB at 100 m and +10.0 dB at 6 km) has two sources:**
+1. **The engine's effective sensitivity is outcome-dependent.** Rebuilt receive power minus the reported margin
+   gives −107.2 dBm on links that decode (the 1.5 dB hysteresis of RULES.md §5), rising to −99.8 dBm as they fail.
+   That rise is the SDR-grade soft-degradation penalty: preamble unlock, PLL unlock and CRC failure, added to the
+   threshold after the decode failed. So the probe's margin of a failing link is not a link-budget margin. This is
+   rule 10's case, a term living in the threshold. It contributes −1.2 dB near the anchor and +6.2 dB at 6 km.
+2. **Terrain loss exists in the engine and not in the model:** 0 dB below 430 m, 4.8 dB at 6 km.
+
+Smaller: the model's 2.4 GHz foliage is 2.3 dB higher (5.5 against 3.2 dB); NLOS and fading differ by under 0.4 dB.
+
+**Which side is wrong.** Neither, for path loss. The comparison is between unlike quantities: an outcome-dependent
+engine margin, against a model that has no terrain term.
+
+A fair G11 would compare against the engine's margin before the soft-degradation penalty, and would give the model the
+engine's terrain mean. That changes G11's registered criterion, so it is not done here. G11 stays red by design, now
+for a known reason.
+
 ### J.2 Tier-1 TDoA: build the timing layer, or keep re-billing
 `2a61fd2` took the cheap half of this — `--tier1ChargeReplies` now measures what the
 downlink costs, and it nearly doubles tier-1 energy (13.586 → 25.860 J at seed 7). What
