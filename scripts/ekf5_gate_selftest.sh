@@ -48,5 +48,8 @@ fresh; f=$(ls "$T/f/cv" | grep -v run_id.txt | head -1); echo x >> "$T/f/cv/$f";
 fresh; grep "N.28 ekf5:" "$T/f/on.log" >> "$T/f/def.log"; check "N7 ekf5 leaking into the default" 1 CONTROL
 fresh; echo 0 > "$T/f/r_noimu.rc"; check "N8 ekf5 accepted without --imuPredict" 1 REFUSE
 fresh; echo 0 > "$T/f/r_bogus.rc"; check "N9 an unknown --imuFilter accepted" 1 REFUSE
+fresh; echo 0 > "$T/f/r_rbs.rc"; check "N10 --rangeBiasStates accepted under ekf5" 1 REFUSE
+fresh; sed -i '/PFACQ_HANDOVER/d' "$T/f/on.log"; check "N11 the particle cloud never handed over" 1 ACQ
+fresh; sed -i -E 's/(tag-0 running NIS )\S+/\11/' "$T/f/on.log"; check "N12 ekf5 never tracking NIS" 1 NIS
 echo "  G95 selftest: $pass as expected, $fail not"
 [ "$fail" -eq 0 ]

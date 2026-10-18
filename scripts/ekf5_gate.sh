@@ -8,7 +8,7 @@
 # on      the preset's endgame, seed 7, 900 s, DC-1 at 0.5 deg/s, ekf5 -- where DC1-BIAS measured
 #         DC-1's filter failing; the filter must be wired and must learn the bias and heading
 # def/cv  the same at 300 s with --imuFilter absent and given as cv: must be byte-identical
-# r_*     refusals: ekf5 without --imuPredict, and an unknown value
+# r_*     refusals: ekf5 without --imuPredict, an unknown value, and --rangeBiasStates (CV-only)
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -34,5 +34,6 @@ run cv $P --duration=300 --imuFilter=cv &
 wait
 run r_noimu --arms=ca_tbl_full --seed=1 --duration=10 --imuFilter=ekf5
 run r_bogus --arms=ca_tbl_full --seed=1 --duration=10 --imuPredict=true --imuFilter=bogus
+run r_rbs --arms=ca_tbl_full --seed=1 --duration=10 --imuPredict=true --imuFilter=ekf5 --rangeBiasStates=true
 
 python3 scripts/ekf5_gate.py "$D"
