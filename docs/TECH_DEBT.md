@@ -4113,3 +4113,21 @@ with the full stack (ekf5, magnetometer, finder consider, relay gate) holds out 
 significantly more accurate than CA-TBL in either configuration. In the endgame CA-TBL ties Poucet's accuracy
 with higher availability at ~1/20 the energy. One gap remains: endgame availability −0.010 [−0.017, −0.002]
 against `fixed_threshold`. Put to the owner as the preset; state bounds alone not supported (P5).
+
+### N.60 The last gap to `fixed_threshold` (endgame availability −0.010) is a trade within CA-TBL's design, not a defect
+
+REAL-BEST (out of sample) leaves one significant deficit for CA-TBL under the realistic-world stack: endgame
+availability −0.010 [−0.017, −0.002] against `fixed_threshold`, the same stack under a fixed-variance escalation
+rule. Measured on REAL-BEST's endgame F cells (subjects): `fixed_threshold` spends more cycles on the upper tiers
+(2.4 GHz 0.464 against 0.453, UWB 0.035 against 0.031) and escalates less often but stays longer (35.3 against 40.7
+escalations), for a fix share of 0.589 against 0.579, at 20.18 against 18.78 J (+7 %).
+
+**Why a recalibration was not run.** CAL-03 is the project's threshold fit. It fits to escalation labels by F1,
+not to availability. Its held-out evaluation found the calibrated rule within 0.001–0.007 of the legacy rule's
+availability, with `fixed_threshold` still higher (endgame 0.438 against 0.417). Its UWB-entry thresholds are
+UNFITTED: there are no positive labels. Re-running it under the realistic stack cannot be expected to move
+availability. The PCS weights (2.995, 0, 0.005) are essentially the trace, which `fixed_threshold` also
+thresholds (CAMP-FINAL2 Q2: PCS earns nothing over the trace).
+
+So closing this gap means choosing thresholds that buy availability with energy: an accuracy / availability /
+energy weighting. That is the owner's decision (C3 `--hold24AfterK` exposes the same trade), not a correction.
