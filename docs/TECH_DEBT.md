@@ -3410,6 +3410,82 @@ over 20 seeds:
   Tag 0's two-range no-fix cycles go from 36 to 469, and the subjects' from 67 to 1 440
   (`report/TOF_FIELD_RESULTS.md`, addendum).
 
+### N.35 Under the dual base, tag 0 is offered ~6x fewer relay legs than static 2.4 GHz, and its subjects are refused on 868 MHz
+
+*2026-10-09, S2 Part B, B2 (exploratory diagnosis; `work/2026-10-09-acc-part-b`).*
+
+**Data.** TOF-FIELD's D0 cells, read only: the 102-setting preset, 1 800 s, this cloud machine,
+seeds 1-15 (14 in B). The arms are `ca_tbl_full` and `static_2p4` from the same cells. The
+counts are the run logs' C5 and L.1.2 lines, means per run.
+
+| | `ca_tbl_full` B | `static_2p4` B | `ca_tbl_full` A | `static_2p4` A |
+|---|---|---|---|---|
+| tag 0 active tier 2.4 GHz, share of cycles | 0.364 | 1.000 | 0.691 | 1.000 |
+| tag 0 relay legs offered (all depths) | 204 | 1 240 | 107 | 279 |
+| ... admitted | 174 | 1 129 | 101 | 267 |
+| ... refused by A1 / A2 / A3 | 0 / 11.0 / 18.6 | 0 / 6.1 / 105.2 | 0 / 0.1 / 6.0 | 0 / 0.5 / 11.8 |
+| subject-cycles short of a fix | 1 768 | 2 742 | 2 469 | 2 880 |
+| ... of which on 868 MHz, refused before any exchange | 904 | 0 | 999 | 0 |
+| subject relay exchanges / admitted / fused | 558 / 192 / 130 | 13 / 7 / 7 | 188 / 30 / 26 | 0 / 0 / 0 |
+
+**Cause, tag 0 (H1, confirmed in the code).**
+- A relay leg forms only when the relay tier equals the active tier (the C5 block,
+  `rt == active`, `ca_tbl_causal_sim.cc`).
+- A1 never refused one: zero in every cell. The legs are never *formed*.
+- Under the dual base the 2.4 GHz radio ranges every cycle (`otherLoraMeas`), but the active
+  tier is 868 MHz on 64 % of endgame cycles. On those cycles no relay leg is attempted.
+- The count is lower than the 36 % share alone predicts (204 against ~450), because the block
+  also requires `!usedFloor`.
+
+**Cause, subjects.** `RangeForSubject` returns before any exchange when the subject's active tier
+is 868 MHz (A1 would refuse the range). That happens on 904 of 1 768 short subject-cycles in B.
+Yet the dual-base subjects exchange far more than `static_2p4`'s, whose subjects are short on 2 731
+cycles with "no exchange possible". So "a holder has a fix" is not the limit for `static_2p4`. The
+hybrid's limit is the tier.
+
+**The 5 km subjects (H2/H3), median error over all cycles (m), subjects 2-5.**
+- `ca_tbl_full`: 16.1 / 15.9 / 18.1 / 22.2, fixing on 39 / 24 / 8 / 1.6 % of cycles.
+- `static_2p4`: 12.5 / 15.8 / 12.9 / 17.7, fixing on under 1.1 %.
+- The hybrid subjects' error is the same with the active tier on 868 MHz or 2.4 GHz (median
+  18.4 against 18.2 m), so time off 2.4 GHz (H3) does not explain it.
+- Fewer fixes with lower error is *consistent with* H2: the hybrid's extra tier-1 / TDoA fixes
+  pull a dead-reckoned estimate off. **Not established.** Q5 needs a per-subject range log and a
+  replay with and without those fixes, which this session did not build.
+
+**Fix built:** F1, `--dualBaseRelayTier` (G110), for H1, tag 0 and subjects. Measured in
+`report/PREREG_ACC_B_HYBRID.md`. F2 (H2) is not built.
+
+### N.36 F1 (`--dualBaseRelayTier`) restores tag 0's relay supply; it buys endgame availability, not accuracy, and the 5 km within-25 m loss stays
+
+*2026-10-09, S2 Part B (`report/ACC_B_RESULTS.md`; registered, `0f68d454`; exploratory).*
+- **Relay supply:** with the flag on, tag 0's endgame relay legs go from 198 to 894 per run, and
+  admitted from 170 to 765. Static 2.4 GHz has 1 202.
+- **Availability and accuracy:** endgame availability +0.030 [0.019, 0.043]; endgame CEP
+  unchanged; 5 km CEP50 −5.2 m [−10.0, −1.5].
+- **Energy:** +0.82 J per node at 5 km.
+- **The loss it was meant to close stays:** five-node within 25 m at 5 km against static
+  2.4 GHz, −0.064 [−0.122, −0.012].
+
+**Not done:**
+- F2 / H2, the subjects' tier-1 and TDoA fixes (N.35);
+- the fixed-threshold arm with F1;
+- B1's range log.
+
+**Not adopted:** S1 decides.
+
+### N.37 F2 (`--subjectPreciseOnly`) falsifies H2 in its range form; the 5 km within-25 m loss to static 2.4 GHz is still unexplained
+
+*2026-10-09, S2 Part B (`report/ACC_B2_RESULTS.md`; registered, `66338f26`; exploratory).*
+- **What F2 does.** It leaves the dual-base subjects' 868 MHz ranges out of their fused set
+  whenever there are >= 2 precise ranges.
+- **At 5 km** it changes nothing: subjects' median error +0.74 m n.s., within 25 m −0.011 n.s.
+- **In the endgame** it is worse: availability −0.042 [−0.051, −0.034], subjects' error
+  +0.74 m [0.28, 1.25], +2.30 J per node.
+- **The loss to static 2.4 GHz stays** (−0.082). H1 (N.35/N.36) and H2 in its range form are
+  both ruled out as its cause.
+- **Open:** H2 in its TDoA form (the subjects' TDoA fixes), and the per-subject range log (B1)
+  needed to see what else differs.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
