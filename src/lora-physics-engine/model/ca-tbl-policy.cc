@@ -535,7 +535,7 @@ CaTblPolicy::AuxPassesGate(double rScale)
         return true;
     }
     const double nis =
-        m_ekf.PositionNis(m_aux[0], m_aux[1], rScale * m_aux[2], rScale * m_aux[3], rScale * m_aux[4]);
+        FltPositionNis(m_aux[0], m_aux[1], rScale * m_aux[2], rScale * m_aux[3], rScale * m_aux[4]);
     if (nis >= 0.0 && nis <= m_config.auxInnovationChi2)
     {
         return true;
@@ -551,7 +551,7 @@ CaTblPolicy::FuseAux()
     {
         return;
     }
-    if (m_ekf.FusePositionCov(m_aux[0], m_aux[1], m_aux[2], m_aux[3], m_aux[4]))
+    if (FltFusePositionCov(m_aux[0], m_aux[1], m_aux[2], m_aux[3], m_aux[4]))
     {
         m_auxFusedLast = true;
         ++m_auxFused;
@@ -565,7 +565,7 @@ CaTblPolicy::FuseAuxInflated(double rScale)
     {
         return;
     }
-    if (m_ekf.FusePositionCov(m_aux[0],
+    if (FltFusePositionCov(m_aux[0],
                               m_aux[1],
                               rScale * m_aux[2],
                               rScale * m_aux[3],
@@ -968,6 +968,34 @@ CaTblPolicy::CaTblPolicy()
 }
 
 void
+CaTblPolicy::Ekf5Predict(double dt, bool haveImu, double ux, double uy)
+{
+    // --imuFilter=ekf5. DC-1's u is what a step-and-heading dead reckoner reports: the stride
+    // scaled by (1 + s) and the heading rotated by the gyro's accumulated error. So |u| is the
+    // stride the filter's s corrects, atan2(u) the raw heading its theta and b correct. Process
+    // noise is DC-1's own model: angle random walk on theta; the bias and scale are constant per
+    // run, so they get none; a small per-step stride floor (OURS) keeps the along-track block
+    // from collapsing where DC-1 has no stride noise at all.
+    const double qTheta2 = m_config.ekf5NoiseDensity * m_config.ekf5NoiseDensity * dt;
+    const double dist = haveImu ? std::sqrt(ux * ux + uy * uy) : 0.0;
+    if (dist > 0.0)
+    {
+        m_ekf5Heading = std::atan2(uy, ux);
+        m_ekf5HaveHeading = true;
+        const double qStep2 = m_config.ekf5StepSigma * m_config.ekf5StepSigma;
+        m_ekf5.Predict(dt, dist, m_ekf5Heading, qStep2, qTheta2, 0.0);
+        ++m_ekf5Moving;
+    }
+    else
+    {
+        // No displacement (a dwell, or no IMU input this cycle): the heading error still
+        // drifts with the bias, and the position gets DC-1's dwell noise.
+        m_ekf5.PredictDwell(dt, qTheta2, 0.0, m_config.ekf5DwellSigma * m_config.ekf5DwellSigma);
+        ++m_ekf5Dwell;
+    }
+}
+
+void
 CaTblPolicy::Configure(const CaTblPolicyConfig& config)
 {
     m_config = config;
@@ -1001,6 +1029,18 @@ void
 CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
 {
     m_ekf.Init(x0, y0, 0.0, 0.0, posStdM * posStdM, velStdMps * velStdMps);
+    if (m_config.imuFilterEkf5)
+    {
+        // The IMU's errors start at the run's beginning: heading offset ~0, bias and stride
+        // scale at their priors -- the spec sheet's sigmas, which an honest filter knows.
+        m_ekf5.Init(x0, y0, posStdM * posStdM, m_config.ekf5ThetaVar0,
+                    m_config.ekf5BiasSigma * m_config.ekf5BiasSigma,
+                    m_config.ekf5ScaleSigma * m_config.ekf5ScaleSigma);
+        m_ekf5.SetMomentMatched(m_config.ekf5MomentMatch);
+        m_ekf5.SetMomentMatchedMeanShift(false);
+        m_ekf5.SetRobust(m_config.ekf5Robust);
+        m_ekf5HaveHeading = false;
+    }
     m_deescalateCounter = 0;
     // --acquireMinAnchors (S2-C). 0 (default): acquired from the start, as before.
     m_acquired = (m_config.acquireMinAnchors == 0);
@@ -1616,8 +1656,8 @@ CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
     uint32_t vis = 0;
     for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
     {
-        const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
-        const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+        const double dx = m_config.uwbAnchorX[i] - FltX();
+        const double dy = m_config.uwbAnchorY[i] - FltY();
         if (dx * dx + dy * dy <= r2)
         {
             ++vis;
@@ -1881,12 +1921,23 @@ CaTblPolicy::StepImpl(double dt,
     {
         // DC-1: the queued synthetic-IMU displacement drives the prediction.
         m_imuPending = false;
-        m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
+        if (m_config.imuFilterEkf5)
+        {
+            Ekf5Predict(dt, true, m_imu[0], m_imu[1]);
+        }
+        else
+        {
+            m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
+        }
         d.imuPredicted = true;
         if (m_pfActive)
         {
             PfPredict(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[4]);
         }
+    }
+    else if (m_config.imuFilterEkf5)
+    {
+        Ekf5Predict(dt, false, 0.0, 0.0);
     }
     else
     {
@@ -1924,34 +1975,34 @@ CaTblPolicy::StepImpl(double dt,
     {
         const bool bothSurveyed = meas[0].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY &&
                                   meas[1].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY;
-        d.sparsePriorX = m_ekf.X();
-        d.sparsePriorY = m_ekf.Y();
+        d.sparsePriorX = FltX();
+        d.sparsePriorY = FltY();
         d.sparsePriorSource = d.imuPredicted ? 1 : 0; // DC-2
         const CaTblSparseResult sr =
             bothSurveyed
                 ? CaTblSolveCaseA(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
                                   meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
-                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  FltX(), FltY(), FltPxx(), FltPxy(), FltPyy(),
                                   m_config.sparseMarginM)
                 : CaTblSolveCaseB(meas[0].anchorX, meas[0].anchorY, meas[0].rangeM,
                                   meas[1].anchorX, meas[1].anchorY, meas[1].rangeM,
-                                  m_ekf.X(), m_ekf.Y(), m_ekf.Pxx(), m_ekf.Pxy(), m_ekf.Pyy(),
+                                  FltX(), FltY(), FltPxx(), FltPxy(), FltPyy(),
                                   m_config.sparseMarginM);
         d.sparseVerdict = static_cast<uint8_t>(sr.verdict);
         const double var = 2.0 * (meas[0].sigmaM * meas[0].sigmaM +
                                   meas[1].sigmaM * meas[1].sigmaM);
         if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
         {
-            m_ekf.FusePosition(sr.x, sr.y, var);
+            FltFusePosition(sr.x, sr.y, var);
             d.positionFuses = 1;
             d.sparseX = sr.x;
             d.sparseY = sr.y;
             d.sparseVarM2 = var;
             d.fixKind = (sr.solvedBy == CA_TBL_CASE_B) ? CA_TBL_FIX_CASE_B : CA_TBL_FIX_CASE_A;
             d.hadFix = true;
-            d.estX = m_ekf.X();
-            d.estY = m_ekf.Y();
-            d.traceSigma = m_ekf.TracePos();
+            d.estX = FltX();
+            d.estY = FltY();
+            d.traceSigma = FltTracePos();
             d.nAnchorsUsed = 2;
             d.nextTier = m_tier;
             return d;
@@ -1973,9 +2024,9 @@ CaTblPolicy::StepImpl(double dt,
     {
         m_noFixCycles++;
         d.hadFix = false;
-        d.estX = m_ekf.X();
-        d.estY = m_ekf.Y();
-        d.traceSigma = m_ekf.TracePos();
+        d.estX = FltX();
+        d.estY = FltY();
+        d.traceSigma = FltTracePos();
         d.nAnchorsUsed = static_cast<uint32_t>(meas.size());
 
         // NW-4. The hook acts here too: an URGENT query is a reason to go up even on a
@@ -2174,7 +2225,7 @@ CaTblPolicy::StepImpl(double dt,
         double grxx = 0.0;
         double grxy = 0.0;
         double gryy = 0.0;
-        if (RawMultilaterationWeighted(meas, varM2, m_ekf.PriorX(), m_ekf.PriorY(),
+        if (RawMultilaterationWeighted(meas, varM2, FltPriorX(), FltPriorY(),
                                        gzx, gzy, grxx, grxy, gryy))
         {
             const double tr = grxx + gryy;
@@ -2313,8 +2364,8 @@ CaTblPolicy::StepImpl(double dt,
             double ryy = 0.0;
             haveFix = RawMultilaterationWeighted(meas,
                                                  varM2,
-                                                 m_ekf.PriorX(),
-                                                 m_ekf.PriorY(),
+                                                 FltPriorX(),
+                                                 FltPriorY(),
                                                  zx,
                                                  zy,
                                                  rxx,
@@ -2322,7 +2373,7 @@ CaTblPolicy::StepImpl(double dt,
                                                  ryy);
             if (haveFix)
             {
-                mahal = m_ekf.MahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
+                mahal = FltMahalanobisFromPriorWithR(zx, zy, rxx, rxy, ryy);
                 fixRxx = rxx;
                 fixRxy = rxy;
                 fixRyy = ryy;
@@ -2330,10 +2381,10 @@ CaTblPolicy::StepImpl(double dt,
         }
         else
         {
-            haveFix = RawMultilateration(meas, m_ekf.PriorX(), m_ekf.PriorY(), zx, zy);
+            haveFix = RawMultilateration(meas, FltPriorX(), FltPriorY(), zx, zy);
             if (haveFix)
             {
-                mahal = m_ekf.MahalanobisFromPrior(zx, zy);
+                mahal = FltMahalanobisFromPrior(zx, zy);
             }
         }
 
@@ -2399,7 +2450,7 @@ CaTblPolicy::StepImpl(double dt,
         {
             v *= m_config.suspectInflateFactor;
         }
-        m_ekf.Update(meas, inflated);
+        FltUpdate(meas, inflated);
         ++d.rangeUpdates;
         if (auxQueued)
         {
@@ -2427,7 +2478,7 @@ CaTblPolicy::StepImpl(double dt,
             // Force-accept. Caps the lock-out at N by construction. The cost, stated:
             // during a genuine persistent fault this fuses the very measurement the
             // gate identified as faulty.
-            m_ekf.Update(meas, varM2);
+            FltUpdate(meas, varM2);
             ++d.rangeUpdates;
             recovered = true;
             if (auxQueued)
@@ -2442,7 +2493,7 @@ CaTblPolicy::StepImpl(double dt,
             // filter-free fix, which is already computed for the test itself. Unlike
             // BOUNDED this replaces the prior instead of forcing data through it, and
             // it recovers the cycle after a transient fault clears.
-            m_ekf.RevertToPrior();
+            FltRevertToPrior();
             double pv = 100.0;
             if ((fixRxx + fixRyy) > 0.0)
             {
@@ -2452,17 +2503,26 @@ CaTblPolicy::StepImpl(double dt,
             {
                 m_reinitFallbackCount++;
             }
-            m_ekf.Init(zx, zy, m_ekf.Vx(), m_ekf.Vy(), pv, 100.0);
+            if (m_config.imuFilterEkf5)
+            {
+                // REINIT moves the position only: the heading offset, bias and stride scale
+                // the filter has learned are not what the fault was in.
+                m_ekf5.ReinitPosition(zx, zy, pv);
+            }
+            else
+            {
+                m_ekf.Init(zx, zy, m_ekf.Vx(), m_ekf.Vy(), pv, 100.0);
+            }
             recovered = true;
         }
         else
         {
-            m_ekf.RevertToPrior();
+            FltRevertToPrior();
             if (m_config.suspectRecovery == CA_TBL_RECOVERY_INFLATE)
             {
                 // Rejecting is the filter asserting model and data disagree; the
                 // honest consequence is more uncertainty, not the same uncertainty.
-                m_ekf.InflatePos(m_config.suspectInflateFactor);
+                FltInflatePos(m_config.suspectInflateFactor);
                 recovered = true;
             }
         }
@@ -2486,17 +2546,17 @@ CaTblPolicy::StepImpl(double dt,
             // DC-4. One range against a wide P can leave an inconsistent covariance, so it
             // goes in only if its innovation is plausible: NIS = nu^2 / (H P H^T + R) with
             // H the unit vector from the anchor, against chi^2(1 dof, 0.99) = 6.63.
-            const double dx = m_ekf.X() - meas[0].anchorX;
-            const double dy = m_ekf.Y() - meas[0].anchorY;
+            const double dx = FltX() - meas[0].anchorX;
+            const double dy = FltY() - meas[0].anchorY;
             const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
             const double hx = dx / r, hy = dy / r;
-            const double s = hx * hx * m_ekf.Pxx() + 2.0 * hx * hy * m_ekf.Pxy() +
-                             hy * hy * m_ekf.Pyy() + varM2[0];
+            const double s = hx * hx * FltPxx() + 2.0 * hx * hy * FltPxy() +
+                             hy * hy * FltPyy() + varM2[0];
             const double nu = meas[0].rangeM - r;
             d.caseDNis = (s > 0.0) ? nu * nu / s : -1.0;
             if (s > 0.0 && d.caseDNis <= 6.63)
             {
-                m_ekf.Update(meas, varM2);
+                FltUpdate(meas, varM2);
                 ++d.rangeUpdates;
                 d.caseDApplied = true;
             }
@@ -2507,7 +2567,7 @@ CaTblPolicy::StepImpl(double dt,
         }
         else
         {
-            m_ekf.Update(meas, varM2);
+            FltUpdate(meas, varM2);
             ++d.rangeUpdates;
         }
         if (auxQueued)
@@ -2516,7 +2576,7 @@ CaTblPolicy::StepImpl(double dt,
         }
     }
 
-    const double traceSigma = m_ekf.TracePos();
+    const double traceSigma = FltTracePos();
     double sumVar = 0.0;
     for (size_t i = 0; i < varM2.size(); ++i)
     {
@@ -2526,7 +2586,7 @@ CaTblPolicy::StepImpl(double dt,
     d.meanSigmaRawM =
         varM2.empty() ? 0.0 : std::sqrt(sumVarRaw / static_cast<double>(varM2.size()));
 
-    const double gdop = ComputeGdop(m_ekf.X(), m_ekf.Y(), meas);
+    const double gdop = ComputeGdop(FltX(), FltY(), meas);
     double pcs = ComputePcs(traceSigma,
                             gdop,
                             nLos,
@@ -2548,8 +2608,8 @@ CaTblPolicy::StepImpl(double dt,
     d.gdop = gdop;
     d.pcs = pcs;
     d.sigmaGeoM = sigmaGeoM;
-    d.estX = m_ekf.X();
-    d.estY = m_ekf.Y();
+    d.estX = FltX();
+    d.estY = FltY();
 
     // ------------------------------------------------------------- decision --
 
@@ -2777,8 +2837,8 @@ CaTblPolicy::StepImpl(double dt,
                 uint32_t vis = 0;
                 for (size_t i = 0; i < m_config.uwbAnchorX.size(); ++i)
                 {
-                    const double dx = m_config.uwbAnchorX[i] - m_ekf.X();
-                    const double dy = m_config.uwbAnchorY[i] - m_ekf.Y();
+                    const double dx = m_config.uwbAnchorX[i] - FltX();
+                    const double dy = m_config.uwbAnchorY[i] - FltY();
                     // 2-D. Anchors sit at z = 2.5 and the node at z = 1.5, so the
                     // slant range exceeds this by under 0.03 m at a 20 m radius.
                     if (dx * dx + dy * dy <= r2)
@@ -2940,8 +3000,8 @@ CaTblPolicy::StepImpl(double dt,
     // Remember where the filter was, so the next cycle can ask whether it moved the
     // way the body did. Recorded on EVERY cycle including refused ones: the comparison
     // is against the previous cycle, not the last accepted escalation.
-    m_prevEstX = m_ekf.X();
-    m_prevEstY = m_ekf.Y();
+    m_prevEstX = FltX();
+    m_prevEstY = FltY();
     m_havePrevEst = true;
     // Consumed. A stale cross-check is worse than none -- it would silently police one
     // cycle with another cycle evidence -- so the caller must supply it every cycle it
