@@ -366,6 +366,9 @@ cited code path exists.
 - **`src/lorawan` link fix** (`${liblora-physics-engine}`) — carried but never upstreamed.
 - **`--build-profile=optimized` is mandatory**, not a preference: the default profile
   enables logging and runs ~10× slower. Not enforced by anything.
+- *2026-10-18 (T9):* G1 now refuses a tree not configured with the optimized profile
+  (`scripts/build_profile_check.sh`, with a debug-cache fixture). The `src/lorawan` link fix stays carried in-tree;
+  offering it to ns-3 upstream is an outside contribution, not debt in this repository.
 - **Gate suite runtime** is ~35 minutes, dominated by two 3600 s determinism runs. It
   discourages running the full suite, which is how three gates once went unobserved.
 

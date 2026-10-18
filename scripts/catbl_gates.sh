@@ -95,6 +95,14 @@ pass() { finish "$1"; }
 printf '\n--- G1 build ---\n'
 ./ns3 build 2>&1 | tail -40
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail G1
+# T9: the optimized profile is required (RULES.md sect 3); the check is shown able to fail on a debug cache.
+bash scripts/build_profile_check.sh || fail G1
+sed 's/^build_profile:INTERNAL=.*/build_profile:INTERNAL=debug/' cmake-cache/CMakeCache.txt > "$WORK/fixture_cache.txt"
+if bash scripts/build_profile_check.sh "$WORK/fixture_cache.txt" > /dev/null; then
+    echo "  build profile fixture: a debug cache passed"; fail G1
+else
+    echo "  build profile fixture: a debug cache is refused"
+fi
 finish G1
 
 # --------------------------------------------------- G2: determinism
