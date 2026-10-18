@@ -537,6 +537,7 @@ struct CaTblPolicyConfig
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
     bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
+    bool acquireHandoverCurvature; //!< N.58 --acquireHandoverCurvature: hand over only once every range is linearisable
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
     double negSigmaDb;            //!< C1: the margin spread of that delivery curve
     bool relayNisInflate;         //!< B1 --relayNisInflate: the filter tracks its NIS so relays can scale P_B by it
@@ -1190,6 +1191,7 @@ class CaTblPolicy
     //! C2 --tofRecal: the learnt 868 MHz log-bias ln(r868 / r2.4) and how many pairs taught it.
     double GetTofRecalBias() const { return m_recalBias; }
     //! B1 --relayNisInflate: this filter's running NIS mean (1.0 until it has updates or when off).
+    uint64_t GetPfCurvatureHolds() const { return m_pfCurvatureHolds; }
     double GetNisMean() const { return m_config.imuFilterEkf5 ? m_ekf5.NisMean() : m_ekf.NisMean(); }
     uint64_t GetTofRecalPairs() const { return m_recalPairs; }
     //! B2 --rssiCorrInflate: 868 MHz ranges inflated, and their mean variance factor.
@@ -1494,6 +1496,7 @@ class CaTblPolicy
     bool m_pfActive = false;
     uint64_t m_pfSalt = 0;
     uint64_t m_pfHandovers = 0;
+    uint64_t m_pfCurvatureHolds = 0; //!< N.58: cycles the curvature guard kept the cloud
     uint32_t m_pfCycles = 0;
     bool m_pfTestForceOne = false; //!< V4 fixture: skip the unimodality test
     double m_pfFloor2 = 0.0; //!< V4: squared inter-particle spacing of the last prior cloud
