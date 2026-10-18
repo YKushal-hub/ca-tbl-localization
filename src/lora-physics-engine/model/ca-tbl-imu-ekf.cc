@@ -362,6 +362,47 @@ CaTblImuEkf::PredictUnscented(double dt,
 }
 
 void
+CaTblImuEkf::FuseHeading(double z, double r)
+{
+    if (!(r > 0.0) || !std::isfinite(z))
+    {
+        return;
+    }
+    const double S = m_P[2][2] + r;
+    if (!(S > 0.0))
+    {
+        return;
+    }
+    double nu = z - m_x[2];
+    nu = std::atan2(std::sin(nu), std::cos(nu));
+    double K[N];
+    for (int i = 0; i < N; ++i)
+    {
+        K[i] = m_P[i][2] / S;
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] += K[i] * nu;
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i] * m_P[2][j];
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+}
+
+void
 CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 {
     m_x[0] = x;

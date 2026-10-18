@@ -1941,9 +1941,16 @@ CaTblPolicy::StepImpl(double dt,
     {
         // DC-1: the queued synthetic-IMU displacement drives the prediction.
         m_imuPending = false;
+        const bool magNow = m_magPending; // --imuMagSigmaDeg: this cycle's reading only
+        m_magPending = false;
         if (m_config.imuFilterEkf5)
         {
             Ekf5Predict(dt, true, m_imu[0], m_imu[1]);
+            if (magNow)
+            {
+                m_ekf5.FuseHeading(m_magZ, m_magVar); // --imuMagSigmaDeg
+                ++m_magFused;
+            }
         }
         else
         {

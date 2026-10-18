@@ -2289,6 +2289,9 @@ static double g_t2SensitivityRowKHz = 0.0;
 // sect 1.3. Written once after cmd.Parse().
 static double g_imuGyroBiasSigmaDps = 0.0;
 static double g_imuStrideSigmaPct = 0.0; //!< --imuStrideSigmaPct
+static double g_imuMagSigmaDeg = 0.0;    //!< --imuMagSigmaDeg (white)
+static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov), OURS
+static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
 static CaTblImuParams
@@ -2302,6 +2305,12 @@ Dc1ImuParams()
     if (g_imuStrideSigmaPct > 0.0)
     {
         p.strideSigmaRel = g_imuStrideSigmaPct / 100.0;
+    }
+    if (g_imuMagSigmaDeg > 0.0)
+    {
+        p.magSigmaRad = g_imuMagSigmaDeg * M_PI / 180.0;
+        p.magGmSigmaRad = g_imuMagGmSigmaDeg * M_PI / 180.0;
+        p.magGmTauS = g_imuMagGmTauS;
     }
     return p;
 }
@@ -10808,6 +10817,10 @@ RunArm(CaTblPolicyMode mode,
                 {
                     double ux, uy, qu[3];
                     ex.rk->Step(sb.pos.x - ex.prevX, sb.pos.y - ex.prevY, dt, ux, uy, qu);
+                    if (g_imuMagSigmaDeg > 0.0)
+                    {
+                        sb.policy.SetMagHeading(ex.rk->MagTheta(), ex.rk->MagFuseVar(dt));
+                    }
                     sb.policy.SetImuControl(ux, uy, qu[0] * spec.imuQuScale, qu[1] * spec.imuQuScale,
                                             qu[2] * spec.imuQuScale);
                     uxW = ux;
@@ -12771,6 +12784,10 @@ RunArm(CaTblPolicyMode mode,
             imuPred->dx = imuPred->havePrev ? pos.x - imuPred->prevX : 0.0;
             imuPred->dy = imuPred->havePrev ? pos.y - imuPred->prevY : 0.0;
             imuPred->rk.Step(imuPred->dx, imuPred->dy, dt, imuPred->ux, imuPred->uy, imuPred->qu);
+            if (g_imuMagSigmaDeg > 0.0)
+            {
+                policy.SetMagHeading(imuPred->rk.MagTheta(), imuPred->rk.MagFuseVar(dt));
+            }
             policy.SetImuControl(imuPred->ux, imuPred->uy, imuPred->qu[0] * spec.imuQuScale,
                                  imuPred->qu[1] * spec.imuQuScale, imuPred->qu[2] * spec.imuQuScale);
             imuPred->prevX = pos.x;
@@ -14762,6 +14779,10 @@ RunArm(CaTblPolicyMode mode,
                  << imuPred->rk.Bias() << ") rad/s, scale est " << policy.Ekf5Scale() << " (true "
                  << imuPred->rk.Scale() << "), heading offset est " << policy.Ekf5HeadingOffset()
                  << " (true " << imuPred->rk.Heading() << ") rad\n";
+            if (g_imuMagSigmaDeg > 0.0)
+            {
+                line << "    magnetometer: headings fused " << policy.GetMagFused() << "\n";
+            }
             if (spec.ekf5Robust != 0)
             {
                 const CaTblImuEkf& f5 = policy.Ekf5();
@@ -16029,6 +16050,7 @@ main(int argc, char* argv[])
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
+    double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
     std::string imuFilterArg = "cv";     // N.28; see --imuFilter
     int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
@@ -18530,6 +18552,18 @@ main(int argc, char* argv[])
                  "a few percent of distance (Jahn et al. 2010; Harle 2013). Both filters are told: DC-1's "
                  "reported Q_u gains the along-track term, and ekf5's stride noise becomes the same model.",
                  imuStrideSigmaPctArg);
+    cmd.AddValue("imuMagSigmaDeg",
+                 "With --imuPredict and --imuFilter=ekf5: a magnetometer heading reference, its white noise per reading "
+                 "in degrees, plus a Gauss-Markov disturbance (--imuMagGmSigmaDeg, default 3, tau --imuMagGmTauS, "
+                 "default 120 s; both ours). 0 (default): no heading reference -- every result so far, a gyro-only "
+                 "heading whose error grows without bound (5 km seed 3 at 0.15 deg/s: 268 deg in 1800 s). Body-worn "
+                 "IMUs pair the gyro with one (BMI270 + BMM150); outdoor errors are a few degrees, indoor far worse "
+                 "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
+                 "the CV filter has no heading state and does not use it.",
+                 imuMagSigmaDegArg);
+    cmd.AddValue("imuMagGmSigmaDeg", "With --imuMagSigmaDeg: the magnetometer's Gauss-Markov disturbance sigma, deg (ours)",
+                 g_imuMagGmSigmaDeg);
+    cmd.AddValue("imuMagGmTauS", "With --imuMagSigmaDeg: that disturbance's time constant, s (ours)", g_imuMagGmTauS);
     cmd.AddValue("sparseInStep",
                  "Solve a two-range cycle inside Step(), after the prediction, against the "
                  "PROPAGATED prior, as Physical 2.4 says (docs/SPEC_CONFORMANCE_PLAN.md "
@@ -20180,6 +20214,18 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";
         return 1;
+    }
+    if (imuMagSigmaDegArg != 0.0)
+    {
+        if (!spec.imuPredict || !spec.imuFilterEkf5 || !(imuMagSigmaDegArg > 0.0) || !(g_imuMagGmSigmaDeg >= 0.0) ||
+            !(g_imuMagGmTauS > 0.0))
+        {
+            std::cerr << "FATAL: --imuMagSigmaDeg needs --imuPredict, --imuFilter=ekf5 and positive values\n";
+            return 1;
+        }
+        g_imuMagSigmaDeg = imuMagSigmaDegArg;
+        std::cout << "  DC-1: magnetometer heading reference, white " << g_imuMagSigmaDeg << " deg, Gauss-Markov "
+                  << g_imuMagGmSigmaDeg << " deg / " << g_imuMagGmTauS << " s\n";
     }
     if (imuStrideSigmaPctArg != 0.0)
     {

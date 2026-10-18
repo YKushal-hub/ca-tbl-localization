@@ -89,6 +89,13 @@ CaTblImuDeadReckoner::Step(double dx, double dy, double dt, double& ux, double& 
     }
     ux = (1.0 + m_scale + strideErr) * (c * dx - s * dy);
     uy = (1.0 + m_scale + strideErr) * (s * dx + c * dy);
+    if (m_p.magSigmaRad > 0.0)
+    {
+        // --imuMagSigmaDeg: drawn after the cycle's other draws, only when on, so off draws nothing.
+        const double a = std::exp(-dt / std::max(m_p.magGmTauS, 1e-6));
+        m_magGm = a * m_magGm + m_p.magGmSigmaRad * std::sqrt(std::max(0.0, 1.0 - a * a)) * m_rv->GetValue();
+        m_magTheta = m_psi + m_p.magSigmaRad * m_rv->GetValue() + m_magGm;
+    }
 
     if (!(step > 0.0))
     {
