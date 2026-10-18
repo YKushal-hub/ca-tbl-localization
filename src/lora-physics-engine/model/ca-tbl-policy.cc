@@ -1044,6 +1044,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetMomentMatched(m_config.ekf5MomentMatch);
         m_ekf5.SetMomentMatchedMeanShift(false);
         m_ekf5.SetRobust(m_config.ekf5Robust);
+        m_ekf5.SetFinderConsider(m_config.ekf5FinderConsider, m_config.ekf5FinderConsiderVar);
         m_ekf5HaveHeading = false;
     }
     m_deescalateCounter = 0;
