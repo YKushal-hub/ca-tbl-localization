@@ -178,9 +178,9 @@ bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scr
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-18, verified on the merged `main`, `cac9a843`: 111 PASS and five reds;
-`docs/TECH_DEBT.md` O.6 classifies G6/G11/G24, N.27 and N.30 (main line) G92/G93, and O.11 and O.14 record the stale
-gate expectations fixed on the way). None is a broken build or a regression; G92 and G93 are described below.
+**The suite's expected reds** (2026-10-19, verified on `0c8e638f`: 118 PASS, and G10 fixed after it; reds G11, G24,
+G93. `docs/TECH_DEBT.md` O.6, O.15, J.1 and N.27 explain each; docs/TECH_DEBT_STATUS.md tracks what is open).
+G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
