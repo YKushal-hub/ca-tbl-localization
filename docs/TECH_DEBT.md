@@ -1778,6 +1778,10 @@ runs". It has been false since `50a229a`.
   - In G75 (seed 7, 900 s, triggered updates off): 36 handshakes, 64 frames. All 36 pushes
     were heard (36 distinct packet ids from node 1 at the originator's hop limit).
   - Subjects run no handshake, so the count is tag 0's. The per-subject half waits on N.3.
+- *2026-10-18, closed (T3):* there is no per-subject half to count. `StartHandshake()` and `SetMobilityState()` are
+  called only on tag 0's MACs (`scratch/ca_tbl_causal_sim.cc`, one call site each), and the RECEDING push exists only
+  inside `StartHandshake()`. So no subject can send one, and G75's count, summed over every radio, is complete. If
+  N.3's refactor ever gives subjects the handshake, the count must follow it.
 
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 

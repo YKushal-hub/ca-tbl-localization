@@ -17,7 +17,7 @@ them.
 |---|---|---|---|
 | T1 | ~~K.3~~ | ~~RULES.md §6 still states "exactly one tier transmits per cycle"; the floor, the dual base (preset) and `poucet_fusion` all transmit two tiers in a cycle. Restate the invariant that actually holds~~ **DONE** RULES.md §6 restated (2026-10-18). | ENG (doc) |
 | T2 | ~~L.2 note~~ | ~~The casualty's table entry carries the previous cycle's estimate (published before `Step`): every entry age is understated by one cycle (2.5 s)~~ **DONE (code)** `--publishAfterStep`, gate G150 (927/927 entries fresh). Preset adoption: owner (O1). | ENG |
-| T3 | M.9 | The RECEDING eager push is not counted per subject | ENG |
+| T3 | ~~M.9~~ | ~~The RECEDING eager push is not counted per subject~~ **CLOSED (moot)** subjects never call StartHandshake, so no subject push exists; G75's count is complete. | ENG |
 | T4 | ~~M.11 / RULES.md~~ | ~~Stale counts in RULES.md §7 ("58 gates at c79fffd", `cmd.AddValue` line ranges, the unit-suite count)~~ **DONE** RULES.md counts replaced by the commands that produce them. | ENG (doc) |
 | T5 | ~~I.4~~ | ~~`--bidirectionalDigest`, `--finderPseudoAnchor`, `--corroborationCheck` silently need `--sendHandshakeFrames`; their help text does not say so~~ **DONE** help text of --bidirectionalDigest and --finderPseudoAnchor states the dependency (verified by run); --corroborationCheck already did. | ENG (doc) |
 | T6 | H.3 / I.5 | No gate asserts that a mechanism's input is non-zero whenever its firing counter is | ENG (gate) |
