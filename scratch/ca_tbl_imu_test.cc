@@ -314,6 +314,65 @@ main(int argc, char* argv[])
               "magnetometer: ekf5 FuseHeading is the scalar update on theta (gain P/(P+r), variance shrinks)");
     }
 
+    // --- --ekf5FinderConsider: a constant finder offset is not averaged away ------------------------------
+    // A static tag at the origin ranges, 60 times, one finder whose reported position is off by a constant
+    // N(0, 4 I) offset, and two surveyed anchors; ToF sigma 0.3 m. Naive: the offset variance folded into
+    // every range's R, fused as independent. Consider: R is the ToF part only, the offset a consider parameter.
+    {
+        auto run = [](bool consider, double& meanNees) {
+            uint64_t z = 1234567891234567ull;
+            auto u01 = [&z]() {
+                z ^= z << 13;
+                z ^= z >> 7;
+                z ^= z << 17;
+                return ((z >> 11) + 0.5) / 9007199254740992.0;
+            };
+            auto gauss = [&u01]() { return std::sqrt(-2.0 * std::log(u01())) * std::cos(2.0 * M_PI * u01()); };
+            double sn = 0.0;
+            const int nmc = 300;
+            for (int k = 0; k < nmc; ++k)
+            {
+                CaTblImuEkf f;
+                f.Init(0.0, 0.0, 100.0, 1e-6, 1e-12, 1e-8);
+                f.SetFinderConsider(consider, 4.0);
+                const double ox = 2.0 * gauss(), oy = 2.0 * gauss();
+                const double fx = 40.0, fy = 10.0; // the finder's TRUE position
+                for (int c = 0; c < 60; ++c)
+                {
+                    std::vector<CaTblRangeMeasurement> m(3);
+                    std::vector<double> v(3);
+                    m[0].anchorX = fx + ox; // reported, offset
+                    m[0].anchorY = fy + oy;
+                    m[0].anchorId = 501;
+                    m[0].sourceKind = CA_TBL_SRC_FINDER;
+                    m[0].rangeM = std::hypot(fx, fy) + 0.3 * gauss();
+                    v[0] = consider ? 0.09 : 0.09 + 4.0;
+                    const double gx[2] = {-60.0, 5.0}, gy[2] = {20.0, -70.0};
+                    for (int a = 0; a < 2; ++a)
+                    {
+                        m[1 + a].anchorX = gx[a];
+                        m[1 + a].anchorY = gy[a];
+                        m[1 + a].anchorId = 101 + a;
+                        m[1 + a].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+                        m[1 + a].rangeM = std::hypot(gx[a], gy[a]) + 25.0 * gauss();
+                        v[1 + a] = 625.0;
+                    }
+                    f.Update(m, v);
+                }
+                const double ex = f.X(), ey = f.Y();
+                const double det = f.Pxx() * f.Pyy() - f.Pxy() * f.Pxy();
+                sn += (f.Pyy() * ex * ex - 2.0 * f.Pxy() * ex * ey + f.Pxx() * ey * ey) / det;
+            }
+            meanNees = sn / nmc;
+        };
+        double nNaive, nCons;
+        run(false, nNaive);
+        run(true, nCons);
+        std::cout << "    finder consider: mean position NEES naive " << nNaive << ", consider " << nCons << "\n";
+        Check(nCons > 1.0 && nCons < 3.5, "finder consider: position NEES within [1, 3.5] (chi^2_2 mean 2) with a constant 2 m offset");
+        Check(nNaive > 2.0 * nCons, "finder consider: the naive fusion is more than twice as overconfident (the defect)");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

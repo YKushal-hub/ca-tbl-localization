@@ -646,6 +646,8 @@ struct CaTblPolicyConfig
     double ekf5StepSigma = 0.01;          //!< per-step stride noise, m: DC-1 has none; a floor. OURS
     bool ekf5MomentMatch = true;          //!< variance-only moment-matched coasting (G94)
     int ekf5Robust = 0;                   //!< N.33: CaTblImuEkf::SetRobust mode; 0 = original update
+    bool ekf5FinderConsider = false;      //!< --ekf5FinderConsider: finder GNSS offsets as consider parameters
+    double ekf5FinderConsiderVar = 4.0;   //!< their variance, m^2
     double ekf5StrideRel = 0.0;           //!< --imuStrideSigmaPct / 100: the filter's per-step stride model
     double ekf5StrideLenM = 0.7;          //!< step length the stride model counts steps with
 

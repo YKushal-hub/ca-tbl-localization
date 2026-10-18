@@ -2292,6 +2292,8 @@ static double g_imuStrideSigmaPct = 0.0; //!< --imuStrideSigmaPct
 static double g_imuMagSigmaDeg = 0.0;    //!< --imuMagSigmaDeg (white)
 static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov), OURS
 static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
+static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
+static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
 static CaTblImuParams
@@ -7043,6 +7045,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5StrideRel = ip.strideSigmaRel;
         pcfg.ekf5StrideLenM = ip.strideLenM;
         pcfg.ekf5Robust = spec.ekf5Robust;
+        pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
+        pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
     policy.SetAcquireSalt(nodeId); // V4: inert unless --acquireParticles
@@ -10554,8 +10558,10 @@ RunArm(CaTblPolicyMode mode,
                                     }
                                     if (un > 1e-6)
                                     {
-                                        const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
-                                                                  {fe.covXY, fe.varY + ageVar}};
+                                        // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
+                                        const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+                                        const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
+                                                                  {gk * fe.covXY, gk * fe.varY + ageVar}};
                                         const double proj =
                                             CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
                                         if (proj < 0.0 && spec.finderPseudoAnchorStrict)
@@ -11830,8 +11836,10 @@ RunArm(CaTblPolicyMode mode,
                                 const double travel = walkSpeedMps * ageS;
                                 const double ageVar = (fePredVar >= 0.0) ? fePredVar
                                                                          : travel * travel;
-                                const double fp2[2][2] = {{fe.varX + ageVar, fe.covXY},
-                                                          {fe.covXY, fe.varY + ageVar}};
+                                // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
+                                const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+                                const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
+                                                          {gk * fe.covXY, gk * fe.varY + ageVar}};
                                 const double proj =
                                     CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
                                 if (proj >= 0.0)
@@ -14783,6 +14791,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 line << "    magnetometer: headings fused " << policy.GetMagFused() << "\n";
             }
+            if (g_ekf5FinderConsider)
+            {
+                line << "    ekf5 finder consider: ranges to finders " << policy.Ekf5().ConsiderUpdates() << "\n";
+            }
             if (spec.ekf5Robust != 0)
             {
                 const CaTblImuEkf& f5 = policy.Ekf5();
@@ -16051,6 +16063,7 @@ main(int argc, char* argv[])
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
     double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
+    bool ekf5FinderConsiderArg = false;  // see --ekf5FinderConsider
     std::string imuFilterArg = "cv";     // N.28; see --imuFilter
     int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
@@ -18561,6 +18574,15 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("ekf5FinderConsider",
+                 "With --imuFilter=ekf5: each finder's GNSS position offset is a Schmidt consider parameter of the "
+                 "5-state filter -- not estimated, but its covariance and its cross-covariance with the state are "
+                 "carried, so repeated ranges to one offset finder are not fused as independent. The offset's "
+                 "variance is --finderPosSigma squared, or the 4 m^2 every finder entry claims when that is 0; the "
+                 "range's own R then leaves the GNSS part out. FALSE by default. Why: with --finderPosSigma=2 (a "
+                 "finder's realistic GNSS error, constant per finder) CA-TBL's endgame CEP95 rose 4.3 -> 10.5 m, the "
+                 "arm that ranges finders most. Refused without ekf5 or with --ekf5Robust.",
+                 ekf5FinderConsiderArg);
     cmd.AddValue("imuMagGmSigmaDeg", "With --imuMagSigmaDeg: the magnetometer's Gauss-Markov disturbance sigma, deg (ours)",
                  g_imuMagGmSigmaDeg);
     cmd.AddValue("imuMagGmTauS", "With --imuMagSigmaDeg: that disturbance's time constant, s (ours)", g_imuMagGmTauS);
@@ -20198,6 +20220,18 @@ main(int argc, char* argv[])
         // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
+    }
+    if (ekf5FinderConsiderArg)
+    {
+        if (!spec.imuFilterEkf5 || ekf5RobustArg != 0)
+        {
+            std::cerr << "FATAL: --ekf5FinderConsider needs --imuFilter=ekf5 and no --ekf5Robust\n";
+            return 1;
+        }
+        g_ekf5FinderConsider = true;
+        g_ekf5FinderConsiderVar = (finderPosSigmaMArg > 0.0) ? finderPosSigmaMArg * finderPosSigmaMArg : 4.0;
+        std::cout << "  ekf5: finder GNSS offsets carried as consider parameters, variance " << g_ekf5FinderConsiderVar
+                  << " m^2\n";
     }
     if (ekf5RobustArg != 0)
     {

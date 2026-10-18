@@ -15,6 +15,7 @@
 
 #include "ca-tbl-imu-sensor-model.h"
 
+#include <map>
 #include <vector>
 
 namespace ns3
@@ -209,6 +210,11 @@ class CaTblImuEkf
     //           carried in P but no single-range innovation is spent learning them.
     static const int ROBUST_CONSIDER = 8;
     void SetRobust(int mode) { m_robust = mode; }
+    /** --ekf5FinderConsider: each finder's GNSS position offset is a Schmidt consider parameter -- not
+     *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
+     *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
+    void SetFinderConsider(bool on, double var) { m_consOn = on; m_consVar = var; }
+    uint64_t ConsiderUpdates() const { return m_consN; }
     //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
     void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
     int Robust() const { return m_robust; }
@@ -265,6 +271,18 @@ class CaTblImuEkf
     uint64_t m_nProtected = 0;
     uint64_t m_nRecoveries = 0;
     uint64_t m_nConsidered = 0;
+    struct ConsAnchor
+    {
+        double X[N][2] = {}; //!< cross-covariance state x anchor offset
+    };
+    bool m_consOn = false;
+    double m_consVar = 4.0;
+    uint64_t m_consN = 0;
+    std::map<uint16_t, ConsAnchor> m_cons;
+    std::map<uint16_t, ConsAnchor> m_consPrior;
+    void ConsAfterGain(const double* K, int nK, const double* HP); //!< X_b -= K (H X_b), every anchor
+    void ConsAfterTransition(const double F[N][N]);
+    void UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
     bool m_trackNis = false;
     double m_nisMean = 1.0;
     uint64_t m_nisN = 0;

@@ -46,6 +46,10 @@ CaTblImuEkf::Init(double x,
 void
 CaTblImuEkf::SnapshotPrior()
 {
+    if (m_consOn)
+    {
+        m_consPrior = m_cons;
+    }
     for (int i = 0; i < N; ++i)
     {
         m_xPrior[i] = m_x[i];
@@ -125,6 +129,7 @@ CaTblImuEkf::Predict(double dt,
             FP[i][j] = acc;
         }
     }
+    ConsAfterTransition(F); // --ekf5FinderConsider; a no-op unless on
     double newP[N][N];
     for (int i = 0; i < N; ++i)
     {
@@ -380,6 +385,11 @@ CaTblImuEkf::FuseHeading(double z, double r)
     {
         K[i] = m_P[i][2] / S;
     }
+    if (m_consOn)
+    {
+        const double H[N] = {0.0, 0.0, 1.0, 0.0, 0.0};
+        ConsAfterGain(K, 1, H);
+    }
     for (int i = 0; i < N; ++i)
     {
         m_x[i] += K[i] * nu;
@@ -405,6 +415,10 @@ CaTblImuEkf::FuseHeading(double z, double r)
 void
 CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 {
+    for (auto& kv : m_cons)
+    {
+        kv.second.X[0][0] = kv.second.X[0][1] = kv.second.X[1][0] = kv.second.X[1][1] = 0.0;
+    }
     m_x[0] = x;
     m_x[1] = y;
     for (int j = 0; j < N; ++j)
@@ -422,6 +436,10 @@ CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 void
 CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double pyy)
 {
+    for (auto& kv : m_cons)
+    {
+        kv.second.X[0][0] = kv.second.X[0][1] = kv.second.X[1][0] = kv.second.X[1][1] = 0.0;
+    }
     m_x[0] = x;
     m_x[1] = y;
     for (int j = 0; j < N; ++j)
@@ -444,6 +462,11 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
     if (m_robust != 0)
     {
         UpdateRobust(meas, varM2); // N.33; mode 0 below is the original, untouched
+        return;
+    }
+    if (m_consOn)
+    {
+        UpdateConsider(meas, varM2); // --ekf5FinderConsider; off by default
         return;
     }
     if (!meas.empty())
@@ -506,6 +529,10 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
 void
 CaTblImuEkf::RevertToPrior()
 {
+    if (m_consOn)
+    {
+        m_cons = m_consPrior;
+    }
     for (int i = 0; i < N; ++i)
     {
         m_x[i] = m_xPrior[i];
@@ -585,6 +612,12 @@ CaTblImuEkf::FuseAxis(int axis, double z, double varM2)
     for (int i = 0; i < N; ++i)
     {
         m_x[i] += K[i] * innovation;
+    }
+    if (m_consOn)
+    {
+        double H[N] = {0.0, 0.0, 0.0, 0.0, 0.0};
+        H[axis] = 1.0;
+        ConsAfterGain(K, 1, H);
     }
     double newP[N][N];
     for (int i = 0; i < N; ++i)
@@ -679,6 +712,33 @@ CaTblImuEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, doubl
     {
         m_x[i] += K[i][0] * v0 + K[i][1] * v1;
     }
+    if (m_consOn)
+    {
+        const double K0[N] = {K[0][0], K[1][0], K[2][0], K[3][0], K[4][0]};
+        const double K1[N] = {K[0][1], K[1][1], K[2][1], K[3][1], K[4][1]};
+        const double H0[N] = {1.0, 0.0, 0.0, 0.0, 0.0};
+        const double H1[N] = {0.0, 1.0, 0.0, 0.0, 0.0};
+        // A 2-D update with gain [K0 K1] and H = [e_x; e_y]: X_b -= K0 (e_x X_b) + K1 (e_y X_b), both from
+        // the pre-update X_b -- applied as one step.
+        for (auto& kv : m_cons)
+        {
+            double r0[2], r1[2];
+            for (int c = 0; c < 2; ++c)
+            {
+                r0[c] = kv.second.X[0][c];
+                r1[c] = kv.second.X[1][c];
+            }
+            for (int i = 0; i < N; ++i)
+            {
+                for (int c = 0; c < 2; ++c)
+                {
+                    kv.second.X[i][c] -= K0[i] * r0[c] + K1[i] * r1[c];
+                }
+            }
+        }
+        (void)H0;
+        (void)H1;
+    }
     double newP[N][N];
     for (int i = 0; i < N; ++i)
     {
@@ -704,6 +764,16 @@ CaTblImuEkf::PredictDwell(double dt, double qTheta2, double qBias2, double posVa
     // theta' = theta + b dt is the only state that moves: F = I except d theta' / d b = dt.
     // P' = F P F^T, written out for that single off-diagonal.
     m_x[2] += m_x[3] * dt;
+    if (m_consOn)
+    {
+        double F[N][N] = {};
+        for (int i = 0; i < N; ++i)
+        {
+            F[i][i] = 1.0;
+        }
+        F[2][3] = dt;
+        ConsAfterTransition(F);
+    }
     double P[N][N];
     for (int i = 0; i < N; ++i)
     {
@@ -964,6 +1034,153 @@ CaTblImuEkf::FusePositionCovRobust(double zx, double zy, double rxx, double rxy,
         JosephScalar(H, K, lam[a]);
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// --ekf5FinderConsider: finder GNSS offsets as Schmidt consider parameters.
+// ---------------------------------------------------------------------------
+
+void
+CaTblImuEkf::ConsAfterTransition(const double F[N][N])
+{
+    if (!m_consOn)
+    {
+        return;
+    }
+    for (auto& kv : m_cons)
+    {
+        double Y[N][2];
+        for (int i = 0; i < N; ++i)
+        {
+            for (int c = 0; c < 2; ++c)
+            {
+                double acc = 0.0;
+                for (int k = 0; k < N; ++k)
+                {
+                    acc += F[i][k] * kv.second.X[k][c];
+                }
+                Y[i][c] = acc;
+            }
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            kv.second.X[i][0] = Y[i][0];
+            kv.second.X[i][1] = Y[i][1];
+        }
+    }
+}
+
+void
+CaTblImuEkf::ConsAfterGain(const double* K, int nK, const double* H)
+{
+    // A scalar update of the state alone (H on the state, none on any offset): X_b <- (I - K H) X_b.
+    (void)nK;
+    for (auto& kv : m_cons)
+    {
+        double hx[2] = {0.0, 0.0};
+        for (int c = 0; c < 2; ++c)
+        {
+            for (int k = 0; k < N; ++k)
+            {
+                hx[c] += H[k] * kv.second.X[k][c];
+            }
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            kv.second.X[i][0] -= K[i] * hx[0];
+            kv.second.X[i][1] -= K[i] * hx[1];
+        }
+    }
+}
+
+void
+CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    if (!meas.empty())
+    {
+        ResetCoast();
+    }
+    const size_t n = std::min(meas.size(), varM2.size());
+    for (size_t k = 0; k < n; ++k)
+    {
+        const CaTblRangeMeasurement& mm = meas[k];
+        const double dx = m_x[0] - mm.anchorX;
+        const double dy = m_x[1] - mm.anchorY;
+        const double rPred = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rPred, 1e-6);
+        const double H[N] = {dx / rSafe, dy / rSafe, 0.0, 0.0, 0.0};
+        const bool finder = (mm.sourceKind == CA_TBL_SRC_FINDER);
+        ConsAnchor* ca = nullptr;
+        if (finder)
+        {
+            ca = &m_cons[mm.anchorId]; // a new finder enters uncorrelated with the state
+        }
+        // Ha = d r / d (anchor offset) = -h. PH = P H', XH = X Ha'.
+        double PH[N], XH[N];
+        for (int i = 0; i < N; ++i)
+        {
+            PH[i] = m_P[i][0] * H[0] + m_P[i][1] * H[1];
+            XH[i] = ca ? -(ca->X[i][0] * H[0] + ca->X[i][1] * H[1]) : 0.0;
+        }
+        const double haCha = ca ? m_consVar : 0.0; // Ha C Ha' with C = var I and |Ha| = 1
+        const double S = H[0] * PH[0] + H[1] * PH[1] + 2.0 * (H[0] * XH[0] + H[1] * XH[1]) + haCha + varM2[k];
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        double K[N];
+        for (int i = 0; i < N; ++i)
+        {
+            K[i] = (PH[i] + XH[i]) / S;
+        }
+        const double innovation = mm.rangeM - rPred;
+        NoteNis(innovation * innovation / S);
+        // Cross-covariances first, from pre-update values. For the ranged finder:
+        // X_a <- X_a - K (H X_a + Ha C) = X_a - K (H X_a - var h). Every other finder: X_b <- X_b - K (H X_b).
+        for (auto& kv : m_cons)
+        {
+            double hx[2] = {0.0, 0.0};
+            for (int c = 0; c < 2; ++c)
+            {
+                hx[c] = H[0] * kv.second.X[0][c] + H[1] * kv.second.X[1][c];
+            }
+            if (ca && &kv.second == ca)
+            {
+                hx[0] -= m_consVar * H[0];
+                hx[1] -= m_consVar * H[1];
+            }
+            for (int i = 0; i < N; ++i)
+            {
+                kv.second.X[i][0] -= K[i] * hx[0];
+                kv.second.X[i][1] -= K[i] * hx[1];
+            }
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            m_x[i] += K[i] * innovation;
+        }
+        // Schmidt: P <- P - K (H P + Ha X') = P - K (PH + XH)'.
+        double newP[N][N];
+        for (int i = 0; i < N; ++i)
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                newP[i][j] = m_P[i][j] - K[i] * (PH[j] + XH[j]);
+            }
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            for (int j = 0; j < N; ++j)
+            {
+                m_P[i][j] = newP[i][j];
+            }
+        }
+        Symmetrise();
+        if (finder)
+        {
+            ++m_consN;
+        }
+    }
 }
 
 } // namespace ns3
