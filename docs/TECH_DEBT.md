@@ -4067,3 +4067,17 @@ G24 reports each as STRUCT while the preset's `spec_profile.txt` shows the decid
 population rule otherwise. Queue gossip items have a population again. **The three zeros left:** Case A fixes,
 arbitration pre-emptions and grant tie-break verdicts (N.26's fused sets and fewer competing escalations). Accepting
 them is the owner's (TECH_DEBT_STATUS O2).
+
+### O.16 DEBT-A: eight open items measured on the final preset (report/DEBT_A_RESULTS.md)
+- **N.52 / T27:** `--nlosRSource=detector` costs nothing measurable; the oracle can leave the filter (owner, O4).
+- **N.41 / T12:** `--foliageScaleBounds` (G154) improves accuracy (5 km 365 → 330 m; endgame 5.0 → 4.7 m). Owner, O5.
+- **M.1 / T29:** `--interferenceDistance` (G153) improves the endgame (5.0 → 4.1 m, coverage 0.972) and 5 km after
+  acquisition (260 → 210 m). Owner, O6.
+- **O.9 / T46:** `--rssiRangeFromRxPower` (G155) makes 868 MHz alone worse (448 → 494 m), the hybrid unharmed. Owner, O7.
+- **N.35–N.37 / T26:** H2 in its TDoA form is falsified: subjects' TDoA off changes nothing. The hybrid subjects'
+  5 km loss to static 2.4 GHz has no identified cause (H1, H2-range, H2-TDoA all ruled out); recorded as a finding.
+- **M.10 / T33:** C6 re-measured under the fix-tier bill. The edge estimator saves the node 26 % (`static_868`) and
+  13–15 % (hybrid), accuracy byte-identical.
+- **L.3 claim 3 / T42:** arbitration V2 costs 18 % of endgame tag-0 energy and half its UWB time, with no accuracy
+  gain. Claim 3 is unsupported on accuracy and energy. Its fairness objective has no metric in the traces. Owner, O8:
+  keep arbitration V2 in the preset?

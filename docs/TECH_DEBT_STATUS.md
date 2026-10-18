@@ -26,7 +26,7 @@ them.
 | T9 | ~~6~~ | ~~`src/lorawan` link fix never upstreamed; the optimized profile is not enforced~~ **DONE** G1 refuses a non-optimized configuration (fixture: debug cache); the lorawan fix stays in-tree (upstreaming is external). | ENG (minor) |
 | T10 | 2.1 | Four loss terms (antenna gain, Doppler, multipath, soil) are computed then zeroed: wire them in or delete them | OWNER → CAMP |
 | T11 | ~~2.2~~ | ~~Terrain uses 868 MHz for every tier; `--terrainPerTierFreq` exists, default off, not in the preset~~ **CLOSED** the preset already sets `--terrainPerTierFreq=true` (kSpecProfile, physics fix D-4); only the code default is off. | CAMP |
-| T12 | N.41 | Foliage scaling on 2.4 GHz/UWB is capped by the sampler clamp (×1.8 instead of ×2.17/×5.28) | CAMP (engine fix + campaign) |
+| T12 | ~~N.41~~ | ~~Foliage scaling on 2.4 GHz/UWB is capped by the sampler clamp (×1.8 instead of ×2.17/×5.28)~~ **DONE (code + DEBT-A)** G154; improves accuracy; adoption O5. | CAMP (engine fix + campaign) |
 | T13 | N.27 / G93 | Tier 2's sensitivity table is the 1625 kHz row at 800 kHz (~6 dB pessimistic); `--t2SensitivityRowKHz` measured (D8-MAIN), not default | OWNER |
 | T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
 | T15 | ~~1.3 / N.30(main) / G92~~ | ~~15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report~~ **DONE** G92 PASSES: 13 lost paths in RESULTS_NONREGENERABLE.tsv with reasons and successors, 3 allow-listed in EXCLUDED.md; citing documents note it. | ENG (re-point or exclude) |
@@ -40,14 +40,14 @@ them.
 | T23 | O.13 / O.10 | Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m) | OWNER |
 | T24 | ~~O.9~~ | ~~RSSI ranging's path-loss model does not follow the foliage model~~ **CLOSED (diagnosed)** hypothesis refuted: the inversion has no foliage term; P.833 admits 11 % more links at unchanged per-range error; F3 was within noise. Exposed T46. | ENG (diagnose) |
 | T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only | LIMIT |
-| T26 | N.35–N.37 | 5 km within-25 m loss of the hybrid's subjects against static 2.4 GHz unexplained; H2 TDoA form untested | CAMP |
-| T27 | N.52 | The preset keys R on NLOS truth (`--nlosSource=propagation`); `--nlosRSource=detector` exists | CAMP |
+| T26 | ~~N.35–N.37~~ | ~~5 km within-25 m loss of the hybrid's subjects against static 2.4 GHz unexplained; H2 TDoA form untested~~ **CLOSED (measured negative)** H2-TDoA falsified (subjects' TDoA off changes nothing); cause remains an open finding. | CAMP |
+| T27 | ~~N.52~~ | ~~The preset keys R on NLOS truth (`--nlosSource=propagation`); `--nlosRSource=detector` exists~~ **MEASURED (DEBT-A)** detector costs nothing; adoption O4. | CAMP |
 | T28 | N.50 | `--unknownStart` is not the code default (all recent campaigns pass it) | OWNER |
-| T29 | M.1 open | The interference registry never attenuates an interferer by distance; relay rounds sit in the MAC-run slice | CAMP (engine) |
+| T29 | ~~M.1 open~~ | ~~The interference registry never attenuates an interferer by distance; relay rounds sit in the MAC-run slice~~ **DONE (code + DEBT-A)** G153; endgame 5.0 → 4.1 m; adoption O6. | CAMP (engine) |
 | T30 | M.2 / L.2.2 | The UWB CIR confusion matrix cannot fill under the channel model; needs an obstruction model of our own | OWNER |
 | T31 | N.1 / N.20 | `--silenceStopsRelay`, `--deadBatteryNoDraw` built, default off, not in the preset | OWNER |
 | T32 | N.3 | Two copies of the per-node cycle core (tag 0 and subjects); per-subject SHS not built | ENG (refactor, large) |
-| T33 | M.10 | C6's 20-seed edge-server energy figure not re-measured under the fix-tier downlink bill | CAMP |
+| T33 | ~~M.10~~ | ~~C6's 20-seed edge-server energy figure not re-measured under the fix-tier downlink bill~~ **CLOSED** C6 re-measured: edge saves 26 % (868 alone), 13–15 % (hybrid). | CAMP |
 | T34 | N.8 / N.13 | Explicit DENY frames cost airtime (design choice); Case C shapes coarse and rarely reach the base station | OWNER |
 | T35 | N.11 | Converting RSSI variability to a ToF-tier range sigma is OURS and open (flag out of preset) | LIMIT |
 | T36 | N.42 | Lim, Hofer, Robyns values still lack a source | LIMIT |
@@ -56,11 +56,11 @@ them.
 | T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
 | T40 | 5.1 | 137 published commits carry the wrong author email; fixing needs a force-push to protected `main` | OWNER |
 | T41 | ~~5.3~~ | ~~No gate catches stale documents~~ **DONE (the checkable part)** G152: documents name only real flags; RULES.md preset list ⊆ kSpecProfile; fake-flag fixture. | ENG (gate, partial) |
-| T42 | L.3 claim 3 | Identity-scoped arbitration has never been measured as a claim | CAMP |
+| T42 | ~~L.3 claim 3~~ | ~~Identity-scoped arbitration has never been measured as a claim~~ **MEASURED** arbitration V2: −18 % energy when off, no accuracy loss; claim 3 unsupported on these metrics; O8. | CAMP |
 | T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) | OWNER (scope) |
 | T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) | LIMIT (stated) |
 | T45 | E1 | Same-site field test | HW |
-| T46 | O.9 diagnosis | The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread) | CAMP |
+| T46 | ~~O.9 diagnosis~~ | ~~The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread)~~ **DONE (code + DEBT-A)** G155; 868 alone worse as expected; adoption O7. | CAMP |
 
 ## Closed or deliberate (no action)
 
@@ -93,3 +93,8 @@ them.
 | O1 | adopt `--publishAfterStep` into the preset? (T2) | G150; correctness only, entries 2.5 s fresher |
 | O2 | accept G24's three zero populations (Case A fixes, arbitration pre-emptions, grant tie-break verdicts)? (T17) | O.15; they follow from N.26's fused sets |
 | O3 | change G11's criterion to the pre-penalty engine margin and give the model the engine's terrain mean? (T18) | J.1 diagnosis; scripts/g11_term_diagnosis.py |
+| O4 | adopt `--nlosRSource=detector` (no NLOS truth in the filter)? (T27) | DEBT-A D1: no measurable cost |
+| O5 | adopt `--foliageScaleBounds` (foliage scaling as the parameter file states)? (T12) | DEBT-A: 5 km 365 → 330 m |
+| O6 | adopt `--interferenceDistance` (interferers attenuated by distance)? (T29) | DEBT-A: endgame 5.0 → 4.1 m |
+| O7 | adopt `--rssiRangeFromRxPower` (RSSI range includes foliage/fading)? (T46) | DEBT-A: 868 alone 448 → 494 m; hybrid unharmed |
+| O8 | keep `--arbitrationV2` (and requester escalation, queue gossip) in the preset? (T42) | DEBT-A: off saves 18 % endgame energy, no accuracy loss |
