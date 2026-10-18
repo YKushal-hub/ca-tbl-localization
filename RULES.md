@@ -178,7 +178,7 @@ bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers u
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-18, verified on the merged `main`, `cac9a843`: 111 PASS and five reds;
+**The suite's expected reds** (2026-10-19, verified on the IMU-line merge, `b828add0`: every gate PASS but five reds, G95–G102 and G150 included; the suite left the tree unmodified;
 `docs/TECH_DEBT.md` O.6 classifies G6/G11/G24, N.27 and N.30 (main line) G92/G93, and O.11 and O.14 record the stale
 gate expectations fixed on the way). None is a broken build or a regression; G92 and G93 are described below.
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.

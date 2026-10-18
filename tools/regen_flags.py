@@ -55,8 +55,9 @@ if bullet:
         assert s.count(anchor) == 1
         s = s.replace(anchor, "\n" + text.format(row=rows[f]).rstrip("\n") + anchor, 1)
         m = re.search(r"and adds the\n(\S+) names\.", s)
-        n = WORDS.index(m.group(1)) + 1
-        s = s.replace(f"and adds the\n{m.group(1)} names.", f"and adds the\n{WORDS[n]} names.")
+        cur = m.group(1)
+        n = (WORDS.index(cur) if cur in WORDS else int(cur)) + 1
+        s = s.replace(f"and adds the\n{cur} names.", f"and adds the\n{WORDS[n] if n < len(WORDS) else n} names.")
 # recompute every "(row N of sect 3" in the header bullets
 def fix(m):
     names = re.findall(r"`--([A-Za-z0-9]+)`", m.group(0))

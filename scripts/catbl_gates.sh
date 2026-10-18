@@ -1831,6 +1831,96 @@ printf '\n--- G94 5-state filter consistency over a 1000 s outage (fixture both 
 bash scripts/catbl_imu_long_outage_fixture.sh || fail G94
 finish G94
 
+# ---------------- G95: --imuFilter=ekf5 is wired, learns, and is off by default (N.28)
+# DC1-BIAS measured DC-1's filter failing with any realistic gyro bias: it has no heading, bias
+# or scale state, so DC-1's heading error is never corrected. --imuFilter=ekf5 runs the 5-state
+# CaTblImuEkf on the same IMU output. scripts/ekf5_gate.py reads the preset's endgame at
+# 0.5 deg/s (seed 7, 900 s): every prediction went through ekf5 (moving + dwell = DC-1's cycles),
+# the bias estimate is within 50 % of DC-1's true bias and the heading offset within 0.2 rad of
+# its true error; the default is byte-identical to an explicit cv; ekf5 does not leak into a
+# default run; and the two meaningless combinations are refused.
+# Negative fixtures in scripts/ekf5_gate_selftest.sh, built from these runs (rule 6).
+printf '\n--- G95 the 5-state filter on DC-1 (--imuFilter=ekf5; N.28) ---\n'
+bash scripts/ekf5_gate.sh "$WORK/g95" || fail G95
+bash scripts/ekf5_gate_selftest.sh "$WORK/g95" || fail G95
+finish G95
+
+# ---------------- G96: --ekf5Robust=8, CONSIDER, is wired, reached and off by default (N.33)
+# --ekf5Robust=8 takes a fix of fewer than 3 ranges -- in practice Case D's single range -- as a
+# Schmidt update: position only, theta, b and s and their variances untouched. EKF5-CONSIDER
+# REJECTED it (report/EKF5_CONSIDER_RESULTS.md); it stays a default-off diagnostic, and this gate
+# keeps its wiring honest. scripts/ekf5_consider_gate.py reads the preset at 5 km, seed 19, 600 s,
+# 0.15 deg/s (Case D fires there under the current preset): the mode's line is present, it
+# considered > 0 updates and set no other bit, it considered exactly Case D's applied updates, and
+# its run differs from mode 0's; --ekf5Robust=0 is the flag absent byte for byte; the mode does
+# not leak into a default run; and it is refused without ekf5 or out of range. The filter-level property
+# is ca_tbl_imu_test's N.33 cases. Negative fixtures in scripts/ekf5_consider_gate_selftest.sh.
+printf '\n--- G96 Schmidt updates for sparse fixes in the 5-state filter (--ekf5Robust=8; N.33) ---\n'
+bash scripts/ekf5_consider_gate.sh "$WORK/g96" || fail G96
+bash scripts/ekf5_consider_gate_selftest.sh "$WORK/g96" || fail G96
+finish G96
+
+# ---------------- G97: --imuStrideSigmaPct adds per-step stride noise to DC-1 as specified, off by default
+# DC-1's dead reckoning had no per-cycle noise at all (its stride exact up to one per-run scale). The flag adds
+# a per-step relative stride error; scripts/imu_stride_gate.py reads tag 0's imu_ trace at 5 km, seed 7, 600 s,
+# 5 %: the along-track residual's mean square over the moving cycles is the model's sigma^2 l |d| within 25 %;
+# the flag at 0 is the flag absent byte for byte; it does not leak; it is refused without --imuPredict or
+# negative. The per-cycle law and its stated Q_u are ca_tbl_imu_test's stride cases.
+printf '\n--- G97 per-step stride noise in DC-1 (--imuStrideSigmaPct) ---\n'
+bash scripts/imu_stride_gate.sh "$WORK/g97" || fail G97
+bash scripts/imu_stride_gate_selftest.sh "$WORK/g97" || fail G97
+finish G97
+
+# ---------------- G98: --acquireHandoverCurvature is wired, reached and off by default (N.58)
+# The acquisition cloud handed over once its SD was under a quarter of the cycle's MEDIAN range, which km-long
+# 868 MHz ranges dominate; precise ToF ranges were then linearised hundreds of metres off. The flag also requires
+# l1 <= 2 r sigma for every range. scripts/acq_curvature_gate.py reads the preset at 5 km, seed 5, unknown start,
+# 600 s: the guard held > 0 cycles, its run differs from the unguarded one, false is the flag absent byte for
+# byte, it does not leak, and it is refused without --acquireParticles.
+printf '\n--- G98 the acquisition cloud curvature guard (--acquireHandoverCurvature; N.58) ---\n'
+bash scripts/acq_curvature_gate.sh "$WORK/g98" || fail G98
+bash scripts/acq_curvature_gate_selftest.sh "$WORK/g98" || fail G98
+finish G98
+
+# ---------------- G99: --imuMagSigmaDeg, a magnetometer heading reference fused by ekf5
+# A gyro-only heading's error grows without bound (REAL-IMU 5 km seed 5: 1.87 rad at 0.15 deg/s). The flag adds a
+# magnetometer reading of the IMU's accumulated heading error each cycle (white + Gauss-Markov), fused by ekf5 as a
+# direct theta reading at the independent-equivalent variance. scripts/imu_mag_gate.py reads that cell: the reading
+# is fused on every IMU cycle, the final heading error is 1.869 rad without it and under 0.2 with it; 0 is the flag
+# absent byte for byte; it does not leak; refused without ekf5 or negative. Unit cases in ca_tbl_imu_test.
+printf '\n--- G99 a magnetometer heading reference (--imuMagSigmaDeg) ---\n'
+bash scripts/imu_mag_gate.sh "$WORK/g99" || fail G99
+bash scripts/imu_mag_gate_selftest.sh "$WORK/g99" || fail G99
+finish G99
+
+# ---------------- G150: --ekf5FinderConsider, finder GNSS offsets as consider parameters (numbered G150: main already had a G100)
+# scripts/finder_consider_gate.py reads the endgame, seed 1, realistic IMU, --finderPosSigma=2, 600 s: the flag
+# applied to > 0 finder ranges, and the fused 2.4 GHz finder ranges' R lost exactly the GNSS part (base^2 - on^2
+# within [3, 5] m^2: measured 4.00); false is the flag absent byte for byte; no leak; refused without ekf5 or with
+# a robust mode. The consistency property is ca_tbl_imu_test's (NEES 2.08 against 53 naive).
+printf '\n--- G150 finder GNSS offsets as consider parameters (--ekf5FinderConsider) ---\n'
+bash scripts/finder_consider_gate.sh "$WORK/g150" || fail G150
+bash scripts/finder_consider_gate_selftest.sh "$WORK/g150" || fail G150
+finish G150
+
+# ---------------- G101: --ekf5RelayGate, a chi^2 gate on relayed ranges only
+# scripts/relay_gate_gate.py reads the endgame, seed 3, 300 s, the cell where a relay gave z = -25: relayed > 0,
+# 0 < gated < relayed, the run differs from the ungated one; false is the flag absent byte for byte; no leak;
+# refused without ekf5 or with a robust mode. That it gates relays only is ca_tbl_imu_test's relay gate cases.
+printf '\n--- G101 a chi^2 gate on relayed ranges (--ekf5RelayGate) ---\n'
+bash scripts/relay_gate_gate.sh "$WORK/g101" || fail G101
+bash scripts/relay_gate_gate_selftest.sh "$WORK/g101" || fail G101
+finish G101
+
+# ---------------- G102: --ekf5StateBounds, the bias and stride scale projected onto +/- k prior sigmas
+# scripts/state_bounds_gate.py reads REAL-STACK's 5 km seed 12 under the full stack, 1800 s: the projection fired,
+# the final scale is inside 4 x 0.0266 with it (-0.1064) and outside without it (-0.3397), the bias inside its
+# bound; 0 is the flag absent byte for byte; no leak; refused without ekf5 or negative.
+printf '\n--- G102 the bias and stride scale held to their physical bounds (--ekf5StateBounds) ---\n'
+bash scripts/state_bounds_gate.sh "$WORK/g102" || fail G102
+bash scripts/state_bounds_gate_selftest.sh "$WORK/g102" || fail G102
+finish G102
+
 # ---------------- G24: the preset is conformant (P6, plan sect 3.2)
 # --specProfile sets every spec flag the user did not give. G24 runs the preset, its
 # endgame variant (finders converging in a 750 m box; the owner's decision after MS-3), each
