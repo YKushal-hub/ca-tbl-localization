@@ -215,6 +215,12 @@ class CaTblImuEkf
      *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
     void SetFinderConsider(bool on, double var) { m_consOn = on; m_consVar = var; }
     uint64_t ConsiderUpdates() const { return m_consN; }
+    /** --ekf5RelayGate: a RELAYED range (anchored on another node's estimate) whose NIS against this filter's
+     *  prior exceeds chi^2_1(0.999) = 10.83 is not fused. Only that class: the filter's own ranges are never
+     *  gated, so it cannot lock itself out. Off (default): every range is fused. */
+    void SetRelayGate(bool on) { m_relayGate = on; }
+    uint64_t RelayGated() const { return m_relayGated; }
+    uint64_t RelaySeen() const { return m_relaySeen; }
     //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
     void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
     int Robust() const { return m_robust; }
@@ -276,6 +282,9 @@ class CaTblImuEkf
         double X[N][2] = {}; //!< cross-covariance state x anchor offset
     };
     bool m_consOn = false;
+    bool m_relayGate = false;
+    uint64_t m_relayGated = 0;
+    uint64_t m_relaySeen = 0;
     double m_consVar = 4.0;
     uint64_t m_consN = 0;
     std::map<uint16_t, ConsAnchor> m_cons;

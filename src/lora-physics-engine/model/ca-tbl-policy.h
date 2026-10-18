@@ -647,6 +647,7 @@ struct CaTblPolicyConfig
     bool ekf5MomentMatch = true;          //!< variance-only moment-matched coasting (G94)
     int ekf5Robust = 0;                   //!< N.33: CaTblImuEkf::SetRobust mode; 0 = original update
     bool ekf5FinderConsider = false;      //!< --ekf5FinderConsider: finder GNSS offsets as consider parameters
+    bool ekf5RelayGate = false;           //!< --ekf5RelayGate: chi^2 gate on relayed ranges only
     double ekf5FinderConsiderVar = 4.0;   //!< their variance, m^2
     double ekf5StrideRel = 0.0;           //!< --imuStrideSigmaPct / 100: the filter's per-step stride model
     double ekf5StrideLenM = 0.7;          //!< step length the stride model counts steps with

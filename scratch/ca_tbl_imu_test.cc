@@ -373,6 +373,33 @@ main(int argc, char* argv[])
         Check(nNaive > 2.0 * nCons, "finder consider: the naive fusion is more than twice as overconfident (the defect)");
     }
 
+    // --- --ekf5RelayGate: a relayed range far outside the prior is not fused; the filter's own range is --------
+    {
+        auto one = [](uint8_t kind, bool gate, double& moved, uint64_t& gated) {
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 25.0, 1e-4, 1e-10, 1e-6);
+            f.SetRelayGate(gate);
+            std::vector<CaTblRangeMeasurement> m(1);
+            std::vector<double> v(1, 9.0);
+            m[0].anchorX = 100.0;
+            m[0].anchorY = 0.0;
+            m[0].anchorId = 3;
+            m[0].sourceKind = kind;
+            m[0].rangeM = 160.0; // 60 m off a 5 m prior: NIS ~ 3600 / 34
+            f.Update(m, v);
+            moved = std::hypot(f.X(), f.Y());
+            gated = f.RelayGated();
+        };
+        double mv;
+        uint64_t g;
+        one(CA_TBL_SRC_RELAY, true, mv, g);
+        Check(mv == 0.0 && g == 1, "relay gate: a relayed range with NIS far above 10.83 is not fused, and is counted");
+        one(CA_TBL_SRC_FINDER, true, mv, g);
+        Check(mv > 1.0 && g == 0, "relay gate: the filter's own range with the same innovation is fused (no self-lock-out)");
+        one(CA_TBL_SRC_RELAY, false, mv, g);
+        Check(mv > 1.0 && g == 0, "relay gate off: the relayed range is fused as before");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }
