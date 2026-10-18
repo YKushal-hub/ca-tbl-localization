@@ -4104,3 +4104,36 @@ FIXES-N26's fit procedure, re-run on the final preset, gives 9303.8, not a value
 0.012. The fault-free distance's bulk is consistent (endgame p50 1.8), but its tail reaches thousands (5 km p99
 21 322): fixes whose error R does not carry. The check stays in the preset at 1992.9, a withdrawn claim. The tail's
 cause (N.15) is the only lever left; recorded as a limit.
+
+---
+## P. State at the end of the 2026-10-18/19 pass (read this first)
+
+**Where things stand.** Every entry above has been classified and tracked in `docs/TECH_DEBT_STATUS.md` (T1–T46).
+- **Done or closed:** everything not needing the owner or hardware.
+- **Fixed:** T1, T2, T4–T7, T9, T15, T16, T39, T41.
+- **Measured:** T12, T21, T27, T29, T33, T42, T46 (DEBT-A, INTEG2).
+- **Diagnosed:** T8, T18, T19, T24, T26, T36 (partly sourced).
+- **Closed as moot or already done:** T3, T11.
+- **Recorded limits:** T22, T25, T35, T37, T44.
+
+**Open, waiting for the owner** (decisions O1–O9 in the status file, each with its evidence):
+- **O1:** adopt `--publishAfterStep`.
+- **O2:** accept G24's three zeros.
+- **O3:** a fair G11 criterion.
+- **O4:** adopt `--nlosRSource=detector`.
+- **O5:** adopt `--foliageScaleBounds`.
+- **O6:** adopt `--interferenceDistance`.
+- **O7:** adopt `--rssiRangeFromRxPower`.
+- **O8:** keep arbitration V2 in the preset.
+- **O9:** refactor the two per-node cycle copies (T32).
+- **Still open from earlier lists:** T10, T13 (D-8 / G93), T14 (gyro bias / EKF5), T17, T20, T23, T28, T30, T31,
+  T34, T38, T40, T43.
+
+**Open, needing hardware:** T45, the field test.
+
+**Suite (2026-10-19, `0c8e638f`, plus the G10 fix):** 118 PASS. Reds:
+- **G11:** by design, diagnosed in J.1.
+- **G24:** three genuine zeros, O2.
+- **G93:** D-8, owner.
+
+**Branch:** `integrate/2026-10-18-kushaal-kn` (PR #14), awaiting the repository owner's review.
