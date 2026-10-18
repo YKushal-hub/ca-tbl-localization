@@ -14,12 +14,15 @@
 #define CA_TBL_IMU_EKF_H
 
 #include "ca-tbl-imu-sensor-model.h"
-#include "ca-tbl-policy.h" // CaTblRangeMeasurement
 
 #include <vector>
 
 namespace ns3
 {
+
+// Forward-declared, not included: ca-tbl-policy.h includes this header (--imuFilter=ekf5).
+// Only references are taken here; ca-tbl-imu-ekf.cc includes the full definition.
+struct CaTblRangeMeasurement;
 
 /**
  * \brief C3: range-only EKF whose predict step is IMU dead reckoning.
@@ -94,6 +97,13 @@ class CaTblImuEkf
                           double qTheta2,
                           double qBias2);
 
+    /**
+     * A cycle with no displacement: theta' = theta + b dt with its variance grown by qTheta2 and the
+     * bias's, the position unmoved but given posVar2 per axis (the dwell noise). The prior is
+     * re-snapshotted, as every prediction does.
+     */
+    void PredictDwell(double dt, double qTheta2, double qBias2, double posVar2);
+
     /** REINIT recovery: new position and variance; theta, b, s and their block kept. */
     void ReinitPosition(double x, double y, double posVar);
 
@@ -142,6 +152,57 @@ class CaTblImuEkf
         pyy = m_P[1][1];
     }
 
+    // --- The rest of the interface CaTblPolicy uses on its filter (--imuFilter=ekf5) ---
+    // Each mirrors the constant-velocity CaTblEkf's method of the same name over five states;
+    // a position observation corrects theta, b and s through their covariance with position.
+
+    /** Fuse an absolute position with isotropic variance (CaTblEkf::FusePosition). Leaves the
+     *  stored prior alone, as that one does. Ends a coast. */
+    void FusePosition(double zx, double zy, double varM2);
+    /** NIS of a position observation with covariance R against the current state, or -1. */
+    double PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const;
+    /** Fuse a position with a full 2x2 covariance; false (nothing changed) if R or S is bad. */
+    bool FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy);
+    double Pxx() const { return m_P[0][0]; }
+    double Pxy() const { return 0.5 * (m_P[0][1] + m_P[1][0]); }
+    double Pyy() const { return m_P[1][1]; }
+    /** Any covariance element, read only (the unit suite's CONSIDER cases). */
+    double Cov(int i, int j) const { return m_P[i][j]; }
+    /** Velocity is not a state here: the last prediction's displacement over its dt. */
+    double Vx() const { return m_vx; }
+    double Vy() const { return m_vy; }
+
+    // --- N.33: robustness of the sensor states to bad fixes (default off: mode 0) ---------
+    // Bad fixes -- a range to a stale pseudo-anchor, an NLOS excess -- reach theta, b and s
+    // through their covariance with position, and can rotate the heading estimate until the
+    // filter dead-reckons the wrong way and never recovers (EKF5-PRESET: every catastrophic
+    // seed had a final heading error > 0.3 rad). Bits, combinable:
+    //   GATE     skip a range whose innovation NIS > gate1 (chi^2_1 0.999 = 10.83), a position
+    //            fix whose NIS > gate2 (chi^2_2 0.999 = 13.82)
+    //   PROTECT  when the fix as a whole is inconsistent with the prior (mean range NIS >
+    //            protect1 = 6.63, or position NIS > protect2 = 9.21), update position only:
+    //            zero gain on theta, b, s; Joseph-form covariance, valid for that gain
+    //   RECOVER  if a majority of a fix's ranges fail the gate on recoverAfter consecutive
+    //            fixes, the FILTER is presumed wrong, not the ranges: reopen position and
+    //            heading variance and take that fix ungated -- so gating cannot lock it out
+    // Mode 0 runs exactly the original arithmetic. All thresholds OURS except the chi^2 values.
+    static const int ROBUST_GATE = 1;
+    static const int ROBUST_PROTECT = 2;
+    static const int ROBUST_RECOVER = 4;
+    // CONSIDER  a range update with fewer than 3 ranges cannot observe heading, bias or scale
+    //           (one range fixes a circle, two a pair of points): a Schmidt (consider) update --
+    //           zero gain on theta, b, s, Joseph covariance, so their uncertainty is kept and
+    //           carried in P but no single-range innovation is spent learning them.
+    static const int ROBUST_CONSIDER = 8;
+    void SetRobust(int mode) { m_robust = mode; }
+    //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
+    void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
+    int Robust() const { return m_robust; }
+    uint64_t RobustGated() const { return m_nGated; }
+    uint64_t RobustProtected() const { return m_nProtected; }
+    uint64_t RobustRecoveries() const { return m_nRecoveries; }
+    uint64_t RobustConsidered() const { return m_nConsidered; }
+
     double HeadingOffset() const { return m_x[2]; }
     double GyroBias() const { return m_x[3]; }
     double StrideScale() const { return m_x[4]; }
@@ -182,6 +243,19 @@ class CaTblImuEkf
     double m_shiftX = 0.0;   //!< mean correction already applied this outage
     double m_shiftY = 0.0;
     double m_varApplied = 0.0; //!< along-track variance already added this outage
+    double m_vx = 0.0;         //!< last prediction's displacement / dt (Vx())
+    double m_vy = 0.0;
+    int m_robust = 0;
+    uint32_t m_badStreak = 0;
+    uint64_t m_nGated = 0;
+    uint64_t m_nProtected = 0;
+    uint64_t m_nRecoveries = 0;
+    uint64_t m_nConsidered = 0;
+    void UpdateRobust(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    bool FusePositionCovRobust(double zx, double zy, double rxx, double rxy, double ryy);
+    void JosephScalar(const double H[5], const double K[5], double r);
+    bool NoteFixVerdict(bool majorityOut);
+    void FuseAxis(int axis, double z, double varM2);
 };
 
 } // namespace ns3

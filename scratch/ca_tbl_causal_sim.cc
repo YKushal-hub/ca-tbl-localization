@@ -6350,6 +6350,9 @@ struct SpecOptions
     bool sparseInStep = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
     bool imuPredict = false;
+    //! N.28. --imuFilter=ekf5: the policy's filter is the 5-state CaTblImuEkf, fed DC-1's output.
+    bool imuFilterEkf5 = false;
+    int ekf5Robust = 0; //!< N.33, --ekf5Robust
     //! DC-4. --caseD: a single range as a constraint on the propagated state.
     bool caseD = false;
     //! DC-13. --entryPrediction: held entries propagated as x + v age, P + Q_src age^2.
@@ -7009,6 +7012,19 @@ RunArm(CaTblPolicyMode mode,
         pcfg.witnessCounts = true; // DC-9
     }
     pcfg.corroborationCheck = corroborationCheck;
+    if (spec.imuFilterEkf5)
+    {
+        // The filter's assumed model is the IMU this run actually simulates: DC-1's parameters,
+        // the --imuGyroBiasSigmaDps override included. pcfg also configures every peer tag and
+        // measured subject, so each node's filter matches its own IMU.
+        const CaTblImuParams ip = Dc1ImuParams();
+        pcfg.imuFilterEkf5 = true;
+        pcfg.ekf5NoiseDensity = ip.gyroNoiseDensityRadSqrtS;
+        pcfg.ekf5BiasSigma = ip.gyroBiasSigmaRadS;
+        pcfg.ekf5ScaleSigma = ip.scaleSigma;
+        pcfg.ekf5DwellSigma = ip.dwellSigmaM;
+        pcfg.ekf5Robust = spec.ekf5Robust;
+    }
     policy.Configure(pcfg);
     policy.SetAcquireSalt(nodeId); // V4: inert unless --acquireParticles
     // Seeded at the true start position with a deliberately loose covariance:
@@ -14727,6 +14743,23 @@ RunArm(CaTblPolicyMode mode,
         line << "    DC-1 IMU: bias " << std::setprecision(9) << imuPred->rk.Bias()
              << " rad/s, scale " << imuPred->rk.Scale() << ", cycles " << imuPred->cycles
              << ", resets " << imuPred->resets << "\n";
+        if (spec.imuFilterEkf5)
+        {
+            // N.28: what the 5-state filter learned, beside what DC-1 actually drew. Its theta
+            // estimates DC-1's accumulated heading error psi, b the bias, s the stride scale.
+            line << "    N.28 ekf5: moving " << policy.GetEkf5Moving() << ", dwell "
+                 << policy.GetEkf5Dwell() << ", bias est " << policy.Ekf5Bias() << " (true "
+                 << imuPred->rk.Bias() << ") rad/s, scale est " << policy.Ekf5Scale() << " (true "
+                 << imuPred->rk.Scale() << "), heading offset est " << policy.Ekf5HeadingOffset()
+                 << " (true " << imuPred->rk.Heading() << ") rad\n";
+            if (spec.ekf5Robust != 0)
+            {
+                const CaTblImuEkf& f5 = policy.Ekf5();
+                line << "    N.33 ekf5 mode " << spec.ekf5Robust << ": gated " << f5.RobustGated()
+                     << ", protected " << f5.RobustProtected() << ", recoveries "
+                     << f5.RobustRecoveries() << ", considered " << f5.RobustConsidered() << "\n";
+            }
+        }
         std::cout << line.str();
     }
     // DC-11. The two-range cycles Step() decided. Printed only under the flag.
@@ -15980,6 +16013,8 @@ main(int argc, char* argv[])
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
+    std::string imuFilterArg = "cv";     // N.28; see --imuFilter
+    int ekf5RobustArg = 0;               // N.33; see --ekf5Robust
     // "fix" since 2026-09-30 (TECH_DEBT M.10, owner decision): the downlink that carries
     // the gateways' fix back is billed on the radio whose measurements produced it, so a
     // floor-solved fix is an 868 MHz downlink. "active" is the old bill -- the downlink
@@ -18429,6 +18464,29 @@ main(int argc, char* argv[])
                  "stream. Writes imu_<arm>_seed<N>.csv (digested) and one DC-1 line per arm. "
                  "The SHS gait engine is untouched (owner decision 2).",
                  spec.imuPredict);
+    cmd.AddValue("imuFilter",
+                 "With --imuPredict: which filter the policy runs. cv (default) is every result "
+                 "so far: the constant-velocity filter, driven by DC-1's displacement as a control "
+                 "input, with no state for the heading offset, gyro bias or stride scale -- so "
+                 "DC-1's heading error is never corrected, and with any realistic gyro bias every "
+                 "arm's accuracy collapses (DC1-BIAS: CEP95 57.8 -> 1976.4 m at 5 km, 0.5 deg/s; "
+                 "TECH_DEBT N.28). ekf5 runs the 5-state [x, y, theta, b, s] filter "
+                 "(ca-tbl-imu-ekf.h; G91, G94) on the SAME IMU output -- stride |u|, raw heading "
+                 "atan2(u) -- so it learns the heading offset, bias and stride scale from fixes. "
+                 "Its assumed model is DC-1's own parameters; variance-only moment-matched "
+                 "coasting is on. Applies to every node with an IMU. Refused without --imuPredict.",
+                 imuFilterArg);
+    cmd.AddValue("ekf5Robust",
+                 "With --imuFilter=ekf5: the 5-state filter's update mode, a bit set (TECH_DEBT "
+                 "N.33). 0 (default) is the update every ekf5 result used. 8 CONSIDER takes a fix "
+                 "of fewer than 3 ranges as a Schmidt update -- position only, Joseph covariance "
+                 "-- because one or two ranges cannot observe heading, bias or scale, and an EKF "
+                 "that lets them try learns those states from its own linearisation: on the "
+                 "EKF5-PRESET seeds that diverged, that is how the heading went wrong. 1 GATE, "
+                 "2 PROTECT and 4 RECOVER are diagnostic modes the validator's robustness study "
+                 "rejected (gating locks a weakly observed filter out of its only good ranges); "
+                 "they are kept for that study, not for use. Refused without ekf5.",
+                 ekf5RobustArg);
     cmd.AddValue("imuGyroBiasSigmaDps",
                  "With --imuPredict: the sigma, in deg/s, of DC-1's per-run gyro bias. 0 "
                  "(default) keeps 8.816 deg/h, the MPU-6050's bias INSTABILITY -- the floor of a "
@@ -20054,6 +20112,32 @@ main(int argc, char* argv[])
         std::cout << line.str();
     }
     phy[CA_TBL_TIER_UWB] = {7, 499.2e6, -16.47};
+    // N.28. --imuFilter.
+    if (imuFilterArg != "cv" && imuFilterArg != "ekf5")
+    {
+        std::cerr << "FATAL: --imuFilter must be cv or ekf5, not " << imuFilterArg << "\n";
+        return 1;
+    }
+    if (imuFilterArg == "ekf5")
+    {
+        if (!spec.imuPredict)
+        {
+            std::cerr << "FATAL: --imuFilter=ekf5 needs --imuPredict (it filters DC-1's output)\n";
+            return 1;
+        }
+        spec.imuFilterEkf5 = true;
+        std::cout << "  N.28: the policy filter is the 5-state ekf5 on DC-1's output\n";
+    }
+    if (ekf5RobustArg != 0)
+    {
+        if (!spec.imuFilterEkf5 || ekf5RobustArg < 0 || ekf5RobustArg > 15)
+        {
+            std::cerr << "FATAL: --ekf5Robust needs --imuFilter=ekf5 and a mode in 1..15\n";
+            return 1;
+        }
+        spec.ekf5Robust = ekf5RobustArg;
+        std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
+    }
     // DC-1 bias override.
     if (imuGyroBiasSigmaDpsArg != 0.0)
     {

@@ -1,5 +1,7 @@
 #include "ca-tbl-imu-ekf.h"
 
+#include "ca-tbl-policy.h" // CaTblRangeMeasurement
+
 #include <algorithm>
 #include <cmath>
 
@@ -89,6 +91,8 @@ CaTblImuEkf::Predict(double dt,
     m_x[0] += D * c;
     m_x[1] += D * s;
     m_x[2] = theta;
+    m_vx = (dt > 0.0) ? D * c / dt : 0.0; // Vx()/Vy(): velocity is not a state here
+    m_vy = (dt > 0.0) ? D * s / dt : 0.0;
     m_pathX += D * c;
     m_pathY += D * s;
     // m_x[3] (bias) and m_x[4] (stride scale) are constant under the prediction.
@@ -377,6 +381,11 @@ CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
+    if (m_robust != 0)
+    {
+        UpdateRobust(meas, varM2); // N.33; mode 0 below is the original, untouched
+        return;
+    }
     if (!meas.empty())
     {
         ResetCoast(); // a fix re-anchors the path; the coherent correction starts again
@@ -487,6 +496,412 @@ CaTblImuEkf::MahalanobisFromPriorWithR(double zx, double zy, double rxx, double 
         return 0.0;
     }
     return dx * ((d / det) * dx + (-b / det) * dy) + dy * ((-c / det) * dx + (a / det) * dy);
+}
+
+// ---------------------------------------------------------------------------
+// Position observations, as CaTblEkf's, over five states
+// ---------------------------------------------------------------------------
+
+void
+CaTblImuEkf::FuseAxis(int axis, double z, double varM2)
+{
+    double PH[N];
+    for (int i = 0; i < N; ++i)
+    {
+        PH[i] = m_P[i][axis];
+    }
+    const double S = PH[axis] + varM2;
+    if (!(S > 0.0) || !std::isfinite(S))
+    {
+        return;
+    }
+    double K[N];
+    for (int i = 0; i < N; ++i)
+    {
+        K[i] = PH[i] / S;
+    }
+    const double innovation = z - m_x[axis];
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] += K[i] * innovation;
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i] * m_P[axis][j];
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+}
+
+void
+CaTblImuEkf::FusePosition(double zx, double zy, double varM2)
+{
+    if (m_robust != 0)
+    {
+        FusePositionCovRobust(zx, zy, varM2, 0.0, varM2); // N.33
+        return;
+    }
+    if (!(varM2 > 0.0) || !std::isfinite(varM2) || !std::isfinite(zx) || !std::isfinite(zy))
+    {
+        return;
+    }
+    ResetCoast();
+    FuseAxis(0, zx, varM2);
+    FuseAxis(1, zy, varM2);
+}
+
+double
+CaTblImuEkf::PositionNis(double zx, double zy, double rxx, double rxy, double ryy) const
+{
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) || !std::isfinite(rxy) ||
+        !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) || !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return -1.0;
+    }
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = 0.5 * (m_P[0][1] + m_P[1][0]) + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return -1.0;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    return (s11 * v0 * v0 - 2.0 * s01 * v0 * v1 + s00 * v1 * v1) / det;
+}
+
+bool
+CaTblImuEkf::FusePositionCov(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    if (m_robust != 0)
+    {
+        return FusePositionCovRobust(zx, zy, rxx, rxy, ryy); // N.33
+    }
+    if (!std::isfinite(zx) || !std::isfinite(zy) || !std::isfinite(rxx) || !std::isfinite(rxy) ||
+        !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) || !(rxx * ryy - rxy * rxy > 0.0))
+    {
+        return false;
+    }
+    const double pxy = 0.5 * (m_P[0][1] + m_P[1][0]);
+    const double s00 = m_P[0][0] + rxx;
+    const double s01 = pxy + rxy;
+    const double s11 = m_P[1][1] + ryy;
+    const double det = s00 * s11 - s01 * s01;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        return false;
+    }
+    ResetCoast();
+    const double i00 = s11 / det;
+    const double i01 = -s01 / det;
+    const double i11 = s00 / det;
+    double K[N][2];
+    for (int i = 0; i < N; ++i)
+    {
+        K[i][0] = m_P[i][0] * i00 + m_P[i][1] * i01;
+        K[i][1] = m_P[i][0] * i01 + m_P[i][1] * i11;
+    }
+    const double v0 = zx - m_x[0];
+    const double v1 = zy - m_x[1];
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] += K[i][0] * v0 + K[i][1] * v1;
+    }
+    double newP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            newP[i][j] = m_P[i][j] - K[i][0] * m_P[0][j] - K[i][1] * m_P[1][j];
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = newP[i][j];
+        }
+    }
+    Symmetrise();
+    return true;
+}
+
+void
+CaTblImuEkf::PredictDwell(double dt, double qTheta2, double qBias2, double posVar2)
+{
+    // theta' = theta + b dt is the only state that moves: F = I except d theta' / d b = dt.
+    // P' = F P F^T, written out for that single off-diagonal.
+    m_x[2] += m_x[3] * dt;
+    double P[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            P[i][j] = m_P[i][j];
+        }
+    }
+    for (int j = 0; j < N; ++j)
+    {
+        P[2][j] = m_P[2][j] + dt * m_P[3][j]; // row 2 of F P
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        m_P[i][2] = P[i][2] + dt * P[i][3]; // column 2 of (F P) F^T
+        m_P[2][i] = m_P[i][2];
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            if (i != 2 && j != 2)
+            {
+                m_P[i][j] = P[i][j];
+            }
+        }
+    }
+    m_P[2][2] += qTheta2;
+    m_P[3][3] += qBias2;
+    m_P[0][0] += posVar2;
+    m_P[1][1] += posVar2;
+    m_vx = 0.0;
+    m_vy = 0.0;
+    Symmetrise();
+    SnapshotPrior();
+}
+
+// ---------------------------------------------------------------------------
+// N.33: the robust update path. Entered only when SetRobust() set a mode.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+const double kGate1 = 10.83;   // chi^2, 1 dof, 0.999
+const double kGate2 = 13.82;   // chi^2, 2 dof, 0.999
+const double kProtect1 = 6.63; // chi^2, 1 dof, 0.99: mean range NIS of a consistent fix
+const double kProtect2 = 9.21; // chi^2, 2 dof, 0.99
+const uint32_t kRecoverAfter = 3;             // consecutive majority-gated fixes. OURS
+const double kRecoverPosVar = 50.0 * 50.0;    // m^2 added to each position axis. OURS
+const double kRecoverThetaVar = 1.5708 * 1.5708; // rad^2 added to theta: (pi/2)^2. OURS
+} // namespace
+
+void
+CaTblImuEkf::JosephScalar(const double H[5], const double K[5], double r)
+{
+    // P <- (I - K H) P (I - K H)^T + r K K^T: valid for ANY gain, which PROTECT's is not optimal.
+    double A[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            A[i][j] = (i == j ? 1.0 : 0.0) - K[i] * H[j];
+        }
+    }
+    double AP[N][N];
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            double v = 0.0;
+            for (int k = 0; k < N; ++k)
+            {
+                v += A[i][k] * m_P[k][j];
+            }
+            AP[i][j] = v;
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            double v = 0.0;
+            for (int k = 0; k < N; ++k)
+            {
+                v += AP[i][k] * A[j][k];
+            }
+            m_P[i][j] = v + r * K[i] * K[j];
+        }
+    }
+    Symmetrise();
+}
+
+bool
+CaTblImuEkf::NoteFixVerdict(bool majorityOut)
+{
+    // Returns true when this fix should re-open the filter (RECOVER) and be taken ungated.
+    if (!(m_robust & ROBUST_RECOVER))
+    {
+        return false;
+    }
+    m_badStreak = majorityOut ? m_badStreak + 1 : 0;
+    if (m_badStreak < kRecoverAfter)
+    {
+        return false;
+    }
+    m_badStreak = 0;
+    ++m_nRecoveries;
+    m_P[0][0] += kRecoverPosVar;
+    m_P[1][1] += kRecoverPosVar;
+    m_P[2][2] += kRecoverThetaVar;
+    Symmetrise();
+    return true;
+}
+
+void
+CaTblImuEkf::UpdateRobust(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    const size_t n = std::min(meas.size(), varM2.size());
+    if (n == 0)
+    {
+        return;
+    }
+    ResetCoast();
+    // The fix judged as a whole, against the state before any of it is applied.
+    double nisSum = 0.0;
+    size_t nOut = 0;
+    for (size_t k = 0; k < n; ++k)
+    {
+        const double dx = m_x[0] - meas[k].anchorX;
+        const double dy = m_x[1] - meas[k].anchorY;
+        const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
+        const double H0 = dx / r, H1 = dy / r;
+        const double S = H0 * (m_P[0][0] * H0 + m_P[0][1] * H1) + H1 * (m_P[1][0] * H0 + m_P[1][1] * H1) + varM2[k];
+        const double v = meas[k].rangeM - r;
+        const double nis = (S > 0.0) ? v * v / S : 0.0;
+        nisSum += nis;
+        nOut += (nis > kGate1) ? 1 : 0;
+    }
+    const bool reopen = NoteFixVerdict(n >= 2 && 2 * nOut > n);
+    const bool gate = (m_robust & ROBUST_GATE) && !reopen;
+    const bool protect = (m_robust & ROBUST_PROTECT) && !reopen && (nisSum / n > kProtect1);
+    if (protect)
+    {
+        ++m_nProtected;
+    }
+    const bool consider = (m_robust & ROBUST_CONSIDER) && n < 3;
+    if (consider)
+    {
+        ++m_nConsidered;
+    }
+    for (size_t k = 0; k < n; ++k)
+    {
+        const double dx = m_x[0] - meas[k].anchorX;
+        const double dy = m_x[1] - meas[k].anchorY;
+        const double r = std::max(std::sqrt(dx * dx + dy * dy), 1e-6);
+        const double H[N] = {dx / r, dy / r, 0.0, 0.0, 0.0};
+        double PH[N];
+        for (int i = 0; i < N; ++i)
+        {
+            PH[i] = m_P[i][0] * H[0] + m_P[i][1] * H[1];
+        }
+        const double S = H[0] * PH[0] + H[1] * PH[1] + varM2[k];
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        const double v = meas[k].rangeM - r;
+        if (gate && v * v / S > kGate1)
+        {
+            ++m_nGated;
+            continue;
+        }
+        double K[N];
+        for (int i = 0; i < N; ++i)
+        {
+            K[i] = PH[i] / S;
+        }
+        if (protect || consider)
+        {
+            K[2] = K[3] = K[4] = 0.0; // position only: the sensor states keep what they knew
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            m_x[i] += K[i] * v;
+        }
+        JosephScalar(H, K, varM2[k]);
+    }
+}
+
+bool
+CaTblImuEkf::FusePositionCovRobust(double zx, double zy, double rxx, double rxy, double ryy)
+{
+    const double nis = PositionNis(zx, zy, rxx, rxy, ryy);
+    if (nis < 0.0)
+    {
+        return false;
+    }
+    ResetCoast();
+    const bool reopen = NoteFixVerdict(nis > kGate2);
+    if ((m_robust & ROBUST_GATE) && !reopen && nis > kGate2)
+    {
+        ++m_nGated;
+        return false;
+    }
+    const bool protect = (m_robust & ROBUST_PROTECT) && !reopen && nis > kProtect2;
+    if (protect)
+    {
+        ++m_nProtected;
+    }
+    // Decorrelate R (rotate into its eigenbasis) so two scalar Joseph updates are exact.
+    const double tr = rxx + ryy, det = rxx * ryy - rxy * rxy;
+    const double disc = std::sqrt(std::max(0.0, tr * tr / 4.0 - det));
+    const double l1 = tr / 2.0 + disc, l2 = tr / 2.0 - disc;
+    double e1x = 1.0, e1y = 0.0;
+    if (std::fabs(rxy) > 1e-12)
+    {
+        e1x = l1 - ryy;
+        e1y = rxy;
+        const double nn = std::sqrt(e1x * e1x + e1y * e1y);
+        e1x /= nn;
+        e1y /= nn;
+    }
+    else if (ryy > rxx)
+    {
+        e1x = 0.0;
+        e1y = 1.0;
+    }
+    const double ev[2][2] = {{e1x, e1y}, {-e1y, e1x}};
+    const double lam[2] = {l1, l2};
+    for (int a = 0; a < 2; ++a)
+    {
+        const double H[N] = {ev[a][0], ev[a][1], 0.0, 0.0, 0.0};
+        double PH[N];
+        for (int i = 0; i < N; ++i)
+        {
+            PH[i] = m_P[i][0] * H[0] + m_P[i][1] * H[1];
+        }
+        const double S = H[0] * PH[0] + H[1] * PH[1] + lam[a];
+        if (!(S > 0.0) || !std::isfinite(S))
+        {
+            continue;
+        }
+        const double v = (ev[a][0] * zx + ev[a][1] * zy) - (ev[a][0] * m_x[0] + ev[a][1] * m_x[1]);
+        double K[N];
+        for (int i = 0; i < N; ++i)
+        {
+            K[i] = PH[i] / S;
+        }
+        if (protect)
+        {
+            K[2] = K[3] = K[4] = 0.0;
+        }
+        for (int i = 0; i < N; ++i)
+        {
+            m_x[i] += K[i] * v;
+        }
+        JosephScalar(H, K, lam[a]);
+    }
+    return true;
 }
 
 } // namespace ns3
