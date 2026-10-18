@@ -4082,3 +4082,17 @@ Exploratory remedies tried on seeds 1–6 (single arm, 1800 s, not citable):
   fix are never outliers, so its majority test cannot trip.
 The principled remedy for a covariance that collapses before a large-offset state converges is an
 iterated update (IEKF: re-linearise around the improving estimate, Gauss-Newton). Not yet built.
+
+### N.59 With a realistic IMU the preset collapses under its own filter; ekf5 recovers most, and heading drift is the 5 km residual
+
+REAL-IMU (`report/REAL_IMU_RESULTS.md`): a BMI270-class gyro (0.15 °/s) and 5 % per-step stride noise
+(`--imuStrideSigmaPct`, `aa538bb8`). Under cv, CA-TBL's CEP95 is 1545 m at 5 km and 122 m in the endgame, against
+365 m and 5.0 m with DC-1's defaults. ekf5 brings them to 865 m and 7.2 m. `--acquireHandoverCurvature` is not
+supported on 20 seeds.
+
+At 5 km the remaining failures are heading-driven: a seed with a −0.149 °/s bias drifts 268° in 1800 s, and
+ekf5's bias estimate, learned 23 % high and with no random walk, cannot follow. A body-worn IMU carries a
+magnetometer for exactly this; DC-1 models none (`--imuMagSigmaDeg`, in development on
+`work/2026-10-18-magnetometer`).
+
+Poucet's endgame lead (2.6 m against 5.3 m) is bought with UWB on every cycle, at 17× the energy.
