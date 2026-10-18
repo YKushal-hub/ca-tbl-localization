@@ -982,7 +982,10 @@ CaTblPolicy::Ekf5Predict(double dt, bool haveImu, double ux, double uy)
     {
         m_ekf5Heading = std::atan2(uy, ux);
         m_ekf5HaveHeading = true;
-        const double qStep2 = m_config.ekf5StepSigma * m_config.ekf5StepSigma;
+        // With --imuStrideSigmaPct the stride noise is DC-1's own: sigma_rel^2 l |u| per cycle.
+        const double qStep2 = std::max(m_config.ekf5StepSigma * m_config.ekf5StepSigma,
+                                       m_config.ekf5StrideRel * m_config.ekf5StrideRel *
+                                           m_config.ekf5StrideLenM * dist);
         m_ekf5.Predict(dt, dist, m_ekf5Heading, qStep2, qTheta2, 0.0);
         ++m_ekf5Moving;
     }

@@ -69,6 +69,7 @@ CaTblImuDeadReckoner::ResetAccumulation()
     m_dx = 0.0;
     m_dy = 0.0;
     m_sigAcc[0] = m_sigAcc[1] = m_sigAcc[2] = 0.0;
+    m_strideAcc[0] = m_strideAcc[1] = m_strideAcc[2] = 0.0;
 }
 
 void
@@ -77,10 +78,18 @@ CaTblImuDeadReckoner::Step(double dx, double dy, double dt, double& ux, double& 
     m_t += dt;
     m_psi += m_bias * dt + m_p.gyroNoiseDensityRadSqrtS * std::sqrt(dt) * m_rv->GetValue();
     const double c = std::cos(m_psi), s = std::sin(m_psi);
-    ux = (1.0 + m_scale) * (c * dx - s * dy);
-    uy = (1.0 + m_scale) * (s * dx + c * dy);
-
     const double step = std::sqrt(dx * dx + dy * dy);
+    // --imuStrideSigmaPct: n = step / l independent steps each off by sigma_rel of its length, so this
+    // cycle's relative stride error has sd sigma_rel sqrt(l / step). Drawn only when on and moving, so
+    // off draws nothing and the stream is unchanged.
+    double strideErr = 0.0;
+    if (m_p.strideSigmaRel > 0.0 && step > 0.0)
+    {
+        strideErr = m_p.strideSigmaRel * std::sqrt(m_p.strideLenM / step) * m_rv->GetValue();
+    }
+    ux = (1.0 + m_scale + strideErr) * (c * dx - s * dy);
+    uy = (1.0 + m_scale + strideErr) * (s * dx + c * dy);
+
     if (!(step > 0.0))
     {
         // Dwelling: no direction to project onto, and the accumulated error is unchanged.
@@ -100,6 +109,19 @@ CaTblImuDeadReckoner::Step(double dx, double dy, double dt, double& ux, double& 
     m_sigAcc[0] = varPsi * m_dy * m_dy + ss * m_dx * m_dx;
     m_sigAcc[1] = -varPsi * m_dx * m_dy + ss * m_dx * m_dy;
     m_sigAcc[2] = varPsi * m_dx * m_dx + ss * m_dy * m_dy;
+    if (m_p.strideSigmaRel > 0.0)
+    {
+        // The stride noise accumulates independently, along each cycle's own direction: variance
+        // sigma_rel^2 l |d| per cycle, on p p^T with p this cycle's unit displacement.
+        const double v = m_p.strideSigmaRel * m_p.strideSigmaRel * m_p.strideLenM * step;
+        const double px = dx / step, py = dy / step;
+        m_strideAcc[0] += v * px * px;
+        m_strideAcc[1] += v * px * py;
+        m_strideAcc[2] += v * py * py;
+        m_sigAcc[0] += m_strideAcc[0];
+        m_sigAcc[1] += m_strideAcc[1];
+        m_sigAcc[2] += m_strideAcc[2];
+    }
     qu[0] = m_sigAcc[0] - prev[0];
     qu[1] = m_sigAcc[1] - prev[1];
     qu[2] = m_sigAcc[2] - prev[2];

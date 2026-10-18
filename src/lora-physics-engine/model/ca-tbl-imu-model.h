@@ -55,6 +55,11 @@ struct CaTblImuParams
     double gyroBiasSigmaRadS = 8.816 * 3.14159265358979323846 / 180.0 / 3600.0; //!< sigma_b
     double scaleSigma = 0.0266; //!< sigma_s, OURS (IMU_SHS_DESIGN.md straight traverse)
     double dwellSigmaM = 0.05;  //!< sigma_w, OURS
+    //! --imuStrideSigmaPct: per-STEP random stride-length error, relative, independent between steps.
+    //! 0 (default): none -- DC-1's stride is exact up to the per-run scale. Acceleration-based step-length
+    //! estimators err by a few percent of distance walked (Jahn et al., IPIN 2010; Harle, IEEE COMST 2013).
+    double strideSigmaRel = 0.0;
+    double strideLenM = 0.7; //!< a step's length, m, to count steps in a cycle. OURS (adult walking stride)
 };
 
 class CaTblImuDeadReckoner
@@ -89,6 +94,7 @@ class CaTblImuDeadReckoner
     double m_dx = 0.0;
     double m_dy = 0.0;
     double m_sigAcc[3] = {0.0, 0.0, 0.0};
+    double m_strideAcc[3] = {0.0, 0.0, 0.0}; //!< accumulated stride-noise covariance
 };
 
 /** Project a symmetric 2x2 matrix (xx, xy, yy) onto the positive semi-definite cone. */
