@@ -292,6 +292,24 @@ on different hardware is not guaranteed by construction. *Mitigation observed:*
 `baseline_v7` did reproduce byte-identically on a different machine and compiler, which is
 evidence but not a guarantee.
 
+*2026-10-18, diagnosed (T8): 4.1 and 4.2 are one cause, instruction-set codegen.* The merged tree was built twice at
+the same commit: the optimized profile (`-march=native`) and ns-3's release profile, which is the same `-O3` without
+native instructions. NC1–NC10 were run with the second against the native references.
+- **At defaults (NC1–NC9) every `arm_summary.csv` is identical.** Differences sit only in the 13-significant-figure
+  trace columns `estXhp`, `estYhp`, `meanSigmaM` and `meanSigmaRawM`, at most 1.7e-12 relative. That is 4.1's
+  signature, so its cause is codegen (FMA contraction and vectorisation under `-march=native`), not program logic.
+- **Under the preset (NC10)**, 22 of 224 files differ. Every filter arm's summary is identical. Only the MLAT
+  comparator moves: its iterative solve accepts or refuses near a threshold, and last-bit differences flip it
+  (`ca_tbl_full`'s MLAT solves 113 against 100; CEP95 of the MLAT baseline 5–20 % different).
+- **Consequences:**
+  - byte identity holds only between binaries built with the same flags on the same instruction set (4.2,
+    confirmed);
+  - CA-TBL's own figures are unaffected at summary level;
+  - MLAT-baseline magnitudes are machine-dependent at the 5–20 % level. K10's "beats published estimators" margin is
+    about 10×, so it stands.
+- **Not changed:** switching the project to a portable build would make every reference and campaign binary
+  differ in last digits. Null controls already compare binaries built on one machine with one profile.
+
 ### 4.3 G12 fires on its own documentation
 The gate is red on exactly **one** commit — `3420073`, the commit that *documents the
 gate's own pattern*, because its body lists `@anthropic` and `@openai` as fixture text.
