@@ -1007,6 +1007,7 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
     if (config.relayNisInflate)
     {
         m_ekf.EnableNisTracking();
+        m_ekf5.EnableNisTracking(); // read only when ekf5 is the policy filter (GetNisMean)
     }
 
     // The static arms pin the tier for the whole run; they are the single-band
@@ -1929,6 +1930,7 @@ CaTblPolicy::StepImpl(double dt,
         {
             m_ekf.PredictWithControl(dt, m_imu[0], m_imu[1], m_imu[2], m_imu[3], m_imu[4]);
         }
+        // The particle cloud is predicted with the same IMU increment whichever filter runs.
         d.imuPredicted = true;
         if (m_pfActive)
         {
@@ -1938,6 +1940,10 @@ CaTblPolicy::StepImpl(double dt,
     else if (m_config.imuFilterEkf5)
     {
         Ekf5Predict(dt, false, 0.0, 0.0);
+        if (m_pfActive)
+        {
+            PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
+        }
     }
     else
     {
@@ -2269,7 +2275,14 @@ CaTblPolicy::StepImpl(double dt,
         const bool oneMode = PfUpdate(meas, varM2);
         double mx = 0.0, my = 0.0, cxx = 0.0, cxy = 0.0, cyy = 0.0;
         PfStats(mx, my, cxx, cxy, cyy);
-        m_ekf.SetPositionCov(mx, my, cxx, cxy, cyy, 100.0);
+        if (m_config.imuFilterEkf5)
+        {
+            m_ekf5.SetPositionCov(mx, my, cxx, cxy, cyy);
+        }
+        else
+        {
+            m_ekf.SetPositionCov(mx, my, cxx, cxy, cyy, 100.0);
+        }
         if (oneMode)
         {
             m_pfActive = false;
@@ -2290,8 +2303,8 @@ CaTblPolicy::StepImpl(double dt,
         }
         cx /= static_cast<double>(meas.size());
         cy /= static_cast<double>(meas.size());
-        const double sx[2] = {m_ekf.PriorX(), cx};
-        const double sy[2] = {m_ekf.PriorY(), cy};
+        const double sx[2] = {FltPriorX(), cx};
+        const double sy[2] = {FltPriorY(), cy};
         double bestRes = std::numeric_limits<double>::infinity();
         double bx = 0.0, by = 0.0, brxx = 0.0, bryy = 0.0;
         for (int k = 0; k < 2; ++k)
@@ -2332,7 +2345,14 @@ CaTblPolicy::StepImpl(double dt,
         if (std::isfinite(bestRes) && bestRes <= chi999)
         {
             const double pv = ((brxx + bryy) > 0.0 && std::isfinite(brxx + bryy)) ? (brxx + bryy) : 100.0;
-            m_ekf.Init(bx, by, 0.0, 0.0, pv, 100.0);
+            if (m_config.imuFilterEkf5)
+            {
+                m_ekf5.ReinitPosition(bx, by, pv); // position only, as REINIT recovery does
+            }
+            else
+            {
+                m_ekf.Init(bx, by, 0.0, 0.0, pv, 100.0);
+            }
             m_reinitPending = false;
             ++m_acqReinits;
             acqReinitNow = true;
