@@ -14,6 +14,14 @@ namespace ns3 {
  * Rician: r = sqrt((X + nu)^2 + Y^2), nu = sqrt(K/(K+1)), sigma = sqrt(1/(2*(K+1)))
  * Nakagami: r = sqrt(Y), Y ~ Gamma(m, 1/m)
  */
+/**
+ * B7 --fadingPerBand (scope 2026-10-17). The fading I/Q state (g_fadingComponents) is file-scope and keyed by link id
+ * only, so an 868 MHz and a 2.4 GHz link between the same two node ids shared one fading process. Off (default): as
+ * before. On: the key carries the band, so each band fades independently.
+ */
+void SetFadingPerBand(bool on);
+uint64_t FadingKey(uint64_t linkId, uint32_t band);
+
 double ComputeFadingDb(
     LinkPhysicsState& state, Time currentTime,
     const FadingParams& params, LoRaDistributionSampler& sampler,

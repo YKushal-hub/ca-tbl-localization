@@ -56,6 +56,10 @@ void LoRaUWBPhysicsEngine::Initialize(const LoRaUWBPhysicsConfig& config) {
     } else {
         m_fadingSampler = LoRaDistributionSampler(config.randomSeed);
     }
+    // --rngKeyed (TECH_DEBT 1.1): one salt per engine and per sampler, so the three bands
+    // and the fading draws never share a keyed sequence. Inert when keyed mode is off.
+    m_sampler.SetKeyedSalt(0x7990);
+    m_fadingSampler.SetKeyedSalt(0x7990 ^ 0xFADEULL);
     
     m_correlation = std::make_unique<LoRaCorrelationEngine>();
     m_spatial = std::make_unique<LoRaSpatialFieldEngine>();
@@ -236,6 +240,9 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
     double bandwidthHz, uint8_t relayHops,
     Time currentTime, double nodeOrientationRadians) {
     NS_LOG_FUNCTION(this << txNodeId << rxGatewayId << txPowerDbm << (int)spreadingFactor);
+    // --rngKeyed: every draw in this evaluation is keyed to (link, time, occurrence).
+    LoRaSamplerContextGuard rngContext(m_sampler, m_fadingSampler, txNodeId, rxGatewayId,
+                                       currentTime.GetNanoSeconds());
     PhysicsResultUWB result;
     LinkPhysicsState state;
     state.txNodeId = txNodeId;
@@ -479,7 +486,7 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
         state.kFactor = effFading.ricianKFactor.mean;
     }
     FadingState& fs = m_fadingStates[linkId];
-    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, linkId, fs.lastUpdateTime, fs.lastFadingDb);
+    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, FadingKey(linkId, 3), fs.lastUpdateTime, fs.lastFadingDb);
     result.sampledKFactor = state.kFactor;
     result.fadingDb = std::max(rawFadingDb, -20.0); // Remove hard upper cap per Fix E1
     
@@ -607,7 +614,7 @@ PhysicsResultUWB LoRaUWBPhysicsEngine::ProcessTransmission(
     result.syncCorruptionOccurred = (result.collisionOverlapFraction > 0.08 && !wasCaptured);
     
     // 14. Total loss accumulation with bounded loss caps (including TDL multipath penalty)
-    // Feature: Oliveira 2017 thermal sensitivity target (~0.075 dB/°C)
+    // Unused (thermalEfficiencyLossDb = 0). Not Oliveira 2017: Boano, Cattani, Romer, SENSORNETS 2018, doi 10.5220/0006605600390050 measure 3-4 dB (RFM95) / 5-6 dB (SX1272) over 0-50 °C
     double ambientTemp = m_config.atmospheric.temperatureCelsius.mean;
     double thermalEfficiencyLossDb = 0.0; // Handled by Johnson-Nyquist in atmospheric submodule
     

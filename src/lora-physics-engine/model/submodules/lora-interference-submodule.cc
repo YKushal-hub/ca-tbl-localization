@@ -99,7 +99,16 @@ double InterferenceSubmodule::ComputeInterferencePenaltyDb(
     }
 
     if (!m_interfererMapInitialized) {
-        InitializeInterfererMap(rxPosition, 5000.0, params, sampler);
+        if (LoRaDistributionSampler::KeyedMode()) {
+            // --rngKeyed (plan v3 V1): the external-interferer field is laid out once per
+            // run on its own keyed sub-sequence and centred on the deployment origin, not
+            // drawn inside -- and centred on -- whichever link happens to be evaluated first.
+            sampler.BeginSubContext(0x494E54464D4150ULL, 0);
+            InitializeInterfererMap(Vector(0.0, 0.0, rxPosition.z), 5000.0, params, sampler);
+            sampler.EndSubContext();
+        } else {
+            InitializeInterfererMap(rxPosition, 5000.0, params, sampler);
+        }
     }
 
     // 1. Purge expired active transmissions from registry

@@ -42,6 +42,8 @@
 
 #include <cstdint>
 #include <string>
+#include <map>
+#include <random>
 #include <vector>
 
 namespace ns3
@@ -121,6 +123,9 @@ struct CaTblRangeMeasurement
     uint8_t sourceKind = CA_TBL_SRC_UNSTATED;
     uint16_t anchorId = 0;
     uint8_t hopDepth = 0;
+    //! V3 --rangeBiasStates: the tier the range was measured on (CaTblTier; 255 unstated). Read only by
+    //! the consider-state update, which treats tier-1 (868 MHz RSSI) errors as correlated along the motion.
+    uint8_t tier = 255;
     bool fromFloor = false;
 
     CaTblRangeMeasurement();
@@ -527,6 +532,26 @@ struct CaTblPolicyConfig
      * never written down. If the target should be tier-dependent, say so here.
      */
     double traceRef;
+    double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
+    int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
+    uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
+    double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
+    double negSigmaDb;            //!< C1: the margin spread of that delivery curve
+    bool relayNisInflate;         //!< B1 --relayNisInflate: the filter tracks its NIS so relays can scale P_B by it
+    bool rssiCorrInflate;         //!< B2 --rssiCorrInflate: 868 MHz RSSI variance x (1+rho)/(1-rho), rho = exp(-moved/dcorr)
+    double rssiCorrDistM;         //!< B2: shadowing decorrelation distance (engine ENV_RURAL_FORESTED: 30 m)
+    double rssiCorrMaxFactor;     //!< B2: cap on the variance factor
+    bool tofRecal;                //!< C2 --tofRecal: learn the 868 MHz log-bias against 2.4 GHz ranges to the same anchor, apply it
+    uint32_t hold24AfterK;        //!< C3 --hold24AfterK: 0 off; K: after K straight 2.4 GHz cycles with >= 3 ranges, no UWB escalation
+    bool c2bEscalation;           //!< V5 --c2bEscalation: escalate when the next tier is observed in reach, never on confidence
+    bool acquireParticles;        //!< V4 --acquireParticles: particle-filter acquisition before the EKF takes over
+    uint32_t acquireParticleCount; //!< V4: particles per node
+    uint64_t acquireSeed;         //!< V4: per-run seed; each node mixes in its own salt (SetAcquireSalt)
+    double acquireSpeedMps;       //!< V4: random-walk speed scale of the node between cycles
+    bool rangeBiasStates;  //!< V3 --rangeBiasStates: 868 MHz consider biases in every filter (CaTblEkf::EnableConsider)
+    double rangeBiasCorrM; //!< V3: their decorrelation distance, m (the engine's shadowing correlation distance)
+    bool acquireReinit; //!< R1 --acquireReinit (N.54): re-initialise the filter at the first >= 3-range multilateration solution instead of a range update from the prior
     double hopWeight;            //!< PCS hop-provenance weight -- see note below
     double fixedVarThresholdM2;  //!< CA_TBL_MODE_FIXED_THRESHOLD trigger
 
@@ -854,6 +879,35 @@ class CaTblEkf
     double PriorX() const { return m_xPrior[0]; }
     double PriorY() const { return m_xPrior[1]; }
 
+    /** V4: overwrite the position (and its 2x2 covariance) from an external estimator -- the acquisition
+     *  particle filter -- with velocity zero at \p velVar and no position-velocity correlation. The prior
+     *  snapshot is set to the same state, so the integrity reference is this estimate. */
+    void SetPositionCov(double x, double y, double pxx, double pxy, double pyy, double velVar);
+
+    /** V3 --rangeBiasStates (master plan v3; TECH_DEBT N.51). Off by default.
+     *
+     *  On: every 868 MHz range carries a per-(anchor, tier) CONSIDER bias (Schmidt-Kalman): its variance
+     *  is (1 - whiteFrac) of the reported range variance, the rest stays white. The bias is never
+     *  estimated; the filter only carries its cross-covariance with the state, so repeated ranges to one
+     *  anchor stop being averaged as independent. Between cycles the bias decorrelates as
+     *  exp(-ds / corrM) with ds the estimated displacement of the node plus that of the anchor (finders and
+     *  relays move): Gudmundson's exponential law with the engine's own correlation distance. A static
+     *  node keeps a fully correlated error, which is the honest case. Under the engine's default range
+     *  model (independent Gaussian draws) the errors are NOT correlated; use with --rssiRangeFromShadowing. */
+    void EnableConsider(double corrM, double whiteFrac)
+    {
+        m_consOn = true;
+        m_consCorrM = corrM;
+        m_consWhite = whiteFrac;
+    }
+    size_t ConsiderCount() const { return m_cons.size(); }
+
+    /** B1 --relayNisInflate: running mean (EWMA, weight 0.02) of this filter's normalised innovation squared over
+     *  its range updates, nu^2 / S. About 1 for a consistent filter; well above 1 for an overconfident one. Tracked
+     *  only once enabled; the default path is untouched. */
+    void EnableNisTracking() { m_trackNis = true; }
+    double NisMean() const { return m_nisN > 0 ? m_nisMean : 1.0; }
+
     /** Mahalanobis distance of \p (zx,zy) from the stored prior, 2 DOF.
      *
      *  MIS-SPECIFIED: normalises by the prior covariance alone. A validation gate
@@ -881,6 +935,36 @@ class CaTblEkf
     double m_PPrior[4][4];
     double m_qPos;
     double m_qVel;
+
+    struct ConsiderBias
+    {
+        double pcc = 0.0;            //!< bias variance, m^2
+        double pxc[4] = {0, 0, 0, 0}; //!< cross-covariance state-bias
+        double lastVar = 0.0;        //!< range variance it was last scaled to
+        double ax = 0.0;             //!< anchor position at the last update
+        double ay = 0.0;
+    };
+    bool m_trackNis = false;
+    double m_nisMean = 1.0;
+    uint64_t m_nisN = 0;
+    void NoteNis(double v)
+    {
+        if (std::isfinite(v))
+        {
+            m_nisMean = (m_nisN == 0) ? v : 0.98 * m_nisMean + 0.02 * v;
+            ++m_nisN;
+        }
+    }
+    bool m_consOn = false;
+    double m_consCorrM = 30.0;
+    double m_consWhite = 0.05;
+    std::map<uint32_t, ConsiderBias> m_cons;
+    std::map<uint32_t, ConsiderBias> m_consPrior;
+    void ConsiderUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void ConsiderDecay(double ds);
+    void ConsiderAfterPositionGain(const double K[4][2], int nAxes);
+    void ConsiderAfterRangeGain(const double K[4], const double H[4]);
+    void ConsiderSnapshot() { m_consPrior = m_cons; }
 };
 
 /**
@@ -896,6 +980,32 @@ class CaTblPolicy
 
     /** Seed the filter, typically from the first known position. */
     void Initialize(double x0, double y0, double posStdM = 100.0, double velStdMps = 10.0);
+
+    /** V4 --acquireParticles: a node-specific salt for the acquisition filter's random stream (call after
+     *  Configure, before Initialize). Distinct per node so two nodes never share a particle cloud. */
+    void SetAcquireSalt(uint64_t salt) { m_pfSalt = salt; }
+    bool AcquiringByParticles() const { return m_pfActive; }
+    /** C1 --acquireNegInfo: gateways addressed this cycle that returned no range (surveyed positions), per tier. */
+    struct SilentAnchor
+    {
+        double x;
+        double y;
+        uint8_t tier;
+    };
+    void SetSilentAnchors(const std::vector<SilentAnchor>& s) { m_silent = s; }
+    uint64_t GetNegInfoApplied() const { return m_negApplied; }
+    /** V4 test hooks (scratch/v4_acquire_unit.cc only): run the acquisition filter without a scenario. */
+    void PfTestInit(double cx, double cy, double half) { PfInit(cx, cy, half); }
+    bool PfTestStep(double dt, const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2,
+                    double& mx, double& my, double& cxx, double& cxy, double& cyy)
+    {
+        PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
+        const bool one = PfUpdate(meas, varM2);
+        PfStats(mx, my, cxx, cxy, cyy);
+        return one;
+    }
+    void PfTestForceUnimodal(bool on) { m_pfTestForceOne = on; }
+    uint64_t GetPfHandovers() const { return m_pfHandovers; }
 
     /** Tier that should transmit on the next cycle. */
     CaTblTier GetActiveTier() const { return m_tier; }
@@ -1049,6 +1159,14 @@ class CaTblPolicy
                        int32_t activeTierRanges = -1,
                        int32_t activeTierNeighbours = -1,
                        uint32_t tierEvidenceMask = 0);
+    //! C2 --tofRecal: the learnt 868 MHz log-bias ln(r868 / r2.4) and how many pairs taught it.
+    double GetTofRecalBias() const { return m_recalBias; }
+    //! B1 --relayNisInflate: this filter's running NIS mean (1.0 until it has updates or when off).
+    double GetNisMean() const { return m_ekf.NisMean(); }
+    uint64_t GetTofRecalPairs() const { return m_recalPairs; }
+    //! B2 --rssiCorrInflate: 868 MHz ranges inflated, and their mean variance factor.
+    uint64_t GetRssiCorrApplied() const { return m_corrN; }
+    double GetRssiCorrMeanFactor() const { return m_corrN ? m_corrSum / static_cast<double>(m_corrN) : 1.0; }
 
     /**
      * \brief Undo the tier change the last Step() made, because the escalation
@@ -1080,6 +1198,7 @@ class CaTblPolicy
     //! the 100 m^2 fallback -- a SECOND treatment, which must never be averaged in
     //! silently. With mahalUseR=true this should be 0; the caller announces it if not.
     uint64_t GetReinitFallbackCount() const { return m_reinitFallbackCount; }
+    uint64_t GetAcqReinits() const { return m_acqReinits; } //!< R1 --acquireReinit
     uint64_t GetPredictBlockedQuality() const { return m_predictBlockedQuality; }
     //! Escalations suppressed because fewer than 3 UWB anchors were predicted in range.
     uint64_t GetPredictBlockedCoverage() const { return m_predictBlockedCoverage; }
@@ -1268,6 +1387,43 @@ class CaTblPolicy
     uint64_t m_uwbWaitCycles = 0;
     // NW-4. Appended last.
     bool m_queryEscArmed = false;
+    bool m_acquired = true; //!< S2-C --acquireMinAnchors: has a fix of that many ranges been fused yet
+    // ---- V4 --acquireParticles ----
+    struct PfParticle
+    {
+        double x;
+        double y;
+        double w;
+    };
+    std::vector<PfParticle> m_pf;
+    uint32_t m_streak24 = 0;
+    std::vector<SilentAnchor> m_silent; //!< C1
+    uint64_t m_negApplied = 0;          //!< C1: silent-anchor factors applied
+    double m_recalBias = 0.0;   //!< C2: EWMA of ln(r868 / r2.4) over same-anchor pairs
+    uint64_t m_recalPairs = 0;  //!< C2
+    struct CorrRef { double nx, ny, ax, ay; };
+    std::map<uint16_t, CorrRef> m_corrLast; //!< B2: per 868 MHz anchor, node estimate and anchor position at its last range
+    uint64_t m_corrN = 0;                   //!< B2
+    double m_corrSum = 0.0;                 //!< B2
+    CaTblDecision StepRecal(double dt, const std::vector<CaTblRangeMeasurement>& meas, uint32_t hopCount,
+                            int32_t activeTierRanges, int32_t activeTierNeighbours, uint32_t tierEvidenceMask);
+    CaTblDecision StepImpl(double dt, const std::vector<CaTblRangeMeasurement>& meas, uint32_t hopCount,
+                           int32_t activeTierRanges, int32_t activeTierNeighbours, uint32_t tierEvidenceMask); //!< C3: consecutive cycles on 2.4 GHz with >= 3 active ranges
+    bool m_pfActive = false;
+    uint64_t m_pfSalt = 0;
+    uint64_t m_pfHandovers = 0;
+    uint32_t m_pfCycles = 0;
+    bool m_pfTestForceOne = false; //!< V4 fixture: skip the unimodality test
+    double m_pfFloor2 = 0.0; //!< V4: squared inter-particle spacing of the last prior cloud
+    std::mt19937_64 m_pfRng;
+    void PfInit(double cx, double cy, double half);
+    void PfPredict(double dt, double ux, double uy, double qxx, double qyy);
+    /** Weight by this cycle's ranges, resample if needed; true when the cloud is one mode. */
+    bool PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    void PfStats(double& mx, double& my, double& cxx, double& cxy, double& cyy) const;
+    bool m_reinitPending = false; //!< R1 --acquireReinit: the first >= 3-range cycle has not yet re-initialised the filter
+    uint64_t m_acqReinits = 0;    //!< R1 --acquireReinit: re-initialisations performed (0 or 1 per node)
+    uint64_t m_acqReinitRefused = 0; //!< R1 --acquireReinit: candidate solutions refused by the residual guard
     uint64_t m_queryEscRequests = 0;
     uint64_t m_queryEscFired = 0;
     uint64_t m_queryEscalations = 0;

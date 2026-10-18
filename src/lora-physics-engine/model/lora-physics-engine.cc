@@ -56,6 +56,10 @@ void LoRaPhysicsEngine::Initialize(const LoRaPhysicsConfig& config) {
     } else {
         m_fadingSampler = LoRaDistributionSampler(config.randomSeed);
     }
+    // --rngKeyed (TECH_DEBT 1.1): one salt per engine and per sampler, so the three bands
+    // and the fading draws never share a keyed sequence. Inert when keyed mode is off.
+    m_sampler.SetKeyedSalt(0x868);
+    m_fadingSampler.SetKeyedSalt(0x868 ^ 0xFADEULL);
     
     m_correlation = std::make_unique<LoRaCorrelationEngine>();
     m_spatial = std::make_unique<LoRaSpatialFieldEngine>();
@@ -229,6 +233,9 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     double bandwidthHz, uint8_t relayHops,
     Time currentTime, double nodeOrientationRadians) {
     NS_LOG_FUNCTION(this << txNodeId << rxGatewayId << txPowerDbm << (int)spreadingFactor);
+    // --rngKeyed: every draw in this evaluation is keyed to (link, time, occurrence).
+    LoRaSamplerContextGuard rngContext(m_sampler, m_fadingSampler, txNodeId, rxGatewayId,
+                                       currentTime.GetNanoSeconds());
     PhysicsResult result;
     LinkPhysicsState state;
     state.txNodeId = txNodeId;
@@ -446,7 +453,7 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
         state.kFactor = effFading.ricianKFactor.mean;
     }
     FadingState& fs = m_fadingStates[linkId];
-    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, linkId, fs.lastUpdateTime, fs.lastFadingDb);
+    double rawFadingDb = ComputeFadingDb(state, currentTime, effFading, m_fadingSampler, FadingKey(linkId, 1), fs.lastUpdateTime, fs.lastFadingDb);
     result.sampledKFactor = state.kFactor;
     result.fadingDb = std::max(rawFadingDb, -20.0); // Remove hard upper cap per Fix E1
     
@@ -468,11 +475,18 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     // branch ignores it, along with bandwidthHz and spreadingFactor, because
     // RSSI-inversion ranging is not a time-of-arrival estimator and the ToA
     // Cramer-Rao bound does not apply to it.
+    // S1 --rssiRangeFromShadowing: hand this link's shadowing draw to the ranging (read only when on).
+    state.rangingShadowingDb = result.shadowingDb;
     if (m_config.rangingModelMode == RANGING_PHYSICS_DERIVED) {
         ComputeRangingErrorM(state, RANGING_TIER_868, m_config.ranging,
                               m_config.propagation, m_config.propagation.frequencyHz,
                               (bandwidthHz > 0.0 ? bandwidthHz : 125000.0), 0.0,
                               spreadingFactor, m_sampler);
+    }
+    // V2b --rangeErrorNoLinkLeak: keep the ranging bias for the report, but not in the link budget.
+    const double rangingBiasReportDb = state.propagationLossBiasDb;
+    if (m_config.ranging.rangeErrorNoLinkLeak) {
+        state.propagationLossBiasDb = 0.0;
     }
 
     // 5. Tapped Delay Line Multipath (Coupling 3: Delay Spread scaled by NLOS)
@@ -578,7 +592,7 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     result.syncCorruptionOccurred = (result.collisionOverlapFraction > 0.08 && !wasCaptured);
     
     // 14. Total loss accumulation with bounded loss caps (including TDL multipath penalty)
-    // Feature: Oliveira 2017 thermal sensitivity target (~0.075 dB/°C)
+    // Unused (thermalEfficiencyLossDb = 0). Not Oliveira 2017: Boano, Cattani, Romer, SENSORNETS 2018, doi 10.5220/0006605600390050 measure 3-4 dB (RFM95) / 5-6 dB (SX1272) over 0-50 °C
     double ambientTemp = m_config.atmospheric.temperatureCelsius.mean;
     double thermalEfficiencyLossDb = 0.0; // Handled by Johnson-Nyquist in atmospheric submodule
     
@@ -786,6 +800,7 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     
     // 1. Radio Frontend
     ambientTemp = m_atmospheric ? m_atmospheric->GetCurrentTemperature() : m_config.atmospheric.temperatureCelsius.mean;
+    m_radioFrontend->SetReceiver(rxGatewayId); // B6: inert unless --agcPerReceiver
     RadioFrontendResult rfRes6 = m_radioFrontend->ProcessAnalogFrontend(
         result.timestamp.cfoHz, ambientTemp + m_sampler.Sample(DistributionParam::Normal(0.0, 5.0, -10.0, 10.0)),
         currentTime, result.rxPowerDbm, result.strongestInterfererDbm);
@@ -1022,7 +1037,8 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     result.estimatedRangeM = state.estimatedRangeM;
     result.rangeErrorM = state.rangeErrorM;
     result.positionErrorM = state.positionErrorM;
-    result.propagationLossBiasDb = state.propagationLossBiasDb;
+    result.propagationLossBiasDb = m_config.ranging.rangeErrorNoLinkLeak ? rangingBiasReportDb
+                                                                         : state.propagationLossBiasDb;
     result.rangingSigmaM = state.rangingSigmaM;
     
     // P3: Write actual sampled rain rate, not the distribution mean

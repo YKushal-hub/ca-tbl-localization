@@ -11,6 +11,22 @@
 | **Platform**            | ns-3.47, C++17, custom`lora-physics-engine` module                             |
 | **Evidence convention** | Every factual claim carries a tag`[E-nn]` resolved in §12                     |
 
+> ## As built, 2026-10-17
+>
+> - **Radios:** Tier 1 SX1262, Tier 2 SX1280 (two separate chips: `--radioBasis=sx --halfDuplexChip=false`), Tier 3
+>   DW3000-class. DESIGN_DECISIONS 11. The LR1121 single-die row in §2 describes an option, not the build.
+> - **The preset** (`--specProfile`) carries the engine corrections of DESIGN_DECISIONS 10 and 13:
+>   - correlated-shadowing RSSI error;
+>   - NLOS as range bias;
+>   - reply positions;
+>   - particle-filter acquisition;
+>   - per-band fading;
+>   - relayed-range NIS inflation;
+>   - the exact log-normal 868 MHz σ (DD 14).
+> - **Default-off physics options:** 3GPP TR 38.901 RMa NLOS (`--nlos3gppRMa`) and ITU-R P.833-10 forest foliage
+>   (`--foliageP833`).
+> - **Current measured numbers:** `report/CAMP_FINAL2_RESULTS.md`. CLAUDE.md §3 lists the flags and gates.
+
 ---
 
 ## Table of contents
@@ -895,6 +911,10 @@ flowchart BT
 | R-15 | Perkins & Bhagwat, DSDV                                                                                    | Sequence-number generational supersession                   |
 | R-16 | AODV / DSR reactive routing                                                                                | Reverse-path caching for query responses                    |
 | R-17 | Meshtastic / flooding-protocol literature                                                                  | Packet-ID dedup, hop limit, rebroadcast jitter              |
+| R-18 | Rademacher et al., VTC2021-Fall (arXiv 2109.07768) — urban LoRa path loss, Bonn, 112,372 samples          | `pathLossExponent2` = 1.58: ADAPTED, their single-slope n used as the far slope beyond 1 km |
+| R-19 | Cheffena & Ekman, *EURASIP JWCN* 2009, doi 10.1155/2009/306876 — wind-induced foliage fading            | The wind-variation model; its parameter values are OURS (replaces a "Meng 2009" citation) |
+| R-20 | Boano, Cattani & Römer, SENSORNETS 2018, doi 10.5220/0006605600390050 — LoRa temperature effects        | Cited for the thermal comment only; unused in code (`thermalEfficiencyLossDb` = 0) |
+| R-21 | Mueller et al., ICL-GNSS 2021, doi 10.1109/ICL-GNSS51451.2021.9452277 — outdoor SX1280 ranging        | `--tofFieldSigmaM` / `--tofFieldBiasM` levels (sensitivity only, default off) |
 
 ### 13.2 Positioning and prior art
 

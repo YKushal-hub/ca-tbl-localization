@@ -36,6 +36,22 @@ ALLOWED = {
                                    "the ported PREREG_A0_V2.md and PREREG_A1_DWELL.md",
     "make_figures.py":             "local-line figure script, on archive/local-line-2026-10-16; "
                                    "cited by the ported PREREG_D8_SENSITIVITY.md",
+    "spec_profile.txt":            "a per-run output the scenario writes under --specProfile; cited "
+                                   "as where a run records its settings, not a repo path",
+    "gateways.csv":                "a file of the external Bonn dataset (github.com/mclab-hbrs/lora-bonn), "
+                                   "not vendored; report/TIER1_VALIDATION.md records its sha256",
+    "samples.csv":                 "a file of the external Bonn dataset (survey/samples.csv), not "
+                                   "vendored; report/TIER1_VALIDATION.md records its sha256",
+    "context.md":                  "S2's research file on branch claude/kind-turing-csi8ok, cited by "
+                                   "report/PREREG_ACC_A_FILTER.md as the source of the 3-54x measurement",
+    "PREREG_ACC_B_HYBRID.md":      "on both unmerged Part B branches (work/2026-10-09-acc-part-b and "
+                                   "claude/kind-turing-csi8ok) with different content; named by "
+                                   "report/S2C_CROSS_BRANCH_AUDIT.md as the collision the owner decides",
+    "ACC_B_RESULTS.md":            "on both unmerged Part B branches, different content; named by "
+                                   "report/S2C_CROSS_BRANCH_AUDIT.md as the collision the owner decides",
+    "VERIFICATION_2026_10_09_LOCAL.md": "the local machine's verification on branch "
+                                   "work/2026-10-09-local-verification (not merged); cited by "
+                                   "report/S2C_CROSS_BRANCH_AUDIT.md as evidence for G63/G87/G89",
 }
 # Bare filenames that live inside excluded results/ directories. Legitimate because
 # the directory is recorded in EXCLUDED.md; the file inside it is not separately tracked.
