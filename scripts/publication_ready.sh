@@ -235,7 +235,10 @@ if [ -z "$excl" ]; then
     excl='build/'
 fi
 pat=$(printf '%s' "$excl" | sed 's/[].[^$\\*]/\\&/g' | paste -sd'|' -)
-hidden=$(git ls-files --others --ignored --exclude-standard 2>/dev/null \
+# Only the TRACKED ignore rules are judged: they are what a fresh clone hides. A
+# clone's own .git/info/exclude (machine-local tool settings, never published) is
+# not part of the publication and is deliberately outside this check's population.
+hidden=$(git ls-files --others --ignored --exclude-per-directory=.gitignore 2>/dev/null \
     | grep -E '\.(yml|yaml|cc|cpp|h|hpp|py|sh|cmake|rst|md|json|toml)$' \
     | grep -vE "^(${pat})" || true)
 if [ -z "$hidden" ]; then
