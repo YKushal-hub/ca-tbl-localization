@@ -1,7 +1,7 @@
 # HANDOFF 2026-10-09 — S2 Part B (hybrid range supply), branch `work/2026-10-09-acc-part-b`
 
 Done in one cloud session, overnight, end to end. Base: S3's `89118bae`, which has the 102-setting
-preset. Plan: `plan_part_b_hybrid.md` on `claude/kind-turing-csi8ok`.
+preset. Plan: `plan_part_b_hybrid.md` on `work/2026-10-09-acc-reruns`.
 
 | commit | what |
 |---|---|

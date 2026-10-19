@@ -3647,7 +3647,7 @@ is implemented, default off.
 ### N.53 The two Part B branches collide
 
 *2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and
-`claude/kind-turing-csi8ok` both define `--dualBaseRelayTier`, both write
+`work/2026-10-09-acc-reruns` both define `--dualBaseRelayTier`, both write
 `report/PREREG_ACC_B_HYBRID.md` and `report/ACC_B_RESULTS.md`, and both use N.35-N.37, with
 different content. Neither is merged into the S2-C branch. **Open:** the owner chooses, or
 renumbers one.

@@ -13,7 +13,7 @@ Check `git log` on each branch before trusting this file, as with every status d
 
 | | S1 — spec, preset, campaigns | S2 — accuracy plan | S3 — evidence fixes |
 |---|---|---|---|
-| **Branch** | `work/2026-09-27-spec-b1` (the main line), plus `draft/camp-final2` | `claude/kind-turing-csi8ok` (cloud) | `review/2026-10-08-evidence-fixes` |
+| **Branch** | `work/2026-09-27-spec-b1` (the main line), plus `draft/camp-final2` | `work/2026-10-09-acc-reruns` (cloud) | `review/2026-10-08-evidence-fixes` |
 | **Where it runs** | Local machine, main checkout `~/projects/ca-tbl-localization`; suite worktree `~/catbl_suite` | Cloud | Cloud (local worktree `~/catbl_evfix` exists, but the local machine is S1's) |
 | **State document** | `HANDOFF_2026_10_05.md` and the commit messages after it | `plan.md`, `context.md` | `HANDOFF_2026_10_08.md` |
 | **Head when written** | `1596cb41` | `d4033ffb` | `493d00c1` |

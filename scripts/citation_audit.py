@@ -42,10 +42,10 @@ ALLOWED = {
                                    "not vendored; report/TIER1_VALIDATION.md records its sha256",
     "samples.csv":                 "a file of the external Bonn dataset (survey/samples.csv), not "
                                    "vendored; report/TIER1_VALIDATION.md records its sha256",
-    "context.md":                  "S2's research file on branch claude/kind-turing-csi8ok, cited by "
+    "context.md":                  "S2's research file on branch work/2026-10-09-acc-reruns, cited by "
                                    "report/PREREG_ACC_A_FILTER.md as the source of the 3-54x measurement",
     "PREREG_ACC_B_HYBRID.md":      "on both unmerged Part B branches (work/2026-10-09-acc-part-b and "
-                                   "claude/kind-turing-csi8ok) with different content; named by "
+                                   "work/2026-10-09-acc-reruns) with different content; named by "
                                    "report/S2C_CROSS_BRANCH_AUDIT.md as the collision the owner decides",
     "ACC_B_RESULTS.md":            "on both unmerged Part B branches, different content; named by "
                                    "report/S2C_CROSS_BRANCH_AUDIT.md as the collision the owner decides",
