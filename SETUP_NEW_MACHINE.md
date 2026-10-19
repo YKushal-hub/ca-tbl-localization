@@ -182,7 +182,7 @@ python3 -m http.server 8899 --directory scratchpad
 # then open http://localhost:8899/console.html
 ```
 
-**Live artifact:** <https://claude.ai/code/artifact/a500156c-61b2-4677-a49c-6f8dc43db042>
+**Live artifact:** the owner's hosted copy (link held outside the repository)
 It has a **share pin** — republishing does not change what viewers see until the pin is
 moved from the artifact's share menu. An older handoff (v19) records a different artifact
 URL (`51e1d3c6…`); **that one does not exist.**
