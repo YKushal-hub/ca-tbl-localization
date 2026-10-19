@@ -82,7 +82,6 @@ physics_scale_sweep_*.csv
 
 # --- working directories ---
 /audit/
-.claude/
 
 # ---------------------------------------------------------------------------
 # Files the project's rules require to stay UNTRACKED.
