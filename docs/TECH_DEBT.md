@@ -117,7 +117,7 @@ status was checked against the code, or against the preset's setting list
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 5 km tag 0: one precise anchor | RESEARCH | finder 868 MHz ranges run long; tangential drift at claimed sigma 3-8 m; no tested remedy holds it |
+| N.62 5 km tag 0: one precise anchor | RESEARCH | range innovations corrupt θ/b/s (37° off despite the magnetometer); single-update remedies all rejected; needs a trajectory-level estimator |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
 question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
@@ -4380,4 +4380,28 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
   finder converges on the tag. What is left is the correlated-shadowing mechanism O.12 and N.57 already name, in
   the one-precise-anchor geometry. `--rssiCorrInflate`'s Gudmundson decorrelation runs on the node's own
   displacement, so it cannot see a link whose two ends move together.
+- **Correction, same day: the 868 MHz error model is close to honest per link.** The engine decorrelates a
+  link's shadowing on max(tx, rx) displacement (Gudmundson, `lora-shadowing-submodule.cc`), so ends that move
+  together still decorrelate. Measured on the same six seeds, tag 0's 868 MHz log range errors:
+  - autocorrelation 0.46 at 2.5 s, 0.27 at 10 s, 0.02 at 40 s for finders (0.36 / 0.19 / −0.10 for gateways);
+  - per-link means spread 0.181 against 0.137 expected from averaging alone (finders): a persistent per-link
+    part of ~0.12 against a stated log-normal SD of ~0.74.
+  Neither holds four links biased for 450 s. Seed 5's long finder ranges were chance, and the
+  correlated-shadowing explanation above is withdrawn.
+- **Where the error actually lives: the filter's sensor states.** Seed 5, 600 s, with the guard, end of run
+  (`~/ns/catbl-work/diag_s5_curv/run.log`):
+  - heading offset estimated −2.30 rad against a true −1.65 (37° wrong), with the magnetometer fused 240 times at
+    3° white plus a 3° / 120 s Gauss-Markov disturbance;
+  - stride scale −0.25 against a true +0.006;
+  - gyro bias 38 % high.
+  With one precise anchor, the tangential direction is observable only through the dead-reckoned path. The range
+  innovations then move θ, b and s through their cross-covariance with position, and a wrong heading rotates the
+  estimate about the finder while every range still agrees. This is N.59's "range innovations still drive theta
+  against the reference", located.
+- **Already measured and rejected for it:** θ owned by the magnetometer (REAL-STACK disclosure, 20 seeds); state
+  bounds alone (REAL-BEST P5); one-range consider updates (EKF5-CONSIDER); the iterated update (N.58).
+  Each acts on a single update. The candidates left act on the whole trajectory: a sliding-window smoother
+  (a batch / factor-graph solve over the last N cycles, re-linearised jointly), or a particle or
+  multiple-hypothesis filter kept running while the geometry has one precise anchor. Either is a new estimator,
+  not a flag on this one.
 
