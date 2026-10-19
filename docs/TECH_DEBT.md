@@ -4371,4 +4371,13 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
   applied to handhelds is the candidate. Whether the finder converging on tag 0's own wrong estimate closes a
   feedback loop. A per-link-class bias, or modelling low-low 868 MHz links separately, is the next measurement.
   A multi-seed pilot must come before any remedy is called one.
+- **The low-to-low path-loss hypothesis is falsified.** Seeds 1-6 at 5 km, 600 s, the same stack,
+  `--traceRanges` (`~/ns/catbl-work/finder868`), tag 0's 868 MHz ranges, mean ln(r/d):
+  - finders: −0.021 under 300 m (n 1 296), −0.034 at 300-1000 m (2 626), −0.181 at 1-3 km (872);
+  - gateways: −0.110 at 1-3 km (304), −0.370 beyond 3 km (863).
+  Finder links run slightly SHORT, like gateways: N.57's selection by reception. Seed 5's +100-200 m was one
+  realisation of slowly varying, link-correlated shadowing on links whose geometry changes little, because the
+  finder converges on the tag. What is left is the correlated-shadowing mechanism O.12 and N.57 already name, in
+  the one-precise-anchor geometry. `--rssiCorrInflate`'s Gudmundson decorrelation runs on the node's own
+  displacement, so it cannot see a link whose two ends move together.
 
