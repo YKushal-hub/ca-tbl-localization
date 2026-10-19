@@ -7,7 +7,7 @@
 # Every fixture is a copy of a REAL run set, outside the tree, with ONE thing changed, and
 # must fail the check it names. The ones that matter most:
 #   N2  the uplink moved accuracy, not only energy;
-#   N5  a tier that never transmitted is charged (CLAUDE.md sect 6);
+#   N5  a tier that never transmitted is charged (RULES.md sect 6);
 #   N6  static_2p4 not billed at all -- the tree before SY-1.
 set -u
 cd "$(dirname "$0")/.." || exit 2

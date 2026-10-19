@@ -25,7 +25,7 @@
 >   - the exact log-normal 868 MHz σ (DD 14).
 > - **Default-off physics options:** 3GPP TR 38.901 RMa NLOS (`--nlos3gppRMa`) and ITU-R P.833-10 forest foliage
 >   (`--foliageP833`).
-> - **Current measured numbers:** `report/CAMP_FINAL2_RESULTS.md`. CLAUDE.md §3 lists the flags and gates.
+> - **Current measured numbers:** `report/CAMP_FINAL2_RESULTS.md`. RULES.md §3 lists the flags and gates.
 
 ---
 

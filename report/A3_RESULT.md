@@ -1,6 +1,6 @@
 # A3 — the intra-cycle handshake: measured, and equivalent to what it replaces
 
-> **Local line, legacy topology.** Ported to `main` on 2026-10-16 as a record (`docs/LOCAL_LINE_INTEGRATION.md`). Every number below was produced on the local line's binary and the pre-correction topology `main` treats as a different deployment (`CLAUDE.md`), on commits that resolve through `SHA_MAP.md` to `archive/local-line-2026-10-16`. Flags it names (`--imuPrior`, `--intraCycleHandshake`, `--imuCoastMomentMatch`) exist on that branch, not on `main`.
+> **Local line, legacy topology.** Ported to `main` on 2026-10-16 as a record (`docs/LOCAL_LINE_INTEGRATION.md`). Every number below was produced on the local line's binary and the pre-correction topology `main` treats as a different deployment (`RULES.md`), on commits that resolve through `SHA_MAP.md` to `archive/local-line-2026-10-16`. Flags it names (`--imuPrior`, `--intraCycleHandshake`, `--imuCoastMomentMatch`) exist on that branch, not on `main`.
 
 Registered in `report/PREREG_A3_INTRA_CYCLE_HANDSHAKE.md` (`a28b591`) against code `e5474d9`;
 run at `e94d04d`, 40 invocations, every sidecar `dirty 0`, digests verified; scored once by the

@@ -82,7 +82,7 @@ producing another number that has to be thrown away:
    before/after comparisons and one confounded one.
 2. `ComputeFoliageLossDb` is called by all three engines and by two test suites, and
    the change must go in behind a default-off flag with a null control showing the
-   flag's off state is byte-identical, per the required shape in `CLAUDE.md` §4.
+   flag's off state is byte-identical, per the required shape in `RULES.md` §4.
 
 *Cost:* the line is trivial; the null control, the flag, the gate and the re-measurement
 are not. *Registered as the next physics item after the environment correction.*

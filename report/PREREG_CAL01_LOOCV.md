@@ -95,7 +95,7 @@ The probe numbers are exploratory: frozen reference `084a7ff`, legacy form, no N
    configuration, relayed or not. `--relaySlots` (`d24690c`) makes depth-2 chains fuse *on
    the relays*, but no hop count ever reaches the measured tag's PCS. A weight on a
    constant zero cannot be identified: it is the machinery's DEGENERATE branch.
-2. **`CLAUDE.md` §2** forbids `hopWeight > 0`.
+2. **`RULES.md` §2** forbids `hopWeight > 0`.
 3. **The specification's calibration names w1..w3.** The hop term is a separate
    subtractive penalty outside the weighted sum (`ca-tbl-policy.cc:885-893`).
 

@@ -17,7 +17,7 @@ Completion is judged from diffs and code, not commit messages.
 - **Target branch of this work:** `main`.
 - **Working branch:** `work/2026-10-09-unknown-start-nlos`, created from `origin/main`.
 - **Branch naming.** The session's tooling designated `claude/pensive-sagan-rg8xwr` (= old `main`,
-  `a0829213`). It is not used, because CLAUDE.md §2 forbids an assistant name in a branch name.
+  `a0829213`). It is not used, because RULES.md §2 forbids an assistant name in a branch name.
 - **Open pull requests:** none. PRs #1-#7 are closed.
 
 ## 2. Inventory (relative to `main`; "ahead" counts commits not on `main`)
@@ -81,4 +81,4 @@ The ACC-A diagnoses' numbers are cited, not recomputed.
    cells run on `--specProfile`, which now carries the N.26 fixes; for example, G89's
    every-flag-off runs print an N.26 line. The local verification established the same check
    lines on `1596cb41`. The fix is explicit flag-off controls in those gates, and that is S1's.
-4. **Branch naming:** CLAUDE.md §2 against the tooling's designated branch name.
+4. **Branch naming:** RULES.md §2 against the tooling's designated branch name.

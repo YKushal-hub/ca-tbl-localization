@@ -60,7 +60,7 @@ Recounted from the files (rule 3):
 - Every invocation line ends with the registered arguments (spot-read for every cell type;
   the driver checked all 125).
 - The earliest cell directory is dated 2026-09-28 11:16; `7b17bd6` was committed at 11:13:33.
-- **The part of the CLAUDE.md §6 invariant the energy axis needs** (`docs/TECH_DEBT.md`
+- **The part of the RULES.md §6 invariant the energy axis needs** (`docs/TECH_DEBT.md`
   K.3 separates it from the literal sentence) **holds on all 2 536 regenerated rows**: on every row where a
   tier has `cycles_<tier> == 0`, its `tx_`, `rx_`, `cad_` and `idle_` energies are exactly
   0.0 and `j_<tier>` equals `sleep_<tier>` exactly (840, 912 and 2 116 such rows for 868,
@@ -103,7 +103,7 @@ python3 scratch/python_handoff/k1_analyse.py results/regen27_k1/*
 # SUPPLEMENTARY, not registered -- they compute no verdict
 python3 scripts/b3/b3_c2_diagnostics.py      # C2 denominators, PCS constancy, trigger rate, identities
 python3 scripts/b3/b3_identity_checks.py     # which columns differ: E3, K10 and L2 originals, edge, wanonly
-python3 scripts/b3/b3_energy_invariant.py    # CLAUDE.md section 6 on every row, and per-cycle tier cost
+python3 scripts/b3/b3_energy_invariant.py    # RULES.md section 6 on every row, and per-cycle tier cost
 python3 scripts/b3/b3_energy_invariant.py ~/catbl_b3_logs/analysis/fixture/arm_summary_bad.csv   # must exit 1
 # default drift between the originals' commits and this one
 git merge-base --is-ancestor 7ec0d91 <commit>          # for deb52da 9723dfc 1e8e527 5bbac5d 4779bf7 5d20de9 808885a 4302918
@@ -125,7 +125,7 @@ registered sign tests. That concatenation is the only transformation the prereg 
 
 **What is being tested.** `--imuCrossCheck` and `--corroborationCheck`: the block
 commented SWITCHING-POINT INTEGRITY at `ca-tbl-policy.cc:1233-1269`. It is **neither** the
-Mahalanobis check that `CLAUDE.md` §2 calls the Switching-Point Integrity Check (that one
+Mahalanobis check that `RULES.md` §2 calls the Switching-Point Integrity Check (that one
 runs in both arms here; `suspects` column) **nor** the evidence gate (`Architecture.md`
 §9.3). All three are suppress-only; they are kept distinct below.
 

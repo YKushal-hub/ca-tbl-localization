@@ -348,7 +348,7 @@ G12_ID_PAT='claude|anthropic|assistant|copilot|\bbot\b'
 #
 # This is a deliberate NARROWING OF SCOPE, not a gate edited to make it pass: G12
 # was already GREEN when this change was made, because the trailers had been
-# removed by the 2026-09-05 rewrite. The standing project rule in CLAUDE.md 2 is
+# removed by the 2026-09-05 rewrite. The standing project rule in RULES.md 2 is
 # unchanged -- do not write attribution -- this only stops the gate enforcing the
 # message-body half of it, which the owner deferred.
 # REVERTED 2026-09-05, same day, and the reason is worth keeping. This briefly read

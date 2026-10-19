@@ -217,7 +217,7 @@ Pre-rewrite tips are retained locally under `refs/original/refs/heads/*`.
 
 The local line (81 commits after `56d47fb`, never merged) was copied to
 `archive/local-line-2026-10-16` with `Co-Authored-By` trailers removed, per the standing rule in
-`CLAUDE.md` §2. **Messages only:** every rewritten commit has the same tree as its original
+`RULES.md` §2. **Messages only:** every rewritten commit has the same tree as its original
 (checked commit by commit), the count is unchanged at 81, and the first 55 carried no trailer
 and keep their SHAs. The 26 below changed. Sidecars ported from the local line cite the
 **old** SHA; this table is how they resolve (G13). The originals, trailers included, were on

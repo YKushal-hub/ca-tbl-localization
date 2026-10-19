@@ -81,7 +81,7 @@ contiguous window of `injectBiasFraction` of the run, with a **seed-derived star
 identical across arms** — the ablation measures the gate, not the fault placement.
 
 **Truncation rule.** A cycle whose window is cut by run end still settles any threshold it
-has already crossed; it is not recounted symmetrically. (`CLAUDE.md` rules 1 and 2.)
+has already crossed; it is not recounted symmetrically. (`RULES.md` rules 1 and 2.)
 
 ---
 
@@ -104,7 +104,7 @@ calibration the thesis register defers to Phase 2.1 and the project has never pr
 Energy is expected to rise, because escalation costs. This campaign registers no energy
 criterion, so **no energy verdict will be stated from it**; A0 is where that belongs.
 
-No single-seed cross-arm difference will be reported. (`CLAUDE.md` rule 8.)
+No single-seed cross-arm difference will be reported. (`RULES.md` rule 8.)
 
 ---
 
@@ -161,7 +161,7 @@ INCONCLUSIVE, not PASS.** A criterion no competitor can meet decides nothing.
   of the sweep is not run: it would be measuring the shape of a null.
 - If any cell fails to produce 20 seeds of `arm_summary.csv` rows, the campaign stops and
   the missing cells are named. **Row counts are checked, not non-emptiness** — with
-  per-seed appending, a summary is non-empty from seed 1. (`CLAUDE.md` rule 12.)
+  per-seed appending, a summary is non-empty from seed 1. (`RULES.md` rule 12.)
 - If `run_id.txt` records `dirty` other than 0 for any cited directory, that directory is
   not citable and the campaign is re-run from a clean tree.
 

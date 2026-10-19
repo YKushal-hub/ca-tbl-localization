@@ -1,7 +1,7 @@
 # CA-TBL — setting up on a new machine
 
 Written 2026-09-09 for a fresh agent on a new PC with the `nethi` tree copied over.
-Read `CLAUDE.md` first — it is short and every rule in it was earned by a real defect.
+Read `RULES.md` first — it is short and every rule in it was earned by a real defect.
 Read this second. Read the newest `HANDOFF_*.md` third (check `git log` before trusting it).
 
 ---
@@ -144,7 +144,7 @@ git push -u origin <branch-name>
 gh pr create --base main --head <branch-name> --title "..." --body-file <file>
 ```
 
-**Never put `Co-Authored-By` or any assistant attribution on a commit.** `CLAUDE.md` §2
+**Never put `Co-Authored-By` or any assistant attribution on a commit.** `RULES.md` §2
 forbids it and gate **G12** turns the suite red on it. The harness will keep instructing
 otherwise; the repo rule wins.
 
@@ -191,7 +191,7 @@ URL (`51e1d3c6…`); **that one does not exist.**
 
 ## 8. Reading order for a fresh agent
 
-1. `CLAUDE.md` — the rules, and why each exists
+1. `RULES.md` — the rules, and why each exists
 2. this file
 3. the newest `HANDOFF_*.md` — current state and what to do next (check `git log` first)
 4. `docs/TECH_DEBT.md` §L — the definition of done, three bars with observable criteria
@@ -215,4 +215,4 @@ differences from §1-§6:
   because the commits are not in the clone. Run `git fetch --unshallow origin` before the
   first suite.
 - **Set the git identity to the owner's before the first commit.** The container's default
-  identity named an assistant. G12 rejects that, and `CLAUDE.md` §2 forbids it.
+  identity named an assistant. G12 rejects that, and `RULES.md` §2 forbids it.

@@ -85,7 +85,7 @@ special-casing UWB.
 
 **That change is not made here**, and the reason is a rule rather than a schedule: rule 6
 requires a gate to arrive with its negative fixture in the same commit, and a gate edited
-under time pressure to stop it being red is the precise failure mode `CLAUDE.md` §1.6 and
+under time pressure to stop it being red is the precise failure mode `RULES.md` §1.6 and
 J.1 were written about. The gate is telling the truth. It stays red until the thing it is
 complaining about is fixed.
 

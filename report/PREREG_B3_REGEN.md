@@ -31,7 +31,7 @@ What this is **not**:
   11, `ca_tbl_loocv_test` 8; 0 failed.
 - **Not the Bar-1 tree.** Routing, relay depth 2 and anchor grant gossip are being wired
   on another branch at the time of registration and are **not** in this binary. If they
-  land default-off with a byte-identical null control (`CLAUDE.md` §4), these results stay
+  land default-off with a byte-identical null control (`RULES.md` §4), these results stay
   valid for default-flag invocations of the merged tree. If any of them lands default-on,
   this campaign describes `084a7ff` and must be re-run for the merged tree.
 - **Not the write-up.** Results, repointed citations and corrections-register entries go
@@ -39,7 +39,7 @@ What this is **not**:
 
 ## 1. The sampler decision, stated once and binding on every section below
 
-`LoRaDistributionSampler` **stays unseeded** (`CLAUDE.md` §5, a decision not to fix;
+`LoRaDistributionSampler` **stays unseeded** (`RULES.md` §5, a decision not to fix;
 `TECH_DEBT` §1.1). Any change in transmission count moves every link's draws. So:
 
 - **Every cross-binary magnitude comparison between a regenerated number and its

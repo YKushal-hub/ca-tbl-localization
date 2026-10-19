@@ -6,7 +6,7 @@ Two halves, and the second is the one that decides the contribution.
 1. PAIRED PER-SEED DIFFERENCES against the legacy cell at the same seed, for
    cep50M, totalJ and escalation count, with a two-sided sign test. Paired because
    the seed fixes the channel realisation; a single-seed difference is never a
-   result (CLAUDE.md rule 8) and only the 20-seed aggregate is reported.
+   result (RULES.md rule 8) and only the 20-seed aggregate is reported.
 
 2. THE MONOTONE-OF-FILTER-STATISTIC CONTROL. Spearman rho between per-cycle PCS
    and per-cycle radial error, against Spearman rho between -traceSigma and the

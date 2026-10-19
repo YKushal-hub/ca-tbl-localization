@@ -4,7 +4,7 @@
 rule: the error model is written and reviewed **before** the mechanism is built. This is
 that document. Nothing in it is implemented yet, and `hopWeight` stays 0 until it is.
 
-The reason for the ordering is recorded in CLAUDE.md §2: a non-zero weight on a hop count
+The reason for the ordering is recorded in RULES.md §2: a non-zero weight on a hop count
 that is structurally always zero changes nothing, and applied to an admitted-but-
 unreachable peer it degrades the score for an **energy** defect rather than a provenance
 one — a wrong result that looks like a working mechanism. The same trap applies to the
@@ -21,7 +21,7 @@ triangle inequality it is an **upper bound** on it, and a loose one: the bound i
 only when A, B and G are collinear with B between them. Feeding a sum of hop ranges into
 the EKF as if it were a range to G is a category error of the same family as applying a
 time-of-arrival Cramér–Rao bound to RSSI inversion (`lora-ranging-submodule.h:17`, and the
-open CRLB-on-tier-1 defect in CLAUDE.md §5).
+open CRLB-on-tier-1 defect in RULES.md §5).
 
 **What a relay actually provides is a pseudo-anchor with a covariance.** B has a position
 *estimate* `x̂_B` with covariance `P_B` from its own filter. A ranges to B directly. The
@@ -168,10 +168,10 @@ term_prov = 1                     if the fix used no relayed measurement
 
 applied **multiplicatively** to the PCS quality factor rather than subtracted, so it is
 bounded by construction and cannot drive PCS negative. `ρ` is **ours** and must be
-declared as ours in the source comment, per CLAUDE.md §9.
+declared as ours in the source comment, per RULES.md §9.
 
 **This is a PCS change, and PCS changes are a planned campaign, not a bug fix**
-(CLAUDE.md §2, `MASTER_PLAN.md` A8). It does not ride along with C5. C5 implements the
+(RULES.md §2, `MASTER_PLAN.md` A8). It does not ride along with C5. C5 implements the
 measurement model and the admission conditions; the PCS term is registered here as a
 consequence and is sequenced separately, behind its own default-off flag.
 
@@ -234,7 +234,7 @@ cooperative localisation. The contribution here is the same as the project's thr
 the assembly, the quantification, and the admission conditions being *stated and gated*
 rather than assumed.
 
-The fault model remains **environmental, not adversarial** (CLAUDE.md §9). A relay whose
+The fault model remains **environmental, not adversarial** (RULES.md §9). A relay whose
 covariance is wrong here is a cold-sagged battery skewing RSSI or a drifting sensor, not a
 node lying about its position. Nothing in this document should be read as a defence
 against a dishonest relay, and no such defence is specified.

@@ -186,7 +186,7 @@ than chosen.
 
 **The verdict string from `pareto_sweep.py --analyse` is not used** and must not be
 quoted in support of anything here: it compares the two decision rules to each other
-and does not test domination (`CLAUDE.md` §2).
+and does not test domination (`RULES.md` §2).
 
 ---
 

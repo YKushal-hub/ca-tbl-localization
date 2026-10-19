@@ -45,7 +45,7 @@ across this flag without regenerating it.
 
 ## What this does NOT establish
 
-**One seed.** CLAUDE.md rule 8: a single-seed difference is never reported as a result, and
+**One seed.** RULES.md rule 8: a single-seed difference is never reported as a result, and
 arms consume the shared `macRng` stream at their own rate. The escalation-count and energy
 deltas above are a smoke observation and need a paired multi-seed campaign before any of
 them is quoted.

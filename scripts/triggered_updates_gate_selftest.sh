@@ -8,7 +8,7 @@
 # must fail the check it names. The ones that matter most:
 #   N2  a large correction that did not move more than its threshold;
 #   N4  a frame of node 1's own heard after its last gasp -- the silence not holding;
-#   N6  a large correction on a radio that did not transmit that cycle (CLAUDE.md sect 6).
+#   N6  a large correction on a radio that did not transmit that cycle (RULES.md sect 6).
 set -u
 cd "$(dirname "$0")/.." || exit 2
 ROOT=$(pwd)

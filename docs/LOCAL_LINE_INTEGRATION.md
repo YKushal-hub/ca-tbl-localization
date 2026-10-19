@@ -16,7 +16,7 @@ Both share history up to `56d47fb` (2026-09-07, PR #1). After it they never met.
 
 **`main` is the base.** It is the line the owner's decisions were taken on, it carries the
 topology correction, and every result on the local line was produced on the topology `main`
-records as "a different deployment" (`CLAUDE.md`). The local line is integrated by **porting**
+records as "a different deployment" (`RULES.md`). The local line is integrated by **porting**
 what it has that `main` lacks, each piece behind its own default-off flag with a null control
 against `main`'s binary — not by a git merge, which conflicts in 13 files (the engine core
 among them) and would import the trailers `main` forbids.

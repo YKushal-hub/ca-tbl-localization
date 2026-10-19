@@ -22,4 +22,4 @@ The per-item workflow, in order:
 6. Update the docs, using the two helpers above and dated TECH_DEBT entries.
 7. Run the full suite detached (`TMPDIR=<not /tmp> bash scripts/catbl_gates.sh`), and
    compare `git status --short` before and after.
-8. Make one atomic commit, with no assistant attribution (`CLAUDE.md` §2).
+8. Make one atomic commit, with no assistant attribution (`RULES.md` §2).

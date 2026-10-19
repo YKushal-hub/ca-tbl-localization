@@ -19,7 +19,7 @@ WHAT A FIRING LOOKS LIKE ON DISK (rule 9):
           on every row, so 868 MHz, receive, idle, sleep, CAD, accuracy and MAC columns do
           not move. Every trace column but cumJ is byte-identical on every row.
   TIERS   the bill only ADDS transmission on tiers 2 and 3: their tx_ and airtime_ never
-          fall; and CLAUDE.md sect 6 -- a row whose tier never transmitted in the default
+          fall; and RULES.md sect 6 -- a row whose tier never transmitted in the default
           run (tx_ == 0) has that tier's columns identical under the flag.
   REACH   the uplink runs where ranges exist: static_2p4's 2.4 GHz tx_ rises, and the SY-1
           line reports frames > 0 for it. Rows whose arm never ranged on 2.4 GHz or UWB do

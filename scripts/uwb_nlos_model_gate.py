@@ -14,7 +14,7 @@ WHAT IT ASSERTS (the registration's P4, as a control-flow check, not a result):
      NLOS probability is below 0.4 % at any distance up to 200 m (1 - exp(-d / 54 km)), so
      10 % is over 25x anything legacy can produce. "At least one NLOS poll" was tried first
      and REFUTED by its own negative fixture: a legacy run drew one NLOS on a 44 m poll.
-     Absence is the failure (CLAUDE.md rule 9).
+     Absence is the failure (RULES.md rule 9).
 
 WHY NOT REQUIRE A DECODED NLOS ROW. Almost every NLOS UWB poll is lost -- the excess is
 27-37 dB against UWB's margin -- so decoded NLOS rows are rare and assertion 1 is often

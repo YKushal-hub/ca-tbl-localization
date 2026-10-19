@@ -41,7 +41,7 @@ if [ -e "$R" ]; then
   mv "$R" "${R}_superseded_$ts" || exit 1
 fi
 
-# dirty 0 or it is not citable (CLAUDE.md section 4 item 5). Checked BEFORE the runs,
+# dirty 0 or it is not citable (RULES.md section 4 item 5). Checked BEFORE the runs,
 # because a sidecar recording dirty>0 cannot be repaired afterwards -- the campaign
 # has to be re-run.
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then

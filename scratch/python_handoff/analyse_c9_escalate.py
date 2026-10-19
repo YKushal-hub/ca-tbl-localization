@@ -8,13 +8,13 @@ TWO OUTPUTS.
    PER-SEED DIFFERENCES over 20 seeds with a sign test beside it, F1 and F3
    reported SEPARATELY. Paired per seed because the two arms share a channel
    realisation at a given seed; a single-seed difference is never a result
-   (CLAUDE.md rule 8), so only the 20-seed aggregate is reported.
+   (RULES.md rule 8), so only the 20-seed aggregate is reported.
 
 2. CAL-05: detection precision and recall against the injected ground truth.
    The thesis register defers this to Phase 2.1 and the project has never
    produced it.
 
-DENOMINATORS, STATED (CLAUDE.md rule 1). The fault window is contiguous and
+DENOMINATORS, STATED (RULES.md rule 1). The fault window is contiguous and
 seed-derived:
 
     biasStartS = durationS * (0.25 + 0.5 * (seed % 7) / 7)

@@ -5,7 +5,7 @@
 
 **Scope.** One document covering both halves of the project: what the ns-3 implementation has built against what the Phase 1 blueprint specifies, where the two contradict, what remains unbuilt, what is measurably broken, and two branching routes forward with an explicit branch point and abort criteria.
 
-> **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after this plan was written.** This document was drafted against the legacy deployment model of three **disjoint** anchor populations (tier-1 gateways on a grid; tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites). **That model was wrong.** The system has **one population of tri-band nodes** — every node carries all three radios, and a tier is a choice of *which radio to use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are mobile tri-band nodes; facility sites are mobility targets that **host no anchors**. Authoritative: `Architecture.md` §3, `CLAUDE.md`, and `BuildDeployment()` at `scratch/ca_tbl_causal_sim.cc:177`.
+> **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after this plan was written.** This document was drafted against the legacy deployment model of three **disjoint** anchor populations (tier-1 gateways on a grid; tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites). **That model was wrong.** The system has **one population of tri-band nodes** — every node carries all three radios, and a tier is a choice of *which radio to use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are mobile tri-band nodes; facility sites are mobility targets that **host no anchors**. Authoritative: `Architecture.md` §3, `RULES.md`, and `BuildDeployment()` at `scratch/ca_tbl_causal_sim.cc:177`.
 >
 > **Consequences for this plan.** Any row, gap or track whose reasoning rests on *anchors clustered at four facility sites* — notably the M-4 / §13.3 "coverage limit" diagnosis and the complementary-siting track — is reasoning about a geometry the system does not have, and needs re-deriving rather than re-reading. Every results figure quoted here predates the correction and is **provisional pending re-run**.
 
@@ -168,7 +168,7 @@ The integrity-check, estimation-location, mesh-routing and proxy rows gain dated
 
 > The line this replaces read *"Of 30 rows: 11 BUILT, 4 PARTIAL, 2 DIVERGENT, 1 CONTRADICTION, 12 ABSENT"* and
 > disagreed with the table above it on the row count and on four of five tallies. It was written by hand and never
-> recomputed as rows moved. **This is the staleness failure §8 of `CLAUDE.md` warns about, inside the document that
+> recomputed as rows moved. **This is the staleness failure §8 of `RULES.md` warns about, inside the document that
 > tracks it** — and it is the second instance recorded in this section. The count is now derived by parsing the
 > table's own status column; regenerate it that way rather than editing the number.
 

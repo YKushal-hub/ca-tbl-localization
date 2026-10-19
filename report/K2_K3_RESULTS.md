@@ -103,7 +103,7 @@ explains the whole of K2: no flag helps because no flag is the problem. A third 
 cycles are being called suspect, their covariance inflated `suspectInflateFactor = 4.0`×,
 and — until `--suspectForcesEscalation=false`, which changes nothing else — escalated.
 
-**This must not be fixed by moving 9.21.** The registration bars it and `CLAUDE.md`
+**This must not be fixed by moving 9.21.** The registration bars it and `RULES.md`
 repeats the reason: the analytic model refusing to reconcile is the only instrument that
 has ever caught a defect of this class in this project, and a quantile fitted to make a
 campaign look better destroys it. 9.21 is a distributional constant. **The fault is in

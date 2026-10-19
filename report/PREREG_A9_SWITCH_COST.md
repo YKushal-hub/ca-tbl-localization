@@ -1,7 +1,7 @@
 # Pre-registration — A9, the switching cost of a tiered architecture
 
 **Written 2026-09-07, before the first cell runs.** Corrected topology (`--topology=0`).
-Registered under `CLAUDE.md` rule 13.
+Registered under `RULES.md` rule 13.
 
 ---
 

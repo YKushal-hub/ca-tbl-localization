@@ -3,7 +3,7 @@
 Executable task specs. Strategy and justification live in `MASTER_PLAN.md`; this file is what to
 do, where, and how to know it worked.
 
-**Read `CLAUDE.md` first.** Every package below assumes its rules — default-off flag, null
+**Read `RULES.md` first.** Every package below assumes its rules — default-off flag, null
 control, pre-registration, negative fixture, provenance.
 
 **Line numbers verified against `01c852d` (2026-09-02).** Re-grep before trusting any of them
@@ -16,7 +16,7 @@ after a commit touches the file. The symbol names are stable; the line numbers a
 > Every package below was specified against the legacy model of three **disjoint** anchor
 > populations. The system has **one population of tri-band nodes**: every node carries all
 > three radios, gateways are the only immobile class, **finders** are mobile tri-band nodes,
-> and facility sites are mobility targets hosting **no anchors**. See `CLAUDE.md` and
+> and facility sites are mobility targets hosting **no anchors**. See `RULES.md` and
 > `Architecture.md` §3.
 >
 > All 15 packages are complete (14 done, A8 closed by result — see
@@ -505,7 +505,7 @@ multi-hop range uncertainty), `ca_tbl_causal_sim.cc` (relays).
 buildable and hop-provenance descopes; C1–C4 still land and claim 3 is still substantially built.
 
 **Hard rule.** `hopWeight = 0.0` at `ca-tbl-policy.cc:83` stays 0 until relayed measurements
-actually exist. See `CLAUDE.md` §2.
+actually exist. See `RULES.md` §2.
 
 ---
 

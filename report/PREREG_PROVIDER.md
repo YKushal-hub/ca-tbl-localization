@@ -24,7 +24,7 @@ The engine-side multi-node support that refactor was assumed to require already 
 
 `--nTags`, which already exists and already defaults to 1. With `nTags=1` the peer map is
 empty and `Evaluate()` takes the same branches, in the same order, that it took before.
-No new flag is added; per CLAUDE.md §4 the requirement is a default-off flag whose off
+No new flag is added; per RULES.md §4 the requirement is a default-off flag whose off
 state reproduces the baseline byte-for-byte, and `--nTags=1` is that state. P1 tests it.
 
 ## Predictions

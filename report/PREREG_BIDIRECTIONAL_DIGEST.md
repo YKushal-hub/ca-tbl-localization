@@ -1,7 +1,7 @@
 # Pre-registration — the anti-entropy exchange runs both ways
 
 **Written 2026-09-07, before the first measurement run.** Registered under
-`CLAUDE.md` rule 13. Corrected tri-band topology, reference `baseline_v8`.
+`RULES.md` rule 13. Corrected tri-band topology, reference `baseline_v8`.
 
 ---
 
