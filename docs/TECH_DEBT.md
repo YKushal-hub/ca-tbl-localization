@@ -114,12 +114,13 @@ status was checked against the code, or against the preset's setting list
 | O.9 RSSI model vs foliage | RESEARCH | — |
 | O.12 B2 5 km coverage | RECORDED (measured limit) | — |
 | N.57 selection bias | RESEARCH | negative information in the EKF, not built |
-| N.58 covariance collapse | OPEN | iterated (IEKF) update not built |
+| N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
+| N.62 single-anchor ring | OPEN | particle handover of a crescent; the support test is the candidate |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is N.3 and N.58. RESEARCH and CAMPAIGN rows
+question stated. Open engineering is N.3 and N.62. RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -4236,6 +4237,20 @@ Exploratory remedies tried on seeds 1–6 (single arm, 1800 s, not citable):
 The principled remedy for a covariance that collapses before a large-offset state converges is an
 iterated update (IEKF: re-linearise around the improving estimate, Gauss-Newton). Not yet built.
 
+*2026-10-20, built and piloted: `--ekf5Iterate` (`4a54a7ee`, G151, default off).*
+- **Unit level, it does what N.58 asks.** From an honest 200 m prior with three σ = 3 m ranges at ~50 m, mean
+  posterior NEES is 320 single against 2.07 iterated (χ²₂ mean 2), and mean error 36.5 against 3.2 m.
+- **On the full stack it does not help.** EXPLORATORY pilot, not citable: REAL-BEST's S stack, seeds 1–6, 1800 s,
+  five arms (`~/ns/catbl-work/iekf_pilot`).
+  - CA-TBL 5 km tag 0 CEP95, mean 216 → 413 m, paired interval [+2, +456], driven by seeds 4 (126 → 910) and
+    5 (852 → 1233).
+  - Endgame: median NEES 3.14 → 2.39, coverage 0.82 → 0.87, availability +0.012 [0.000, 0.025], CEP95 unchanged.
+  - `static_868` in the endgame: worse, +4.7 m [1.6, 7.8], coverage 0.33 → 0.22.
+- **Why: the failing 5 km cycles are not mis-linearised.** They have 3–8 ranges and accurate ToF, and the
+  measurement set is itself consistent with a wrong position (N.62). Iterating obeys it more completely.
+- **Not proposed, and no registered campaign run.** The pilot contradicts the adoption prediction one would
+  register. The flag stays, default off, for a regime with a consistent measurement set.
+
 ### N.59 With a realistic IMU the preset collapses under its own filter; ekf5 recovers most, and heading drift is the 5 km residual
 
 REAL-IMU (`report/REAL_IMU_RESULTS.md`): a BMI270-class gyro (0.15 °/s) and 5 % per-step stride noise
@@ -4311,3 +4326,29 @@ on the consistent stack raises CA-TBL's endgame availability (+0.012) but costs 
 ratio +41.5 %) and +30 % energy. `fixed_threshold` and Poucet are then significantly more accurate. Not proposed.
 CA-TBL's integrity threshold, like its escalation thresholds, moves it along an accuracy / availability / energy
 frontier.
+
+### N.62 At 5 km the residual is single-anchor ring ambiguity: the particle cloud hands over a crescent whose mean it does not contain
+
+Found 2026-10-20 diagnosing the IEKF pilot's worst cell. EXPLORATORY: REAL-BEST's S stack at 5 km, seed 5, `ca_tbl_full`,
+re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
+- **What the filter sees.** Tag 0's precise 2.4 GHz ranges go to ONE finder (501, ~230 m away). Their error is
+  2.5 m at σ 3 (E[z²] 5.2). The other finders are 560–1540 m away and not ranged on 2.4 GHz. The 868 MHz ranges
+  carry σ 580 m (finders) to 3 km (gateways). One precise range fixes a circle around the finder, and the 868 MHz
+  ranges cannot tell its sides apart.
+- **What the particle acquisition does with it.** The cloud handed over at cycle 8 with mean (−679, 249) and
+  sd 322 m. Finder 501 was at (−674, 220): the mean is the ring's centre, where no particle is.
+  - The linearisation guard compares the cloud with a quarter of the MEDIAN range, and km-long 868 MHz
+    ranges set the median.
+  - The unimodality test (Ashman's D) runs on the projection onto one axis, and a crescent projects
+    unimodal.
+- **What follows.** At t = 22.5–25 s a 4–6-range update collapses σ from 192 to 10.7 m on the mirror side. The
+  filter then holds 410–500 m of error at σ ≈ 10 m for the rest of the run. The estimate stays 236 m from finder
+  501, against a true 221 m, so every precise range agrees with it.
+- **What does not fix it.** `--ekf5Iterate` converges harder onto the mirror (N.58). `--acquireHandoverCurvature`
+  keeps the cloud, but the EKF meanwhile carries the cloud's mean, the empty centre: REAL-IMU, ekf5 at 5 km,
+  +95 m [−201, +433].
+- **Candidate, built next:** hand over only when the cloud's mean is supported by its own particles. A
+  Gaussian holds 39 % of its weight within one standard ellipse of its mean; a crescent holds almost none.
+  While the cloud is held, the IMU-propagated particles let the changing geometry and the 868 MHz evidence
+  separate the two sides.
+
