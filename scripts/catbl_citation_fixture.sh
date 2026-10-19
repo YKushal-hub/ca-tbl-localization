@@ -34,7 +34,7 @@ expect pass clean                ''
 expect fail untracked_on_disk    'Also `report/local_notes.md`.'          'echo x > report/local_notes.md'
 expect fail absent               'Data in `gone_campaign.csv`.'
 expect pass allowed_untracked    'See `SESSION_CHANGELOG.md`.'            'echo x > SESSION_CHANGELOG.md'
-expect fail unlisted_work_order  'Flags in `WORK_ORDER_PROMPT_OTHER.md`.' 'echo x > WORK_ORDER_PROMPT_OTHER.md'
+expect fail unlisted_work_order  'Flags in `WORK_ORDER_OTHER.md`.' 'echo x > WORK_ORDER_OTHER.md'
 expect fail untracked_results    'Source: `results/some_campaign`.'       'mkdir -p results/some_campaign'
 [ "$RC" -eq 0 ] && printf '\nG10 fixture: all directions behaved\n' || printf '\nG10 fixture: FAILED\n'
 exit "$RC"

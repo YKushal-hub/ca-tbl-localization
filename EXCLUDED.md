@@ -81,6 +81,12 @@ negative fixture. Their reasons:
 | `src/catbl-propagation-study/results/corpus.json` | the frozen realization corpus, 10.7 MB, deterministic from `corpus.py` at seed 20260819. Its `.sha256` is tracked as the provenance anchor and gate G11 verifies the file against it |
 | `CA_TBL_SIMULATION_REPORT.md` | an earlier technical report. Zero `###` section overlap with `Simulation.md`, so not a draft of it; cited by no deliverable; entered the index only as a side effect of an `r80` one-liner. Annotated in its own header |
 
+## Redacted, not removed
+
+One path segment in six sidecars, `report/b8/m{false,true}/s{1,2,3}/run_id.txt`, was replaced by
+`[redacted]` on 2026-10-19 by owner decision. The redaction, its exact scope and the original blob ids
+are recorded in `SHA_MAP.md` ("Six sidecars with one path segment redacted").
+
 ## Traces are excluded, and that exclusion is asserted
 
 `trace_*.csv` is never tracked — roughly 13 GB across the corpus, and every one is
