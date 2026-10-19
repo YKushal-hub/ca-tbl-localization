@@ -339,7 +339,7 @@ G12_BAD=0
 # while describing what was removed. A check that cannot survive its own policy being
 # written down is too broad. Attribution is a FORM, not a subject: a trailer line, or
 # a vendor identity. Prose describing the policy is not attribution.
-G12_ID_PAT='claude|anthropic|assistant|copilot|\bbot\b'
+G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # NARROWED 2026-09-05 by owner decision: co-authored-by is no longer matched in
 # message bodies. The identity-field check above is UNCHANGED and still blocks an
 # assistant appearing as author or committer, which is the property that actually
