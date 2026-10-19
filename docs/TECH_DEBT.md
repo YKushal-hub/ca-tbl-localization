@@ -75,10 +75,10 @@ status was checked against the code, or against the preset's setting list
 | M.2 | DECISION | as L.2.2 |
 | M.3 | FLAG (`--stampBinaryHash`, `--stampBuildCommit`) | not in the preset |
 | M.4–M.8, M.10, M.11 | CLOSED | — |
-| M.9 RECEDING push count | OPEN | tag 0 counted (G75); subjects run no handshake |
+| M.9 RECEDING push count | CLOSED 2026-10-20 | the count sums every radio; subjects never classify mobility, which is N.3's |
 | N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
 | N.2 | PRESET (`--sparseInStep`) | — |
-| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built. The largest engineering item; risky for byte-identity |
+| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built; subjects lack `--mobilityFromRange` (found 2026-10-20). The largest engineering item; risky for byte-identity |
 | N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
 | N.5, N.8, N.9, N.13, N.17, N.18, N.24 | RECORDED (OURS) | — |
 | N.6, N.22 | PRESET | — |
@@ -119,7 +119,7 @@ status was checked against the code, or against the preset's setting list
 | N.61 magnetometer state | RECORDED | kept as a patch |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is M.9, N.3 and N.58. RESEARCH and CAMPAIGN rows
+question stated. Open engineering is N.3 and N.58. RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -1921,6 +1921,12 @@ runs". It has been false since `50a229a`.
     were heard (36 distinct packet ids from node 1 at the originator's hop limit).
   - Subjects run no handshake, so the count is tag 0's. The per-subject half waits on N.3.
 
+*2026-10-20, CLOSED, and the open half moved to N.3.* `--reportRecedingPushes` already sums every radio of every
+node (`macs`), so a subject's push would be counted. None happens, because `SetMobilityState` is called only on tag
+0's radios (`scratch/ca_tbl_causal_sim.cc`, the `--mobilityFromRange` block, `nodeMac[ti]->SetMobilityState`). No
+subject classifies its mobility or takes the RECEDING branch, including under the preset, which sets
+`--mobilityFromRange`. That is a component tag 0 has and the subjects do not (N.3).
+
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
 *Filed on 2026-09-29 as "an open question, not an established defect"; the review's
@@ -2176,6 +2182,8 @@ relay billing. A change to one copy that is not made to the other drifts silentl
 subject-1 = arm_summary check pins tag 0's row only, not the equivalence of the two copies.
 
 What tag 0 has and subjects 2..N do not, each named in a start-up WARNING when on:
+*(2026-10-20: one more, not in the WARNING: MAC 11.11's mobility state, `--mobilityFromRange`. Only tag 0's
+radios are ever given one, so no subject makes the RECEDING eager push; M.9.)*
 SHS and the SHS witness (`--imuCrossCheck`/`--imuFusion`), `--imuWitnessSource=model`,
 `--tier1Tdoa`, `--nlosClassifier`, `--sessionLayer`, `--batteryDepleteJ`,
 `--triggeredUpdates`, `--edgeUplinkRanges` and `--entryVelocity`/`--entryPrediction`.
