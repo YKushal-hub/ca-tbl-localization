@@ -1903,6 +1903,16 @@ bash scripts/finder_consider_gate.sh "$WORK/g150" || fail G150
 bash scripts/finder_consider_gate_selftest.sh "$WORK/g150" || fail G150
 finish G150
 
+# ---------------- G151: --ekf5Iterate, the iterated (IEKF) range update of the 5-state filter (TECH_DEBT N.58)
+# scripts/iterate_gate.py reads the 5 km preset, seed 5, unknown start, realistic IMU, 600 s, the acquisition N.58
+# traced: updates were iterated (> 0), with more passes than updates (the linearisation point moved), and the
+# trace changed; 0 is the flag absent byte for byte; no leak; refused without ekf5, with a robust mode, or a
+# negative pass count. That it is consistent where the single update is not is ca_tbl_imu_test's iterated cases.
+printf '\n--- G151 the iterated range update (--ekf5Iterate) ---\n'
+bash scripts/iterate_gate.sh "$WORK/g151" || fail G151
+bash scripts/iterate_gate_selftest.sh "$WORK/g151" || fail G151
+finish G151
+
 # ---------------- G101: --ekf5RelayGate, a chi^2 gate on relayed ranges only
 # scripts/relay_gate_gate.py reads the endgame, seed 3, 300 s, the cell where a relay gave z = -25: relayed > 0,
 # 0 < gated < relayed, the run differs from the ungated one; false is the flag absent byte for byte; no leak;

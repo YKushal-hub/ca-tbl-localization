@@ -18,6 +18,7 @@
 #include "ns3/core-module.h"
 
 #include <cmath>
+#include <cstring>
 #include <iostream>
 
 using namespace ns3;
@@ -426,6 +427,133 @@ main(int argc, char* argv[])
         drive(4.0, s4, x4, n4);
         Check(std::fabs(s0) > 4.0 * 0.0266 && n0 == 0, "state bounds off: the scale runs past 4 sigma, as the linear update lets it");
         Check(std::fabs(s4) <= 4.0 * 0.0266 + 1e-12 && n4 > 0, "state bounds on: the scale stays within 4 prior sigmas, and projections are counted");
+    }
+
+    // --- --ekf5Iterate (N.58): the iterated update keeps P honest when the prior is far off ----------------------
+    // A static tag at the origin; an honest prior N(truth, 200^2 I) drawn per realisation; ONE update of three
+    // precise ToF ranges (sigma 3 m) to anchors ~50 m away. Linearised at the prior, 200 m from the anchors'
+    // geometry, a single update collapses P along wrong directions (the defect). Iterated, it relinearises at its
+    // own posterior.
+    {
+        auto run = [](int iterate, double& meanNees, double& meanErr, uint64_t& passes, uint64_t& updates) {
+            uint64_t z = 9876543210987654ull;
+            auto u01 = [&z]() {
+                z ^= z << 13;
+                z ^= z >> 7;
+                z ^= z << 17;
+                return ((z >> 11) + 0.5) / 9007199254740992.0;
+            };
+            auto gauss = [&u01]() { return std::sqrt(-2.0 * std::log(u01())) * std::cos(2.0 * M_PI * u01()); };
+            const double ax[3] = {40.0, -30.0, 5.0}, ay[3] = {10.0, 25.0, -45.0};
+            double sn = 0.0, se = 0.0;
+            passes = updates = 0;
+            const int nmc = 300;
+            for (int k = 0; k < nmc; ++k)
+            {
+                CaTblImuEkf f;
+                f.Init(200.0 * gauss(), 200.0 * gauss(), 200.0 * 200.0, 1e-6, 1e-12, 1e-8);
+                f.SetIterate(iterate, 0.01);
+                std::vector<CaTblRangeMeasurement> m(3);
+                std::vector<double> v(3, 9.0);
+                for (int a = 0; a < 3; ++a)
+                {
+                    m[a].anchorX = ax[a];
+                    m[a].anchorY = ay[a];
+                    m[a].anchorId = 101 + a;
+                    m[a].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+                    m[a].rangeM = std::hypot(ax[a], ay[a]) + 3.0 * gauss();
+                }
+                f.Update(m, v);
+                const double ex = f.X(), ey = f.Y();
+                const double det = f.Pxx() * f.Pyy() - f.Pxy() * f.Pxy();
+                sn += (f.Pyy() * ex * ex - 2.0 * f.Pxy() * ex * ey + f.Pxx() * ey * ey) / det;
+                se += std::hypot(ex, ey);
+                passes += f.IteratedPasses();
+                updates += f.IteratedUpdates();
+            }
+            meanNees = sn / nmc;
+            meanErr = se / nmc;
+        };
+        double n0, e0, n5, e5;
+        uint64_t p0, u0, p5, u5;
+        run(0, n0, e0, p0, u0);
+        run(10, n5, e5, p5, u5);
+        std::cout << "    iterated update: mean NEES single " << n0 << " (err " << e0 << " m), iterated " << n5
+                  << " (err " << e5 << " m), " << p5 << " passes over " << u5 << " updates\n";
+        Check(n5 > 1.0 && n5 < 3.5, "iterated update: posterior position NEES within [1, 3.5] (chi^2_2 mean 2) from a 200 m prior");
+        Check(n0 > 2.0 * n5, "iterated update: the single linearised update is more than twice as overconfident (N.58)");
+        Check(e5 < e0, "iterated update: its mean position error is lower than the single update's");
+        Check(u0 == 0 && p0 == 0 && u5 == 300 && p5 > 2 * u5, "iterated update: counted only when on, and it takes more than two passes per update here");
+    }
+    // Where the linearisation is already good, iterating changes nothing that matters.
+    {
+        auto one = [](int iterate, double& x, double& y, double& pxx, uint64_t& passes) {
+            CaTblImuEkf f;
+            f.Init(0.5, -0.4, 1.0, 1e-6, 1e-12, 1e-8);
+            f.SetIterate(iterate, 0.01);
+            std::vector<CaTblRangeMeasurement> m(3);
+            std::vector<double> v(3, 9.0);
+            const double ax[3] = {1000.0, -800.0, 100.0}, ay[3] = {200.0, 600.0, -1200.0};
+            for (int a = 0; a < 3; ++a)
+            {
+                m[a].anchorX = ax[a];
+                m[a].anchorY = ay[a];
+                m[a].anchorId = 101 + a;
+                m[a].rangeM = std::hypot(ax[a], ay[a]) + 0.5;
+            }
+            f.Update(m, v);
+            x = f.X();
+            y = f.Y();
+            pxx = f.Pxx();
+            passes = f.IteratedPasses();
+        };
+        double xa, ya, pa, xb, yb, pb;
+        uint64_t na, nb;
+        one(0, xa, ya, pa, na);
+        one(10, xb, yb, pb, nb);
+        // The single update re-linearises after every scalar range, the iterated one at a fixed point, so
+        // they differ at second order: 7.5e-6 m and 9e-6 relative in Pxx here.
+        Check(std::hypot(xa - xb, ya - yb) < 1e-3 && std::fabs(pa - pb) < 1e-4 * pa && nb <= 3,
+              "iterated update: with an accurate prior and far anchors it agrees with the single update, in <= 3 passes");
+    }
+    // Off is the original arithmetic: a filter told SetIterate(0, ...) and one never told agree to the bit.
+    {
+        auto one = [](bool touch, double* out) {
+            CaTblImuEkf f;
+            f.Init(30.0, -20.0, 400.0, 1e-4, 1e-10, 1e-6);
+            if (touch)
+            {
+                f.SetIterate(0, 0.01);
+            }
+            for (int c = 0; c < 20; ++c)
+            {
+                f.Predict(2.5, 3.0, 0.3, 1e-3, 1e-6, 1e-12);
+                std::vector<CaTblRangeMeasurement> m(2);
+                std::vector<double> v(2, 9.0);
+                m[0].anchorX = 50.0;
+                m[0].anchorY = 50.0;
+                m[0].rangeM = 60.0 + 0.1 * c;
+                m[1].anchorX = -50.0;
+                m[1].anchorY = 10.0;
+                m[1].rangeM = 70.0 - 0.2 * c;
+                f.Update(m, v);
+            }
+            out[0] = f.X();
+            out[1] = f.Y();
+            out[2] = f.HeadingOffset();
+            out[3] = f.StrideScale();
+            out[4] = f.Pxx();
+            out[5] = f.Cov(2, 2);
+        };
+        double a[6], b[6];
+        one(false, a);
+        one(true, b);
+        bool same = true;
+        for (int i = 0; i < 6; ++i)
+        {
+            same = same && (std::memcmp(&a[i], &b[i], sizeof(double)) == 0);
+        }
+        Check(same, "iterated update off: state and covariance bit-identical to a filter never configured");
     }
 
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";

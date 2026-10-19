@@ -2294,6 +2294,8 @@ static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov),
 static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
 static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
 static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
+static int g_ekf5Iterate = 0;             //!< --ekf5Iterate (TECH_DEBT N.58)
+static double g_ekf5IterateTolM = 0.01;   //!< --ekf5IterateTolM
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
@@ -7049,6 +7051,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5Robust = spec.ekf5Robust;
         pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
         pcfg.ekf5RelayGate = g_ekf5RelayGate;
+        pcfg.ekf5Iterate = g_ekf5Iterate;
+        pcfg.ekf5IterateTolM = g_ekf5IterateTolM;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
@@ -14808,6 +14812,12 @@ RunArm(CaTblPolicyMode mode,
             {
                 line << "    ekf5 finder consider: ranges to finders " << policy.Ekf5().ConsiderUpdates() << "\n";
             }
+            if (g_ekf5Iterate > 0)
+            {
+                line << "    ekf5 iterated update: updates " << policy.Ekf5().IteratedUpdates() << ", passes "
+                     << policy.Ekf5().IteratedPasses() << ", unconverged " << policy.Ekf5().IteratedUnconverged()
+                     << "\n";
+            }
             if (spec.ekf5Robust != 0)
             {
                 const CaTblImuEkf& f5 = policy.Ekf5();
@@ -18613,6 +18623,19 @@ main(int argc, char* argv[])
                  "and threw tag 0 69 m off; with relaying off the endgame CEP95 fell 9.4 -> 3.4 m but availability "
                  "fell 0.045. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5RelayGate);
+    cmd.AddValue("ekf5Iterate",
+                 "With --imuFilter=ekf5: the iterated EKF update (IEKF, Gauss-Newton form; Bell & Cathey, IEEE TAC 38(2), "
+                 "1993), at most this many passes per range update. Each pass re-applies the cycle's ranges from the prior, "
+                 "linearised at the previous pass's posterior position instead of at the prior. 0 (default): the "
+                 "original single sequential update. Why (TECH_DEBT N.58): at 5 km a first update of precise ToF ranges "
+                 "taken ~200 m from the truth was linearised there. The claimed position sigma collapsed 178 -> 8.3 m "
+                 "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
+                 "heading. Refused without ekf5 or with --ekf5Robust.",
+                 g_ekf5Iterate);
+    cmd.AddValue("ekf5IterateTolM",
+                 "With --ekf5Iterate: stop iterating when a pass moves the position estimate less than this, metres. "
+                 "Default 0.01 (OURS): two orders of magnitude below the tightest range sigma in the model (ToF, 3 m).",
+                 g_ekf5IterateTolM);
     cmd.AddValue("ekf5FinderConsider",
                  "With --imuFilter=ekf5: each finder's GNSS position offset is a Schmidt consider parameter of the "
                  "5-state filter -- not estimated, but its covariance and its cross-covariance with the state are "
@@ -20268,6 +20291,13 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (g_ekf5Iterate != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Iterate < 0 || g_ekf5Iterate > 50 ||
+                               !(g_ekf5IterateTolM > 0.0)))
+    {
+        std::cerr << "FATAL: --ekf5Iterate needs --imuFilter=ekf5, no --ekf5Robust, a pass count in 1..50 and a "
+                     "positive --ekf5IterateTolM\n";
         return 1;
     }
     if (ekf5FinderConsiderArg)

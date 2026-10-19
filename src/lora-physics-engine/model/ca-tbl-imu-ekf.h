@@ -227,6 +227,18 @@ class CaTblImuEkf
     void SetRelayGate(bool on) { m_relayGate = on; }
     uint64_t RelayGated() const { return m_relayGated; }
     uint64_t RelaySeen() const { return m_relaySeen; }
+    /** --ekf5Iterate (TECH_DEBT N.58): the iterated EKF update (IEKF) in its Gauss-Newton form (Bell & Cathey,
+     *  IEEE TAC 38(2), 1993). A cycle's whole range set is applied from the prior, linearised at a fixed point
+     *  instead of at the running state. The first pass uses the prior position, and each later pass the
+     *  previous pass's posterior position. It stops when the posterior moves less than tolM, or after
+     *  maxPasses. With a fixed linearisation point a sequential scalar update of the linearised model equals
+     *  the batch update, so every update path (plain, finder consider, relay gate, robust) iterates unchanged.
+     *  Only the point at which each range is linearised moves. Position-only observations are linear and are
+     *  not iterated. maxPasses <= 0 (default): the original sequential update, arithmetic untouched. */
+    void SetIterate(int maxPasses, double tolM) { m_iterMax = maxPasses; m_iterTol = tolM; }
+    uint64_t IteratedUpdates() const { return m_iterUpdates; }
+    uint64_t IteratedPasses() const { return m_iterPasses; }
+    uint64_t IteratedUnconverged() const { return m_iterUnconv; }
     //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
     void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
     int Robust() const { return m_robust; }
@@ -297,6 +309,28 @@ class CaTblImuEkf
     void FuseHeadingBody(double z, double r);
     bool FusePositionCovBody(double zx, double zy, double rxx, double rxy, double ryy);
     void FusePositionBody(double zx, double zy, double varM2);
+    // --ekf5Iterate. While m_linOn, every range is linearised at (m_linX, m_linY): h(x) ~ h(lin) + H (x - lin).
+    int m_iterMax = 0;
+    double m_iterTol = 0.01;
+    uint64_t m_iterUpdates = 0;
+    uint64_t m_iterPasses = 0;
+    uint64_t m_iterUnconv = 0;
+    bool m_linOn = false;
+    double m_linX = 0.0;
+    double m_linY = 0.0;
+    void UpdateIterated(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    /** The relative position used to linearise a range to (ax, ay): the state's, or the fixed point. */
+    void LinDelta(double ax, double ay, double& dx, double& dy) const
+    {
+        dx = (m_linOn ? m_linX : m_x[0]) - ax;
+        dy = (m_linOn ? m_linY : m_x[1]) - ay;
+    }
+    /** The linearised model's predicted range at the CURRENT state, given h(lin) = r and gradient H = (h0, h1).
+     *  Without a fixed point the state is the linearisation point, so the prediction is r itself. */
+    double LinPred(double r, double h0, double h1) const
+    {
+        return m_linOn ? r + h0 * (m_x[0] - m_linX) + h1 * (m_x[1] - m_linY) : r;
+    }
     bool m_relayGate = false;
     uint64_t m_relayGated = 0;
     uint64_t m_relaySeen = 0;

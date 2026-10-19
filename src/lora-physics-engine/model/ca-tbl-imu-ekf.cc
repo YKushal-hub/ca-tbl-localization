@@ -466,8 +466,57 @@ CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double p
 void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
-    UpdateBody(meas, varM2);
+    if (m_iterMax > 0 && m_robust == 0 && !meas.empty() && !varM2.empty())
+    {
+        UpdateIterated(meas, varM2); // --ekf5Iterate; off by default
+    }
+    else
+    {
+        UpdateBody(meas, varM2);
+    }
     ApplyBounds(); // --ekf5StateBounds; a no-op unless on
+}
+
+void
+CaTblImuEkf::UpdateIterated(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    // IEKF, Gauss-Newton form: x_{i+1} = x0 + K_i (z - h(x_i) - H_i (x0 - x_i)), K_i from H_i at x_i, and the
+    // posterior covariance from the last pass's H. Each pass restarts from the prior (the whole object,
+    // counters and finder cross-covariances included), so the state and every counter read as ONE update:
+    // the last pass's.
+    const CaTblImuEkf start = *this;
+    double lx = m_x[0];
+    double ly = m_x[1];
+    int passes = 0;
+    bool converged = false;
+    while (passes < m_iterMax)
+    {
+        if (passes > 0)
+        {
+            *this = start;
+        }
+        m_linOn = true;
+        m_linX = lx;
+        m_linY = ly;
+        UpdateBody(meas, varM2);
+        m_linOn = false;
+        ++passes;
+        const double step = std::hypot(m_x[0] - lx, m_x[1] - ly);
+        lx = m_x[0];
+        ly = m_x[1];
+        if (!std::isfinite(step))
+        {
+            break; // counted as not converged
+        }
+        if (step < m_iterTol)
+        {
+            converged = true;
+            break;
+        }
+    }
+    m_iterUpdates = start.m_iterUpdates + 1;
+    m_iterPasses = start.m_iterPasses + passes;
+    m_iterUnconv = start.m_iterUnconv + (converged ? 0 : 1);
 }
 
 void
@@ -493,12 +542,13 @@ CaTblImuEkf::UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const st
     const size_t n = std::min(meas.size(), varM2.size());
     for (size_t k = 0; k < n; ++k)
     {
-        const double dx = m_x[0] - meas[k].anchorX;
-        const double dy = m_x[1] - meas[k].anchorY;
-        const double rPred = std::sqrt(dx * dx + dy * dy);
-        const double rSafe = std::max(rPred, 1e-6);
+        double dx, dy;
+        LinDelta(meas[k].anchorX, meas[k].anchorY, dx, dy); // --ekf5Iterate's fixed point, else the state
+        const double rLin = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rLin, 1e-6);
         const double H0 = dx / rSafe;
         const double H1 = dy / rSafe;
+        const double rPred = LinPred(rLin, H0, H1);
 
         double PH[N];
         for (int i = 0; i < N; ++i)
@@ -1142,11 +1192,12 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
     for (size_t k = 0; k < n; ++k)
     {
         const CaTblRangeMeasurement& mm = meas[k];
-        const double dx = m_x[0] - mm.anchorX;
-        const double dy = m_x[1] - mm.anchorY;
-        const double rPred = std::sqrt(dx * dx + dy * dy);
-        const double rSafe = std::max(rPred, 1e-6);
+        double dx, dy;
+        LinDelta(mm.anchorX, mm.anchorY, dx, dy); // --ekf5Iterate's fixed point, else the state
+        const double rLin = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rLin, 1e-6);
         const double H[N] = {dx / rSafe, dy / rSafe, 0.0, 0.0, 0.0};
+        const double rPred = LinPred(rLin, H[0], H[1]);
         const bool finder = (mm.sourceKind == CA_TBL_SRC_FINDER);
         ConsAnchor* ca = nullptr;
         if (finder)
