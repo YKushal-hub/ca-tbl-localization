@@ -117,10 +117,10 @@ status was checked against the code, or against the preset's setting list
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 single-anchor ring | OPEN | particle handover of a crescent; the support test is the candidate |
+| N.62 5 km tag 0: one precise anchor | RESEARCH | finder 868 MHz ranges run long; tangential drift at claimed sigma 3-8 m; no tested remedy holds it |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is N.3 and N.62. RESEARCH and CAMPAIGN rows
+question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -4347,8 +4347,28 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
 - **What does not fix it.** `--ekf5Iterate` converges harder onto the mirror (N.58). `--acquireHandoverCurvature`
   keeps the cloud, but the EKF meanwhile carries the cloud's mean, the empty centre: REAL-IMU, ekf5 at 5 km,
   +95 m [−201, +433].
-- **Candidate, built next:** hand over only when the cloud's mean is supported by its own particles. A
-  Gaussian holds 39 % of its weight within one standard ellipse of its mean; a crescent holds almost none.
-  While the cloud is held, the IMU-propagated particles let the changing geometry and the 868 MHz evidence
-  separate the two sides.
+- **Candidate tried, and the diagnosis corrected (same day, same cell, single seed: populations, not
+  results).** A mean-support handover test (`--acquireHandoverSupport`, weight within the mean's 1-sigma
+  ellipse) never fired: 0 holds. The cycle-8 cloud was not a crescent. It was a blob around finder 501,
+  built from 868 MHz ranges before any precise range arrived, and honestly unimodal. The ring appears one
+  step later, inside the EKF: a Gaussian prior centred on the finder receives a precise range to it, and a
+  Gaussian cannot represent the ring that results. The code is kept as a patch,
+  `~/ns/catbl-work/wip_acquire_support.patch`, not committed.
+- **Held longer, it still drifts.** With `--acquireHandoverCurvature` the cloud stays honest (229 m error at
+  sigma 238), hands over, and converges to 35 m by t = 212 s. It then drifts to 541 m by t = 572 s at a claimed
+  sigma of 3-7 m, on 4-8 ranges a cycle. Per-range log over 150-600 s:
+  - the only precise range is to finder 501 (2.4 GHz, mean error +-0.3 m);
+  - the 868 MHz ranges to all four finders run LONG by +100 to +205 m at stated sigma 136-660 m;
+  - gateway ranges have sigma of 1.5-4 km;
+  - no TDoA solve was fused (0 of 2 OK).
+  The tangential direction around finder 501 is held only by biased 868 MHz ranges and the IMU, and the filter
+  claims a few metres there.
+- **Neither existing remedy holds it on this cell.** `--tofRecal` learns a log-bias of +0.18 from 178 pairs,
+  and the drift continues (43 -> 309 m guarded, 32 -> 680 m unguarded). One bias for every 868 MHz link cannot
+  fit finders running long and gateways running short (N.57). `--rssiCorrInflate` leaves the error swinging
+  14-605 m at sigma 3-8 m.
+- **Open.** Why the low-to-low finder 868 MHz links read 20 % long: a path-loss model fitted to masts and
+  applied to handhelds is the candidate. Whether the finder converging on tag 0's own wrong estimate closes a
+  feedback loop. A per-link-class bias, or modelling low-low 868 MHz links separately, is the next measurement.
+  A multi-seed pilot must come before any remedy is called one.
 
