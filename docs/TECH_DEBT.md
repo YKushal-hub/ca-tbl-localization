@@ -11,6 +11,117 @@ design decisions* are recorded as such and are not debt — they are in §7 so n
 
 **Ordering is by risk to published results, not by effort.**
 
+## Status ledger — 2026-10-20
+
+**Read this first.** Every entry below, with where it stands at `cb829cbb` (main after the
+2026-10-19 merges). The entries themselves are kept as written; this table is the index. Each
+status was checked against the code, or against the preset's setting list
+(`scratch/ca_tbl_causal_sim.cc`, the `--specProfile` table, 113 settings). Classes:
+
+- **CLOSED** — fixed, or settled by a registered result.
+- **PRESET** — fixed behind a flag the preset sets. Off-preset defaults are unchanged, so runs
+  without the preset still carry the entry.
+- **FLAG** — fixed behind a default-off flag that is not in the preset.
+- **DECISION** — waits on the owner. The question is stated.
+- **CAMPAIGN** — needs a registered campaign before anything changes.
+- **RESEARCH** — the cause is not known.
+- **OPEN** — engineering with no decision needed.
+- **RECORDED** — a model limit or an OURS choice, stated so nobody mistakes it.
+
+| entry | status | what is left |
+|---|---|---|
+| 1.1 sampler stream | PRESET (`--rngKeyed`, G138) | code default unkeyed; a default change regenerates everything (DECISION) |
+| 1.2 rule 8 cross-binary | CLOSED | `RULES.md` rule 8 carries it |
+| 1.3 cited results absent | RECORDED | G92 FAIL BY FINDING: 15 cited paths not held |
+| 2.1 four loss terms zeroed | DECISION | still zeroed (`lora-physics-engine.cc` antenna gain, multipath, Doppler, soil). Wire them in (every result moves) or delete the dead code |
+| 2.2 terrain at 868 MHz | PRESET (`--terrainPerTierFreq`) | code default 868 MHz |
+| 2.3 two residuals | RESEARCH | UWB ~3.7 dB, 868 MHz ~3.5 dB; N.41 rules out the foliage clamp for UWB |
+| 2.4 sensitivity values | OPEN | G93 checks tier 2 against the SX1280 data sheet; 868 MHz and UWB values are not checked against theirs (needs the SX1262 and DW3000 tables) |
+| 2.5 tier-1 CRLB | CLOSED | — |
+| 3.1 C5 remaining | CLOSED in substance | relays are measured subjects (MS-1, N.3); the subject chain is in the preset |
+| 3.2 hopWeight | RECORDED (deliberate, `RULES.md` 2) | — |
+| 3.3 C2-full | CLOSED | merged at `abbe3de`; behaviour per N.3 |
+| 3.4 A4/A5 | CLOSED in substance | consistency is measured by NEES/coverage (N.51, O.12) |
+| 3.5 anchor-to-anchor links | RECORDED | beacon loss is an upper bound |
+| 4.1 1-ulp divergence | RESEARCH | rebuild without `-march=native` and diff, as the entry suggests |
+| 4.2 `-march=native` | DECISION | `./ns3 --build-profile=optimized` turns it on (`ns3:923`); dropping it changes every binary's bits |
+| 4.3 G12 | CLOSED | trailer-anchored; history rewritten 2026-10-19 |
+| 4.4 / J.1 G11 red | RECORDED (deliberate) | must not be closed by tuning |
+| 5.1 author identity | CLOSED 2026-10-20 (owner) | — |
+| 5.2 invocations in prose | RECORDED (practice) | sidecars for exploratory runs |
+| 5.3 stale documents | RECORDED (practice) | this ledger is one remedy |
+| 6 tooling | RECORDED | sidecars record the build profile |
+| A–F (2026-09-07) | CLOSED / superseded | baseline_v8; gateway count; B3 regeneration |
+| C.5 self-deployable mesh | RECORDED (not built, scope) | — |
+| H.1 tier 3 reach | CLOSED (PRESET) | UWB-delivered fixes on 20/20 endgame seeds under FIXES-N26 |
+| H.2 staleness | PRESET (`--rangeReplyPosition`) | — |
+| H.3 / I.5 counter-vs-input gate | OPEN | not built; `scripts/flag_efficacy.sh` covers "can a flag change its output" |
+| H.4 constants OURS | RECORDED | — |
+| I.1 Mahalanobis population | CLOSED by measurement | N.15, N.26, REAL-SPEC: 9.21 not proposed |
+| I.2, I.3 | CLOSED | — |
+| I.4 flags conditional on frames | CLOSED 2026-10-20 | help texts state the measured dependency |
+| I.6 evidence tree | RECORDED | regenerated campaigns cited; G6 red by design |
+| J.2 / L.2.1 tier-1 TDoA | PRESET (`--tier1Tdoa`) | code default RSSI |
+| K.1, K.2, K.4, K.6, K.7 | CLOSED | — |
+| K.3 `RULES.md` 6 | CLOSED 2026-10-20 | — |
+| K.5 | RECORDED | — |
+| K.8 PCS | CLOSED by result | A8, N.31: no further PCS form |
+| K.9 SHS gait | RECORDED (owner) | superseded for the preset by DC-1 + `--imuFilter=ekf5` |
+| L.1 | CLOSED | — |
+| L.2.2 UWB CIR matrix | DECISION (M.2) | needs an obstruction model of our own |
+| L.2.4 hop count | PRESET | depth 2 in the preset's subject chain |
+| L.3 claims | superseded | read `CA-TBL_Technical_Report_SelfContained.md` and the REAL-* reports |
+| M.1 interferer distance; slot slice | CAMPAIGN | engine change (`lora-interference-submodule.cc`) |
+| M.2 | DECISION | as L.2.2 |
+| M.3 | FLAG (`--stampBinaryHash`, `--stampBuildCommit`) | not in the preset |
+| M.4–M.8, M.10, M.11 | CLOSED | — |
+| M.9 RECEDING push count | OPEN | tag 0 counted (G75); subjects run no handshake |
+| N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
+| N.2 | PRESET (`--sparseInStep`) | — |
+| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built. The largest engineering item; risky for byte-identity |
+| N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
+| N.5, N.8, N.9, N.13, N.17, N.18, N.24 | RECORDED (OURS) | — |
+| N.6, N.22 | PRESET | — |
+| N.7 PCS byte | moot | PCS earns nothing over the trace (N.31) |
+| N.11 | DECIDED (out of the preset) | ToF-tier form OURS |
+| N.15 G24 zeros | RECORDED | four zeros under FIXES-N26 |
+| N.16 | CLOSED (CAL-03) | an 8-gateway-ring property |
+| N.20 | FLAG (`--deadBatteryNoDraw`) | not in the preset |
+| N.23 | measured (`--reportAirtime`) | — |
+| N.27 D-8 sensitivity row | DECISION | `--t2SensitivityRowKHz` default |
+| N.28 gyro bias | DECISION | `--imuFilter=ekf5` and the realistic world proposed (REAL-BEST) |
+| N.29 | RECORDED | harness artefact |
+| N.30 (main) G10 / G92 | CLOSED / RECORDED | G92 FAIL BY FINDING |
+| N.31 (main) G63/G87/G89 | CLOSED (O.4) | — |
+| N.30 (acc) covariance | PRESET in part (`--imuQuScale=30`); ekf5 off-preset | error-state filter = ekf5 |
+| N.31 (acc), N.32 (acc) | CLOSED by result | — |
+| N.32 (IMU) finder extrapolation | RECORDED | remedy is a MAC change, unbuilt |
+| N.33 one-range heading | RESEARCH | consider form rejected; FEJ / iterated update not built |
+| N.35–N.37 | RESEARCH | H2 in its TDoA form |
+| N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
+| N.41 foliage clamp | CAMPAIGN | engine fix with null control |
+| N.42 citations | RESEARCH | three sources not found |
+| N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
+| N.51 subject overconfidence | RESEARCH | per-range log built (V3) |
+| N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
+| N.53 two Part B branches | DECISION | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
+| N.54 acquisition | PRESET (`--acquireParticles`) | — |
+| N.55 | PRESET | — |
+| N.56 | CLOSED (O.2) | — |
+| O.1–O.6, O.11, O.13, O.14 | CLOSED | — |
+| O.7 / O.10 | CLOSED in accuracy (O.13) | energy under Wolf is a design property |
+| O.8 P.833 foliage | CAMPAIGN | not in the preset |
+| O.9 RSSI model vs foliage | RESEARCH | — |
+| O.12 B2 5 km coverage | RECORDED (measured limit) | — |
+| N.57 selection bias | RESEARCH | negative information in the EKF, not built |
+| N.58 covariance collapse | OPEN | iterated (IEKF) update not built |
+| N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
+| N.61 magnetometer state | RECORDED | kept as a patch |
+
+**What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
+question stated. Open engineering is H.3/I.5, M.9, N.3 and N.58. RESEARCH and CAMPAIGN rows
+need measurement before code.
+
 ---
 
 ## 1. Measurement hygiene — highest risk
@@ -648,6 +759,16 @@ second time a claim in this project has needed the untested arm checked.**
 without it and say so nowhere except in one flag's help text. Not a defect; a
 documentation gap that costs an afternoon to anyone sweeping them. *Fix:* say it in each
 flag's help, which is the house style for explaining a default.
+
+*2026-10-20, CLOSED; the dependency measured, and narrower than stated.* Seed 7, 600 s, four finders
+(`--nFinders=4 --finderMode=1`); each flag on against off, frames off and on:
+- `--bidirectionalDigest`: byte-identical without frames, 7 files differ with them.
+- `--finderPseudoAnchor`: byte-identical without frames AND with frames alone. It needs a finder
+  entry: `--bidirectionalDigest` (6 files differ) or `--rangeReplyPosition`, which works without
+  frames (6 files differ).
+- `--corroborationCheck`: byte-identical without frames and with frames alone; with frames and the
+  digest, 11 and 23 escalations refused in two arms.
+Each help text now says so. The preset sets all of them, so it is unaffected.
 
 ### I.5 Suggested gate
 A gate asserting that a mechanism's *input* is non-zero whenever its *firing counter*

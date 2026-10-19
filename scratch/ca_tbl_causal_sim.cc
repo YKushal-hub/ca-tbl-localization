@@ -17812,7 +17812,10 @@ main(int argc, char* argv[])
                  "868 while up on UWB would charge a tier outside the cycle's "
                  "transmission and break the sect 6 invariant, and because each tier "
                  "owns its own table, so the answer must land in the one the ranging "
-                 "path reads.",
+                 "path reads. Needs --sendHandshakeFrames=true and --finderDigestPeriodS > 0: "
+                 "without frames no digest is sent, and with --sendHandshakeFrames=false the "
+                 "output is byte-identical to the flag off (TECH_DEBT I.4; seed 7, 600 s, four "
+                 "finders, 2026-10-20).",
                  bidirectionalDigestArg);
     cmd.AddValue("finderPosSigma",
                  "Metres of GNSS position error a finder carries, as a per-finder "
@@ -17836,7 +17839,12 @@ main(int argc, char* argv[])
                  "flatters every result that depends on finders -- which, since finders "
                  "are what make tier 3 reachable at all, is most of them. The physics is "
                  "unaffected either way: the radio link is physical and does not care "
-                 "what anyone believes.",
+                 "what anyone believes. A finder's report reaches the node in one of two ways. "
+                 "Through a table entry, which needs --bidirectionalDigest and so "
+                 "--sendHandshakeFrames. Or through --rangeReplyPosition, which needs neither. "
+                 "With neither there is no report, and the output is byte-identical to the "
+                 "flag off, frames or not (TECH_DEBT I.4; seed 7, 600 s, four finders, "
+                 "2026-10-20).",
                  finderPseudoAnchorArg);
     cmd.AddValue("hopProvenanceForm",
                  "How hop provenance enters the confidence score. 0 (default) is the "
@@ -17893,7 +17901,11 @@ main(int argc, char* argv[])
                  "distance from this node's estimate to where that node SAYS it is. "
                  "FALSE by default. This is the independent witness: it uses residuals "
                  "and other nodes' reports, and NOT the filter's covariance, which is "
-                 "the quantity the confidence signal is made of.",
+                 "the quantity the confidence signal is made of. A witness needs a table "
+                 "entry, so in practice this needs --sendHandshakeFrames with "
+                 "--bidirectionalDigest. Without them there is no witness, and the output is "
+                 "byte-identical to the flag off (TECH_DEBT I.4; seed 7, 600 s, four finders, "
+                 "2026-10-20: with both, 11 and 23 escalations refused in two arms).",
                  corroborationCheckArg);
     cmd.AddValue("corroborationK",
                  "How many combined sigmas of range residual still count as agreement. "
