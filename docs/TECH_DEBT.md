@@ -846,6 +846,13 @@ transmission, and a tier that did not transmit is not charged — from the sente
 does not. *Cost:* a documentation change. *Risk of leaving it:* a reader reasons about
 the energy axis from a false premise, which is the exact failure mode §6 exists to prevent.
 
+*2026-10-20, CLOSED.* `RULES.md` §6 now states the invariant that holds: every transmission is made
+in the per-cycle loop by an awake radio and charged to its own tier, and an unused tier accrues
+sleep current only. It also lists the three deliberate exceptions: the floor, the dual base and
+`poucet_fusion`. "Exactly zero on unused tiers" was also false, by the sleep current: `static_868`,
+seed 7, 600 s, bills 0.002376 J on 2.4 GHz and 0.001386 J on UWB, all sleep, with zero transmit,
+receive, CAD and idle.
+
 ### K.4 Gateways as edge servers — built, and it can only cost energy
 
 > **2026-09-29: the default since L.2.3.** "It can only cost energy" held under the

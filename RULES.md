@@ -293,15 +293,27 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
 
 ## 6. The invariant that makes the experiment valid
 
-**Exactly one tier transmits per cycle, and only that tier is charged.** An arm that never
-escalates accrues exactly zero energy on the tiers it never used.
+**Every transmission is made inside the per-cycle loop, by a radio that is awake that cycle, and
+is charged to the tier that made it. A tier an arm never uses accrues its sleep current and
+nothing else: no transmit, receive, CAD or idle energy.** Measured 2026-10-20 (seed 7, 600 s,
+four finders): `static_868` bills 0.002376 J on 2.4 GHz and 0.001386 J on UWB, all of it sleep.
+
+The older wording, "exactly one tier transmits per cycle", does not hold, and each exception is
+deliberate (TECH_DEBT K.3):
+- **The tier-1 floor.** When the active tier is 2.4 GHz or UWB and the floor is wanted, 868 MHz
+  ranges in the same cycle and is charged. So tier-1 energy is not proportional to `cycles_868`:
+  in `baseline_v8` 868 MHz transmitted on ~96 % of every arm's cycles, whatever the active tier.
+- **The dual base** (`--loraDualBase`, in the preset since 2026-10-08) ranges 868 MHz and
+  2.4 GHz every cycle.
+- **The `poucet_fusion` comparator** ranges all three tiers every cycle, on purpose. It is the
+  cost the one-tier rule is compared against.
 
 This was not always true. An earlier pipeline generated all three tiers' data unconditionally and
 selected afterwards, under which *the energy saved by not escalating was structurally
 unmeasurable*. Fixing it is what made the energy claim testable at all.
 
-**Any change that moves a transmission outside the per-cycle loop, or charges a tier that did not
-transmit, breaks the only thing that makes the energy axis mean anything.** Check this first in
+**Any change that moves a transmission outside the per-cycle loop, or charges a tier for a
+transmission it did not make, breaks the only thing that makes the energy axis mean anything.** Check this first in
 any review.
 
 ---
