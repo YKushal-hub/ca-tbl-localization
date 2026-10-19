@@ -55,7 +55,7 @@ status was checked against the code, or against the preset's setting list
 | C.5 self-deployable mesh | RECORDED (not built, scope) | — |
 | H.1 tier 3 reach | CLOSED (PRESET) | UWB-delivered fixes on 20/20 endgame seeds under FIXES-N26 |
 | H.2 staleness | PRESET (`--rangeReplyPosition`) | — |
-| H.3 / I.5 counter-vs-input gate | OPEN | not built; `scripts/flag_efficacy.sh` covers "can a flag change its output" |
+| H.3 / I.5 counter-vs-input gate | CLOSED in substance 2026-10-20 | G24's POP/EFF pairs and each mechanism gate's REACHED + EFFECT pair catch the class |
 | H.4 constants OURS | RECORDED | — |
 | I.1 Mahalanobis population | CLOSED by measurement | N.15, N.26, REAL-SPEC: 9.21 not proposed |
 | I.2, I.3 | CLOSED | — |
@@ -119,7 +119,7 @@ status was checked against the code, or against the preset's setting list
 | N.61 magnetometer state | RECORDED | kept as a patch |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is H.3/I.5, M.9, N.3 and N.58. RESEARCH and CAMPAIGN rows
+question stated. Open engineering is M.9, N.3 and N.58. RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -679,6 +679,17 @@ each looked right and disagreed about the same cycle.** No gate tests for it, an
 the same family as the 51 J artefact: a mechanism whose stated effect depends on a
 quantity nobody checked was non-zero. *Fix:* a gate asserting that a mechanism's input
 is non-zero whenever its firing counter is, on at least one configuration.
+
+*2026-10-20, CLOSED in substance (with I.5).* No single generic gate was built. The failure has a
+signature on disk: a counter above zero, and output byte-identical to the flag off. Two existing
+checks read exactly that:
+- G24 runs every preset mechanism two ways: POP, a population above zero with the flag on; and
+  EFF, zero with it off.
+- Every per-mechanism gate since G60 pairs REACHED, a firing count above zero, with EFFECT or an
+  equivalent, the run differing from the run without the flag. Examples: G150 RSPLIT, G101's
+  differing run, G151 EFFECT.
+`edf73a5`'s case, 1 513 firings into byte-identical output, fails EFFECT. `scripts/flag_efficacy.sh`
+remains the sweep to run after adding a flag. A new mechanism gate must carry both halves.
 
 ### H.4 Constants introduced this session, ours and uncited
 - `--finderPosSigma` default 0.0; 2.0 m is argued from the variance the entry already
