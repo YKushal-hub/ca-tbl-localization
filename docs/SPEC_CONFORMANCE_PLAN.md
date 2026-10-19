@@ -16,7 +16,7 @@ The user wants the simulator brought to spec. This plan lists **every lacking pa
 ### Owner decisions taken for this plan (2026-09-30)
 1. **Defaults.** One `--specProfile=true` preset turns on the whole spec configuration. Existing defaults stay put, and every `results/` sidecar stays reproducible. Making the preset the default later is a separate, registered campaign, out of scope here.
 2. **IMU.** A synthetic IMU error model is built: the walker's true motion plus sensor errors taken from a cited datasheet, integrated as dead reckoning. The SHS gait engine is left as it is (K.9, owner decision 2026-09-08).
-3. **PCS.** The preset adopts LOOCV-calibrated weights **and** thresholds. Because CLAUDE.md §2 forbids a casual PCS fix, this is a registered PCS campaign (CAL-02). The report states the outcome plainly: the calibrated score is trace-only, which is effectively the flat-threshold baseline.
+3. **PCS.** The preset adopts LOOCV-calibrated weights **and** thresholds. Because RULES.md §2 forbids a casual PCS fix, this is a registered PCS campaign (CAL-02). The report states the outcome plainly: the calibrated score is trace-only, which is effectively the flat-threshold baseline.
 4. **Deployment.** **All 5 field nodes are measured subjects** (C2-full).
 5. **Gateway geometry.** The shape is **found by a registered study** (GEO-01, §3.4), not assumed. It compares box, crescent/arc, circle/ring, line, cluster, star, L and an optimised free placement at 3–8 gateways over the spec's 5 km-radius search area. It picks **the least infrastructure that meets a registered SAR criterion**, subject to a realism constraint: gateways only where a vehicle can reach. The constraint comes from the owner's 2026-09-09 rejection of the interior grid (HANDOFF_2026_09_09 §4).
 6. **Rescuers.** The preset includes 4 finders on the two-phase search: `--nFinders=4 --finderMode=2 --finderDispersal=1.0`, i.e. the NC2 searcher regime.
@@ -29,7 +29,7 @@ The user wants the simulator brought to spec. This plan lists **every lacking pa
 
 ## 0. Rules every work package follows
 
-These rules come from CLAUDE.md. They are the reason each step below is shaped the way it is.
+These rules come from RULES.md. They are the reason each step below is shaped the way it is.
 
 1. **Default-off flag for every change.** The default must reproduce the reference byte-for-byte.
    - Before the first code commit, freeze the binary and libs at `~/catbl_ref_spec0`. Include `PROVENANCE.txt`, `RUN.txt` and an `nc.sh` copied from `~/catbl_ref_edge/nc.sh`, pointing at a new `nc/` directory.
@@ -45,9 +45,9 @@ These rules come from CLAUDE.md. They are the reason each step below is shaped t
 7. **New `RunArm` inputs go through one struct.** `RunArm` already has 126 positional parameters, and the handoff warns about misordering and comma expressions.
    - Add a single `SpecOptions` struct parameter (last position) and put every new flag in it.
    - Its first commit is null-controlled on its own, because a new local once moved codegen by 1 ulp (TECH_DEBT 4.1).
-8. **Commit discipline.** Atomic commits, with the evidence in the message and **no attribution trailer** (CLAUDE.md §2, gate G12). Commit from WSL. Pre-register before any measurement run (rule 13).
+8. **Commit discipline.** Atomic commits, with the evidence in the message and **no attribution trailer** (RULES.md §2, gate G12). Commit from WSL. Pre-register before any measurement run (rule 13).
 9. **The §6 invariant is checked first in every energy-touching change.** Only the tier that transmitted this cycle is charged. Each relevant gate asserts that an unused tier's `j_` column does not rise.
-10. **Each item lands with its own gate and negative fixture in the same commit** (CLAUDE.md §4.4). G24 later only *aggregates* them. No item waits for G24 or G27 to be tested.
+10. **Each item lands with its own gate and negative fixture in the same commit** (RULES.md §4.4). G24 later only *aggregates* them. No item waits for G24 or G27 to be tested.
 11. **Null controls cover the paths being edited, not just the defaults.** NC1 and NC2 never turn on `sparseCaseA`, `relayedRanging`, `reversePath`, `queryProxy`, `tier1Tdoa`, `sessionLayer` or `suspectRecovery`. So `~/catbl_ref_spec0/nc/` adds one config per opt-in path an item touches:
     - NC3 `--sparseCaseA`
     - NC4 `--relayedRanging --relayChain --nTags=4`
@@ -700,7 +700,7 @@ Already conformant, and on by default:
      - σ_eff² += the per-hop RSSI-variance term, converted to range variance by the tier's inversion.
      - Per-hop NLOS: multiply the leg's variance by `nlosSigmaInflation` when its NLOS score ≥ threshold. This reuses the existing constant.
      - The conversion is OURS and says so.
-  4. **`hopWeight` stays 0.** The spec's PCS formula (§2.5) has no hop term; hop enters through Σ. This matches CLAUDE.md §2. Record in the register that the spec folds hop into Σ, which the code already does, plus steps 1–3.
+  4. **`hopWeight` stays 0.** The spec's PCS formula (§2.5) has no hop term; hop enters through Σ. This matches RULES.md §2. Record in the register that the spec folds hop into Σ, which the code already does, plus steps 1–3.
   5. The preset sets `--relayedRanging --relayChain --maxRelayDepth=2` (or higher; the A2 budget governs) and `--hopVarianceTerms`.
 - **Verification.**
   - Null control at defaults.
@@ -879,7 +879,7 @@ These were found by the three code explorations of 2026-09-30. None is in the re
 - The `scratch:8361-8362` comment says the receding branch never runs.
 - `--sparseCaseAMargin` is in Mahalanobis units, not metres.
 
-**Stale documents.** Corrected in P1, except `CLAUDE.md`, which is the owner's:
+**Stale documents.** Corrected in P1, except `RULES.md`, which is the owner's:
 - TECH_DEBT 3.3 still says the C2-full merge decision is open. It was merged at `abbe3de`.
 - TECH_DEBT 3.2 has stale line references and says "A2 caps depth at 1", but A2 is now adaptive.
 - TECH_DEBT L.2.4 cites `:8009`; it is now `:8018`.
@@ -887,7 +887,7 @@ These were found by the three code explorations of 2026-09-30. None is in the re
 - K.9 cites the step-length submodule at `:101`; it is now `:113-116`.
 - `docs/DESIGN_DECISIONS.md` §5 and line 138 say the brief's deployment is "not built" and "untested". It is built (`089a9f1`), and K1c, K10 and L.2 ran it.
 - `MASTER_PLAN.md` §2.1's transport/session row reads ABSENT, but `--sessionLayer` and a 29-check suite exist.
-- `CLAUDE.md` §2 cites `ca-tbl-policy.cc:83` for `hopWeight`; it is at `:101`. This goes with M.11, for the owner.
+- `RULES.md` §2 cites `ca-tbl-policy.cc:83` for `hopWeight`; it is at `:101`. This goes with M.11, for the owner.
 
 **Unrecorded spec divergences from the 2026-09-30 audit.** Each goes into `MASTER_PLAN.md` §2.1 with its reason, before any code:
 - Case D is absent.
@@ -968,7 +968,7 @@ The order is load-bearing: later phases read what earlier phases produce. Every 
 | **P4** | Network and application on real subjects and the mesh, in data-flow order: NW-8 previous hop and reverse path (with `forceFlood`), NW-9 QUERY/RESPONSE contents (batch-safe rebroadcast), NW-7 grant-gated UWB, **NW-4 + NW-5 in one commit** (query bit plus arbitration queue, terms and UWB-range eligibility), NW-6 gossip incl. finders; then NW-1 hop provenance (per-leg variability) and NW-2 routing of subjects' position-fix traffic; then TA-1a/TA-1b sessions, TA-2 requests to UWB-capable arbiters, TA-3 grant via RESPONSE plus cancel, TA-4, TA-5; finally DC-3 Case C (shared peer ranges, base-station MDS). | Needs P2 (IMU), P3 (subjects) and NW-0. The order follows the data: frames carry content, then routing, then sessions read it. | 14–17 d |
 | **P5** | SY-2 LR1121 basis. The UWB-reach checkpoint (MS-3): a preset-minus-geometry probe must show `cycles_uwb > 0` and UWB-delivered fixes with the evidence gate on, or the owner is consulted. **GEO-01 stage 2** (registered) on the P4 build, which fixes the preset geometry. MS-3 rescuer settings. | Energy basis and geometry are preset settings, and GEO-01 needs the P4 mechanisms that carry load at sparse geometry. | 3–4 d + compute |
 | **P6** | `--specProfile` preset (incl. the §3.1 additions), gate G24 (aggregating, with the last-gasp run), CAL-02 registered and run (legacy-PCS data generation, held-out evaluation), then CAMP-SPEC registered and run (incl. GEO-01 stage 3 and the comparator arms). | The preset composes everything above; the campaigns measure it. | 5–6 d + compute |
-| **P7** | Documentation sweep: SPEC_CONFORMANCE register, MASTER_PLAN §2.1 recount (parsed, not hand-counted), TECH_DEBT new section N, `docs/SCENARIO_FLAGS.md` regenerated from `--PrintHelp`, handoff. `CLAUDE.md` numbers (M.11) only with the owner's say-so. | Nothing is done until the record says so. | 1–2 d |
+| **P7** | Documentation sweep: SPEC_CONFORMANCE register, MASTER_PLAN §2.1 recount (parsed, not hand-counted), TECH_DEBT new section N, `docs/SCENARIO_FLAGS.md` regenerated from `--PrintHelp`, handoff. `RULES.md` numbers (M.11) only with the owner's say-so. | Nothing is done until the record says so. | 1–2 d |
 
 Total: roughly **50–62 working days plus compute** (revised up from 28–38 after the design review: P4 alone sums to 14–17 d, MS-1 to 7–10 d, and NW-0 to 3–4 d). P1 and P2 can run in parallel after P0. P3 → P4 → P5 is the critical path.
 
@@ -1126,7 +1126,7 @@ At the end of the programme:
    - CAL-02's threshold objective;
    - the NW-2 routing-weight sweep criterion.
 4. **Push.** The branch is local-only. Pushing goes via the Windows clone (`SETUP_NEW_MACHINE.md` §6), when the owner chooses.
-5. **`CLAUDE.md` edits** (M.11 numbers, the `hopWeight` line reference). These are the owner's.
+5. **`RULES.md` edits** (M.11 numbers, the `hopWeight` line reference). These are the owner's.
 
 ## 6. Risks, stated
 

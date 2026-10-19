@@ -1,5 +1,5 @@
 e9f327b3ee482b1a
-build Oct 17 2026 07:27:04 | /home/nethi/catbl_v3/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --probe=true --probeTerms=true --probeMonotoneTime=false --seed=1 --outdir=/tmp/claude-1000/-home-nethi/9c42669a-9ea6-4b4e-9888-726f6483f1ce/scratchpad/b8/mfalse/s1
+build Oct 17 2026 07:27:04 | /home/nethi/catbl_v3/build/scratch/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --probe=true --probeTerms=true --probeMonotoneTime=false --seed=1 --outdir=/tmp/[redacted]/-home-nethi/9c42669a-9ea6-4b4e-9888-726f6483f1ce/scratchpad/b8/mfalse/s1
 source unknown dirty 0 profile optimized
 digest sha256
 7d57ab8dec4919042153da56c1dc90eb8d78beb8e342ada01caeca6769375e87  probe_range_sweep.csv

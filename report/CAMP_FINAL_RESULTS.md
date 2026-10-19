@@ -179,4 +179,4 @@ Nothing is adopted (PREREG §5). Open items this campaign leaves:
 - **The digest's 868 MHz cost** (N.23).
 - **The reverse path's airtime against flooding** (P7).
 
-`results/` before 2026-09-07 remains provisional, as `CLAUDE.md` states.
+`results/` before 2026-09-07 remains provisional, as `RULES.md` states.

@@ -159,7 +159,7 @@ produces a wrong result that looks right.
   matches `Co-Authored-By:`; it still catches `Generated with`, `Assisted-by:` and
   vendor handles. So a trailer will not turn the suite red, and it is still not to
   be written. The tooling references that already
-  exist — `.claude/` in `.gitignore` and `EXCLUDED.md`, `CLAUDE.md` itself, and
+  exist — `.claude/` in `.gitignore` and `EXCLUDED.md`, `RULES.md` itself, and
   `docs/KICKOFF.md` — are project infrastructure, not attribution, and stay.
 - **Do not add a new mechanism without a default-off flag** whose off state reproduces the
   existing baseline byte-for-byte. See §4.

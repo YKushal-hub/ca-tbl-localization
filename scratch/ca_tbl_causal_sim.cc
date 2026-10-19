@@ -3493,7 +3493,7 @@ struct CaTblTagState
  * WHAT DOES NOT MOVE. Every call, its order and its arguments but the instant. Nothing is
  * added, removed or re-ordered, so the number of engine evaluations is the flag-off
  * number for the same outcomes. Each exchange is charged exactly as before -- to the relay
- * that sent it, on --relayTier, inside the per-cycle loop (CLAUDE.md sect 6) -- with its
+ * that sent it, on --relayTier, inside the per-cycle loop (RULES.md sect 6) -- with its
  * duty governor armed from the instant it took. The measured tag and L.1.1's frames stay.
  *
  * KNOWN LIMIT. The round sits in the slice the event layer has ALREADY run. A MAC frame
@@ -11275,7 +11275,7 @@ RunArm(CaTblPolicyMode mode,
         //
         // ON THE ACTIVE TIER, and that is not a detail. Sending on 868 while the
         // node is up on UWB would charge a tier outside this cycle's transmission
-        // and break the one invariant the energy axis rests on (CLAUDE.md sect 6).
+        // and break the one invariant the energy axis rests on (RULES.md sect 6).
         // Asking on the tier already transmitting is the same discipline C5 uses for
         // a relayed exchange. It also happens to be the only choice that WORKS: each
         // tier owns its own CaTblMac and therefore its own table, so an entry learned
@@ -11925,7 +11925,7 @@ RunArm(CaTblPolicyMode mode,
             // answered anchor. A record is anchor id (2 B) + range (2 B, decimetres) +
             // sigma (1 B) + NLOS score (1 B) = 6 B, OURS, shaped on the table entry's
             // fields. The 868 MHz exchange needs no uplink: the gateways measured it.
-            // The tier transmitted this cycle, so CLAUDE.md sect 6 holds.
+            // The tier transmitted this cycle, so RULES.md sect 6 holds.
             if (edgeUp && gatewayEdgeServer && tier != CA_TBL_TIER_868 && !out.empty())
             {
                 const uint32_t bytes = CA_TBL_MAC_HEADER_BYTES +
@@ -12941,7 +12941,7 @@ RunArm(CaTblPolicyMode mode,
             // belongs to the tier that cycle will use -- d.nextTier -- plus 868 MHz while a
             // hybrid arm keeps the floor awake: the same attribution the listen billing
             // below makes. A radio asleep for the slice neither receives nor relays
-            // (CLAUDE.md sect 6). Gating on THIS cycle's tier instead would keep a newly
+            // (RULES.md sect 6). Gating on THIS cycle's tier instead would keep a newly
             // chosen radio asleep through the slice in which it should discover neighbours.
             const bool floorNext = hybridArm && d.nextTier != CA_TBL_TIER_868;
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
@@ -13196,7 +13196,7 @@ RunArm(CaTblPolicyMode mode,
                 }
                 nodeMac[active]->SendTriggeredUpdate(active, 1);
                 // Billed to the node on the tier it rides, which transmitted this cycle
-                // (CLAUDE.md sect 6): the first frame and its jittered repeats, as
+                // (RULES.md sect 6): the first frame and its jittered repeats, as
                 // attempted. A repeat the duty governor then refuses is still billed;
                 // the MC-2 line prints frames billed against frames transmitted.
                 const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
@@ -15987,7 +15987,7 @@ main(int argc, char* argv[])
     // taken before that date.
     bool escalationRequiresEvidence = true;
     // Default OFF and default-off it stays until it has a gate with a negative
-    // fixture (CLAUDE.md 4.4). The mechanism is new even though the flag name is old.
+    // fixture (RULES.md 4.4). The mechanism is new even though the flag name is old.
     bool escalationRequiresEvidenceT2Arg = false;
     double t2PredictRadiusMArg = 156.0;
     uint32_t t2PredictMinAnchorsArg = 3;
@@ -16603,7 +16603,7 @@ main(int argc, char* argv[])
                  "(the fix selection's preference rule), which discards a 1-2 range set: at 5 km "
                  "6 771 of tag 0's 11 736 2.4 GHz cycles (CAMP-FINAL). LORA-CMP-2 measured the "
                  "LoRa-only form (--arms=lora_fusion) at +0.052 / +0.079 / +0.110 availability over "
-                 "ca_tbl_full with tag 0's CEP95 indistinguishable. Breaks CLAUDE.md sect 6's one "
+                 "ca_tbl_full with tag 0's CEP95 indistinguishable. Breaks RULES.md sect 6's one "
                  "radio per cycle ON PURPOSE, and bills every radio that ranged: the energy axis "
                  "then measures what the fusion costs. Static and fusion arms are unaffected.",
                  spec.loraDualBase);
@@ -17774,7 +17774,7 @@ main(int argc, char* argv[])
                  "and only on those cycles; --batteryDepleteJ and --uwbArbitration read "
                  "energy, so under them more can move. On every one of those cycles 868 "
                  "MHz has already transmitted this cycle's broadcast, so the bill charges "
-                 "no radio that stayed silent (CLAUDE.md sect 6). Putting the answer on "
+                 "no radio that stayed silent (RULES.md sect 6). Putting the answer on "
                  "the fix's radio is our choice, not cited. 'active' is the bill before "
                  "2026-09-30: the downlink on the policy's active tier even when the floor "
                  "supplied the fix, which charged the link that had just failed. With it "

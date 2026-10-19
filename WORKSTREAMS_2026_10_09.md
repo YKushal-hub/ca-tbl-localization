@@ -13,7 +13,7 @@ Check `git log` on each branch before trusting this file, as with every status d
 
 | | S1 — spec, preset, campaigns | S2 — accuracy plan | S3 — evidence fixes |
 |---|---|---|---|
-| **Branch** | `work/2026-09-27-spec-b1` (the main line), plus `draft/camp-final2` | `claude/kind-turing-csi8ok` (cloud) | `review/2026-10-08-evidence-fixes` |
+| **Branch** | `work/2026-09-27-spec-b1` (the main line), plus `draft/camp-final2` | `work/2026-10-09-acc-reruns` (cloud) | `review/2026-10-08-evidence-fixes` |
 | **Where it runs** | Local machine, main checkout `~/projects/ca-tbl-localization`; suite worktree `~/catbl_suite` | Cloud | Cloud (local worktree `~/catbl_evfix` exists, but the local machine is S1's) |
 | **State document** | `HANDOFF_2026_10_05.md` and the commit messages after it | `plan.md`, `context.md` | `HANDOFF_2026_10_08.md` |
 | **Head when written** | `1596cb41` | `d4033ffb` | `493d00c1` |
@@ -47,7 +47,7 @@ the ML track.
    foliage scaling in `src/catbl-propagation-study/linkbudget.py`.
 
 Items 5 and 6 (rewording the contribution, finding a SAR accuracy requirement) are thesis prose.
-They stay **outside this repository** (`CLAUDE.md`).
+They stay **outside this repository** (`RULES.md`).
 
 ---
 
@@ -87,8 +87,8 @@ WP-A6 sweeps the tier-1 *PHY* (SF/BW). If S3 finds the path-loss model wrong, WP
 move, so S3's item 3 should come first.
 
 **F. The link-budget model.** S3 owns `src/catbl-propagation-study/` for the foliage-scaling fix.
-This candidate cause for the open "UWB ~3.7 dB residual" (`CLAUDE.md` §5) is S3's to record. The
-line in `CLAUDE.md` is S1's, and S1 changes it only on the owner's say-so.
+This candidate cause for the open "UWB ~3.7 dB residual" (`RULES.md` §5) is S3's to record. The
+line in `RULES.md` is S1's, and S1 changes it only on the owner's say-so.
 
 ---
 
@@ -107,7 +107,7 @@ line in `CLAUDE.md` is S1's, and S1 changes it only on the owner's say-so.
 | `docs/SPEC_CONFORMANCE.md`, `docs/DESIGN_DECISIONS.md` | S1 | Others write the change they need into their handoff |
 | `docs/SCENARIO_FLAGS.md` | generated | **Never hand-merge.** After any rebase that adds flags, regenerate with `tools/regen_flags.py` from the merged binary's `--PrintHelp`. Whoever merges last regenerates |
 | `docs/CONTEXT_PACK.md`, `Architecture.md` §13 (references, PROV rows) | S3 | S2 adds new references in its own subsection only |
-| `CLAUDE.md` | S1, and only on the owner's say-so | — |
+| `RULES.md` | S1, and only on the owner's say-so | — |
 | `HANDOFF_*.md` | each stream its own file | Do not edit another stream's handoff |
 | `report/paper_tables/`, `scripts/paper_tables.py` | S1 | — |
 
@@ -150,7 +150,7 @@ S3's planned use:
 
 ---
 
-## 5. Rules every stream keeps (from `CLAUDE.md`, restated because three agents share a tree)
+## 5. Rules every stream keeps (from `RULES.md`, restated because three agents share a tree)
 
 - **Never run the simulator binary without `--outdir=<temp dir>`.** The default writes into the
   tracked `results/causal`. Check `git status --short` for `results/` lines before any suite.

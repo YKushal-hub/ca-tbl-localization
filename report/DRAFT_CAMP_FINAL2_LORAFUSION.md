@@ -19,7 +19,7 @@ at registration.
 so its comparison table must be re-measured on the preset as it stands. That table puts
 CA-TBL against fixed-threshold switching, Poucet-style fusion, dual-band LoRa fusion,
 single-band operation and single-hop confidence. It is the table the assembly-level claim
-(`CLAUDE.md` §9) rests on.
+(`RULES.md` §9) rests on.
 
 **Disclosed before registration.**
 - **CA-TBL's own cells repeat runs already measured.** The new preset alone reproduces

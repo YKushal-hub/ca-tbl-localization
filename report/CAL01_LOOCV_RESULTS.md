@@ -130,7 +130,7 @@ terms. As far as the code allows, all three are now done:
    0.96–0.9997).
 3. **Live inputs:** the NLOS term is live (`86e43f2`) and carries |ρ| ≤ 0.06. The hop term
    cannot be given one: the measured tag's `Step()` receives `hopCount` as the literal 0
-   (`scratch/ca_tbl_causal_sim.cc:7874`). `hopWeight` stays 0 (`CLAUDE.md` §2).
+   (`scratch/ca_tbl_causal_sim.cc:7874`). `hopWeight` stays 0 (`RULES.md` §2).
 
 **The confidence-score contribution, that PCS carries information about error beyond the
 filter statistic it is computed from, is not supported by any linear calibration of its

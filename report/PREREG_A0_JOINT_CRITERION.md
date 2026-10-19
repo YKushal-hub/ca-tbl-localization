@@ -42,7 +42,7 @@ quantities:
 
 Read from `trace_<arm>_seed<N>.csv`. The denominator is **all 1440 decision cycles**; a
 cycle with no fix counts against. A cycle truncated by run end still settles the
-threshold it has already crossed and is not recounted symmetrically. (`CLAUDE.md` rules
+threshold it has already crossed and is not recounted symmetrically. (`RULES.md` rules
 1 and 2.)
 
 **A deployment is met** iff `A(arm, seed) >= 0.95`. One deployment = one seed at one

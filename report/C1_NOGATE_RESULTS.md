@@ -76,7 +76,7 @@ the driver's `FINAL` line or the analyser's step 0:
 - **Tracked set.** `b199ba5` adds 80 files: `arm_summary.csv` and `run_id.txt` for each of the 40
   cells, and nothing else. Every `run.log` is ignored by `.gitignore:75` (`/results/**`), and
   `git check-ignore -v` confirms this on a real file.
-- **CLAUDE.md §6.** Every row has `cycles_868`, `cycles_2p4` and `cycles_uwb` > 0, so the
+- **RULES.md §6.** Every row has `cycles_868`, `cycles_2p4` and `cycles_uwb` > 0, so the
   unused-tier predicate B3 checked has no row to act on here. It is vacuous for this campaign,
   not passed.
 - Driver: two passes (seeds 1–10, 11–20), 40 launched, 40 ended `exit=0 … OK`, 0 moved to

@@ -5,7 +5,7 @@ engine change: `--integrityChi2` is main's own flag). This commit adds this file
 `scripts/real_spec_analyse.py`, and nothing else. Outputs go outside the repository, to
 `~/ns/catbl-work/real_spec_2026-10-18/`, which does not exist at registration.
 
-**Why.** The Switching-Point Integrity Check is specified at Mahalanobis χ²₀.₉₉ = 9.21 (CLAUDE.md §2). The preset
+**Why.** The Switching-Point Integrity Check is specified at Mahalanobis χ²₀.₉₉ = 9.21 (RULES.md §2). The preset
 runs it at 1992.9, an owner override (FIXES-N26) made because the old filter, overconfident, locked itself out at
 the specified value — a falsely tight covariance makes honest fixes look anomalous. The realistic-world stack (S:
 ekf5, magnetometer, finder consider, relay gate) makes the covariance honest (endgame coverage ~0.82, REAL-BEST).

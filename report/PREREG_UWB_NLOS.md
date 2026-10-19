@@ -213,6 +213,6 @@ as results.
 - **No cross-cell magnitude.** The two models consume the UWB engine's draws at different
   rates, so `A_802` and `A_leg` do not share a stream past the first NLOS draw. Only
   population statements compare across them (rule 8, and its cross-binary form).
-- **Nothing about the deployment.** The legacy topology is not the system (`CLAUDE.md`,
+- **Nothing about the deployment.** The legacy topology is not the system (`RULES.md`,
   topology block).
 - **Nothing about the default.** It stays `legacy` for the reasons in §0.

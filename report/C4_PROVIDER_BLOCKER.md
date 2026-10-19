@@ -30,7 +30,7 @@ node and returned an empty outcome otherwise. The provider sits **below** the MA
 no MAC-level work reaches it: the peer was a transmitter that could not be heard, and
 every layer above reported success.
 
-This is the failure mode CLAUDE.md rule 9 is about. A defect whose signature is
+This is the failure mode RULES.md rule 9 is about. A defect whose signature is
 *absence* produces counters that all read clean.
 
 ---
@@ -72,7 +72,7 @@ corrected it, and did, a day later.
 own scalar id and position and is tested first, by scalar compare; peers live in a map
 that is **empty unless `--nTags > 1`**.
 
-No new flag. CLAUDE.md §4 requires a default-off flag whose off state reproduces the
+No new flag. RULES.md §4 requires a default-off flag whose off state reproduces the
 baseline byte-for-byte; `--nTags` already exists and already defaults to 1, and that is
 the off state.
 
@@ -117,7 +117,7 @@ Collisions fall by ~8 000 and captures rise by ~5 500 per arm. **Those deltas ar
 interpretable as a contention effect and are not reported as one.**
 
 `LoRaDistributionSampler` creates its five random variables with **no `SetStream`**
-(CLAUDE.md §5 records this as a decision not to fix), so they draw from ns-3's default
+(RULES.md §5 records this as a decision not to fix), so they draw from ns-3's default
 stream — and every submodule on the `ProcessTransmission` path draws from it:
 propagation, shadowing, fading, PLL, hardware, mobility. The ~437 000 extra evaluations
 therefore **displace the stream for every other link in the run**.

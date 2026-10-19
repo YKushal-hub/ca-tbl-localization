@@ -9,7 +9,7 @@ runs the independent link-budget model (`src/catbl-propagation-study/linkbudget.
 regenerated with `corpus.py` and matching its tracked anchor. The engine's own r80 (12.8 m)
 is from `results/probe_v7`, through `validate.py`.
 
-**Why.** CLAUDE.md's topology block rests on "UWB reaches tens of metres". Published UWB ranging
+**Why.** RULES.md's topology block rests on "UWB reaches tens of metres". Published UWB ranging
 reaches further: Benouakta et al. 2023 (Architecture R-02) report 124 m. This note says which
 terms make the difference, and which of them are ours.
 
@@ -20,7 +20,7 @@ terms make the difference, and which of them are ours.
 | TX power | −16.47 dBm | −14.3 dBm (−41.3 dBm/MHz × 499.2 MHz) |
 | sensitivity | **−104 dBm, uncited** (`lora-uwb-physics-parameters.cc:52-59`) | −99.3 dBm (ch 9, 850 kb/s, PSR 1024) |
 | link budget | 87.5 dB | 85 dB (ch 9), 86 dB (ch 5), 0 dBi |
-| antenna gain | 0 dB (`antennaGainDb` zeroed, CLAUDE.md §5) | 0 dBi reference |
+| antenna gain | 0 dB (`antennaGainDb` zeroed, RULES.md §5) | 0 dBi reference |
 
 The engine's sensitivity is 4.7 dB better than the datasheet's, with no source. It is OURS until
 cited. The datasheet figures are HANDOFF_2026_10_08's reading, not re-read in this session.
@@ -100,7 +100,7 @@ and every result, so it is a planned change, not a bug fix.
 ## 5. What is OURS in tier 3's reach
 
 - The −104 dBm sensitivity (§1).
-- 0 dB antenna gain, applied by zeroing the computed term (CLAUDE.md §5).
+- 0 dB antenna gain, applied by zeroing the computed term (RULES.md §5).
 - The f^0.75 extrapolation of foliage to 8 GHz. The source comment calls it uncertain, since
   the wavelength (3.75 cm) approaches leaf size. It is also capped at ×1.8 by the clamp (§4).
 

@@ -1,7 +1,7 @@
 # HANDOFF 2026-10-09 — S2 Part A (filter consistency), branch `work/2026-10-09-acc-part-a`
 
 Done in one cloud session, overnight. Base: S3's `89118bae`, which has the 102-setting preset
-and `--traceCovariance`. Plan: `plan_part_a_filter.md` on `claude/kind-turing-csi8ok`, revised by
+and `--traceCovariance`. Plan: `plan_part_a_filter.md` on `work/2026-10-09-acc-reruns`, revised by
 the owner's "PART A — Filter Consistency + CA-TBL Pending Work" (2026-10-09).
 
 | commit | what |

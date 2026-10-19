@@ -27,7 +27,7 @@ escalation was 2.4 GHz → UWB, which the evidence gate refuses anyway. The repo
 C1 with the gate off *"needs its own registration pinning `--escalationRequiresEvidence=false`"*.
 The owner asked for that run. This is it.
 
-**Three suppress-only mechanisms are involved and are kept distinct** (`CLAUDE.md` §2):
+**Three suppress-only mechanisms are involved and are kept distinct** (`RULES.md` §2):
 
 | name here | what it is | where | state in this campaign |
 |---|---|---|---|
@@ -50,7 +50,7 @@ The original claim (`report/INTEGRITY_CHECK_RESULTS.md`) used **8 seeds, 1–8**
 −15.360 J [−21.433, −9.233], 8/8; rmse −0.743 m [−1.052, −0.416], 7/8. Those numbers are
 quoted **only to name the claim**. The original ran on a different binary, in the pre-K.2
 environment, and before `4779bf7` changed tier-1 reply billing; `LoRaDistributionSampler`
-stays unseeded (`CLAUDE.md` §5). **No magnitude here is compared with the original's.**
+stays unseeded (`RULES.md` §5). **No magnitude here is compared with the original's.**
 
 This campaign runs **seeds 1–20**. Seeds 1–8 are additionally analysed on their own, with the
 same rules, **for comparability of the VERDICT only** — did the verdict the original reached

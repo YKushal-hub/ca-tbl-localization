@@ -1,7 +1,7 @@
 /*
  * Unit suite for the Switching-Point Integrity Check's responses (CaTblPolicy::Step,
  * the suspect branch). Not the evidence gate: that is a different mechanism
- * (CLAUDE.md sect 2).
+ * (RULES.md sect 2).
  *
  * DC-7 (docs/SPEC_CONFORMANCE_PLAN.md). The spec (Physical 2.6) says a SUSPECT fix is
  * flagged, is not allowed alone to justify a de-escalation, and is "downweight[ed] in

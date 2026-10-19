@@ -162,7 +162,7 @@ says how: `--pcsForm` gained the value `calibrated`, `--pcsW1..3` take 0, and
 and `--searchLaunchAtS` to get "a line in whichever document lists scenario flags", and
 there was no such document. Those four are rows 174, 181, 182 and 215 of §3.
 
-**It is a snapshot, not the ground truth.** `CLAUDE.md` §8 puts the ground truth in the
+**It is a snapshot, not the ground truth.** `RULES.md` §8 puts the ground truth in the
 `cmd.AddValue` block of `scratch/ca_tbl_causal_sim.cc` and in the `run_id.txt` sidecars.
 This file goes stale the same way every prose document does. Regenerate §3; do not edit it
 by hand.

@@ -22,7 +22,7 @@ WHAT IT CHECKS
   2. Every row is internally consistent: the next hop taken is the pick of the metric the
      row says was active; `diverged` is exactly (etxNext != confNext); a `delivered` hop
      ends at a gateway and a `forwarded` hop at a relay; gateway ids are 101-499 and relay
-     ids 2-100 (the id plan in CLAUDE.md: field nodes 1, 2+; gateways 101+; finders 501+,
+     ids 2-100 (the id plan in RULES.md: field nodes 1, 2+; gateways 101+; finders 501+,
      which are never routers); `noroute` rows name no next hop.
   3. Every multi-hop path is continuous: within one (t, originId) the hops run 0, 1, 2...,
      hop 0 is sent by the originator, and hop k>0 is sent by the relay the previous row

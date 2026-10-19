@@ -60,7 +60,7 @@ than to keep switching flags.
 
 **The χ²₀.₉₉ = 9.21 threshold is not touched.** If this cell succeeds it will be because a
 term was restored to the covariance, which is a correctness fix; if it had been achieved by
-moving the quantile it would have been tuning. `CLAUDE.md` and `TECH_DEBT` J.1 both bar the
+moving the quantile it would have been tuning. `RULES.md` and `TECH_DEBT` J.1 both bar the
 latter and the reason stands.
 
 **A pass here does not license flipping the default in the same breath.** `mahalUseR=true`

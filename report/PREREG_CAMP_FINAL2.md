@@ -66,5 +66,5 @@ Q1 and Q6–Q10 are evaluated by the analyser; Q2–Q5 are read from its tables.
 - Any `run_id.txt` without `dirty 0`.
 
 ## 4. What follows
-Nothing is adopted. The tables become the current numbers for CLAUDE.md, the Technical Report and the thesis (D2, D3).
+Nothing is adopted. The tables become the current numbers for RULES.md, the Technical Report and the thesis (D2, D3).
 Older reports keep their dated text.

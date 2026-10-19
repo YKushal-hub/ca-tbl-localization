@@ -34,7 +34,7 @@ reports 1.58, 132.41 and 9.9 (§IV).
 
 **Total loss** is reconstructed from the probe's `mean_margin_db`, which covers all trials:
 L = tx − sens − margin, up to +1.5 dB. The range exists because the margin is taken against an
-effective sensitivity 1.5 dB lower whenever the link was receiving (CLAUDE.md §5). The probe's
+effective sensitivity 1.5 dB lower whenever the link was receiving (RULES.md §5). The probe's
 `mean_pl_db` is the path-loss *term* only, 12.6-29.9 dB (RuralForested) and 24.3-53.3 dB
 (UrbanModerate) below the total's lower edge over 100-6000 m. Reading it as the
 total would be wrong.

@@ -26,7 +26,7 @@ out for tuning, and no adoption into the preset (S1's call). It answers the Part
 
 `--imuQuScale=k` multiplies the IMU increment covariance handed to every filter (G100). It is a
 stand-in for the run-persistent bias and scale error the EKF treats as independent increments.
-S2 measured the variance 3-54× too small (`context.md` §6.5 on `claude/kind-turing-csi8ok`).
+S2 measured the variance 3-54× too small (`context.md` §6.5 on `work/2026-10-09-acc-reruns`).
 
 **k = 10** is registered as the plan's "validated starting intervention": an exploratory
 env-var patch measured it. **k ∈ {3, 30}** runs on `ca_tbl_full` only, as a dose-response, so k = 10
@@ -105,7 +105,7 @@ propagation assumptions (`report/ACC_A_RESULTS.md`, TECH_DEBT N.30-N.32). **Stop
 - S2's exploratory ×10 runs on another machine. `ca_tbl_full` went from 16.2 / 85.0 to
   11.7 / 61.7 m at A and from 4.8 / 16.1 to 2.7 / 8.0 m at B, pooled CEP50 / CEP95. Fix
   availability was a WIN over every arm, and accuracy tied `fixed_threshold` and `static_2p4`.
-  These are on `claude/kind-turing-csi8ok` and are not data for this registration.
+  These are on `work/2026-10-09-acc-reruns` and are not data for this registration.
 - G100's runs (seed 7, 600 s).
 - A dry run of this pipeline (seeds 1-2, 60 s, all 24 cells). It printed verdicts on that grid,
   and no prediction was changed after it. After it, the E-cell reachability check was corrected

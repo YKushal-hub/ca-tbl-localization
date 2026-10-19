@@ -29,7 +29,7 @@ Not represented, as in LORA-CMP:
 - RSSI fingerprinting;
 - TDoA without RSSI;
 - **LoRa bands other than 868 MHz and 2.4 GHz** (433 and 915 MHz). The engine models only the
-  two bands the architecture and Poucet use, and terrain hardcodes 868 MHz (CLAUDE.md §5).
+  two bands the architecture and Poucet use, and terrain hardcodes 868 MHz (RULES.md §5).
 
 ## 2. Cells (`lora_cmp2_run.sh`)
 

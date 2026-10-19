@@ -118,7 +118,7 @@ contamination.
 | `CA_TBL_SIM_AUDIT.md`, `simstatus.md` | cited from source comments; kept at root for that reason |
 | `Architecture.md` §3 | the deployment as built — **authoritative for topology** |
 | `docs/DESIGN_DECISIONS.md` | choices the project brief does not specify, each with what it was chosen over |
-| `CLAUDE.md` | working rules; read first if you are changing anything |
+| `RULES.md` | working rules; read first if you are changing anything |
 | `docs/archive/` | superseded handoffs and scope documents, retained for their findings |
 
 ## A note on what is shipped

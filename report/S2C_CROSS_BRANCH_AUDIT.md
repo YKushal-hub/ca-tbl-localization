@@ -16,8 +16,8 @@ Completion is judged from diffs and code, not commit messages.
   their common integration point.
 - **Target branch of this work:** `main`.
 - **Working branch:** `work/2026-10-09-unknown-start-nlos`, created from `origin/main`.
-- **Branch naming.** The session's tooling designated `claude/pensive-sagan-rg8xwr` (= old `main`,
-  `a0829213`). It is not used, because CLAUDE.md §2 forbids an assistant name in a branch name.
+- **Branch naming.** The session's tooling designated a branch carrying the tool's name (= old `main`,
+  `a0829213`). It is not used, because RULES.md §2 forbids an assistant name in a branch name.
 - **Open pull requests:** none. PRs #1-#7 are closed.
 
 ## 2. Inventory (relative to `main`; "ahead" counts commits not on `main`)
@@ -27,7 +27,7 @@ Completion is judged from diffs and code, not commit messages.
 | `review/2026-10-08-evidence-fixes` (S3) | `5a6f4c26` | 17 | `--tofFieldSigmaM`/`--tofFieldBiasM`/`--traceCovariance` (G120), citation fixes, TOF-FIELD (registered), UWB reach, tier-1 validation, N.40-N.42 | complete; handoff says "complete except merging" | **merged** (`7c3921c8`, clean) |
 | `work/2026-10-09-acc-part-a` (Part A) | `d76b4d55` | 23 (incl. S3 to `89118bae`) | `--imuQuScale` (G100), ACC-A (registered), ACC-A-OPPOINT (registered), decision and static 2.4 GHz diagnoses, N.30-N.32 | complete for A1/A3/A4/A6/A8; A2, A5, k tuning, CAL-03/integrity refit not done | **merged** (`ea5f9025`; one append-only conflict in TECH_DEBT, both sides kept, N order) |
 | `work/2026-10-09-acc-part-b` (Part B, cloud) | `42294896` | 20 | F1 `--dualBaseRelayTier` (G110), F2 `--subjectPreciseOnly` (G111), ACC-B and ACC-B2 (registered), N.35-N.37 | complete for F1/F2; B1, H2-TDoA, F1 with `fixed_threshold`, B5 not done | **not merged**: conflicts with the next row |
-| `claude/kind-turing-csi8ok` (Part B, another session) | `05c0ccea` | 13 | its own N.35 `--dualBaseRelayTier`, N.36 `--relayCovScale`, N.37 `--hybridNoLone868`, N.38 `--caseDInfoRatio`, G91, its own `PREREG_ACC_B_HYBRID.md` and `ACC_B_RESULTS.md` (k = 3), plan and context docs, `analysis/accuracy_replay` | complete as an evaluation; not reconciled with the row above | **not merged**: owner decision |
+| `work/2026-10-09-acc-reruns` (Part B, another session) | `05c0ccea` | 13 | its own N.35 `--dualBaseRelayTier`, N.36 `--relayCovScale`, N.37 `--hybridNoLone868`, N.38 `--caseDInfoRatio`, G91, its own `PREREG_ACC_B_HYBRID.md` and `ACC_B_RESULTS.md` (k = 3), plan and context docs, `analysis/accuracy_replay` | complete as an evaluation; not reconciled with the row above | **not merged**: owner decision |
 | `work/2026-10-09-local-verification` | `2552bd9d` | 15 (incl. S3/A to `eadcb0b3`) | `VERIFICATION_2026_10_09_LOCAL.md`: local null control, G100/G120, full suite (81 PASS), k sweep on seeds 21-30 | complete, docs only | not merged; listed as evidence |
 | `draft/camp-final2` | `c432134e` | 1 (on `e308c14f`) | DRAFT, NOT REGISTERED CAMP-FINAL-2 runner and analysis | draft | not merged |
 | `ccr-4ce80826-a4ulj4` | `19cf3d6e` | 0 | PR #6 head, already in `main` | merged | — |
@@ -40,7 +40,7 @@ Completion is judged from diffs and code, not commit messages.
 **The two Part B branches duplicate each other.** Both define a flag named `--dualBaseRelayTier`,
 both write `report/PREREG_ACC_B_HYBRID.md` and `report/ACC_B_RESULTS.md`, and both use TECH_DEBT
 N.35-N.37, with different content in each:
-- `claude/kind-turing-csi8ok` uses gate G91 and evaluates at k = 3;
+- `work/2026-10-09-acc-reruns` uses gate G91 and evaluates at k = 3;
 - `work/2026-10-09-acc-part-b` uses G110/G111 and evaluates at k = 1.
 
 Merging both would silently give one flag name two code paths and two registered result
@@ -81,4 +81,4 @@ The ACC-A diagnoses' numbers are cited, not recomputed.
    cells run on `--specProfile`, which now carries the N.26 fixes; for example, G89's
    every-flag-off runs print an N.26 line. The local verification established the same check
    lines on `1596cb41`. The fix is explicit flag-off controls in those gates, and that is S1's.
-4. **Branch naming:** CLAUDE.md §2 against the tooling's designated branch name.
+4. **Branch naming:** RULES.md §2 against the tooling's designated branch name.

@@ -19,7 +19,7 @@
 > nodes**: every node carries all three radios, and a tier is a choice of *which radio to
 > use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are
 > mobile nodes carrying all three radios; facility sites are **mobility targets that host no
-> anchors**. See `Architecture.md` §3 and `CLAUDE.md`.
+> anchors**. See `Architecture.md` §3 and `RULES.md`.
 >
 > **What that means for this document, section by section.**
 >

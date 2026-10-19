@@ -6,7 +6,7 @@ and tier change on the page is what the simulator produced — nothing is re-ena
 **Open `console.html` in a browser. That is the whole of "using it".** It is a single
 self-contained file with the run data inlined; no server, no network, no build step.
 
-Live copy: <https://claude.ai/code/artifact/a500156c-61b2-4677-a49c-6f8dc43db042>
+Live copy: the owner's hosted copy (link held outside the repository).
 
 ---
 
@@ -21,7 +21,7 @@ Live copy: <https://claude.ai/code/artifact/a500156c-61b2-4677-a49c-6f8dc43db042
 | `run_demo.sh` | the exact simulator invocation that produced `run.json` |
 | `build_console.sh` | run directory → packed JSON → single-file page |
 
-The raw run (trace and event CSVs, tens of MB) is **not** included. `CLAUDE.md` forbids
+The raw run (trace and event CSVs, tens of MB) is **not** included. `RULES.md` forbids
 tracking `trace_*.csv`, and it is regenerable from `run_demo.sh`.
 
 ---

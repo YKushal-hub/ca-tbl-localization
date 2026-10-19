@@ -7,7 +7,7 @@ Source commit: `c1868ef` (wip/lane-b). Build profile: optimized.
 
 A single-seed smoke run at seed 7 moved `ca_tbl_no_integrity` from 11 escalations and
 `cep50M` 81.52 m under `--pcsForm=legacy` to 180 escalations and 1.79 m under
-`--pcsForm=gated`. **That is not a result.** CLAUDE.md rule 8: a single-seed difference is
+`--pcsForm=gated`. **That is not a result.** RULES.md rule 8: a single-seed difference is
 never reported as one, and arms consume the shared `macRng` stream at their own rate. It is
 the reason this campaign is being run, and it is written down here so that a reader can see
 the hypothesis existed before the measurement rather than after it.

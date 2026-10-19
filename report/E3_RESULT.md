@@ -1,6 +1,6 @@
 # E3 — CAL-05 with the inertial prior: recall rises, and so do false alarms
 
-> **Local line, legacy topology.** Ported to `main` on 2026-10-16 as a record (`docs/LOCAL_LINE_INTEGRATION.md`). Every number below was produced on the local line's binary and the pre-correction topology `main` treats as a different deployment (`CLAUDE.md`), on commits that resolve through `SHA_MAP.md` to `archive/local-line-2026-10-16`. Flags it names (`--imuPrior`) exist on that branch, not on `main`. CAL-05's `cv` cells, which R1 reproduced, are `main`'s own evidence too.
+> **Local line, legacy topology.** Ported to `main` on 2026-10-16 as a record (`docs/LOCAL_LINE_INTEGRATION.md`). Every number below was produced on the local line's binary and the pre-correction topology `main` treats as a different deployment (`RULES.md`), on commits that resolve through `SHA_MAP.md` to `archive/local-line-2026-10-16`. Flags it names (`--imuPrior`) exist on that branch, not on `main`. CAL-05's `cv` cells, which R1 reproduced, are `main`'s own evidence too.
 
 Registered in `report/PREREG_E3_IMU_INTEGRITY.md` before any `imu` cell; run in the registered
 queue at `c620352`, 400/400 invocations, every sidecar `dirty 0`, digests verified, one binary

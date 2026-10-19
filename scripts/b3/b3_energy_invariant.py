@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""B3 regeneration -- the CLAUDE.md section 6 invariant, and per-cycle tier cost.
+"""B3 regeneration -- the RULES.md section 6 invariant, and per-cycle tier cost.
 SUPPLEMENTARY, not registered.
 
 1. INVARIANT. Exactly one tier transmits per cycle and only that tier is charged, so an

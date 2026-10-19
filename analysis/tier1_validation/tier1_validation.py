@@ -18,7 +18,7 @@ Engine (probe_range_sweep.csv, tier 868MHz rows), one probe per environment clas
   - total loss reconstructed from mean_margin_db, also over all trials:
       L = tx - sens - margin  ...  tx - sens - margin + 1.5,
     a band because the margin is taken against an effective sensitivity that is 1.5 dB lower
-    whenever the link was receiving (linkHysteresisMarginDb, CLAUDE.md sect 5). Antenna gain
+    whenever the link was receiving (linkHysteresisMarginDb, RULES.md sect 5). Antenna gain
     is 0 dB in the engine, so L is comparable with the measured PL.
 
 Censoring (rules 1-2): the measured PL exists only for received packets. Past the distance

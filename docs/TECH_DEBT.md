@@ -58,14 +58,14 @@ those physical couplings.
 
 *Fix.* Assign explicit streams. *Cost:* small change, but **it invalidates every existing
 result** because the draws move. Must be a planned regeneration campaign, same class as
-the PCS change. *Status:* CLAUDE.md §5 records it as a decision not to fix, on the grounds
+the PCS change. *Status:* RULES.md §5 records it as a decision not to fix, on the grounds
 that determinism holds at defaults and six non-default settings. That reasoning covers
 *reproducibility* and does not cover *cross-binary comparability*, which is the actual
 exposure.
 
 ### 1.2 Rule 8 does not mention the cross-binary case
-CLAUDE.md rule 8 says a single-seed **cross-arm** difference is never a result. The same
-hazard applies across binaries and is not written down. *Fix:* one sentence in CLAUDE.md.
+RULES.md rule 8 says a single-seed **cross-arm** difference is never a result. The same
+hazard applies across binaries and is not written down. *Fix:* one sentence in RULES.md.
 *Cost:* minutes. **Do this first — it is the cheapest item here and it guards the most
 expensive mistake.**
 
@@ -115,13 +115,13 @@ the project was of the *indexing* kind, which G14 now catches; a *transcription*
 the values themselves would still pass.
 
 ### 2.5 Tier-1 CRLB — RESOLVED 2026-09-06, kept as a record
-`report/NOT_DONE_2026_09_05.md` listed **D-3 as Done** while `CLAUDE.md:177` called the
+`report/NOT_DONE_2026_09_05.md` listed **D-3 as Done** while `RULES.md:177` called the
 tier-1 CRLB gate an **open defect**, and no commit confirmed either.
 
 **Verified from the code, not from either document.** `lora-ranging-submodule.cc:151`
 takes the shadowing standard deviation for tier 1 and explicitly discards the ToA inputs
 -- `bandwidthHz`, `snrDbInBand` and `spreadingFactor` are `(void)`-cast with the reason
-stated in the comment. **D-3 is genuinely complete; CLAUDE.md was stale.** Fixed there.
+stated in the comment. **D-3 is genuinely complete; RULES.md was stale.** Fixed there.
 
 Kept here because the interesting part is not the answer but that the authoritative rules
 file and the register disagreed for an unknown period and nothing detected it. See
@@ -224,7 +224,7 @@ off whichever tag wrote last.
 removed its role as C4's blocker, but a relay with no filter has no `P_B` to report.
 
 **Merge decision is open and is the owner's**, against a bar rather than a judgement:
-CLAUDE.md §4.2 requires byte-identical output — `arm_summary` **and every trace**. This is
+RULES.md §4.2 requires byte-identical output — `arm_summary` **and every trace**. This is
 result-exact and not bit-exact (§4.1), so it does not meet that bar as written.
 
 > **2026-09-30, stale.** The merge happened at `abbe3de` (2026-09-06, "merge C2-full:
@@ -394,7 +394,7 @@ Recorded so nobody mistakes them for debt:
 | # | item | why first | cost |
 |---|---|---|---|
 | 1 | §1.2 rule 8 cross-binary sentence | cheapest guard against the most expensive mistake | minutes |
-| 2 | §2.5 reconcile D-3 / CLAUDE.md | a live contradiction in the authoritative rules file | < 1 h |
+| 2 | §2.5 reconcile D-3 / RULES.md | a live contradiction in the authoritative rules file | < 1 h |
 | 3 | §4.3 G12 decision | keeps the suite red, hides future regressions | owner call |
 | 4 | §5.1 push + identity decision | no contribution credit until then | owner call |
 | 5 | §4.1 diagnose the 1-ulp divergence | the main null-control gate has unclear meaning | half a day |
@@ -706,7 +706,7 @@ nobody has run it down.
 
 **Why this must not be made green.** The gate prints its own instruction: *"Do NOT tune
 the analytic model to match. Report which term differs and which of the two is more
-likely wrong."* `CLAUDE.md` repeats it as a standing rule. The reason is on the record:
+likely wrong."* `RULES.md` repeats it as a standing rule. The reason is on the record:
 the six-decibel receiver-sensitivity error — which sat on the tier carrying ~95% of
 active cycles and **passed every gate, verifier check and validation in the project** —
 was found by this model refusing to reconcile, not by any gate. Adjusting the analytic
@@ -806,7 +806,7 @@ compound rather than overlap.
 2. The **PCS forms** campaign, because `gated` was adopted on its evidence.
 3. Everything else, per I.6.
 
-### K.3 `CLAUDE.md` §6 states an invariant the code does not hold
+### K.3 `RULES.md` §6 states an invariant the code does not hold
 
 §6 says "exactly one tier transmits per cycle, and only that tier is charged". The
 **tier-1 floor** breaks the literal statement: when the active tier is 2.4 GHz or UWB and
@@ -1411,7 +1411,7 @@ carry over to the current default, and every **energy** figure describes
   filter beating a memoryless solver, and not tiering: `ca_tbl_full` escalates 0 times on
   20/20 seeds in `wanonly_move`, and P3.2 holds.
 - **The integrity check — WITHDRAWN in the shipped default.** Three mechanisms are kept
-  distinct (`CLAUDE.md` §2):
+  distinct (`RULES.md` §2):
   - *The witness cross-check* (`--imuCrossCheck`, `--corroborationCheck`; the policy block
     commented SWITCHING-POINT INTEGRITY), which is what this row's original 8/8 measured.
     - B3 C1 (`results/regen27_integrity`): **NO POPULATION → withdrawn.** Off and on rows
@@ -1435,7 +1435,7 @@ carry over to the current default, and every **energy** figure describes
   - *The evidence gate*: its K3 result was not in B3's scope.
 - **Hop-aware provenance — still no population for the claim.** Depth 2 is reachable in the
   relay chain only under `--relayChain --relaySlots --maxRelayDepth=2` (L.1.2). The measured
-  tag's `Step()` receives `hopCount` as a literal 0, and `hopWeight` stays 0 (`CLAUDE.md` §2).
+  tag's `Step()` receives `hopCount` as a literal 0, and `hopWeight` stays 0 (`RULES.md` §2).
 - **Mesh availability, gateway estimation, IMU ceiling — SUPPORTED**, as in the three added
   rows (B3 C5 over C3's cells; C6 in `results/regen27_edge`; C7 in `results/regen27_imu` and
   C3's `wanmesh_move`). The IMU figure is a ceiling and is never quoted as a system result.
@@ -1678,7 +1678,7 @@ tree, where `source` reads `unknown`) can be matched to a built binary by its ha
 
 ### M.4 Output files the sidecar does not digest
 
-`CLAUDE.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)
+`RULES.md` §4.5 asks for a SHA-256 per output file. `grant_verdicts_*.csv` (L.1.4's evidence)
 was the gap on this branch, and it has been digested since `ff4f8bb`. **Still written and
 not digested:** the viz outputs `events_*`, `nodes_*`, `nbrtable_*`, `loctable_*` and
 `deployment.json`. L.1.5's only on-disk evidence lives in `events_*` (M.9). The fix is to
@@ -1900,10 +1900,10 @@ commit before it), frozen at `~/catbl_prev_m10`:
 
 ### M.11 Stale numbers in the rules and setup documents
 
-- `CLAUDE.md` §4 and §8 place the `cmd.AddValue` block at
+- `RULES.md` §4 and §8 place the `cmd.AddValue` block at
   `scratch/ca_tbl_causal_sim.cc:3178-3450`. At `ff4f8bb` it is `:9316-10762` (142 flags),
   with `RunArm` at `:4905` and its call at `:11365`.
-- `CLAUDE.md` §3 says G1-G11, and the header of `scripts/catbl_gates.sh` says G1-G13. The
+- `RULES.md` §3 says G1-G11, and the header of `scripts/catbl_gates.sh` says G1-G13. The
   suite runs 23 gates (G1–G21 with G17b and G18b). At `ff4f8bb` it gives 19 PASS and
   4 FAIL, the four documented reds G4, G5, G6 and G11.
 - `SETUP_NEW_MACHINE.md` expects 11/15 gates and eight suites of 152 checks. There are now
@@ -1911,9 +1911,9 @@ commit before it), frozen at `~/catbl_prev_m10`:
   netlayer 23, relay_admission 22, sparse_anchor 11, loocv 8, tdoa 33 and nlos 28.
 
 Documentation only. It is recorded here rather than edited in the rules file, because
-`CLAUDE.md` changes are the owner's.
+`RULES.md` changes are the owner's.
 
-*2026-10-03 (P7):* the numbers have moved again, and `CLAUDE.md` still waits for the
+*2026-10-03 (P7):* the numbers have moved again, and `RULES.md` still waits for the
 owner.
 - **The gate suite:** 58 gates, from G1 to G60 with G17b, G18b and G20b; G22-G23 and
   G25-G27 were never built. At `cef0fc6` it gives 53 PASS and 5 FAIL: the documented G4,
@@ -1923,7 +1923,7 @@ owner.
   - sparse_anchor 33, tdoa 33, session 32, netlayer 30;
   - routing 27, relay_admission 22, lifecycle 16, imu 13, loocv 9.
 
-*2026-10-03, CLOSED (the owner approved the edit):* `CLAUDE.md`, `SETUP_NEW_MACHINE.md` and
+*2026-10-03, CLOSED (the owner approved the edit):* `RULES.md`, `SETUP_NEW_MACHINE.md` and
 the header of `scripts/catbl_gates.sh` now carry these numbers, each dated with the commit it
 was counted at. Where a line number is cited, the grep that finds it is given as well, so
 the next drift can be re-read rather than trusted. Corrected with them:
@@ -3161,7 +3161,7 @@ is that baseline. Its choices, each OURS:
 - **No switching:** the policy's tier stays 868 MHz, it never escalates, and there is no
   integrity check on a switch, because there is no switch.
 - **Every radio awake and billed** (listen, CAD and ranging on all three). The arm breaks
-  `CLAUDE.md` §6's invariant on purpose: one tier per cycle is what the system claims to
+  `RULES.md` §6's invariant on purpose: one tier per cycle is what the system claims to
   save, and this arm is the cost it is compared against.
 - **The trace labels a fix with the most precise tier among its ranges** (UWB, else
   2.4 GHz, else 868 MHz), as `--fuseFloorActive` does.
@@ -3347,7 +3347,7 @@ Measured against `main`'s binary: G89 7/7, G63 9/9, G87 6/6 on the runners exact
 and each self-test unchanged in verdict (9, 14 and 7 negative fixtures, all as expected).
 
 > **Numbering note (merge of 2026-10-18).** N.30 and N.31 appear twice. The first pair, above, is the main line's
-> (cited by CLAUDE.md, `docs/LOCAL_LINE_INTEGRATION.md` and the G63/G87/G89 runners). The pair below is the accuracy
+> (cited by RULES.md, `docs/LOCAL_LINE_INTEGRATION.md` and the G63/G87/G89 runners). The pair below is the accuracy
 > line's (cited by `report/PREREG_ACC_A_FILTER.md` as N.30–N.32). Neither is renumbered, because committed
 > registrations cite both. Read a citation of N.30/N.31 by its subject.
 
@@ -3647,7 +3647,7 @@ is implemented, default off.
 ### N.53 The two Part B branches collide
 
 *2026-10-09, S2-C audit (`report/S2C_CROSS_BRANCH_AUDIT.md` §3).* `work/2026-10-09-acc-part-b` and
-`claude/kind-turing-csi8ok` both define `--dualBaseRelayTier`, both write
+`work/2026-10-09-acc-reruns` both define `--dualBaseRelayTier`, both write
 `report/PREREG_ACC_B_HYBRID.md` and `report/ACC_B_RESULTS.md`, and both use N.35-N.37, with
 different content. Neither is merged into the S2-C branch. **Open:** the owner chooses, or
 renumbers one.
@@ -3914,7 +3914,7 @@ Coverage of `ca_tbl_full`'s 95 % ellipse under DESIGN_DECISIONS 15:
 - the RSSI range's conditional bias given that the link was received (B4's mean z of −0.4, selection by reception);
 - the tag's coasting between sparse fixes.
 
-Scaling the 868 MHz variance until coverage reads 0.95 would be tuning a finding away (CLAUDE.md §9), so it is not
+Scaling the 868 MHz variance until coverage reads 0.95 would be tuning a finding away (RULES.md §9), so it is not
 done. **This is the measured limit of B2 under the current model.** No Σ-based rule in the preset depends on it, since
 PCS earns nothing (CAMP-FINAL2 Q2).
 

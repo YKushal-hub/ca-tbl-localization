@@ -22,7 +22,7 @@ WHAT A FIRING LOOKS LIKE ON DISK (rule 9):
          independent record: its estX/estY are the trace's at that t; its threshold is
          k sqrt(traceSigma) of the previous trace row (k = 1, --triggeredUpdateK's
          default; traceSigma = trace of the posterior covariance); moveM is |est - pred| recomputed from its own columns and
-         exceeds the threshold; its tier is the trace's activeTier at that t (CLAUDE.md
+         exceeds the threshold; its tier is the trace's activeTier at that t (RULES.md
          sect 6: it rides the radio that transmitted). At least one row.
   FRAMES every node-1 reason=1 frame heard in the events file follows a large-correction
          row by at most 2 s (CAD, then repeats jittered within the rebroadcast window),

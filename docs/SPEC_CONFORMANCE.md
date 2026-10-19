@@ -8,7 +8,7 @@ rows either; they belong to the campaigns.
 
 This is the register TECH_DEBT §L's **Bar 2** is judged against: *the running simulator does
 what each section describes, or the divergence is recorded with a reason.* It is a dated
-snapshot like every other status document here (CLAUDE.md §8). Check the cited code and the
+snapshot like every other status document here (RULES.md §8). Check the cited code and the
 `run_id.txt` sidecars before trusting a row.
 
 **Status words**, used strictly:

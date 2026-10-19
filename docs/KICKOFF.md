@@ -6,11 +6,11 @@ Literal prompts. Paste them one at a time, in order. Do not paste them all at on
 
 ```bash
 cd /path/to/ca-tbl-localization
-git add CLAUDE.md MASTER_PLAN.md docs/WORK_PACKAGES.md docs/CONTEXT_PACK.md
+git add RULES.md MASTER_PLAN.md docs/WORK_PACKAGES.md docs/CONTEXT_PACK.md
 git commit -m "docs: agent working rules, master plan, and work packages"
 ```
 
-`CLAUDE.md` at the repo root loads automatically every session. That is the point of it — it
+`RULES.md` at the repo root loads automatically every session. That is the point of it — it
 carries the rules that stop an agent destroying the evidence tree, and you should not have to
 restate them.
 
@@ -49,7 +49,7 @@ done
 ## Prompt 1 — orientation and pre-registration *(both lanes, ~30 min)*
 
 ```
-Read CLAUDE.md, then docs/WORK_PACKAGES.md, then MASTER_PLAN.md §1 and §5.
+Read RULES.md, then docs/WORK_PACKAGES.md, then MASTER_PLAN.md §1 and §5.
 
 Do not change any code this session.
 
@@ -126,7 +126,7 @@ Do NOT change ca-tbl-header.cc. Sizes, access categories and ACK policies are al
 defined for all nine message types, and scratch/ca_tbl_packet_validator.cc covers them
 38/38. If you think the header needs changing, stop and tell me why instead.
 
-Constraints from CLAUDE.md that apply here:
+Constraints from RULES.md that apply here:
 - The per-cycle invariant: exactly one tier transmits per cycle and only that tier is
   charged. Your frames must not break this. Check it explicitly and tell me how you did.
 - Default-off flag with a byte-identical null control. This is not optional: arms share
@@ -154,7 +154,7 @@ Verify C1.
    to a file in results/.
 
 Do not re-baseline any tracked results directory in place. Regeneration goes to a temp
-directory. See CLAUDE.md rule 7.
+directory. See RULES.md rule 7.
 ```
 
 ---
@@ -235,12 +235,12 @@ Close-out pass.
 ## Three things to watch for
 
 **It will want to fix the PCS.** The saturation defect is the most legible bug in the repo and
-the fix looks like a two-line change. It invalidates every result in the tree. `CLAUDE.md` §2
+the fix looks like a two-line change. It invalidates every result in the tree. `RULES.md` §2
 says so; if a session proposes it anyway, stop it.
 
 **It will trust stale documents.** `report/PCS_REDESIGN_RESULTS.md` §7.10 says fault injection is
 "not implemented, no flag" — that was true on 2026-08-05 and false since 2026-08-27. 162 results
-directories use those flags. The rule in `CLAUDE.md` §8 is to check the `AddValue` block and the
+directories use those flags. The rule in `RULES.md` §8 is to check the `AddValue` block and the
 sidecars before believing any "not implemented" note. Watch that it does.
 
 **It will report a single-seed difference as a result.** Arms share the RNG stream but consume it

@@ -13,7 +13,7 @@
 # exact line count, exact trace count, a digest block that verifies, this registration's
 # sidecar -- and re-runs the rest. A partial cell is moved aside first, never appended to.
 #
-# Rules this enforces, by number in CLAUDE.md:
+# Rules this enforces, by number in RULES.md:
 #   7   writes only under results/regen27_*, and refuses to start if git tracks anything
 #       there, so a tracked results directory is never opened for writing.
 #   11  a failing cell is logged and the pass continues; the exit status reports it.

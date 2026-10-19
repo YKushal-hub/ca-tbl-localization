@@ -494,7 +494,7 @@ class CaTblMac
     void SetSilent(bool s) { m_silent = s; }
     //! NW-0. A radio the node has asleep this cycle neither receives nor rebroadcasts
     //! (under mesh links a sleeping 2.4 GHz/UWB radio would otherwise relay peers'
-    //! floods on a tier the arm never woke, unbilled -- CLAUDE.md sect 6).
+    //! floods on a tier the arm never woke, unbilled -- RULES.md sect 6).
     void SetAsleep(bool a) { m_asleep = a; }
     bool IsAsleep() const { return m_asleep; }
     void NoteAsleepRefusal() { ++m_asleepRefused; }

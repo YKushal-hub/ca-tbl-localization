@@ -8,7 +8,7 @@ ToA table, the generated tables). Analyser: `scripts/camp_final2_analyse.py`. No
 **Not the same as the unregistered draft** on `draft/camp-final2` (`c432134e`, 2026-10-08), which added
 `lora_fusion` as an eighth arm. That draft was never registered. This campaign keeps CAMP-FINAL's seven arms.
 
-**These are the current numbers.** CLAUDE.md, the Technical Report and the thesis cite them from here.
+**These are the current numbers.** RULES.md, the Technical Report and the thesis cite them from here.
 `report/CAMP_FINAL_RESULTS.md` (2026-10-04) keeps its dated text.
 
 ## 1. Predictions
