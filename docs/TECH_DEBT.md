@@ -311,7 +311,7 @@ research, not a work item.
 
 ## 5. Provenance and history
 
-### 5.1 137 commits on GitHub carry the wrong author
+### 5.1 137 commits on GitHub carry the wrong author — CLOSED 2026-10-20, owner decision
 **Recounted 2026-09-09. The heading said 106; it is now 137**, because commits kept
 being pushed from the Windows clone while the entry sat unrecounted. That is section 5.3
 happening inside the register that tracks 5.3, and the count is now given with the
@@ -345,6 +345,12 @@ proven.
 
 **Nothing reaches the owner's contribution graph until commits are on the default branch**,
 so the 93 unpushed ones are invisible too, correct identity notwithstanding.
+
+*2026-10-20, CLOSED by owner decision.* `kushalyalamanchi@gmail.com` is the identity the owner
+commits with, and it stays. On `origin/main` at `cb829cbb`: 510 commits `nethi.kushaal@gmail.com`,
+216 `kushalyalamanchi@gmail.com`, 14 GitHub merges. No further identity rewrite is planned. The
+2026-09-06 rewrite (`SHA_MAP.md`) stands as history; its premise that this address was not the
+owner's is superseded by this decision.
 
 ### 5.2 Measurement invocations recorded only in prose
 The original C3 measurement's duration exists in **no sidecar and no results directory** —
