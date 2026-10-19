@@ -252,3 +252,26 @@ so the old SHAs survive only here, each beside its tree-identical rewrite.
 | `c7f12d7` | `7f01258` | C3: an IMU error model, checked against closed forms by code it shares nothing with |
 | `8f121da` | `3fdc550` | Merge remote-tracking branch 'origin/main' |
 | `9a636d7` | `b4d18b8` | record what results/ regenerates before it is deleted -- 2004 of 3277, and D1 is why |
+
+## Six sidecars with one path segment redacted, 2026-10-19
+
+By owner decision (no tool or vendor name in the repository), the six `report/b8/m{false,true}/s{1,2,3}/run_id.txt`
+sidecars were edited once, on line 2 only: in the recorded `--outdir=`, the first path component under
+`/tmp/` — a tool-named scratch directory with uid suffix `-1000` — is replaced by `[redacted]`. Nothing
+else changed: line 1, the `source`/`dirty`/`profile` line, and every SHA-256 digest are byte-identical,
+and the digests cover the run's outputs, not the sidecar, so every output still verifies. The output
+directory was a scratch path on another machine and is not needed to regenerate the run (the
+invocation's flags are intact). This is the only edit ever made to a tracked sidecar; RULES.md §2
+forbids editing sidecars, and the owner overrode that rule for this redaction only.
+
+Pre-redaction git blob ids, so the originals stay checkable against the pre-rewrite backup bundle
+the owner holds:
+
+| sidecar | blob before redaction |
+|---|---|
+| `report/b8/mfalse/s1/run_id.txt` | `b99c8408c626` |
+| `report/b8/mfalse/s2/run_id.txt` | `2b5129c61f33` |
+| `report/b8/mfalse/s3/run_id.txt` | `09c4e5628049` |
+| `report/b8/mtrue/s1/run_id.txt` | `3fd35d8f54a6` |
+| `report/b8/mtrue/s2/run_id.txt` | `2e3209bae628` |
+| `report/b8/mtrue/s3/run_id.txt` | `2cef85c65532` |
