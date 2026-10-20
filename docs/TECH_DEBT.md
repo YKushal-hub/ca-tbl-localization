@@ -78,7 +78,7 @@ status was checked against the code, or against the preset's setting list
 | M.9 RECEDING push count | CLOSED 2026-10-20 | the count sums every radio; subjects never classify mobility, which is N.3's |
 | N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
 | N.2 | PRESET (`--sparseInStep`) | — |
-| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built; subjects lack `--mobilityFromRange` (found 2026-10-20). The largest engineering item; risky for byte-identity |
+| N.3 two copies of the core | DONE as a refactor (2026-10-21, R.14); the rest is behaviour, O9 | the two shared computations extracted byte-identically; one `RunSubjectCycle` would change subject behaviour, so it is a registered change, not a refactor |
 | N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
 | N.5, N.8, N.9, N.13, N.17, N.18, N.24 | RECORDED (OURS) | — |
 | N.6, N.22 | PRESET | — |
@@ -4906,3 +4906,21 @@ Using only what nodes hold, it finds almost none of the failure and fires more o
 
 **Decision:** no re-acquisition mechanism. The wrong-root subjects are a deployment answer (O11). The instrument
 stays: `--traceNegInfo`, G162, `scripts/neginfo_analyse.py`.
+
+### R.14 N.3 / Phase 9: what a pure refactor of the two copies can be, and what it cannot
+
+The plan's Phase 9 was "move tag 0's cycle into one function for every subject, as a pure refactor proven
+byte-identical". Measured on the code first:
+- **Verbatim duplication is nil.** There are 0 identical blocks of six or more lines between the subject pipeline and
+  tag 0's cycle. With the systematic renames normalised (`sb.policy` ↔ `policy`, `measS` ↔ `meas`, …), there are two
+  shared computations:
+  - the finder pseudo-anchor's projected covariance, with its `--ekf5FinderConsider` GNSS term;
+  - the witness's multilateration variances.
+- **Both are extracted** into `CaTblFinderAnchorProj` and `CaTblRangeVariances`, so neither can drift between the
+  copies. The null control is 14 of 14 byte-identical: NC1–9, the three ekf5 preset cases, the probe, and X5, a preset
+  run with `--imuCrossCheck` and `--subjectIntegrityWitness` that reaches all four call sites (tag 0's DC-9 witness
+  evaluated 45 times, the subjects' 16–58 each).
+- **Everything else differs by design.** Subjects run a reduced core: no TDoA, SHS, sessions, battery depletion,
+  mobility state (the start-up WARNING lists them). A single `RunSubjectCycle` called for every subject would give
+  subjects tag 0's features, which changes their behaviour and every subject number. That is a registered change with
+  a campaign, not a refactor, and it stays the owner's call (O9).
