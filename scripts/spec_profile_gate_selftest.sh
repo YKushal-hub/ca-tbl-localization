@@ -4,9 +4,10 @@
 # usage: bash scripts/spec_profile_gate_selftest.sh [<dir written by spec_profile_gate.sh>]
 #   Without a directory it makes its own real run set first (about 2 min).
 #
-# G24 FAILS on the real run set today: two mechanisms have a zero population under the
-# preset (TECH_DEBT N.15). So P0 asserts that those two are the ONLY failures, and each
-# fixture -- a copy of the real set with one thing changed -- must add a FAIL of the check
+# Since 2026-10-21 G24 PASSES on the real run set: the integrity populations are STRUCT under
+# integrityCheck=false (DESIGN_DECISIONS 19), and the mechanisms these short seeds miss show their
+# population in the registered PRESET-3 cells (option B of the owner's G24 decision). P0 asserts a
+# clean pass; each fixture -- a copy of the real set with one thing changed -- must FAIL the check
 # it names. The flag-efficacy half of G24 (the preset with one flag off, per mechanism) is
 # made of real runs and needs no fixture: each EFF line already shows the mechanism off.
 set -u
@@ -22,7 +23,6 @@ else
     bash "$ROOT/scripts/spec_profile_gate.sh" "$REAL" > "$T/real.out" 2>&1
 fi
 [ -f "$REAL/main.log" ] || { echo "  G24 selftest: no real run set in $REAL"; exit 2; }
-KNOWN='POP (Case A fixes|arbitration pre-emptions|grant tie-break verdicts)'  # 2026-10-18: queue gossip has a population again; the two STRUCT zeros are exempt (T17 part)
 
 pass=0
 fail=0
@@ -44,12 +44,10 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
     local rc=$?
     local ok=0
     if [ "$2" = - ]; then
-        # the baseline: failures are exactly the known zero populations
+        # the baseline: a clean pass
         local other
-        other=$(grep -E "G24 (FAIL|MISSING)" "$T/out.txt" | grep -vE "$KNOWN" | wc -l)
-        local known
-        known=$(grep -E "G24 FAIL" "$T/out.txt" | grep -cE "$KNOWN")
-        [ "$rc" -eq 1 ] && [ "$other" -eq 0 ] && [ "$known" -eq 3 ] && ok=1
+        other=$(grep -cE "G24 (FAIL|MISSING)" "$T/out.txt")
+        [ "$rc" -eq 0 ] && [ "$other" -eq 0 ] && ok=1
     else
         grep -Eq "G24 (FAIL|MISSING) +$2" "$T/out.txt" && [ "$rc" -eq 1 ] && ok=1
     fi
@@ -65,7 +63,7 @@ check() {  # check <name> <label that must FAIL, or - for the baseline>
 }
 
 fresh
-check "P0 the real run set fails only on its three zero populations" -
+check "P0 the real run set passes" -
 fresh; f=$(ls "$T"/f/eq_flags/trace_*.csv | head -1); sed -i '2s/,/,9/' "$f"
 check "N1 the preset and its flags written out disagree" EQUIV
 fresh; sed -i '/^boxHalf: explicit/d' "$T/f/end/spec_profile.txt"
@@ -94,6 +92,11 @@ fresh; echo 1 > "$T/f/x_froff.rc"
 check "N10 the preset refused with routing turned off explicitly" RUNS
 fresh; echo 'hopVarianceTerms=true  # final plan item 1' >> "$T/f/main/spec_profile.txt"
 check "N11 the preset still setting --hopVarianceTerms" NOHV
+
+fresh; awk -F, 'BEGIN{OFS=","} NR>1{$3=0} {print}' "$ROOT/results/preset3_2026-10-21/populations.csv" > "$T/zero_pop.csv"
+G24_POPULATIONS="$T/zero_pop.csv" check "N14 a registered population of zero (the route still fails on 0)" "POP grant tie-break verdicts"
+fresh; sed -i 's/^integrityCheck=false/integrityCheck=true/' "$T/f/main/spec_profile.txt"
+check "N15 a preset that runs the integrity check: no STRUCT exemption" "POP (integrity eligibility|suspect downweighted)"
 
 printf '  G24 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
