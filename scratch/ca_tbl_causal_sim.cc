@@ -9003,7 +9003,10 @@ RunArm(CaTblPolicyMode mode,
     };
     // MS-1. --finderTasking=roundrobin: finder k searches for subject (k mod N) + 1, and
     // every cycle of every finder is a row of tasking_<arm>_seed<N>.csv.
-    const bool taskRR = (spec.finderTasking == "roundrobin");
+    // N.62 --finderTasking=pairs: finders 2k and 2k+1 search for the same subject, (k mod N) + 1, so a subject a
+    // pair reaches has two precise anchors instead of one.
+    const bool taskPairs = (spec.finderTasking == "pairs");
+    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs;
     std::unique_ptr<std::ofstream> taskLog;
     std::vector<uint64_t> taskSweep, taskConverge, taskBlind;
     if (taskRR)
@@ -9924,7 +9927,8 @@ RunArm(CaTblPolicyMode mode,
             // MS-1. The subject this finder searches for: tag 0, or under roundrobin
             // subject (fi mod N) + 1. The assignment rule is OURS.
             const uint32_t taskK =
-                taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u;
+                taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
+                          : (taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u);
             const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
             CaTblTableEntry taskTe;
             bool taskFound = false;
@@ -10092,16 +10096,20 @@ RunArm(CaTblPolicyMode mode,
                         // MS-1: under roundrobin the spread is over the finders tasked
                         // to the same subject, finder fi being the (fi / N)-th of them.
                         const uint32_t grpN =
-                            taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
-                                         spec.measuredSubjects
-                                   : nFinders;
-                        const size_t grpI = taskRR ? fi / spec.measuredSubjects : fi;
+                            taskPairs ? 2u
+                                      : (taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
+                                                      spec.measuredSubjects
+                                                : nFinders);
+                        const size_t grpI = taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
                         if (finderDispersal > 0.0 && grpN > 1)
                         {
                             const double sx = std::sqrt(std::max(te.varX, 0.0));
                             const double sy = std::sqrt(std::max(te.varY, 0.0));
-                            const double th = 2.0 * M_PI * static_cast<double>(grpI) /
-                                              static_cast<double>(grpN);
+                            // Under pairs the two are a quarter turn apart, not opposite: two anchors on one line
+                            // through the target leave the cross-line direction unobserved.
+                            const double th = taskPairs ? 0.5 * M_PI * static_cast<double>(grpI)
+                                                        : 2.0 * M_PI * static_cast<double>(grpI) /
+                                                              static_cast<double>(grpN);
                             gx += finderDispersal * sx * std::cos(th);
                             gy += finderDispersal * sy * std::sin(th);
                         }
@@ -14695,11 +14703,12 @@ RunArm(CaTblPolicyMode mode,
     {
         taskLog->close();
         std::ostringstream line;
-        line << "    MS-1 tasking (roundrobin):";
+        line << (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):");
         for (size_t fi = 0; fi < taskSweep.size(); ++fi)
         {
             line << " finder " << finderIds[fi] << " -> subject "
-                 << tags[fi % spec.measuredSubjects].nodeId << " sweep " << taskSweep[fi]
+                 << tags[taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects].nodeId
+                 << " sweep " << taskSweep[fi]
                  << " converge " << taskConverge[fi] << " blind " << taskBlind[fi] << ";";
         }
         std::cout << line.str() << "\n";
@@ -18607,7 +18616,11 @@ main(int argc, char* argv[])
                  "over the finders tasked to the same subject. The rule is OURS. Writes "
                  "tasking_<arm>_seed<N>.csv (every finder-cycle after dispatch: target, phase, "
                  "the entry steered on and the goal), digested, and one MS-1 tasking line. "
-                 "Needs --measuredSubjects > 1, --nFinders > 0 and --finderMode 1 or 2.",
+                 "Needs --measuredSubjects > 1, --nFinders > 0 and --finderMode 1 or 2. pairs (TECH_DEBT N.62): "
+                 "finders 2k and 2k+1 both search for subject (k mod N) + 1, dispersed a quarter turn apart, so a "
+                 "subject a pair reaches has two precise anchors whose ranges cross. Why: under roundrobin each "
+                 "subject has at most one finder, hence one precise anchor -- one circle, whose two sides the "
+                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m).",
                  spec.finderTasking);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
@@ -19825,13 +19838,13 @@ main(int argc, char* argv[])
         }
     }
     if (!spec.finderTasking.empty() && spec.finderTasking != "tag0" &&
-        spec.finderTasking != "roundrobin")
+        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs")
     {
-        std::cerr << "FATAL: --finderTasking must be tag0 or roundrobin, got '"
+        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin or pairs, got '"
                   << spec.finderTasking << "'\n";
         return 1;
     }
-    if (spec.finderTasking == "roundrobin" &&
+    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs") &&
         (spec.measuredSubjects < 2 || nFindersArg == 0 ||
          (finderModeArg != 1 && finderModeArg != 2)))
     {
@@ -21241,7 +21254,7 @@ main(int argc, char* argv[])
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
-    if (spec.finderTasking == "roundrobin")
+    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs")
     {
         digestPatterns += " tasking_*.csv";
     }
