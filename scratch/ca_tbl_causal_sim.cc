@@ -16049,7 +16049,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"boxHalf", "5000", "the spec's 5 km search area"},
     {"nGateways", "3", "the spec's deployment: 3 gateways over 5 km (owner call, DESIGN_DECISIONS 9; was N8_ring, GEO-01's fallback)"},
     {"gwLayout", "star", "GEO-01 stage 2's best N = 3 layout, N3_star"},
-    {"nFinders", "4", "decision 6: four finders"},
+    {"nFinders", "8", "DD 22 / O11 (was 4, decision 6): eight finders, the deployment that meets the endgame five-node requirement (ANCHOR-SUPPLY R8 0.970)"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
@@ -16060,7 +16060,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"subjectIntegrityWitness", "true", "MS-1 step 2 / Physical 2.6: every subject's escalation is vetted by its own witnesses"},
     {"subjectTriggeredUpdates", "true", "MS-1 step 2 / MAC 7: every subject sends MC-2's large correction"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
-    {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
+    {"finderTasking", "pairs", "DD 22 / O11 (was roundrobin): finders 2k, 2k+1 to one subject; -24 % endgame subject energy at eight finders (ANCHOR-SUPPLY P8 vs R8)"},
     // FIXES-N26 (report/FIXES_N26_RESULTS.md), adopted by OWNER OVERRIDE on 2026-10-08: the
     // registered rule said DO NOT ADOPT on the 5 km energy term alone (16.69 against 12.37 J);
     // the owner took the fixes for availability, accuracy and UWB fixes (DESIGN_DECISIONS 9).

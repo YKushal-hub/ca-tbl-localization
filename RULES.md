@@ -217,6 +217,8 @@ line in each script).
   --ekf5Window=60`. Pin back as DESIGN_DECISIONS 21 lists.
 - DD 19 (2026-10-21, owner): `--integrityCheck=false`, the Switching-Point Integrity Check out of the preset. Pin back
   with `--integrityCheck=true`.
+- DD 22 (2026-10-21, owner): `--nFinders=8 --finderTasking=pairs` (were 4, roundrobin). Pin back with
+  `--nFinders=4 --finderTasking=roundrobin`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

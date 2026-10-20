@@ -470,3 +470,22 @@ registered INTEG4.
 - **Reproducing earlier preset results:** give `--integrityCheck=true`.
 
 *(Numbered 19 because O13 was decided first; recorded after 20 and 21 in this file.)*
+
+## 22. Eight finders, tasked in pairs (owner decision O11, 2026-10-21)
+**What.** `--nFinders=8` (was 4, decision 6) and `--finderTasking=pairs` (was roundrobin) in `kSpecProfile`.
+
+**Why** (ANCHOR-SUPPLY, `report/PREREG_ANCHOR_SUPPLY.md`, seeds 121–140):
+- **Eight finders** take the endgame five-node A(25 m) from 0.873 (four) to **0.970** (R8), and to 0.962 under
+  pairs (P8). That is the first configuration in the project to meet the requirement for all five nodes.
+- **Why four fall short:** with four finders, 6–12 % of endgame subject-runs lock onto a position 130–300 m wrong
+  (TECH_DEBT R.13), and negative information cannot find them (NEGINFO). With eight there were none.
+- **Pairs** cuts endgame subject energy by 24 % at eight finders (P8 against R8: 17.8 against 23.5 J), with
+  five-node availability level (−0.008 [−0.048, 0.018]).
+
+**The brief's deployment changes:** four finders become eight. The requirement-level statement is "eight finders in
+the endgame" (open-decisions §10.1, option a).
+
+**At 5 km no finder count meets the requirement** (best five-node 0.58). The 8-gateway ring is the infrastructure
+that meets it for tag 0.
+
+**Reproducing earlier preset results:** give `--nFinders=4 --finderTasking=roundrobin`.
