@@ -4864,5 +4864,8 @@ R.11's open question is answered by `report/PREREG_INTEG3.md` (seeds 181–200, 
   campaign's noise, not a mechanism.
 - **The registered fresh-seed test is what separated them.**
 
-**Still open:** O13, whether the check earns its cost on the ring. That needs fault injection
-(`--injectRangeBias` / `--injectFaultAnchors`).
+**O13 has its evidence; no new campaign is needed.** INTEG2 (`report/INTEG2_RESULTS.md`, registered, fault-injected)
+measured the check's recall at the preset's χ² 1992.9: 0.03–0.10 of injected faults, and no re-fit helps, because
+the fault-free tail (p99 21 322 at 5 km) blinds any threshold. So the check detects almost none of the faults it
+exists for (INTEG2), and costs ring availability with no fault (INTEG3). The recommendation to the owner is to take it
+out of the preset; its flags stay. This line first said fault injection was still needed, which missed INTEG2.

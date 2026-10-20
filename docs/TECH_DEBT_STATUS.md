@@ -103,5 +103,5 @@ them.
 | O9 | refactor the two per-node cycle copies into one (T32)? multi-day, every code path, no result change | N.3 |
 | O10 | adopt PRESET-2's set anyway, as an owner override (as DESIGN_DECISIONS 9 did)? | every measured effect upward: 5 km tag 0 0.39 → 0.83, energy −4..−17 %; `report/PRESET2_RESULTS.md` |
 | O11 | deploy eight finders, and task them in pairs to save energy? | ANCHOR-SUPPLY: endgame five-node 0.873 → 0.970 with eight; pairs −35 % energy, same availability |
-| O13 | keep the Switching-Point Integrity Check in the preset? | INTEG3: not the 5 km cause; costs +0.036 five-node on the ring with no fault; its value needs a fault-injected campaign |
+| O13 | keep the Switching-Point Integrity Check in the preset? **Recommended: no.** | INTEG2 (fault-injected): recall 0.03–0.10 at χ² 1992.9, no re-fit helps; INTEG3: costs +0.036 [0.004, 0.070] five-node on the ring with no fault, not the 5 km cause |
 | O12 | make the D-8 row the CODE default (G93 green)? It breaks byte reproduction of every default-config result from its sidecar | D8-MAIN; G93 |

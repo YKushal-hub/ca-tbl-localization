@@ -107,7 +107,8 @@ plus REAL-BEST's realistic stack and `--ekf5Window=60`:
 ## Consequence
 
 - **No recommendation to remove the check on 5 km grounds.**
-- **On the ring it costs availability, with no fault injected.** So its value rests on what it catches under the
-  environmental faults it exists for. That needs a fault-injected campaign before the owner decides (O13).
+- **On the ring it costs availability, with no fault injected.** What it catches under the faults it exists for was
+  already measured by INTEG2 (registered, fault-injected): recall 0.03–0.10 at the preset's threshold. So O13 is
+  recommended as removal from the preset, for the owner.
 - **CR-22's 5 km statement is scoped to seeds 161–180,** where it held. Across both campaigns, 40 seeds, CA-TBL is
   level with `fixed_threshold` at 5 km.
