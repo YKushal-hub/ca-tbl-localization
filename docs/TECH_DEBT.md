@@ -100,7 +100,7 @@ status was checked against the code, or against the preset's setting list
 | N.35–N.37 | RESOLVED (2026-10-20) | the 5 km loss to static 2.4 GHz was the known-start artefact (N.50); under unknown start CA-TBL leads by +0.29..+0.33 five-node A(25 m) |
 | N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
 | N.41 foliage clamp | CAMPAIGN | engine fix with null control |
-| N.42 citations | RESEARCH | three sources not found |
+| N.42 citations | CLOSED (2026-10-21) | CFO coefficient is dead code (unit test only); delay spread ×3 moves PDR ≤ 0.034; values stay OURS |
 | N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
 | N.51 subject overconfidence | RESEARCH | per-range log built (V3) |
 | N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
@@ -3817,6 +3817,23 @@ mouser.lt/pdfDocs/AN1200_59_LoRa_Reference_Clock_Selection_V1_3_rev.pdf. The fet
 document. Secondary sources attribute a 0.5 ppm TCXO recommendation to it and list ±10–20 ppm crystals and ±1 ppm
 TCXOs for SX1262 modules. Paraphrases are not citations, so **both values stay OURS**. The open action is to obtain the
 PDF first-hand. Status unchanged: RESEARCH.
+
+*2026-10-21, closed on influence, not on source.* Four more sources were tried: semtech.com, Semtech's file host,
+mouser.com/.de, and Epson FA-128 crystal datasheet mirrors. All were blocked or unreachable from this machine. So the
+question was turned around: can either value move a result?
+- **CFO-temperature coefficient (`TemperatureCfoParams`):** `HardwareSubmodule::ComputeTemperatureCFO` is called only
+  from `test/test-features-physical-validation.cc`, and no engine path calls it. **It cannot move any simulation
+  output.** Its value is irrelevant to every result, whatever its source.
+- **Rural delay spread (`DelaySpreadParams`, "Lim 2018"):** tested by tripling every `RURAL_OPEN` / `RURAL_FORESTED`
+  mean, SD and bound, against a frozen copy of the unmodified binary. This was done in a scratch working tree, then
+  reverted, with the rebuilt binary byte-identical to the frozen one.
+  - **Probe:** PDR moves by at most 0.034, mean margin by at most 1.3 dB.
+  - **Endgame preset, 300 s:** `ca_tbl_full`'s summary row is byte-identical; `static_868`'s RMSE moves 25.26 → 25.44 m.
+
+  A 3× change has a bounded, small effect, and TR 38.901's RMa figures (32 / 37 ns) are within that factor of ours.
+
+**Status: CLOSED.** Both values stay labelled OURS. One is dead code, and the other's influence is measured and small.
+Run set: `~/ns/catbl-work/ds_inert/` (exploratory, not citable).
 
 
 ### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
