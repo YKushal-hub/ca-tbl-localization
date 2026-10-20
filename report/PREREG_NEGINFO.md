@@ -45,3 +45,30 @@ The endgame preset as it stands, with REAL-BEST's stack, `--ekf5Window=60` and `
 - not 20 cells, or a cell's `rc` not 0;
 - a sidecar not `dirty 0`, or more than one source;
 - a manifest mismatch.
+
+---
+
+# RESULT — after the registration above (`3c4027ef`)
+
+20 of 20 cells, every `rc` 0, every sidecar `source 3c4027ef dirty 0 profile optimized`. Scored once with
+`scripts/neginfo_analyse.py`; the output is `results/neginfo_2026-10-21/NEGINFO.txt`.
+
+**Population:** 57 600 subject-cycles; 3 457 wrong (> 50 m), 52 682 right (≤ 25 m).
+
+| # | verdict | measured |
+|---|---|---|
+| N1 | HOLDS | D = 30 m, T = 10 s: fires on 37 / 3 457 wrong (1.1 %), precision 0.21 |
+| N2 | HOLDS | recall > 2 % only at D = 60 m and D = 100 m with T = 10 s; precision 0.16 and 0.11 |
+| N3 | HOLDS | finder side: 254 / 1 942 wrong finder-cycles, 3 236 right; precision 0.07 |
+
+**Decision, as registered:**
+- **Negative information cannot drive a re-acquisition mechanism worth building with the information these nodes
+  hold.** Every setting fires on correct subjects more often than on wrong ones, and misses at least 96 % of the
+  failure.
+- **Why, from the trace:**
+  - wrong subjects spend about half their cycles on the 868 MHz floor, with the precise radio off;
+  - when on 2.4 GHz, the nearest finder their table places nearby is a median 77 m away;
+  - finder entries are stale enough that a finder at a correct subject's entry often finds nobody within 30 m.
+- **N.57 closes as a measured limit.**
+- **N.51's remaining overconfidence**, the relayed-2.4 GHz tail, is the wrong-root subjects. Their answer is
+  deployment: eight finders gave zero locks in ANCHOR-SUPPLY (owner decision O11).

@@ -102,7 +102,7 @@ status was checked against the code, or against the preset's setting list
 | N.41 foliage clamp | CAMPAIGN | engine fix with null control |
 | N.42 citations | CLOSED (2026-10-21) | CFO coefficient is dead code (unit test only); delay spread ×3 moves PDR ≤ 0.034; values stay OURS |
 | N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
-| N.51 subject overconfidence | RESEARCH | per-range log built (V3) |
+| N.51 subject overconfidence | CLOSED (2026-10-21) | against the effective sigma every class is consistent but relayed 2.4 GHz; that tail is wrong-root subjects (6–12 % of endgame subject-runs, none with 8 finders): a deployment answer (O11) |
 | N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
 | N.53 two Part B branches | DECISION | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
 | N.54 acquisition | PRESET (`--acquireParticles`) | — |
@@ -113,7 +113,7 @@ status was checked against the code, or against the preset's setting list
 | O.8 P.833 foliage | CAMPAIGN | not in the preset |
 | O.9 RSSI model vs foliage | DIAGNOSED (T24) | the hypothesis is refuted (no foliage term in the inversion); the follow-on, `--rssiRangeFromRxPower` (T46), was in PRESET-2's set, not adopted (R.8) |
 | O.12 B2 5 km coverage | RECORDED (measured limit) | — |
-| N.57 selection bias | RESEARCH | negative information in the EKF, not built |
+| N.57 selection bias | CLOSED (2026-10-21, measured limit) | NEGINFO: negative information has precision ≤ 0.21 and recall ≤ 4 % (subject side), precision 0.07 (finder side); no mechanism is built |
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
@@ -4886,3 +4886,23 @@ measured the check's recall at the preset's χ² 1992.9: 0.03–0.10 of injected
 the fault-free tail (p99 21 322 at 5 km) blinds any threshold. So the check detects almost none of the faults it
 exists for (INTEG2), and costs ring availability with no fault (INTEG3). The recommendation to the owner is to take it
 out of the preset; its flags stay. This line first said fault injection was still needed, which missed INTEG2.
+
+### R.13 N.51 and N.57 closed: the overconfidence is wrong-root subjects, and negative information cannot find them
+
+**N.51, first measurement.** Per-range E[z²] under today's preset (exploratory, `~/ns/catbl-work/n51_m1`, seeds
+201–206), computed against the **effective** sigma. Finder ranges add the 4 m² GNSS consider variance, because the
+range log's true range is measured to the reported anchor position.
+- **Consistent (E[z²] 1.0–2.4):** 868 MHz gateway and finder, 2.4 GHz gateway and finder, UWB.
+- **Inconsistent:** relayed 2.4 GHz only, E 5 (5 km) and 84 (endgame), p95 345, with `--relayNisInflate`; 395–1206
+  without it.
+
+The tail is one failure: subjects locked 130–300 m off while claiming about 4 m (seed 205: three subjects, the whole
+run). It is common across tonight's registered endgame cells, read post hoc: 6–12 % of subject-runs with four
+finders, **none** with eight (ANCHOR-SUPPLY R8). The relay gate never fires on it (432 seen, 0 gated), because the
+wrong subjects agree with one another.
+
+**N.57, registered (`report/PREREG_NEGINFO.md`).** Negative information is a finder that should be heard and is not.
+Using only what nodes hold, it finds almost none of the failure and fires more on correct subjects. N1–N3 hold.
+
+**Decision:** no re-acquisition mechanism. The wrong-root subjects are a deployment answer (O11). The instrument
+stays: `--traceNegInfo`, G162, `scripts/neginfo_analyse.py`.
