@@ -117,7 +117,7 @@ status was checked against the code, or against the preset's setting list
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 5 km tag 0: one precise anchor | FLAG (`--ekf5Window`, G152) | EKF5-WINDOW, seeds 61-80: 5 km not supported, the endgame sharper (4.6 -> 3.1 m, unregistered); the dominant 5 km failure is non-acquisition |
+| N.62 5 km tag 0: one precise anchor | FLAG (`--ekf5Window`, G152); DECISION | 5 km not supported; the endgame gain replicated (EKF5-WINDOW-END −0.8 [−1.4, −0.2]), its availability bound met only at the edge; the default is the owner's |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
 question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
@@ -4430,4 +4430,12 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
     one. The pilot's seeds 1-6 overstated the 5 km effect about tenfold.
   - **Next, if the 5 km figure is to move:** more precise anchors reaching tag 0 (finder tasking, a relay supply).
     This is a scenario or design question for the owner, not the filter.
+- **The endgame gain registered, 2026-10-20: EKF5-WINDOW-END** (`d3e9b581`; `report/EKF5_WINDOW_END_RESULTS.md`,
+  40 cells, seeds 81-100).
+  - **Accuracy: replicated.** CA-TBL 3.9 -> 3.1 m, −0.8 [−1.4, −0.2]; coverage 0.965. CA-TBL ties Poucet with
+    +0.030 availability.
+  - **Availability: P3 failed as written.** +0.000 [−0.010, +0.010] against a bound of "above −0.01".
+  - **The decision rule is not met;** the flag stays off.
+  - **For the owner:** a twice-replicated endgame accuracy gain, no detectable availability or energy effect, and
+    no 5 km support.
 
