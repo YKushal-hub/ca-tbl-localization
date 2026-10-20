@@ -4672,3 +4672,80 @@ stays.
   escalation rule beats `fixed_threshold`.
 - **Where the requirement stands:** met for tag 0 in the endgame. Short for the five-node population in the endgame
   (0.84–0.91). Far at 5 km (0.27–0.54). The 5 km gap is anchor supply (N.62), which is next.
+
+## R. Findings, flags and cuts of 2026-10-20, evening (the goal-driven plan, Phases 4–7)
+
+### R.1 G11 has reconciled the model against a stale engine since 2026-09-08 — OPEN, the defect is G11's
+
+**Found by IQ-TERM** (`src/catbl-propagation-study/experiments/IQ_TERM_REGISTRATION.md`, result `6ca7cc4b`).
+`validate.py` and G11 compare `linkbudget.py` with `results/probe_v7` (built Aug 27, `fbf2153`).
+
+`50fc8620` (2026-09-08) deliberately put the facility tiers in the wide-area vegetation:
+- at today's defaults, tiers 2 and 3 carry about 15.6 dB of foliage (`--probeTerms`);
+- their margins sit 15–20 dB below `probe_v7`'s;
+- 868 MHz is identical.
+
+Every G11 number since then, including G11a's ("UWB ~3.7 dB unattributed", RULES.md §5), describes an engine state
+that no run uses. `linkbudget.py`'s `TIER_ENV` still puts tiers 2/3 in `RURAL_OPEN`.
+
+This is rule 9's failure mode: a scan of present data cannot see that the data is stale.
+
+**Fix, not yet done:**
+- regenerate the probe at today's defaults into a NEW directory (`results/probe_v8`, never over `probe_v7`);
+- register a reconciliation whose model environment is read from the engine's configuration, not chosen;
+- then re-point G11.
+
+**Not done tonight:** it changes G11's subject and needs its own registration. G11 stays red with this reason.
+
+### R.2 The IQ-impairment degradation: outside every census, double-counted — FLAG `--iqOverloadOnly`, G161
+
+Every engine subtracts `20 log10(1 + EVM)` (+15 dB under clipping) from rx power after the loss sum
+(`lora-iq-impairment-submodule.cc:48`), then compares with a data-sheet sensitivity that already contains the
+receiver's impairments.
+
+IQ-TERM measured it at:
+- 0.6–5.3 dB on 868 MHz;
+- 0.6–6.0 dB on 2.4 GHz;
+- a saturated 5.9–6.0 dB on UWB.
+
+`--iqOverloadOnly` (default off, `635c0ab9`) keeps the penalty only under ADC overload.
+- **Null control:** 13 of 13 byte-identical.
+- **G161:** 7 ok, self-test 11 of 11.
+- **Adoption:** decided by FIDELITY-1's registered rule (`report/PREREG_FIDELITY1.md`).
+
+### R.3 TECH_DEBT 2.4, UWB sensitivity — FLAG `--uwbSensitivityDbm` (`e69f4c4b`), G161; FIDELITY-1
+
+The DW3000 data sheet's −99.3 dBm against our −104 dBm. It runs together with R.2 in FIDELITY-1, because each alone
+moves tier 3 by 5–6 dB and the two nearly cancel (net about +1.3 dB).
+
+### R.4 G24's zero populations — re-examined, not relabelled
+
+**Case A fixes.** Reachable in the preset, so not structural.
+- Read post hoc from PRESET-2's and the pairs pilot's logs: **1 fix in 41 half-hour CA-TBL runs**, against 13–20 in
+  the single-band arms.
+- CA-TBL almost always has three or more anchors through the floor or relays, so a two-gateway cycle is rare there.
+- G24's red on it is a true finding: Case A contributes nothing measurable to CA-TBL's availability.
+- Marking it STRUCT would be false (rule 4), and choosing a run until it fires is rejected.
+
+**Arbitration pre-emptions and grant tie-break verdicts.** These need two finders contending for one subject.
+`--finderTasking=pairs` creates exactly that, and ANCHOR-SUPPLY's B_P4/B_P8 cells are the population to read. The
+count is recorded in the ANCHOR-SUPPLY result. G24's registered runs are not changed.
+
+### R.5 N.62's lever: `--finderTasking=pairs` (`af741829`) — G160; ANCHOR-SUPPLY
+
+G160: 6 ok, self-test 10 of 10. ANCHOR-SUPPLY (`report/PREREG_ANCHOR_SUPPLY.md`) measures pairs and finder count on
+A(25 m), seeds 121–140.
+
+### R.6 Cut tonight, with the reason
+
+| plan item | decision | reason |
+|---|---|---|
+| M.1(b) relay round in the event slice | not built | It moves the relay round's timing, not its content. No measured A(25 m) effect is attributed to the slice, and it needs its own null control and campaign. Ranked below anchor supply, the measured bottleneck (N.62). |
+| 3.5 anchor-pair CAD | not built | Gateways are fixed, surveyed and few (3), and their mutual hidden-terminal loss is not in any measured failure. Same ranking. |
+| item 23 GDOP-driven finder tasking | not built | Pairs is its simplest member, and ANCHOR-SUPPLY measures whether a second precise anchor per subject helps at all before geometry is optimised. Building the optimiser first would answer a question the data has not yet asked. |
+| item 24 finder beacons carry position (N.32) | not built | `--rangeReplyPosition` (preset, DESIGN_DECISIONS 10) already carries a finder's position on every range reply, so the ranging that matters already has it. |
+| item 25 subject-to-subject precise ranging | not built | It needs subjects within 2.4 GHz/UWB reach of one another, which the 5 km geometry rarely gives. Its population would be the one N.62 says is missing. |
+| item 27 `--caseAPreFuse` | not built | R.4: Case A is not starved by fusion order. Two-gateway cycles are rare in CA-TBL because better geometry is present. |
+| item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
+| Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
+| N.29 harness self-collision, §6 build-profile FATAL | not done tonight | Neither moves a registered result: validation output only, and a guard. Ranked below campaigns that measure the requirement. |
