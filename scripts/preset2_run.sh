@@ -35,7 +35,7 @@ declare -A G
 G[A]="--reportAirtime=true"
 G[B]="--boxHalf=750 --finderMode=1 --reportAirtime=true"
 G[C]="--nGateways=8 --gwLayout=legacy --reportAirtime=true"
-NEW="--ekf5Window=60 --t2SensitivityRowKHz=812.5 --publishAfterStep=true --nlosRSource=detector --foliageScaleBounds=true --interferenceDistance=true --rssiRangeFromRxPower=true --silenceStopsRelay=true --deadBatteryNoDraw=true --pcsByteScale=4"
+NEW="--ekf5Window=60 --t2SensitivityRowKHz=812.5 --publishAfterStep=true --nlosRSource=detector --foliageScaleBounds=true --interferenceDistance=true --rssiRangeFromRxPower=true --pcsByteScale=4"
 declare -A V
 V[S]=""
 V[N]="$NEW"
