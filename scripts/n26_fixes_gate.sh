@@ -22,7 +22,9 @@ fi
 # B12 (scope 2026-10-17): this gate was written against the preset before FIXES-N26 (2026-10-08) and the master-plan-v3
 # adoption (2026-10-17). PIN restores that preset, so the gate tests what it was written to test; the flags it
 # exercises come after PIN and override it.
-PIN="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"
+PIN="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1 --uwbSensitivityDbm=-104 --iqOverloadOnly=false --integrityCheck=true --imuFilter=cv --imuMagSigmaDeg=0 --ekf5FinderConsider=false --ekf5RelayGate=false --unknownStart=false --imuGyroBiasSigmaDps=0 --imuStrideSigmaPct=0 --finderPosSigma=0 --fixedVarThreshold=-1 --t2SensitivityRowKHz=0 --publishAfterStep=false --nlosRSource=operative --foliageScaleBounds=false --interferenceDistance=false --rssiRangeFromRxPower=false --pcsByteScale=1 --ekf5Window=0 --nFinders=4 --finderTasking=roundrobin"
+# PIN extended 2026-10-21 (DESIGN_DECISIONS 18-22): the receiver corrections, the realistic world, PRESET-2's set,
+# the integrity check off and eight finders in pairs are restored to the preset this gate was written against.
 E="--specProfile=true --seed=7 --duration=900 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full,static_868 $PIN"
 K="--specProfile=true --seed=1 --duration=1800 --trace=true --arms=static_868 $PIN"
 # Every run states all four fixes explicitly (TECH_DEBT N.31). Since e308c14f the preset turns
