@@ -1918,6 +1918,16 @@ bash scripts/finder_consider_gate.sh "$WORK/g150" || fail G150
 bash scripts/finder_consider_gate_selftest.sh "$WORK/g150" || fail G150
 finish G150
 
+# ---------------- G159: --pcsByteScale, the PCS byte a table entry carries (TECH_DEBT N.7)
+# scripts/pcs_byte_gate.py reads the preset's endgame, seed 7, 600 s: by default no session result decodes a PCS
+# above 1.0 (the defect: the requester rule compares it with 1.377 and never refuses); with --pcsByteScale=4 results
+# carry PCS above 1 and some reach the threshold, so the rule has cases to refuse; 1 is the flag absent byte for
+# byte; a scale outside [1, 64] is refused.
+printf '\n--- G159 the PCS byte carries PCS above 1 (--pcsByteScale) ---\n'
+bash scripts/pcs_byte_gate.sh "$WORK/g159" || fail G159
+bash scripts/pcs_byte_gate_selftest.sh "$WORK/g159" || fail G159
+finish G159
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

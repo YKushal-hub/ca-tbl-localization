@@ -2305,6 +2305,22 @@ static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
 static int g_ekf5Iterate = 0;             //!< --ekf5Iterate (TECH_DEBT N.58)
 static double g_ekf5IterateTolM = 0.01;   //!< --ekf5IterateTolM
 static int g_ekf5Window = 0;              //!< --ekf5Window (TECH_DEBT N.62)
+//! --pcsByteScale (TECH_DEBT N.7): the PCS a table entry carries is quantised over [0, scale]. 1 (default): the
+//! original [0, 1] byte, which saturates at 255 for any PCS >= 1.
+static double g_pcsByteScale = 1.0;
+
+/** N.7: a PCS to its entry byte, and back. At the default scale 1 these are exactly CaTblQuantise and q / 255. */
+inline uint8_t
+CaTblQuantisePcs(double pcs)
+{
+    return CaTblQuantise(pcs / g_pcsByteScale);
+}
+
+inline double
+CaTblDecodePcs(uint8_t q)
+{
+    return static_cast<double>(q) / 255.0 * g_pcsByteScale;
+}
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
@@ -8756,7 +8772,7 @@ RunArm(CaTblPolicyMode mode,
                         fr.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
                                             ? static_cast<CaTblTier>(e.tierSource)
                                             : CA_TBL_TIER_868;
-                        fr.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                        fr.pcs = CaTblDecodePcs(e.pcsQ);
                         fr.hopCountAtFix = e.fixHop;
                         fr.suspect = (e.integrityFlag != 0);
                         fr.timestampS = e.timestampS;
@@ -8889,7 +8905,7 @@ RunArm(CaTblPolicyMode mode,
                 res.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
                                      ? static_cast<CaTblTier>(e.tierSource)
                                      : CA_TBL_TIER_868;
-                res.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                res.pcs = CaTblDecodePcs(e.pcsQ);
                 res.hopCountAtFix = e.fixHop;
                 res.suspect = (e.integrityFlag != 0);
                 res.timestampS = e.timestampS;
@@ -9654,7 +9670,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 if (nodeMac[ti] != nullptr)
                 {
-                    nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                    nodeMac[ti]->SetSelfStatus(CaTblQuantisePcs(v2Pcs[0]), v2Suspect[0],
                                                CaTblQuantise(1.0 - batteryUsedFrac),
                                                CaTblQuantise(pcsDegradation), onUwb,
                                                onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
@@ -9712,7 +9728,7 @@ RunArm(CaTblPolicyMode mode,
                     // NW-9: a measured subject's status; a protocol peer has no decision.
                     const bool onUwb = tags[pt].policy.GetActiveTier() == CA_TBL_TIER_UWB;
                     peerMacs[pi][ti]->SetSelfStatus(
-                        CaTblQuantise(v2Pcs[pt]), v2Suspect[pt],
+                        CaTblQuantisePcs(v2Pcs[pt]), v2Suspect[pt],
                         CaTblQuantise(1.0 - tags[pt].batteryUsedFrac),
                         CaTblQuantise(tags[pt].pcsDegradation), onUwb,
                         onUwb ? v2GrantedBy[pt] : 0, v2FixTier[pt], v2FixHop[pt],
@@ -12974,7 +12990,7 @@ RunArm(CaTblPolicyMode mode,
                 {
                     if (nodeMac[ti] != nullptr)
                     {
-                        nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                        nodeMac[ti]->SetSelfStatus(CaTblQuantisePcs(v2Pcs[0]), v2Suspect[0],
                                                    CaTblQuantise(1.0 - batteryUsedFrac),
                                                    CaTblQuantise(pcsDegradation), onUwb,
                                                    onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
@@ -18736,6 +18752,13 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("pcsByteScale",
+                 "The scale of the PCS byte a table entry carries: PCS is quantised over [0, scale]. 1 (default): over "
+                 "[0, 1], which saturates at 255 for every PCS >= 1. Why (TECH_DEBT N.7): under the preset the requester "
+                 "rule compares the decoded PCS with pcsThrUp2p4 = 1.377, so with a byte that cannot exceed 1 the test "
+                 "always passes and requester escalation never refuses. 4 matches the U byte's range (ca-tbl-mac.cc) and "
+                 "covers every threshold the preset sets.",
+                 g_pcsByteScale);
     cmd.AddValue("ekf5Window",
                  "With --imuFilter=ekf5: a sliding-window smoother over the last N cycles of what the filter was given "
                  "(IMU increments, the ranges it fused, magnetometer headings, position fixes). After each range update "
@@ -20410,6 +20433,11 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (!(g_pcsByteScale >= 1.0) || !(g_pcsByteScale <= 64.0))
+    {
+        std::cerr << "FATAL: --pcsByteScale needs a value in [1, 64]\n";
         return 1;
     }
     if (g_ekf5Window != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Window < 2 || g_ekf5Window > 400 ||
