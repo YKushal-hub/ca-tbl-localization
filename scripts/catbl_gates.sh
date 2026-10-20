@@ -1928,6 +1928,16 @@ bash scripts/pcs_byte_gate.sh "$WORK/g159" || fail G159
 bash scripts/pcs_byte_gate_selftest.sh "$WORK/g159" || fail G159
 finish G159
 
+# ---------------- G160: --finderTasking=pairs, two finders per subject (TECH_DEBT N.62, ANCHOR-SUPPLY)
+# scripts/pairs_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s: pairs sends finders 2k and 2k+1 to
+# one subject and roundrobin sends no subject two; the flag changes tag 0's trace; the preset's roundrobin given
+# explicitly is the flag absent byte for byte (spec_profile.txt's provenance line aside); an unknown tasking, and
+# pairs with no finders, are refused.
+printf '\n--- G160 finder pairs (--finderTasking=pairs) ---\n'
+bash scripts/pairs_gate.sh "$WORK/g160" || fail G160
+bash scripts/pairs_gate_selftest.sh "$WORK/g160" || fail G160
+finish G160
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
