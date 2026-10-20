@@ -35,7 +35,7 @@ status was checked against the code, or against the preset's setting list
 | 1.3 cited results absent | RECORDED | G92 FAIL BY FINDING: 15 cited paths not held |
 | 2.1 four loss terms zeroed | DECISION | still zeroed (`lora-physics-engine.cc` antenna gain, multipath, Doppler, soil). Wire them in (every result moves) or delete the dead code |
 | 2.2 terrain at 868 MHz | PRESET (`--terrainPerTierFreq`) | code default 868 MHz |
-| 2.3 two residuals | RESEARCH | UWB ~3.7 dB, 868 MHz ~3.5 dB; N.41 rules out the foliage clamp for UWB |
+| 2.3 two residuals | SUPERSEDED (R.1, R.7) | measured against a pre-09-08 engine; against today's, UWB reconciles (2.12 dB) and 2.4 GHz's residual decomposes into foliage density, terrain and the IQ term |
 | 2.4 sensitivity values | OPEN | G93 checks tier 2 against the SX1280 data sheet; 868 MHz and UWB values are not checked against theirs (needs the SX1262 and DW3000 tables) |
 | 2.5 tier-1 CRLB | CLOSED | — |
 | 3.1 C5 remaining | CLOSED in substance | relays are measured subjects (MS-1, N.3); the subject chain is in the preset |
@@ -43,7 +43,7 @@ status was checked against the code, or against the preset's setting list
 | 3.3 C2-full | CLOSED | merged at `abbe3de`; behaviour per N.3 |
 | 3.4 A4/A5 | CLOSED in substance | consistency is measured by NEES/coverage (N.51, O.12) |
 | 3.5 anchor-to-anchor links | RECORDED | beacon loss is an upper bound |
-| 4.1 1-ulp divergence | RESEARCH | rebuild without `-march=native` and diff, as the entry suggests |
+| 4.1 1-ulp divergence | DIAGNOSED (T8) | instruction-set codegen: one cause with 4.2; a portable build changes only last digits |
 | 4.2 `-march=native` | DECISION | `./ns3 --build-profile=optimized` turns it on (`ns3:923`); dropping it changes every binary's bits |
 | 4.3 G12 | CLOSED | trailer-anchored; history rewritten 2026-10-19 |
 | 4.4 / J.1 G11 red | RECORDED (deliberate) | must not be closed by tuning |
@@ -111,7 +111,7 @@ status was checked against the code, or against the preset's setting list
 | O.1–O.6, O.11, O.13, O.14 | CLOSED | — |
 | O.7 / O.10 | CLOSED in accuracy (O.13) | energy under Wolf is a design property |
 | O.8 P.833 foliage | CAMPAIGN | not in the preset |
-| O.9 RSSI model vs foliage | RESEARCH | — |
+| O.9 RSSI model vs foliage | DIAGNOSED (T24) | the hypothesis is refuted (no foliage term in the inversion); the follow-on, `--rssiRangeFromRxPower` (T46), was in PRESET-2's set, not adopted (R.8) |
 | O.12 B2 5 km coverage | RECORDED (measured limit) | — |
 | N.57 selection bias | RESEARCH | negative information in the EKF, not built |
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
@@ -3800,6 +3800,12 @@ open for a source.
   of magnitude below the frequency-temperature slope of a crystal or TCXO (typically 0.01–0.5 ppm/°C). So
   temperature-driven CFO is probably understated. A vendor figure (Semtech AN1200.59) could not be retrieved
   (download blocked), so none is cited. Changing the value is an engine change for its own campaign.
+
+*2026-10-20, searched again (plan Phase 8).* AN1200.59 v1.3 ("LoRa Reference Clock Selection") is indexed at
+mouser.lt/pdfDocs/AN1200_59_LoRa_Reference_Clock_Selection_V1_3_rev.pdf. The fetch returned an HTML block page, not the
+document. Secondary sources attribute a 0.5 ppm TCXO recommendation to it and list ±10–20 ppm crystals and ±1 ppm
+TCXOs for SX1262 modules. Paraphrases are not citations, so **both values stay OURS**. The open action is to obtain the
+PDF first-hand. Status unchanged: RESEARCH.
 
 
 ### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
