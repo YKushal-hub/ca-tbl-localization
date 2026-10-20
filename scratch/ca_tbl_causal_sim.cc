@@ -18667,7 +18667,7 @@ main(int argc, char* argv[])
                  "Needs N <= --nTags. Tag-0-only mechanisms are warned about.",
                  spec.measuredSubjects);
     cmd.AddValue("finderTasking",
-                 "Which subject each finder searches for: tag0|roundrobin (the spec's "
+                 "Which subject each finder searches for: tag0|roundrobin|pairs (the spec's "
                  "rescuers searching for specific people; docs/SPEC_CONFORMANCE_PLAN.md MS-1). "
                  "Empty (default) or tag0 is every result so far: every finder steers on tag "
                  "0's entry. roundrobin: finder k (0-based) steers on subject (k mod N) + 1's "
