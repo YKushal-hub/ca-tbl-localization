@@ -97,7 +97,7 @@ status was checked against the code, or against the preset's setting list
 | N.31 (acc), N.32 (acc) | CLOSED by result | — |
 | N.32 (IMU) finder extrapolation | RECORDED | remedy is a MAC change, unbuilt |
 | N.33 one-range heading | RESEARCH | consider form rejected; FEJ / iterated update not built |
-| N.35–N.37 | RESEARCH | H2 in its TDoA form |
+| N.35–N.37 | RESOLVED (2026-10-20) | the 5 km loss to static 2.4 GHz was the known-start artefact (N.50); under unknown start CA-TBL leads by +0.29..+0.33 five-node A(25 m) |
 | N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
 | N.41 foliage clamp | CAMPAIGN | engine fix with null control |
 | N.42 citations | RESEARCH | three sources not found |
@@ -3742,6 +3742,17 @@ hybrid's limit is the tier.
   both ruled out as its cause.
 - **Open:** H2 in its TDoA form (the subjects' TDoA fixes), and the per-subject range log (B1)
   needed to see what else differs.
+
+*2026-10-20, resolved without the ablation (read from two registered campaigns, post hoc on their tracked
+tables).* The loss being explained does not exist under unknown start. CA-TBL − static 2.4 GHz, five-node A(25 m),
+5 km, paired:
+- **ANCHOR-SUPPLY:** +0.330 [0.260, 0.398] (R4), +0.292 (P4), +0.287 (R8), +0.292 (P8), every interval above 0;
+- **PRESET-2 under N:** +0.237 [0.169, 0.305].
+
+N.50 found the cause after this entry was written. Known-start seeding put every subject at its truth, so a static
+2.4 GHz subject that never fixed still sat within 25 m (69 % of the time at 5 km). The −0.082 was that seeding, not
+H1, H2 or the TDoA form. The `--subjectTier1Tdoa=false` ablation is not run: it would explain a gap the realistic
+start removes.
 
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
