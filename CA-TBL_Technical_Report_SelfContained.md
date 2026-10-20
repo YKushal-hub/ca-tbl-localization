@@ -476,7 +476,15 @@ registered before any cell and scored once.
 - **The escalation rule is not shown to beat `fixed_threshold`** (CR-19).
 
 **FIDELITY-1** fired a registered abort (`report/PREREG_FIDELITY1.md`) and supports no claim. Its re-run, FIDELITY-1b,
-is registered.
+measured the two receiver corrections the preset adopted at `39c1dfee` (`report/PREREG_FIDELITY1B.md`, seeds 161–180,
+problems none). They help every arm, and at 5 km they help the comparators more. **Under the corrected receiver
+(the preset from `39c1dfee`):**
+- **at 5 km, CA-TBL's five-node A(25 m) is below `fixed_threshold`'s,** −0.056 [−0.106, −0.006], and level with
+  Poucet's;
+- **in the endgame, it still beats Poucet,** +0.053 [0.009, 0.095], at about 1/20 the energy;
+- **CA-TBL's 5 km subject energy falls 5.06 J.**
+
+The 5 km comparator statements above were measured under the old receiver and are scoped by CR-21.
 
 ---
 
@@ -790,3 +798,4 @@ column; none is computed here.
 | CR-19 | "A confidence score (PCS) driving tier escalation" as a contribution — §1, §2; the novelty claim CR-7 left to the owner | **WITHDRAWN 2026-10-20 (owner decision, the approved goal plan; `docs/TECH_DEBT.md` Q).** PCS is the covariance trace by every registered test (CAL-01, B3 C2). The tiering claim is restated: acquisition, availability and energy against single-band arms, not the escalation rule against `fixed_threshold`, with which CA-TBL is level on A(25 m) in PRESET-2 and ANCHOR-SUPPLY | `report/CAL01_LOOCV_RESULTS.md`; §4.5; `results/preset2_a1_2026-10-20`, `results/anchor_supply_2026-10-20` |
 | CR-20 | "UWB ~3.7 dB and 868 MHz ~3.5 dB unattributed residuals" — `RULES.md` §5; G11a; TECH_DEBT 2.3 | **SUPERSEDED.** Measured against `probe_v7`, which predates `50fc8620` (tiers 2/3 into the forest). Against the engine as it runs, UWB's margin reconciles within 2.12 dB and 868 MHz is unchanged. The open residual is 2.4 GHz's slope, which decomposes into foliage density (0.8 on A_max), terrain and the IQ degradation, none in the model | `src/catbl-propagation-study/experiments/VAL_V8_REGISTRATION.md`, `IQ_TERM_REGISTRATION.md`; `results/probe_v8`; TECH_DEBT R.1, R.7 |
 | CR-21 | Every preset result before `39c1dfee` | **SCOPED.** The preset now sets `--uwbSensitivityDbm=-99.3 --iqOverloadOnly` (DESIGN_DECISIONS 18). Earlier preset results reproduce with `--uwbSensitivityDbm=-104 --iqOverloadOnly=false` given (pinned X1: 274/275 files identical, the 275th the provenance lines). The size of the change awaits FIDELITY-1b | `report/PREREG_FIDELITY1.md`, `report/PREREG_FIDELITY1B.md` |
+| CR-22 | "CA-TBL is level with `fixed_threshold` at 5 km" — §4.5, measured under the pre-`39c1dfee` receiver | **REVERSED under the preset's corrected receiver.** FIDELITY-1b: CA-TBL − `fixed_threshold`, five-node A(25 m), 5 km −0.056 [−0.106, −0.006]. The correction helps `fixed_threshold` (+0.137) more than CA-TBL (+0.074). The endgame advantage over Poucet holds (+0.053 [0.009, 0.095]) | `report/PREREG_FIDELITY1B.md` result; `results/fidelity1b_2026-10-20` |

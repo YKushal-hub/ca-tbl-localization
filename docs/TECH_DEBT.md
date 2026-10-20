@@ -4839,3 +4839,15 @@ outcome-dependent effective sensitivity, naming the soft-degradation penalty.
 
 **This is RULES.md rule 10's failure mode for the third time:** an enumeration of a sum that did not contain the term.
 The status rows T18 and T19 are corrected.
+
+### R.11 FIDELITY-1b measured the adopted receiver corrections: they help every arm, and the comparators more at 5 km
+
+Valid campaign (`report/PREREG_FIDELITY1B.md`; problems none); R1–R3 hold. Under the preset's corrected receiver:
+- **at 5 km, CA-TBL's five-node A(25 m) is below `fixed_threshold`'s:** −0.056 [−0.106, −0.006];
+- **in the endgame, CA-TBL still beats Poucet:** +0.053 [0.009, 0.095].
+
+The Technical Report carries it as CR-22.
+
+**Open.** Why the escalation rule loses ground at 5 km once tier 1 reaches further. A plausible reading, not measured:
+a longer-reaching floor makes escalation less often useful, and CA-TBL pays for its escalations in availability. A
+registered look at escalation counts and outcomes per arm under F1 is the next step.

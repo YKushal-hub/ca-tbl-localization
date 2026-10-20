@@ -53,3 +53,46 @@ The other conditions are unchanged:
 - a seed outside 161–180;
 - a variant whose flags do not match;
 - fewer than 20 seeds for any arm.
+
+---
+
+# RESULT — after the registration above (`266af58b`)
+
+**Run.** Launched 2026-10-20T14:42:12Z from `266af58b`, dirty 0, base W. Done 15:56:57Z. 120 of 120 cells, every `rc` 0,
+one source; **problems none**. There was no window refusal in any CA-TBL cell, so the abort condition did not fire.
+Other arms had 2 refusals in 480 arm-runs, reported as registered. Scored once:
+`results/fidelity1b_2026-10-20/FIDELITY1B.md`.
+
+| # | verdict | measured, CA-TBL, F1 − F0, paired |
+|---|---|---|
+| R1 | HOLDS | five-node A(25 m): A +0.074 [−0.026, 0.157]; B +0.017 [−0.018, 0.052]; **C +0.152 [0.071, 0.228]** |
+| R2 | HOLDS | tag 0 in B: +0.002 [0.000, 0.004] |
+| R3 | HOLDS | subject J in A: **−5.06 J [−6.15, −4.13]** |
+
+## The size of the correction, every arm (five-node A(25 m), F1 − F0)
+
+- **5 km:**
+  - Poucet **+0.187** [0.116, 0.260]
+  - `fixed_threshold` **+0.137** [0.047, 0.221]
+  - CA-TBL +0.074, spanning 0
+- **8-gateway ring:**
+  - CA-TBL **+0.152**
+  - `fixed_threshold` +0.153
+  - Poucet +0.076, spanning 0
+
+**The corrected receiver helps every arm. At 5 km it helps the comparators more than CA-TBL.**
+
+## What that does to the comparisons, under F1 (the preset since `39c1dfee`)
+
+CA-TBL − comparator, five-node A(25 m), paired:
+
+| config | − `fixed_threshold` | − Poucet |
+|---|---|---|
+| A, 5 km | **−0.056 [−0.106, −0.006]** | −0.075 [−0.177, 0.015] |
+| B, endgame | −0.008 [−0.039, 0.024] | **+0.053 [0.009, 0.095]** |
+| C, 8-gateway ring | −0.008 [−0.045, 0.029] | +0.065 [−0.021, 0.149] |
+
+- **At 5 km, under the corrected receiver, CA-TBL's five-node availability is below `fixed_threshold`'s,** and the
+  interval excludes 0. Its tag-0 point estimate against Poucet is −0.163 [−0.365, 0.041].
+- **In the endgame, CA-TBL still beats Poucet** (+0.053), at about 1/20 of Poucet's energy (−351 J).
+- **Energy:** CA-TBL against Poucet is −442 J (A), −351 J (B) and −442 J (C). Against `fixed_threshold` it is level.
