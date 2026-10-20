@@ -78,7 +78,7 @@ status was checked against the code, or against the preset's setting list
 | M.9 RECEDING push count | CLOSED 2026-10-20 | the count sums every radio; subjects never classify mobility, which is N.3's |
 | N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
 | N.2 | PRESET (`--sparseInStep`) | — |
-| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built; subjects lack `--mobilityFromRange` (found 2026-10-20). The largest engineering item; risky for byte-identity |
+| N.3 two copies of the core | DONE as a refactor (2026-10-21, R.14); the rest is behaviour, O9 | the two shared computations extracted byte-identically; one `RunSubjectCycle` would change subject behaviour, so it is a registered change, not a refactor |
 | N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
 | N.5, N.8, N.9, N.13, N.17, N.18, N.24 | RECORDED (OURS) | — |
 | N.6, N.22 | PRESET | — |
@@ -100,9 +100,9 @@ status was checked against the code, or against the preset's setting list
 | N.35–N.37 | RESOLVED (2026-10-20) | the 5 km loss to static 2.4 GHz was the known-start artefact (N.50); under unknown start CA-TBL leads by +0.29..+0.33 five-node A(25 m) |
 | N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
 | N.41 foliage clamp | CAMPAIGN | engine fix with null control |
-| N.42 citations | RESEARCH | three sources not found |
+| N.42 citations | CLOSED (2026-10-21) | CFO coefficient is dead code (unit test only); delay spread ×3 moves PDR ≤ 0.034; values stay OURS |
 | N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
-| N.51 subject overconfidence | RESEARCH | per-range log built (V3) |
+| N.51 subject overconfidence | CLOSED (2026-10-21) | against the effective sigma every class is consistent but relayed 2.4 GHz; that tail is wrong-root subjects (6–12 % of endgame subject-runs, none with 8 finders): a deployment answer (O11) |
 | N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
 | N.53 two Part B branches | DECISION | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
 | N.54 acquisition | PRESET (`--acquireParticles`) | — |
@@ -113,7 +113,7 @@ status was checked against the code, or against the preset's setting list
 | O.8 P.833 foliage | CAMPAIGN | not in the preset |
 | O.9 RSSI model vs foliage | DIAGNOSED (T24) | the hypothesis is refuted (no foliage term in the inversion); the follow-on, `--rssiRangeFromRxPower` (T46), was in PRESET-2's set, not adopted (R.8) |
 | O.12 B2 5 km coverage | RECORDED (measured limit) | — |
-| N.57 selection bias | RESEARCH | negative information in the EKF, not built |
+| N.57 selection bias | CLOSED (2026-10-21, measured limit) | NEGINFO: negative information has precision ≤ 0.21 and recall ≤ 4 % (subject side), precision 0.07 (finder side); no mechanism is built |
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
@@ -3818,6 +3818,23 @@ document. Secondary sources attribute a 0.5 ppm TCXO recommendation to it and li
 TCXOs for SX1262 modules. Paraphrases are not citations, so **both values stay OURS**. The open action is to obtain the
 PDF first-hand. Status unchanged: RESEARCH.
 
+*2026-10-21, closed on influence, not on source.* Four more sources were tried: semtech.com, Semtech's file host,
+mouser.com/.de, and Epson FA-128 crystal datasheet mirrors. All were blocked or unreachable from this machine. So the
+question was turned around: can either value move a result?
+- **CFO-temperature coefficient (`TemperatureCfoParams`):** `HardwareSubmodule::ComputeTemperatureCFO` is called only
+  from `test/test-features-physical-validation.cc`, and no engine path calls it. **It cannot move any simulation
+  output.** Its value is irrelevant to every result, whatever its source.
+- **Rural delay spread (`DelaySpreadParams`, "Lim 2018"):** tested by tripling every `RURAL_OPEN` / `RURAL_FORESTED`
+  mean, SD and bound, against a frozen copy of the unmodified binary. This was done in a scratch working tree, then
+  reverted, with the rebuilt binary byte-identical to the frozen one.
+  - **Probe:** PDR moves by at most 0.034, mean margin by at most 1.3 dB.
+  - **Endgame preset, 300 s:** `ca_tbl_full`'s summary row is byte-identical; `static_868`'s RMSE moves 25.26 → 25.44 m.
+
+  A 3× change has a bounded, small effect, and TR 38.901's RMa figures (32 / 37 ns) are within that factor of ours.
+
+**Status: CLOSED.** Both values stay labelled OURS. One is dead code, and the other's influence is measured and small.
+Run set: `~/ns/catbl-work/ds_inert/` (exploratory, not citable).
+
 
 ### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
 
@@ -4782,7 +4799,7 @@ A(25 m), seeds 121–140.
 | item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
 | Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
 | N.1, N.20 dead nodes neither relay nor draw (plan item 10) | not in the preset; used with the battery model | Both are refused without `--batteryDepleteJ > 0` (PRESET-2 Amendment 1). A preset without a battery model has no dead node for them to act on, so adopting them would be refused or inert. Fault campaigns pass them with `--batteryDepleteJ`, which is where they act. |
-| N.51 subject overconfidence, N.57 selection bias (Phase 8) | deferred, each to its own registration | Their first measurements are code: an R change for relayed P_B, and negative information in the EKF. A post-hoc read of tonight's traces cannot answer either. The subject traces carry `traceSigma` only, and coverage computed from a trace under an isotropy assumption is biased by exactly the anisotropy N.51 is about. Done tonight instead: 2.3, 4.1 and O.9 statuses corrected; N.35–N.37 resolved; N.42 searched. |
+| N.51 subject overconfidence, N.57 selection bias (Phase 8) | **done 2026-10-21 (R.13)** | First measurement made (per-range E[z²] against the effective sigma), then NEGINFO registered and run: N.57 closes as a measured limit, and N.51's tail is a deployment answer (O11). This row first deferred them. |
 | N.29 harness self-collision | **already fixed** (`d6b6e122`, 2026-10-18) | This row first said "not done": wrong. The ledger's own N.29 entry records the fix; the status table's RECORDED was stale and is corrected. |
 | §6 build profile not enforced | **FIXED at citation, not at run time** | Every sidecar records the profile, and nothing checked it where a citation is accepted. G92 now fails a cited directory whose tracked sidecar records a profile other than `optimized` (`NOT_OPTIMIZED`, a fixture direction). A run-time FATAL would only stop runs that are never cited. 9 753 of 9 753 tracked sidecars are optimized. |
 
@@ -4869,3 +4886,41 @@ measured the check's recall at the preset's χ² 1992.9: 0.03–0.10 of injected
 the fault-free tail (p99 21 322 at 5 km) blinds any threshold. So the check detects almost none of the faults it
 exists for (INTEG2), and costs ring availability with no fault (INTEG3). The recommendation to the owner is to take it
 out of the preset; its flags stay. This line first said fault injection was still needed, which missed INTEG2.
+
+### R.13 N.51 and N.57 closed: the overconfidence is wrong-root subjects, and negative information cannot find them
+
+**N.51, first measurement.** Per-range E[z²] under today's preset (exploratory, `~/ns/catbl-work/n51_m1`, seeds
+201–206), computed against the **effective** sigma. Finder ranges add the 4 m² GNSS consider variance, because the
+range log's true range is measured to the reported anchor position.
+- **Consistent (E[z²] 1.0–2.4):** 868 MHz gateway and finder, 2.4 GHz gateway and finder, UWB.
+- **Inconsistent:** relayed 2.4 GHz only, E 5 (5 km) and 84 (endgame), p95 345, with `--relayNisInflate`; 395–1206
+  without it.
+
+The tail is one failure: subjects locked 130–300 m off while claiming about 4 m (seed 205: three subjects, the whole
+run). It is common across tonight's registered endgame cells, read post hoc: 6–12 % of subject-runs with four
+finders, **none** with eight (ANCHOR-SUPPLY R8). The relay gate never fires on it (432 seen, 0 gated), because the
+wrong subjects agree with one another.
+
+**N.57, registered (`report/PREREG_NEGINFO.md`).** Negative information is a finder that should be heard and is not.
+Using only what nodes hold, it finds almost none of the failure and fires more on correct subjects. N1–N3 hold.
+
+**Decision:** no re-acquisition mechanism. The wrong-root subjects are a deployment answer (O11). The instrument
+stays: `--traceNegInfo`, G162, `scripts/neginfo_analyse.py`.
+
+### R.14 N.3 / Phase 9: what a pure refactor of the two copies can be, and what it cannot
+
+The plan's Phase 9 was "move tag 0's cycle into one function for every subject, as a pure refactor proven
+byte-identical". Measured on the code first:
+- **Verbatim duplication is nil.** There are 0 identical blocks of six or more lines between the subject pipeline and
+  tag 0's cycle. With the systematic renames normalised (`sb.policy` ↔ `policy`, `measS` ↔ `meas`, …), there are two
+  shared computations:
+  - the finder pseudo-anchor's projected covariance, with its `--ekf5FinderConsider` GNSS term;
+  - the witness's multilateration variances.
+- **Both are extracted** into `CaTblFinderAnchorProj` and `CaTblRangeVariances`, so neither can drift between the
+  copies. The null control is 14 of 14 byte-identical: NC1–9, the three ekf5 preset cases, the probe, and X5, a preset
+  run with `--imuCrossCheck` and `--subjectIntegrityWitness` that reaches all four call sites (tag 0's DC-9 witness
+  evaluated 45 times, the subjects' 16–58 each).
+- **Everything else differs by design.** Subjects run a reduced core: no TDoA, SHS, sessions, battery depletion,
+  mobility state (the start-up WARNING lists them). A single `RunSubjectCycle` called for every subject would give
+  subjects tag 0's features, which changes their behaviour and every subject number. That is a registered change with
+  a campaign, not a refactor, and it stays the owner's call (O9).

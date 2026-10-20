@@ -1,0 +1,13 @@
+subject-cycles: 57600; wrong (> 50 m) 3457; right (<= 25 m) 52682
+SUBJECT SIDE (a finder believed within D, unranged for T s)
+  D= 30 m T=10 s: fires on 37/3457 wrong, 133/52682 right; precision 0.21
+  D= 30 m T=30 s: fires on 16/3457 wrong, 64/52682 right; precision 0.20
+  D= 30 m T=60 s: fires on 0/3457 wrong, 5/52682 right; precision 0.00
+  D= 60 m T=10 s: fires on 77/3457 wrong, 377/52682 right; precision 0.16
+  D= 60 m T=30 s: fires on 31/3457 wrong, 181/52682 right; precision 0.14
+  D= 60 m T=60 s: fires on 0/3457 wrong, 38/52682 right; precision 0.00
+  D=100 m T=10 s: fires on 132/3457 wrong, 1036/52682 right; precision 0.11
+  D=100 m T=30 s: fires on 41/3457 wrong, 447/52682 right; precision 0.08
+  D=100 m T=60 s: fires on 4/3457 wrong, 114/52682 right; precision 0.03
+FINDER SIDE (at the entry 20 s, target not within 30 m)
+  fires on 254/1942 wrong finder-cycles, 3236 right, 72 mid; precision 0.07

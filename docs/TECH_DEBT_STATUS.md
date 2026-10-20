@@ -36,7 +36,7 @@ them.
 | T19 | ~~2.3~~ | ~~UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained~~ **SUPERSEDED 2026-10-20 (R.1, R.7, R.10)** measured against a pre-09-08 engine; against today's, UWB reconciles within 2.12 dB, and 2.4 GHz's gap is foliage density, terrain and the IQ degradation. The soft-degradation penalty named earlier is inactive under ULTRA_FAST. | LIMIT |
 | T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
 | T21 | ~~N.15 tail / N.32~~ | ~~The integrity check detects almost nothing at χ² 1992.9 (recall ≤ 0.03); re-fit after a consistent covariance~~ **CLOSED (measured limit)** INTEG2: fit 9303.8 (not lower); recall 0.046 → 0.012; the fault-free tail (p99 21 322 at 5 km) blinds any threshold. | CAMP |
-| T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
+| T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* *2026-10-21 (R.13):* against the effective sigma only relayed 2.4 GHz is inconsistent; its tail is wrong-root subjects, which negative information cannot find (NEGINFO) and eight finders remove (O11). | LIMIT |
 | T23 | O.13 / O.10 | Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m) | OWNER |
 | T24 | ~~O.9~~ | ~~RSSI ranging's path-loss model does not follow the foliage model~~ **CLOSED (diagnosed)** hypothesis refuted: the inversion has no foliage term; P.833 admits 11 % more links at unchanged per-range error; F3 was within noise. Exposed T46. | ENG (diagnose) |
 | T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
@@ -46,11 +46,11 @@ them.
 | T29 | ~~M.1 open~~ | ~~The interference registry never attenuates an interferer by distance; relay rounds sit in the MAC-run slice~~ **DONE (code + DEBT-A)** G153; endgame 5.0 → 4.1 m; adoption O6. | CAMP (engine) |
 | T30 | M.2 / L.2.2 | The UWB CIR confusion matrix cannot fill under the channel model; needs an obstruction model of our own | OWNER |
 | T31 | N.1 / N.20 | `--silenceStopsRelay`, `--deadBatteryNoDraw` built, default off, not in the preset | OWNER |
-| T32 | N.3 | Two copies of the per-node cycle core (tag 0 and subjects); per-subject SHS not built | ENG (refactor, large) |
+| T32 | ~~N.3~~ | ~~Two copies of the per-node cycle core~~ **DONE as a refactor (R.14):** the two shared computations held once, null control 14/14; the remaining difference is behaviour by design (O9). | ENG (refactor) |
 | T33 | ~~M.10~~ | ~~C6's 20-seed edge-server energy figure not re-measured under the fix-tier downlink bill~~ **CLOSED** C6 re-measured: edge saves 26 % (868 alone), 13–15 % (hybrid). | CAMP |
 | T34 | N.8 / N.13 | Explicit DENY frames cost airtime (design choice); Case C shapes coarse and rarely reach the base station | OWNER |
 | T35 | N.11 | Converting RSSI variability to a ToF-tier range sigma is OURS and open (flag out of preset) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
-| T36 | N.42 | Lim, Hofer, Robyns values still lack a source -- *2026-10-18:* Hofer's urban branch sourced (TR 38.901 UMa, verified); Lim/Robyns stay OURS with 3GPP comparison and a CFO finding (likely 10-100x too small). | LIMIT |
+| T36 | ~~N.42~~ | ~~Lim, Hofer, Robyns values still lack a source~~ **CLOSED on influence (2026-10-21):** the CFO coefficient is dead code (unit test only); the delay spread x3 moves probe PDR <= 0.034. Values stay OURS. | LIMIT |
 | T37 | H.4 / B | Constants ours and uncited (finder GNSS sigma, corroboration k=3/30 m/0.5) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (record) |
 | T38 | K.9 | SHS gait calibration diverges where fixes are sparse (debt by owner decision) | OWNER |
 | T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
@@ -100,7 +100,7 @@ them.
 | O7 | adopt `--rssiRangeFromRxPower` (RSSI range includes foliage/fading)? (T46) | DEBT-A: 868 alone 448 → 494 m; hybrid unharmed |
 | O8 | keep `--arbitrationV2` (and requester escalation, queue gossip) in the preset? (T42) | DEBT-A: off saves 18 % endgame energy, no accuracy loss |
 |    | *2026-10-20, decided by PRESET-2 (DESIGN_DECISIONS 17):* O1, O4–O7 and the D-8 row were registered as one set. The rule failed on the endgame interval, so they are **not adopted**. Arbitration **stays** (off costs +2.06 J once the requester rule can refuse) | `report/PRESET2_RESULTS.md` |
-| O9 | refactor the two per-node cycle copies into one (T32)? multi-day, every code path, no result change | N.3 |
+| O9 | give subjects tag 0's full cycle (one `RunSubjectCycle`)? Not a refactor: it adds TDoA, SHS, sessions and battery depletion to subjects and moves every subject number, so it needs a registered campaign | N.3, R.14 |
 | O10 | adopt PRESET-2's set anyway, as an owner override (as DESIGN_DECISIONS 9 did)? | every measured effect upward: 5 km tag 0 0.39 → 0.83, energy −4..−17 %; `report/PRESET2_RESULTS.md` |
 | O11 | deploy eight finders, and task them in pairs to save energy? | ANCHOR-SUPPLY: endgame five-node 0.873 → 0.970 with eight; pairs −35 % energy, same availability |
 | O13 | keep the Switching-Point Integrity Check in the preset? **Recommended: no.** | INTEG2 (fault-injected): recall 0.03–0.10 at χ² 1992.9, no re-fit helps; INTEG3: costs +0.036 [0.004, 0.070] five-node on the ring with no fault, not the 5 km cause |

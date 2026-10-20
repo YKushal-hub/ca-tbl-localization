@@ -2316,6 +2316,34 @@ static int g_ekf5Window = 0;              //!< --ekf5Window (TECH_DEBT N.62)
 //! original [0, 1] byte, which saturates at 255 for any PCS >= 1.
 static double g_pcsByteScale = 1.0;
 
+// N.3 (TECH_DEBT): computations tag 0's cycle and the subject pipeline must do identically, held once so the two
+// copies cannot drift. Each was a verbatim duplicate in both pipelines; moving it here changed no output (null
+// control, preset cases included).
+//! A finder pseudo-anchor's position covariance projected onto the range direction (ex, ey): the report's GNSS
+//! variance -- zero under --ekf5FinderConsider, where the filter's consider state carries it -- plus the variance
+//! of the finder's travel since the report. Negative when it cannot be projected (CaTblProjectRelayCovariance).
+static double
+CaTblFinderAnchorProj(const CaTblTableEntry& fe, double ageVar, double ex, double ey)
+{
+    const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+    const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY}, {gk * fe.covXY, gk * fe.varY + ageVar}};
+    return CaTblProjectRelayCovariance(fp2, ex, ey);
+}
+
+//! The variances the raw weighted multilateration of a witness takes: each range's sigma squared, 1 m where a range
+//! states none.
+static std::vector<double>
+CaTblRangeVariances(const std::vector<CaTblRangeMeasurement>& meas)
+{
+    std::vector<double> mv(meas.size());
+    for (size_t mi = 0; mi < meas.size(); ++mi)
+    {
+        const double sg = (meas[mi].sigmaM > 0.0) ? meas[mi].sigmaM : 1.0;
+        mv[mi] = sg * sg;
+    }
+    return mv;
+}
+
 /** N.7: a PCS to its entry byte, and back. At the default scale 1 these are exactly CaTblQuantise and q / 255. */
 inline uint8_t
 CaTblQuantisePcs(double pcs)
@@ -6549,6 +6577,8 @@ struct SpecOptions
     //! B1 --traceRanges (master plan v2; the repo's R2 step 1, TECH_DEBT N.51): tag 0's ranges, one row
     //! per range per cycle, to ranges_<arm>_seed<s>.csv, with the true range for evaluation only.
     bool traceRanges = false;
+    //! N.57 / N.51 --traceNegInfo: per subject-cycle, finders believed near the estimate and how long unheard.
+    bool traceNegInfo = false;
     // --- S2-A accuracy flags ---
     //! --imuQuScale: multiplies the IMU increment covariance handed to every filter (tag 0's and
     //! the subjects'). 1 (default) multiplies by exactly 1.
@@ -8350,6 +8380,8 @@ RunArm(CaTblPolicyMode mode,
         uint64_t floorCycles = 0;
         double meshBilledAir[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0};
         uint64_t meshBilledFrames[CA_TBL_TIER_COUNT] = {0, 0, 0};
+        std::map<uint32_t, double> negLastContact; // --traceNegInfo: finder id -> last range to it (s)
+        std::unique_ptr<std::ofstream> negLog;     // --traceNegInfo
     };
     struct SubjectsState
     {
@@ -9376,6 +9408,15 @@ RunArm(CaTblPolicyMode mode,
             sfn << traceDir << "/subjtrace_" << CaTblPolicyModeName(mode) << "_seed" << seed
                 << "_subj" << sb.nodeId << ".csv";
             ex.trace.reset(new std::ofstream(sfn.str().c_str()));
+            if (spec.traceNegInfo)
+            {
+                std::ostringstream nfn;
+                nfn << traceDir << "/neginfo_" << CaTblPolicyModeName(mode) << "_seed" << seed << "_subj"
+                    << sb.nodeId << ".csv";
+                ex.negLog.reset(new std::ofstream(nfn.str().c_str()));
+                *ex.negLog << "t,subjectId,activeTier,finderId,dEstM,entryAgeS,silenceS,contactNow,sigmaClaimM,"
+                              "trueErrM,trueDistM\n";
+            }
             *ex.trace << "t,subjectId,activeTier,nextTier,fixTier,usedFloor,trueX,trueY,estX,"
                          "estY,errM,pcs,traceSigma,nAnchors,hadFix,escalated,deescalated,"
                          "cumJ"
@@ -10671,11 +10712,7 @@ RunArm(CaTblPolicyMode mode,
                                     if (un > 1e-6)
                                     {
                                         // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
-                                        const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
-                                        const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
-                                                                  {gk * fe.covXY, gk * fe.varY + ageVar}};
-                                        const double proj =
-                                            CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                        const double proj = CaTblFinderAnchorProj(fe, ageVar, ux / un, uy / un);
                                         if (proj < 0.0 && spec.finderPseudoAnchorStrict)
                                         {
                                             m.anchorX = px; // N.21 strict: the report, uninflated
@@ -11030,12 +11067,7 @@ RunArm(CaTblPolicyMode mode,
                         }
                         if (ex.wit->anchored && measS.size() >= 3)
                         {
-                            std::vector<double> mv(measS.size());
-                            for (size_t mi = 0; mi < measS.size(); ++mi)
-                            {
-                                const double sg = (measS[mi].sigmaM > 0.0) ? measS[mi].sigmaM : 1.0;
-                                mv[mi] = sg * sg;
-                            }
+                            const std::vector<double> mv = CaTblRangeVariances(measS);
                             double rxy = 0.0;
                             witFix = CaTblPolicy::RawMultilaterationWeighted(
                                 measS, mv, sb.policy.EstX(), sb.policy.EstY(), witFx, witFy, witRxx,
@@ -11054,6 +11086,57 @@ RunArm(CaTblPolicyMode mode,
                 }
                 // Row 55. As tag 0's: a tier-1 fix set of >= 3 ranges is solved by TDoA and
                 // queued, so Step() fuses it beside the ranges it came with.
+                // N.57 / N.51 --traceNegInfo (trace only; nothing reads it here). When the subject's precise
+                // radio is active, every finder its OWN table places within 150 m of its estimate: the entry's
+                // age, and how long since the subject last had a range to that finder. trueErrM and trueDistM
+                // are written for evaluation only. The question it answers before any mechanism exists: does a
+                // finder that sits at the estimate yet stays unheard mark the subjects whose estimate is wrong?
+                if (ex.negLog && act != CA_TBL_TIER_868)
+                {
+                    for (size_t fi = 0; fi < finderIds.size(); ++fi)
+                    {
+                        const uint32_t fid = finderIds[fi];
+                        bool contact = false;
+                        for (const auto& m : measS)
+                        {
+                            contact = contact || (static_cast<uint32_t>(m.anchorId) == fid);
+                        }
+                        if (contact)
+                        {
+                            ex.negLastContact[fid] = t;
+                        }
+                        CaTblTableEntry best;
+                        bool have = false;
+                        for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                        {
+                            CaTblTableEntry te;
+                            CaTblMac* mm = peerMacs[pi][static_cast<size_t>(ti)];
+                            if (mm && mm->GetTableEntry(static_cast<uint16_t>(fid), te) && te.valid &&
+                                (!have || te.timestampS > best.timestampS))
+                            {
+                                best = te;
+                                have = true;
+                            }
+                        }
+                        if (!have)
+                        {
+                            continue;
+                        }
+                        const double dEst = std::hypot(sb.policy.EstX() - best.x, sb.policy.EstY() - best.y);
+                        if (dEst > 150.0)
+                        {
+                            continue;
+                        }
+                        const auto lc = ex.negLastContact.find(fid);
+                        const double silence = (lc == ex.negLastContact.end()) ? t : (t - lc->second);
+                        *ex.negLog << std::fixed << std::setprecision(2) << t << "," << sb.nodeId << ","
+                                   << CaTblTierName(act) << "," << fid << "," << dEst << "," << (t - best.timestampS)
+                                   << "," << silence << "," << (contact ? 1 : 0) << ","
+                                   << std::sqrt(std::max(sb.policy.Pxx() + sb.policy.Pyy(), 0.0)) << ","
+                                   << std::hypot(sb.pos.x - sb.policy.EstX(), sb.pos.y - sb.policy.EstY()) << ","
+                                   << std::hypot(sb.pos.x - finderPos[fi].x, sb.pos.y - finderPos[fi].y) << "\n";
+                    }
+                }
                 if (ex.tdoa && fixTierS == CA_TBL_TIER_868 && measS.size() >= 3)
                 {
                     ex.tdoa->Solve(sb.policy, measS);
@@ -11949,11 +12032,7 @@ RunArm(CaTblPolicyMode mode,
                                 const double ageVar = (fePredVar >= 0.0) ? fePredVar
                                                                          : travel * travel;
                                 // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
-                                const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
-                                const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
-                                                          {gk * fe.covXY, gk * fe.varY + ageVar}};
-                                const double proj =
-                                    CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                const double proj = CaTblFinderAnchorProj(fe, ageVar, ux / un, uy / un);
                                 if (proj >= 0.0)
                                 {
                                     m.anchorX = fe.x;
@@ -12933,12 +13012,7 @@ RunArm(CaTblPolicyMode mode,
             witness->disagree = 0.0;
             if (witness->anchored && meas.size() >= 3)
             {
-                std::vector<double> mv(meas.size());
-                for (size_t mi = 0; mi < meas.size(); ++mi)
-                {
-                    const double sg = (meas[mi].sigmaM > 0.0) ? meas[mi].sigmaM : 1.0;
-                    mv[mi] = sg * sg;
-                }
+                const std::vector<double> mv = CaTblRangeVariances(meas);
                 double rxy = 0.0;
                 witness->haveFix = CaTblPolicy::RawMultilaterationWeighted(
                     meas, mv, policy.EstX(), policy.EstY(), witness->fx, witness->fy,
@@ -16946,6 +17020,16 @@ main(int argc, char* argv[])
                  "error of +46.4 m (rural) and +39 m (suburban). The EKF is not told: a real "
                  "system would see the bias only through calibration.",
                  g_tofFieldBiasM);
+    cmd.AddValue("traceNegInfo",
+                 "N.57 / N.51, measurement only. False (default): no file. True: neginfo_<arm>_seed<s>_subj<id>.csv, "
+                 "one row per subject-cycle on a precise tier and per finder the subject's OWN table places within "
+                 "150 m of its estimate: the entry's age and how long since the subject last ranged that finder, with "
+                 "the truth (error, true distance) for evaluation only. Why: in the endgame 6-12 % of subject-runs "
+                 "lock onto a wrong position 130-300 m away while claiming ~4 m, and their roundrobin finder steers "
+                 "on that wrong entry, so it never meets them. A finder at the estimate that stays unheard is "
+                 "negative information; this measures whether it separates wrong subjects from right ones before "
+                 "any mechanism acts on it. Output only; no draw.",
+                 spec.traceNegInfo);
     cmd.AddValue("traceRanges",
                  "B1 (master plan v2; R2 step 1, TECH_DEBT N.51). False (default): no file. True: tag 0's "
                  "ranges, one row per range per cycle, to ranges_<arm>_seed<s>.csv: source vector, tier, "
