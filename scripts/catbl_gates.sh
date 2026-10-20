@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward);
+# CA-TBL regression gates (count: grep -c '^finish ' scripts/catbl_gates.sh; numbers are not contiguous);
 # G91-G94 ported from the local line on 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
 # Run after every code change.
 #
@@ -95,6 +95,14 @@ pass() { finish "$1"; }
 printf '\n--- G1 build ---\n'
 ./ns3 build 2>&1 | tail -40
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail G1
+# T9: the optimized profile is required (RULES.md sect 3); the check is shown able to fail on a debug cache.
+bash scripts/build_profile_check.sh || fail G1
+sed 's/^build_profile:INTERNAL=.*/build_profile:INTERNAL=debug/' cmake-cache/CMakeCache.txt > "$WORK/fixture_cache.txt"
+if bash scripts/build_profile_check.sh "$WORK/fixture_cache.txt" > /dev/null; then
+    echo "  build profile fixture: a debug cache passed"; fail G1
+else
+    echo "  build profile fixture: a debug cache is refused"
+fi
 finish G1
 
 # --------------------------------------------------- G2: determinism
@@ -203,8 +211,12 @@ mkdir -p "$WORK/g6_nodeside"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
     --trace=false --gatewayEdgeServer=false --outdir="$WORK/g6_nodeside" \
     > "$WORK/g6_nodeside.log" 2>&1 || gerror G6 "node-side run exited non-zero"
-for spec in "causal_v11/arm_summary.csv:g6_nodeside/arm_summary.csv" \
-            "det_a_v11/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
+# REPOINTED 2026-10-18 (T16), the remedy applied a third time: DESIGN_DECISIONS 16 moved the code-default box
+# (1000 -> 340 m), so causal_v11/det_a_v11 describe a deployment the default no longer builds. causal_v12 and
+# det_a_v12 are NEW paths, one run at exactly this gate's arguments on a clean tree (source e93f35c0 dirty 0). v11 stays
+# tracked and cited as what those runs produced.
+for spec in "causal_v12/arm_summary.csv:g6_nodeside/arm_summary.csv" \
+            "det_a_v12/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
@@ -426,6 +438,9 @@ finish G12
 # precedent is G6, which sat red by design with its remedy recorded beside it.
 # The propagation sweeps stay blocked while it is red -- that is the point.
 printf '\n--- G11 propagation study: corpus, reconciliation, tracking ---\n'
+# T18: the corpus is deterministic (seed 20260819), git-ignored and digest-checked by assertion 1; regenerate it when
+# absent, so a fresh tree reaches the comparison instead of stopping at a missing file.
+[ -f src/catbl-propagation-study/results/corpus.json ] || ( cd src/catbl-propagation-study && python3 corpus.py > /dev/null )
 python3 scripts/propagation_study_gate.py || fail G11
 finish G11
 
@@ -1903,6 +1918,56 @@ bash scripts/finder_consider_gate.sh "$WORK/g150" || fail G150
 bash scripts/finder_consider_gate_selftest.sh "$WORK/g150" || fail G150
 finish G150
 
+# ---------------- G159: --pcsByteScale, the PCS byte a table entry carries (TECH_DEBT N.7)
+# scripts/pcs_byte_gate.py reads the preset's endgame, seed 7, 600 s: by default no session result decodes a PCS
+# above 1.0 (the defect: the requester rule compares it with 1.377 and never refuses); with --pcsByteScale=4 results
+# carry PCS above 1 and some reach the threshold, so the rule has cases to refuse; 1 is the flag absent byte for
+# byte; a scale outside [1, 64] is refused.
+printf '\n--- G159 the PCS byte carries PCS above 1 (--pcsByteScale) ---\n'
+bash scripts/pcs_byte_gate.sh "$WORK/g159" || fail G159
+bash scripts/pcs_byte_gate_selftest.sh "$WORK/g159" || fail G159
+finish G159
+
+# ---------------- G160: --finderTasking=pairs, two finders per subject (TECH_DEBT N.62, ANCHOR-SUPPLY)
+# scripts/pairs_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s: pairs sends finders 2k and 2k+1 to
+# one subject and roundrobin sends no subject two; the flag changes tag 0's trace; the preset's roundrobin given
+# explicitly is the flag absent byte for byte (spec_profile.txt's provenance line aside); an unknown tasking, and
+# pairs with no finders, are refused.
+printf '\n--- G160 finder pairs (--finderTasking=pairs) ---\n'
+bash scripts/pairs_gate.sh "$WORK/g160" || fail G160
+bash scripts/pairs_gate_selftest.sh "$WORK/g160" || fail G160
+finish G160
+
+# ---------------- G161: the receiver corrections (--uwbSensitivityDbm, --iqOverloadOnly) and the probe columns that
+# measure them (--probeNominalMargin; IQ-TERM). scripts/receiver_gate.py reads three probes and the endgame preset:
+# the IQ term is reached on every point; UWB at -99.3 dBm moves only UWB, by 4.7 dB; --iqOverloadOnly raises the
+# nominal margin everywhere, by the IQ term on average; both flags at their defaults are the flags absent byte for
+# byte; a sensitivity outside [-130, -60] is refused.
+printf '\n--- G161 receiver corrections (--uwbSensitivityDbm, --iqOverloadOnly) ---\n'
+bash scripts/receiver_gate.sh "$WORK/g161" || fail G161
+bash scripts/receiver_gate_selftest.sh "$WORK/g161" || fail G161
+finish G161
+
+# ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
+# scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
+# window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
+# 0 is the flag absent byte for byte; no leak; refused without ekf5, with a robust mode, or a window under 2. Its
+# consistency and the one-anchor recovery are ca_tbl_imu_test's window cases.
+printf '\n--- G152 the sliding-window smoother (--ekf5Window) ---\n'
+bash scripts/window_gate.sh "$WORK/g152" || fail G152
+bash scripts/window_gate_selftest.sh "$WORK/g152" || fail G152
+finish G152
+
+# ---------------- G151: --ekf5Iterate, the iterated (IEKF) range update of the 5-state filter (TECH_DEBT N.58)
+# scripts/iterate_gate.py reads the 5 km preset, seed 5, unknown start, realistic IMU, 600 s, the acquisition N.58
+# traced: updates were iterated (> 0), with more passes than updates (the linearisation point moved), and the
+# trace changed; 0 is the flag absent byte for byte; no leak; refused without ekf5, with a robust mode, or a
+# negative pass count. That it is consistent where the single update is not is ca_tbl_imu_test's iterated cases.
+printf '\n--- G151 the iterated range update (--ekf5Iterate) ---\n'
+bash scripts/iterate_gate.sh "$WORK/g151" || fail G151
+bash scripts/iterate_gate_selftest.sh "$WORK/g151" || fail G151
+finish G151
+
 # ---------------- G101: --ekf5RelayGate, a chi^2 gate on relayed ranges only
 # scripts/relay_gate_gate.py reads the endgame, seed 3, 300 s, the cell where a relay gave z = -25: relayed > 0,
 # 0 < gated < relayed, the run differs from the ungated one; false is the flag absent byte for byte; no leak;
@@ -2090,6 +2155,42 @@ finish G148
 printf '\n--- G149 868 MHz RSSI correlation inflation ---\n'
 bash scripts/rssicorr_gate.sh "$WORK/g149" || fail G149
 finish G149
+
+# ---------------- G156: T2 --publishAfterStep (TECH_DEBT L.2 note): an entry carries the estimate of its own stamp
+printf '\n--- G156 entry published after Step ---\n'
+bash scripts/publish_after_step_gate.sh "$WORK/g156" || fail G156
+finish G156
+
+# ---------------- G157: T6 (TECH_DEBT H.3 / I.5): no adopted preset mechanism fires into a zero
+printf '\n--- G157 preset mechanisms each change the output ---\n'
+bash scripts/preset_efficacy_gate.sh "$WORK/g157" || fail G157
+finish G157
+
+# ---------------- G158: T41 (TECH_DEBT 5.3): current documents name only real flags; RULES.md's preset list is the code's
+printf '\n--- G158 documents name real flags ---\n'
+python3 scripts/doc_flags_gate.py || fail G158
+printf 'A doc naming --thisFlagDoesNotExist=true.\n' > "$WORK/g158_fixture.md"
+if python3 scripts/doc_flags_gate.py --docs "$WORK/g158_fixture.md" > /dev/null; then
+    echo "  G158 fixture: a fake flag passed"; fail G158
+else
+    echo "  G158 fixture: a fake flag is refused"
+fi
+finish G158
+
+# ---------------- G153: T29 --interferenceDistance (TECH_DEBT M.1): an interferer is scored at this receiver
+printf '\n--- G153 interference attenuated by distance ---\n'
+bash scripts/interference_distance_gate.sh "$WORK/g153" || fail G153
+finish G153
+
+# ---------------- G154: T12 --foliageScaleBounds (TECH_DEBT N.41): the foliage scaling is what the parameter file states
+printf '\n--- G154 foliage scaling not capped by the clamp ---\n'
+bash scripts/foliage_bounds_gate.sh "$WORK/g154" || fail G154
+finish G154
+
+# ---------------- G155: T46 --rssiRangeFromRxPower (TECH_DEBT O.9): the RSSI range carries foliage and fading
+printf '\n--- G155 RSSI range from the received power ---\n'
+bash scripts/rssi_rxpower_gate.sh "$WORK/g155" || fail G155
+finish G155
 
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'

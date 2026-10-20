@@ -22,6 +22,7 @@ struct ActiveTransmission {
     uint8_t codingRateDenom;
     double rxPowerDbmAtGateway;
     Vector txPosition;
+    double ownLinkDistM = 0.0; //!< T29: the length of the interferer's own link (0: unknown)
     uint32_t rxGatewayId;
     bool isCanceled; // Successive Interference Cancellation (SIC) state
 };
@@ -38,7 +39,7 @@ public:
         uint32_t txNodeId, uint32_t rxGatewayId,
         Time startTime, Time airtime,
         uint8_t sf, double bw, uint8_t cr,
-        double txPowerDbm, Vector txPosition);
+        double txPowerDbm, Vector txPosition, double ownLinkDistM = 0.0);
 
     void NotifySuccessfulDecode(uint32_t txNodeId, uint32_t rxGatewayId, double decodedPowerDbm);
 

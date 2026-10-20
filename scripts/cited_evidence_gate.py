@@ -29,6 +29,12 @@ Otherwise the citation is classified:
   UNTRACKED_ON_DISK   present in the working tree, not tracked            -> FAIL
   ABSENT              nowhere, and not recorded as lost                    -> FAIL
   ALLOWED             in EXCLUDED.md ```reviewed-cited-evidence``` with a reason
+  NOT_OPTIMIZED       a cited directory that resolves, but one of its tracked run_id.txt
+                      records a build profile other than "optimized"       -> FAIL
+                      (RULES.md §3: every published number was produced under the optimized
+                      profile, and the debug profile changes behaviour -- NS_ASSERT and NS_LOG
+                      exist only there. The profile was recorded in every sidecar and checked
+                      nowhere a citation is accepted; 2026-10-20, 9 753 of 9 753 optimized.)
 
 Usage: cited_evidence_gate.py [--docs F ...] [--root DIR]
   --docs replaces the population (used by the fixture); --root runs against another tree.
@@ -150,6 +156,18 @@ def main(argv):
             good = top in sidecar_tops
         if not good and not is_pattern and top in study_tracked:
             good = True  # resolves under the propagation study's own results/
+        if good and not is_pattern and not top.endswith(FILE_EXT) and top in sidecar_tops:
+            bad = []
+            for t in tracked:
+                if t.startswith("results/%s/" % top) and t.endswith("/run_id.txt"):
+                    for line in open(os.path.join(root, t), errors="replace"):
+                        m = re.match(r"source \S+ dirty \S+ profile (\S+)", line)
+                        if m and m.group(1) != "optimized":
+                            bad.append((t, m.group(1)))
+            if bad:
+                fails.append(("NOT_OPTIMIZED", top, ds))
+                print("    %s records profile %s" % bad[0])
+                continue
         if good:
             ok += 1
             continue

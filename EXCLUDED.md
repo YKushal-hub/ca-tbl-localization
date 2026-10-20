@@ -117,3 +117,14 @@ document citing a dirty source still fails the assertion.
 ```reviewed-dirty-citations
 report/REPORT_DATA_PACK.md
 ```
+
+## Cited results paths G92 accepts without a sidecar (T15, 2026-10-18)
+
+Each line names a `results/<top>` that a tracked document cites, and why it passes without a tracked `run_id.txt`.
+Lost directories are listed in `RESULTS_NONREGENERABLE.tsv` instead.
+
+```reviewed-cited-evidence
+baseline_v3 tracked arm_summary.csv from the pre-sidecar era (shipped in 77dd45ee); no run_id.txt was ever written; cited as history by report/PCS_REDESIGN_RESULTS.md
+tracegw9 tracked per-seed arm_summary.csv from the pre-sidecar era (77dd45ee); no run_id.txt was ever written; cited as history by CA_TBL_AUDIT_REPORT.md
+camp_final2_2026-10-08 the planned output path of the unregistered CAMP-FINAL-2 draft (report/DRAFT_CAMP_FINAL2_LORAFUSION.md); never run, so nothing exists to hold
+```

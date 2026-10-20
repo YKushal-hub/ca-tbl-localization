@@ -14,21 +14,23 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/catbl_g18.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
 RC=0
 
 T="$TMP/tree"
-mkdir -p "$T/results/good_run" "$T/results/stray_run" "$T/report"
+mkdir -p "$T/results/good_run" "$T/results/stray_run" "$T/results/debug_run" "$T/report"
 (
     cd "$T" || exit 2
     git init -q . && git config user.email fixture@localhost && git config user.name fixture
     printf 'arm,seed\nx,1\n' > results/good_run/arm_summary.csv
     printf 'id\nsource abc dirty 0 profile optimized\n' > results/good_run/run_id.txt
     printf 'arm,seed\nx,1\n' > results/stray_run/arm_summary.csv      # on disk, never tracked
+    printf 'id\nsource abc dirty 0 profile debug\n' > results/debug_run/run_id.txt   # tracked, wrong profile
     printf '# path\treason\nresults/gone_run\tPRE_D1\n' > RESULTS_NONREGENERABLE.tsv
     printf 'ok: `results/good_run`\n' > report/cites_good.md
     printf 'bad: `results/never_existed`\n' > report/cites_absent.md
     printf 'bad: `results/stray_run`\n' > report/cites_stray.md
     printf 'known: `results/gone_run`\n' > report/cites_lost.md
+    printf 'bad: `results/debug_run`\n' > report/cites_debug.md
     printf 'pattern: `results/good_*`\n' > report/cites_pattern.md
     printf 'not a citation: `src/study/results/never_existed`\n' > report/cites_nested.md
-    git add results/good_run report RESULTS_NONREGENERABLE.tsv
+    git add results/good_run results/debug_run report RESULTS_NONREGENERABLE.tsv
     git commit -q -m fixture
 ) || { echo "FIXTURE BROKEN: could not build the temp tree"; exit 2; }
 
@@ -46,13 +48,14 @@ expect() {  # expect <label> <want-exit> <must-contain-or-empty> <docs...>
     printf '  OK   %-34s exit %s%s\n' "$label" "$got" "${needle:+, names $needle}"
 }
 
-printf 'G92 fixture -- six directions\n\n'
+printf 'G92 fixture -- seven directions\n\n'
 expect "tracked with sidecar passes"     0 ""                                report/cites_good.md
 expect "glob citation resolves"          0 ""                                report/cites_pattern.md
 expect "nested results/ path ignored"    0 ""                                report/cites_nested.md
 expect "recorded loss reported, passes"  0 "RECORDED_LOST"                   report/cites_lost.md
 expect "absent directory fails"          1 "ABSENT            results/never_existed" report/cites_absent.md
 expect "untracked on disk fails"         1 "UNTRACKED_ON_DISK results/stray_run"     report/cites_stray.md
+expect "non-optimized sidecar fails"     1 "NOT_OPTIMIZED     results/debug_run"     report/cites_debug.md
 
 if [ "$RC" -eq 0 ]; then printf '\nG92 fixture: all directions behaved\n'; else printf '\nG92 fixture: FAILED\n'; fi
 exit "$RC"

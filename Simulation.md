@@ -47,6 +47,10 @@
 >
 > PCS-gated switching is indistinguishable from a trace threshold. The current claim status is the Technical Report
 > §0a.
+>
+> **Lost evidence (G92):** `results/campaign_20260810`, `campaign_recovery`, `p10_env`, `p10_plane_fix`,
+> `p10_plane_v7` and `results/metric2_pdr_distance_seed7.csv`, cited below, are not in the repository and cannot be
+> regenerated on the current engine. `RESULTS_NONREGENERABLE.tsv` records each.
 
 ---
 
@@ -135,6 +139,10 @@ Availability  A ≥ 0.95     at     Accuracy  R ≤ 25 m
 - **Note on SF12:** not used for tier 1. Measured PDR is 0.255–0.355 even at 500 m, *below*
   SF7's 1.00 — an inversion that is collision-dominated, since SF12 airtime is ~30× SF7 and
   therefore overlaps far more interferers. `[M-01]`
+  *Corrected 2026-10-18 (TECH_DEBT N.29):* the interferer was the harness's own previous frame, sent 0.1 s
+  later than an SF12 frame lasts. With frames spaced at twice their time on air (the harness default since then;
+  `--metric2SpacingS=0.1` reproduces the old run), SF12 at 500 m delivers 0.985–1.000 at seed 7. So SF12's low PDR
+  is not a channel property and not a reason to exclude SF12.
   *Annotated 2026-10-16 (`docs/TECH_DEBT.md` N.29): the interferers are the validation harness's
   own previous frames — it transmits every 0.1 s, under SF12's airtime. At 3 s spacing SF12 PDR
   at 500 m is 0.985–1.000. This note is kept as written; it is not a property of the channel.*

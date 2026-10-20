@@ -11,6 +11,118 @@ design decisions* are recorded as such and are not debt — they are in §7 so n
 
 **Ordering is by risk to published results, not by effort.**
 
+## Status ledger — 2026-10-20
+
+**Read this first.** Every entry below, with where it stands at `cb829cbb` (main after the
+2026-10-19 merges). The entries themselves are kept as written; this table is the index. Each
+status was checked against the code, or against the preset's setting list
+(`scratch/ca_tbl_causal_sim.cc`, the `--specProfile` table, 113 settings). Classes:
+
+- **CLOSED** — fixed, or settled by a registered result.
+- **PRESET** — fixed behind a flag the preset sets. Off-preset defaults are unchanged, so runs
+  without the preset still carry the entry.
+- **FLAG** — fixed behind a default-off flag that is not in the preset.
+- **DECISION** — waits on the owner. The question is stated.
+- **CAMPAIGN** — needs a registered campaign before anything changes.
+- **RESEARCH** — the cause is not known.
+- **OPEN** — engineering with no decision needed.
+- **RECORDED** — a model limit or an OURS choice, stated so nobody mistakes it.
+
+| entry | status | what is left |
+|---|---|---|
+| 1.1 sampler stream | PRESET (`--rngKeyed`, G138) | code default unkeyed; a default change regenerates everything (DECISION) |
+| 1.2 rule 8 cross-binary | CLOSED | `RULES.md` rule 8 carries it |
+| 1.3 cited results absent | RECORDED | G92 FAIL BY FINDING: 15 cited paths not held |
+| 2.1 four loss terms zeroed | DECISION | still zeroed (`lora-physics-engine.cc` antenna gain, multipath, Doppler, soil). Wire them in (every result moves) or delete the dead code |
+| 2.2 terrain at 868 MHz | PRESET (`--terrainPerTierFreq`) | code default 868 MHz |
+| 2.3 two residuals | SUPERSEDED (R.1, R.7) | measured against a pre-09-08 engine; against today's, UWB reconciles (2.12 dB) and 2.4 GHz's residual decomposes into foliage density, terrain and the IQ term |
+| 2.4 sensitivity values | OPEN | G93 checks tier 2 against the SX1280 data sheet; 868 MHz and UWB values are not checked against theirs (needs the SX1262 and DW3000 tables) |
+| 2.5 tier-1 CRLB | CLOSED | — |
+| 3.1 C5 remaining | CLOSED in substance | relays are measured subjects (MS-1, N.3); the subject chain is in the preset |
+| 3.2 hopWeight | RECORDED (deliberate, `RULES.md` 2) | — |
+| 3.3 C2-full | CLOSED | merged at `abbe3de`; behaviour per N.3 |
+| 3.4 A4/A5 | CLOSED in substance | consistency is measured by NEES/coverage (N.51, O.12) |
+| 3.5 anchor-to-anchor links | RECORDED | beacon loss is an upper bound |
+| 4.1 1-ulp divergence | DIAGNOSED (T8) | instruction-set codegen: one cause with 4.2; a portable build changes only last digits |
+| 4.2 `-march=native` | DECISION | `./ns3 --build-profile=optimized` turns it on (`ns3:923`); dropping it changes every binary's bits |
+| 4.3 G12 | CLOSED | trailer-anchored; history rewritten 2026-10-19 |
+| 4.4 / J.1 G11 red | RECORDED (deliberate) | must not be closed by tuning |
+| 5.1 author identity | CLOSED 2026-10-20 (owner) | — |
+| 5.2 invocations in prose | RECORDED (practice) | sidecars for exploratory runs |
+| 5.3 stale documents | RECORDED (practice) | this ledger is one remedy |
+| 6 tooling | RECORDED | sidecars record the build profile |
+| A–F (2026-09-07) | CLOSED / superseded | baseline_v8; gateway count; B3 regeneration |
+| C.5 self-deployable mesh | RECORDED (not built, scope) | — |
+| H.1 tier 3 reach | CLOSED (PRESET) | UWB-delivered fixes on 20/20 endgame seeds under FIXES-N26 |
+| H.2 staleness | PRESET (`--rangeReplyPosition`) | — |
+| H.3 / I.5 counter-vs-input gate | CLOSED in substance 2026-10-20 | G24's POP/EFF pairs and each mechanism gate's REACHED + EFFECT pair catch the class |
+| H.4 constants OURS | RECORDED | — |
+| I.1 Mahalanobis population | CLOSED by measurement | N.15, N.26, REAL-SPEC: 9.21 not proposed |
+| I.2, I.3 | CLOSED | — |
+| I.4 flags conditional on frames | CLOSED 2026-10-20 | help texts state the measured dependency |
+| I.6 evidence tree | RECORDED | regenerated campaigns cited; G6 red by design |
+| J.2 / L.2.1 tier-1 TDoA | PRESET (`--tier1Tdoa`) | code default RSSI |
+| K.1, K.2, K.4, K.6, K.7 | CLOSED | — |
+| K.3 `RULES.md` 6 | CLOSED 2026-10-20 | — |
+| K.5 | RECORDED | — |
+| K.8 PCS | CLOSED by result | A8, N.31: no further PCS form |
+| K.9 SHS gait | RECORDED (owner) | superseded for the preset by DC-1 + `--imuFilter=ekf5` |
+| L.1 | CLOSED | — |
+| L.2.2 UWB CIR matrix | DECISION (M.2) | needs an obstruction model of our own |
+| L.2.4 hop count | PRESET | depth 2 in the preset's subject chain |
+| L.3 claims | superseded | read `CA-TBL_Technical_Report_SelfContained.md` and the REAL-* reports |
+| M.1 interferer distance; slot slice | CAMPAIGN | engine change (`lora-interference-submodule.cc`) |
+| M.2 | DECISION | as L.2.2 |
+| M.3 | FLAG (`--stampBinaryHash`, `--stampBuildCommit`) | not in the preset |
+| M.4–M.8, M.10, M.11 | CLOSED | — |
+| M.9 RECEDING push count | CLOSED 2026-10-20 | the count sums every radio; subjects never classify mobility, which is N.3's |
+| N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
+| N.2 | PRESET (`--sparseInStep`) | — |
+| N.3 two copies of the core | OPEN | `RunSubjectCycle` not built; subjects lack `--mobilityFromRange` (found 2026-10-20). The largest engineering item; risky for byte-identity |
+| N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
+| N.5, N.8, N.9, N.13, N.17, N.18, N.24 | RECORDED (OURS) | — |
+| N.6, N.22 | PRESET | — |
+| N.7 PCS byte | moot | PCS earns nothing over the trace (N.31) |
+| N.11 | DECIDED (out of the preset) | ToF-tier form OURS |
+| N.15 G24 zeros | RECORDED | four zeros under FIXES-N26 |
+| N.16 | CLOSED (CAL-03) | an 8-gateway-ring property |
+| N.20 | FLAG (`--deadBatteryNoDraw`) | not in the preset |
+| N.23 | measured (`--reportAirtime`) | — |
+| N.27 D-8 sensitivity row | DECISION | `--t2SensitivityRowKHz` default |
+| N.28 gyro bias | DECISION | `--imuFilter=ekf5` and the realistic world proposed (REAL-BEST) |
+| N.29 | FIXED (`d6b6e122`) | harness artefact; frames spaced at 2× time on air |
+| N.30 (main) G10 / G92 | CLOSED / RECORDED | G92 FAIL BY FINDING |
+| N.31 (main) G63/G87/G89 | CLOSED (O.4) | — |
+| N.30 (acc) covariance | PRESET in part (`--imuQuScale=30`); ekf5 off-preset | error-state filter = ekf5 |
+| N.31 (acc), N.32 (acc) | CLOSED by result | — |
+| N.32 (IMU) finder extrapolation | RECORDED | remedy is a MAC change, unbuilt |
+| N.33 one-range heading | RESEARCH | consider form rejected; FEJ / iterated update not built |
+| N.35–N.37 | RESOLVED (2026-10-20) | the 5 km loss to static 2.4 GHz was the known-start artefact (N.50); under unknown start CA-TBL leads by +0.29..+0.33 five-node A(25 m) |
+| N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
+| N.41 foliage clamp | CAMPAIGN | engine fix with null control |
+| N.42 citations | RESEARCH | three sources not found |
+| N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
+| N.51 subject overconfidence | RESEARCH | per-range log built (V3) |
+| N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
+| N.53 two Part B branches | DECISION | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
+| N.54 acquisition | PRESET (`--acquireParticles`) | — |
+| N.55 | PRESET | — |
+| N.56 | CLOSED (O.2) | — |
+| O.1–O.6, O.11, O.13, O.14 | CLOSED | — |
+| O.7 / O.10 | CLOSED in accuracy (O.13) | energy under Wolf is a design property |
+| O.8 P.833 foliage | CAMPAIGN | not in the preset |
+| O.9 RSSI model vs foliage | DIAGNOSED (T24) | the hypothesis is refuted (no foliage term in the inversion); the follow-on, `--rssiRangeFromRxPower` (T46), was in PRESET-2's set, not adopted (R.8) |
+| O.12 B2 5 km coverage | RECORDED (measured limit) | — |
+| N.57 selection bias | RESEARCH | negative information in the EKF, not built |
+| N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
+| N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
+| N.61 magnetometer state | RECORDED | kept as a patch |
+| N.62 5 km tag 0: one precise anchor | FLAG (`--ekf5Window`, G152); DECISION | 5 km not supported; the endgame gain replicated (EKF5-WINDOW-END −0.8 [−1.4, −0.2]), its availability bound met only at the edge; the default is the owner's |
+
+**What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
+question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
+need measurement before code.
+
 ---
 
 ## 1. Measurement hygiene — highest risk
@@ -104,6 +216,24 @@ never rescoped.
 UWB ~3.7 dB and 868 MHz ~3.5 dB near-field. Conclusions are currently drawn by recomputing
 under ±4 dB of margin offset chosen to bracket exactly these. That is a defensible
 workaround and not a fix; the residuals remain unexplained.
+
+*2026-10-18, explained (T19; the method of J.1's diagnosis).* The probe at probe_v7's configuration, compared term by
+term with the analytic model on all three tiers, shows path loss agreeing within 0.1 dB everywhere. The residuals sit
+in the engine's **effective sensitivity**, which is not a constant:
+- the hysteresis bonus (1.5 dB at 868 MHz, 2 dB at 2.4 GHz/UWB) on links that were receiving;
+- receiver hardware variation and the soft-degradation penalties (EVM, CFO; preamble/PLL/CRC on failures), applied
+  to the threshold.
+
+| tier | effective sensitivity, decoding → failing | model |
+|---|---|---|
+| UWB | −101.8 dBm at 2 m → −97.9 at 180 m | −104 |
+| 868 MHz | −124.9 → −118.3 dBm | −123 |
+| 2.4 GHz | −107.2 → −99.8 dBm | |
+
+The UWB "near-field residual" is the 2–20 m rise of that threshold (+2.7 dB) plus a constant offset on decoded links.
+The model's 2.3–3.8 dB higher foliage accounts for most of the rest. These residuals live in the threshold, which is
+why every enumeration of the loss sum missed them (RULES.md rule 10). Conclusions bracketed by ±4 dB of margin offset
+stand. Reproduce with `scripts/g11_term_diagnosis.py`, a 2.4 GHz table; the same loop runs per tier.
 
 ### 2.4 Sensitivity values are still unvalidated in absolute terms
 G14 (added this session) verifies the SF-index arithmetic against each table's declared
@@ -292,6 +422,24 @@ on different hardware is not guaranteed by construction. *Mitigation observed:*
 `baseline_v7` did reproduce byte-identically on a different machine and compiler, which is
 evidence but not a guarantee.
 
+*2026-10-18, diagnosed (T8): 4.1 and 4.2 are one cause, instruction-set codegen.* The merged tree was built twice at
+the same commit: the optimized profile (`-march=native`) and ns-3's release profile, which is the same `-O3` without
+native instructions. NC1–NC10 were run with the second against the native references.
+- **At defaults (NC1–NC9) every `arm_summary.csv` is identical.** Differences sit only in the 13-significant-figure
+  trace columns `estXhp`, `estYhp`, `meanSigmaM` and `meanSigmaRawM`, at most 1.7e-12 relative. That is 4.1's
+  signature, so its cause is codegen (FMA contraction and vectorisation under `-march=native`), not program logic.
+- **Under the preset (NC10)**, 22 of 224 files differ. Every filter arm's summary is identical. Only the MLAT
+  comparator moves: its iterative solve accepts or refuses near a threshold, and last-bit differences flip it
+  (`ca_tbl_full`'s MLAT solves 113 against 100; CEP95 of the MLAT baseline 5–20 % different).
+- **Consequences:**
+  - byte identity holds only between binaries built with the same flags on the same instruction set (4.2,
+    confirmed);
+  - CA-TBL's own figures are unaffected at summary level;
+  - MLAT-baseline magnitudes are machine-dependent at the 5–20 % level. K10's "beats published estimators" margin is
+    about 10×, so it stands.
+- **Not changed:** switching the project to a portable build would make every reference and campaign binary
+  differ in last digits. Null controls already compare binaries built on one machine with one profile.
+
 ### 4.3 G12 fires on its own documentation
 The gate is red on exactly **one** commit — `3420073`, the commit that *documents the
 gate's own pattern*, because its body lists `@anthropic` and `@openai` as fixture text.
@@ -311,7 +459,7 @@ research, not a work item.
 
 ## 5. Provenance and history
 
-### 5.1 137 commits on GitHub carry the wrong author
+### 5.1 137 commits on GitHub carry the wrong author — CLOSED 2026-10-20, owner decision
 **Recounted 2026-09-09. The heading said 106; it is now 137**, because commits kept
 being pushed from the Windows clone while the entry sat unrecounted. That is section 5.3
 happening inside the register that tracks 5.3, and the count is now given with the
@@ -346,6 +494,12 @@ proven.
 **Nothing reaches the owner's contribution graph until commits are on the default branch**,
 so the 93 unpushed ones are invisible too, correct identity notwithstanding.
 
+*2026-10-20, CLOSED by owner decision.* `kushalyalamanchi@gmail.com` is the identity the owner
+commits with, and it stays. On `origin/main` at `cb829cbb`: 510 commits `nethi.kushaal@gmail.com`,
+216 `kushalyalamanchi@gmail.com`, 14 GitHub merges. No further identity rewrite is planned. The
+2026-09-06 rewrite (`SHA_MAP.md`) stands as history; its premise that this address was not the
+owner's is superseded by this decision.
+
 ### 5.2 Measurement invocations recorded only in prose
 The original C3 measurement's duration exists in **no sidecar and no results directory** —
 only in a commit message. It reproduced, so it cost nothing; had it not, the result would
@@ -359,6 +513,10 @@ mechanism at all"* with three built capabilities listed ABSENT. Previously:
 directories used it. *Fix:* a periodic re-audit, or a gate that flags matrix rows whose
 cited code path exists.
 
+*2026-10-18 (T41), the part a gate can hold:* G158 refuses a `--flag` named in RULES.md, DESIGN_DECISIONS or
+TECH_DEBT_STATUS that no scratch program registers, and a RULES.md preset-list flag that `kSpecProfile[]` does not
+set. It has a fake-flag fixture. Stale numbers in prose stay a review matter.
+
 ---
 
 ## 6. Build and tooling
@@ -366,6 +524,9 @@ cited code path exists.
 - **`src/lorawan` link fix** (`${liblora-physics-engine}`) — carried but never upstreamed.
 - **`--build-profile=optimized` is mandatory**, not a preference: the default profile
   enables logging and runs ~10× slower. Not enforced by anything.
+- *2026-10-18 (T9):* G1 now refuses a tree not configured with the optimized profile
+  (`scripts/build_profile_check.sh`, with a debug-cache fixture). The `src/lorawan` link fix stays carried in-tree;
+  offering it to ns-3 upstream is an outside contribution, not debt in this repository.
 - **Gate suite runtime** is ~35 minutes, dominated by two 3600 s determinism runs. It
   discourages running the full suite, which is how three gates once went unobserved.
 
@@ -563,6 +724,17 @@ the same family as the 51 J artefact: a mechanism whose stated effect depends on
 quantity nobody checked was non-zero. *Fix:* a gate asserting that a mechanism's input
 is non-zero whenever its firing counter is, on at least one configuration.
 
+*2026-10-20, CLOSED in substance (with I.5).* No single generic gate was built. The failure has a
+signature on disk: a counter above zero, and output byte-identical to the flag off. Two existing
+checks read exactly that:
+- G24 runs every preset mechanism two ways: POP, a population above zero with the flag on; and
+  EFF, zero with it off.
+- Every per-mechanism gate since G60 pairs REACHED, a firing count above zero, with EFFECT or an
+  equivalent, the run differing from the run without the flag. Examples: G150 RSPLIT, G101's
+  differing run, G151 EFFECT.
+`edf73a5`'s case, 1 513 firings into byte-identical output, fails EFFECT. `scripts/flag_efficacy.sh`
+remains the sweep to run after adding a flag. A new mechanism gate must carry both halves.
+
 ### H.4 Constants introduced this session, ours and uncited
 - `--finderPosSigma` default 0.0; 2.0 m is argued from the variance the entry already
   claimed, not from a receiver datasheet.
@@ -643,10 +815,26 @@ without it and say so nowhere except in one flag's help text. Not a defect; a
 documentation gap that costs an afternoon to anyone sweeping them. *Fix:* say it in each
 flag's help, which is the house style for explaining a default.
 
+*2026-10-20, CLOSED; the dependency measured, and narrower than stated.* Seed 7, 600 s, four finders
+(`--nFinders=4 --finderMode=1`); each flag on against off, frames off and on:
+- `--bidirectionalDigest`: byte-identical without frames, 7 files differ with them.
+- `--finderPseudoAnchor`: byte-identical without frames AND with frames alone. It needs a finder
+  entry: `--bidirectionalDigest` (6 files differ) or `--rangeReplyPosition`, which works without
+  frames (6 files differ).
+- `--corroborationCheck`: byte-identical without frames and with frames alone; with frames and the
+  digest, 11 and 23 escalations refused in two arms.
+Each help text now says so. The preset sets all of them, so it is unaffected.
+
 ### I.5 Suggested gate
 A gate asserting that a mechanism's *input* is non-zero whenever its *firing counter*
 is. Both defects above had a counter reporting healthy activity while the quantity it
 fed read zero. Nothing in the suite compares the two.
+
+*2026-10-18, built for the preset (T6, G157).* Each adopted preset setting (DD 10, 11, 13, 14, 15; twelve) is turned
+back to its default in turn on the preset's endgame, and each run must differ from the preset's. All twelve do. The
+negative fixture is `--agcPerReceiver=true`, inert in this scenario, which the same comparison calls INERT. This
+checks the class (switched on, changes nothing) for every adopted mechanism. A default-off flag is still checked only
+by its own gate's FIRES line.
 
 ### I.6 The evidence tree predates the deployment it describes — THE LARGEST ITEM
 **Most of the results tree was measured on the pre-2026-09-07 topology and is
@@ -681,6 +869,12 @@ then every document citing the old numbers has to be repointed.
 figure most worth re-establishing first is the §7 reliability result — 82% more
 deployments for 27% more energy — because it is the project's one headline number that
 is not a negative, and it currently rests on the old geometry.
+
+*2026-10-18 (T16): G6's comparison is green again.* DESIGN_DECISIONS 16 moved the default box, so G6's tracked pair
+(`causal_v11`, `det_a_v11`) described a deployment the default no longer builds. Per G6's own remedy,
+`results/causal_v12` and `det_a_v12` were generated as new paths: one run at G6's exact arguments on a clean tree,
+`source e93f35c0 dirty 0`. G6 now compares against them; v11 stays tracked. The wider I.6 (campaigns measured on the
+legacy topology) is covered by the B3 regeneration, CAMP-FINAL2 and RESULTS_NONREGENERABLE.tsv.
 
 ## J. Moved here by owner decision, 2026-09-08
 
@@ -717,6 +911,30 @@ class, in exchange for a green line.
 2.4 GHz, difference the loss sums, and identify which term carries the growth. *Cost:*
 days, and the answer may be that the engines are wrong, which would invalidate results.
 *Status:* **stays red, deliberately. 14/15 is the ceiling and that is correct.**
+
+*2026-10-18, diagnosed (T18; `scripts/g11_term_diagnosis.py`).* The engine probe was re-run at probe_v7's configuration
+(`--probe --probeTerms --envFacility=0 --vegFacility=1`), which reproduces probe_v7's margins exactly. Each 2.4 GHz
+term was then compared with the analytic model's mean over its corpus.
+
+**Path loss agrees** to 0.04 dB at every distance. Both apply two-ray to LOS links (89 % at 6 km), and their NLOS
+fractions agree.
+
+**The distance-growing gap (model above engine by −3.0 dB at 100 m and +10.0 dB at 6 km) has two sources:**
+1. **The engine's effective sensitivity is outcome-dependent.** Rebuilt receive power minus the reported margin
+   gives −107.2 dBm on links that decode (the 1.5 dB hysteresis of RULES.md §5), rising to −99.8 dBm as they fail.
+   That rise is the SDR-grade soft-degradation penalty: preamble unlock, PLL unlock and CRC failure, added to the
+   threshold after the decode failed. So the probe's margin of a failing link is not a link-budget margin. This is
+   rule 10's case, a term living in the threshold. It contributes −1.2 dB near the anchor and +6.2 dB at 6 km.
+2. **Terrain loss exists in the engine and not in the model:** 0 dB below 430 m, 4.8 dB at 6 km.
+
+Smaller: the model's 2.4 GHz foliage is 2.3 dB higher (5.5 against 3.2 dB); NLOS and fading differ by under 0.4 dB.
+
+**Which side is wrong.** Neither, for path loss. The comparison is between unlike quantities: an outcome-dependent
+engine margin, against a model that has no terrain term.
+
+A fair G11 would compare against the engine's margin before the soft-degradation penalty, and would give the model the
+engine's terrain mean. That changes G11's registered criterion, so it is not done here. G11 stays red by design, now
+for a known reason.
 
 ### J.2 Tier-1 TDoA: build the timing layer, or keep re-billing
 `2a61fd2` took the cheap half of this — `--tier1ChargeReplies` now measures what the
@@ -845,6 +1063,13 @@ to solve".
 transmission, and a tier that did not transmit is not charged — from the sentence that
 does not. *Cost:* a documentation change. *Risk of leaving it:* a reader reasons about
 the energy axis from a false premise, which is the exact failure mode §6 exists to prevent.
+
+*2026-10-20, CLOSED.* `RULES.md` §6 now states the invariant that holds: every transmission is made
+in the per-cycle loop by an awake radio and charged to its own tier, and an unused tier accrues
+sleep current only. It also lists the three deliberate exceptions: the floor, the dual base and
+`poucet_fusion`. "Exactly zero on unused tiers" was also false, by the sleep current: `static_868`,
+seed 7, 600 s, bills 0.002376 J on 2.4 GHz and 0.001386 J on UWB, all sleep, with zero transmit,
+receive, CAD and idle.
 
 ### K.4 Gateways as edge servers — built, and it can only cost energy
 
@@ -1242,6 +1467,9 @@ produce, so each is a change of its own, with its own null control:
   the estimate of `t − dt`: 264 of 265 held entries in `searcher_t1` and 39 of 39 in
   `sparse_t1` equal the trace estimate of the cycle before their timestamp. Every entry age
   in the project is understated by 2.5 s.
+  - *2026-10-18, `--publishAfterStep` (G156), default off:* the entry is re-published after `Step` at the same
+    stamp. G150: flag off, 927/927 held entries carry the previous cycle's estimate; on, 927/927 the same cycle's.
+    Default unchanged; whether the preset takes it is the owner's.
 
 ### L.2 status, 2026-09-29
 
@@ -1654,6 +1882,9 @@ tree, where `source` reads `unknown`) can be matched to a built binary by its ha
   which commit built it. That needs the build to record HEAD (ns-3's
   `--enable-build-version`, or a generated header), which is a build-system change.
 
+*2026-10-18 (T39): both stamps are in the preset.* Under `--specProfile`, `run_id.txt` names the binary's SHA-256 and the
+commit and dirty count that built it. Only the sidecar changes (NC10: 224 files identical).
+
 *2026-10-04, `--stampBuildCommit` (G82), the other half.* `run_id.txt` gains one more line:
 `build source <commit> dirty <n>`. It names the tree that COMPILED the binary.
 - `scratch/catbl_build_stamp.cmake` runs as a custom target before every build of
@@ -1775,6 +2006,16 @@ runs". It has been false since `50a229a`.
   - In G75 (seed 7, 900 s, triggered updates off): 36 handshakes, 64 frames. All 36 pushes
     were heard (36 distinct packet ids from node 1 at the originator's hop limit).
   - Subjects run no handshake, so the count is tag 0's. The per-subject half waits on N.3.
+- *2026-10-18, closed (T3):* there is no per-subject half to count. `StartHandshake()` and `SetMobilityState()` are
+  called only on tag 0's MACs (`scratch/ca_tbl_causal_sim.cc`, one call site each), and the RECEDING push exists only
+  inside `StartHandshake()`. So no subject can send one, and G75's count, summed over every radio, is complete. If
+  N.3's refactor ever gives subjects the handshake, the count must follow it.
+
+*2026-10-20, CLOSED, and the open half moved to N.3.* `--reportRecedingPushes` already sums every radio of every
+node (`macs`), so a subject's push would be counted. None happens, because `SetMobilityState` is called only on tag
+0's radios (`scratch/ca_tbl_causal_sim.cc`, the `--mobilityFromRange` block, `nodeMac[ti]->SetMobilityState`). No
+subject classifies its mobility or takes the RECEDING branch, including under the preset, which sets
+`--mobilityFromRange`. That is a component tag 0 has and the subjects do not (N.3).
 
 ### M.10 Which radio the gateway-estimator downlink is billed on — DECISION; DECIDED 2026-09-30: on the fix's tier
 
@@ -2031,6 +2272,8 @@ relay billing. A change to one copy that is not made to the other drifts silentl
 subject-1 = arm_summary check pins tag 0's row only, not the equivalence of the two copies.
 
 What tag 0 has and subjects 2..N do not, each named in a start-up WARNING when on:
+*(2026-10-20: one more, not in the WARNING: MAC 11.11's mobility state, `--mobilityFromRange`. Only tag 0's
+radios are ever given one, so no subject makes the RECEDING eager push; M.9.)*
 SHS and the SHS witness (`--imuCrossCheck`/`--imuFusion`), `--imuWitnessSource=model`,
 `--tier1Tdoa`, `--nlosClassifier`, `--sessionLayer`, `--batteryDepleteJ`,
 `--triggeredUpdates`, `--edgeUplinkRanges` and `--entryVelocity`/`--entryPrediction`.
@@ -3308,6 +3551,10 @@ current code) SF12 at 500 m: PDR 0.005–0.015 with 199/200 collisions at 0.1 s 
 since SF12 airtime is ~30× SF7 and therefore overlaps far more interferers": right about collisions,
 wrong about whose. It is not a property of the channel, and it is not a reason to exclude SF12.
 
+*2026-10-18, fixed in the harness.* Metric 2 spaces frames at twice each SF's time on air (20-byte payload), never
+closer than 0.1 s; `--metric2SpacingS=0.1` restores the old spacing. Seed 7, SF12: urban 500 m 0.015 → 1.000,
+suburban 0.005 → 0.985, and delivery now falls with distance (urban 10 km 0.340). No gate runs the harness.
+
 ### N.30 Two gates had no negative fixture, and cited evidence was never checked as held
 
 G10 had no negative fixture (working rule 6); `scripts/catbl_citation_fixture.sh` now runs first.
@@ -3496,6 +3743,17 @@ hybrid's limit is the tier.
 - **Open:** H2 in its TDoA form (the subjects' TDoA fixes), and the per-subject range log (B1)
   needed to see what else differs.
 
+*2026-10-20, resolved without the ablation (read from two registered campaigns, post hoc on their tracked
+tables).* The loss being explained does not exist under unknown start. CA-TBL − static 2.4 GHz, five-node A(25 m),
+5 km, paired:
+- **ANCHOR-SUPPLY:** +0.330 [0.260, 0.398] (R4), +0.292 (P4), +0.287 (R8), +0.292 (P8), every interval above 0;
+- **PRESET-2 under N:** +0.237 [0.169, 0.305].
+
+N.50 found the cause after this entry was written. Known-start seeding put every subject at its truth, so a static
+2.4 GHz subject that never fixed still sat within 25 m (69 % of the time at 5 km). The −0.082 was that seeding, not
+H1, H2 or the TDoA form. The `--subjectTier1Tdoa=false` ablation is not run: it would explain a gap the realistic
+start removes.
+
 ### N.41 UWB reach: the engine's foliage scaling is capped by a clamp, and the residual it was meant to explain is not it
 
 *2026-10-09, S3 (`report/UWB_REACH.md`).*
@@ -3536,6 +3794,29 @@ gain, the f^0.75 extrapolation to 8 GHz.
 **Not changed:** the values. Relabelling a value OURS does not make it wrong, and changing one is
 an engine change with its own null control and campaign. The Lim, Hofer and Robyns values stay
 open for a source.
+
+*2026-10-18 (T36), checked against sources in hand:*
+- **"Hofer 2015", NLOS loss.** The urban branch is 3GPP TR 38.901 v17.0.0 Table 7.4.1-1 UMa, verified on the PDF: PL1 LOS
+  28.0 + 22 log d + 20 log fc and PL'NLOS 13.54 + 39.08 log d + 20 log fc. Two departures: a fixed 1000 m breakpoint for
+  d'_BP, and h_UT 1.5 m. The comment now cites it. The other environments' Normal(μ, σ) losses stay OURS.
+- **"Lim 2018", delay spread.** Still no source; OURS. For comparison, TR 38.901 Table 7.5-6 medians at 2.4 GHz:
+
+  | scenario | LOS | NLOS | engine (LOS / NLOS) |
+  |---|---|---|---|
+  | RMa | 32 ns | 37 ns | rural open: 50 / 120 ns |
+  | UMa | 102 ns | 439 ns | urban moderate: 150 / 480 ns |
+
+  The urban values are close to 3GPP's; the rural NLOS one is about 3× high.
+- **"Robyns 2017", CFO-temperature coefficient.** Still OURS. 1.5 Hz/°C at 868 MHz is 0.0017 ppm/°C, one to two orders
+  of magnitude below the frequency-temperature slope of a crystal or TCXO (typically 0.01–0.5 ppm/°C). So
+  temperature-driven CFO is probably understated. A vendor figure (Semtech AN1200.59) could not be retrieved
+  (download blocked), so none is cited. Changing the value is an engine change for its own campaign.
+
+*2026-10-20, searched again (plan Phase 8).* AN1200.59 v1.3 ("LoRa Reference Clock Selection") is indexed at
+mouser.lt/pdfDocs/AN1200_59_LoRa_Reference_Clock_Selection_V1_3_rev.pdf. The fetch returned an HTML block page, not the
+document. Secondary sources attribute a 0.5 ppm TCXO recommendation to it and list ±10–20 ppm crystals and ±1 ppm
+TCXOs for SX1262 modules. Paraphrases are not citations, so **both values stay OURS**. The open action is to obtain the
+PDF first-hand. Status unchanged: RESEARCH.
 
 
 ### N.50 Every filter was seeded at or next to its truth; the unknown-start case had never been simulated
@@ -3852,6 +4133,25 @@ realised loss biases ranges long. Not diagnosed.
 Any change to the foliage model should carry the RSSI ranging model with it, or be measured as a model mismatch on
 purpose (a real deployment's fitted model would be fitted on site; E1's calibration spots do exactly that).
 
+*2026-10-18, diagnosed (T24); the hypothesis above is refuted.* The 868 MHz RSSI inversion
+(`lora-ranging-submodule.cc`, `RANGING_TIER_868`) has no foliage term at all. Under `--rssiRangeFromShadowing` it
+inverts path loss + this link's shadowing (+ NLOS under `--nlosRangeBias`), so neither foliage model enters the
+range. Range traces, preset 5 km, `static_868`, seeds 1–3, gateway ranges:
+
+| foliage model | gateway ranges | median \|err\| at 2–4 km | median err/d at 2–4 km | at 4–9 km |
+|---|---|---|---|---|
+| base | 1365 | 1523 m | −0.30 | 2042 m, −0.38 |
+| P.833 | 1521 (+11 %) | 1522 m | −0.22 | 2028 m, −0.38 |
+
+So per-range quality at a given distance is unchanged. P.833's 1.5 dB lower 868 MHz loss admits about 11 % more links,
+slightly less biased toward short ranges (the reception selection of B4 weakens). C4-P833's F3 shift (+43 m,
+interval [−1.7, +98.2]) was never significant, so there is no mismatch to fix.
+
+**What the diagnosis exposes instead (new, T46):** the RSSI a real receiver measures includes foliage and fading.
+The simulated RSSI range omits both, so its error is the shadowing alone (about 7 dB), against the 9–17 dB realised
+margin spread B8 measured. Making the RSSI range read the full received power is an engine change for its own
+registered campaign.
+
 ### O.10 O.7 mostly explained: overconfident 868 MHz σ (closed in part by DESIGN_DECISIONS 14)
 SIG868: with the exact log-normal σ, the calibrated-Wolf endgame hybrid improves 53.4 → 34.7 m. 2.4 GHz alone is
 28.3 m.
@@ -4083,6 +4383,20 @@ Exploratory remedies tried on seeds 1–6 (single arm, 1800 s, not citable):
 The principled remedy for a covariance that collapses before a large-offset state converges is an
 iterated update (IEKF: re-linearise around the improving estimate, Gauss-Newton). Not yet built.
 
+*2026-10-20, built and piloted: `--ekf5Iterate` (`4a54a7ee`, G151, default off).*
+- **Unit level, it does what N.58 asks.** From an honest 200 m prior with three σ = 3 m ranges at ~50 m, mean
+  posterior NEES is 320 single against 2.07 iterated (χ²₂ mean 2), and mean error 36.5 against 3.2 m.
+- **On the full stack it does not help.** EXPLORATORY pilot, not citable: REAL-BEST's S stack, seeds 1–6, 1800 s,
+  five arms (`~/ns/catbl-work/iekf_pilot`).
+  - CA-TBL 5 km tag 0 CEP95, mean 216 → 413 m, paired interval [+2, +456], driven by seeds 4 (126 → 910) and
+    5 (852 → 1233).
+  - Endgame: median NEES 3.14 → 2.39, coverage 0.82 → 0.87, availability +0.012 [0.000, 0.025], CEP95 unchanged.
+  - `static_868` in the endgame: worse, +4.7 m [1.6, 7.8], coverage 0.33 → 0.22.
+- **Why: the failing 5 km cycles are not mis-linearised.** They have 3–8 ranges and accurate ToF, and the
+  measurement set is itself consistent with a wrong position (N.62). Iterating obeys it more completely.
+- **Not proposed, and no registered campaign run.** The pilot contradicts the adoption prediction one would
+  register. The flag stays, default off, for a regime with a consistent measurement set.
+
 ### N.59 With a realistic IMU the preset collapses under its own filter; ekf5 recovers most, and heading drift is the 5 km residual
 
 REAL-IMU (`report/REAL_IMU_RESULTS.md`): a BMI270-class gyro (0.15 °/s) and 5 % per-step stride noise
@@ -4158,3 +4472,400 @@ on the consistent stack raises CA-TBL's endgame availability (+0.012) but costs 
 ratio +41.5 %) and +30 % energy. `fixed_threshold` and Poucet are then significantly more accurate. Not proposed.
 CA-TBL's integrity threshold, like its escalation thresholds, moves it along an accuracy / availability / energy
 frontier.
+
+### N.62 At 5 km the residual is single-anchor ring ambiguity: the particle cloud hands over a crescent whose mean it does not contain
+
+Found 2026-10-20 diagnosing the IEKF pilot's worst cell. EXPLORATORY: REAL-BEST's S stack at 5 km, seed 5, `ca_tbl_full`,
+re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
+- **What the filter sees.** Tag 0's precise 2.4 GHz ranges go to ONE finder (501, ~230 m away). Their error is
+  2.5 m at σ 3 (E[z²] 5.2). The other finders are 560–1540 m away and not ranged on 2.4 GHz. The 868 MHz ranges
+  carry σ 580 m (finders) to 3 km (gateways). One precise range fixes a circle around the finder, and the 868 MHz
+  ranges cannot tell its sides apart.
+- **What the particle acquisition does with it.** The cloud handed over at cycle 8 with mean (−679, 249) and
+  sd 322 m. Finder 501 was at (−674, 220): the mean is the ring's centre, where no particle is.
+  - The linearisation guard compares the cloud with a quarter of the MEDIAN range, and km-long 868 MHz
+    ranges set the median.
+  - The unimodality test (Ashman's D) runs on the projection onto one axis, and a crescent projects
+    unimodal.
+- **What follows.** At t = 22.5–25 s a 4–6-range update collapses σ from 192 to 10.7 m on the mirror side. The
+  filter then holds 410–500 m of error at σ ≈ 10 m for the rest of the run. The estimate stays 236 m from finder
+  501, against a true 221 m, so every precise range agrees with it.
+- **What does not fix it.** `--ekf5Iterate` converges harder onto the mirror (N.58). `--acquireHandoverCurvature`
+  keeps the cloud, but the EKF meanwhile carries the cloud's mean, the empty centre: REAL-IMU, ekf5 at 5 km,
+  +95 m [−201, +433].
+- **Candidate tried, and the diagnosis corrected (same day, same cell, single seed: populations, not
+  results).** A mean-support handover test (`--acquireHandoverSupport`, weight within the mean's 1-sigma
+  ellipse) never fired: 0 holds. The cycle-8 cloud was not a crescent. It was a blob around finder 501,
+  built from 868 MHz ranges before any precise range arrived, and honestly unimodal. The ring appears one
+  step later, inside the EKF: a Gaussian prior centred on the finder receives a precise range to it, and a
+  Gaussian cannot represent the ring that results. The code is kept as a patch,
+  `~/ns/catbl-work/wip_acquire_support.patch`, not committed.
+- **Held longer, it still drifts.** With `--acquireHandoverCurvature` the cloud stays honest (229 m error at
+  sigma 238), hands over, and converges to 35 m by t = 212 s. It then drifts to 541 m by t = 572 s at a claimed
+  sigma of 3-7 m, on 4-8 ranges a cycle. Per-range log over 150-600 s:
+  - the only precise range is to finder 501 (2.4 GHz, mean error +-0.3 m);
+  - the 868 MHz ranges to all four finders run LONG by +100 to +205 m at stated sigma 136-660 m;
+  - gateway ranges have sigma of 1.5-4 km;
+  - no TDoA solve was fused (0 of 2 OK).
+  The tangential direction around finder 501 is held only by biased 868 MHz ranges and the IMU, and the filter
+  claims a few metres there.
+- **Neither existing remedy holds it on this cell.** `--tofRecal` learns a log-bias of +0.18 from 178 pairs,
+  and the drift continues (43 -> 309 m guarded, 32 -> 680 m unguarded). One bias for every 868 MHz link cannot
+  fit finders running long and gateways running short (N.57). `--rssiCorrInflate` leaves the error swinging
+  14-605 m at sigma 3-8 m.
+- **Open.** Why the low-to-low finder 868 MHz links read 20 % long: a path-loss model fitted to masts and
+  applied to handhelds is the candidate. Whether the finder converging on tag 0's own wrong estimate closes a
+  feedback loop. A per-link-class bias, or modelling low-low 868 MHz links separately, is the next measurement.
+  A multi-seed pilot must come before any remedy is called one.
+- **The low-to-low path-loss hypothesis is falsified.** Seeds 1-6 at 5 km, 600 s, the same stack,
+  `--traceRanges` (`~/ns/catbl-work/finder868`), tag 0's 868 MHz ranges, mean ln(r/d):
+  - finders: −0.021 under 300 m (n 1 296), −0.034 at 300-1000 m (2 626), −0.181 at 1-3 km (872);
+  - gateways: −0.110 at 1-3 km (304), −0.370 beyond 3 km (863).
+  Finder links run slightly SHORT, like gateways: N.57's selection by reception. Seed 5's +100-200 m was one
+  realisation of slowly varying, link-correlated shadowing on links whose geometry changes little, because the
+  finder converges on the tag. What is left is the correlated-shadowing mechanism O.12 and N.57 already name, in
+  the one-precise-anchor geometry. `--rssiCorrInflate`'s Gudmundson decorrelation runs on the node's own
+  displacement, so it cannot see a link whose two ends move together.
+- **Correction, same day: the 868 MHz error model is close to honest per link.** The engine decorrelates a
+  link's shadowing on max(tx, rx) displacement (Gudmundson, `lora-shadowing-submodule.cc`), so ends that move
+  together still decorrelate. Measured on the same six seeds, tag 0's 868 MHz log range errors:
+  - autocorrelation 0.46 at 2.5 s, 0.27 at 10 s, 0.02 at 40 s for finders (0.36 / 0.19 / −0.10 for gateways);
+  - per-link means spread 0.181 against 0.137 expected from averaging alone (finders): a persistent per-link
+    part of ~0.12 against a stated log-normal SD of ~0.74.
+  Neither holds four links biased for 450 s. Seed 5's long finder ranges were chance, and the
+  correlated-shadowing explanation above is withdrawn.
+- **Where the error actually lives: the filter's sensor states.** Seed 5, 600 s, with the guard, end of run
+  (`~/ns/catbl-work/diag_s5_curv/run.log`):
+  - heading offset estimated −2.30 rad against a true −1.65 (37° wrong), with the magnetometer fused 240 times at
+    3° white plus a 3° / 120 s Gauss-Markov disturbance;
+  - stride scale −0.25 against a true +0.006;
+  - gyro bias 38 % high.
+  With one precise anchor, the tangential direction is observable only through the dead-reckoned path. The range
+  innovations then move θ, b and s through their cross-covariance with position, and a wrong heading rotates the
+  estimate about the finder while every range still agrees. This is N.59's "range innovations still drive theta
+  against the reference", located.
+- **Already measured and rejected for it:** θ owned by the magnetometer (REAL-STACK disclosure, 20 seeds); state
+  bounds alone (REAL-BEST P5); one-range consider updates (EKF5-CONSIDER); the iterated update (N.58).
+  Each acts on a single update. The candidates left act on the whole trajectory: a sliding-window smoother
+  (a batch / factor-graph solve over the last N cycles, re-linearised jointly), or a particle or
+  multiple-hypothesis filter kept running while the geometry has one precise anchor. Either is a new estimator,
+  not a flag on this one.
+- **The window smoother tested offline, 2026-10-20.** EXPLORATORY, six seeds:
+  `analysis/smoother_replay/`. Each solve uses only the information the EKF had: its fused ranges with their
+  sigma, IMU odometry, a magnetometer synthesised with the run's own model, and the finder-offset prior.
+  - **Full batch, using future data, an upper bound:** p95 error 4.8-14.2 m on every seed, against the EKF's
+    74-500 m. The gyro bias is recovered within 10 % on every seed.
+  - **Causal, a 150 s trailing window, the estimate at its last cycle:** the window gives medians 3.0 / 3.8 / 6.1
+    / 5.5 / 7.7 / 11.0 m against the EKF's 8.4 / 9.8 / 29.2 / 19.5 / 215.5 / 4.1 m, and p95 7.7 / 6.5 / 15.9 /
+    16.0 / 342 / 27.7 m against 44.6 / 35.7 / 154.6 / 49.5 / 508.5 / 17.0 m. Better on seeds 1-5. Seed 6 is
+    worse (27.7 against 17.0). Seed 5's tail comes from the first window starting at the EKF's estimate, already
+    about 200 m off.
+  - **Why it works where the EKF does not:** heading, bias and scale are solved jointly with the path. One
+    linearisation no longer decides them, and the magnetometer's absolute reference is weighed against the whole
+    window's ranges.
+  - **Next:** a sliding-window estimator inside the scenario, as `--imuFilter` option, default off, with its
+    null control and gate. Then a registered campaign, which must include seed 6's kind of case.
+- **Built and registered, 2026-10-20.** `--ekf5Window` (`762bad9c`, G152, null control 12/12), registered as
+  EKF5-WINDOW (`61326646`). Read-out: `report/EKF5_WINDOW_RESULTS.md`, 80 cells, seeds 61-80.
+  - **5 km: not supported.** CA-TBL −28.1 [−243.0, +138.1] m; coverage 0.39 -> 0.60.
+  - **Endgame: sharper, though not a registered prediction.** CA-TBL 4.6 -> 3.1 m [−3.3, −0.2], coverage 0.89 ->
+    0.96, every policy arm improved.
+  - **The decision rule is not met;** the flag stays default off.
+  - **What the out-of-sample seeds show instead.** Their 5 km error is dominated by runs that never acquire a
+    usable geometry: five seeds over 1.5 km under both variants. That is an anchor-supply limit, not an estimator
+    one. The pilot's seeds 1-6 overstated the 5 km effect about tenfold.
+  - **Next, if the 5 km figure is to move:** more precise anchors reaching tag 0 (finder tasking, a relay supply).
+    This is a scenario or design question for the owner, not the filter.
+- **The endgame gain registered, 2026-10-20: EKF5-WINDOW-END** (`d3e9b581`; `report/EKF5_WINDOW_END_RESULTS.md`,
+  40 cells, seeds 81-100).
+  - **Accuracy: replicated.** CA-TBL 3.9 -> 3.1 m, −0.8 [−1.4, −0.2]; coverage 0.965. CA-TBL ties Poucet with
+    +0.030 availability.
+  - **Availability: P3 failed as written.** +0.000 [−0.010, +0.010] against a bound of "above −0.01".
+  - **The decision rule is not met;** the flag stays off.
+  - **For the owner:** a twice-replicated endgame accuracy gain, no detectable availability or energy effect, and
+    no 5 km support.
+
+### O.15 G24's zero set, 2026-10-18 (T17, the part that is not a decision)
+The preset now runs `halfDuplexChip=false` (DD 11) and `rangeReplyPosition=true` (DD 10). Two of G24's populations are
+therefore zero by construction:
+- **receptions lost to the other band:** two chips cannot deafen each other;
+- **tag 0's finder ranges dropped:** every finder reply carries a position.
+
+G24 reports each as STRUCT while the preset's `spec_profile.txt` shows the deciding setting, and falls back to the
+population rule otherwise. Queue gossip items have a population again. **The three zeros left:** Case A fixes,
+arbitration pre-emptions and grant tie-break verdicts (N.26's fused sets and fewer competing escalations). Accepting
+them is the owner's (TECH_DEBT_STATUS O2).
+
+### O.16 DEBT-A: eight open items measured on the final preset (report/DEBT_A_RESULTS.md)
+- **N.52 / T27:** `--nlosRSource=detector` costs nothing measurable; the oracle can leave the filter (owner, O4).
+- **N.41 / T12:** `--foliageScaleBounds` (G154) improves accuracy (5 km 365 → 330 m; endgame 5.0 → 4.7 m). Owner, O5.
+- **M.1 / T29:** `--interferenceDistance` (G153) improves the endgame (5.0 → 4.1 m, coverage 0.972) and 5 km after
+  acquisition (260 → 210 m). Owner, O6.
+- **O.9 / T46:** `--rssiRangeFromRxPower` (G155) makes 868 MHz alone worse (448 → 494 m), the hybrid unharmed. Owner, O7.
+- **N.35–N.37 / T26:** H2 in its TDoA form is falsified: subjects' TDoA off changes nothing. The hybrid subjects'
+  5 km loss to static 2.4 GHz has no identified cause (H1, H2-range, H2-TDoA all ruled out); recorded as a finding.
+- **M.10 / T33:** C6 re-measured under the fix-tier bill. The edge estimator saves the node 26 % (`static_868`) and
+  13–15 % (hybrid), accuracy byte-identical.
+- **L.3 claim 3 / T42:** arbitration V2 costs 18 % of endgame tag-0 energy and half its UWB time, with no accuracy
+  gain. Claim 3 is unsupported on accuracy and energy. Its fairness objective has no metric in the traces. Owner, O8:
+  keep arbitration V2 in the preset?
+
+### O.17 INTEG2 (T21): no integrity threshold is useful under the final preset (report/INTEG2_RESULTS.md)
+FIXES-N26's fit procedure, re-run on the final preset, gives 9303.8, not a value below 1992.9. At it, recall falls to
+0.012. The fault-free distance's bulk is consistent (endgame p50 1.8), but its tail reaches thousands (5 km p99
+21 322): fixes whose error R does not carry. The check stays in the preset at 1992.9, a withdrawn claim. The tail's
+cause (N.15) is the only lever left; recorded as a limit.
+
+---
+## P. State at the end of the 2026-10-18/19 pass (read this first)
+
+**Where things stand.** Every entry above has been classified and tracked in `docs/TECH_DEBT_STATUS.md` (T1–T46).
+- **Done or closed:** everything not needing the owner or hardware.
+- **Fixed:** T1, T2, T4–T7, T9, T15, T16, T39, T41.
+- **Measured:** T12, T21, T27, T29, T33, T42, T46 (DEBT-A, INTEG2).
+- **Diagnosed:** T8, T18, T19, T24, T26, T36 (partly sourced).
+- **Closed as moot or already done:** T3, T11.
+- **Recorded limits:** T22, T25, T35, T37, T44.
+
+**Open, waiting for the owner** (decisions O1–O9 in the status file, each with its evidence):
+- **O1:** adopt `--publishAfterStep`.
+- **O2:** accept G24's three zeros.
+- **O3:** a fair G11 criterion.
+- **O4:** adopt `--nlosRSource=detector`.
+- **O5:** adopt `--foliageScaleBounds`.
+- **O6:** adopt `--interferenceDistance`.
+- **O7:** adopt `--rssiRangeFromRxPower`.
+- **O8:** keep arbitration V2 in the preset.
+- **O9:** refactor the two per-node cycle copies (T32).
+- **Still open from earlier lists:** T10, T13 (D-8 / G93), T14 (gyro bias / EKF5), T17, T20, T23, T28, T30, T31,
+  T34, T38, T40, T43.
+
+**Open, needing hardware:** T45, the field test.
+
+**Suite (2026-10-19, `0c8e638f`, plus the G10 fix):** 118 PASS. Reds:
+- **G11:** by design, diagnosed in J.1.
+- **G24:** three genuine zeros, O2.
+- **G93:** D-8, owner.
+
+**Branch:** `integrate/2026-10-18-kushaal-kn` (PR #14), awaiting the repository owner's review.
+
+## Q. Decisions and exclusions of 2026-10-20 (the goal-driven plan)
+
+Every item below was judged against the design requirement, `Architecture.md` §1.3: A ≥ 0.95 at R ≤ 25 m over all
+cycles, measured by `scripts/goal_report.py` (`report/GOAL_STATUS.md`). What is adopted is decided by PRESET-2
+(`report/PREREG_PRESET2.md`). What is not changed is listed here, each with its reason. A reason is the evidence or
+the argument; "recorded" is not a reason on its own.
+
+**Not changed, with the reason**
+
+| entry | decision | reason |
+|---|---|---|
+| 2.1 four loss terms computed then zeroed | kept computed, not summed; not deleted | Wiring them in adds four terms with no cited values (unvalidated physics) and forces a full regeneration. Deleting is not free either: the Doppler term draws from the sampler (`ComputeDopplerPenaltyDb(..., m_sampler)`), so removing it shifts the unkeyed stream of every default run. Neither moves A(25 m) toward the requirement. |
+| 3.2 the PCS hop term (weight 0) | kept | `hopWeight` stays 0 (RULES.md §2): σ_eff already carries the relay's covariance, so a hop term double-counts it. Deleting the multiply-by-zero changes no value. |
+| N.3 subjects' mobility state | not built | It has no consumer. The RECEDING push lives only in `StartHandshake`, which subjects never call (T3), so a subject's mobility state would change nothing. |
+| N.17 subject rx/CAD/idle buckets | not built | No claim or gate reads them, and adding columns changes every `subject_summary.csv`. Energy is judged per arm through subject J and the tier totals, which are complete. |
+| N.61 the magnetometer disturbance as a state | not committed | Measured not decisive: the 5 km heading failures persist under a consistent 3° reference. The patch no longer applies to HEAD, and rebasing buys nothing toward the requirement. |
+| N.58 `--ekf5Iterate` | stays off | Measured: worsens 5 km in the pilot; the failing cycles are not mis-linearised (N.62). |
+| N.33 FEJ / observability-constrained update | not built | Superseded by the window smoother, which solves heading, bias and scale jointly over the trajectory (N.62). |
+| K.9 SHS gait calibration | not changed | Superseded in the preset by DC-1 + ekf5; SHS feeds no claim. |
+| C.5 self-deployable mesh | not built | Outside the brief's deployment (fixed gateways plus finders). |
+| N.8 explicit DENY frames, N.9 clustered teams | not changed | The spec chose an explicit answer; a clustered team is a scenario choice, not a defect. |
+| M.2 / L.2.2 a UWB obstruction model of our own | not built | It would manufacture the NLOS the classifier then detects (DESIGN_DECISIONS §9). The cited 802.15.4a model was measured and fails (UWB_NLOS_RESULTS). This is a hardware-validation item. |
+| N.11 per-hop variance terms | stay out of the preset | They give relays no weight (σ 64–83 m against 3.5 m) and have no population at 5 km. |
+| further PCS forms (A8, K.8) | none | Closed by three registered results: PCS equals the trace. |
+| tuning G11 | forbidden | It is the only instrument that caught the six-decibel sensitivity defect. A decode-independent criterion has to be registered in advance (Phase 7). |
+| O.12 scaling σ until coverage reads 0.95 | forbidden | RULES.md §9: that tunes a finding away. |
+| 4.2 `-march=native` | kept | T8 measured a portable build of the same commit: every filter arm's summary is identical, with differences only in last digits. The reproducibility risk is measured and negligible. |
+| N.50 `--unknownStart` as the code default | preset only | Claims are drawn from the preset, which every campaign runs with `--unknownStart`. The code default anchors the null controls and gates (G130, NC1–9). |
+
+**Decided by PRESET-2** (registered; adopted only if its rule holds): the window smoother, the D-8 sensitivity row,
+`--publishAfterStep`, `--nlosRSource=detector`, `--foliageScaleBounds`, `--interferenceDistance`,
+`--rssiRangeFromRxPower`, `--silenceStopsRelay`, `--deadBatteryNoDraw`, `--pcsByteScale=4`, and whether arbitration V2
+stays.
+
+**Claims, against the requirement:**
+- **PCS:** the novelty claim is withdrawn. PCS is the covariance trace by every test.
+- **Tiering:** stated as acquisition, availability and energy against single-band arms. It is not claimed that the
+  escalation rule beats `fixed_threshold`.
+- **Where the requirement stands:** met for tag 0 in the endgame. Short for the five-node population in the endgame
+  (0.84–0.91). Far at 5 km (0.27–0.54). The 5 km gap is anchor supply (N.62), which is next.
+
+## R. Findings, flags and cuts of 2026-10-20, evening (the goal-driven plan, Phases 4–7)
+
+### R.1 G11 has reconciled the model against a stale engine since 2026-09-08 — OPEN, the defect is G11's
+
+**Found by IQ-TERM** (`src/catbl-propagation-study/experiments/IQ_TERM_REGISTRATION.md`, result `6ca7cc4b`).
+`validate.py` and G11 compare `linkbudget.py` with `results/probe_v7` (built Aug 27, `fbf2153`).
+
+`50fc8620` (2026-09-08) deliberately put the facility tiers in the wide-area vegetation:
+- at today's defaults, tiers 2 and 3 carry about 15.6 dB of foliage (`--probeTerms`);
+- their margins sit 15–20 dB below `probe_v7`'s;
+- 868 MHz is identical.
+
+Every G11 number since then, including G11a's ("UWB ~3.7 dB unattributed", RULES.md §5), describes an engine state
+that no run uses. `linkbudget.py`'s `TIER_ENV` still puts tiers 2/3 in `RURAL_OPEN`.
+
+This is rule 9's failure mode: a scan of present data cannot see that the data is stale.
+
+**Fix:**
+- regenerate the probe at today's defaults into a NEW directory (`results/probe_v8`, never over `probe_v7`);
+- register a reconciliation whose model environment is read from the engine's configuration, not chosen;
+- then re-point G11.
+
+**Done the same evening (VAL-V8, `src/catbl-propagation-study/experiments/VAL_V8_REGISTRATION.md`):**
+- `results/probe_v8` was generated at G11's invocation, and the model got an `env` override (validate.py's stdout
+  byte-identical without it).
+- G11 is re-pointed with tiers 2/3 at the engine's declared defaults.
+
+Against the engine as it is:
+- UWB's margin reconciles (worst 2.12 dB);
+- 2.4 GHz's r80 passes (13.7 %);
+- 868 MHz is unchanged;
+- the open residual is 2.4 GHz's margin slope (−6.4 to +6.9 dB).
+
+The registered expectation, that the gaps return to their probe_v7 values, FAILED: the forest move changed something
+the model represents differently. **G11 stays red, now for reasons that describe the engine that runs.**
+
+### R.2 The IQ-impairment degradation: outside every census, double-counted — FLAG `--iqOverloadOnly`, G161
+
+Every engine subtracts `20 log10(1 + EVM)` (+15 dB under clipping) from rx power after the loss sum
+(`lora-iq-impairment-submodule.cc:48`), then compares with a data-sheet sensitivity that already contains the
+receiver's impairments.
+
+IQ-TERM measured it at:
+- 0.6–5.3 dB on 868 MHz;
+- 0.6–6.0 dB on 2.4 GHz;
+- a saturated 5.9–6.0 dB on UWB.
+
+`--iqOverloadOnly` (default off, `635c0ab9`) keeps the penalty only under ADC overload.
+- **Null control:** 13 of 13 byte-identical.
+- **G161:** 7 ok, self-test 11 of 11.
+- **Adoption:** decided by FIDELITY-1's registered rule (`report/PREREG_FIDELITY1.md`).
+
+### R.3 TECH_DEBT 2.4, UWB sensitivity — FLAG `--uwbSensitivityDbm` (`e69f4c4b`), G161; FIDELITY-1
+
+The DW3000 data sheet's −99.3 dBm against our −104 dBm. It runs together with R.2 in FIDELITY-1, because each alone
+moves tier 3 by 5–6 dB and the two nearly cancel (net about +1.3 dB).
+
+### R.4 G24's zero populations — re-examined, not relabelled
+
+**Case A fixes.** Reachable in the preset, so not structural.
+- Read post hoc from PRESET-2's and the pairs pilot's logs: **1 fix in 41 half-hour CA-TBL runs**, against 13–20 in
+  the single-band arms.
+- CA-TBL almost always has three or more anchors through the floor or relays, so a two-gateway cycle is rare there.
+- G24's red on it is a true finding: Case A contributes nothing measurable to CA-TBL's availability.
+- Marking it STRUCT would be false (rule 4), and choosing a run until it fires is rejected.
+
+**Arbitration pre-emptions and grant tie-break verdicts.** These need two finders contending for one subject.
+`--finderTasking=pairs` creates exactly that, and ANCHOR-SUPPLY's B_P4/B_P8 cells are the population to read. The
+count is recorded in the ANCHOR-SUPPLY result. G24's registered runs are not changed.
+
+**Measured (ANCHOR-SUPPLY result):**
+- **Pre-emptions:** 17 in 80 CA-TBL endgame cells, 5 under R4. The mechanism works, and G24's zero is its sample size.
+- **Tie-break verdicts:** 0 in 160 cells. They stay red in G24 as not shown reachable.
+
+### R.5 N.62's lever: `--finderTasking=pairs` (`af741829`) — G160; ANCHOR-SUPPLY
+
+G160: 6 ok, self-test 10 of 10. ANCHOR-SUPPLY (`report/PREREG_ANCHOR_SUPPLY.md`) measures pairs and finder count on
+A(25 m), seeds 121–140.
+
+### R.6 Cut tonight, with the reason
+
+| plan item | decision | reason |
+|---|---|---|
+| M.1(b) relay round in the event slice | not built | It moves the relay round's timing, not its content. No measured A(25 m) effect is attributed to the slice, and it needs its own null control and campaign. Ranked below anchor supply, the measured bottleneck (N.62). |
+| 3.5 anchor-pair CAD | not built | Gateways are fixed, surveyed and few (3), and their mutual hidden-terminal loss is not in any measured failure. Same ranking. |
+| item 23 GDOP-driven finder tasking | not built | Pairs is its simplest member, and ANCHOR-SUPPLY measures whether a second precise anchor per subject helps at all before geometry is optimised. Building the optimiser first would answer a question the data has not yet asked. |
+| item 24 finder beacons carry position (N.32) | not built | `--rangeReplyPosition` (preset, DESIGN_DECISIONS 10) already carries a finder's position on every range reply, so the ranging that matters already has it. |
+| item 25 subject-to-subject precise ranging | not built | It needs subjects within 2.4 GHz/UWB reach of one another, which the 5 km geometry rarely gives. Its population would be the one N.62 says is missing. |
+| item 27 `--caseAPreFuse` | not built | R.4: Case A is not starved by fusion order. Two-gateway cycles are rare in CA-TBL because better geometry is present. |
+| item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
+| Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
+| N.1, N.20 dead nodes neither relay nor draw (plan item 10) | not in the preset; used with the battery model | Both are refused without `--batteryDepleteJ > 0` (PRESET-2 Amendment 1). A preset without a battery model has no dead node for them to act on, so adopting them would be refused or inert. Fault campaigns pass them with `--batteryDepleteJ`, which is where they act. |
+| N.51 subject overconfidence, N.57 selection bias (Phase 8) | deferred, each to its own registration | Their first measurements are code: an R change for relayed P_B, and negative information in the EKF. A post-hoc read of tonight's traces cannot answer either. The subject traces carry `traceSigma` only, and coverage computed from a trace under an isotropy assumption is biased by exactly the anisotropy N.51 is about. Done tonight instead: 2.3, 4.1 and O.9 statuses corrected; N.35–N.37 resolved; N.42 searched. |
+| N.29 harness self-collision | **already fixed** (`d6b6e122`, 2026-10-18) | This row first said "not done": wrong. The ledger's own N.29 entry records the fix; the status table's RECORDED was stale and is corrected. |
+| §6 build profile not enforced | **FIXED at citation, not at run time** | Every sidecar records the profile, and nothing checked it where a citation is accepted. G92 now fails a cited directory whose tracked sidecar records a profile other than `optimized` (`NOT_OPTIMIZED`, a fixture direction). A run-time FATAL would only stop runs that are never cited. 9 753 of 9 753 tracked sidecars are optimized. |
+
+### R.7 G11's 2.4 GHz residual decomposed — three terms the model does not carry (re-census, not fitted)
+
+`--probeTerms` at today's defaults against `linkbudget.py`'s own terms, 2.4 GHz, 10 m → 6 km (2026-10-20, post hoc on
+`results/probe_v8`'s configuration):
+- **path loss and NLOS agree** within 0.1–0.7 dB at every distance;
+- **foliage:** engine 15.6–15.9 dB, model 21.0 dB, a **constant −5.2 dB** (model weaker).
+  `corrState.foliageDensity` multiplies `A_max`'s mean on every tier (`lora-2p4-physics-engine.cc:516`, `:520` and
+  `:542` in the other two). It is 0.8 in `RURAL_FORESTED` (`lora-correlation-engine.cc:121`, OURS, +0.2 × rain
+  wetness). It is in no census. The same ratio, engine/model ≈ 0.77, holds on 868 MHz (12.2 against 16.0 dB);
+- **terrain:** engine 0 → 4.8 dB with distance; the model excludes it by design (transcription-only);
+- **IQ term (R.2):** engine 0.6 → 6.0 dB as SNR falls; not in the model.
+
+Together these give −5.2 + 0.6 ≈ −4.6 dB near, measured −6.4, and −5.2 + 4.8 + 6.0 + 0.7 ≈ +6.3 dB far, measured
++6.9. The slope is terrain plus the IQ term, and the offset is the density factor.
+
+**Per the G11a corollary, nothing is added to the model.** The census gains two entries: the density factor and the IQ
+term. The ±4 dB bracket of RULES.md §5 was chosen for residuals that this decomposition replaces.
+
+### R.8 PRESET-2 decided: not adopted by its rule (DESIGN_DECISIONS 17)
+
+Section Q's "decided by PRESET-2" list resolves to **not adopted**: P1 and P3 failed on the endgame's five-node
+interval. P5 failed, so arbitration V2, requester escalation and queue gossip stay. The candidates remain default-off
+flags, and their gates stay as they are.
+
+The set's measured effect on the requirement is in `report/PRESET2_RESULTS.md`: 5 km tag 0 +0.44, five-node +0.24,
+energy down. Adopting it is an owner decision.
+
+### R.9 ANCHOR-SUPPLY decided (report/PREREG_ANCHOR_SUPPLY.md, result)
+
+- **Eight finders bring the endgame five-node pool to 0.970,** meeting the requirement on average; four give 0.873.
+- **`--finderTasking=pairs`** cuts endgame subject energy by 35 % at unchanged availability, and does not help at 5 km.
+- **No tested deployment meets the requirement at 5 km** (five-node ≤ 0.58).
+
+**Both are deployment and tasking choices for the owner.** The preset is not changed by this campaign; its
+registration made no adoption rule.
+
+### R.10 T18's diagnosis named an inactive term; the residual it measured is the IQ degradation (rule 10 again)
+
+**How T18 measured it.** `scripts/g11_term_diagnosis.py` (T18, J.1) rebuilt the engine's "effective sensitivity" as
+tx − Σ(probed loss terms) − margin. It found −107.2 → −99.8 dBm with distance and attributed that to the
+outcome-dependent effective sensitivity, naming the soft-degradation penalty.
+
+**Two reasons that attribution cannot hold:**
+- The penalty is added only inside `if (m_config.fidelityMode == FIDELITY_SDR_GRADE_REALISM)`
+  (`lora-2p4-physics-engine.cc:917`). The scenario runs ULTRA_FAST (`ca_tbl_causal_sim.cc:544-555`), so the penalty
+  never runs.
+- A residual defined as "what the probed terms do not explain" absorbs every term outside the probed sum. The IQ
+  degradation (R.2) is subtracted from rx power after that sum, and it grows 0.6 → 6 dB as SNR falls. Link
+  hysteresis (1.5 dB × PDR) shrinks with distance. Together they move the rebuilt figure by about 7 dB, which is the
+  7.4 dB T18 measured.
+
+**This is RULES.md rule 10's failure mode for the third time:** an enumeration of a sum that did not contain the term.
+The status rows T18 and T19 are corrected.
+
+### R.11 FIDELITY-1b measured the adopted receiver corrections: they help every arm, and the comparators more at 5 km
+
+Valid campaign (`report/PREREG_FIDELITY1B.md`; problems none); R1–R3 hold. Under the preset's corrected receiver:
+- **at 5 km, CA-TBL's five-node A(25 m) is below `fixed_threshold`'s:** −0.056 [−0.106, −0.006];
+- **in the endgame, CA-TBL still beats Poucet:** +0.053 [0.009, 0.095].
+
+The Technical Report carries it as CR-22.
+
+**Open.** Why the escalation rule loses ground at 5 km once tier 1 reaches further. A plausible reading, not measured:
+a longer-reaching floor makes escalation less often useful, and CA-TBL pays for its escalations in availability. A
+registered look at escalation counts and outcomes per arm under F1 is the next step.
+
+### R.12 INTEG3: the integrity check is not the 5 km cause, and the 5 km deficit did not replicate
+
+R.11's open question is answered by `report/PREREG_INTEG3.md` (seeds 181–200, problems none):
+- **I1 failed.** At 5 km, no-integrity − full is −0.024 [−0.056, 0.005]: the check is not the cause.
+- **The deficit itself does not replicate.** CA-TBL is level with `fixed_threshold` at 5 km (−0.001).
+- **On the 8-gateway ring the check costs availability:** +0.036 [0.004, 0.070] five-node without it.
+
+**Two lessons:**
+- **The exploratory diagnostic was right not to be cited.** Ten seeds of the same 161–170 range reproduced the
+  campaign's noise, not a mechanism.
+- **The registered fresh-seed test is what separated them.**
+
+**O13 has its evidence; no new campaign is needed.** INTEG2 (`report/INTEG2_RESULTS.md`, registered, fault-injected)
+measured the check's recall at the preset's χ² 1992.9: 0.03–0.10 of injected faults, and no re-fit helps, because
+the fault-free tail (p99 21 322 at 5 km) blinds any threshold. So the check detects almost none of the faults it
+exists for (INTEG2), and costs ring availability with no fault (INTEG3). The recommendation to the owner is to take it
+out of the preset; its flags stay. This line first said fault injection was still needed, which missed INTEG2.

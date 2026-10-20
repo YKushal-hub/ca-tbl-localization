@@ -2168,6 +2168,9 @@ static bool g_rssiSigmaLogNormal = false;
 //! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
 //! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
 static bool g_probeTerms = false;
+//! TECH_DEBT J.1 / G11b --probeNominalMargin: the sweep also reports rx power minus the TABLE sensitivity, the
+//! margin before link hysteresis, and the IQ-impairment degradation each engine subtracts from rx power.
+static bool g_probeNominalMargin = false;
 //! V6 --traceOnDemand (master plan v3): per tag-0 dual-base cycle, the on-demand predictor's P(any 2.4 GHz link)
 //! against what the 2.4 GHz attempt returned -- the reliability data the on-demand rule is judged on.
 static bool g_traceOnDemand = false;
@@ -2181,6 +2184,14 @@ static bool g_finderEnergyReport = false;
 static bool g_tofCalibrate = false;
 //! B6 --agcPerReceiver (scope 2026-10-17).
 static bool g_agcPerReceiverArg = false;
+//! T2 --publishAfterStep (TECH_DEBT L.2 note): re-publish tag 0's entry after this cycle's Step.
+static bool g_publishAfterStep = false;
+//! T29 --interferenceDistance (TECH_DEBT M.1).
+static bool g_interferenceDistance = false;
+//! T12 --foliageScaleBounds (TECH_DEBT N.41).
+static bool g_foliageScaleBounds = false;
+//! T46 --rssiRangeFromRxPower (TECH_DEBT O.9).
+static bool g_rssiRangeFromRxPower = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2282,6 +2293,10 @@ static bool g_sy3Given = false;
 // the row already describes the bandwidth. Written once after cmd.Parse(), checked against
 // the configured tier-2 bandwidth before any run, read by the macro below.
 static double g_t2SensitivityRowKHz = 0.0;
+//! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
+static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
+//! --iqOverloadOnly: every tier's IQ degradation reaches rx power only under ADC clipping (help text at AddValue).
+static bool g_iqOverloadOnly = false;
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
 // (8.816 deg/h) -- the floor of a running gyro's Allan deviation, not the turn-on residual a
 // filter faces. Non-zero draws the per-run bias at this sigma in deg/s instead, from the same
@@ -2294,6 +2309,26 @@ static double g_imuMagGmSigmaDeg = 3.0;  //!< --imuMagGmSigmaDeg (Gauss-Markov),
 static double g_imuMagGmTauS = 120.0;    //!< --imuMagGmTauS, OURS
 static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
 static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
+static int g_ekf5Iterate = 0;             //!< --ekf5Iterate (TECH_DEBT N.58)
+static double g_ekf5IterateTolM = 0.01;   //!< --ekf5IterateTolM
+static int g_ekf5Window = 0;              //!< --ekf5Window (TECH_DEBT N.62)
+//! --pcsByteScale (TECH_DEBT N.7): the PCS a table entry carries is quantised over [0, scale]. 1 (default): the
+//! original [0, 1] byte, which saturates at 255 for any PCS >= 1.
+static double g_pcsByteScale = 1.0;
+
+/** N.7: a PCS to its entry byte, and back. At the default scale 1 these are exactly CaTblQuantise and q / 255. */
+inline uint8_t
+CaTblQuantisePcs(double pcs)
+{
+    return CaTblQuantise(pcs / g_pcsByteScale);
+}
+
+inline double
+CaTblDecodePcs(uint8_t q)
+{
+    return static_cast<double>(q) / 255.0 * g_pcsByteScale;
+}
+static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
@@ -2351,6 +2386,30 @@ Dc1ImuParams()
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
     }                                                                                              \
+    if (g_rssiRangeFromRxPower)                                                                    \
+    {                                                                                              \
+        c868.ranging.rssiRangeFromRxPower = true;                                                  \
+    }                                                                                              \
+    if (g_foliageScaleBounds)                                                                      \
+    {                                                                                              \
+        /* N.41: the 2.4 GHz / UWB parameter files scale only the MEAN of the specific attenuation */  \
+        /* (x2.17, x5.28); the spread and clamp bounds stay at the 868 MHz value, so the sampler's */  \
+        /* clamp caps the effective scaling near x1.8. Rebuild the distribution around the scaled */   \
+        /* mean with FoliageParams::DefaultsFor's own relative shape. */                              \
+        const double g2 = c2p4.foliage.specificAttenuationDbPerM.mean;                             \
+        c2p4.foliage.specificAttenuationDbPerM = DistributionParam::Normal(g2, g2 * 0.25, g2 * 0.2, g2 * 1.8); \
+        const double gu = cUwb.foliage.specificAttenuationDbPerM.mean;                             \
+        cUwb.foliage.specificAttenuationDbPerM = DistributionParam::Normal(gu, gu * 0.25, gu * 0.2, gu * 1.8); \
+    }                                                                                              \
+    if (g_interferenceDistance)                                                                    \
+    {                                                                                              \
+        c868.interference.attenuateByDistance = true;                                              \
+        c868.interference.attenuationExponent = c868.propagation.pathLossExponent.mean;            \
+        c2p4.interference.attenuateByDistance = true;                                              \
+        c2p4.interference.attenuationExponent = c2p4.propagation.pathLossExponent.mean;            \
+        cUwb.interference.attenuateByDistance = true;                                              \
+        cUwb.interference.attenuationExponent = cUwb.propagation.pathLossExponent.mean;            \
+    }                                                                                              \
     if (g_foliageP833)                                                                             \
     {                                                                                              \
         /* UWB (7.99 GHz) is outside P.833 Table 1 (105.9-2117.5 MHz) and keeps its model. */      \
@@ -2380,6 +2439,19 @@ Dc1ImuParams()
     if (g_t2SensitivityRowKHz > 0.0)                                                               \
     {                                                                                              \
         Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
+    }                                                                                              \
+    if (g_iqOverloadOnly)                                                                          \
+    {                                                                                              \
+        c868.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+        c2p4.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+        cUwb.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+    }                                                                                              \
+    if (std::isfinite(g_uwbSensitivityDbm))                                                        \
+    {                                                                                              \
+        for (int si = 0; si < 8; ++si)                                                             \
+        {                                                                                          \
+            cUwb.receiver.sensitivityDbm[si] = g_uwbSensitivityDbm;                                \
+        }                                                                                          \
     }                                                                                              \
     if (g_rssiRangeFromShadowing)                                                                  \
     {                                                                                              \
@@ -2760,7 +2832,8 @@ RunProbe(EnvironmentClass envWide,
     out << "tier,distance_m,pdr,mean_abs_range_err_m,mean_snr_db,crlb_floor_m,"
         << "measured_over_crlb,n,coherent_gain_db,two_ray_frac,nlos_frac,"
         << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db"
-        << (traceDiagnostic ? ",mean_snr_all_db" : "") << "\n";
+        << (traceDiagnostic ? ",mean_snr_all_db" : "")
+        << (g_probeNominalMargin ? ",mean_nominal_margin_db,mean_iq_degradation_db" : "") << "\n";
 
     std::cout << "\nPre-flight probe: reception and ranging error vs distance\n"
               << "  (" << trials << " trials per point)\n"
@@ -2820,6 +2893,8 @@ RunProbe(EnvironmentClass envWide,
             uint32_t nlosN = 0;
             double plSum = 0.0;
             double marginSum = 0.0;
+            double nomMarginSum = 0.0; // --probeNominalMargin
+            double iqDegSum = 0.0;     // --probeNominalMargin
             double shadowSum = 0.0;
             double shadowSqSum = 0.0;
             double shadowEffSum = 0.0;
@@ -2839,6 +2914,8 @@ RunProbe(EnvironmentClass envWide,
                 bool nlos = false;
                 double plDb = 0.0;
                 double marginDb = 0.0;
+                double nomMarginDb = 0.0; // --probeNominalMargin: rx power - table sensitivity
+                double iqDegDb = 0.0;     // --probeNominalMargin: the IQ term already inside rx power
                 double shadowDb = 0.0;
                 double shadowEffDb = 0.0;
 
@@ -2879,6 +2956,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2898,6 +2979,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2917,6 +3002,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2937,6 +3026,8 @@ RunProbe(EnvironmentClass envWide,
                     nlosN += nlos ? 1u : 0u;
                     plSum += plDb;
                     marginSum += marginDb;
+                    nomMarginSum += nomMarginDb;
+                    iqDegSum += iqDegDb;
                     if (std::isfinite(snr))
                     {
                         snrAllSum += snr;
@@ -3064,6 +3155,11 @@ RunProbe(EnvironmentClass envWide,
             if (traceDiagnostic)
             {
                 out << "," << std::setprecision(2) << meanSnrAll;
+            }
+            if (g_probeNominalMargin)
+            {
+                out << "," << std::setprecision(2) << ((diagN > 0) ? nomMarginSum / dN : 0.0) << ","
+                    << ((diagN > 0) ? iqDegSum / dN : 0.0);
             }
             out << "\n";
             std::cout << "    " << std::right << std::fixed << std::setprecision(1) << std::setw(10)
@@ -7049,6 +7145,10 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5Robust = spec.ekf5Robust;
         pcfg.ekf5FinderConsider = g_ekf5FinderConsider;
         pcfg.ekf5RelayGate = g_ekf5RelayGate;
+        pcfg.ekf5Iterate = g_ekf5Iterate;
+        pcfg.ekf5IterateTolM = g_ekf5IterateTolM;
+        pcfg.ekf5Window = g_ekf5Window;
+        pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
@@ -8716,7 +8816,7 @@ RunArm(CaTblPolicyMode mode,
                         fr.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
                                             ? static_cast<CaTblTier>(e.tierSource)
                                             : CA_TBL_TIER_868;
-                        fr.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                        fr.pcs = CaTblDecodePcs(e.pcsQ);
                         fr.hopCountAtFix = e.fixHop;
                         fr.suspect = (e.integrityFlag != 0);
                         fr.timestampS = e.timestampS;
@@ -8849,7 +8949,7 @@ RunArm(CaTblPolicyMode mode,
                 res.tierSource = (e.tierSource < CA_TBL_TIER_COUNT)
                                      ? static_cast<CaTblTier>(e.tierSource)
                                      : CA_TBL_TIER_868;
-                res.pcs = static_cast<double>(e.pcsQ) / 255.0;
+                res.pcs = CaTblDecodePcs(e.pcsQ);
                 res.hopCountAtFix = e.fixHop;
                 res.suspect = (e.integrityFlag != 0);
                 res.timestampS = e.timestampS;
@@ -8947,7 +9047,10 @@ RunArm(CaTblPolicyMode mode,
     };
     // MS-1. --finderTasking=roundrobin: finder k searches for subject (k mod N) + 1, and
     // every cycle of every finder is a row of tasking_<arm>_seed<N>.csv.
-    const bool taskRR = (spec.finderTasking == "roundrobin");
+    // N.62 --finderTasking=pairs: finders 2k and 2k+1 search for the same subject, (k mod N) + 1, so a subject a
+    // pair reaches has two precise anchors instead of one.
+    const bool taskPairs = (spec.finderTasking == "pairs");
+    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs;
     std::unique_ptr<std::ofstream> taskLog;
     std::vector<uint64_t> taskSweep, taskConverge, taskBlind;
     if (taskRR)
@@ -9614,7 +9717,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 if (nodeMac[ti] != nullptr)
                 {
-                    nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                    nodeMac[ti]->SetSelfStatus(CaTblQuantisePcs(v2Pcs[0]), v2Suspect[0],
                                                CaTblQuantise(1.0 - batteryUsedFrac),
                                                CaTblQuantise(pcsDegradation), onUwb,
                                                onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
@@ -9672,7 +9775,7 @@ RunArm(CaTblPolicyMode mode,
                     // NW-9: a measured subject's status; a protocol peer has no decision.
                     const bool onUwb = tags[pt].policy.GetActiveTier() == CA_TBL_TIER_UWB;
                     peerMacs[pi][ti]->SetSelfStatus(
-                        CaTblQuantise(v2Pcs[pt]), v2Suspect[pt],
+                        CaTblQuantisePcs(v2Pcs[pt]), v2Suspect[pt],
                         CaTblQuantise(1.0 - tags[pt].batteryUsedFrac),
                         CaTblQuantise(tags[pt].pcsDegradation), onUwb,
                         onUwb ? v2GrantedBy[pt] : 0, v2FixTier[pt], v2FixHop[pt],
@@ -9868,7 +9971,8 @@ RunArm(CaTblPolicyMode mode,
             // MS-1. The subject this finder searches for: tag 0, or under roundrobin
             // subject (fi mod N) + 1. The assignment rule is OURS.
             const uint32_t taskK =
-                taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u;
+                taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
+                          : (taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u);
             const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
             CaTblTableEntry taskTe;
             bool taskFound = false;
@@ -10036,16 +10140,20 @@ RunArm(CaTblPolicyMode mode,
                         // MS-1: under roundrobin the spread is over the finders tasked
                         // to the same subject, finder fi being the (fi / N)-th of them.
                         const uint32_t grpN =
-                            taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
-                                         spec.measuredSubjects
-                                   : nFinders;
-                        const size_t grpI = taskRR ? fi / spec.measuredSubjects : fi;
+                            taskPairs ? 2u
+                                      : (taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
+                                                      spec.measuredSubjects
+                                                : nFinders);
+                        const size_t grpI = taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
                         if (finderDispersal > 0.0 && grpN > 1)
                         {
                             const double sx = std::sqrt(std::max(te.varX, 0.0));
                             const double sy = std::sqrt(std::max(te.varY, 0.0));
-                            const double th = 2.0 * M_PI * static_cast<double>(grpI) /
-                                              static_cast<double>(grpN);
+                            // Under pairs the two are a quarter turn apart, not opposite: two anchors on one line
+                            // through the target leave the cross-line direction unobserved.
+                            const double th = taskPairs ? 0.5 * M_PI * static_cast<double>(grpI)
+                                                        : 2.0 * M_PI * static_cast<double>(grpI) /
+                                                              static_cast<double>(grpN);
                             gx += finderDispersal * sx * std::cos(th);
                             gy += finderDispersal * sy * std::sin(th);
                         }
@@ -12923,6 +13031,35 @@ RunArm(CaTblPolicyMode mode,
             v2FixTier[0] = static_cast<uint8_t>(fixTier); // TA-1
             v2FixHop[0] = static_cast<uint8_t>(std::min<uint32_t>(255u, hopCountAtFix));
         }
+        // T2 --publishAfterStep: the entry published before Step carried the previous cycle's estimate under this
+        // cycle's stamp. Re-publish it now, at the same stamp, so its age is what it says.
+        if (g_publishAfterStep)
+        {
+            if (spec.queryV2)
+            {
+                const bool onUwb = policy.GetActiveTier() == CA_TBL_TIER_UWB;
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->SetSelfStatus(CaTblQuantisePcs(v2Pcs[0]), v2Suspect[0],
+                                                   CaTblQuantise(1.0 - batteryUsedFrac),
+                                                   CaTblQuantise(pcsDegradation), onUwb,
+                                                   onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
+                                                   v2FixHop[0], reachOf(nodeId, t));
+                    }
+                }
+            }
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(), policy.Pxx(), policy.Pyy(),
+                                                  policy.Pxy(), spec.entryVelocity ? policy.EstVx() : 0.0,
+                                                  spec.entryVelocity ? policy.EstVy() : 0.0, t);
+                }
+            }
+        }
         if (grantLog)
         {
             if (policy.GetUwbCoverageClears() > covBefore)
@@ -14610,11 +14747,12 @@ RunArm(CaTblPolicyMode mode,
     {
         taskLog->close();
         std::ostringstream line;
-        line << "    MS-1 tasking (roundrobin):";
+        line << (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):");
         for (size_t fi = 0; fi < taskSweep.size(); ++fi)
         {
             line << " finder " << finderIds[fi] << " -> subject "
-                 << tags[fi % spec.measuredSubjects].nodeId << " sweep " << taskSweep[fi]
+                 << tags[taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects].nodeId
+                 << " sweep " << taskSweep[fi]
                  << " converge " << taskConverge[fi] << " blind " << taskBlind[fi] << ";";
         }
         std::cout << line.str() << "\n";
@@ -14807,6 +14945,18 @@ RunArm(CaTblPolicyMode mode,
             if (g_ekf5FinderConsider)
             {
                 line << "    ekf5 finder consider: ranges to finders " << policy.Ekf5().ConsiderUpdates() << "\n";
+            }
+            if (g_ekf5Iterate > 0)
+            {
+                line << "    ekf5 iterated update: updates " << policy.Ekf5().IteratedUpdates() << ", passes "
+                     << policy.Ekf5().IteratedPasses() << ", unconverged " << policy.Ekf5().IteratedUnconverged()
+                     << "\n";
+            }
+            if (g_ekf5Window > 0)
+            {
+                line << "    ekf5 window smoother: W " << g_ekf5Window << ", solves " << policy.Ekf5().WindowSolves()
+                     << ", failures " << policy.Ekf5().WindowFailures() << ", last rms " << policy.Ekf5().WindowLastRms()
+                     << "\n";
             }
             if (spec.ekf5Robust != 0)
             {
@@ -15856,6 +16006,13 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"relayNisInflate", "true", "B1: relayed-range covariance inflated by the relay's own NIS mean (UPG-SCOPE U4; DESIGN_DECISIONS 13)"},
     {"rssiSigmaLogNormal", "true", "B2/O.7: the 868 MHz range sigma given to the filter is the exact log-normal SD, not the first-order one (SIG868 S1, S3, S4; DESIGN_DECISIONS 14)"},
     {"imuQuScale", "30", "B2: IMU increment covariance x 30 -- the dead-reckoner's coherent error the EKF treats as white (measured 3-54x; B2CONS adoption rule; DESIGN_DECISIONS 15)"},
+    {"stampBinaryHash", "true", "provenance (M.3, T39): run_id.txt names the binary by its SHA-256, whatever the working directory"},
+    {"stampBuildCommit", "true", "provenance (M.3, T39): run_id.txt names the commit and dirty count of the tree that COMPILED the binary"},
+    // FIDELITY-1's registered adoption rule (report/PREREG_FIDELITY1.md; G161 green, null control 13/13), which does
+    // not read the campaign: the two receiver corrections join together, since each alone moves tier 3 by 5-6 dB.
+    // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
+    {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
+    {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
 };
 
 int
@@ -16532,6 +16689,37 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("rssiRangeFromRxPower",
+                 "T46 (TECH_DEBT O.9). False (default): under --rssiRangeFromShadowing the 868 MHz RSSI range inverts path "
+                 "loss plus shadowing only, so it omits the foliage and fading a real receiver's RSSI carries, and its error "
+                 "is the shadowing alone (about 7 dB) against the 9-17 dB realised margin spread (B8). True (needs "
+                 "--rssiRangeFromShadowing and --rangeErrorNoLinkLeak, both in the preset): the range also carries this "
+                 "link's foliage less the foliage a site-fitted model expects, and its fading less the mean; its sigma uses "
+                 "the total spread. The 4.4/4.0 dB SDs and the 1.2 dB fading mean are OURS, from B8's probe.",
+                 g_rssiRangeFromRxPower);
+    cmd.AddValue("foliageScaleBounds",
+                 "T12 (TECH_DEBT N.41). False (default): the 2.4 GHz and UWB foliage specific attenuation is the 868 MHz "
+                 "distribution with only its MEAN multiplied (x2.17, x5.28, ITU-R P.833 f^0.75); its spread and clamp bounds "
+                 "stay at the unscaled values, so the sampler's clamp caps the effective factor near x1.8 on both tiers "
+                 "(+1.6 dB at the median depth, not +2.1 / +4.2). True: the distribution is rebuilt around the scaled mean "
+                 "with DefaultsFor's own relative spread and bounds, so the factor is what the parameter file states. "
+                 "Under --foliageP833 the 2.4 GHz forest values are P.833's either way.",
+                 g_foliageScaleBounds);
+    cmd.AddValue("interferenceDistance",
+                 "T29 (TECH_DEBT M.1). False (default): the engines' interference registry scores every overlapping "
+                 "transmission at the power its OWN link delivered at its own receiver, whatever this receiver's distance "
+                 "from it (the distance is computed and not used), so a distant interferer is as loud as a near one. True: "
+                 "the interferer's power is corrected to this receiver by 10 n log10(d_this / d_own), n the engine's own "
+                 "path-loss exponent; shadowing and fading of the interferer-to-receiver path are not drawn. Default "
+                 "false: every result so far carries the old rule.",
+                 g_interferenceDistance);
+    cmd.AddValue("publishAfterStep",
+                 "T2 (TECH_DEBT L.2 note). False (default): tag 0 publishes its table entry before this cycle's Step, so "
+                 "the entry stamped t carries the estimate of t - dt, and every entry age in the project is understated by "
+                 "one cycle (2.5 s; 264 of 265 held entries in the L.2.5 runs). True: the entry is published again just "
+                 "after Step, at the same stamp, so it carries this cycle's estimate. Costs no airtime: publishing writes "
+                 "the node's own table slot.",
+                 g_publishAfterStep);
     cmd.AddValue("rssiCorrInflate",
                  "B2 (scope 2026-10-17). False (default): successive 868 MHz RSSI ranges are fused as independent, though "
                  "their error is the link's shadowing, spatially correlated (Gudmundson, rho = exp(-moved/30 m), the "
@@ -16703,6 +16891,16 @@ main(int argc, char* argv[])
                  "term -- to find which terms make the delivery curve flatter than Phi(M/sigma_shadowing). "
                  "Output only; no engine change.",
                  g_probeTerms);
+    cmd.AddValue("probeNominalMargin",
+                 "TECH_DEBT J.1 / G11b, with --probe only. True: probe_range_sweep.csv gains two columns over all "
+                 "trials. mean_nominal_margin_db: rx power minus the receiver's TABLE sensitivity, the margin before "
+                 "link hysteresis (1.5 dB, applied only after a received packet, so it moves with PDR) and before the "
+                 "soft-degradation penalty (which only FIDELITY_SDR_GRADE_REALISM applies; the scenario runs "
+                 "ULTRA_FAST). mean_iq_degradation_db: the IQ-impairment 'SNR degradation' every engine subtracts "
+                 "from rx power AFTER the loss sum (lora-iq-impairment-submodule.cc:48), rebuilt exactly from "
+                 "evmPercent and adcClippingOccurred. It is in no loss census and not in linkbudget.py, so G11's "
+                 "comparison cannot see it without this column. Output only; no engine change, no draw.",
+                 g_probeNominalMargin);
     cmd.AddValue("nlos3gppRMa",
                  "V2a-2 (master plan v3). False (default): NLOS occurs with P = 1 - exp(-d/scale) and costs a loss drawn "
                  "from the environment's Normal (values OURS). True: on 868 MHz and 2.4 GHz links whose higher end is "
@@ -17812,7 +18010,10 @@ main(int argc, char* argv[])
                  "868 while up on UWB would charge a tier outside the cycle's "
                  "transmission and break the sect 6 invariant, and because each tier "
                  "owns its own table, so the answer must land in the one the ranging "
-                 "path reads.",
+                 "path reads. Needs --sendHandshakeFrames=true and --finderDigestPeriodS > 0: "
+                 "without frames no digest is sent, and with --sendHandshakeFrames=false the "
+                 "output is byte-identical to the flag off (TECH_DEBT I.4; seed 7, 600 s, four "
+                 "finders, 2026-10-20).",
                  bidirectionalDigestArg);
     cmd.AddValue("finderPosSigma",
                  "Metres of GNSS position error a finder carries, as a per-finder "
@@ -17836,7 +18037,12 @@ main(int argc, char* argv[])
                  "flatters every result that depends on finders -- which, since finders "
                  "are what make tier 3 reachable at all, is most of them. The physics is "
                  "unaffected either way: the radio link is physical and does not care "
-                 "what anyone believes.",
+                 "what anyone believes. A finder's report reaches the node in one of two ways. "
+                 "Through a table entry, which needs --bidirectionalDigest and so "
+                 "--sendHandshakeFrames. Or through --rangeReplyPosition, which needs neither. "
+                 "With neither there is no report, and the output is byte-identical to the "
+                 "flag off, frames or not (TECH_DEBT I.4; seed 7, 600 s, four finders, "
+                 "2026-10-20).",
                  finderPseudoAnchorArg);
     cmd.AddValue("hopProvenanceForm",
                  "How hop provenance enters the confidence score. 0 (default) is the "
@@ -17893,7 +18099,11 @@ main(int argc, char* argv[])
                  "distance from this node's estimate to where that node SAYS it is. "
                  "FALSE by default. This is the independent witness: it uses residuals "
                  "and other nodes' reports, and NOT the filter's covariance, which is "
-                 "the quantity the confidence signal is made of.",
+                 "the quantity the confidence signal is made of. A witness needs a table "
+                 "entry, so in practice this needs --sendHandshakeFrames with "
+                 "--bidirectionalDigest. Without them there is no witness, and the output is "
+                 "byte-identical to the flag off (TECH_DEBT I.4; seed 7, 600 s, four finders, "
+                 "2026-10-20: with both, 11 and 23 escalations refused in two arms).",
                  corroborationCheckArg);
     cmd.AddValue("corroborationK",
                  "How many combined sigmas of range residual still count as agreement. "
@@ -18457,7 +18667,7 @@ main(int argc, char* argv[])
                  "Needs N <= --nTags. Tag-0-only mechanisms are warned about.",
                  spec.measuredSubjects);
     cmd.AddValue("finderTasking",
-                 "Which subject each finder searches for: tag0|roundrobin (the spec's "
+                 "Which subject each finder searches for: tag0|roundrobin|pairs (the spec's "
                  "rescuers searching for specific people; docs/SPEC_CONFORMANCE_PLAN.md MS-1). "
                  "Empty (default) or tag0 is every result so far: every finder steers on tag "
                  "0's entry. roundrobin: finder k (0-based) steers on subject (k mod N) + 1's "
@@ -18465,7 +18675,11 @@ main(int argc, char* argv[])
                  "over the finders tasked to the same subject. The rule is OURS. Writes "
                  "tasking_<arm>_seed<N>.csv (every finder-cycle after dispatch: target, phase, "
                  "the entry steered on and the goal), digested, and one MS-1 tasking line. "
-                 "Needs --measuredSubjects > 1, --nFinders > 0 and --finderMode 1 or 2.",
+                 "Needs --measuredSubjects > 1, --nFinders > 0 and --finderMode 1 or 2. pairs (TECH_DEBT N.62): "
+                 "finders 2k and 2k+1 both search for subject (k mod N) + 1, dispersed a quarter turn apart, so a "
+                 "subject a pair reaches has two precise anchors whose ranges cross. Why: under roundrobin each "
+                 "subject has at most one finder, hence one precise anchor -- one circle, whose two sides the "
+                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m).",
                  spec.finderTasking);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
@@ -18601,6 +18815,58 @@ main(int argc, char* argv[])
                  "and threw tag 0 69 m off; with relaying off the endgame CEP95 fell 9.4 -> 3.4 m but availability "
                  "fell 0.045. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5RelayGate);
+    cmd.AddValue("ekf5Iterate",
+                 "With --imuFilter=ekf5: the iterated EKF update (IEKF, Gauss-Newton form; Bell & Cathey, IEEE TAC 38(2), "
+                 "1993), at most this many passes per range update. Each pass re-applies the cycle's ranges from the prior, "
+                 "linearised at the previous pass's posterior position instead of at the prior. 0 (default): the "
+                 "original single sequential update. Why (TECH_DEBT N.58): at 5 km a first update of precise ToF ranges "
+                 "taken ~200 m from the truth was linearised there. The claimed position sigma collapsed 178 -> 8.3 m "
+                 "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
+                 "heading. Refused without ekf5 or with --ekf5Robust.",
+                 g_ekf5Iterate);
+    cmd.AddValue("uwbSensitivityDbm",
+                 "Tier 3's receiver sensitivity, dBm, flat across the table (TECH_DEBT 2.4). Not given (default): the "
+                 "table's -104 dBm, which is OURS. The DW3000 data sheet the project cites gives -99.3 dBm (TECH_DEBT "
+                 "N.41), 4.7 dB less margin: every UWB reach and UWB-delivered fix depends on which is used, so the "
+                 "value is a flag for FIDELITY-1 to measure rather than an edit.",
+                 g_uwbSensitivityDbm);
+    cmd.AddValue("iqOverloadOnly",
+                 "False (default): every engine subtracts the IQ-impairment 'SNR degradation', 20 log10(1 + EVM) plus "
+                 "15 dB under ADC clipping (lora-iq-impairment-submodule.cc:48), from rx power on every packet, after "
+                 "the loss sum, and then compares rx power with a DATA-SHEET sensitivity. True: only when the ADC "
+                 "clips. Why: a data-sheet sensitivity (SX1276 Table 3-10, SX1280 Table 6-1, DW3000) is the input "
+                 "power at which the real receiver, with its own noise, IQ imbalance and ADC, meets its PER, so the "
+                 "subtraction counts them twice. Its EVM includes a thermal-noise term 10^(-SNR/20) that saturates at "
+                 "6.02 dB once pre-processing-gain SNR is below 0 dB, which is every UWB link. The term is in no loss "
+                 "census and not in linkbudget.py (see --probeNominalMargin's mean_iq_degradation_db). Overload is "
+                 "outside a sensitivity figure and keeps its penalty. Draws unchanged.",
+                 g_iqOverloadOnly);
+    cmd.AddValue("pcsByteScale",
+                 "The scale of the PCS byte a table entry carries: PCS is quantised over [0, scale]. 1 (default): over "
+                 "[0, 1], which saturates at 255 for every PCS >= 1. Why (TECH_DEBT N.7): under the preset the requester "
+                 "rule compares the decoded PCS with pcsThrUp2p4 = 1.377, so with a byte that cannot exceed 1 the test "
+                 "always passes and requester escalation never refuses. 4 matches the U byte's range (ca-tbl-mac.cc) and "
+                 "covers every threshold the preset sets.",
+                 g_pcsByteScale);
+    cmd.AddValue("ekf5Window",
+                 "With --imuFilter=ekf5: a sliding-window smoother over the last N cycles of what the filter was given "
+                 "(IMU increments, the ranges it fused, magnetometer headings, position fixes). After each range update "
+                 "the window is solved jointly (Levenberg-Marquardt) for the path, the heading offset, the gyro bias, the "
+                 "stride scale and each finder's offset under --ekf5FinderConsider, and the filter takes the solution at "
+                 "the newest cycle with its marginal covariance. A cycle leaving the window is marginalised into a prior on the "
+                 "next; the filter's own posterior is never used as one. 0 (default): "
+                 "off. Why (TECH_DEBT N.62): at 5 km tag 0 often has one precise anchor, and single updates turn range "
+                 "innovations into heading, bias and scale errors the magnetometer cannot pull back (seed 5: 37 deg, scale "
+                 "-0.25). Replayed offline, a 60-cycle causal window beat the EKF on 5 of 6 seeds.",
+                 g_ekf5Window);
+    cmd.AddValue("ekf5WindowMin",
+                 "With --ekf5Window: cycles buffered before the first solve. Default 8 (OURS): 20 s of motion, enough "
+                 "turning for heading to be observable through the path.",
+                 g_ekf5WindowMin);
+    cmd.AddValue("ekf5IterateTolM",
+                 "With --ekf5Iterate: stop iterating when a pass moves the position estimate less than this, metres. "
+                 "Default 0.01 (OURS): two orders of magnitude below the tightest range sigma in the model (ToF, 3 m).",
+                 g_ekf5IterateTolM);
     cmd.AddValue("ekf5FinderConsider",
                  "With --imuFilter=ekf5: each finder's GNSS position offset is a Schmidt consider parameter of the "
                  "5-state filter -- not estimated, but its covariance and its cross-covariance with the state are "
@@ -19648,13 +19914,13 @@ main(int argc, char* argv[])
         }
     }
     if (!spec.finderTasking.empty() && spec.finderTasking != "tag0" &&
-        spec.finderTasking != "roundrobin")
+        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs")
     {
-        std::cerr << "FATAL: --finderTasking must be tag0 or roundrobin, got '"
+        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin or pairs, got '"
                   << spec.finderTasking << "'\n";
         return 1;
     }
-    if (spec.finderTasking == "roundrobin" &&
+    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs") &&
         (spec.measuredSubjects < 2 || nFindersArg == 0 ||
          (finderModeArg != 1 && finderModeArg != 2)))
     {
@@ -20256,6 +20522,30 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (!std::isnan(g_uwbSensitivityDbm) && !(g_uwbSensitivityDbm >= -130.0 && g_uwbSensitivityDbm <= -60.0))
+    {
+        std::cerr << "FATAL: --uwbSensitivityDbm needs a value in [-130, -60] dBm\n";
+        return 1;
+    }
+    if (!(g_pcsByteScale >= 1.0) || !(g_pcsByteScale <= 64.0))
+    {
+        std::cerr << "FATAL: --pcsByteScale needs a value in [1, 64]\n";
+        return 1;
+    }
+    if (g_ekf5Window != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Window < 2 || g_ekf5Window > 400 ||
+                              g_ekf5WindowMin < 2 || g_ekf5WindowMin > g_ekf5Window))
+    {
+        std::cerr << "FATAL: --ekf5Window needs --imuFilter=ekf5, no --ekf5Robust, a length in 2..400 cycles and "
+                     "2 <= --ekf5WindowMin <= --ekf5Window\n";
+        return 1;
+    }
+    if (g_ekf5Iterate != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Iterate < 0 || g_ekf5Iterate > 50 ||
+                               !(g_ekf5IterateTolM > 0.0)))
+    {
+        std::cerr << "FATAL: --ekf5Iterate needs --imuFilter=ekf5, no --ekf5Robust, a pass count in 1..50 and a "
+                     "positive --ekf5IterateTolM\n";
         return 1;
     }
     if (ekf5FinderConsiderArg)
@@ -21045,7 +21335,7 @@ main(int argc, char* argv[])
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
-    if (spec.finderTasking == "roundrobin")
+    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs")
     {
         digestPatterns += " tasking_*.csv";
     }

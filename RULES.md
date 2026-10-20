@@ -174,20 +174,27 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers unused, b-suffixed sub-gates); ALL run, summary at the end (hours on a loaded machine)
+bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scripts/catbl_gates.sh); ALL run, summary at the end (hours on a loaded machine)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-19, verified on the IMU-line merge, `b828add0`: every gate PASS but five reds, G95–G102 and G150 included; the suite left the tree unmodified;
-`docs/TECH_DEBT.md` O.6 classifies G6/G11/G24, N.27 and N.30 (main line) G92/G93, and O.11 and O.14 record the stale
-gate expectations fixed on the way). None is a broken build or a regression; G92 and G93 are described below.
+**The suite's expected reds** (2026-10-20: the final suite on `39c1dfee` and its fixes; reds G11, G24, G93 only.
+`docs/TECH_DEBT.md` R.1, R.4 and N.27 explain each, and docs/TECH_DEBT_STATUS.md O12/O13 track what the owner decides.
+Five gates the preset's receiver change turned red, G95, G99, G102, G136 and G161, are pinned or re-scoped with
+reasons; G47 followed a changed refusal message).
+G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
-- **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
+- **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped. Since 2026-10-20 it
+  reconciles against `probe_v8`, the engine as it is (R.1): 2.4 GHz r80 and UWB margin pass; 868 MHz margin and r80,
+  2.4 GHz margin and UWB r80 (degenerate) fail.
 - **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
   are exercised or the owner accepts them.
+  2026-10-20 (R.4): arbitration pre-emptions have a population (ANCHOR-SUPPLY); Case A is rare in CA-TBL; tie-break
+  verdicts are not shown reachable.
+- **G93:** FAIL BY FINDING on the code default (D-8). The preset question was PRESET-2's; the code default is O12.
 
 G63, G87 and G89 were red from 2026-10-08 until 2026-10-17. Their runners now pin the pre-adoption preset (the PIN
 line in each script).
@@ -199,6 +206,9 @@ line in each script).
 - DD 13: `--fadingPerBand --relayNisInflate`.
 - DD 14: `--rssiSigmaLogNormal`.
 - DD 15: `--imuQuScale=30` (campaigns no longer pass it).
+- Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
+- DD 18 (2026-10-20, FIDELITY-1's rule): `--uwbSensitivityDbm=-99.3 --iqOverloadOnly`. Pin back with
+  `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own
@@ -237,8 +247,8 @@ flag-set difference, not a reproduction failure.
 Every new mechanism follows this or it is not mergeable.
 
 1. **Default-off CLI flag**, registered with `cmd.AddValue` in the block in `main()` of
-   `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it with
-   `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`). Write the help text as an argument, not a label —
+   `scratch/ca_tbl_causal_sim.cc` (find it with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`;
+   line numbers drift with every change). Write the help text as an argument, not a label —
    the existing flags explain *why* the default is what it is, and that is the house style.
 2. **Null-control test:** with the flag off, output is byte-identical to the pre-change binary.
    Diff `arm_summary.csv` and every trace. This is not optional — arms consume the shared RNG
@@ -287,21 +297,41 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
   holds at defaults and at six non-default flag settings, so no result is known to be affected.
 - **Two unattributed residuals stay open deliberately:** UWB ~3.7 dB and 868 MHz ~3.5 dB
   near-field. Conclusions are drawn by recomputing under ±4 dB of margin offset chosen to bracket
-  exactly these.
+  exactly these. **Corrected 2026-10-20 (TECH_DEBT R.1, VAL-V8):** both were measured against
+  `probe_v7`, an engine configuration that predates `50fc8620`. Against the engine as it is, UWB
+  reconciles within 2.12 dB and 868 MHz is unchanged (−4.95 dB at 100 m). The open residual is now
+  2.4 GHz: −6.4 dB inside 50 m, crossing to +6.9 dB at 6 km. That is a slope, which no
+  distance-independent term explains. The ±4 dB bracket does not cover it.
+- **Every engine subtracts an IQ "SNR degradation" from rx power after the loss sum**
+  (`lora-iq-impairment-submodule.cc:48`). It is 0.6–6 dB and saturated at ~6 dB on UWB, and it is
+  in no loss census. Against a data-sheet sensitivity it double-counts the receiver's impairments.
+  `--iqOverloadOnly` removes it (TECH_DEBT R.2).
 
 ---
 
 ## 6. The invariant that makes the experiment valid
 
-**Exactly one tier transmits per cycle, and only that tier is charged.** An arm that never
-escalates accrues exactly zero energy on the tiers it never used.
+**Every transmission is made inside the per-cycle loop, by a radio that is awake that cycle, and
+is charged to the tier that made it. A tier an arm never uses accrues its sleep current and
+nothing else: no transmit, receive, CAD or idle energy.** Measured 2026-10-20 (seed 7, 600 s,
+four finders): `static_868` bills 0.002376 J on 2.4 GHz and 0.001386 J on UWB, all of it sleep.
+
+The older wording, "exactly one tier transmits per cycle", does not hold, and each exception is
+deliberate (TECH_DEBT K.3):
+- **The tier-1 floor.** When the active tier is 2.4 GHz or UWB and the floor is wanted, 868 MHz
+  ranges in the same cycle and is charged. So tier-1 energy is not proportional to `cycles_868`:
+  in `baseline_v8` 868 MHz transmitted on ~96 % of every arm's cycles, whatever the active tier.
+- **The dual base** (`--loraDualBase`, in the preset since 2026-10-08) ranges 868 MHz and
+  2.4 GHz every cycle.
+- **The `poucet_fusion` comparator** ranges all three tiers every cycle, on purpose. It is the
+  cost the one-tier rule is compared against.
 
 This was not always true. An earlier pipeline generated all three tiers' data unconditionally and
 selected afterwards, under which *the energy saved by not escalating was structurally
 unmeasurable*. Fixing it is what made the energy claim testable at all.
 
-**Any change that moves a transmission outside the per-cycle loop, or charges a tier that did not
-transmit, breaks the only thing that makes the energy axis mean anything.** Check this first in
+**Any change that moves a transmission outside the per-cycle loop, or charges a tier for a
+transmission it did not make, breaks the only thing that makes the energy axis mean anything.** Check this first in
 any review.
 
 ---
@@ -318,10 +348,10 @@ src/lora-physics-engine/model/
   lora-uwb-physics-engine.*   UWB        | submodules/               ~35 per engine
 scratch/
   ca_tbl_causal_sim.cc        the scenario: geometry, mobility, arms, sweeps, CLI flags
-  ca_tbl_packet_validator.cc  MAC unit suite (62 checks; one of twelve suites, 356 checks)
+  ca_tbl_packet_validator.cc  MAC unit suite (one of the unit suites; counts drift, see G1/G9 output)
   python_handoff/verify_causal_sim.py    the invariant gate
 scripts/
-  catbl_gates.sh              the regression gates (58 at `c79fffd`)
+  catbl_gates.sh              the regression gates (`grep -c '^finish ' scripts/catbl_gates.sh`; 111 PASS at the 2026-10-18 merge)
   publication_ready.sh        manifest assertions; parses EXCLUDED.md as its source of truth
 report/
   PCS_REDESIGN_RESULTS.md     working evidence chain, Parts 0-8, with corrections registers
@@ -361,8 +391,8 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `--injectBiasFraction` exist and 162 results directories use them.
 
 **Before treating any "not implemented" note as current, check two things:** the
-`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it
-with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`), and
+`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (find it with
+`grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`; line numbers drift with every change), and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
 

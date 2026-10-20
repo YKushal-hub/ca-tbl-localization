@@ -72,6 +72,11 @@ The current measured tables are in `report/CAMP_FINAL2_RESULTS.md`. Conditions: 
 
 Each is default-off in code, gated, and null-controlled; the preset turns them on. The text from §0 on is kept as written.
 
+**Lost evidence (2026-10-18, G92).** `results/p10_env_v7`, `p10_env_v8`, `p10_plane_v7` and `campaign_20260810`, cited
+below, are no longer in the repository: they were deleted with the untracked results tree, and the current engine
+cannot regenerate them (legacy topology). `RESULTS_NONREGENERABLE.tsv` records each, with what supersedes it. Every
+figure drawn from them was already provisional (the scope box above) and none is cited in §0a.
+
 ## 0. Claim record, restated 2026-09-29
 
 **Why this section exists.** The scope banner says every number in this report is
@@ -437,6 +442,51 @@ passing.
 
 > *2026-09-29.* Not re-tested. Both `r80` values here are the split environment's (CR-15).
 
+### 4.5 The design requirement, measured — registered 2026-10-20
+
+The requirement is `Architecture.md` §1.3: A ≥ 0.95 at R ≤ 25 m over **all** cycles, a cycle without a fix counting
+against it. It is read from traces by `scripts/goal_report.py`. Every campaign here runs the realistic world: unknown
+start, a real gyro bias and stride noise, finder position error, the 5-state IMU filter with a magnetometer. Each was
+registered before any cell and scored once.
+
+**PRESET-2** (`report/PRESET2_RESULTS.md`, seeds 101–120). The candidate set was not adopted by its rule
+(DESIGN_DECISIONS 17). Its measured effect, CA-TBL, S → N:
+
+| config | A(25 m) tag 0 | A(25 m) five-node | subject J |
+|---|---|---|---|
+| 5 km | 0.386 → 0.829 | 0.268 → 0.503 | 19.4 → 16.2 |
+| endgame | 0.994 → 0.995 | 0.856 → 0.891 | 21.2 → 20.3 |
+| 8-gateway ring | 0.790 → 0.959 | 0.505 → 0.658 | 17.8 → 14.7 |
+
+**ANCHOR-SUPPLY** (`report/PREREG_ANCHOR_SUPPLY.md`, seeds 121–140), CA-TBL five-node A(25 m):
+- **endgame:** four finders 0.873; **eight finders 0.970**;
+- **5 km:** 0.41 with four finders and 0.58 with eight.
+
+**What stands:**
+- **The requirement is met for tag 0** in the endgame and on the 8-gateway ring (under N).
+- **It is met for the five-node pool in the endgame with eight finders**, on average.
+- **It is not met at the brief's 5 km three-gateway geometry** in any configuration tested.
+- **Against comparators at 5 km**, five-node A(25 m):
+  - **`fixed_threshold`:** level in every PRESET-2 and ANCHOR-SUPPLY cell.
+  - **Poucet fusion:** level, except under ANCHOR-SUPPLY's R4, where CA-TBL leads by +0.093 [0.029, 0.159].
+  - **Tag 0 under P8:** CA-TBL is **below** `fixed_threshold`, −0.036 [−0.066, −0.011].
+- **In the endgame,** CA-TBL beats Poucet on the five-node pool in every finder variant (+0.06 to +0.17).
+- **Energy:** CA-TBL uses about 1/20 of Poucet's subject energy (383–446 J less per run).
+- **It beats both single-band arms on five-node A(25 m) everywhere** (tag 0 against `static_2p4` spans 0 in some cells).
+- **The escalation rule is not shown to beat `fixed_threshold`** (CR-19).
+
+**FIDELITY-1** fired a registered abort (`report/PREREG_FIDELITY1.md`) and supports no claim. Its re-run, FIDELITY-1b,
+measured the two receiver corrections the preset adopted at `39c1dfee` (`report/PREREG_FIDELITY1B.md`, seeds 161–180,
+problems none). They help every arm, and at 5 km they help the comparators more. **Under the corrected receiver
+(the preset from `39c1dfee`):**
+- **at 5 km, on seeds 161–180,** CA-TBL's five-node A(25 m) read below `fixed_threshold`'s (−0.056 [−0.106, −0.006]).
+  On fresh seeds 181–200 (INTEG3) the two are level (−0.001). Read across both campaigns, CA-TBL is level with
+  `fixed_threshold` at 5 km (CR-23);
+- **in the endgame, it still beats Poucet,** +0.053 [0.009, 0.095], at about 1/20 the energy;
+- **CA-TBL's 5 km subject energy falls 5.06 J.**
+
+The 5 km comparator statements above were measured under the old receiver and are scoped by CR-21.
+
 ---
 
 ## 5. Results that do not stand
@@ -746,3 +796,8 @@ column; none is computed here.
 | CR-16 | "The proxy answers only inside 120 s and at this deployment entries are normally older, so it refuses (7 refusals / 0 answers at the spec bound)" — `docs/TECH_DEBT.md` L.2.5, as recorded 2026-09-09 | **RESTATED by measurement: true of a peer, false of the casualty.** Casualty, arc searcher regime: 265 of 265 held entries inside 120 s, with median age 11.5 s and 90th percentile 28.6 s. Grid-2 5 km sparse regime: 37 of 39. A peer: median 493.4 s (21 of 130 inside) and 384.9 s (5 of 20). The 120 s default stays | `report/PREREG_L25_PROXY_AGE.md`; `results/l25_proxy_age_20260929/ANALYSIS.md` |
 | CR-17 | Every `--relayedRanging` figure recorded before `d24690c`: `MASTER_PLAN.md`'s C5 row, `b390ed6`'s depth sweep and `5f3ad42`'s routing counts | **SCOPED.** They were measured while every relay exchange shared the cycle's one instant and collided in the interference registry. With `--relayedRanging` on, the measured tag's 3+-anchor cycles fall from 107/112/106 of 120 to 2/0/11; with `--relaySlots` they are 103/104/107. They do not compare with a `--relaySlots` run. No `results/` sidecar uses `--relayedRanging=true`, so no tracked result moves. Whether `--relaySlots` becomes the default is an owner decision. **2026-09-30: decided.** `--relaySlots` is on by default in relayed runs. `--relaySlots=false` restores the collision these figures were measured under, and reproduces the commit before the change byte-for-byte | `docs/TECH_DEBT.md` M.1; no results directory |
 | CR-18 | "All four [starved mechanisms] are the same fact: tier 1 blankets the box", and "`runFloor` is true on 99.9 % of cycles" — `docs/TECH_DEBT.md` L.2; `HANDOFF_2026_09_09.md` §6.2 | **RESTATED from an EXPLORATORY probe; not a result.** Coverage explains Case A and Case B only. The Mahalanobis check's eligible population is structurally near-empty under the default NLOS source, and `--nlosSource=propagation` changes that. Covariance Intersection stays near zero because a second copy of the same sequence number almost never arrives, whatever tier 1 does. Routing has a population under `--fixRouting`. `runFloor` holds on 600 of 720 cycles at defaults; the 99.9 % is the finder regime | `docs/TECH_DEBT.md` L.2, 2026-09-29 note; the probe's outputs are outside the tree |
+| CR-19 | "A confidence score (PCS) driving tier escalation" as a contribution — §1, §2; the novelty claim CR-7 left to the owner | **WITHDRAWN 2026-10-20 (owner decision, the approved goal plan; `docs/TECH_DEBT.md` Q).** PCS is the covariance trace by every registered test (CAL-01, B3 C2). The tiering claim is restated: acquisition, availability and energy against single-band arms, not the escalation rule against `fixed_threshold`, with which CA-TBL is level on A(25 m) in PRESET-2 and ANCHOR-SUPPLY | `report/CAL01_LOOCV_RESULTS.md`; §4.5; `results/preset2_a1_2026-10-20`, `results/anchor_supply_2026-10-20` |
+| CR-20 | "UWB ~3.7 dB and 868 MHz ~3.5 dB unattributed residuals" — `RULES.md` §5; G11a; TECH_DEBT 2.3 | **SUPERSEDED.** Measured against `probe_v7`, which predates `50fc8620` (tiers 2/3 into the forest). Against the engine as it runs, UWB's margin reconciles within 2.12 dB and 868 MHz is unchanged. The open residual is 2.4 GHz's slope, which decomposes into foliage density (0.8 on A_max), terrain and the IQ degradation, none in the model | `src/catbl-propagation-study/experiments/VAL_V8_REGISTRATION.md`, `IQ_TERM_REGISTRATION.md`; `results/probe_v8`; TECH_DEBT R.1, R.7 |
+| CR-21 | Every preset result before `39c1dfee` | **SCOPED.** The preset now sets `--uwbSensitivityDbm=-99.3 --iqOverloadOnly` (DESIGN_DECISIONS 18). Earlier preset results reproduce with `--uwbSensitivityDbm=-104 --iqOverloadOnly=false` given (pinned X1: 274/275 files identical, the 275th the provenance lines). The size of the change awaits FIDELITY-1b | `report/PREREG_FIDELITY1.md`, `report/PREREG_FIDELITY1B.md` |
+| CR-22 | "CA-TBL is level with `fixed_threshold` at 5 km" — §4.5, measured under the pre-`39c1dfee` receiver | **REVERSED under the preset's corrected receiver.** FIDELITY-1b: CA-TBL − `fixed_threshold`, five-node A(25 m), 5 km −0.056 [−0.106, −0.006]. The correction helps `fixed_threshold` (+0.137) more than CA-TBL (+0.074). The endgame advantage over Poucet holds (+0.053 [0.009, 0.095]) | `report/PREREG_FIDELITY1B.md` result; `results/fidelity1b_2026-10-20` |
+| CR-23 | CR-22: "at 5 km CA-TBL's five-node A(25 m) is below `fixed_threshold`'s under the corrected receiver" — §4.5 | **NOT REPLICATED; SCOPED to seeds 161–180.** INTEG3, seeds 181–200, the same preset: `fixed_threshold` − CA-TBL −0.001 [−0.046, 0.045]. A single 20-seed interval excluding 0 was not a result about the policy (rule 8). The integrity-check explanation is falsified (I1: −0.024 [−0.056, 0.005]). On the 8-gateway ring the check costs +0.036 [0.004, 0.070] five-node | `report/PREREG_INTEG3.md` result; `results/integ3_2026-10-20` |

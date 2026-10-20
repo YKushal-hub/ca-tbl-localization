@@ -464,6 +464,11 @@ struct InterferenceParams {
     DistributionParam adjacentChannelLeakageDb;
     bool selfInterferenceEnabled;
     double selfInterferenceWindowMs;
+    //! T29 --interferenceDistance (TECH_DEBT M.1): false (default) scores a registered interferer at the power its OWN
+    //! link delivered at its own receiver, wherever this receiver is. True: corrected to this receiver by
+    //! 10 n log10(d_this / d_own), with n the engine's path-loss exponent.
+    bool attenuateByDistance = false;
+    double attenuationExponent = 2.0;
     
     static InterferenceParams DefaultsFor(EnvironmentClass env);
 };
@@ -588,6 +593,9 @@ struct IQImpairmentParams {
     DistributionParam dcOffsetDb;
     DistributionParam adcEffectiveBits;
     DistributionParam adcClippingThresholdDbm;
+    // [CA-TBL] --iqOverloadOnly. False (default): the engines subtract the IQ "SNR degradation" from rx power
+    // on every packet. True: only when the ADC clips. Draws and the EVM/clipping fields are unchanged.
+    bool degradeRxPowerOnlyWhenClipped;
     
     static IQImpairmentParams Defaults();
 };
@@ -1148,6 +1156,14 @@ struct RangingParams {
     // calibration measures is subtracted -- 75 m under wolf, --tofFieldBiasM otherwise (gottschalk is unbiased,
     // muller already applies its eq. (5) correction). The spread and any NLoS excess remain.
     bool tofCalibrate;
+
+    // T46 (TECH_DEBT O.9 diagnosis), --rssiRangeFromRxPower. false (default): under --rssiRangeFromShadowing the 868 MHz
+    // range inverts path loss + shadowing (+ NLOS) only, so the "measured RSSI" omits the link's foliage and fading,
+    // which a real receiver's RSSI includes. true (needs --rssiRangeFromShadowing and --rangeErrorNoLinkLeak): the range
+    // is scaled by 10^(x / 10n), x = (foliage - the foliage a site-fitted model expects at this length) + (fading - its
+    // mean), and its sigma uses the total spread sqrt(sigma_S^2 + 4.4^2 + 4.0^2) dB. 4.4 and 4.0 dB (868 MHz foliage
+    // and fading SD) and the 1.2 dB fading mean are OURS, from B8's probe (report/B8_DELIVERY_CURVE.md).
+    bool rssiRangeFromRxPower = false;
 
     RangingParams()
         : enabled(true),

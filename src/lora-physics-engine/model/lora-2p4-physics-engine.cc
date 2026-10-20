@@ -567,7 +567,7 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     // 13. Active Packet Interference & Collision Overlap Tracking
     Time airtime = Time::FromDouble(std::pow(2, spreadingFactor) / effBw * 20.0, Time::S); // Nominal airtime approximation
     m_interference->RegisterActiveTransmission(
-        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition);
+        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition, dist_m);
         
     double interferenceDb = m_interference->ComputeInterferencePenaltyDb(
         txNodeId, spreadingFactor, effBw, currentTime, airtime, txPosition, rxPosition, currentTime,
@@ -638,7 +638,14 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     result.iqImageRejectionDb = iqRes.imageRejectionDb;
     result.adcClippingOccurred = iqRes.adcClippingOccurred;
     
-    result.rxPowerDbm -= iqRes.snrDegradationDb; // Degrade rx power by EVM and clipping noise
+    // [CA-TBL] --iqOverloadOnly (degradeRxPowerOnlyWhenClipped): a data-sheet sensitivity is measured at the
+    // receiver input with the receiver's own noise and IQ/ADC impairments inside it, so subtracting an EVM-derived
+    // degradation from rx power before comparing with that sensitivity counts them twice. Only ADC overload lies
+    // outside a sensitivity figure. The default keeps the original subtraction on every packet.
+    if (!m_config.iqImpairment.degradeRxPowerOnlyWhenClipped || iqRes.adcClippingOccurred)
+    {
+        result.rxPowerDbm -= iqRes.snrDegradationDb; // Degrade rx power by EVM and clipping noise
+    }
     internalSnrDb = result.rxPowerDbm - result.noiseFloorDbm;
 
     // [CA-TBL Phase S0b] Physics-derived ranging error -- PART 2 OF 2.

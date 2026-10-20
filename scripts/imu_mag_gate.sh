@@ -16,7 +16,9 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g99.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true --seed=5 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --arms=ca_tbl_full"
+# PIN (DESIGN_DECISIONS 18, 2026-10-20): this gate's thresholds were set before the preset adopted the receiver
+# corrections; the two flags restore the receiver it was written against, as G63/G87/G89 pin theirs.
+P="--specProfile=true --seed=5 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --arms=ca_tbl_full --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
 run() {
     local n=$1
     shift

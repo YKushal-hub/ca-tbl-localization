@@ -1046,6 +1046,8 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetRobust(m_config.ekf5Robust);
         m_ekf5.SetFinderConsider(m_config.ekf5FinderConsider, m_config.ekf5FinderConsiderVar);
         m_ekf5.SetRelayGate(m_config.ekf5RelayGate);
+        m_ekf5.SetIterate(m_config.ekf5Iterate, m_config.ekf5IterateTolM);
+        m_ekf5.SetWindow(m_config.ekf5Window, m_config.ekf5WindowMin, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5.SetStateBounds(m_config.ekf5StateBoundsK, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5HaveHeading = false;
     }

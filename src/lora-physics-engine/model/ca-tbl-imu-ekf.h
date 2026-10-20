@@ -15,6 +15,8 @@
 
 #include "ca-tbl-imu-sensor-model.h"
 
+#include <array>
+#include <deque>
 #include <map>
 #include <vector>
 
@@ -227,6 +229,39 @@ class CaTblImuEkf
     void SetRelayGate(bool on) { m_relayGate = on; }
     uint64_t RelayGated() const { return m_relayGated; }
     uint64_t RelaySeen() const { return m_relaySeen; }
+    /** --ekf5Iterate (TECH_DEBT N.58): the iterated EKF update (IEKF) in its Gauss-Newton form (Bell & Cathey,
+     *  IEEE TAC 38(2), 1993). A cycle's whole range set is applied from the prior, linearised at a fixed point
+     *  instead of at the running state. The first pass uses the prior position, and each later pass the
+     *  previous pass's posterior position. It stops when the posterior moves less than tolM, or after
+     *  maxPasses. With a fixed linearisation point a sequential scalar update of the linearised model equals
+     *  the batch update, so every update path (plain, finder consider, relay gate, robust) iterates unchanged.
+     *  Only the point at which each range is linearised moves. Position-only observations are linear and are
+     *  not iterated. maxPasses <= 0 (default): the original sequential update, arithmetic untouched. */
+    void SetIterate(int maxPasses, double tolM) { m_iterMax = maxPasses; m_iterTol = tolM; }
+    /** --ekf5Window (TECH_DEBT N.62): a sliding-window smoother over the last W cycles of what this filter was given
+     *  -- IMU increments, the ranges it fused with their variances, magnetometer headings, position fixes. After each
+     *  range update the window is solved jointly (Gauss-Newton, Levenberg-damped) for the path, the heading offset at
+     *  the window's start, the gyro bias, the stride scale and, under --ekf5FinderConsider, each finder's offset; the
+     *  filter's state and covariance are then replaced by the solution at the newest cycle (its marginal from the
+     *  inverse normal matrix). The window never takes the FILTER's posterior as a prior -- that posterior, possibly
+     *  overconfident, is what locks a one-anchor geometry onto the wrong side. When a cycle leaves the window its
+     *  factors are marginalised (Schur complement at the last solution) into a prior on the next cycle, so the
+     *  window keeps what it learned without counting anything twice. Priors on b and s are
+     *  the sensor model's (biasSigma, scaleSigma). Cleared whenever the position is reset (Init, SetPositionCov,
+     *  ReinitPosition). W <= 0 (default): off, nothing is buffered. */
+    void SetWindow(int cycles, int minCycles, double biasSigma, double scaleSigma)
+    {
+        m_winW = cycles;
+        m_winMin = minCycles;
+        m_winBiasSigma = biasSigma;
+        m_winScaleSigma = scaleSigma;
+    }
+    uint64_t WindowSolves() const { return m_winSolves; }
+    uint64_t WindowFailures() const { return m_winFails; }
+    double WindowLastRms() const { return m_winLastRms; }
+    uint64_t IteratedUpdates() const { return m_iterUpdates; }
+    uint64_t IteratedPasses() const { return m_iterPasses; }
+    uint64_t IteratedUnconverged() const { return m_iterUnconv; }
     //! Diagnostics only (the validator's wrong-start case): set the heading-offset state.
     void ForceHeadingOffsetForTest(double th) { m_x[2] = th; SnapshotPrior(); }
     int Robust() const { return m_robust; }
@@ -297,6 +332,71 @@ class CaTblImuEkf
     void FuseHeadingBody(double z, double r);
     bool FusePositionCovBody(double zx, double zy, double rxx, double rxy, double ryy);
     void FusePositionBody(double zx, double zy, double varM2);
+    // --ekf5Window: one record per cycle, opened by a prediction.
+    struct WinRange
+    {
+        double ax, ay, r, var;
+        int finder; //!< anchor id when the range is to a finder under consider, else -1
+    };
+    struct WinCycle
+    {
+        double dt = 0.0, dist = 0.0, raw = 0.0, qStep2 = 0.0, qTheta2 = 0.0, dwellVar = 0.0;
+        bool dwell = false;
+        bool hasMag = false;
+        double magZ = 0.0, magR = 0.0;
+        std::vector<WinRange> ranges;
+        std::vector<std::array<double, 5>> fixes; //!< zx, zy, rxx, rxy, ryy
+        double x = 0.0, y = 0.0;                  //!< initial guess: the last solution, else the filter's mean
+        bool solved = false;
+    };
+    int m_winW = 0;
+    int m_winMin = 8;
+    double m_winBiasSigma = 0.0;
+    double m_winScaleSigma = 0.0;
+    std::deque<WinCycle> m_win;
+    double m_winTheta0 = 0.0, m_winB = 0.0, m_winS = 0.0; //!< last solution's sensor states
+    bool m_winHaveSol = false;
+    uint64_t m_winSolves = 0, m_winFails = 0;
+    double m_winLastRms = 0.0;
+    // Marginalisation prior on the window's first cycle: 0.5 d'L d + beta'd, d = (p0x, p0y, theta0, b, s, offsets of
+    // m_winPriorF in order) - mu. Built by Schur complement when a cycle leaves the window, so its factors are kept
+    // exactly once (linearised at the solution it was dropped at).
+    bool m_winPriorOn = false;
+    std::vector<int> m_winPriorF;
+    std::vector<double> m_winPriorMu, m_winPriorL, m_winPriorBeta;
+    std::map<int, std::array<double, 2>> m_winOff; //!< last solution's finder offsets
+    void WinOpen(double dt, double dist, double raw, double qStep2, double qTheta2, bool dwell, double dwellVar);
+    void WinMarginaliseFront();
+    void WinClear()
+    {
+        m_win.clear();
+        m_winHaveSol = false;
+        m_winPriorOn = false;
+        m_winOff.clear();
+    }
+    void WinSolve();
+    // --ekf5Iterate. While m_linOn, every range is linearised at (m_linX, m_linY): h(x) ~ h(lin) + H (x - lin).
+    int m_iterMax = 0;
+    double m_iterTol = 0.01;
+    uint64_t m_iterUpdates = 0;
+    uint64_t m_iterPasses = 0;
+    uint64_t m_iterUnconv = 0;
+    bool m_linOn = false;
+    double m_linX = 0.0;
+    double m_linY = 0.0;
+    void UpdateIterated(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2);
+    /** The relative position used to linearise a range to (ax, ay): the state's, or the fixed point. */
+    void LinDelta(double ax, double ay, double& dx, double& dy) const
+    {
+        dx = (m_linOn ? m_linX : m_x[0]) - ax;
+        dy = (m_linOn ? m_linY : m_x[1]) - ay;
+    }
+    /** The linearised model's predicted range at the CURRENT state, given h(lin) = r and gradient H = (h0, h1).
+     *  Without a fixed point the state is the linearisation point, so the prediction is r itself. */
+    double LinPred(double r, double h0, double h1) const
+    {
+        return m_linOn ? r + h0 * (m_x[0] - m_linX) + h1 * (m_x[1] - m_linY) : r;
+    }
     bool m_relayGate = false;
     uint64_t m_relayGated = 0;
     uint64_t m_relaySeen = 0;

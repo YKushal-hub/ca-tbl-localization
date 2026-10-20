@@ -40,6 +40,7 @@ CaTblImuEkf::Init(double x,
     m_P[2][2] = thetaVar;
     m_P[3][3] = biasVar;
     m_P[4][4] = strideVar;
+    WinClear(); // --ekf5Window
     SnapshotPrior();
 }
 
@@ -82,6 +83,10 @@ CaTblImuEkf::Predict(double dt,
                      double qTheta2,
                      double qBias2)
 {
+    if (m_winW > 0)
+    {
+        WinOpen(dt, distM, rawHeadingRad, qStep2, qTheta2, false, 0.0); // --ekf5Window
+    }
     const double theta = m_x[2] + m_x[3] * dt;
     const double phi = rawHeadingRad - theta;
     const double c = std::cos(phi);
@@ -172,6 +177,11 @@ CaTblImuEkf::Predict(double dt,
     if (m_mm)
     {
         MomentMatch();
+    }
+    if (m_winW > 0 && !m_win.empty())
+    {
+        m_win.back().x = m_x[0];
+        m_win.back().y = m_x[1];
     }
     SnapshotPrior();
 }
@@ -284,6 +294,10 @@ CaTblImuEkf::PredictUnscented(double dt,
                               double qTheta2,
                               double qBias2)
 {
+    if (m_winW > 0)
+    {
+        WinOpen(dt, distM, rawHeadingRad, qStep2, qTheta2, false, 0.0); // --ekf5Window
+    }
     double scaled[N][N];
     for (int i = 0; i < N; ++i)
     {
@@ -385,6 +399,12 @@ CaTblImuEkf::FuseHeadingBody(double z, double r)
     {
         return;
     }
+    if (m_winW > 0 && !m_win.empty())
+    {
+        m_win.back().hasMag = true; // --ekf5Window
+        m_win.back().magZ = z;
+        m_win.back().magR = r;
+    }
     double nu = z - m_x[2];
     nu = std::atan2(std::sin(nu), std::cos(nu));
     double K[N];
@@ -422,6 +442,7 @@ CaTblImuEkf::FuseHeadingBody(double z, double r)
 void
 CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 {
+    WinClear(); // --ekf5Window: the path before a reset is not this position's
     for (auto& kv : m_cons)
     {
         kv.second.X[0][0] = kv.second.X[0][1] = kv.second.X[1][0] = kv.second.X[1][1] = 0.0;
@@ -443,6 +464,7 @@ CaTblImuEkf::ReinitPosition(double x, double y, double posVar)
 void
 CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double pyy)
 {
+    WinClear(); // --ekf5Window: the path before a reset is not this position's
     for (auto& kv : m_cons)
     {
         kv.second.X[0][0] = kv.second.X[0][1] = kv.second.X[1][0] = kv.second.X[1][1] = 0.0;
@@ -466,8 +488,66 @@ CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double p
 void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
-    UpdateBody(meas, varM2);
+    if (m_iterMax > 0 && m_robust == 0 && !meas.empty() && !varM2.empty())
+    {
+        UpdateIterated(meas, varM2); // --ekf5Iterate; off by default
+    }
+    else
+    {
+        UpdateBody(meas, varM2);
+    }
     ApplyBounds(); // --ekf5StateBounds; a no-op unless on
+    if (m_winW > 0 && !m_win.empty() && !meas.empty())
+    {
+        if (!m_win.back().solved)
+        {
+            m_win.back().x = m_x[0];
+            m_win.back().y = m_x[1];
+        }
+        WinSolve(); // --ekf5Window
+    }
+}
+
+void
+CaTblImuEkf::UpdateIterated(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
+{
+    // IEKF, Gauss-Newton form: x_{i+1} = x0 + K_i (z - h(x_i) - H_i (x0 - x_i)), K_i from H_i at x_i, and the
+    // posterior covariance from the last pass's H. Each pass restarts from the prior (the whole object,
+    // counters and finder cross-covariances included), so the state and every counter read as ONE update:
+    // the last pass's.
+    const CaTblImuEkf start = *this;
+    double lx = m_x[0];
+    double ly = m_x[1];
+    int passes = 0;
+    bool converged = false;
+    while (passes < m_iterMax)
+    {
+        if (passes > 0)
+        {
+            *this = start;
+        }
+        m_linOn = true;
+        m_linX = lx;
+        m_linY = ly;
+        UpdateBody(meas, varM2);
+        m_linOn = false;
+        ++passes;
+        const double step = std::hypot(m_x[0] - lx, m_x[1] - ly);
+        lx = m_x[0];
+        ly = m_x[1];
+        if (!std::isfinite(step))
+        {
+            break; // counted as not converged
+        }
+        if (step < m_iterTol)
+        {
+            converged = true;
+            break;
+        }
+    }
+    m_iterUpdates = start.m_iterUpdates + 1;
+    m_iterPasses = start.m_iterPasses + passes;
+    m_iterUnconv = start.m_iterUnconv + (converged ? 0 : 1);
 }
 
 void
@@ -493,12 +573,13 @@ CaTblImuEkf::UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const st
     const size_t n = std::min(meas.size(), varM2.size());
     for (size_t k = 0; k < n; ++k)
     {
-        const double dx = m_x[0] - meas[k].anchorX;
-        const double dy = m_x[1] - meas[k].anchorY;
-        const double rPred = std::sqrt(dx * dx + dy * dy);
-        const double rSafe = std::max(rPred, 1e-6);
+        double dx, dy;
+        LinDelta(meas[k].anchorX, meas[k].anchorY, dx, dy); // --ekf5Iterate's fixed point, else the state
+        const double rLin = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rLin, 1e-6);
         const double H0 = dx / rSafe;
         const double H1 = dy / rSafe;
+        const double rPred = LinPred(rLin, H0, H1);
 
         double PH[N];
         for (int i = 0; i < N; ++i)
@@ -526,6 +607,10 @@ CaTblImuEkf::UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const st
             }
         }
         NoteNis(innovation * innovation / S); // --relayNisInflate; a no-op unless enabled
+        if (m_winW > 0 && !m_win.empty())
+        {
+            m_win.back().ranges.push_back({meas[k].anchorX, meas[k].anchorY, meas[k].rangeM, varM2[k], -1}); // --ekf5Window
+        }
         for (int i = 0; i < N; ++i)
         {
             m_x[i] += K[i] * innovation;
@@ -679,6 +764,10 @@ CaTblImuEkf::FusePositionBody(double zx, double zy, double varM2)
     {
         return;
     }
+    if (m_winW > 0 && !m_win.empty())
+    {
+        m_win.back().fixes.push_back({zx, zy, varM2, 0.0, varM2}); // --ekf5Window
+    }
     ResetCoast();
     FuseAxis(0, zx, varM2);
     FuseAxis(1, zy, varM2);
@@ -724,6 +813,10 @@ CaTblImuEkf::FusePositionCovBody(double zx, double zy, double rxx, double rxy, d
         !std::isfinite(ryy) || !(rxx > 0.0) || !(ryy > 0.0) || !(rxx * ryy - rxy * rxy > 0.0))
     {
         return false;
+    }
+    if (m_winW > 0 && !m_win.empty())
+    {
+        m_win.back().fixes.push_back({zx, zy, rxx, rxy, ryy}); // --ekf5Window
     }
     const double pxy = 0.5 * (m_P[0][1] + m_P[1][0]);
     const double s00 = m_P[0][0] + rxx;
@@ -799,6 +892,12 @@ CaTblImuEkf::FusePositionCovBody(double zx, double zy, double rxx, double rxy, d
 void
 CaTblImuEkf::PredictDwell(double dt, double qTheta2, double qBias2, double posVar2)
 {
+    if (m_winW > 0)
+    {
+        WinOpen(dt, 0.0, 0.0, 0.0, qTheta2, true, posVar2); // --ekf5Window
+        m_win.back().x = m_x[0];
+        m_win.back().y = m_x[1];
+    }
     // theta' = theta + b dt is the only state that moves: F = I except d theta' / d b = dt.
     // P' = F P F^T, written out for that single off-diagonal.
     m_x[2] += m_x[3] * dt;
@@ -1142,11 +1241,12 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
     for (size_t k = 0; k < n; ++k)
     {
         const CaTblRangeMeasurement& mm = meas[k];
-        const double dx = m_x[0] - mm.anchorX;
-        const double dy = m_x[1] - mm.anchorY;
-        const double rPred = std::sqrt(dx * dx + dy * dy);
-        const double rSafe = std::max(rPred, 1e-6);
+        double dx, dy;
+        LinDelta(mm.anchorX, mm.anchorY, dx, dy); // --ekf5Iterate's fixed point, else the state
+        const double rLin = std::sqrt(dx * dx + dy * dy);
+        const double rSafe = std::max(rLin, 1e-6);
         const double H[N] = {dx / rSafe, dy / rSafe, 0.0, 0.0, 0.0};
+        const double rPred = LinPred(rLin, H[0], H[1]);
         const bool finder = (mm.sourceKind == CA_TBL_SRC_FINDER);
         ConsAnchor* ca = nullptr;
         if (finder)
@@ -1182,6 +1282,11 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             }
         }
         NoteNis(innovation * innovation / S);
+        if (m_winW > 0 && !m_win.empty())
+        {
+            m_win.back().ranges.push_back(
+                {mm.anchorX, mm.anchorY, mm.rangeM, varM2[k], finder ? static_cast<int>(mm.anchorId) : -1}); // --ekf5Window
+        }
         // Cross-covariances first, from pre-update values. For the ranged finder:
         // X_a <- X_a - K (H X_a + Ha C) = X_a - K (H X_a - var h). Every other finder: X_b <- X_b - K (H X_b).
         for (auto& kv : m_cons)
@@ -1248,6 +1353,697 @@ CaTblImuEkf::ApplyBounds()
         m_x[4] = std::copysign(bs, m_x[4]);
         ++m_bndN;
     }
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// --ekf5Window (TECH_DEBT N.62): the sliding-window smoother.
+
+void
+CaTblImuEkf::WinOpen(double dt, double dist, double raw, double qStep2, double qTheta2, bool dwell, double dwellVar)
+{
+    WinCycle c;
+    c.dt = dt;
+    c.dist = dist;
+    c.raw = raw;
+    c.qStep2 = qStep2;
+    c.qTheta2 = qTheta2;
+    c.dwell = dwell;
+    c.dwellVar = dwellVar;
+    c.x = m_x[0];
+    c.y = m_x[1];
+    m_win.push_back(c);
+    while (static_cast<int>(m_win.size()) > m_winW)
+    {
+        if (m_winHaveSol && m_win.size() >= 2)
+        {
+            WinMarginaliseFront();
+        }
+        m_win.pop_front();
+        if (m_winHaveSol && !m_win.empty())
+        {
+            m_winTheta0 += m_winB * m_win.front().dt; // theta referenced to the new first cycle
+        }
+    }
+}
+
+void
+CaTblImuEkf::WinMarginaliseFront()
+{
+    // Local variables: p0 (dropped), p1, theta0, b, s, then the offsets of the finders the dropped cycle ranged and
+    // the old prior's. Factors: everything that touches p0 -- its ranges, magnetometer, fixes, the old prior, and the
+    // odometry p0 -> p1. Linearised at the last solution.
+    const WinCycle& c0 = m_win[0];
+    const WinCycle& c1 = m_win[1];
+    std::vector<int> fl;
+    auto fpos = [&fl](int f) {
+        for (size_t i = 0; i < fl.size(); ++i)
+        {
+            if (fl[i] == f)
+            {
+                return static_cast<int>(i);
+            }
+        }
+        fl.push_back(f);
+        return static_cast<int>(fl.size()) - 1;
+    };
+    for (const auto& r : c0.ranges)
+    {
+        if (r.finder >= 0)
+        {
+            fpos(r.finder);
+        }
+    }
+    if (m_winPriorOn)
+    {
+        for (int f : m_winPriorF)
+        {
+            fpos(f);
+        }
+    }
+    const int nl = 7 + 2 * static_cast<int>(fl.size());
+    std::vector<double> v(nl, 0.0);
+    v[0] = c0.x;
+    v[1] = c0.y;
+    v[2] = c1.x;
+    v[3] = c1.y;
+    v[4] = m_winTheta0;
+    v[5] = m_winB;
+    v[6] = m_winS;
+    for (size_t i = 0; i < fl.size(); ++i)
+    {
+        auto it = m_winOff.find(fl[i]);
+        v[7 + 2 * i] = it != m_winOff.end() ? it->second[0] : 0.0;
+        v[8 + 2 * i] = it != m_winOff.end() ? it->second[1] : 0.0;
+    }
+    std::vector<double> H(static_cast<size_t>(nl) * nl, 0.0), g(nl, 0.0);
+    auto add = [&](double res, const int* id, const double* jac, int m, double var) {
+        const double w = 1.0 / var;
+        for (int a = 0; a < m; ++a)
+        {
+            g[id[a]] += jac[a] * res * w;
+            for (int b = 0; b < m; ++b)
+            {
+                H[static_cast<size_t>(id[a]) * nl + id[b]] += jac[a] * jac[b] * w;
+            }
+        }
+    };
+    for (const auto& r : c0.ranges)
+    {
+        double qx = r.ax, qy = r.ay;
+        int cf = -1;
+        if (r.finder >= 0)
+        {
+            cf = 7 + 2 * fpos(r.finder);
+            qx += v[cf];
+            qy += v[cf + 1];
+        }
+        const double dx = v[0] - qx, dy = v[1] - qy;
+        const double rho = std::max(std::hypot(dx, dy), 1e-6);
+        const double ux = dx / rho, uy = dy / rho;
+        if (cf >= 0)
+        {
+            const int id[4] = {0, 1, cf, cf + 1};
+            const double jac[4] = {ux, uy, -ux, -uy};
+            add(rho - r.r, id, jac, 4, r.var);
+        }
+        else
+        {
+            const int id[2] = {0, 1};
+            const double jac[2] = {ux, uy};
+            add(rho - r.r, id, jac, 2, r.var);
+        }
+    }
+    if (c0.hasMag && c0.magR > 0.0)
+    {
+        double nu = v[4] - c0.magZ;
+        nu = std::atan2(std::sin(nu), std::cos(nu));
+        const int id[1] = {4};
+        const double jac[1] = {1.0};
+        add(nu, id, jac, 1, c0.magR);
+    }
+    for (const auto& f : c0.fixes)
+    {
+        const double l00 = std::sqrt(f[2]);
+        const double l10 = f[3] / l00;
+        const double l11 = std::sqrt(std::max(f[4] - l10 * l10, 1e-12));
+        const double ex = v[0] - f[0], ey = v[1] - f[1];
+        const double w0 = ex / l00, w1 = (ey - l10 * w0) / l11;
+        const int id[2] = {0, 1};
+        const double j0[2] = {1.0 / l00, 0.0};
+        const double j1[2] = {-l10 / (l00 * l11), 1.0 / l11};
+        add(w0, id, j0, 2, 1.0);
+        add(w1, id, j1, 2, 1.0);
+    }
+    // Odometry p0 -> p1 with cycle 1's increment; theta at cycle 1 = theta0 + b dt1.
+    {
+        const double dt1 = c1.dt;
+        if (c1.dwell)
+        {
+            const double var = std::max(c1.dwellVar, 1e-4);
+            for (int ax = 0; ax < 2; ++ax)
+            {
+                const int id[2] = {2 + ax, ax};
+                const double jac[2] = {1.0, -1.0};
+                add(v[2 + ax] - v[ax], id, jac, 2, var);
+            }
+        }
+        else
+        {
+            const double th1 = v[4] + v[5] * dt1;
+            const double phi = c1.raw - th1;
+            const double ops = std::max(1.0 + v[6], 0.1);
+            const double D = c1.dist / ops;
+            const double dDds = -c1.dist / (ops * ops);
+            const double var = c1.qStep2 + D * D * c1.qTheta2 + 0.01;
+            const double pred[2] = {D * std::cos(phi), D * std::sin(phi)};
+            const double dth[2] = {D * std::sin(phi), -D * std::cos(phi)};
+            const double ds[2] = {dDds * std::cos(phi), dDds * std::sin(phi)};
+            for (int ax = 0; ax < 2; ++ax)
+            {
+                const int id[5] = {2 + ax, ax, 4, 5, 6};
+                const double jac[5] = {1.0, -1.0, -dth[ax], -dth[ax] * dt1, -ds[ax]};
+                add(v[2 + ax] - v[ax] - pred[ax], id, jac, 5, var);
+            }
+        }
+    }
+    // The old prior, on (p0, theta0, b, s, its finders).
+    if (m_winPriorOn)
+    {
+        const int kp = static_cast<int>(m_winPriorMu.size());
+        std::vector<int> map(kp);
+        map[0] = 0;
+        map[1] = 1;
+        map[2] = 4;
+        map[3] = 5;
+        map[4] = 6;
+        for (size_t i = 0; i < m_winPriorF.size(); ++i)
+        {
+            const int fi = 7 + 2 * fpos(m_winPriorF[i]);
+            map[5 + 2 * i] = fi;
+            map[6 + 2 * i] = fi + 1;
+        }
+        std::vector<double> d(kp);
+        for (int i = 0; i < kp; ++i)
+        {
+            d[i] = v[map[i]] - m_winPriorMu[i];
+        }
+        for (int i = 0; i < kp; ++i)
+        {
+            double Ld = 0.0;
+            for (int j = 0; j < kp; ++j)
+            {
+                Ld += m_winPriorL[static_cast<size_t>(i) * kp + j] * d[j];
+                H[static_cast<size_t>(map[i]) * nl + map[j]] += m_winPriorL[static_cast<size_t>(i) * kp + j];
+            }
+            g[map[i]] += Ld + m_winPriorBeta[i];
+        }
+    }
+    // Schur complement: marginalise p0 (indices 0, 1) out of (H, g).
+    const double a00 = H[0], a01 = H[1], a10 = H[nl], a11 = H[nl + 1];
+    const double det = a00 * a11 - a01 * a10;
+    if (!(det > 0.0) || !std::isfinite(det))
+    {
+        m_winPriorOn = false;
+        return;
+    }
+    const double i00 = a11 / det, i01 = -a01 / det, i10 = -a10 / det, i11 = a00 / det;
+    const int k = nl - 2;
+    std::vector<double> L(static_cast<size_t>(k) * k), beta(k);
+    for (int i = 0; i < k; ++i)
+    {
+        const double hi0 = H[static_cast<size_t>(i + 2) * nl + 0], hi1 = H[static_cast<size_t>(i + 2) * nl + 1];
+        const double t0 = hi0 * i00 + hi1 * i10, t1 = hi0 * i01 + hi1 * i11; // H_rm H_mm^-1, row i
+        for (int j = 0; j < k; ++j)
+        {
+            const double h0j = H[0 * static_cast<size_t>(nl) + j + 2], h1j = H[1 * static_cast<size_t>(nl) + j + 2];
+            L[static_cast<size_t>(i) * k + j] = H[static_cast<size_t>(i + 2) * nl + j + 2] - (t0 * h0j + t1 * h1j);
+        }
+        beta[i] = g[i + 2] - (t0 * g[0] + t1 * g[1]);
+    }
+    // Reparametrise theta at cycle 0 to theta at cycle 1: theta0 = theta1 - b dt1, so d_old = T d_new with
+    // T = I except T[theta][b] = -dt1 (indices within the reduced vector: p1 0-1, theta 2, b 3, s 4).
+    const double dt1 = c1.dt;
+    std::vector<double> L2(L), beta2(beta);
+    for (int i = 0; i < k; ++i)
+    {
+        for (int j = 0; j < k; ++j)
+        {
+            // (T' L T)_{ij}: column b picks up -dt1 * column theta, row b picks up -dt1 * row theta.
+            double vv = L[static_cast<size_t>(i) * k + j];
+            if (j == 3)
+            {
+                vv -= dt1 * L[static_cast<size_t>(i) * k + 2];
+            }
+            L2[static_cast<size_t>(i) * k + j] = vv;
+        }
+    }
+    std::vector<double> L3(L2);
+    for (int j = 0; j < k; ++j)
+    {
+        L3[static_cast<size_t>(3) * k + j] = L2[static_cast<size_t>(3) * k + j] - dt1 * L2[static_cast<size_t>(2) * k + j];
+    }
+    beta2[3] = beta[3] - dt1 * beta[2];
+    m_winPriorMu.assign(k, 0.0);
+    m_winPriorMu[0] = v[2];
+    m_winPriorMu[1] = v[3];
+    m_winPriorMu[2] = v[4] + v[5] * dt1;
+    m_winPriorMu[3] = v[5];
+    m_winPriorMu[4] = v[6];
+    for (size_t i = 0; i < fl.size(); ++i)
+    {
+        m_winPriorMu[5 + 2 * i] = v[7 + 2 * i];
+        m_winPriorMu[6 + 2 * i] = v[8 + 2 * i];
+    }
+    m_winPriorF = fl;
+    m_winPriorL = L3;
+    m_winPriorBeta = beta2;
+    m_winPriorOn = true;
+}
+
+namespace
+{
+// In-place Cholesky of a symmetric positive-definite n x n matrix (row-major, lower triangle used).
+bool
+CholDense(std::vector<double>& A, int n)
+{
+    for (int j = 0; j < n; ++j)
+    {
+        double d = A[j * n + j];
+        for (int k = 0; k < j; ++k)
+        {
+            d -= A[j * n + k] * A[j * n + k];
+        }
+        if (!(d > 0.0) || !std::isfinite(d))
+        {
+            return false;
+        }
+        const double l = std::sqrt(d);
+        A[j * n + j] = l;
+        for (int i = j + 1; i < n; ++i)
+        {
+            double v = A[i * n + j];
+            for (int k = 0; k < j; ++k)
+            {
+                v -= A[i * n + k] * A[j * n + k];
+            }
+            A[i * n + j] = v / l;
+        }
+    }
+    return true;
+}
+
+void
+CholSolve(const std::vector<double>& L, int n, std::vector<double>& b)
+{
+    for (int i = 0; i < n; ++i)
+    {
+        double v = b[i];
+        for (int k = 0; k < i; ++k)
+        {
+            v -= L[i * n + k] * b[k];
+        }
+        b[i] = v / L[i * n + i];
+    }
+    for (int i = n - 1; i >= 0; --i)
+    {
+        double v = b[i];
+        for (int k = i + 1; k < n; ++k)
+        {
+            v -= L[k * n + i] * b[k];
+        }
+        b[i] = v / L[i * n + i];
+    }
+}
+} // namespace
+
+void
+CaTblImuEkf::WinSolve()
+{
+    const int W = static_cast<int>(m_win.size());
+    if (W < std::max(2, m_winMin))
+    {
+        return;
+    }
+    // Unknowns: p_0..p_{W-1} (2W), theta at the window's first cycle, b, s, then 2 per finder under consider.
+    std::map<int, int> fidx;
+    for (const auto& c : m_win)
+    {
+        for (const auto& r : c.ranges)
+        {
+            if (r.finder >= 0 && !fidx.count(r.finder))
+            {
+                const int k = static_cast<int>(fidx.size());
+                fidx[r.finder] = k;
+            }
+        }
+    }
+    if (m_winPriorOn)
+    {
+        for (int f : m_winPriorF)
+        {
+            if (!fidx.count(f))
+            {
+                const int k = static_cast<int>(fidx.size());
+                fidx[f] = k;
+            }
+        }
+    }
+    const int F = static_cast<int>(fidx.size());
+    const int iT = 2 * W, iB = iT + 1, iS = iT + 2, iC = iT + 3;
+    const int n = iC + 2 * F;
+    std::vector<double> tau(W, 0.0);
+    for (int k = 1; k < W; ++k)
+    {
+        tau[k] = tau[k - 1] + m_win[k].dt;
+    }
+    std::vector<double> x(n, 0.0);
+    for (int k = 0; k < W; ++k)
+    {
+        x[2 * k] = m_win[k].x;
+        x[2 * k + 1] = m_win[k].y;
+    }
+    // Sensor states from the filter as it stands (theta at the newest cycle, rolled back to the window's first).
+    x[iB] = m_x[3];
+    x[iS] = m_x[4];
+    x[iT] = m_x[2] - m_x[3] * tau[W - 1];
+    if (m_winHaveSol)
+    {
+        x[iB] = m_winB;
+        x[iS] = m_winS;
+        x[iT] = m_winTheta0;
+        for (const auto& kv : fidx)
+        {
+            auto it = m_winOff.find(kv.first);
+            if (it != m_winOff.end())
+            {
+                x[iC + 2 * kv.second] = it->second[0];
+                x[iC + 2 * kv.second + 1] = it->second[1];
+            }
+        }
+    }
+    // The marginalisation prior's variables, as indices into x.
+    std::vector<int> pmap;
+    if (m_winPriorOn)
+    {
+        pmap = {0, 1, iT, iB, iS};
+        for (int f : m_winPriorF)
+        {
+            pmap.push_back(iC + 2 * fidx[f]);
+            pmap.push_back(iC + 2 * fidx[f] + 1);
+        }
+    }
+
+    // Accumulates whitened residuals r and their gradients into H = J'J, g = J'r and the cost.
+    std::vector<double> H(static_cast<size_t>(n) * n), g(n);
+    double cost = 0.0;
+    int nres = 0;
+    auto add = [&](double res, const int* id, const double* jac, int m, double var) {
+        const double w = 1.0 / var;
+        cost += res * res * w;
+        ++nres;
+        for (int a = 0; a < m; ++a)
+        {
+            g[id[a]] += jac[a] * res * w;
+            for (int b = 0; b < m; ++b)
+            {
+                H[static_cast<size_t>(id[a]) * n + id[b]] += jac[a] * jac[b] * w;
+            }
+        }
+    };
+    auto build = [&](const std::vector<double>& v) {
+        std::fill(H.begin(), H.end(), 0.0);
+        std::fill(g.begin(), g.end(), 0.0);
+        cost = 0.0;
+        nres = 0;
+        const double th0 = v[iT], b = v[iB], s = v[iS];
+        for (int k = 0; k < W; ++k)
+        {
+            const WinCycle& c = m_win[k];
+            const double thk = th0 + b * tau[k];
+            if (k > 0)
+            {
+                if (c.dwell)
+                {
+                    const double var = std::max(c.dwellVar, 1e-4);
+                    for (int ax = 0; ax < 2; ++ax)
+                    {
+                        const int id[2] = {2 * k + ax, 2 * (k - 1) + ax};
+                        const double jac[2] = {1.0, -1.0};
+                        add(v[id[0]] - v[id[1]], id, jac, 2, var);
+                    }
+                }
+                else
+                {
+                    const double phi = c.raw - thk;
+                    const double ops = std::max(1.0 + s, 0.1);
+                    const double D = c.dist / ops;
+                    const double dDds = -c.dist / (ops * ops);
+                    // Stride noise along track, heading noise across it, and a 0.1 m floor (OURS).
+                    const double var = c.qStep2 + D * D * c.qTheta2 + 0.01;
+                    const double pred[2] = {D * std::cos(phi), D * std::sin(phi)};
+                    const double dth[2] = {D * std::sin(phi), -D * std::cos(phi)}; // d pred / d theta_k
+                    const double ds[2] = {dDds * std::cos(phi), dDds * std::sin(phi)};
+                    for (int ax = 0; ax < 2; ++ax)
+                    {
+                        const int id[5] = {2 * k + ax, 2 * (k - 1) + ax, iT, iB, iS};
+                        const double jac[5] = {1.0, -1.0, -dth[ax], -dth[ax] * tau[k], -ds[ax]};
+                        add(v[id[0]] - v[id[1]] - pred[ax], id, jac, 5, var);
+                    }
+                }
+            }
+            for (const auto& r : c.ranges)
+            {
+                double qx = r.ax, qy = r.ay;
+                int cf = -1;
+                if (r.finder >= 0)
+                {
+                    cf = iC + 2 * fidx[r.finder];
+                    qx += v[cf];
+                    qy += v[cf + 1];
+                }
+                const double dx = v[2 * k] - qx, dy = v[2 * k + 1] - qy;
+                const double rho = std::max(std::hypot(dx, dy), 1e-6);
+                const double ux = dx / rho, uy = dy / rho;
+                if (cf >= 0)
+                {
+                    const int id[4] = {2 * k, 2 * k + 1, cf, cf + 1};
+                    const double jac[4] = {ux, uy, -ux, -uy};
+                    add(rho - r.r, id, jac, 4, r.var);
+                }
+                else
+                {
+                    const int id[2] = {2 * k, 2 * k + 1};
+                    const double jac[2] = {ux, uy};
+                    add(rho - r.r, id, jac, 2, r.var);
+                }
+            }
+            if (c.hasMag && c.magR > 0.0)
+            {
+                double nu = thk - c.magZ;
+                nu = std::atan2(std::sin(nu), std::cos(nu));
+                const int id[2] = {iT, iB};
+                const double jac[2] = {1.0, tau[k]};
+                add(nu, id, jac, 2, c.magR);
+            }
+            for (const auto& f : c.fixes)
+            {
+                // A 2-D fix with covariance R: whiten by R's Cholesky factor (lower, l00 l10 l11).
+                const double l00 = std::sqrt(f[2]);
+                const double l10 = f[3] / l00;
+                const double l11 = std::sqrt(std::max(f[4] - l10 * l10, 1e-12));
+                const double ex = v[2 * k] - f[0], ey = v[2 * k + 1] - f[1];
+                const double w0 = ex / l00, w1 = (ey - l10 * w0) / l11;
+                const int id[2] = {2 * k, 2 * k + 1};
+                const double j0[2] = {1.0 / l00, 0.0};
+                const double j1[2] = {-l10 / (l00 * l11), 1.0 / l11};
+                add(w0, id, j0, 2, 1.0);
+                add(w1, id, j1, 2, 1.0);
+            }
+        }
+        if (m_winPriorOn)
+        {
+            const int kp = static_cast<int>(pmap.size());
+            std::vector<double> dd(kp);
+            for (int i = 0; i < kp; ++i)
+            {
+                dd[i] = v[pmap[i]] - m_winPriorMu[i];
+            }
+            for (int i = 0; i < kp; ++i)
+            {
+                double Ld = 0.0;
+                for (int j = 0; j < kp; ++j)
+                {
+                    const double l = m_winPriorL[static_cast<size_t>(i) * kp + j];
+                    Ld += l * dd[j];
+                    H[static_cast<size_t>(pmap[i]) * n + pmap[j]] += l;
+                }
+                g[pmap[i]] += Ld + m_winPriorBeta[i];
+                cost += dd[i] * Ld + 2.0 * m_winPriorBeta[i] * dd[i];
+            }
+        }
+        if (m_winBiasSigma > 0.0)
+        {
+            const int id[1] = {iB};
+            const double jac[1] = {1.0};
+            add(b, id, jac, 1, m_winBiasSigma * m_winBiasSigma);
+        }
+        if (m_winScaleSigma > 0.0)
+        {
+            const int id[1] = {iS};
+            const double jac[1] = {1.0};
+            add(s, id, jac, 1, m_winScaleSigma * m_winScaleSigma);
+        }
+        for (int f = 0; f < F; ++f)
+        {
+            for (int ax = 0; ax < 2; ++ax)
+            {
+                const int id[1] = {iC + 2 * f + ax};
+                const double jac[1] = {1.0};
+                add(v[id[0]], id, jac, 1, m_consVar > 0.0 ? m_consVar : 4.0);
+            }
+        }
+    };
+
+    // Levenberg-Marquardt on the dense normal equations. Window of 60 cycles: about 130 unknowns.
+    double lambda = 1e-3;
+    build(x);
+    double c0 = cost;
+    bool ok = std::isfinite(c0);
+    for (int it = 0; ok && it < 20; ++it)
+    {
+        std::vector<double> A = H;
+        for (int i = 0; i < n; ++i)
+        {
+            A[static_cast<size_t>(i) * n + i] += lambda * std::max(A[static_cast<size_t>(i) * n + i], 1e-9);
+        }
+        std::vector<double> dx(g);
+        if (!CholDense(A, n))
+        {
+            lambda *= 10.0;
+            continue;
+        }
+        CholSolve(A, n, dx);
+        std::vector<double> xn(x);
+        double maxStep = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            xn[i] -= dx[i];
+            maxStep = std::max(maxStep, std::fabs(dx[i]));
+        }
+        std::vector<double> Hs = H, gs = g;
+        build(xn);
+        if (std::isfinite(cost) && cost < c0)
+        {
+            x.swap(xn);
+            c0 = cost;
+            lambda = std::max(lambda / 10.0, 1e-9);
+            if (maxStep < 1e-3)
+            {
+                break;
+            }
+        }
+        else
+        {
+            H.swap(Hs);
+            g.swap(gs);
+            lambda *= 10.0;
+            if (lambda > 1e8)
+            {
+                break;
+            }
+        }
+    }
+    build(x); // H at the solution, undamped: its inverse is the window's covariance
+    std::vector<double> L = H;
+    if (!ok || !CholDense(L, n))
+    {
+        ++m_winFails;
+        return;
+    }
+    // Marginal covariance of (p_last, theta0, b, s): columns of H^-1 for those five unknowns.
+    const int sel[5] = {2 * (W - 1), 2 * (W - 1) + 1, iT, iB, iS};
+    double S[5][5];
+    for (int a = 0; a < 5; ++a)
+    {
+        std::vector<double> e(n, 0.0);
+        e[sel[a]] = 1.0;
+        CholSolve(L, n, e);
+        for (int b2 = 0; b2 < 5; ++b2)
+        {
+            S[b2][a] = e[sel[b2]];
+        }
+    }
+    // State = A (p_last, theta0, b, s): theta_last = theta0 + b T.
+    const double T = tau[W - 1];
+    double A[5][5] = {};
+    A[0][0] = A[1][1] = A[3][3] = A[4][4] = 1.0;
+    A[2][2] = 1.0;
+    A[2][3] = T;
+    double AS[5][5] = {};
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            for (int k = 0; k < 5; ++k)
+            {
+                AS[i][j] += A[i][k] * S[k][j];
+            }
+        }
+    }
+    double P[5][5] = {};
+    for (int i = 0; i < 5; ++i)
+    {
+        for (int j = 0; j < 5; ++j)
+        {
+            for (int k = 0; k < 5; ++k)
+            {
+                P[i][j] += AS[i][k] * A[j][k];
+            }
+        }
+    }
+    const double xs[5] = {x[2 * (W - 1)], x[2 * (W - 1) + 1], x[iT] + x[iB] * T, x[iB], x[iS]};
+    for (int i = 0; i < 5; ++i)
+    {
+        if (!std::isfinite(xs[i]) || !(P[i][i] > 0.0) || !std::isfinite(P[i][i]))
+        {
+            ++m_winFails;
+            return;
+        }
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        m_x[i] = xs[i];
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] = P[i][j];
+        }
+    }
+    Symmetrise();
+    // The finder offsets now live in the window; the filter's consider cross-covariances restart from zero.
+    for (auto& kv : m_cons)
+    {
+        for (int i = 0; i < N; ++i)
+        {
+            kv.second.X[i][0] = kv.second.X[i][1] = 0.0;
+        }
+    }
+    for (int k = 0; k < W; ++k)
+    {
+        m_win[k].x = x[2 * k];
+        m_win[k].y = x[2 * k + 1];
+        m_win[k].solved = true;
+    }
+    m_winHaveSol = true;
+    m_winTheta0 = x[iT];
+    m_winB = x[iB];
+    m_winS = x[iS];
+    for (const auto& kv : fidx)
+    {
+        m_winOff[kv.first] = {x[iC + 2 * kv.second], x[iC + 2 * kv.second + 1]};
+    }
+    ++m_winSolves;
+    m_winLastRms = nres > 0 ? std::sqrt(c0 / nres) : 0.0;
 }
 
 } // namespace ns3
