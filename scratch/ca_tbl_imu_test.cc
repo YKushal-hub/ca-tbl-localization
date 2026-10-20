@@ -556,6 +556,124 @@ main(int argc, char* argv[])
         Check(same, "iterated update off: state and covariance bit-identical to a filter never configured");
     }
 
+    // --- --ekf5Window (N.62): the sliding-window smoother -----------------------------------------------------------
+    // A walk with a gyro bias, a magnetometer (3 deg) and ranges (sigma 3 m). Filter convention: phi = raw - theta,
+    // theta = theta0 + b t, so the IMU's raw heading is the true heading plus theta.
+    {
+        struct Out
+        {
+            double err, nees, bias, theta, thetaTrue;
+        };
+        auto walk = [](int window, int nAnchors, double thetaInit, double pThInit, uint64_t seed) {
+            uint64_t z = seed;
+            auto u01 = [&z]() {
+                z ^= z << 13;
+                z ^= z >> 7;
+                z ^= z << 17;
+                return ((z >> 11) + 0.5) / 9007199254740992.0;
+            };
+            auto gauss = [&u01]() { return std::sqrt(-2.0 * std::log(u01())) * std::cos(2.0 * M_PI * u01()); };
+            const double dt = 2.5, step = 3.0, b = 0.0027, th0 = 0.0, deg = M_PI / 180.0;
+            const double ax[3] = {60.0, -40.0, 10.0}, ay[3] = {20.0, 50.0, -70.0};
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 4.0, pThInit, std::pow(0.15 * deg, 2), std::pow(0.0266, 2));
+            f.ForceHeadingOffsetForTest(thetaInit);
+            f.SetWindow(window, 8, 0.15 * deg, 0.0266);
+            double px = 0.0, py = 0.0, t = 0.0;
+            for (int c = 0; c < 120; ++c)
+            {
+                t += dt;
+                const double head = 0.4 * std::sin(t / 40.0) + 0.004 * t; // true walking direction
+                px += step * std::cos(head);
+                py += step * std::sin(head);
+                const double thTrue = th0 + b * t;
+                const double dist = step * (1.0 + 0.05 * gauss() * 0.0);
+                f.Predict(dt, dist, head + thTrue, std::pow(0.05 * step, 2), 1e-6, 0.0);
+                f.FuseHeading(thTrue + 3.0 * deg * gauss(), std::pow(3.0 * deg, 2));
+                std::vector<CaTblRangeMeasurement> m(nAnchors);
+                std::vector<double> v(nAnchors, 9.0);
+                for (int a = 0; a < nAnchors; ++a)
+                {
+                    m[a].anchorX = ax[a];
+                    m[a].anchorY = ay[a];
+                    m[a].anchorId = 101 + a;
+                    m[a].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+                    m[a].rangeM = std::hypot(px - ax[a], py - ay[a]) + 3.0 * gauss();
+                }
+                f.Update(m, v);
+            }
+            const double ex = f.X() - px, ey = f.Y() - py;
+            const double det = f.Pxx() * f.Pyy() - f.Pxy() * f.Pxy();
+            Out o;
+            o.err = std::hypot(ex, ey);
+            o.nees = (f.Pyy() * ex * ex - 2.0 * f.Pxy() * ex * ey + f.Pxx() * ey * ey) / det;
+            o.bias = f.GyroBias();
+            o.theta = f.HeadingOffset();
+            o.thetaTrue = th0 + b * t;
+            return o;
+        };
+        // Consistency with three anchors, from an honest start, 100 realisations.
+        double sn = 0.0, se0 = 0.0, se1 = 0.0;
+        for (int k = 0; k < 100; ++k)
+        {
+            const Out w = walk(40, 3, 0.0, 1e-4, 1000 + k);
+            const Out e = walk(0, 3, 0.0, 1e-4, 1000 + k);
+            sn += w.nees;
+            se1 += w.err;
+            se0 += e.err;
+        }
+        std::cout << "    window, 3 anchors: mean NEES " << sn / 100 << ", mean error " << se1 / 100 << " m (EKF "
+                  << se0 / 100 << " m)\n";
+        Check(sn / 100 > 0.5 && sn / 100 < 4.0, "window: position NEES within [0.5, 4] with three anchors (chi^2_2 mean 2)");
+        Check(se1 < 1.5 * se0, "window: with three anchors it is no worse than 1.5x the EKF's error");
+        // One anchor, the heading state corrupted (0.6 rad wrong, claimed to 0.6 deg): the N.62 failure.
+        double w1 = 0.0, e1 = 0.0, wth = 0.0, eth = 0.0;
+        for (int k = 0; k < 50; ++k)
+        {
+            const Out w = walk(40, 1, 0.6, 1e-4, 5000 + k);
+            const Out e = walk(0, 1, 0.6, 1e-4, 5000 + k);
+            w1 += w.err;
+            e1 += e.err;
+            wth += std::fabs(w.theta - w.thetaTrue);
+            eth += std::fabs(e.theta - e.thetaTrue);
+        }
+        std::cout << "    window, 1 anchor, heading 0.6 rad wrong: mean error " << w1 / 50 << " m (EKF " << e1 / 50
+                  << " m), mean |heading error| " << wth / 50 << " rad (EKF " << eth / 50 << ")\n";
+        Check(wth / 50 < 0.1, "window: one anchor and a corrupted heading state -- the heading recovers to < 0.1 rad");
+        Check(w1 < 0.5 * e1, "window: one anchor -- position error less than half the EKF's (N.62)");
+    }
+    // Off: no buffering, bit-identical to a filter never configured.
+    {
+        auto one = [](bool touch, double* out) {
+            CaTblImuEkf f;
+            f.Init(30.0, -20.0, 400.0, 1e-4, 1e-10, 1e-6);
+            if (touch)
+            {
+                f.SetWindow(0, 8, 1e-3, 0.03);
+            }
+            for (int c = 0; c < 20; ++c)
+            {
+                f.Predict(2.5, 3.0, 0.3, 1e-3, 1e-6, 1e-12);
+                f.FuseHeading(0.01 * c, 0.003);
+                std::vector<CaTblRangeMeasurement> m(1);
+                std::vector<double> v(1, 9.0);
+                m[0].anchorX = 50.0;
+                m[0].anchorY = 50.0;
+                m[0].rangeM = 60.0 + 0.1 * c;
+                f.Update(m, v);
+            }
+            out[0] = f.X();
+            out[1] = f.Y();
+            out[2] = f.HeadingOffset();
+            out[3] = f.Pxx();
+            out[4] = f.Cov(2, 2);
+        };
+        double a[5], b[5];
+        one(false, a);
+        one(true, b);
+        Check(std::memcmp(a, b, sizeof(a)) == 0, "window off: state and covariance bit-identical to a filter never configured");
+    }
+
     std::cout << "\n  " << g_pass << " passed, " << g_fail << " failed\n";
     return (g_fail == 0) ? 0 : 1;
 }

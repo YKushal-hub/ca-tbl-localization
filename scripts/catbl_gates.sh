@@ -1903,6 +1903,16 @@ bash scripts/finder_consider_gate.sh "$WORK/g150" || fail G150
 bash scripts/finder_consider_gate_selftest.sh "$WORK/g150" || fail G150
 finish G150
 
+# ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
+# scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
+# window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
+# 0 is the flag absent byte for byte; no leak; refused without ekf5, with a robust mode, or a window under 2. Its
+# consistency and the one-anchor recovery are ca_tbl_imu_test's window cases.
+printf '\n--- G152 the sliding-window smoother (--ekf5Window) ---\n'
+bash scripts/window_gate.sh "$WORK/g152" || fail G152
+bash scripts/window_gate_selftest.sh "$WORK/g152" || fail G152
+finish G152
+
 # ---------------- G151: --ekf5Iterate, the iterated (IEKF) range update of the 5-state filter (TECH_DEBT N.58)
 # scripts/iterate_gate.py reads the 5 km preset, seed 5, unknown start, realistic IMU, 600 s, the acquisition N.58
 # traced: updates were iterated (> 0), with more passes than updates (the linearisation point moved), and the

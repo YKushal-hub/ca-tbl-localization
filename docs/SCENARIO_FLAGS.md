@@ -152,6 +152,7 @@ for each change.** Row numbers below are as of the latest regeneration:
 `--ekf5RelayGate` (row 263 of §3, and its §1 row): added 2026-10-18 with its default, `false`.
 `--ekf5StateBounds` (row 263 of §3, and its §1 row): added 2026-10-18 with its default, `0`.
 `--ekf5Iterate`, `--ekf5IterateTolM` (the rows after `--ekf5StateBounds` in §3, and their §1 row): added 2026-10-20, default `0` (off) and `0.01`.
+`--ekf5Window`, `--ekf5WindowMin` (the rows after `--ekf5Iterate` in §3, and their §1 row): added 2026-10-20, default `0` (off) and `8`.
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
 105 names. Three flags changed meaning without changing their printed default, and §1
@@ -295,6 +296,7 @@ precondition missing.
 | `--ekf5RelayGate` | bool | `false` | added 2026-10-18 | With `--imuFilter=ekf5`: a relayed range whose NIS against the prior exceeds chi^2_1(0.999) = 10.83 is not fused; the filter's own ranges are never gated. Refused without ekf5 or with `--ekf5Robust` | As `--ekf5FinderConsider`. G101 |
 | `--ekf5StateBounds` | double, sigmas | `0` | added 2026-10-18 | With `--imuFilter=ekf5`: after every update the gyro bias and stride scale are clamped to +/- k of their prior sigmas (estimate projection, Simon & Chia 2002). 0: no projection. Refused without ekf5 or negative | Null control 13/14 + NC6 4.1-class against a89aed8d. G102 |
 | `--ekf5Iterate` (+ `--ekf5IterateTolM`) | int, passes 0-50 (double, m) | `0` (`0.01`) | added 2026-10-20 | With `--imuFilter=ekf5`: the iterated EKF range update (IEKF, Gauss-Newton; Bell & Cathey 1993), at most N passes, each re-applying the cycle's ranges from the prior linearised at the previous pass's posterior position; stops when a pass moves the estimate less than the tolerance. Refused without ekf5, with `--ekf5Robust`, or outside 1-50 (TECH_DEBT N.58) | Null control 12/12 byte-identical (NC1-NC9 and three ekf5 cases) against main's engine. G151 |
+| `--ekf5Window` (+ `--ekf5WindowMin`) | int, cycles 2-400 (int) | `0` (`8`) | added 2026-10-20 | With `--imuFilter=ekf5`: a sliding-window smoother over the last N cycles of what the filter was given (IMU increments, fused ranges, magnetometer headings, position fixes), solved by Levenberg-Marquardt for the path, heading offset, gyro bias, stride scale and finder offsets; the filter takes the newest cycle's solution and marginal covariance; leaving cycles are marginalised into a prior. Refused without ekf5, with `--ekf5Robust`, or outside 2-400 (TECH_DEBT N.62) | Null control 12/12 byte-identical against main's engine. G152 |
 
 ## 2. Help text corrected, default unchanged
 

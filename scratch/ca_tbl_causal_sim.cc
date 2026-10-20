@@ -2296,6 +2296,8 @@ static bool g_ekf5FinderConsider = false; //!< --ekf5FinderConsider
 static bool g_ekf5RelayGate = false;      //!< --ekf5RelayGate
 static int g_ekf5Iterate = 0;             //!< --ekf5Iterate (TECH_DEBT N.58)
 static double g_ekf5IterateTolM = 0.01;   //!< --ekf5IterateTolM
+static int g_ekf5Window = 0;              //!< --ekf5Window (TECH_DEBT N.62)
+static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
@@ -7053,6 +7055,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5RelayGate = g_ekf5RelayGate;
         pcfg.ekf5Iterate = g_ekf5Iterate;
         pcfg.ekf5IterateTolM = g_ekf5IterateTolM;
+        pcfg.ekf5Window = g_ekf5Window;
+        pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
@@ -14818,6 +14822,12 @@ RunArm(CaTblPolicyMode mode,
                      << policy.Ekf5().IteratedPasses() << ", unconverged " << policy.Ekf5().IteratedUnconverged()
                      << "\n";
             }
+            if (g_ekf5Window > 0)
+            {
+                line << "    ekf5 window smoother: W " << g_ekf5Window << ", solves " << policy.Ekf5().WindowSolves()
+                     << ", failures " << policy.Ekf5().WindowFailures() << ", last rms " << policy.Ekf5().WindowLastRms()
+                     << "\n";
+            }
             if (spec.ekf5Robust != 0)
             {
                 const CaTblImuEkf& f5 = policy.Ekf5();
@@ -18632,6 +18642,21 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("ekf5Window",
+                 "With --imuFilter=ekf5: a sliding-window smoother over the last N cycles of what the filter was given "
+                 "(IMU increments, the ranges it fused, magnetometer headings, position fixes). After each range update "
+                 "the window is solved jointly (Levenberg-Marquardt) for the path, the heading offset, the gyro bias, the "
+                 "stride scale and each finder's offset under --ekf5FinderConsider, and the filter takes the solution at "
+                 "the newest cycle with its marginal covariance. A cycle leaving the window is marginalised into a prior on the "
+                 "next; the filter's own posterior is never used as one. 0 (default): "
+                 "off. Why (TECH_DEBT N.62): at 5 km tag 0 often has one precise anchor, and single updates turn range "
+                 "innovations into heading, bias and scale errors the magnetometer cannot pull back (seed 5: 37 deg, scale "
+                 "-0.25). Replayed offline, a 60-cycle causal window beat the EKF on 5 of 6 seeds.",
+                 g_ekf5Window);
+    cmd.AddValue("ekf5WindowMin",
+                 "With --ekf5Window: cycles buffered before the first solve. Default 8 (OURS): 20 s of motion, enough "
+                 "turning for heading to be observable through the path.",
+                 g_ekf5WindowMin);
     cmd.AddValue("ekf5IterateTolM",
                  "With --ekf5Iterate: stop iterating when a pass moves the position estimate less than this, metres. "
                  "Default 0.01 (OURS): two orders of magnitude below the tightest range sigma in the model (ToF, 3 m).",
@@ -20291,6 +20316,13 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (g_ekf5Window != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Window < 2 || g_ekf5Window > 400 ||
+                              g_ekf5WindowMin < 2 || g_ekf5WindowMin > g_ekf5Window))
+    {
+        std::cerr << "FATAL: --ekf5Window needs --imuFilter=ekf5, no --ekf5Robust, a length in 2..400 cycles and "
+                     "2 <= --ekf5WindowMin <= --ekf5Window\n";
         return 1;
     }
     if (g_ekf5Iterate != 0 && (!spec.imuFilterEkf5 || ekf5RobustArg != 0 || g_ekf5Iterate < 0 || g_ekf5Iterate > 50 ||
