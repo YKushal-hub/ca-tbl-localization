@@ -26,7 +26,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CORPUS = os.path.join(HERE, "results", "corpus.json")
 # Repointed to the post-D1 probe. results/causal/probe_range_sweep.csv is pre-D1 and
 # superseded; the module's own DEFECTS.md records results/probe_audit as invalidated.
-PROBE = os.path.join(HERE, "..", "..", "results", "probe_v7", "probe_range_sweep.csv")
+# Repointed again 2026-10-20 (TECH_DEBT R.1, VAL-V8): probe_v7 (Aug 27) predates 50fc8620, which made tiers 2/3
+# follow the wide-area environment and vegetation, so from 2026-09-08 this file reconciled the model with an engine
+# configuration no run used. probe_v8 is G11's invocation at today's defaults, and TIER_OVERRIDES puts the model's
+# tiers 2/3 where the engine's defaults put them. Every value is the engine's declared default; none is fitted.
+PROBE = os.path.join(HERE, "..", "..", "results", "probe_v8", "probe_range_sweep.csv")
+TIER_OVERRIDES = {"868MHz": {},
+                  "2.4GHz": {"env": "RURAL_FORESTED", "veg": dict(lb.VEGETATION["VEG_DENSE_FOREST"])},
+                  "UWB": {"env": "RURAL_FORESTED", "veg": dict(lb.VEGETATION["VEG_DENSE_FOREST"])}}
 
 R80_TOL = 0.15        # registered, UNCHANGED
 MARGIN_TOL_DB = 3.0   # registered "3 dB", applied to the quantity that is in dB
@@ -116,19 +123,21 @@ def main():
     for t in ("868MHz", "2.4GHz", "UWB"):
         pts = probe[t]
         dists = [p[0] for p in pts]
-        print("  --- %s   (%s, n=%.2f)" % (t, lb.TIER_ENV[t], lb.ENV[lb.TIER_ENV[t]]["n"]))
+        o = TIER_OVERRIDES[t]
+        env = o.get("env", lb.TIER_ENV[t])
+        print("  --- %s   (%s, n=%.2f)" % (t, env, lb.ENV[env]["n"]))
         print("    %-8s %9s %9s | %11s %11s %9s" %
               ("dist", "pdr_eng", "pdr_mdl", "margin_eng", "margin_mdl", "gap_dB"))
         worst_db = 0.0
         for (d, pe, m_probe) in pts:
-            pm = lb.pdr_at(t, d, draws)
+            pm = lb.pdr_at(t, d, draws, o)
             # mean computed margin over the corpus, for comparison against the probe's
-            mm = sum(lb.margin_db(t, d, u_nl, u_at, u_df, u_df)
+            mm = sum(lb.margin_db(t, d, u_nl, u_at, u_df, u_df, o)
                      for (_, u_nl, u_at, u_df) in draws) / len(draws)
             worst_db = max(worst_db, abs(mm - m_probe))
             print("    %-8.0f %9.4f %9.4f | %11.2f %11.2f %+9.2f"
                   % (d, pe, pm, m_probe, mm, mm - m_probe))
-        rm = lb.r80(t, draws, dists)
+        rm = lb.r80(t, draws, dists, o)
         re_ = None
         prev = None
         for (d, pe, _) in pts:

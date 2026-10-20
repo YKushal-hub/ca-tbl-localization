@@ -4690,12 +4690,24 @@ that no run uses. `linkbudget.py`'s `TIER_ENV` still puts tiers 2/3 in `RURAL_OP
 
 This is rule 9's failure mode: a scan of present data cannot see that the data is stale.
 
-**Fix, not yet done:**
+**Fix:**
 - regenerate the probe at today's defaults into a NEW directory (`results/probe_v8`, never over `probe_v7`);
 - register a reconciliation whose model environment is read from the engine's configuration, not chosen;
 - then re-point G11.
 
-**Not done tonight:** it changes G11's subject and needs its own registration. G11 stays red with this reason.
+**Done the same evening (VAL-V8, `src/catbl-propagation-study/experiments/VAL_V8_REGISTRATION.md`):**
+- `results/probe_v8` was generated at G11's invocation, and the model got an `env` override (validate.py's stdout
+  byte-identical without it).
+- G11 is re-pointed with tiers 2/3 at the engine's declared defaults.
+
+Against the engine as it is:
+- UWB's margin reconciles (worst 2.12 dB);
+- 2.4 GHz's r80 passes (13.7 %);
+- 868 MHz is unchanged;
+- the open residual is 2.4 GHz's margin slope (−6.4 to +6.9 dB).
+
+The registered expectation, that the gaps return to their probe_v7 values, FAILED: the forest move changed something
+the model represents differently. **G11 stays red, now for reasons that describe the engine that runs.**
 
 ### R.2 The IQ-impairment degradation: outside every census, double-counted — FLAG `--iqOverloadOnly`, G161
 

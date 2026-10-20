@@ -185,7 +185,9 @@ G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
-- **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped.
+- **G11:** red by design (TECH_DEBT J.1). Terrain is transcription-only and was not rescoped. Since 2026-10-20 it
+  reconciles against `probe_v8`, the engine as it is (R.1): 2.4 GHz r80 and UWB margin pass; 868 MHz margin and r80,
+  2.4 GHz margin and UWB r80 (degenerate) fail.
 - **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
   are exercised or the owner accepts them.
 
@@ -288,7 +290,15 @@ Things that are true, non-obvious, and have already caused wrong conclusions.
   holds at defaults and at six non-default flag settings, so no result is known to be affected.
 - **Two unattributed residuals stay open deliberately:** UWB ~3.7 dB and 868 MHz ~3.5 dB
   near-field. Conclusions are drawn by recomputing under ±4 dB of margin offset chosen to bracket
-  exactly these.
+  exactly these. **Corrected 2026-10-20 (TECH_DEBT R.1, VAL-V8):** both were measured against
+  `probe_v7`, an engine configuration that predates `50fc8620`. Against the engine as it is, UWB
+  reconciles within 2.12 dB and 868 MHz is unchanged (−4.95 dB at 100 m). The open residual is now
+  2.4 GHz: −6.4 dB inside 50 m, crossing to +6.9 dB at 6 km. That is a slope, which no
+  distance-independent term explains. The ±4 dB bracket does not cover it.
+- **Every engine subtracts an IQ "SNR degradation" from rx power after the loss sum**
+  (`lora-iq-impairment-submodule.cc:48`). It is 0.6–6 dB and saturated at ~6 dB on UWB, and it is
+  in no loss census. Against a data-sheet sensitivity it double-counts the receiver's impairments.
+  `--iqOverloadOnly` removes it (TECH_DEBT R.2).
 
 ---
 
