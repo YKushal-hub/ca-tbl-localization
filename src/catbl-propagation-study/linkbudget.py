@@ -376,7 +376,7 @@ def nlos_excess_db(u_nlos, u_atten, u_diff, d_m, env, overrides=None):
 KNOWN_OVERRIDES = frozenset((
     "phy", "n", "sensitivity", "shadow_sd", "veg", "veg_at_mean", "veg_scale",
     "h_t", "h_r", "no_two_ray", "no_fading", "margin_offset",
-    "nlos_scale_m", "rician_k",
+    "nlos_scale_m", "rician_k", "env",
 ))
 
 
@@ -397,7 +397,9 @@ def rx_power_dbm(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None
     o = overrides or {}
     _check_overrides(o)
     phy = dict(TIER_PHY[tier]); phy.update(o.get("phy", {}))
-    env_name = TIER_ENV[tier]
+    # "env" (VAL-V8): the tier's environment class by name, for an engine configuration whose tier does not sit in
+    # TIER_ENV's environment (50fc8620: tiers 2/3 follow the wide-area environment since 2026-09-08).
+    env_name = o.get("env", TIER_ENV[tier])
     n = o.get("n", ENV[env_name]["n"])
     h_t = o.get("h_t", ANCHOR_HEIGHT_M[tier])
     h_r = o.get("h_r", NODE_HEIGHT_M)
@@ -422,7 +424,7 @@ def margin_db(tier, d_m, u_nlos, u_atten, u_diff, u_depth=0.0, overrides=None):
     o = overrides or {}
     sens = o.get("sensitivity", SENSITIVITY_DBM[tier]) + CODING_RATE_OFFSET_DB
     fade = (0.0 if o.get("no_fading")
-            else mean_fading_loss_db(TIER_ENV[tier], o.get("rician_k")))
+            else mean_fading_loss_db(o.get("env", TIER_ENV[tier]), o.get("rician_k")))
     # Robustness axes for the OFAT campaign. `margin_offset` is added to the margin:
     # terrain is applied as a NEGATIVE offset (extra loss), the unattributed-residual
     # perturbation as either sign. Neither is ever used to fit anything -- both exist so
@@ -475,7 +477,7 @@ def pdr_at(tier, d_m, draws, overrides=None):
     """
     o = overrides or {}
     _check_overrides(o)
-    env_name = TIER_ENV[tier]
+    env_name = o.get("env", TIER_ENV[tier])
     sd_los = o.get("shadow_sd", ENV[env_name]["shadow_sd"])
     ratio = ENV[env_name]["nlos_sigma_ratio"]
     scale = o.get("nlos_scale_m", ENV[env_name]["nlos_scale_m"])
