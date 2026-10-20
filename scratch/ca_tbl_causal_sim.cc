@@ -2290,6 +2290,8 @@ static bool g_sy3Given = false;
 // the row already describes the bandwidth. Written once after cmd.Parse(), checked against
 // the configured tier-2 bandwidth before any run, read by the macro below.
 static double g_t2SensitivityRowKHz = 0.0;
+//! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
+static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
 // (8.816 deg/h) -- the floor of a running gyro's Allan deviation, not the turn-on residual a
 // filter faces. Non-zero draws the per-run bias at this sigma in deg/s instead, from the same
@@ -2432,6 +2434,13 @@ Dc1ImuParams()
     if (g_t2SensitivityRowKHz > 0.0)                                                               \
     {                                                                                              \
         Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
+    }                                                                                              \
+    if (std::isfinite(g_uwbSensitivityDbm))                                                        \
+    {                                                                                              \
+        for (int si = 0; si < 8; ++si)                                                             \
+        {                                                                                          \
+            cUwb.receiver.sensitivityDbm[si] = g_uwbSensitivityDbm;                                \
+        }                                                                                          \
     }                                                                                              \
     if (g_rssiRangeFromShadowing)                                                                  \
     {                                                                                              \
@@ -18765,6 +18774,12 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("uwbSensitivityDbm",
+                 "Tier 3's receiver sensitivity, dBm, flat across the table (TECH_DEBT 2.4). Not given (default): the "
+                 "table's -104 dBm, which is OURS. The DW3000 data sheet the project cites gives -99.3 dBm (TECH_DEBT "
+                 "N.41), 4.7 dB less margin: every UWB reach and UWB-delivered fix depends on which is used, so the "
+                 "value is a flag for FIDELITY-1 to measure rather than an edit.",
+                 g_uwbSensitivityDbm);
     cmd.AddValue("pcsByteScale",
                  "The scale of the PCS byte a table entry carries: PCS is quantised over [0, scale]. 1 (default): over "
                  "[0, 1], which saturates at 255 for every PCS >= 1. Why (TECH_DEBT N.7): under the preset the requester "
@@ -20446,6 +20461,11 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (!std::isnan(g_uwbSensitivityDbm) && !(g_uwbSensitivityDbm >= -130.0 && g_uwbSensitivityDbm <= -60.0))
+    {
+        std::cerr << "FATAL: --uwbSensitivityDbm needs a value in [-130, -60] dBm\n";
         return 1;
     }
     if (!(g_pcsByteScale >= 1.0) || !(g_pcsByteScale <= 64.0))
