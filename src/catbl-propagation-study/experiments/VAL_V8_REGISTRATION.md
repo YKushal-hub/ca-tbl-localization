@@ -65,3 +65,35 @@ range regardless (−4.95 dB), and the r80 comparisons for tiers 2/3 are new and
   changed something the model does not represent. A first candidate is the foliage clamp at 35 dB or the
   `A_max` saturation under the f^0.75-scaled γ.
 - an 868 MHz gap that differs from today's `validate.py`. That would mean the probe itself changed.
+
+---
+
+# RESULT — computed after this registration was committed (`be7b7e59`)
+
+`results/probe_v8` was run from `be7b7e59`, dirty 0, with the `635c0ab9` binary named by its sha256 in the sidecar.
+Its 15 columns are byte-identical to IQ-TERM's default run, as disclosed. Scored once with `val_v8.py`; the output
+is `results/probe_v8/VAL_V8.txt`.
+
+| tier | r80 model / engine | r80 | worst margin gap | margin | G11a gaps (v8 against v7) |
+|---|---|---|---|---|---|
+| 868 MHz (control) | 1811.7 / 1515.3 m | FAIL 19.6 % | 4.95 dB | FAIL | −4.95 against −4.95: unchanged, as it must be |
+| 2.4 GHz | 134.7 / 156.0 m | **PASS 13.7 %** | 6.91 dB | FAIL | −6.37, −6.20, −5.88 against −2.21, −2.45, −2.70: **moved 3.2–4.2 dB** |
+| UWB | 2.0 / 0.0 m | FAIL (degenerate: engine PDR < 0.8 at 2 m) | **2.12 dB** | **PASS** | −1.33, −1.33, −2.12, −0.13 against −1.80, −0.02, +1.52, +2.49 |
+
+**G11's criterion on today's engine: FAIL**, as expected.
+
+**The registered expectation FAILS.** Five of seven tier-2/3 G11a points moved more than 1.5 dB from their
+`probe_v7` gaps: all three on 2.4 GHz, and UWB at 10 and 20 m. The forest move therefore changed something the model
+represents differently. The registered first candidate, foliage saturation under the scaled γ, is not examined
+tonight.
+
+## What this changes
+
+- **UWB's "~3.7 dB unattributed residual" (RULES.md §5) does not exist against today's engine.** It was measured
+  against the pre-09-08 configuration. Today UWB reconciles within 2.12 dB over the whole sweep. Its r80 cannot be
+  compared, because the engine never reaches PDR 0.8.
+- **The open residual is now 2.4 GHz.** The engine is about 6 dB stronger than the model inside 50 m, crossing to
+  about 7 dB weaker at 6 km: a slope, not an offset. Foliage is distance-independent in both (`linkbudget.py`'s note),
+  so it cannot be the slope.
+- **G11 still reconciles against `probe_v7`.** Re-pointing it to `probe_v8` with these overrides is the fix for
+  R.1, done in its own commit. G11 stays red either way: 868 MHz fails its margin at short range on both probes.
