@@ -4924,3 +4924,26 @@ byte-identical". Measured on the code first:
   mobility state (the start-up WARNING lists them). A single `RunSubjectCycle` called for every subject would give
   subjects tag 0's features, which changes their behaviour and every subject number. That is a registered change with
   a campaign, not a refactor, and it stays the owner's call (O9).
+
+### R.15 The owner's decisions of 2026-10-21, carried out
+
+Recorded in `docs/TECH_DEBT_STATUS.md` (the last table) and DESIGN_DECISIONS 19–22.
+
+**The preset change.** The realistic world, PRESET-2's set, the integrity check off, and eight finders in pairs.
+Verified:
+- NC1–9 and the probe are byte-identical to the previous binary.
+- The four preset cases, with the decisions pinned back, reproduce the old binary in 274 of 274 files.
+- PRESET-3 (`report/PREREG_PRESET3.md`) measures the size of the decisions on fresh seeds.
+
+**G24's tie-break verdicts (option C, reachability).**
+- A subject's escalation request is broadcast (`Send(CA_TBL_MSG_ESC_REQUEST, tier, 0, 0)`: destination 0 reaches
+  every radio in range).
+- Under `--arbitrationV2` a finder answers it as a rescuer.
+- Under `--gossipQueue` with `--meshLinks=all`, finders hold grant coordinators (`GrantGossip::AttachFinder`).
+- So two finders near one subject can both grant overlapping windows. When each hears the other's gossip,
+  `Reconcile()` settles it: WIN or DEFER.
+- **The path is reachable by construction, and pairs tasking (DD 22) creates exactly that geometry.** It is not
+  structural. Whether it fires is read from PRESET-3's endgame cells.
+
+**G24's pre-emptions (option B).** Read from a registered contention population, not added seeds: PRESET-3's endgame
+cells, eight finders in pairs.
