@@ -1957,6 +1957,14 @@ bash scripts/neginfo_gate.sh "$WORK/g162" || fail G162
 bash scripts/neginfo_gate_selftest.sh "$WORK/g162" || fail G162
 finish G162
 
+# ---------------- G163: --integrityCheck, the Switching-Point Integrity Check as a switch (DESIGN_DECISIONS 19)
+# scripts/integrity_check_gate.py: with the check off ca_tbl_full's every output equals ca_tbl_no_integrity's but for
+# the arm name; with it on the check flags suspects and off it flags none; true is the flag absent at code defaults.
+printf '\n--- G163 the integrity check as a switch (--integrityCheck) ---\n'
+bash scripts/integrity_check_gate.sh "$WORK/g163" || fail G163
+bash scripts/integrity_check_gate_selftest.sh "$WORK/g163" || fail G163
+finish G163
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
