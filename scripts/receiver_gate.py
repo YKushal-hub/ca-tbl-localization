@@ -15,7 +15,9 @@ Reads the run set scripts/receiver_gate.sh writes. What each failure looks like 
            differs the two probes' streams diverge (shadow_sd_db differs at the same point, UWB 10 m 6.70 against
            6.52), so a per-point mean differs by more than one stream's sampling. An inert flag (shift 0) or one
            removing the wrong term (bias of dB) still fails this; noise of one sign per point does not.
-  OFF      def/ and zero/ byte-identical, run_id.txt aside                  (a default that is not the old engine)
+  OFF      def/ and zero/ byte-identical, run_id.txt aside: CODE defaults   (a default that is not the old engine)
+  PRESET   pre/'s spec_profile.txt sets uwbSensitivityDbm=-99.3 and         (the preset not carrying DESIGN_DECISIONS
+           iqOverloadOnly=true                                               18)
   REFUSE   r_low and r_high exit 1                                          (a sensitivity outside [-130, -60] taken)
 """
 import csv
@@ -53,7 +55,7 @@ def probe(d, n):
 
 def main():
     d = sys.argv[1]
-    rcs = {n: rc(d, n) for n in ("p_def", "p_uwb", "p_iq", "def", "zero")}
+    rcs = {n: rc(d, n) for n in ("p_def", "p_uwb", "p_iq", "def", "zero", "pre")}
     report(all(v == 0 for v in rcs.values()), "RUNS", f"exit codes {rcs} (need all 0)")
     a, u, q = probe(d, "p_def"), probe(d, "p_uwb"), probe(d, "p_iq")
     cols = ("mean_nominal_margin_db", "mean_iq_degradation_db")
@@ -94,6 +96,13 @@ def main():
         report(not diff and bool(fa), "OFF", f"def/ against zero/: {len(fa)} files, differing {diff[:3]} (need none)")
     else:
         missing("OFF", "def/ or zero/ absent")
+    sp = os.path.join(d, "pre", "spec_profile.txt")
+    if not os.path.exists(sp):
+        missing("PRESET", "no pre/spec_profile.txt")
+    else:
+        t = open(sp).read()
+        ok = "uwbSensitivityDbm=-99.3" in t and "iqOverloadOnly=true" in t
+        report(ok, "PRESET", f"pre/: the preset sets uwbSensitivityDbm=-99.3 and iqOverloadOnly=true: {ok}")
     rr = {n: rc(d, n) for n in ("r_low", "r_high")}
     report(all(v == 1 for v in rr.values()), "REFUSE", f"exit codes {rr} (need 1, 1)")
     print(f"  G161: {nok} ok, {nfail} failed, {nmiss} missing input")

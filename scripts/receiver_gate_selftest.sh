@@ -27,6 +27,7 @@ fresh; f="$T/f/p_uwb/probe_range_sweep.csv"; awk -F, 'BEGIN{OFS=","} $1=="868MHz
 fresh; cp "$T/f/p_def/probe_range_sweep.csv" "$T/f/p_iq/"; check "N6 --iqOverloadOnly not removing the term" 1 IQOFF
 fresh; f="$T/f/p_iq/probe_range_sweep.csv"; c=$(col "$f" mean_nominal_margin_db); awk -F, -v c="$c" 'BEGIN{OFS=","} NR>1{$c=sprintf("%.2f",$c+3)} {print}' "$f" > "$f.t" && mv "$f.t" "$f"; check "N6b --iqOverloadOnly removing 3 dB more than the IQ term" 1 IQOFF
 fresh; f=$(ls "$T/f/zero" | grep -v run_id.txt | head -1); echo x >> "$T/f/zero/$f"; check "N7 a default that is not the old engine" 1 OFF
+fresh; sed -i 's/^iqOverloadOnly=true/iqOverloadOnly=false/' "$T/f/pre/spec_profile.txt"; check "N7b the preset not carrying the IQ correction" 1 PRESET
 fresh; echo 0 > "$T/f/r_low.rc"; check "N8 accepted a sensitivity below -130" 1 REFUSE
 fresh; echo 0 > "$T/f/r_high.rc"; check "N9 accepted a sensitivity above -60" 1 REFUSE
 echo "  G161 selftest: $pass as expected, $fail not"
