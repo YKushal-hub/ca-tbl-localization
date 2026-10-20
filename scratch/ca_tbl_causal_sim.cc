@@ -6567,6 +6567,8 @@ struct SpecOptions
     //! N.15 / N.26 fix 3. --integrityChi2: the integrity check's threshold on the Mahalanobis
     //! distance (CaTblPolicyConfig::mahalanobisThreshold), chi-square 2 DOF 99 % by default.
     double integrityChi2 = 9.21;
+    //! --integrityCheck: false skips the Switching-Point Integrity Check in ca_tbl_full (DESIGN_DECISIONS 19).
+    bool integrityCheck = true;
     //! N.25 / N.26 fix 4. --tdoaInnovationGate: a TDoA position enters the EKF only if its
     //! innovation against the RSSI-updated state is within chi-square 2 DOF 99 %.
     bool tdoaInnovationGate = false;
@@ -7046,6 +7048,7 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.mahalanobisThreshold = spec.integrityChi2; // N.26 fix 3
     }
+    pcfg.integrityCheck = spec.integrityCheck; // --integrityCheck (true by default)
     if (spec.tdoaInnovationGate)
     {
         pcfg.auxInnovationGate = true; // N.26 fix 4
@@ -8228,7 +8231,7 @@ RunArm(CaTblPolicyMode mode,
     // --integrityNlosFromScore (DC-8). One row per fix cycle the integrity check evaluated:
     // what its eligibility was read from, and the verdict. Only the arm that runs the check.
     std::unique_ptr<std::ofstream> integrityLog;
-    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL && spec.integrityCheck)
     {
         std::ostringstream ifn;
         ifn << traceDir << "/integrity_" << CaTblPolicyModeName(mode) << "_seed" << seed
@@ -15811,7 +15814,7 @@ RunArm(CaTblPolicyMode mode,
                   << "): subject-cycles fused without 868 MHz " << f2Dropped
                   << ", 868 MHz ranges left out " << f2DroppedRanges << "\n";
     }
-    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL && spec.integrityCheck)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
         std::cout << "    DC-8 integrity eligibility from NLOS_score: "
@@ -16895,6 +16898,16 @@ main(int argc, char* argv[])
                  "alarm rate the 9.21 was meant to give; it is fitted on seeds the evaluation does "
                  "not use (PREREG_FIXES_N26).",
                  spec.integrityChi2);
+    cmd.AddValue("integrityCheck",
+                 "The Switching-Point Integrity Check (the Mahalanobis test of a fix against the prior, NOT the evidence "
+                 "gate; RULES.md sect 2) in ca_tbl_full. TRUE by default: the check runs, as every result so far. "
+                 "FALSE: ca_tbl_full skips it and runs exactly as the ca_tbl_no_integrity arm does (G163 asserts the "
+                 "outputs match). Why it can be switched off: INTEG2 (registered, fault-injected) measured its recall at "
+                 "0.03-0.10 of injected faults at the preset's chi2 1992.9, with no re-fit helping because the fault-free "
+                 "tail blinds any threshold; INTEG3 (registered) found it costs +0.036 [0.004, 0.070] five-node A(25 m) "
+                 "on the 8-gateway ring with no fault present. The owner removed it from the preset on that evidence "
+                 "(DESIGN_DECISIONS 19).",
+                 spec.integrityCheck);
     cmd.AddValue("pcsTerm1Inverse",
                  "Register row 17 (Physical 2.5): PCS term 1 is the spec's literal 1/trace(Sigma), "
                  "in m^-2, unbounded above. FALSE by default: term 1 is traceRef/(traceRef+trace), "

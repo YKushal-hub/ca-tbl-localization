@@ -95,6 +95,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     suspectForcesEscalation = true;
 
     mahalanobisThreshold = 9.21; // chi-square 99%, 2 DOF
+    integrityCheck = true;       // --integrityCheck: default runs the check, as before
     mahalUseR = false;           // default preserves the pre-existing baseline
     suspectRecovery = CA_TBL_RECOVERY_NONE; // default preserves the pre-existing baseline
     suspectInflateFactor = 4.0;
@@ -2403,7 +2404,7 @@ CaTblPolicy::StepImpl(double dt,
     double fixRxy = 0.0;
     double fixRyy = 0.0;
     bool haveRawFix = false;
-    if (m_config.mode == CA_TBL_MODE_FULL && !acqReinitNow)
+    if (m_config.mode == CA_TBL_MODE_FULL && m_config.integrityCheck && !acqReinitNow)
     {
         bool haveFix = false;
         double mahal = 0.0;

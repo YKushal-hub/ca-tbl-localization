@@ -398,6 +398,9 @@ struct CaTblPolicyConfig
     bool suspectForcesEscalation;
 
     double mahalanobisThreshold; //!< chi-square gate, 2 DOF
+    //! --integrityCheck (DESIGN_DECISIONS 19). True (default): CA_TBL_MODE_FULL runs the Switching-Point Integrity
+    //! Check. False: it does not, and the mode then runs as CA_TBL_MODE_NO_INTEGRITY does.
+    bool integrityCheck;
     //! Use the correctly specified integrity gate: weighted multilateration for the
     //! test point, and S = P_prior_pos + (J^T R^-1 J)^-1 for the distance. Both
     //! defects are one mechanism -- a biased numerator against a denominator missing
