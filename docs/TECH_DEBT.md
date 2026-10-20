@@ -90,7 +90,7 @@ status was checked against the code, or against the preset's setting list
 | N.23 | measured (`--reportAirtime`) | — |
 | N.27 D-8 sensitivity row | DECISION | `--t2SensitivityRowKHz` default |
 | N.28 gyro bias | DECISION | `--imuFilter=ekf5` and the realistic world proposed (REAL-BEST) |
-| N.29 | RECORDED | harness artefact |
+| N.29 | FIXED (`d6b6e122`) | harness artefact; frames spaced at 2× time on air |
 | N.30 (main) G10 / G92 | CLOSED / RECORDED | G92 FAIL BY FINDING |
 | N.31 (main) G63/G87/G89 | CLOSED (O.4) | — |
 | N.30 (acc) covariance | PRESET in part (`--imuQuScale=30`); ekf5 off-preset | error-state filter = ekf5 |
@@ -4764,7 +4764,8 @@ A(25 m), seeds 121–140.
 | item 27 `--caseAPreFuse` | not built | R.4: Case A is not starved by fusion order. Two-gateway cycles are rare in CA-TBL because better geometry is present. |
 | item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
 | Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
-| N.29 harness self-collision, §6 build-profile FATAL | not done tonight | Neither moves a registered result: validation output only, and a guard. Ranked below campaigns that measure the requirement. |
+| N.29 harness self-collision | **already fixed** (`d6b6e122`, 2026-10-18) | This row first said "not done": wrong. The ledger's own N.29 entry records the fix; the status table's RECORDED was stale and is corrected. |
+| §6 build profile not enforced | **FIXED at citation, not at run time** | Every sidecar records the profile, and nothing checked it where a citation is accepted. G92 now fails a cited directory whose tracked sidecar records a profile other than `optimized` (`NOT_OPTIMIZED`, a fixture direction). A run-time FATAL would only stop runs that are never cited. 9 753 of 9 753 tracked sidecars are optimized. |
 
 ### R.7 G11's 2.4 GHz residual decomposed — three terms the model does not carry (re-census, not fitted)
 
