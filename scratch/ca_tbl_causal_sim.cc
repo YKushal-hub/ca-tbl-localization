@@ -2295,6 +2295,8 @@ static bool g_sy3Given = false;
 static double g_t2SensitivityRowKHz = 0.0;
 //! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
 static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
+//! --iqOverloadOnly: every tier's IQ degradation reaches rx power only under ADC clipping (help text at AddValue).
+static bool g_iqOverloadOnly = false;
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
 // (8.816 deg/h) -- the floor of a running gyro's Allan deviation, not the turn-on residual a
 // filter faces. Non-zero draws the per-run bias at this sigma in deg/s instead, from the same
@@ -2437,6 +2439,12 @@ Dc1ImuParams()
     if (g_t2SensitivityRowKHz > 0.0)                                                               \
     {                                                                                              \
         Sx1280LowPowerSensitivityRow(g_t2SensitivityRowKHz, c2p4.receiver.sensitivityDbm);         \
+    }                                                                                              \
+    if (g_iqOverloadOnly)                                                                          \
+    {                                                                                              \
+        c868.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+        c2p4.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+        cUwb.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
     }                                                                                              \
     if (std::isfinite(g_uwbSensitivityDbm))                                                        \
     {                                                                                              \
@@ -18817,6 +18825,17 @@ main(int argc, char* argv[])
                  "N.41), 4.7 dB less margin: every UWB reach and UWB-delivered fix depends on which is used, so the "
                  "value is a flag for FIDELITY-1 to measure rather than an edit.",
                  g_uwbSensitivityDbm);
+    cmd.AddValue("iqOverloadOnly",
+                 "False (default): every engine subtracts the IQ-impairment 'SNR degradation', 20 log10(1 + EVM) plus "
+                 "15 dB under ADC clipping (lora-iq-impairment-submodule.cc:48), from rx power on every packet, after "
+                 "the loss sum, and then compares rx power with a DATA-SHEET sensitivity. True: only when the ADC "
+                 "clips. Why: a data-sheet sensitivity (SX1276 Table 3-10, SX1280 Table 6-1, DW3000) is the input "
+                 "power at which the real receiver, with its own noise, IQ imbalance and ADC, meets its PER, so the "
+                 "subtraction counts them twice. Its EVM includes a thermal-noise term 10^(-SNR/20) that saturates at "
+                 "6.02 dB once pre-processing-gain SNR is below 0 dB, which is every UWB link. The term is in no loss "
+                 "census and not in linkbudget.py (see --probeNominalMargin's mean_iq_degradation_db). Overload is "
+                 "outside a sensitivity figure and keeps its penalty. Draws unchanged.",
+                 g_iqOverloadOnly);
     cmd.AddValue("pcsByteScale",
                  "The scale of the PCS byte a table entry carries: PCS is quantised over [0, scale]. 1 (default): over "
                  "[0, 1], which saturates at 255 for every PCS >= 1. Why (TECH_DEBT N.7): under the preset the requester "

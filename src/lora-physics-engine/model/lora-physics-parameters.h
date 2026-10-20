@@ -593,6 +593,9 @@ struct IQImpairmentParams {
     DistributionParam dcOffsetDb;
     DistributionParam adcEffectiveBits;
     DistributionParam adcClippingThresholdDbm;
+    // [CA-TBL] --iqOverloadOnly. False (default): the engines subtract the IQ "SNR degradation" from rx power
+    // on every packet. True: only when the ADC clips. Draws and the EVM/clipping fields are unchanged.
+    bool degradeRxPowerOnlyWhenClipped;
     
     static IQImpairmentParams Defaults();
 };

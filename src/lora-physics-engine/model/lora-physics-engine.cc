@@ -642,7 +642,14 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     result.iqImageRejectionDb = iqRes.imageRejectionDb;
     result.adcClippingOccurred = iqRes.adcClippingOccurred;
     
-    result.rxPowerDbm -= iqRes.snrDegradationDb; // Degrade rx power by EVM and clipping noise
+    // [CA-TBL] --iqOverloadOnly (degradeRxPowerOnlyWhenClipped): a data-sheet sensitivity is measured at the
+    // receiver input with the receiver's own noise and IQ/ADC impairments inside it, so subtracting an EVM-derived
+    // degradation from rx power before comparing with that sensitivity counts them twice. Only ADC overload lies
+    // outside a sensitivity figure. The default keeps the original subtraction on every packet.
+    if (!m_config.iqImpairment.degradeRxPowerOnlyWhenClipped || iqRes.adcClippingOccurred)
+    {
+        result.rxPowerDbm -= iqRes.snrDegradationDb; // Degrade rx power by EVM and clipping noise
+    }
     internalSnrDb = result.rxPowerDbm - result.noiseFloorDbm;
     
     // 16. Calibrated receiver sensitivity threshold & Link Hysteresis (Issue #9)

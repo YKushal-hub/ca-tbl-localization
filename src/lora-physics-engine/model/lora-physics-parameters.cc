@@ -614,6 +614,7 @@ IQImpairmentParams IQImpairmentParams::Defaults() {
     i.dcOffsetDb = DistributionParam::Normal(-45.0, 5.0, -60.0, -20.0);
     i.adcEffectiveBits = DistributionParam::Normal(10.0, 0.5, 8.0, 14.0);
     i.adcClippingThresholdDbm = DistributionParam::Normal(-15.0, 2.0, -30.0, 0.0);
+    i.degradeRxPowerOnlyWhenClipped = false;
     return i;
 }
 
