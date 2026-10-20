@@ -2181,6 +2181,14 @@ static bool g_finderEnergyReport = false;
 static bool g_tofCalibrate = false;
 //! B6 --agcPerReceiver (scope 2026-10-17).
 static bool g_agcPerReceiverArg = false;
+//! T2 --publishAfterStep (TECH_DEBT L.2 note): re-publish tag 0's entry after this cycle's Step.
+static bool g_publishAfterStep = false;
+//! T29 --interferenceDistance (TECH_DEBT M.1).
+static bool g_interferenceDistance = false;
+//! T12 --foliageScaleBounds (TECH_DEBT N.41).
+static bool g_foliageScaleBounds = false;
+//! T46 --rssiRangeFromRxPower (TECH_DEBT O.9).
+static bool g_rssiRangeFromRxPower = false;
 
 //! Per (tier, distance) accumulator for --probeTerms. Field names are common to the three result types.
 struct CaTblProbeTerms
@@ -2354,6 +2362,30 @@ Dc1ImuParams()
         c868.foliage.clampDepthToLink = true;                                                      \
         c2p4.foliage.clampDepthToLink = true;                                                      \
         cUwb.foliage.clampDepthToLink = true;                                                      \
+    }                                                                                              \
+    if (g_rssiRangeFromRxPower)                                                                    \
+    {                                                                                              \
+        c868.ranging.rssiRangeFromRxPower = true;                                                  \
+    }                                                                                              \
+    if (g_foliageScaleBounds)                                                                      \
+    {                                                                                              \
+        /* N.41: the 2.4 GHz / UWB parameter files scale only the MEAN of the specific attenuation */  \
+        /* (x2.17, x5.28); the spread and clamp bounds stay at the 868 MHz value, so the sampler's */  \
+        /* clamp caps the effective scaling near x1.8. Rebuild the distribution around the scaled */   \
+        /* mean with FoliageParams::DefaultsFor's own relative shape. */                              \
+        const double g2 = c2p4.foliage.specificAttenuationDbPerM.mean;                             \
+        c2p4.foliage.specificAttenuationDbPerM = DistributionParam::Normal(g2, g2 * 0.25, g2 * 0.2, g2 * 1.8); \
+        const double gu = cUwb.foliage.specificAttenuationDbPerM.mean;                             \
+        cUwb.foliage.specificAttenuationDbPerM = DistributionParam::Normal(gu, gu * 0.25, gu * 0.2, gu * 1.8); \
+    }                                                                                              \
+    if (g_interferenceDistance)                                                                    \
+    {                                                                                              \
+        c868.interference.attenuateByDistance = true;                                              \
+        c868.interference.attenuationExponent = c868.propagation.pathLossExponent.mean;            \
+        c2p4.interference.attenuateByDistance = true;                                              \
+        c2p4.interference.attenuationExponent = c2p4.propagation.pathLossExponent.mean;            \
+        cUwb.interference.attenuateByDistance = true;                                              \
+        cUwb.interference.attenuationExponent = cUwb.propagation.pathLossExponent.mean;            \
     }                                                                                              \
     if (g_foliageP833)                                                                             \
     {                                                                                              \
@@ -12931,6 +12963,35 @@ RunArm(CaTblPolicyMode mode,
             v2FixTier[0] = static_cast<uint8_t>(fixTier); // TA-1
             v2FixHop[0] = static_cast<uint8_t>(std::min<uint32_t>(255u, hopCountAtFix));
         }
+        // T2 --publishAfterStep: the entry published before Step carried the previous cycle's estimate under this
+        // cycle's stamp. Re-publish it now, at the same stamp, so its age is what it says.
+        if (g_publishAfterStep)
+        {
+            if (spec.queryV2)
+            {
+                const bool onUwb = policy.GetActiveTier() == CA_TBL_TIER_UWB;
+                for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                {
+                    if (nodeMac[ti] != nullptr)
+                    {
+                        nodeMac[ti]->SetSelfStatus(CaTblQuantise(v2Pcs[0]), v2Suspect[0],
+                                                   CaTblQuantise(1.0 - batteryUsedFrac),
+                                                   CaTblQuantise(pcsDegradation), onUwb,
+                                                   onUwb ? v2GrantedBy[0] : 0, v2FixTier[0],
+                                                   v2FixHop[0], reachOf(nodeId, t));
+                    }
+                }
+            }
+            for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+            {
+                if (nodeMac[ti] != nullptr)
+                {
+                    nodeMac[ti]->PublishSelfEntry(policy.EstX(), policy.EstY(), policy.Pxx(), policy.Pyy(),
+                                                  policy.Pxy(), spec.entryVelocity ? policy.EstVx() : 0.0,
+                                                  spec.entryVelocity ? policy.EstVy() : 0.0, t);
+                }
+            }
+        }
         if (grantLog)
         {
             if (policy.GetUwbCoverageClears() > covBefore)
@@ -15876,6 +15937,8 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"relayNisInflate", "true", "B1: relayed-range covariance inflated by the relay's own NIS mean (UPG-SCOPE U4; DESIGN_DECISIONS 13)"},
     {"rssiSigmaLogNormal", "true", "B2/O.7: the 868 MHz range sigma given to the filter is the exact log-normal SD, not the first-order one (SIG868 S1, S3, S4; DESIGN_DECISIONS 14)"},
     {"imuQuScale", "30", "B2: IMU increment covariance x 30 -- the dead-reckoner's coherent error the EKF treats as white (measured 3-54x; B2CONS adoption rule; DESIGN_DECISIONS 15)"},
+    {"stampBinaryHash", "true", "provenance (M.3, T39): run_id.txt names the binary by its SHA-256, whatever the working directory"},
+    {"stampBuildCommit", "true", "provenance (M.3, T39): run_id.txt names the commit and dirty count of the tree that COMPILED the binary"},
 };
 
 int
@@ -16552,6 +16615,37 @@ main(int argc, char* argv[])
                  "868 MHz slot is skipped that cycle. Why: in the endgame 2.4 GHz alone matched or beat the hybrid at "
                  "about 40 % of the energy (V8), and the 868 MHz slot is a fixed per-cycle cost (V6).",
                  spec.dualBase868OnNeed);
+    cmd.AddValue("rssiRangeFromRxPower",
+                 "T46 (TECH_DEBT O.9). False (default): under --rssiRangeFromShadowing the 868 MHz RSSI range inverts path "
+                 "loss plus shadowing only, so it omits the foliage and fading a real receiver's RSSI carries, and its error "
+                 "is the shadowing alone (about 7 dB) against the 9-17 dB realised margin spread (B8). True (needs "
+                 "--rssiRangeFromShadowing and --rangeErrorNoLinkLeak, both in the preset): the range also carries this "
+                 "link's foliage less the foliage a site-fitted model expects, and its fading less the mean; its sigma uses "
+                 "the total spread. The 4.4/4.0 dB SDs and the 1.2 dB fading mean are OURS, from B8's probe.",
+                 g_rssiRangeFromRxPower);
+    cmd.AddValue("foliageScaleBounds",
+                 "T12 (TECH_DEBT N.41). False (default): the 2.4 GHz and UWB foliage specific attenuation is the 868 MHz "
+                 "distribution with only its MEAN multiplied (x2.17, x5.28, ITU-R P.833 f^0.75); its spread and clamp bounds "
+                 "stay at the unscaled values, so the sampler's clamp caps the effective factor near x1.8 on both tiers "
+                 "(+1.6 dB at the median depth, not +2.1 / +4.2). True: the distribution is rebuilt around the scaled mean "
+                 "with DefaultsFor's own relative spread and bounds, so the factor is what the parameter file states. "
+                 "Under --foliageP833 the 2.4 GHz forest values are P.833's either way.",
+                 g_foliageScaleBounds);
+    cmd.AddValue("interferenceDistance",
+                 "T29 (TECH_DEBT M.1). False (default): the engines' interference registry scores every overlapping "
+                 "transmission at the power its OWN link delivered at its own receiver, whatever this receiver's distance "
+                 "from it (the distance is computed and not used), so a distant interferer is as loud as a near one. True: "
+                 "the interferer's power is corrected to this receiver by 10 n log10(d_this / d_own), n the engine's own "
+                 "path-loss exponent; shadowing and fading of the interferer-to-receiver path are not drawn. Default "
+                 "false: every result so far carries the old rule.",
+                 g_interferenceDistance);
+    cmd.AddValue("publishAfterStep",
+                 "T2 (TECH_DEBT L.2 note). False (default): tag 0 publishes its table entry before this cycle's Step, so "
+                 "the entry stamped t carries the estimate of t - dt, and every entry age in the project is understated by "
+                 "one cycle (2.5 s; 264 of 265 held entries in the L.2.5 runs). True: the entry is published again just "
+                 "after Step, at the same stamp, so it carries this cycle's estimate. Costs no airtime: publishing writes "
+                 "the node's own table slot.",
+                 g_publishAfterStep);
     cmd.AddValue("rssiCorrInflate",
                  "B2 (scope 2026-10-17). False (default): successive 868 MHz RSSI ranges are fused as independent, though "
                  "their error is the link's shadowing, spatially correlated (Gudmundson, rho = exp(-moved/30 m), the "

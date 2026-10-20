@@ -1,0 +1,18 @@
+# Cited results paths that are lost and cannot be regenerated on the current engine (G92 reports them as RECORDED_LOST).
+# Written 2026-10-18 (TECH_DEBT T15 / N.30 main line). Columns: path, what was lost, why not regenerable, what supersedes it.
+# All were produced before the 2026-09-07 topology correction and the 2026-09-08 environment split, and deleted with the
+# untracked results tree; the current engine builds a different deployment and physics, so a re-run would not be them.
+results/campaign_20260810	the 2026-08-10 density campaign (7 densities x 6 arms x 20 seeds)	legacy topology and pre-split environment	B3 regeneration (results/regen27_*) and CAMP-FINAL2 (results/camp_final2_2026-10-17)
+results/campaign_recovery	recovery cells of that campaign	legacy topology	as above
+results/p10_env	phase-10 envelope surface	legacy topology, pre-split environment	report/ROOTCAUSE_ENVELOPE.md keeps its dated text; B3 C4 (results/regen27_k1)
+results/p10_env_v7	phase-10 envelope surface, v7 engine	legacy topology	as above
+results/p10_env_v8	phase-10 envelope surface, v8 engine	legacy topology	as above
+results/p10_plane	phase-10 plane surface	legacy topology	as above
+results/p10_plane_fix	phase-10 plane surface after the fix	legacy topology	as above
+results/p10_plane_v7	phase-10 plane surface, v7 engine	legacy topology	as above
+results/k1_	the K1 domination cells (results/k1_* prefix)	pre-split environment	B3 C4, results/regen27_k1
+results/sd_	seed-dispersion probe directories (results/sd_* prefix) of the audit	legacy topology	none; the audit text is history
+results/metric	validation-harness outputs (lora_empirical_validation default output dir)	harness outputs were never tracked; the harness's Metric 2 changed on 2026-10-18 (N.29)	re-run the harness; M-01 is annotated in Simulation.md
+results/metric2_pdr_distance_seed7.csv	the M-01 file	as above	as above
+results/corpus.json	propagation-study corpus at the repository root (the study writes its own under src/catbl-propagation-study/results/)	written by an older study layout	src/catbl-propagation-study/results
+results/acc_b3_2026-10-09	the first ACC-B3 cells (2026-10-09), named only in a commit subject quoted by SHA_MAP.md	replaced on its own branch by citable re-runs before any document cited its numbers; the original cells were never tracked	results/acc_b3_cit_2026-10-09 on work/2026-10-09-acc-reruns

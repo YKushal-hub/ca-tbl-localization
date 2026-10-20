@@ -72,6 +72,11 @@ The current measured tables are in `report/CAMP_FINAL2_RESULTS.md`. Conditions: 
 
 Each is default-off in code, gated, and null-controlled; the preset turns them on. The text from §0 on is kept as written.
 
+**Lost evidence (2026-10-18, G92).** `results/p10_env_v7`, `p10_env_v8`, `p10_plane_v7` and `campaign_20260810`, cited
+below, are no longer in the repository: they were deleted with the untracked results tree, and the current engine
+cannot regenerate them (legacy topology). `RESULTS_NONREGENERABLE.tsv` records each, with what supersedes it. Every
+figure drawn from them was already provisional (the scope box above) and none is cited in §0a.
+
 ## 0. Claim record, restated 2026-09-29
 
 **Why this section exists.** The scope banner says every number in this report is

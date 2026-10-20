@@ -571,7 +571,7 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     // 13. Active Packet Interference & Collision Overlap Tracking
     Time airtime = Time::FromDouble(std::pow(2, spreadingFactor) / effBw * 20.0, Time::S); // Nominal airtime approximation
     m_interference->RegisterActiveTransmission(
-        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition);
+        txNodeId, rxGatewayId, currentTime, airtime, spreadingFactor, effBw, m_config.hardware.codingRateDenom, preliminaryRxPowerDbm, txPosition, dist_m);
         
     double interferenceDb = m_interference->ComputeInterferencePenaltyDb(
         txNodeId, spreadingFactor, effBw, currentTime, airtime, txPosition, rxPosition, currentTime,
@@ -1034,6 +1034,33 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     // P4: IsTunnel = true only for genuine tunnel environments, not concrete bunker
     result.isTunnel = (m_config.environment == ENV_TUNNEL_CONFINED);
     result.soilAttenuationDb = state.soilAttenuationDb;
+    // T46 --rssiRangeFromRxPower: the RSSI a receiver measures includes this link's foliage and fading. Re-derive
+    // the S1 range from them here, where the link budget is known (the range itself was formed at Step 4.5).
+    if (m_config.ranging.rssiRangeFromRxPower && m_config.ranging.rssiRangeFromShadowing &&
+        m_config.ranging.rangeErrorNoLinkLeak && state.estimatedRangeM > 0.0 &&
+        m_config.rangingModelMode == RANGING_PHYSICS_DERIVED)
+    {
+        const FoliageParams& fp = m_config.foliage;
+        double expectedFoliageDb = 0.0;
+        if (fp.enabled && fp.type != VEG_NONE && fp.maxAttenuationDb.mean > 0.0) {
+            double depth = std::exp(fp.vegetationDepthM.mean); // the log-normal's median
+            if (fp.clampDepthToLink) {
+                depth = std::min(depth, dist_m);
+            }
+            expectedFoliageDb = fp.maxAttenuationDb.mean *
+                (1.0 - std::exp(-depth * fp.specificAttenuationDbPerM.mean / fp.maxAttenuationDb.mean));
+        }
+        const double n = m_config.propagation.pathLossExponent.mean;
+        const double xDb = (result.foliageDb - expectedFoliageDb) + (result.fadingDb - 1.2);
+        state.estimatedRangeM *= std::pow(10.0, xDb / (10.0 * n));
+        state.rangeErrorM = state.estimatedRangeM - state.trueRangeM;
+        state.positionErrorM = std::abs(state.rangeErrorM);
+        const double sTotDb = std::sqrt(state.shadowingStdEff * state.shadowingStdEff + 4.4 * 4.4 + 4.0 * 4.0);
+        const double s = std::log(10.0) / (10.0 * n) * sTotDb;
+        state.rangingSigmaM = m_config.ranging.rssiSigmaLogNormal
+            ? std::max(state.estimatedRangeM * std::sqrt(std::exp(s * s) * (std::exp(s * s) - 1.0)), 0.5)
+            : std::max(state.estimatedRangeM * s, 0.5);
+    }
     result.estimatedRangeM = state.estimatedRangeM;
     result.rangeErrorM = state.rangeErrorM;
     result.positionErrorM = state.positionErrorM;

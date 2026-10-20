@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CA-TBL regression gates: 58 at c79fffd (G1-G21, G17b, G18b, G20b, G24, and G28 onward);
+# CA-TBL regression gates (count: grep -c '^finish ' scripts/catbl_gates.sh; numbers are not contiguous);
 # G91-G94 ported from the local line on 2026-10-16 (docs/LOCAL_LINE_INTEGRATION.md).
 # Run after every code change.
 #
@@ -95,6 +95,14 @@ pass() { finish "$1"; }
 printf '\n--- G1 build ---\n'
 ./ns3 build 2>&1 | tail -40
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail G1
+# T9: the optimized profile is required (RULES.md sect 3); the check is shown able to fail on a debug cache.
+bash scripts/build_profile_check.sh || fail G1
+sed 's/^build_profile:INTERNAL=.*/build_profile:INTERNAL=debug/' cmake-cache/CMakeCache.txt > "$WORK/fixture_cache.txt"
+if bash scripts/build_profile_check.sh "$WORK/fixture_cache.txt" > /dev/null; then
+    echo "  build profile fixture: a debug cache passed"; fail G1
+else
+    echo "  build profile fixture: a debug cache is refused"
+fi
 finish G1
 
 # --------------------------------------------------- G2: determinism
@@ -203,8 +211,12 @@ mkdir -p "$WORK/g6_nodeside"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --seed="$SEED" --duration="$DUR" \
     --trace=false --gatewayEdgeServer=false --outdir="$WORK/g6_nodeside" \
     > "$WORK/g6_nodeside.log" 2>&1 || gerror G6 "node-side run exited non-zero"
-for spec in "causal_v11/arm_summary.csv:g6_nodeside/arm_summary.csv" \
-            "det_a_v11/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
+# REPOINTED 2026-10-18 (T16), the remedy applied a third time: DESIGN_DECISIONS 16 moved the code-default box
+# (1000 -> 340 m), so causal_v11/det_a_v11 describe a deployment the default no longer builds. causal_v12 and
+# det_a_v12 are NEW paths, one run at exactly this gate's arguments on a clean tree (source e93f35c0 dirty 0). v11 stays
+# tracked and cited as what those runs produced.
+for spec in "causal_v12/arm_summary.csv:g6_nodeside/arm_summary.csv" \
+            "det_a_v12/arm_summary.csv:g6_nodeside/arm_summary.csv"; do
     tracked="results/${spec%%:*}"
     fresh="$WORK/${spec##*:}"
     if [ ! -s "$fresh" ]; then
@@ -426,6 +438,9 @@ finish G12
 # precedent is G6, which sat red by design with its remedy recorded beside it.
 # The propagation sweeps stay blocked while it is red -- that is the point.
 printf '\n--- G11 propagation study: corpus, reconciliation, tracking ---\n'
+# T18: the corpus is deterministic (seed 20260819), git-ignored and digest-checked by assertion 1; regenerate it when
+# absent, so a fresh tree reaches the comparison instead of stopping at a missing file.
+[ -f src/catbl-propagation-study/results/corpus.json ] || ( cd src/catbl-propagation-study && python3 corpus.py > /dev/null )
 python3 scripts/propagation_study_gate.py || fail G11
 finish G11
 
@@ -2110,6 +2125,42 @@ finish G148
 printf '\n--- G149 868 MHz RSSI correlation inflation ---\n'
 bash scripts/rssicorr_gate.sh "$WORK/g149" || fail G149
 finish G149
+
+# ---------------- G156: T2 --publishAfterStep (TECH_DEBT L.2 note): an entry carries the estimate of its own stamp
+printf '\n--- G156 entry published after Step ---\n'
+bash scripts/publish_after_step_gate.sh "$WORK/g156" || fail G156
+finish G156
+
+# ---------------- G157: T6 (TECH_DEBT H.3 / I.5): no adopted preset mechanism fires into a zero
+printf '\n--- G157 preset mechanisms each change the output ---\n'
+bash scripts/preset_efficacy_gate.sh "$WORK/g157" || fail G157
+finish G157
+
+# ---------------- G158: T41 (TECH_DEBT 5.3): current documents name only real flags; RULES.md's preset list is the code's
+printf '\n--- G158 documents name real flags ---\n'
+python3 scripts/doc_flags_gate.py || fail G158
+printf 'A doc naming --thisFlagDoesNotExist=true.\n' > "$WORK/g158_fixture.md"
+if python3 scripts/doc_flags_gate.py --docs "$WORK/g158_fixture.md" > /dev/null; then
+    echo "  G158 fixture: a fake flag passed"; fail G158
+else
+    echo "  G158 fixture: a fake flag is refused"
+fi
+finish G158
+
+# ---------------- G153: T29 --interferenceDistance (TECH_DEBT M.1): an interferer is scored at this receiver
+printf '\n--- G153 interference attenuated by distance ---\n'
+bash scripts/interference_distance_gate.sh "$WORK/g153" || fail G153
+finish G153
+
+# ---------------- G154: T12 --foliageScaleBounds (TECH_DEBT N.41): the foliage scaling is what the parameter file states
+printf '\n--- G154 foliage scaling not capped by the clamp ---\n'
+bash scripts/foliage_bounds_gate.sh "$WORK/g154" || fail G154
+finish G154
+
+# ---------------- G155: T46 --rssiRangeFromRxPower (TECH_DEBT O.9): the RSSI range carries foliage and fading
+printf '\n--- G155 RSSI range from the received power ---\n'
+bash scripts/rssi_rxpower_gate.sh "$WORK/g155" || fail G155
+finish G155
 
 # ---------------- G143: V6 --traceOnDemand, --onDemandCalibrate (master plan v3)
 printf '\n--- G143 calibrated on-demand 2.4 GHz ---\n'

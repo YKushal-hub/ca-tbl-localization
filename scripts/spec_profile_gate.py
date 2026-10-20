@@ -219,8 +219,22 @@ def main():
            f"{'PCS form' in xl} (need 0, False); main/ prints the calibrated NOTE "
            f"{'NOTE: PCS form calibrated resolved' in log(d, 'main')}")
 
+    # T17 part (2026-10-18): populations that an adopted preset decision makes zero BY CONSTRUCTION. Exempt only while
+    # the preset's own spec_profile.txt shows that decision; otherwise the normal POP rule applies.
+    STRUCTURAL = {
+        "receptions lost to the other band": ("halfDuplexChip", "false",
+            "DESIGN_DECISIONS 11: SX1262 + SX1280 are two chips, so no band can deafen the other"),
+        "tag 0's finder ranges dropped": ("rangeReplyPosition", "true",
+            "DESIGN_DECISIONS 10: a finder's reply carries its position, so no finder range lacks one"),
+    }
+    spm = open(os.path.join(d, "main", "spec_profile.txt")).read() if os.path.exists(os.path.join(d, "main", "spec_profile.txt")) else ""
     zero = []
     for name, run, reader, flag in MECH:
+        if name in STRUCTURAL:
+            key, val, why = STRUCTURAL[name]
+            if re.search(rf"^{key}={val}\b", spm, re.M):
+                report(True, f"STRUCT {name}", f"zero by construction: {key}={val} in the preset ({why})")
+                continue
         seeds = [run] + ([f"{run}_s8", f"{run}_s9"] if run in ("main", "end") else [])
         vals = [reader(d, s) for s in seeds]
         if all(x is None for x in vals):

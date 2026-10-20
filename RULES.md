@@ -174,14 +174,14 @@ produces a wrong result that looks right.
 # produced under it, and the default profile enables logging: ~10x slower on 3600 s runs.
 ./ns3 configure --enable-examples --build-profile=optimized && ./ns3 build
 
-bash scripts/catbl_gates.sh          # 109 finish lines (G1-G148, some numbers unused, b-suffixed sub-gates); ALL run, summary at the end (hours on a loaded machine)
+bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scripts/catbl_gates.sh); ALL run, summary at the end (hours on a loaded machine)
 ./ns3 run "ca_tbl_causal_sim --seed=7 --duration=3600 --outdir=results/causal"
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-19, verified on the IMU-line merge, `b828add0`: every gate PASS but five reds, G95–G102 and G150 included; the suite left the tree unmodified;
-`docs/TECH_DEBT.md` O.6 classifies G6/G11/G24, N.27 and N.30 (main line) G92/G93, and O.11 and O.14 record the stale
-gate expectations fixed on the way). None is a broken build or a regression; G92 and G93 are described below.
+**The suite's expected reds** (2026-10-19, verified on `0c8e638f`: 118 PASS, and G10 fixed after it; reds G11, G24,
+G93. `docs/TECH_DEBT.md` O.6, O.15, J.1 and N.27 explain each; docs/TECH_DEBT_STATUS.md tracks what is open).
+G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
   `results/{causal,det_a,det_b}` reintroduces the defect `e21666d` removed.
@@ -199,6 +199,7 @@ line in each script).
 - DD 13: `--fadingPerBand --relayNisInflate`.
 - DD 14: `--rssiSigmaLogNormal`.
 - DD 15: `--imuQuScale=30` (campaigns no longer pass it).
+- Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own
@@ -237,8 +238,8 @@ flag-set difference, not a reproduction failure.
 Every new mechanism follows this or it is not mergeable.
 
 1. **Default-off CLI flag**, registered with `cmd.AddValue` in the block in `main()` of
-   `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it with
-   `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`). Write the help text as an argument, not a label —
+   `scratch/ca_tbl_causal_sim.cc` (find it with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`;
+   line numbers drift with every change). Write the help text as an argument, not a label —
    the existing flags explain *why* the default is what it is, and that is the house style.
 2. **Null-control test:** with the flag off, output is byte-identical to the pre-change binary.
    Diff `arm_summary.csv` and every trace. This is not optional — arms consume the shared RNG
@@ -330,10 +331,10 @@ src/lora-physics-engine/model/
   lora-uwb-physics-engine.*   UWB        | submodules/               ~35 per engine
 scratch/
   ca_tbl_causal_sim.cc        the scenario: geometry, mobility, arms, sweeps, CLI flags
-  ca_tbl_packet_validator.cc  MAC unit suite (62 checks; one of twelve suites, 356 checks)
+  ca_tbl_packet_validator.cc  MAC unit suite (one of the unit suites; counts drift, see G1/G9 output)
   python_handoff/verify_causal_sim.py    the invariant gate
 scripts/
-  catbl_gates.sh              the regression gates (58 at `c79fffd`)
+  catbl_gates.sh              the regression gates (`grep -c '^finish ' scripts/catbl_gates.sh`; 111 PASS at the 2026-10-18 merge)
   publication_ready.sh        manifest assertions; parses EXCLUDED.md as its source of truth
 report/
   PCS_REDESIGN_RESULTS.md     working evidence chain, Parts 0-8, with corrections registers
@@ -373,8 +374,8 @@ That is false as of 2026-08-27: `--injectRangeBias`, `--injectFaultAnchors` and
 `--injectBiasFraction` exist and 162 results directories use them.
 
 **Before treating any "not implemented" note as current, check two things:** the
-`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (lines 13190-15363 at `c79fffd`; find it
-with `grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`), and
+`cmd.AddValue` block in `scratch/ca_tbl_causal_sim.cc` (find it with
+`grep -n 'cmd.AddValue' scratch/ca_tbl_causal_sim.cc`; line numbers drift with every change), and
 `grep -rh "<flag>" results/*/run_id.txt`. The code and the sidecars are the ground truth; the
 prose is a snapshot.
 
