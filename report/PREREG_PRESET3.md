@@ -63,3 +63,61 @@ this campaign, and the owner sees the result.
 - a cell whose window or pairs lines do not match its variant;
 - any window solver failure;
 - an arm with fewer than 20 seeds.
+
+---
+
+# RESULT — after the registration above (`3013e182`)
+
+**Run.** Launched 2026-10-20T20:54:48Z from `3013e182`, dirty 0. Done 21:55:59Z. 120 of 120 cells, every `rc` 0, one
+source, no window solver failure; **problems none**. Scored once: `results/preset3_2026-10-21/PRESET3.md`.
+
+| # | verdict | measured (CA-TBL, NEW − OLD, paired, 20 seeds) |
+|---|---|---|
+| P1 | HOLDS | endgame five-node +0.090 [0.052, 0.131] |
+| P2 | HOLDS | 5 km tag 0 +0.358 [0.197, 0.528] |
+| P3 | HOLDS | endgame five-node mean **0.982** |
+| P4 | HOLDS | five-node A +0.472 [0.365, 0.582], B +0.090, C +0.350 [0.264, 0.440] |
+| P5 | HOLDS | subject J ratio A 0.752, B 0.781, C 0.784: **energy falls 22–25 %** |
+
+## The requirement under the adopted preset (CA-TBL, NEW)
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km (3 gateways) | **0.979** | 0.811 | 0.15 | 8.3 m | 13.4 |
+| B, endgame | **0.997** | **0.982** | **1.00** | 2.5 m | 16.9 |
+| C, 8-gateway ring | **0.985** | 0.935 | 0.80 | 5.9 m | 12.9 |
+
+- **Tag 0 meets A ≥ 0.95 in every geometry, the brief's 5 km included.**
+- **The five-node pool meets it in the endgame, in every run.**
+- **Short:** the five-node pool at 5 km (0.81) and on the ring (0.94).
+
+## Against the comparators under NEW (paired, CA-TBL − comparator)
+
+| configuration | five-node A(25 m) | tag-0 A(25 m) | subject J |
+|---|---|---|---|
+| **fixed_threshold** | | | |
+| A | +0.002 [−0.071, 0.064] | +0.016 [0.000, 0.048] | level |
+| B | −0.001 [−0.003, 0.001] | level | level |
+| C | −0.012 [−0.031, −0.000] | level | level |
+| **poucet_fusion** | | | |
+| A | +0.077 [−0.011, 0.168] | level | **−445 J** |
+| B | **+0.054 [0.030, 0.083]** | level | **−395 J** |
+| C | **+0.047 [0.003, 0.091]** | level | **−445 J** |
+| **static_2p4** | | | |
+| A | +0.025 [−0.055, 0.101] | +0.036 [0.012, 0.067] | +7.2 J |
+| B | +0.009 [−0.000, 0.022] | level | +10.2 J |
+| C | +0.047 [0.004, 0.089] | +0.014 [0.006, 0.028] | +7.3 J |
+| **static_868** | +0.68 to +0.80 everywhere | +0.13 to +0.96 | +4.5 to +8.4 J |
+
+**Read plainly:**
+- CA-TBL is **level with `fixed_threshold`**. On the ring's five-node pool it is marginally below (−0.012).
+- It **beats Poucet fusion** on the five-node pool in the endgame and on the ring, at about 1/30 of Poucet's subject
+  energy.
+- It **beats both single-band arms on tag 0**.
+- Against static 2.4 GHz the five-node lead is small, because eight finders now give that arm precise anchors too.
+
+## G24's contention populations (R.15)
+
+In the endgame NEW cells: **2 grant tie-break verdicts** and 3 arbitration pre-emptions. Under OLD: 0 and 7.
+
+The tie-break path is reachable, and pairs tasking produces it. It is not structural.

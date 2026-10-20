@@ -30,6 +30,23 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-21: PRESET-3 — the preset the owner adopted (`report/PREREG_PRESET3.md`)
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | subject J |
+|---|---|---|---|---|
+| 5 km | **0.979** | 0.811 | 0.15 | 13.4 |
+| endgame | **0.997** | **0.982** | **1.00** | 16.9 |
+| 8-gateway ring | **0.985** | 0.935 | 0.80 | 12.9 |
+
+**The requirement is met:**
+- for tag 0 in every geometry;
+- for all five nodes in the endgame.
+
+**It is short** for the five-node pool at 5 km and on the ring.
+
+**Against comparators:** level with `fixed_threshold`; above Poucet on the five-node pool at about 1/30 of its
+energy. Everything below this section predates the adopted preset.
+
 ## Registered, 2026-10-20: FIDELITY-1b — the corrected receiver, now the preset (`report/PREREG_FIDELITY1B.md`)
 
 CA-TBL, five-node A(25 m), F0 → F1:
