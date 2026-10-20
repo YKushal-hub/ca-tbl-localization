@@ -9,6 +9,7 @@
 # The preset (classifier on, oracle NLOS tag) at 5 km, ca_tbl_full, seed 7, 600 s.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -17,7 +18,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g131.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true"
+B="--specProfile=true $PIN_DD19_22 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

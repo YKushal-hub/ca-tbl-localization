@@ -5,13 +5,14 @@
 # (3) scenario: --rangeBiasStates=true changes a hybrid arm's output and leaves static_2p4's untouched.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 UNIT="$(pwd)/build/scratch/ns3.47-v3_consider_unit-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g141.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 bad=0
 "$UNIT" || bad=1
 if "$UNIT" --break=off > "$D/fix.txt" 2>&1; then echo "G141 FAIL FIXTURE  --break=off did not turn CONSIST red"; bad=1; else echo "G141 PASS FIXTURE  --break=off is red"; fi
-B="--specProfile=true --arms=static_2p4,ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true --rssiRangeFromShadowing=true --boxHalf=750 --finderMode=1 --rssiSigmaLogNormal=false"  # pinned: the preset turns it on (DESIGN_DECISIONS 14)
+B="--specProfile=true $PIN_DD19_22 --arms=static_2p4,ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true --rssiRangeFromShadowing=true --boxHalf=750 --finderMode=1 --rssiSigmaLogNormal=false"  # pinned: the preset turns it on (DESIGN_DECISIONS 14)
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --rangeBiasStates=false --rssiSigmaLogNormal=false --outdir="$D/off" > "$D/off.log" 2>&1 &
