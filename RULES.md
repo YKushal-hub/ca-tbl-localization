@@ -179,8 +179,10 @@ bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scr
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-19, verified on `0c8e638f`: 118 PASS, and G10 fixed after it; reds G11, G24,
-G93. `docs/TECH_DEBT.md` O.6, O.15, J.1 and N.27 explain each; docs/TECH_DEBT_STATUS.md tracks what is open).
+**The suite's expected reds** (2026-10-20: the final suite on `39c1dfee` and its fixes; reds G11, G24, G93 only.
+`docs/TECH_DEBT.md` R.1, R.4 and N.27 explain each, and docs/TECH_DEBT_STATUS.md O12/O13 track what the owner decides.
+Five gates the preset's receiver change turned red, G95, G99, G102, G136 and G161, are pinned or re-scoped with
+reasons; G47 followed a changed refusal message).
 G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
@@ -190,6 +192,9 @@ G6 and G92 are green since 2026-10-18 (T16, T15).
   2.4 GHz margin and UWB r80 (degenerate) fail.
 - **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
   are exercised or the owner accepts them.
+  2026-10-20 (R.4): arbitration pre-emptions have a population (ANCHOR-SUPPLY); Case A is rare in CA-TBL; tie-break
+  verdicts are not shown reachable.
+- **G93:** FAIL BY FINDING on the code default (D-8). The preset question was PRESET-2's; the code default is O12.
 
 G63, G87 and G89 were red from 2026-10-08 until 2026-10-17. Their runners now pin the pre-adoption preset (the PIN
 line in each script).
