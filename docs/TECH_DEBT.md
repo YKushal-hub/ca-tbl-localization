@@ -4761,3 +4761,21 @@ A(25 m), seeds 121–140.
 | item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
 | Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
 | N.29 harness self-collision, §6 build-profile FATAL | not done tonight | Neither moves a registered result: validation output only, and a guard. Ranked below campaigns that measure the requirement. |
+
+### R.7 G11's 2.4 GHz residual decomposed — three terms the model does not carry (re-census, not fitted)
+
+`--probeTerms` at today's defaults against `linkbudget.py`'s own terms, 2.4 GHz, 10 m → 6 km (2026-10-20, post hoc on
+`results/probe_v8`'s configuration):
+- **path loss and NLOS agree** within 0.1–0.7 dB at every distance;
+- **foliage:** engine 15.6–15.9 dB, model 21.0 dB, a **constant −5.2 dB** (model weaker).
+  `corrState.foliageDensity` multiplies `A_max`'s mean on every tier (`lora-2p4-physics-engine.cc:516`, `:520` and
+  `:542` in the other two). It is 0.8 in `RURAL_FORESTED` (`lora-correlation-engine.cc:121`, OURS, +0.2 × rain
+  wetness). It is in no census. The same ratio, engine/model ≈ 0.77, holds on 868 MHz (12.2 against 16.0 dB);
+- **terrain:** engine 0 → 4.8 dB with distance; the model excludes it by design (transcription-only);
+- **IQ term (R.2):** engine 0.6 → 6.0 dB as SNR falls; not in the model.
+
+Together these give −5.2 + 0.6 ≈ −4.6 dB near, measured −6.4, and −5.2 + 4.8 + 6.0 + 0.7 ≈ +6.3 dB far, measured
++6.9. The slope is terrain plus the IQ term, and the offset is the density factor.
+
+**Per the G11a corollary, nothing is added to the model.** The census gains two entries: the density factor and the IQ
+term. The ±4 dB bracket of RULES.md §5 was chosen for residuals that this decomposition replaces.
