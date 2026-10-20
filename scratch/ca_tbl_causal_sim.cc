@@ -16112,6 +16112,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"interferenceDistance", "true", "DD 21 / M.1: an interferer attenuated by its distance to this receiver"},
     {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
     {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
+    {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
 };
 
 int
