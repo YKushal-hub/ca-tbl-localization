@@ -212,6 +212,9 @@ line in each script).
 - DD 20 (2026-10-21, owner): the realistic world, `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider
   --ekf5RelayGate --unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2
   --fixedVarThreshold=12`. Pin back with the code defaults (DESIGN_DECISIONS 20 lists them).
+- DD 21 (2026-10-21, owner override of PRESET-2's rule): `--t2SensitivityRowKHz=812.5 --publishAfterStep
+  --nlosRSource=detector --foliageScaleBounds --interferenceDistance --rssiRangeFromRxPower --pcsByteScale=4
+  --ekf5Window=60`. Pin back as DESIGN_DECISIONS 21 lists.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

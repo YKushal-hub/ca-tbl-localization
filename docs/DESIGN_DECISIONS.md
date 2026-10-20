@@ -424,3 +424,28 @@ optimistic world. This also closes T14 (the near-perfect gyro) and T38 (SHS is s
 **Reproducing earlier preset results:** give `--imuFilter=cv --imuMagSigmaDeg=0 --ekf5FinderConsider=false
 --ekf5RelayGate=false --unknownStart=false --imuGyroBiasSigmaDps=0 --imuStrideSigmaPct=0 --finderPosSigma=0
 --fixedVarThreshold=-1`.
+
+## 21. PRESET-2's candidate set enters the preset by owner override (owner decision O10, option A, 2026-10-21)
+**What.** `--t2SensitivityRowKHz=812.5 --publishAfterStep --nlosRSource=detector --foliageScaleBounds
+--interferenceDistance --rssiRangeFromRxPower --pcsByteScale=4`, and `--ekf5Window=60` in its own commit.
+
+**The registered rule failed, and the override is recorded as such.** PRESET-2 (`report/PRESET2_RESULTS.md`) failed
+P1 and P3 on one interval: the endgame five-node contrast +0.035 [−0.044, 0.103] (DESIGN_DECISIONS 17). Every
+measured effect was upward:
+- 5 km tag 0 A(25 m): 0.386 → 0.829;
+- 5 km five-node: 0.268 → 0.503;
+- 8-gateway ring tag 0: 0.790 → 0.959;
+- subject energy: −4 to −17 %.
+
+Four of the settings are corrections that remove known wrong numbers or an oracle (D-8, the NLOS truth leak, the
+foliage bounds, interference distance). The owner adopted the set as DESIGN_DECISIONS 9 adopted FIXES-N26.
+
+**Consequences:**
+- G93 stays red: the code default keeps the old row (O12, option B).
+- Arbitration V2 stays, as PRESET-2's P5 found.
+- Every claim drawn from the preset after this commit uses the set. The size of the whole preset change is measured
+  by PRESET-3.
+
+**Reproducing earlier preset results:** give `--t2SensitivityRowKHz=0 --publishAfterStep=false
+--nlosRSource=operative --foliageScaleBounds=false --interferenceDistance=false --rssiRangeFromRxPower=false
+--pcsByteScale=1 --ekf5Window=0`.

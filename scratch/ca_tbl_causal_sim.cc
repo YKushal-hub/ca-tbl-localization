@@ -16102,6 +16102,16 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"imuStrideSigmaPct", "5", "DD 20: 5 % stride-length noise"},
     {"finderPosSigma", "2", "DD 20: a finder's GNSS position error, 2 m per axis"},
     {"fixedVarThreshold", "12", "DD 20: fixed_threshold's variance threshold at REAL-BEST's setting"},
+    // OWNER OVERRIDE 2026-10-21 (DESIGN_DECISIONS 21, O10 option A): PRESET-2's candidate set, adopted although its
+    // registered rule failed on the endgame five-node interval (+0.035 [-0.044, 0.103]); every measured effect was
+    // upward (5 km tag 0 0.386 -> 0.829, energy -4..-17 %; report/PRESET2_RESULTS.md).
+    {"t2SensitivityRowKHz", "812.5", "DD 21 / N.27: tier 2 on its own SX1280 data-sheet row (D-8), not the 1625 kHz row"},
+    {"publishAfterStep", "true", "DD 21 / T2: a table entry carries its own cycle's estimate"},
+    {"nlosRSource", "detector", "DD 21 / D1: no NLOS truth reaches the filter's R"},
+    {"foliageScaleBounds", "true", "DD 21 / N.41: foliage frequency scaling applied to the bounds as well as the mean"},
+    {"interferenceDistance", "true", "DD 21 / M.1: an interferer attenuated by its distance to this receiver"},
+    {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
+    {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
 };
 
 int
