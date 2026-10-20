@@ -106,3 +106,60 @@ means. Stated before running, not fitted.
 - **It does not adopt `--iqOverloadOnly`.** Whether the double count is a defect to remove is a
   physics question, argued in the flag's help text. Its effect on the goal (A ≥ 0.95 at R ≤ 25 m) is
   measured only by a registered campaign.
+
+---
+
+# RESULT — computed after the registration above was committed (`409c9ab7`)
+
+Both probes ran from `409c9ab7`, dirty 0, launched 2026-10-20T12:13:02Z; copied to `results/probe_iq_2026-10-20/`
+with `iq_term.py`'s output (`IQ_TERM.txt`). Scored once.
+
+| # | verdict | measured |
+|---|---|---|
+| Q1 | **HOLDS** | the IQ term is > 0 at all 36 points (min 0.61 dB): reached on every tier |
+| Q2 | **HOLDS** | UWB 5.88 dB at 2 m, 6.01–6.02 dB from 5 m: saturated |
+| Q3 | **FAILS** | 868 MHz 100 m 0.65 dB, 2.4 GHz 10/25 m 0.61/0.73 dB; 2.4 GHz 50 m **1.04 dB**, above 0.8 |
+| Q4 | **FAILS** | the shift tracks the term on average (mean of shift − IQ −0.14 dB over 36 points) but not per point (−1.49..+0.96): the two probes' streams diverge once a decode outcome differs (`shadow_sd_db` differs at the same point). The tolerance's stated reason, one stream's sampling, was wrong |
+| Q5a | **FAILS** | 2.4 GHz 10–50 m: model − (nominal + IQ) **+14.1 to +16.4 dB** |
+| Q5b | **HOLDS** | 868 MHz 100 m −4.29 dB |
+| Q5c | **FAILS** | UWB 2 m **+11.6 dB** (predicted < −3) |
+| Q6 | **FAILS** | UWB 30–180 m **+15.7 to +17.9 dB** (predicted −1.5..−4.0) |
+
+**G11a with the term accounted: FAIL**, as registered, but not for the registered reason.
+
+## What the failures are: the basis was a stale engine
+
+Q3, Q5a, Q5c and Q6 were set from `validate.py` against `probe_v7` (Aug 27, `fbf2153`). Today's default probe
+differs from `probe_v7` on tiers 2 and 3 by far more than any IQ term:
+
+| point | `probe_v7` margin | today | `probe_v7` PDR | today |
+|---|---|---|---|---|
+| 2.4 GHz 10 m | 53.66 | 38.49 | 1.000 | 0.9995 |
+| 2.4 GHz 100 m | 35.25 | 14.51 | 0.9995 | 0.881 |
+| UWB 2 m | 25.77 | 8.03 | 0.996 | 0.781 |
+| UWB 20 m | 2.44 | −15.09 | 0.620 | 0.075 |
+
+868 MHz is identical to `probe_v7` at every column checked.
+
+**`--probeTerms` attributes it.** Foliage averages 15.6 dB on 2.4 GHz at 10 m and 15.8 dB on UWB at 2 m.
+
+**Cause.** `50fc8620` (2026-09-08), "one node cannot be in two environments at once", put the facility tiers in the
+wide-area vegetation (`--vegFacility=1` reproduces earlier runs). That was a deliberate engine change, and it is not
+a defect here.
+
+**The defect is G11's.** `validate.py` and G11 still reconcile the model with `probe_v7`, an engine state that no
+run has used since 2026-09-08. `linkbudget.py`'s `TIER_ENV` still puts tiers 2/3 in `RURAL_OPEN`. Every G11
+number since then, including G11a's, describes the pre-09-08 engine.
+
+This is RULES.md rule 9's failure mode: a check that scans present data cannot see that the data is stale.
+Recorded in TECH_DEBT (R.1) with the fix: a fresh probe at today's defaults in a new directory, and a re-registered
+reconciliation. G11 is not re-pointed here.
+
+## What stands
+
+- **The IQ term is real.** It is reached on every tier, is outside every census, and is worth 0.6–5.3 dB on
+  868 MHz, 0.6–6.0 dB on 2.4 GHz and a saturated 5.9–6.0 dB on UWB (Q1, Q2).
+- **`--iqOverloadOnly` removes it on average, and nothing else.** G161 IQOFF checks this; Q4's per-point form failed
+  on stream divergence.
+- **Whether it closes UWB's "~3.7 dB unattributed" residual cannot be answered from these runs.** That residual was
+  measured against the pre-09-08 engine. The question moves to the re-registered reconciliation.
