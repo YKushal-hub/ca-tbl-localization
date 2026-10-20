@@ -479,8 +479,9 @@ registered before any cell and scored once.
 measured the two receiver corrections the preset adopted at `39c1dfee` (`report/PREREG_FIDELITY1B.md`, seeds 161–180,
 problems none). They help every arm, and at 5 km they help the comparators more. **Under the corrected receiver
 (the preset from `39c1dfee`):**
-- **at 5 km, CA-TBL's five-node A(25 m) is below `fixed_threshold`'s,** −0.056 [−0.106, −0.006], and level with
-  Poucet's;
+- **at 5 km, on seeds 161–180,** CA-TBL's five-node A(25 m) read below `fixed_threshold`'s (−0.056 [−0.106, −0.006]).
+  On fresh seeds 181–200 (INTEG3) the two are level (−0.001). Read across both campaigns, CA-TBL is level with
+  `fixed_threshold` at 5 km (CR-23);
 - **in the endgame, it still beats Poucet,** +0.053 [0.009, 0.095], at about 1/20 the energy;
 - **CA-TBL's 5 km subject energy falls 5.06 J.**
 
@@ -799,3 +800,4 @@ column; none is computed here.
 | CR-20 | "UWB ~3.7 dB and 868 MHz ~3.5 dB unattributed residuals" — `RULES.md` §5; G11a; TECH_DEBT 2.3 | **SUPERSEDED.** Measured against `probe_v7`, which predates `50fc8620` (tiers 2/3 into the forest). Against the engine as it runs, UWB's margin reconciles within 2.12 dB and 868 MHz is unchanged. The open residual is 2.4 GHz's slope, which decomposes into foliage density (0.8 on A_max), terrain and the IQ degradation, none in the model | `src/catbl-propagation-study/experiments/VAL_V8_REGISTRATION.md`, `IQ_TERM_REGISTRATION.md`; `results/probe_v8`; TECH_DEBT R.1, R.7 |
 | CR-21 | Every preset result before `39c1dfee` | **SCOPED.** The preset now sets `--uwbSensitivityDbm=-99.3 --iqOverloadOnly` (DESIGN_DECISIONS 18). Earlier preset results reproduce with `--uwbSensitivityDbm=-104 --iqOverloadOnly=false` given (pinned X1: 274/275 files identical, the 275th the provenance lines). The size of the change awaits FIDELITY-1b | `report/PREREG_FIDELITY1.md`, `report/PREREG_FIDELITY1B.md` |
 | CR-22 | "CA-TBL is level with `fixed_threshold` at 5 km" — §4.5, measured under the pre-`39c1dfee` receiver | **REVERSED under the preset's corrected receiver.** FIDELITY-1b: CA-TBL − `fixed_threshold`, five-node A(25 m), 5 km −0.056 [−0.106, −0.006]. The correction helps `fixed_threshold` (+0.137) more than CA-TBL (+0.074). The endgame advantage over Poucet holds (+0.053 [0.009, 0.095]) | `report/PREREG_FIDELITY1B.md` result; `results/fidelity1b_2026-10-20` |
+| CR-23 | CR-22: "at 5 km CA-TBL's five-node A(25 m) is below `fixed_threshold`'s under the corrected receiver" — §4.5 | **NOT REPLICATED; SCOPED to seeds 161–180.** INTEG3, seeds 181–200, the same preset: `fixed_threshold` − CA-TBL −0.001 [−0.046, 0.045]. A single 20-seed interval excluding 0 was not a result about the policy (rule 8). The integrity-check explanation is falsified (I1: −0.024 [−0.056, 0.005]). On the 8-gateway ring the check costs +0.036 [0.004, 0.070] five-node | `report/PREREG_INTEG3.md` result; `results/integ3_2026-10-20` |

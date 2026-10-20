@@ -78,3 +78,36 @@ plus REAL-BEST's realistic stack and `--ekf5Window=60`:
 - a cell whose `spec_profile.txt` lacks the receiver corrections;
 - a window refusal in either CA-TBL arm;
 - fewer than 20 seeds for any arm and configuration.
+
+---
+
+# RESULT — after the registration above (`3de64c22`)
+
+**Run.** Launched 2026-10-20T16:06:20Z from `3de64c22`, dirty 0. Done 16:30:48Z. 60 of 60 cells, every `rc` 0;
+**problems none**, and no window refusal in any arm. Scored once: `results/integ3_2026-10-20/INTEG3.md`.
+
+| # | verdict | measured, paired, 20 seeds |
+|---|---|---|
+| I1 | **FAILS** | no-integrity − full, five-node, A: **−0.024 [−0.056, 0.005]** |
+| I2 | HOLDS | B −0.002 [−0.007, 0.003]; **C +0.036 [0.004, 0.070]** |
+| I3 | HOLDS | no-integrity − `fixed_threshold`, A: −0.022 [−0.068, 0.017] |
+| I4 | **FAILS** | J in A: +0.28 [−0.79, 1.55]; the upper bound exceeds +1.0 J |
+
+## What it says
+
+- **The hypothesis is falsified at 5 km.** Removing the integrity check does not raise CA-TBL's availability there.
+- **FIDELITY-1b's 5 km deficit does not replicate.** On these fresh seeds, under the same preset, CA-TBL −
+  `fixed_threshold` is **+0.001** [−0.045, 0.046] five-node (the table reads `fixed_threshold` − CA-TBL = −0.001).
+  FIDELITY-1b's −0.056 [−0.106, −0.006] and the exploratory diagnostic's −0.052 both came from seeds 161–180. This is
+  rule 8 at campaign scale: one 20-seed interval excluding 0 was not a result about the policy.
+- **On the 8-gateway ring the check costs availability:** no-integrity +0.036 [0.004, 0.070] five-node and +0.045
+  [−0.006, 0.142] tag 0, with CEP95 −62.6 m.
+- **In the endgame** CA-TBL beats Poucet on five-node A(25 m), +0.097 [0.050, 0.143], using 354 J less per run.
+
+## Consequence
+
+- **No recommendation to remove the check on 5 km grounds.**
+- **On the ring it costs availability, with no fault injected.** So its value rests on what it catches under the
+  environmental faults it exists for. That needs a fault-injected campaign before the owner decides (O13).
+- **CR-22's 5 km statement is scoped to seeds 161–180,** where it held. Across both campaigns, 40 seeds, CA-TBL is
+  level with `fixed_threshold` at 5 km.

@@ -38,7 +38,8 @@ CA-TBL, five-node A(25 m), F0 → F1:
 - 8-gateway ring: 0.605 → 0.757; tag 0 there 0.911 → 0.975.
 
 **Against comparators under F1:**
-- at 5 km CA-TBL is **below `fixed_threshold`** on five-node A(25 m), −0.056 [−0.106, −0.006];
+- at 5 km CA-TBL read below `fixed_threshold` on seeds 161–180 (−0.056). It is **level** on fresh seeds 181–200
+  (INTEG3, −0.001), so the two campaigns read together say level;
 - in the endgame it beats Poucet, +0.053, at about 1/20 the energy.
 
 ## Registered, 2026-10-20: ANCHOR-SUPPLY (seeds 121–140, `report/PREREG_ANCHOR_SUPPLY.md`)

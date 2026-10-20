@@ -4851,3 +4851,18 @@ The Technical Report carries it as CR-22.
 **Open.** Why the escalation rule loses ground at 5 km once tier 1 reaches further. A plausible reading, not measured:
 a longer-reaching floor makes escalation less often useful, and CA-TBL pays for its escalations in availability. A
 registered look at escalation counts and outcomes per arm under F1 is the next step.
+
+### R.12 INTEG3: the integrity check is not the 5 km cause, and the 5 km deficit did not replicate
+
+R.11's open question is answered by `report/PREREG_INTEG3.md` (seeds 181–200, problems none):
+- **I1 failed.** At 5 km, no-integrity − full is −0.024 [−0.056, 0.005]: the check is not the cause.
+- **The deficit itself does not replicate.** CA-TBL is level with `fixed_threshold` at 5 km (−0.001).
+- **On the 8-gateway ring the check costs availability:** +0.036 [0.004, 0.070] five-node without it.
+
+**Two lessons:**
+- **The exploratory diagnostic was right not to be cited.** Ten seeds of the same 161–170 range reproduced the
+  campaign's noise, not a mechanism.
+- **The registered fresh-seed test is what separated them.**
+
+**Still open:** O13, whether the check earns its cost on the ring. That needs fault injection
+(`--injectRangeBias` / `--injectFaultAnchors`).
