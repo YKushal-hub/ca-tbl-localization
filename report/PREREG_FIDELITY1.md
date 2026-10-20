@@ -93,3 +93,36 @@ before every cell.
   project cites, used as cited.
 - **The relay round's event slice (M.1(b)) and anchor-pair CAD (3.5).** Both are cut from this campaign for time;
   their exclusion is recorded in TECH_DEBT with that reason.
+
+---
+
+# RESULT — after the registration above (`471680a4`)
+
+**Run.** Launched 2026-10-20T13:26:06Z from `471680a4`, dirty 0, with base **W**: PRESET-2's decision was not met. Done
+14:29:36Z. 120 of 120 cells, every `rc` 0, one source.
+
+**A REGISTERED ABORT CONDITION FIRED: "any window solver failure".** Three cells have one failure each: A_F1/s142,
+A_F1/s151 and C_F1/s141. All three are in the `static_2p4` arm, and there are none in any other arm. That is 3 failures
+in 600 arm-runs; each `static_2p4` run solved 42–189 windows.
+
+By the registration, **FIDELITY-1 is not a citable result.** The numbers below are a reading of an aborted campaign,
+kept because the cells exist and the abort reason is narrow. They support no claim. Why the window solver fails on
+`static_2p4` only under F1 is not investigated here: F1 gives that arm many more fixes at range (5 km tag 0 +0.30).
+
+**Scored once** with the committed scorer (`results/fidelity1_2026-10-20/FIDELITY1.md`).
+
+| # | reading |
+|---|---|
+| R1 | F1 lowers CA-TBL five-node A(25 m) nowhere: A +0.099 [0.004, 0.202], B +0.044 [0.003, 0.094], C +0.137 [0.045, 0.227] |
+| R2 | CA-TBL tag 0 in B moves +0.002 [0.001, 0.003] |
+| R3 | CA-TBL subject J in A falls −4.86 J [−6.25, −3.55] |
+
+All three would hold. The C ring, CA-TBL: tag 0 0.910 → 0.967, five-node 0.571 → 0.708, CEP95 236 → 22 m.
+
+## Adoption — by the registered rule, which does not read this campaign
+
+The rule was G161 green (`4a3ef762`: 7 ok, self-test 11 of 11) and the null control 13 of 13 with both flags off
+(`635c0ab9`). **Both hold, so `--uwbSensitivityDbm=-99.3` and `--iqOverloadOnly=true` join `--specProfile`.**
+
+The abort does not touch this: the rule was written not to depend on the campaign, so that physics is not chosen by
+its effect. The size of the change must be re-measured before any claim states it. That is FIDELITY-1b, owed.
