@@ -117,10 +117,10 @@ status was checked against the code, or against the preset's setting list
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 5 km tag 0: one precise anchor | OPEN | a causal 150 s window smoother beats the EKF on 5 of 6 seeds offline (exploratory); build it in the scenario |
+| N.62 5 km tag 0: one precise anchor | FLAG (`--ekf5Window`, G152) | EKF5-WINDOW, seeds 61-80: 5 km not supported, the endgame sharper (4.6 -> 3.1 m, unregistered); the dominant 5 km failure is non-acquisition |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is N.3 and N.62 (the window smoother). RESEARCH and CAMPAIGN rows
+question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -4419,4 +4419,15 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
     window's ranges.
   - **Next:** a sliding-window estimator inside the scenario, as `--imuFilter` option, default off, with its
     null control and gate. Then a registered campaign, which must include seed 6's kind of case.
+- **Built and registered, 2026-10-20.** `--ekf5Window` (`762bad9c`, G152, null control 12/12), registered as
+  EKF5-WINDOW (`61326646`). Read-out: `report/EKF5_WINDOW_RESULTS.md`, 80 cells, seeds 61-80.
+  - **5 km: not supported.** CA-TBL −28.1 [−243.0, +138.1] m; coverage 0.39 -> 0.60.
+  - **Endgame: sharper, though not a registered prediction.** CA-TBL 4.6 -> 3.1 m [−3.3, −0.2], coverage 0.89 ->
+    0.96, every policy arm improved.
+  - **The decision rule is not met;** the flag stays default off.
+  - **What the out-of-sample seeds show instead.** Their 5 km error is dominated by runs that never acquire a
+    usable geometry: five seeds over 1.5 km under both variants. That is an anchor-supply limit, not an estimator
+    one. The pilot's seeds 1-6 overstated the 5 km effect about tenfold.
+  - **Next, if the 5 km figure is to move:** more precise anchors reaching tag 0 (finder tasking, a relay supply).
+    This is a scenario or design question for the owner, not the filter.
 
