@@ -2168,6 +2168,9 @@ static bool g_rssiSigmaLogNormal = false;
 //! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
 //! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
 static bool g_probeTerms = false;
+//! TECH_DEBT J.1 / G11b --probeNominalMargin: the sweep also reports rx power minus the TABLE sensitivity, the
+//! margin before link hysteresis, and the IQ-impairment degradation each engine subtracts from rx power.
+static bool g_probeNominalMargin = false;
 //! V6 --traceOnDemand (master plan v3): per tag-0 dual-base cycle, the on-demand predictor's P(any 2.4 GHz link)
 //! against what the 2.4 GHz attempt returned -- the reliability data the on-demand rule is judged on.
 static bool g_traceOnDemand = false;
@@ -2821,7 +2824,8 @@ RunProbe(EnvironmentClass envWide,
     out << "tier,distance_m,pdr,mean_abs_range_err_m,mean_snr_db,crlb_floor_m,"
         << "measured_over_crlb,n,coherent_gain_db,two_ray_frac,nlos_frac,"
         << "mean_pl_db,mean_margin_db,shadow_sd_db,shadow_sd_eff_db"
-        << (traceDiagnostic ? ",mean_snr_all_db" : "") << "\n";
+        << (traceDiagnostic ? ",mean_snr_all_db" : "")
+        << (g_probeNominalMargin ? ",mean_nominal_margin_db,mean_iq_degradation_db" : "") << "\n";
 
     std::cout << "\nPre-flight probe: reception and ranging error vs distance\n"
               << "  (" << trials << " trials per point)\n"
@@ -2881,6 +2885,8 @@ RunProbe(EnvironmentClass envWide,
             uint32_t nlosN = 0;
             double plSum = 0.0;
             double marginSum = 0.0;
+            double nomMarginSum = 0.0; // --probeNominalMargin
+            double iqDegSum = 0.0;     // --probeNominalMargin
             double shadowSum = 0.0;
             double shadowSqSum = 0.0;
             double shadowEffSum = 0.0;
@@ -2900,6 +2906,8 @@ RunProbe(EnvironmentClass envWide,
                 bool nlos = false;
                 double plDb = 0.0;
                 double marginDb = 0.0;
+                double nomMarginDb = 0.0; // --probeNominalMargin: rx power - table sensitivity
+                double iqDegDb = 0.0;     // --probeNominalMargin: the IQ term already inside rx power
                 double shadowDb = 0.0;
                 double shadowEffDb = 0.0;
 
@@ -2940,6 +2948,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2959,6 +2971,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2978,6 +2994,10 @@ RunProbe(EnvironmentClass envWide,
                     nlos = r.isNLOS;
                     plDb = r.pathLossDb;
                     marginDb = r.sensitivityMarginDb;
+                    nomMarginDb = r.rxPowerDbm - r.sensitivityDbm;
+                    // IQImpairmentSubmodule::ComputeIQImpairments (lora-iq-impairment-submodule.cc:48), rebuilt
+                    // exactly from the two fields it is stored in.
+                    iqDegDb = 20.0 * std::log10(1.0 + r.evmPercent / 100.0) + (r.adcClippingOccurred ? 15.0 : 0.0);
                     shadowDb = r.shadowingDb;
                     shadowEffDb = r.shadowingStdEff;
                     if (g_probeTerms)
@@ -2998,6 +3018,8 @@ RunProbe(EnvironmentClass envWide,
                     nlosN += nlos ? 1u : 0u;
                     plSum += plDb;
                     marginSum += marginDb;
+                    nomMarginSum += nomMarginDb;
+                    iqDegSum += iqDegDb;
                     if (std::isfinite(snr))
                     {
                         snrAllSum += snr;
@@ -3125,6 +3147,11 @@ RunProbe(EnvironmentClass envWide,
             if (traceDiagnostic)
             {
                 out << "," << std::setprecision(2) << meanSnrAll;
+            }
+            if (g_probeNominalMargin)
+            {
+                out << "," << std::setprecision(2) << ((diagN > 0) ? nomMarginSum / dN : 0.0) << ","
+                    << ((diagN > 0) ? iqDegSum / dN : 0.0);
             }
             out << "\n";
             std::cout << "    " << std::right << std::fixed << std::setprecision(1) << std::setw(10)
@@ -16851,6 +16878,16 @@ main(int argc, char* argv[])
                  "term -- to find which terms make the delivery curve flatter than Phi(M/sigma_shadowing). "
                  "Output only; no engine change.",
                  g_probeTerms);
+    cmd.AddValue("probeNominalMargin",
+                 "TECH_DEBT J.1 / G11b, with --probe only. True: probe_range_sweep.csv gains two columns over all "
+                 "trials. mean_nominal_margin_db: rx power minus the receiver's TABLE sensitivity, the margin before "
+                 "link hysteresis (1.5 dB, applied only after a received packet, so it moves with PDR) and before the "
+                 "soft-degradation penalty (which only FIDELITY_SDR_GRADE_REALISM applies; the scenario runs "
+                 "ULTRA_FAST). mean_iq_degradation_db: the IQ-impairment 'SNR degradation' every engine subtracts "
+                 "from rx power AFTER the loss sum (lora-iq-impairment-submodule.cc:48), rebuilt exactly from "
+                 "evmPercent and adcClippingOccurred. It is in no loss census and not in linkbudget.py, so G11's "
+                 "comparison cannot see it without this column. Output only; no engine change, no draw.",
+                 g_probeNominalMargin);
     cmd.AddValue("nlos3gppRMa",
                  "V2a-2 (master plan v3). False (default): NLOS occurs with P = 1 - exp(-d/scale) and costs a loss drawn "
                  "from the environment's Normal (values OURS). True: on 868 MHz and 2.4 GHz links whose higher end is "
