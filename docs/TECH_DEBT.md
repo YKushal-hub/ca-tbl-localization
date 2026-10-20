@@ -4820,3 +4820,21 @@ energy down. Adopting it is an owner decision.
 
 **Both are deployment and tasking choices for the owner.** The preset is not changed by this campaign; its
 registration made no adoption rule.
+
+### R.10 T18's diagnosis named an inactive term; the residual it measured is the IQ degradation (rule 10 again)
+
+**How T18 measured it.** `scripts/g11_term_diagnosis.py` (T18, J.1) rebuilt the engine's "effective sensitivity" as
+tx − Σ(probed loss terms) − margin. It found −107.2 → −99.8 dBm with distance and attributed that to the
+outcome-dependent effective sensitivity, naming the soft-degradation penalty.
+
+**Two reasons that attribution cannot hold:**
+- The penalty is added only inside `if (m_config.fidelityMode == FIDELITY_SDR_GRADE_REALISM)`
+  (`lora-2p4-physics-engine.cc:917`). The scenario runs ULTRA_FAST (`ca_tbl_causal_sim.cc:544-555`), so the penalty
+  never runs.
+- A residual defined as "what the probed terms do not explain" absorbs every term outside the probed sum. The IQ
+  degradation (R.2) is subtracted from rx power after that sum, and it grows 0.6 → 6 dB as SNR falls. Link
+  hysteresis (1.5 dB × PDR) shrinks with distance. Together they move the rebuilt figure by about 7 dB, which is the
+  7.4 dB T18 measured.
+
+**This is RULES.md rule 10's failure mode for the third time:** an enumeration of a sum that did not contain the term.
+The status rows T18 and T19 are corrected.
