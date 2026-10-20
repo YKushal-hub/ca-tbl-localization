@@ -92,10 +92,15 @@ them.
 |---|---|---|
 | O1 | adopt `--publishAfterStep` into the preset? (T2) | G156; correctness only, entries 2.5 s fresher |
 | O2 | accept G24's three zero populations (Case A fixes, arbitration pre-emptions, grant tie-break verdicts)? (T17) | O.15; they follow from N.26's fused sets |
+|    | *2026-10-20 (R.4, ANCHOR-SUPPLY):* pre-emptions HAVE a population (17 in 80 endgame cells), so G24's zero is its sample size; Case A is reachable but rare in CA-TBL (1 in 41 half-hour runs); tie-break verdicts are 0 in 160 cells, not shown reachable | R.4 |
 | O3 | change G11's criterion to the pre-penalty engine margin and give the model the engine's terrain mean? (T18) | J.1 diagnosis; scripts/g11_term_diagnosis.py |
 | O4 | adopt `--nlosRSource=detector` (no NLOS truth in the filter)? (T27) | DEBT-A D1: no measurable cost |
 | O5 | adopt `--foliageScaleBounds` (foliage scaling as the parameter file states)? (T12) | DEBT-A: 5 km 365 → 330 m |
 | O6 | adopt `--interferenceDistance` (interferers attenuated by distance)? (T29) | DEBT-A: endgame 5.0 → 4.1 m |
 | O7 | adopt `--rssiRangeFromRxPower` (RSSI range includes foliage/fading)? (T46) | DEBT-A: 868 alone 448 → 494 m; hybrid unharmed |
 | O8 | keep `--arbitrationV2` (and requester escalation, queue gossip) in the preset? (T42) | DEBT-A: off saves 18 % endgame energy, no accuracy loss |
+|    | *2026-10-20, decided by PRESET-2 (DESIGN_DECISIONS 17):* O1, O4–O7 and the D-8 row were registered as one set. The rule failed on the endgame interval, so they are **not adopted**. Arbitration **stays** (off costs +2.06 J once the requester rule can refuse) | `report/PRESET2_RESULTS.md` |
 | O9 | refactor the two per-node cycle copies into one (T32)? multi-day, every code path, no result change | N.3 |
+| O10 | adopt PRESET-2's set anyway, as an owner override (as DESIGN_DECISIONS 9 did)? | every measured effect upward: 5 km tag 0 0.39 → 0.83, energy −4..−17 %; `report/PRESET2_RESULTS.md` |
+| O11 | deploy eight finders, and task them in pairs to save energy? | ANCHOR-SUPPLY: endgame five-node 0.873 → 0.970 with eight; pairs −35 % energy, same availability |
+| O12 | make the D-8 row the CODE default (G93 green)? It breaks byte reproduction of every default-config result from its sidecar | D8-MAIN; G93 |
