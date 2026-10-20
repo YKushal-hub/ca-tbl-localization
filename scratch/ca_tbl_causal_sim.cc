@@ -16113,6 +16113,8 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
     {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
     {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
+    // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
+    {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
 };
 
 int

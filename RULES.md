@@ -215,6 +215,8 @@ line in each script).
 - DD 21 (2026-10-21, owner override of PRESET-2's rule): `--t2SensitivityRowKHz=812.5 --publishAfterStep
   --nlosRSource=detector --foliageScaleBounds --interferenceDistance --rssiRangeFromRxPower --pcsByteScale=4
   --ekf5Window=60`. Pin back as DESIGN_DECISIONS 21 lists.
+- DD 19 (2026-10-21, owner): `--integrityCheck=false`, the Switching-Point Integrity Check out of the preset. Pin back
+  with `--integrityCheck=true`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

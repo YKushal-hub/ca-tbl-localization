@@ -449,3 +449,24 @@ foliage bounds, interference distance). The owner adopted the set as DESIGN_DECI
 **Reproducing earlier preset results:** give `--t2SensitivityRowKHz=0 --publishAfterStep=false
 --nlosRSource=operative --foliageScaleBounds=false --interferenceDistance=false --rssiRangeFromRxPower=false
 --pcsByteScale=1 --ekf5Window=0`.
+
+## 19. The Switching-Point Integrity Check leaves the preset (owner decision O13, 2026-10-21)
+**What.** `--integrityCheck=false` in `kSpecProfile`. `ca_tbl_full` then runs exactly as the `ca_tbl_no_integrity` arm
+does (G163 asserts it, byte for byte). The check's code, its flags and the `ca_tbl_no_integrity` arm all stay.
+
+**Why.** Two registered results:
+- **INTEG2** (fault-injected): at the preset's χ² 1992.9 the check catches 0.03–0.10 of injected faults, and no
+  re-fit helps, because the fault-free distance tail (p99 21 322 at 5 km) blinds any threshold.
+- **INTEG3:** it is not the cause of any 5 km deficit, and it costs +0.036 [0.004, 0.070] five-node A(25 m) on the
+  8-gateway ring with no fault present.
+
+The integrity claim was already withdrawn in the shipped default (Technical Report CR-9).
+
+**What could bring it back:** a measurement covariance that carries NLOS and acquisition-state error (N.15), then a
+registered INTEG4.
+
+**Consequences:**
+- G24's integrity populations become structurally zero under the preset, with this decision as the reason.
+- **Reproducing earlier preset results:** give `--integrityCheck=true`.
+
+*(Numbered 19 because O13 was decided first; recorded after 20 and 21 in this file.)*
