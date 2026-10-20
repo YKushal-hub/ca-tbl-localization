@@ -472,7 +472,7 @@ registered before any cell and scored once.
   - **Tag 0 under P8:** CA-TBL is **below** `fixed_threshold`, −0.036 [−0.066, −0.011].
 - **In the endgame,** CA-TBL beats Poucet on the five-node pool in every finder variant (+0.06 to +0.17).
 - **Energy:** CA-TBL uses about 1/20 of Poucet's subject energy (383–446 J less per run).
-- **It beats both single-band arms everywhere.**
+- **It beats both single-band arms on five-node A(25 m) everywhere** (tag 0 against `static_2p4` spans 0 in some cells).
 - **The escalation rule is not shown to beat `fixed_threshold`** (CR-19).
 
 **FIDELITY-1** fired a registered abort (`report/PREREG_FIDELITY1.md`) and supports no claim. Its re-run, FIDELITY-1b,
