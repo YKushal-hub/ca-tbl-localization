@@ -117,10 +117,10 @@ status was checked against the code, or against the preset's setting list
 | N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
 | N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 5 km tag 0: one precise anchor | RESEARCH | range innovations corrupt θ/b/s (37° off despite the magnetometer); single-update remedies all rejected; needs a trajectory-level estimator |
+| N.62 5 km tag 0: one precise anchor | OPEN | a causal 150 s window smoother beats the EKF on 5 of 6 seeds offline (exploratory); build it in the scenario |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
-question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
+question stated. Open engineering is N.3 and N.62 (the window smoother). RESEARCH and CAMPAIGN rows
 need measurement before code.
 
 ---
@@ -4404,4 +4404,19 @@ re-run for 200 s with `--traceRanges` (`~/ns/catbl-work/diag_s5`).
   (a batch / factor-graph solve over the last N cycles, re-linearised jointly), or a particle or
   multiple-hypothesis filter kept running while the geometry has one precise anchor. Either is a new estimator,
   not a flag on this one.
+- **The window smoother tested offline, 2026-10-20.** EXPLORATORY, six seeds:
+  `analysis/smoother_replay/`. Each solve uses only the information the EKF had: its fused ranges with their
+  sigma, IMU odometry, a magnetometer synthesised with the run's own model, and the finder-offset prior.
+  - **Full batch, using future data, an upper bound:** p95 error 4.8-14.2 m on every seed, against the EKF's
+    74-500 m. The gyro bias is recovered within 10 % on every seed.
+  - **Causal, a 150 s trailing window, the estimate at its last cycle:** the window gives medians 3.0 / 3.8 / 6.1
+    / 5.5 / 7.7 / 11.0 m against the EKF's 8.4 / 9.8 / 29.2 / 19.5 / 215.5 / 4.1 m, and p95 7.7 / 6.5 / 15.9 /
+    16.0 / 342 / 27.7 m against 44.6 / 35.7 / 154.6 / 49.5 / 508.5 / 17.0 m. Better on seeds 1-5. Seed 6 is
+    worse (27.7 against 17.0). Seed 5's tail comes from the first window starting at the EKF's estimate, already
+    about 200 m off.
+  - **Why it works where the EKF does not:** heading, bias and scale are solved jointly with the path. One
+    linearisation no longer decides them, and the magnetometer's absolute reference is weighed against the whole
+    window's ranges.
+  - **Next:** a sliding-window estimator inside the scenario, as `--imuFilter` option, default off, with its
+    null control and gate. Then a registered campaign, which must include seed 6's kind of case.
 
