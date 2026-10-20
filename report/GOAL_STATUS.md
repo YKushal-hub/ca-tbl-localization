@@ -30,6 +30,15 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-20: ANCHOR-SUPPLY (seeds 121–140, `report/PREREG_ANCHOR_SUPPLY.md`)
+
+S stack plus the window, CA-TBL, five-node A(25 m):
+- **endgame:** four finders 0.873, **eight finders 0.970** (meets the requirement on average), pairs at four finders
+  0.866 at −35 % energy;
+- **5 km:** 0.41 with four finders, 0.58 with eight.
+
+CA-TBL beats Poucet fusion on five-node A(25 m) in every endgame variant at about 1/20 the energy.
+
 The post-hoc readings below predate PRESET-2.
 
 ## Where the system stood (post hoc, before PRESET-2)

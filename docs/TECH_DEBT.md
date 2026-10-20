@@ -4743,6 +4743,10 @@ moves tier 3 by 5–6 dB and the two nearly cancel (net about +1.3 dB).
 `--finderTasking=pairs` creates exactly that, and ANCHOR-SUPPLY's B_P4/B_P8 cells are the population to read. The
 count is recorded in the ANCHOR-SUPPLY result. G24's registered runs are not changed.
 
+**Measured (ANCHOR-SUPPLY result):**
+- **Pre-emptions:** 17 in 80 CA-TBL endgame cells, 5 under R4. The mechanism works, and G24's zero is its sample size.
+- **Tie-break verdicts:** 0 in 160 cells. They stay red in G24 as not shown reachable.
+
 ### R.5 N.62's lever: `--finderTasking=pairs` (`af741829`) — G160; ANCHOR-SUPPLY
 
 G160: 6 ok, self-test 10 of 10. ANCHOR-SUPPLY (`report/PREREG_ANCHOR_SUPPLY.md`) measures pairs and finder count on
@@ -4788,3 +4792,12 @@ flags, and their gates stay as they are.
 
 The set's measured effect on the requirement is in `report/PRESET2_RESULTS.md`: 5 km tag 0 +0.44, five-node +0.24,
 energy down. Adopting it is an owner decision.
+
+### R.9 ANCHOR-SUPPLY decided (report/PREREG_ANCHOR_SUPPLY.md, result)
+
+- **Eight finders bring the endgame five-node pool to 0.970,** meeting the requirement on average; four give 0.873.
+- **`--finderTasking=pairs`** cuts endgame subject energy by 35 % at unchanged availability, and does not help at 5 km.
+- **No tested deployment meets the requirement at 5 km** (five-node ≤ 0.58).
+
+**Both are deployment and tasking choices for the owner.** The preset is not changed by this campaign; its
+registration made no adoption rule.

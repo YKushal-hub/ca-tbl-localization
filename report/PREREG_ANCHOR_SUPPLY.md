@@ -107,3 +107,47 @@ Its readings set the predictions above, which is why the seeds here are fresh.
 - **Any tasking other than these two.** A GDOP-driven tasking (plan item 23) is not built, and its exclusion is
   recorded with its reason.
 - **Real hardware.**
+
+---
+
+# RESULT — after the registration above (`870a037e`)
+
+**Run.** Launched 2026-10-20T12:19:33Z from `471680a4`, dirty 0, and done 14:11:14Z. 160 of 160 cells, every `rc` 0,
+one source; problems none.
+
+**Scored once** with the committed scorer. The full output is `results/anchor_supply_2026-10-20/ANCHOR_SUPPLY.md`.
+
+| # | verdict | measured (CA-TBL, paired, 20 seeds) |
+|---|---|---|
+| Q1 | **FAILS** (on width) | P4 − R4 tag 0 in A: −0.039 [−0.167, 0.072]; the upper bound is above +0.02 |
+| Q2 | HOLDS | R8 − R4 five-node in A: **+0.169 [0.090, 0.247]** |
+| Q3 | HOLDS | R8 − R4 five-node in B: **+0.097 [0.035, 0.170]** |
+| Q4 | **FAILS** | P8 − R8 five-node in B: −0.008 [−0.048, 0.018] |
+| Q5 | HOLDS | best mean five-node in A is 0.584 (P8): **the brief's 5 km geometry does not meet the requirement with up to eight finders** |
+| Q6 | HOLDS | CA-TBL subject J below Poucet's everywhere (worst upper bound −337 J) |
+
+## What it says about the requirement
+
+CA-TBL means:
+
+| | A tag 0 | A five-node | B tag 0 | B five-node | B runs ≥ 0.95 | B subject J |
+|---|---|---|---|---|---|---|
+| R4 | 0.616 | 0.410 | 0.991 | 0.873 | 0.45 | 22.2 |
+| P4 | 0.578 | 0.372 | 0.992 | 0.866 | 0.35 | **14.5** |
+| R8 | 0.689 | 0.579 | 0.996 | **0.970** | 0.80 | 23.5 |
+| P8 | 0.717 | 0.584 | 0.996 | 0.962 | 0.85 | 17.8 |
+
+- **Eight finders meet the five-node requirement in the endgame on average (0.970).** It is the first configuration
+  in the project to do so. A deployment of eight finders is the requirement-level result: four do not suffice (0.873).
+- **Pairs tasking buys energy, not availability.** In the endgame, P4 − R4 is **−7.72 J [−9.34, −6.00]** (−35 %) at
+  unchanged availability. At 5 km it neither helps nor clearly hurts.
+- **5 km stays short.** With eight finders, the five-node pool reaches 0.58. That is anchor supply beyond what finder
+  count alone fixes in this geometry. PRESET-2 shows the 8-gateway ring and the N set matter more there.
+- **Against comparators.** CA-TBL beats Poucet fusion on five-node A(25 m) in every endgame variant (+0.06 to +0.17,
+  every interval above 0) and at 5 km under R4 (+0.093). It does so at about 1/20 the subject energy.
+
+## G24's contention populations (TECH_DEBT R.4)
+
+- **Arbitration pre-emptions:** CA-TBL had 17 in 80 endgame cells, 5 of them under R4, the brief's deployment.
+  The mechanism has a population. G24's zero comes from its three short seeds.
+- **Grant tie-break verdicts:** 0 in all 160 cells, every arm. Not shown reachable, and not claimed structural.
