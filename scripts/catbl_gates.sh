@@ -1938,6 +1938,16 @@ bash scripts/pairs_gate.sh "$WORK/g160" || fail G160
 bash scripts/pairs_gate_selftest.sh "$WORK/g160" || fail G160
 finish G160
 
+# ---------------- G161: the receiver corrections (--uwbSensitivityDbm, --iqOverloadOnly) and the probe columns that
+# measure them (--probeNominalMargin; IQ-TERM). scripts/receiver_gate.py reads three probes and the endgame preset:
+# the IQ term is reached on every point; UWB at -99.3 dBm moves only UWB, by 4.7 dB; --iqOverloadOnly raises the
+# nominal margin everywhere, by the IQ term on average; both flags at their defaults are the flags absent byte for
+# byte; a sensitivity outside [-130, -60] is refused.
+printf '\n--- G161 receiver corrections (--uwbSensitivityDbm, --iqOverloadOnly) ---\n'
+bash scripts/receiver_gate.sh "$WORK/g161" || fail G161
+bash scripts/receiver_gate_selftest.sh "$WORK/g161" || fail G161
+finish G161
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
