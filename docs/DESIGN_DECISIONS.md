@@ -392,3 +392,19 @@ was measured while the rule could never refuse (N.7).
 - energy falls 4–17 %.
 
 Adopting it would be an owner override, as §9 was. That is recommended in the result file and not applied.
+
+## 18. The preset adopts the two receiver corrections (2026-10-20, FIDELITY-1's registered rule)
+**What.** `--uwbSensitivityDbm=-99.3` (DW3000 data sheet, against our −104 dBm) and `--iqOverloadOnly=true` join
+`kSpecProfile`.
+
+`--iqOverloadOnly` stops the engines subtracting `20 log10(1 + EVM)` from rx power before comparing with a data-sheet
+sensitivity, except under ADC overload. The subtraction is outside every census and saturates at 6 dB on UWB. It
+double-counts impairments a data-sheet figure already contains (TECH_DEBT R.2).
+
+**Why by rule, not by result.** The registration decided adoption on G161 green and the null control alone, before
+any cell. Physics chosen by its effect on A(25 m) would be selecting the world. Both conditions held.
+
+**FIDELITY-1 itself fired a registered abort:** three single window-solver failures, all in `static_2p4`. Its
+numbers are not citable. The size of the change is owed to a re-run (FIDELITY-1b).
+
+**Reproducing earlier preset results:** add `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.

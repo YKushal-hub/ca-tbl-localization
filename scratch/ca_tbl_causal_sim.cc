@@ -16008,6 +16008,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"imuQuScale", "30", "B2: IMU increment covariance x 30 -- the dead-reckoner's coherent error the EKF treats as white (measured 3-54x; B2CONS adoption rule; DESIGN_DECISIONS 15)"},
     {"stampBinaryHash", "true", "provenance (M.3, T39): run_id.txt names the binary by its SHA-256, whatever the working directory"},
     {"stampBuildCommit", "true", "provenance (M.3, T39): run_id.txt names the commit and dirty count of the tree that COMPILED the binary"},
+    // FIDELITY-1's registered adoption rule (report/PREREG_FIDELITY1.md; G161 green, null control 13/13), which does
+    // not read the campaign: the two receiver corrections join together, since each alone moves tier 3 by 5-6 dB.
+    // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
+    {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
+    {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
 };
 
 int
