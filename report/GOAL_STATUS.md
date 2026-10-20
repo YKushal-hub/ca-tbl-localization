@@ -9,7 +9,30 @@ Written 2026-10-20 from the two campaigns whose traces are on disk: EKF5-WINDOW 
 (seeds 81–100). Both are the realistic world under REAL-BEST's S stack (S) and with `--ekf5Window=60` (W). They are
 re-read here, not re-run. **Every number below is a post-hoc reading of registered cells, not a registered result.**
 
-## Where the system stands
+## Registered, 2026-10-20: PRESET-2 (seeds 101–120, `report/PRESET2_RESULTS.md`)
+
+CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not adopted by its rule, DESIGN_DECISIONS
+17):
+
+| config | A(25 m) tag 0 | A(25 m) five-node | CEP95 tag 0 | subject J |
+|---|---|---|---|---|
+| A, 5 km | 0.386 → 0.829 | 0.268 → 0.503 | 700 → 303 m | 19.4 → 16.2 |
+| B, endgame | 0.994 → 0.995 | 0.856 → 0.891 | 3.9 → 3.3 m | 21.2 → 20.3 |
+| C, 8-gateway ring | 0.790 → 0.959 | 0.505 → 0.658 | 229 → 47 m | 17.8 → 14.7 |
+
+**The requirement under N:**
+- met for tag 0 in the endgame and on the 8-gateway ring;
+- not met for the five-node pool anywhere;
+- not met for tag 0 at the brief's 5 km three-gateway geometry.
+
+**Against comparators under N:**
+- CA-TBL beats both single-band arms on five-node A(25 m) everywhere;
+- it is level with Poucet fusion and fixed_threshold (every interval spans 0);
+- it uses 383–446 J less subject energy than Poucet fusion.
+
+The post-hoc readings below predate PRESET-2.
+
+## Where the system stood (post hoc, before PRESET-2)
 
 - **Endgame (B), tag 0 meets the requirement.** A(25 m) is 0.990–0.993 for every precise arm, CA-TBL included.
 - **Endgame, five nodes: the subjects carry the gap.** Five-node A(25 m) is 0.84–0.88 under S and 0.91 under W for

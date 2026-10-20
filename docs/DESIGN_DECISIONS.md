@@ -370,3 +370,25 @@ environment split. At 340 m the pitch is 306 m, under 2 × r80.
 campaign moves.
 
 **Reproducing earlier default-config results:** add `--boxHalf=1000`. NC1, NC6, NC7 and NC8 pin it.
+
+## 17. PRESET-2: the candidate set is NOT adopted by its rule; arbitration V2 stays (2026-10-20)
+**Registered:** `report/PREREG_PRESET2.md` and its Amendment 1. **Result:** `report/PRESET2_RESULTS.md`, seeds
+101–120, 180 cells.
+
+**The rule failed on one interval.** The endgame's five-node A(25 m) contrast was +0.035 [−0.044, 0.103]. That interval
+failed both P1 (raise) and P3 (lower bound > −0.02). P2 (5 km tag 0, +0.443) and P4 (energy ratio 0.83–0.96) held.
+
+So `--ekf5Window=60 --t2SensitivityRowKHz=812.5 --publishAfterStep=true --nlosRSource=detector
+--foliageScaleBounds=true --interferenceDistance=true --rssiRangeFromRxPower=true --pcsByteScale=4` does not enter
+`kSpecProfile`. Campaigns keep passing their stack explicitly.
+
+**Arbitration V2, requester escalation and queue gossip stay** (P5 failed). With the requester rule able to refuse
+(`--pcsByteScale=4`), turning them off costs +2.06 J [0.56, 3.68] in the endgame. This reverses DEBT-A's −18 %, which
+was measured while the rule could never refuse (N.7).
+
+**Open for the owner.** Every measured effect of the set on the requirement is upward:
+- 5 km tag 0 0.39 → 0.83, five-node 0.27 → 0.50;
+- 8-gateway ring tag 0 0.79 → 0.96;
+- energy falls 4–17 %.
+
+Adopting it would be an owner override, as §9 was. That is recommended in the result file and not applied.

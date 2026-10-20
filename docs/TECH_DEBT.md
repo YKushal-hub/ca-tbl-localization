@@ -4779,3 +4779,12 @@ Together these give −5.2 + 0.6 ≈ −4.6 dB near, measured −6.4, and −5.2
 
 **Per the G11a corollary, nothing is added to the model.** The census gains two entries: the density factor and the IQ
 term. The ±4 dB bracket of RULES.md §5 was chosen for residuals that this decomposition replaces.
+
+### R.8 PRESET-2 decided: not adopted by its rule (DESIGN_DECISIONS 17)
+
+Section Q's "decided by PRESET-2" list resolves to **not adopted**: P1 and P3 failed on the endgame's five-node
+interval. P5 failed, so arbitration V2, requester escalation and queue gossip stay. The candidates remain default-off
+flags, and their gates stay as they are.
+
+The set's measured effect on the requirement is in `report/PRESET2_RESULTS.md`: 5 km tag 0 +0.44, five-node +0.24,
+energy down. Adopting it is an owner decision.
