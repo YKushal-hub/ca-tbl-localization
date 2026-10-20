@@ -1948,6 +1948,15 @@ bash scripts/receiver_gate.sh "$WORK/g161" || fail G161
 bash scripts/receiver_gate_selftest.sh "$WORK/g161" || fail G161
 finish G161
 
+# ---------------- G162: --traceNegInfo, the negative-information measurement (N.57 / N.51)
+# scripts/neginfo_gate.py reads the endgame preset at seed 205 (its subjects lock onto wrong roots), 600 s, with and
+# without the flag: one trace per subject with the registered header, rows only on a precise tier and within 150 m,
+# every other output byte-identical, and nothing written by default.
+printf '\n--- G162 negative-information trace (--traceNegInfo) ---\n'
+bash scripts/neginfo_gate.sh "$WORK/g162" || fail G162
+bash scripts/neginfo_gate_selftest.sh "$WORK/g162" || fail G162
+finish G162
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
