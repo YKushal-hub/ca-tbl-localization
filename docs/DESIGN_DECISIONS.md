@@ -408,3 +408,19 @@ any cell. Physics chosen by its effect on A(25 m) would be selecting the world. 
 numbers are not citable. The size of the change is owed to a re-run (FIDELITY-1b).
 
 **Reproducing earlier preset results:** add `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
+
+## 20. The preset is the realistic world: the S stack enters `--specProfile` (owner decision 2026-10-21)
+**What.**
+- The filter: `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider --ekf5RelayGate`.
+- The world: `--unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2`.
+- The comparator's threshold: `--fixedVarThreshold=12`.
+
+**Why.** Every campaign since REAL-BEST (2026-10-18) passed these by hand. `--specProfile` alone still ran the
+constant-velocity filter with a near-perfect gyro, seeded at the truth, so a forgotten flag silently ran the
+optimistic world. This also closes T14 (the near-perfect gyro) and T38 (SHS is superseded by the 5-state filter).
+
+**Code defaults are unchanged**, and they anchor the null controls (NC1–9).
+
+**Reproducing earlier preset results:** give `--imuFilter=cv --imuMagSigmaDeg=0 --ekf5FinderConsider=false
+--ekf5RelayGate=false --unknownStart=false --imuGyroBiasSigmaDps=0 --imuStrideSigmaPct=0 --finderPosSigma=0
+--fixedVarThreshold=-1`.

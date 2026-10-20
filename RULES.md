@@ -209,6 +209,9 @@ line in each script).
 - Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
 - DD 18 (2026-10-20, FIDELITY-1's rule): `--uwbSensitivityDbm=-99.3 --iqOverloadOnly`. Pin back with
   `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
+- DD 20 (2026-10-21, owner): the realistic world, `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider
+  --ekf5RelayGate --unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2
+  --fixedVarThreshold=12`. Pin back with the code defaults (DESIGN_DECISIONS 20 lists them).
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

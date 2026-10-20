@@ -16090,6 +16090,18 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
     {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
     {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
+    // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 20, sect 2a of the open-decisions record): the preset IS the
+    // realistic world every campaign since REAL-BEST passed by hand. Earlier preset results reproduce with these
+    // given at their code defaults (--imuFilter=cv --unknownStart=false ...; RULES.md's preset list has the pin).
+    {"imuFilter", "ekf5", "DD 20 / N.28: the 5-state IMU filter (position, heading, gyro bias, stride scale)"},
+    {"imuMagSigmaDeg", "3", "DD 20 / N.59: a magnetometer heading reference at 3 deg"},
+    {"ekf5FinderConsider", "true", "DD 20 / N.60: a finder's GNSS error as a consider state, not range noise"},
+    {"ekf5RelayGate", "true", "DD 20: a relayed range whose NIS exceeds chi2_1(0.999) is not fused"},
+    {"unknownStart", "true", "DD 20 / N.50: every field node starts at the box centre, not at its truth"},
+    {"imuGyroBiasSigmaDps", "0.15", "DD 20 / DC-1: a turn-on gyro bias of 0.15 deg/s, not the bias instability"},
+    {"imuStrideSigmaPct", "5", "DD 20: 5 % stride-length noise"},
+    {"finderPosSigma", "2", "DD 20: a finder's GNSS position error, 2 m per axis"},
+    {"fixedVarThreshold", "12", "DD 20: fixed_threshold's variance threshold at REAL-BEST's setting"},
 };
 
 int
