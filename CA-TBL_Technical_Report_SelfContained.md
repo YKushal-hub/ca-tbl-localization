@@ -466,9 +466,13 @@ registered before any cell and scored once.
 - **The requirement is met for tag 0** in the endgame and on the 8-gateway ring (under N).
 - **It is met for the five-node pool in the endgame with eight finders**, on average.
 - **It is not met at the brief's 5 km three-gateway geometry** in any configuration tested.
-- **Against comparators:** CA-TBL is level with Poucet fusion and `fixed_threshold` on availability at 5 km (every
-  interval spans 0) and beats Poucet on the endgame five-node pool in every finder variant, at about 1/20 of
-  Poucet's subject energy (383–446 J less per run). It beats both single-band arms everywhere.
+- **Against comparators at 5 km**, five-node A(25 m):
+  - **`fixed_threshold`:** level in every PRESET-2 and ANCHOR-SUPPLY cell.
+  - **Poucet fusion:** level, except under ANCHOR-SUPPLY's R4, where CA-TBL leads by +0.093 [0.029, 0.159].
+  - **Tag 0 under P8:** CA-TBL is **below** `fixed_threshold`, −0.036 [−0.066, −0.011].
+- **In the endgame,** CA-TBL beats Poucet on the five-node pool in every finder variant (+0.06 to +0.17).
+- **Energy:** CA-TBL uses about 1/20 of Poucet's subject energy (383–446 J less per run).
+- **It beats both single-band arms everywhere.**
 - **The escalation rule is not shown to beat `fixed_threshold`** (CR-19).
 
 **FIDELITY-1** fired a registered abort (`report/PREREG_FIDELITY1.md`) and supports no claim. Its re-run, FIDELITY-1b,
