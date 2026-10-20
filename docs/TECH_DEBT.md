@@ -4631,3 +4631,44 @@ cause (N.15) is the only lever left; recorded as a limit.
 - **G93:** D-8, owner.
 
 **Branch:** `integrate/2026-10-18-kushaal-kn` (PR #14), awaiting the repository owner's review.
+
+## Q. Decisions and exclusions of 2026-10-20 (the goal-driven plan)
+
+Every item below was judged against the design requirement, `Architecture.md` §1.3: A ≥ 0.95 at R ≤ 25 m over all
+cycles, measured by `scripts/goal_report.py` (`report/GOAL_STATUS.md`). What is adopted is decided by PRESET-2
+(`report/PREREG_PRESET2.md`). What is not changed is listed here, each with its reason. A reason is the evidence or
+the argument; "recorded" is not a reason on its own.
+
+**Not changed, with the reason**
+
+| entry | decision | reason |
+|---|---|---|
+| 2.1 four loss terms computed then zeroed | kept computed, not summed; not deleted | Wiring them in adds four terms with no cited values (unvalidated physics) and forces a full regeneration. Deleting is not free either: the Doppler term draws from the sampler (`ComputeDopplerPenaltyDb(..., m_sampler)`), so removing it shifts the unkeyed stream of every default run. Neither moves A(25 m) toward the requirement. |
+| 3.2 the PCS hop term (weight 0) | kept | `hopWeight` stays 0 (RULES.md §2): σ_eff already carries the relay's covariance, so a hop term double-counts it. Deleting the multiply-by-zero changes no value. |
+| N.3 subjects' mobility state | not built | It has no consumer. The RECEDING push lives only in `StartHandshake`, which subjects never call (T3), so a subject's mobility state would change nothing. |
+| N.17 subject rx/CAD/idle buckets | not built | No claim or gate reads them, and adding columns changes every `subject_summary.csv`. Energy is judged per arm through subject J and the tier totals, which are complete. |
+| N.61 the magnetometer disturbance as a state | not committed | Measured not decisive: the 5 km heading failures persist under a consistent 3° reference. The patch no longer applies to HEAD, and rebasing buys nothing toward the requirement. |
+| N.58 `--ekf5Iterate` | stays off | Measured: worsens 5 km in the pilot; the failing cycles are not mis-linearised (N.62). |
+| N.33 FEJ / observability-constrained update | not built | Superseded by the window smoother, which solves heading, bias and scale jointly over the trajectory (N.62). |
+| K.9 SHS gait calibration | not changed | Superseded in the preset by DC-1 + ekf5; SHS feeds no claim. |
+| C.5 self-deployable mesh | not built | Outside the brief's deployment (fixed gateways plus finders). |
+| N.8 explicit DENY frames, N.9 clustered teams | not changed | The spec chose an explicit answer; a clustered team is a scenario choice, not a defect. |
+| M.2 / L.2.2 a UWB obstruction model of our own | not built | It would manufacture the NLOS the classifier then detects (DESIGN_DECISIONS §9). The cited 802.15.4a model was measured and fails (UWB_NLOS_RESULTS). This is a hardware-validation item. |
+| N.11 per-hop variance terms | stay out of the preset | They give relays no weight (σ 64–83 m against 3.5 m) and have no population at 5 km. |
+| further PCS forms (A8, K.8) | none | Closed by three registered results: PCS equals the trace. |
+| tuning G11 | forbidden | It is the only instrument that caught the six-decibel sensitivity defect. A decode-independent criterion has to be registered in advance (Phase 7). |
+| O.12 scaling σ until coverage reads 0.95 | forbidden | RULES.md §9: that tunes a finding away. |
+| 4.2 `-march=native` | kept | T8 measured a portable build of the same commit: every filter arm's summary is identical, with differences only in last digits. The reproducibility risk is measured and negligible. |
+| N.50 `--unknownStart` as the code default | preset only | Claims are drawn from the preset, which every campaign runs with `--unknownStart`. The code default anchors the null controls and gates (G130, NC1–9). |
+
+**Decided by PRESET-2** (registered; adopted only if its rule holds): the window smoother, the D-8 sensitivity row,
+`--publishAfterStep`, `--nlosRSource=detector`, `--foliageScaleBounds`, `--interferenceDistance`,
+`--rssiRangeFromRxPower`, `--silenceStopsRelay`, `--deadBatteryNoDraw`, `--pcsByteScale=4`, and whether arbitration V2
+stays.
+
+**Claims, against the requirement:**
+- **PCS:** the novelty claim is withdrawn. PCS is the covariance trace by every test.
+- **Tiering:** stated as acquisition, availability and energy against single-band arms. It is not claimed that the
+  escalation rule beats `fixed_threshold`.
+- **Where the requirement stands:** met for tag 0 in the endgame. Short for the five-node population in the endgame
+  (0.84–0.91). Far at 5 km (0.27–0.54). The 5 km gap is anchor supply (N.62), which is next.
