@@ -2316,6 +2316,34 @@ static int g_ekf5Window = 0;              //!< --ekf5Window (TECH_DEBT N.62)
 //! original [0, 1] byte, which saturates at 255 for any PCS >= 1.
 static double g_pcsByteScale = 1.0;
 
+// N.3 (TECH_DEBT): computations tag 0's cycle and the subject pipeline must do identically, held once so the two
+// copies cannot drift. Each was a verbatim duplicate in both pipelines; moving it here changed no output (null
+// control, preset cases included).
+//! A finder pseudo-anchor's position covariance projected onto the range direction (ex, ey): the report's GNSS
+//! variance -- zero under --ekf5FinderConsider, where the filter's consider state carries it -- plus the variance
+//! of the finder's travel since the report. Negative when it cannot be projected (CaTblProjectRelayCovariance).
+static double
+CaTblFinderAnchorProj(const CaTblTableEntry& fe, double ageVar, double ex, double ey)
+{
+    const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
+    const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY}, {gk * fe.covXY, gk * fe.varY + ageVar}};
+    return CaTblProjectRelayCovariance(fp2, ex, ey);
+}
+
+//! The variances the raw weighted multilateration of a witness takes: each range's sigma squared, 1 m where a range
+//! states none.
+static std::vector<double>
+CaTblRangeVariances(const std::vector<CaTblRangeMeasurement>& meas)
+{
+    std::vector<double> mv(meas.size());
+    for (size_t mi = 0; mi < meas.size(); ++mi)
+    {
+        const double sg = (meas[mi].sigmaM > 0.0) ? meas[mi].sigmaM : 1.0;
+        mv[mi] = sg * sg;
+    }
+    return mv;
+}
+
 /** N.7: a PCS to its entry byte, and back. At the default scale 1 these are exactly CaTblQuantise and q / 255. */
 inline uint8_t
 CaTblQuantisePcs(double pcs)
@@ -10684,11 +10712,7 @@ RunArm(CaTblPolicyMode mode,
                                     if (un > 1e-6)
                                     {
                                         // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
-                                        const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
-                                        const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
-                                                                  {gk * fe.covXY, gk * fe.varY + ageVar}};
-                                        const double proj =
-                                            CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                        const double proj = CaTblFinderAnchorProj(fe, ageVar, ux / un, uy / un);
                                         if (proj < 0.0 && spec.finderPseudoAnchorStrict)
                                         {
                                             m.anchorX = px; // N.21 strict: the report, uninflated
@@ -11043,12 +11067,7 @@ RunArm(CaTblPolicyMode mode,
                         }
                         if (ex.wit->anchored && measS.size() >= 3)
                         {
-                            std::vector<double> mv(measS.size());
-                            for (size_t mi = 0; mi < measS.size(); ++mi)
-                            {
-                                const double sg = (measS[mi].sigmaM > 0.0) ? measS[mi].sigmaM : 1.0;
-                                mv[mi] = sg * sg;
-                            }
+                            const std::vector<double> mv = CaTblRangeVariances(measS);
                             double rxy = 0.0;
                             witFix = CaTblPolicy::RawMultilaterationWeighted(
                                 measS, mv, sb.policy.EstX(), sb.policy.EstY(), witFx, witFy, witRxx,
@@ -12013,11 +12032,7 @@ RunArm(CaTblPolicyMode mode,
                                 const double ageVar = (fePredVar >= 0.0) ? fePredVar
                                                                          : travel * travel;
                                 // --ekf5FinderConsider: the GNSS part is the filter's consider parameter, not this range's R.
-                                const double gk = g_ekf5FinderConsider ? 0.0 : 1.0;
-                                const double fp2[2][2] = {{gk * fe.varX + ageVar, gk * fe.covXY},
-                                                          {gk * fe.covXY, gk * fe.varY + ageVar}};
-                                const double proj =
-                                    CaTblProjectRelayCovariance(fp2, ux / un, uy / un);
+                                const double proj = CaTblFinderAnchorProj(fe, ageVar, ux / un, uy / un);
                                 if (proj >= 0.0)
                                 {
                                     m.anchorX = fe.x;
@@ -12997,12 +13012,7 @@ RunArm(CaTblPolicyMode mode,
             witness->disagree = 0.0;
             if (witness->anchored && meas.size() >= 3)
             {
-                std::vector<double> mv(meas.size());
-                for (size_t mi = 0; mi < meas.size(); ++mi)
-                {
-                    const double sg = (meas[mi].sigmaM > 0.0) ? meas[mi].sigmaM : 1.0;
-                    mv[mi] = sg * sg;
-                }
+                const std::vector<double> mv = CaTblRangeVariances(meas);
                 double rxy = 0.0;
                 witness->haveFix = CaTblPolicy::RawMultilaterationWeighted(
                     meas, mv, policy.EstX(), policy.EstY(), witness->fx, witness->fy,
