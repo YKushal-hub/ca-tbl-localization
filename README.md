@@ -86,7 +86,7 @@ src/lora-physics-engine/model/lora-*-physics-engine.*  868 MHz / 2.4 GHz / UWB e
 scratch/ca_tbl_causal_sim.cc                           the scenario: geometry, mobility, arms, preset, 315 flags
 scratch/ca_tbl_packet_validator.cc                     MAC unit suite
 scratch/ca_tbl_sensitivity_probe.cc                    each engine's sensitivity accessor, for G93
-scripts/catbl_gates.sh                                 the regression gates, G1-G166 (140 blocks)
+scripts/catbl_gates.sh                                 the regression gates, G1-G167 (141 blocks)
 scripts/*_run.sh, scripts/*_analyse.py                 registered campaigns: runner and scorer, committed before any cell
 report/PREREG_*.md                                     every registered campaign: predictions, rule, abort conditions, result
 results/<campaign>/                                    tracked summaries, sidecars and raw-file SHA-256 manifests
