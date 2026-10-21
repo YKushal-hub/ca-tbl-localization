@@ -92,19 +92,21 @@ Then the gate suite:
 bash scripts/catbl_gates.sh
 ```
 
-**Expect 53/58 with five reds** (at `c79fffd`), **and they are not your problem:**
+**Expect two reds and every other gate PASS** (at `0df88dee`, 2026-10-21: 137 gates summarised; 134 PASS on the full
+run, plus G47 PASS after its fix in that merge). **The two reds are not your problem:**
 
-- **G4, G5** — red from the environment-split correction. Recorded as true findings
-  (`TECH_DEBT` K.6).
-- **G6** — fail *by design* while pre-D1 evidence is still cited. Making it green by
-  overwriting `results/{causal,det_a,det_b}` reintroduces the exact defect `e21666d`
-  removed: a suite that rewrites the evidence it verifies. **Do not do this.**
-- **G11** — red by design (`TECH_DEBT` J.1). Terrain is transcription-only.
-- **G24** — FAIL BY FINDING: mechanisms with no population under `--specProfile`
-  (`TECH_DEBT` N.15).
+- **G11** — the analytic model against the engine. Kept red with its reasons by owner decision (TECH_DEBT J.1,
+  R.1, R.7, R.10). It must not be tuned.
+- **G93** — the code default's tier-2 sensitivity row. The preset carries the data-sheet row (DESIGN_DECISIONS 21);
+  the code default keeps the old row for byte reproduction (owner decision O12, option B). G93's corrected
+  configurations, tier 2 at 812.5 and 1625 kHz and tier 3 in both `--uwbMode` rows, must pass. If they fail, that is
+  an ERROR, not the expected red.
+
+G4, G5, G6 and G24, red in earlier snapshots, are green: G6 was re-pointed to v12 evidence, and G24's populations
+were given registered runs (R.15).
 
 G3 passes: it separates RNG contamination from the integrity check's treatment effect on
-causal order (`scripts/catbl_g3_ablation.py`). The whole suite takes about 25 minutes; run
+causal order (`scripts/catbl_g3_ablation.py`). The whole suite takes about 75–90 minutes on 12 cores (2026-10-21; it was 25 minutes at 58 gates); run
 it with `TMPDIR` outside `/tmp`, and compare `git status --short` before and after.
 
 ---

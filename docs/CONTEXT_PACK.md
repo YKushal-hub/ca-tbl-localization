@@ -44,9 +44,9 @@ These set numbers in the code. Do not change a value here without changing its c
 | R-11 | Semtech LR1121 multi-band transceiver | Dual-band single-die feasibility. Supports **"one board, two radio ICs"**, never "one chip" |
 | R-12 | IEEE 802.11e / WMM access categories | Priority-differentiated contention windows — **cited as adapted, not invented** |
 | R-13 | Gudmundson, correlated shadowing model | Spatially-correlated shadowing submodule. **Limitation:** the source states the fit is good for large-to-moderate cells and degrades for microcells — state this wherever it is applied to confined, indoor or tunnel profiles |
-| R-14 | Julier & Uhlmann, Covariance Intersection | Conservative fusion under unknown cross-correlation. **Specified, not implemented** |
-| R-15 | Perkins & Bhagwat, DSDV | Sequence-number generational supersession. **Specified, not implemented** |
-| R-16 | AODV / DSR reactive routing | Reverse-path caching for query responses. **Specified, not implemented** |
+| R-14 | Julier & Uhlmann, Covariance Intersection | Conservative fusion under unknown cross-correlation. **Implemented:** `--tableFuseCI` (in the preset), equal-sequence entries fused by CI in the MAC table |
+| R-15 | Perkins & Bhagwat, DSDV | Sequence-number generational supersession. **Implemented:** `CaTblSeqNewer` (modular comparison) decides every table merge and digest answer |
+| R-16 | AODV / DSR reactive routing | Reverse-path caching for query responses. **Implemented:** `--reversePath` (in the preset), with proxy answers (`--queryProxy`) |
 | R-17 | Meshtastic / flooding-protocol literature | Packet-ID dedup, hop limit, rebroadcast jitter |
 
 **The DW3000 RX > TX asymmetry (94 mA vs 82 mA) is the single most consequential number in the
