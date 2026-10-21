@@ -30,6 +30,20 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-21: UWB-MODE — tier 3 on one DW3000 mode (`report/PREREG_UWB_MODE.md`)
+
+Seeds 261–280, the preset after DD 19–22, three variants. `--uwbMode=850k` is adopted (DESIGN_DECISIONS 23). CA-TBL
+under it:
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km | **0.981** | 0.831 | 0.25 | 11.1 m | 12.8 |
+| B, endgame | **0.997** | **0.964** | 0.85 | 2.5 m | 17.1 |
+| C, 8-gateway ring | **0.986** | 0.909 | 0.60 | 5.1 m | 12.8 |
+
+The PRESET-3 reading replicates on fresh seeds: tag 0 meets the requirement in every geometry, and the endgame
+five-node pool meets it on average. The five-node pool at 5 km (0.83) and on the ring (0.91) stays short.
+
 ## Registered, 2026-10-21: PRESET-3 — the preset the owner adopted (`report/PREREG_PRESET3.md`)
 
 | configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | subject J |

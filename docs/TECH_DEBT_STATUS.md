@@ -1,4 +1,4 @@
-# TECH_DEBT status — every entry, classified (2026-10-18)
+# TECH_DEBT status — every entry, classified (2026-10-18; updated 2026-10-21)
 
 Built by reading all of `docs/TECH_DEBT.md` on the merged tree (`integrate/2026-10-18-kushaal-kn`). Each open item gets
 an id (T1, T2, …) so it can be struck off here when closed. Struck items keep their line, with the commit that closed
@@ -24,43 +24,48 @@ them.
 | T7 | ~~N.29~~ | ~~M-01's SF12 "inversion" is the validation harness colliding with itself (0.1 s spacing)~~ **DONE** harness spaces frames at 2× time on air; SF12 500 m PDR 0.015 → 1.000 (seed 7). | ENG |
 | T8 | ~~4.1 / 4.2~~ | ~~The 1-ulp trace divergence is undiagnosed; `-march=native` makes byte identity machine-dependent. Suggested test: rebuild with `-march=x86-64`~~ **CLOSED (diagnosed)** native vs portable build: summaries identical at defaults, last-digit trace columns only (≤1.7e-12); under the preset only the MLAT comparator flips (5–20 %); see 4.1 note. | ENG (diagnosis) |
 | T9 | ~~6~~ | ~~`src/lorawan` link fix never upstreamed; the optimized profile is not enforced~~ **DONE** G1 refuses a non-optimized configuration (fixture: debug cache); the lorawan fix stays in-tree (upstreaming is external). | ENG (minor) |
-| T10 | 2.1 | Four loss terms (antenna gain, Doppler, multipath, soil) are computed then zeroed: wire them in or delete them | OWNER → CAMP |
+| T10 | ~~2.1~~ | ~~Four loss terms (antenna gain, Doppler, multipath, soil) are computed then zeroed: wire them in or delete them~~ **DECIDED 2026-10-21 (owner): keep, recorded.** RULES.md §5 names each zeroing line; no result depends on the terms. | OWNER |
 | T11 | ~~2.2~~ | ~~Terrain uses 868 MHz for every tier; `--terrainPerTierFreq` exists, default off, not in the preset~~ **CLOSED** the preset already sets `--terrainPerTierFreq=true` (kSpecProfile, physics fix D-4); only the code default is off. | CAMP |
 | T12 | ~~N.41~~ | ~~Foliage scaling on 2.4 GHz/UWB is capped by the sampler clamp (×1.8 instead of ×2.17/×5.28)~~ **DONE (code + DEBT-A)** G154; improves accuracy; adoption O5. | CAMP (engine fix + campaign) |
-| T13 | N.27 / G93 | Tier 2's sensitivity table is the 1625 kHz row at 800 kHz (~6 dB pessimistic); `--t2SensitivityRowKHz` measured (D8-MAIN), not default | OWNER |
-| T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
+| T13 | ~~N.27 / G93~~ | ~~Tier 2's sensitivity table is the 1625 kHz row at 800 kHz (~6 dB pessimistic); `--t2SensitivityRowKHz` measured (D8-MAIN), not default~~ **DECIDED 2026-10-21 (O12 option B):** the 812.5 kHz row is in the preset (DD 21); the code default keeps the old row for byte reproduction, so G93's default check stays red by finding. | OWNER |
+| T14 | ~~N.28~~ | ~~DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged)~~ **DONE 2026-10-21 (DD 20):** ekf5 merged; the preset carries the realistic gyro bias (0.15 °/s), stride noise and the magnetometer. | OWNER → CAMP |
 | T15 | ~~1.3 / N.30(main) / G92~~ | ~~15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report~~ **DONE** G92 PASSES: 13 lost paths in RESULTS_NONREGENERABLE.tsv with reasons and successors, 3 allow-listed in EXCLUDED.md; citing documents note it. | ENG (re-point or exclude) |
 | T16 | ~~I.6 / G6~~ | ~~G6 red while pre-D1 evidence is cited; the remedy is regenerating to new paths and moving citations~~ **DONE** results/causal_v12 + det_a_v12 (clean, e93f35c0) and G6 repointed; a fresh run matches. | CAMP |
 | T17 | ~~N.15 / G24~~ | ~~G24 FAIL BY FINDING: mechanisms with no population under the preset~~ **DONE 2026-10-21 (R.15):** G24 green -- integrity zeros STRUCT under DD 19; Case A, pre-emptions, tie-breaks (reachable, 2), queue gossip and finder grants read from registered PRESET-3. | ENG |
 | T18 | ~~J.1 / 4.4 / G11~~ | ~~The analytic model and engines disagree (the 2.4 GHz gap grows with distance). Must not be tuned; research~~ **CLOSED (diagnosed)** path loss agrees; the gap is the engine's outcome-dependent effective sensitivity (−107.2 → −99.8 dBm, soft-degradation penalty) + engine-only terrain (0 → 4.8 dB). G11 stays red by design; a fair criterion is an owner change (O3). *2026-10-20, attribution corrected (TECH_DEBT R.10):* the −107.2 → −99.8 dBm "effective sensitivity" is a residual that absorbs the IQ degradation (0.6 → 6 dB, subtracted after the loss sum) and link hysteresis; the soft-degradation penalty runs only under SDR fidelity and is inactive here. G11 is re-pointed to probe_v8 (R.1). | LIMIT |
 | T19 | ~~2.3~~ | ~~UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained~~ **SUPERSEDED 2026-10-20 (R.1, R.7, R.10)** measured against a pre-09-08 engine; against today's, UWB reconciles within 2.12 dB, and 2.4 GHz's gap is foliage density, terrain and the IQ degradation. The soft-degradation penalty named earlier is inactive under ULTRA_FAST. | LIMIT |
-| T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
+| T20 | ~~N.40~~ | ~~Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist)~~ **DECIDED 2026-10-21 (owner): keep 3.0 m.** Every tier-2 accuracy claim states it is conditional on the floor (N.40). | OWNER |
 | T21 | ~~N.15 tail / N.32~~ | ~~The integrity check detects almost nothing at χ² 1992.9 (recall ≤ 0.03); re-fit after a consistent covariance~~ **CLOSED (measured limit)** INTEG2: fit 9303.8 (not lower); recall 0.046 → 0.012; the fault-free tail (p99 21 322 at 5 km) blinds any threshold. | CAMP |
 | T22 | O.12 / N.51 | 5 km consistency 0.69: residual 868 MHz-fix overconfidence -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* *2026-10-21 (R.13):* against the effective sigma only relayed 2.4 GHz is inconsistent; its tail is wrong-root subjects, which negative information cannot find (NEGINFO) and eight finders remove (O11). | LIMIT |
-| T23 | O.13 / O.10 | Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m) | OWNER |
+| T23 | ~~O.13 / O.10~~ | ~~Under calibrated Wolf the hybrid costs ~10× 2.4 alone (UWB escalation); `--rssiCorrInflate` fixes accuracy, not adopted (missed by 0.3 m)~~ **DECIDED 2026-10-21 (owner, with T20):** the 3.0 m floor stays, so the Wolf preset is not the reference; the cost under Wolf stays recorded. | OWNER |
 | T24 | ~~O.9~~ | ~~RSSI ranging's path-loss model does not follow the foliage model~~ **CLOSED (diagnosed)** hypothesis refuted: the inversion has no foliage term; P.833 admits 11 % more links at unchanged per-range error; F3 was within noise. Exposed T46. | ENG (diagnose) |
 | T25 | O.8 | P.833 depth is drawn, not path geometry; one forest only -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
 | T26 | ~~N.35–N.37~~ | ~~5 km within-25 m loss of the hybrid's subjects against static 2.4 GHz unexplained; H2 TDoA form untested~~ **CLOSED (measured negative)** H2-TDoA falsified (subjects' TDoA off changes nothing); cause remains an open finding. | CAMP |
 | T27 | ~~N.52~~ | ~~The preset keys R on NLOS truth (`--nlosSource=propagation`); `--nlosRSource=detector` exists~~ **MEASURED (DEBT-A)** detector costs nothing; adoption O4. | CAMP |
-| T28 | N.50 | `--unknownStart` is not the code default (all recent campaigns pass it) | OWNER |
+| T28 | ~~N.50~~ | ~~`--unknownStart` is not the code default (all recent campaigns pass it)~~ **DECIDED 2026-10-21 (owner): preset only.** In the preset via DD 20; the code default stays for byte reproduction. | OWNER |
 | T29 | ~~M.1 open~~ | ~~The interference registry never attenuates an interferer by distance; relay rounds sit in the MAC-run slice~~ **DONE (code + DEBT-A)** G153; endgame 5.0 → 4.1 m; adoption O6. | CAMP (engine) |
-| T30 | M.2 / L.2.2 | The UWB CIR confusion matrix cannot fill under the channel model; needs an obstruction model of our own | OWNER |
-| T31 | N.1 / N.20 | `--silenceStopsRelay`, `--deadBatteryNoDraw` built, default off, not in the preset | OWNER |
+| T30 | ~~M.2 / L.2.2~~ | ~~The UWB CIR confusion matrix cannot fill under the channel model; needs an obstruction model of our own~~ **DECIDED (DESIGN_DECISIONS §9, row 6):** no obstruction model of our own; the CIR score is a hardware-validation item (T45). | OWNER |
+| T31 | ~~N.1 / N.20~~ | ~~`--silenceStopsRelay`, `--deadBatteryNoDraw` built, default off, not in the preset~~ **DONE 2026-10-21 (DD 24, plan item 10):** both in the preset; fault-free preset runs byte-identical, fault runs corrected (nc_dd24). | OWNER |
 | T32 | ~~N.3~~ | ~~Two copies of the per-node cycle core~~ **DONE as a refactor (R.14):** the two shared computations held once, null control 14/14; the remaining difference is behaviour by design (O9). | ENG (refactor) |
 | T33 | ~~M.10~~ | ~~C6's 20-seed edge-server energy figure not re-measured under the fix-tier downlink bill~~ **CLOSED** C6 re-measured: edge saves 26 % (868 alone), 13–15 % (hybrid). | CAMP |
-| T34 | N.8 / N.13 | Explicit DENY frames cost airtime (design choice); Case C shapes coarse and rarely reach the base station | OWNER |
+| T34 | ~~N.8 / N.13~~ | ~~Explicit DENY frames cost airtime (design choice); Case C shapes coarse and rarely reach the base station~~ **DECIDED 2026-10-21 (owner): keep.** The spec chose explicit DENY; the cost stays reported. | OWNER |
 | T35 | N.11 | Converting RSSI variability to a ToF-tier range sigma is OURS and open (flag out of preset) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT |
 | T36 | ~~N.42~~ | ~~Lim, Hofer, Robyns values still lack a source~~ **CLOSED on influence (2026-10-21):** the CFO coefficient is dead code (unit test only); the delay spread x3 moves probe PDR <= 0.034. Values stay OURS. | LIMIT |
 | T37 | H.4 / B | Constants ours and uncited (finder GNSS sigma, corroboration k=3/30 m/0.5) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (record) |
-| T38 | K.9 | SHS gait calibration diverges where fixes are sparse (debt by owner decision) | OWNER |
+| T38 | ~~K.9~~ | ~~SHS gait calibration diverges where fixes are sparse (debt by owner decision)~~ **CLOSED 2026-10-21 (owner):** superseded by DD 20's 5-state filter, which estimates stride scale; SHS is in no claim. | OWNER |
 | T39 | ~~M.3~~ | ~~`--stampBinaryHash`/`--stampBuildCommit` exist, not in the preset~~ **DONE** both stamps in the preset; NC10 identical. | ENG (preset entry + NC) |
-| T40 | 5.1 | 137 published commits carry the wrong author email; fixing needs a force-push to protected `main` | OWNER |
+| T40 | ~~5.1~~ | ~~137 published commits carry the wrong author email; fixing needs a force-push to protected `main`~~ **DECIDED 2026-10-21 (owner): leave.** History is not rewritten. | OWNER |
 | T41 | ~~5.3~~ | ~~No gate catches stale documents~~ **DONE (the checkable part)** G158: documents name only real flags; RULES.md preset list ⊆ kSpecProfile; fake-flag fixture. | ENG (gate, partial) |
 | T42 | ~~L.3 claim 3~~ | ~~Identity-scoped arbitration has never been measured as a claim~~ **MEASURED** arbitration V2: −18 % energy when off, no accuracy loss; claim 3 unsupported on these metrics; O8. | CAMP |
-| T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) | OWNER (scope) |
+| T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) -- *excluded by scope (TECH_DEBT §Q, 2026-10-20): outside the brief's deployment. Stays listed: it is a capability the system does not have, not a defect.* | SCOPE |
 | T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (stated) |
 | T45 | E1 | Same-site field test | HW |
 | T46 | ~~O.9 diagnosis~~ | ~~The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread)~~ **DONE (code + DEBT-A)** G155; 868 alone worse as expected; adoption O7. | CAMP |
+
+**State on 2026-10-21.** Every ENG, CAMP and OWNER row is struck. Seven rows stay open by nature:
+- five LIMIT rows (T22, T25, T35, T37, T44): measured limits or uncited constants, with no change known to fix them;
+- one SCOPE row (T43);
+- one HW row (T45, the field test, to be scheduled after 2026-10-22).
 
 ## Closed or deliberate (no action)
 
@@ -69,7 +74,7 @@ them.
 | | entries |
 |---|---|
 | §1 | 1.1 (`--rngKeyed`, preset), 1.2 (rule 8) |
-| §2 | 2.4 (G93 checks values), 2.5 |
+| §2 | 2.4 (G93 checks every tier against its data sheet, tier 3 by `--uwbMode`, 2026-10-21), 2.5 |
 | §3 | 3.1 (relayed ranging in preset; residual is T29), 3.3 (→ N.3) |
 | §4–§5 | 4.3 (G12 green), 5.2 (sidecars standard) |
 | A–E | A, B, C.2–C.4, D, E |
@@ -127,3 +132,4 @@ them.
 | §10.1 deployment | (a) stated honestly | eight finders for the endgame; the 8-gateway ring for tag 0 |
 | §10.2 claim set | accept the supported set | Technical Report CR-24 |
 | §10.3 field test | schedule after 2026-10-22 | T45 stays HW; owner to schedule |
+| UWB operating mode (2.4) | run both consistent DW3000 modes, adopt the better | UWB-MODE registered and run; `--uwbMode=850k` adopted by its rule (DESIGN_DECISIONS 23); 2.4 closed (G93 checks tier 3) |
