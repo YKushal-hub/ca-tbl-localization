@@ -16121,6 +16121,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
+    // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
+    // (--injectSilentId) or out of battery (--batteryDepleteJ), so a fault-free preset run is byte-identical with or
+    // without them (null control); in a fault run they stop the dead node relaying and being billed.
+    {"silenceStopsRelay", "true", "DD 24 / N.1: a silenced radio relays no other node's frame"},
+    {"deadBatteryNoDraw", "true", "DD 24 / N.20: a node whose battery has run out draws nothing more"},
 };
 
 int
@@ -19841,8 +19846,10 @@ main(int argc, char* argv[])
                      "every node reports STATIONARY and no push is ever made\n";
         return 1;
     }
-    // N.20.
-    if (spec.deadBatteryNoDraw && (!(batteryDepleteJArg > 0.0) || !spec.silenceStopsRelay))
+    // N.20. Applied by the preset (DESIGN_DECISIONS 24) in a run where nothing dies: unused, not refused, as the
+    // preset's other dependent settings. Given by hand without a battery budget: refused.
+    if (spec.deadBatteryNoDraw &&
+        ((explicitFlags.count("deadBatteryNoDraw") && !(batteryDepleteJArg > 0.0)) || !spec.silenceStopsRelay))
     {
         std::cerr << "FATAL: --deadBatteryNoDraw needs --batteryDepleteJ > 0 (nothing dies "
                      "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
@@ -19916,8 +19923,10 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --halfDuplex is 0 (off), 1 (count only) or 2 (enforce)\n";
         return 1;
     }
-    // N.1. Nothing is ever silenced without one of the two faults.
-    if (spec.silenceStopsRelay && !(batteryDepleteJArg > 0.0) && injectSilentIdArg == 0)
+    // N.1. Nothing is ever silenced without one of the two faults. Applied by the preset (DESIGN_DECISIONS 24) in a
+    // fault-free run: unused, not refused. Given by hand without a fault: refused.
+    if (spec.silenceStopsRelay && explicitFlags.count("silenceStopsRelay") && !(batteryDepleteJArg > 0.0) &&
+        injectSilentIdArg == 0)
     {
         std::cerr << "FATAL: --silenceStopsRelay needs --batteryDepleteJ > 0 or "
                      "--injectSilentId: without them no radio is ever silenced\n";

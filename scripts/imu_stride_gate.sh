@@ -9,7 +9,7 @@
 # r_*      refusals: the flag without --imuPredict, and a negative value
 set -u
 cd "$(dirname "$0")/.." || exit 2
-. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
+. scripts/preset_pins.sh  # PIN_PRE_DD19: the preset this gate was written against (DESIGN_DECISIONS 19-24)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -18,7 +18,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g97.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true $PIN_DD19_22 --seed=7 --trace=true --arms=ca_tbl_full"
+P="--specProfile=true $PIN_PRE_DD19 --seed=7 --trace=true --arms=ca_tbl_full"
 run() {
     local n=$1
     shift

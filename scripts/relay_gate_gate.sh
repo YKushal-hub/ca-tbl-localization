@@ -8,10 +8,10 @@
 # r_*      refusals: without ekf5, and with --ekf5Robust
 set -u
 cd "$(dirname "$0")/.." || exit 2
-. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
+. scripts/preset_pins.sh  # PIN_PRE_DD19: the preset this gate was written against (DESIGN_DECISIONS 19-24)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g101.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-P="--specProfile=true $PIN_DD19_22 --seed=3 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --finderPosSigma=2 --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --duration=300"
+P="--specProfile=true $PIN_PRE_DD19 --seed=3 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --finderPosSigma=2 --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --duration=300"
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
 # shellcheck disable=SC2086
 run on $P --ekf5RelayGate=true &

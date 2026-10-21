@@ -489,3 +489,21 @@ the endgame" (open-decisions §10.1, option a).
 that meets it for tag 0.
 
 **Reproducing earlier preset results:** give `--nFinders=4 --finderTasking=roundrobin`.
+
+## 24. Two fault-path corrections enter the preset (plan item 10, 2026-10-21)
+**What.** `--silenceStopsRelay=true` (TECH_DEBT N.1) and `--deadBatteryNoDraw=true` (N.20) in `kSpecProfile`.
+
+**Why.** Both are corrections to what a dead node does, not choices:
+- **N.1:** a radio silenced by a spent battery or by `--injectSilentId` stopped its own frames but went on relaying
+  other nodes' floods, so every fault run overstated how much of the mesh the fault removes.
+- **N.20:** a node whose battery ran out went on being billed for listening, the neighbour-search window and sleep.
+
+**Where they act.** Only on a node that is silenced or out of battery. Neither condition occurs in a fault-free
+preset run, so such runs are byte-identical with or without them (the null control in the commit). Fault runs move,
+by the size G70 and G71 measure.
+
+**Not G157's defect class.** G157 asks whether an adopted mechanism fires into a zero in the fault-free endgame.
+These two have no population there by construction, so they are not listed in G157. Their reachability is G70's and
+G71's, on fault runs.
+
+**Reproducing earlier fault-run preset results:** give `--silenceStopsRelay=false --deadBatteryNoDraw=false`.

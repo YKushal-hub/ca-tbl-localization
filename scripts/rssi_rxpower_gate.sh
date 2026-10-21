@@ -5,10 +5,10 @@
 # shows the FIRES comparison can say "no effect".
 set -u
 cd "$(dirname "$0")/.." || exit 2
-. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
+. scripts/preset_pins.sh  # PIN_PRE_DD19: the preset this gate was written against (DESIGN_DECISIONS 19-24)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g155.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true $PIN_DD19_22 --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true --unknownStart=true"
+B="--specProfile=true $PIN_PRE_DD19 --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true --unknownStart=true"
 for n in base off on nos nos_on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --rssiRangeFromRxPower=false --outdir="$D/off" > "$D/off.log" 2>&1 &
