@@ -1794,7 +1794,7 @@ finish G92
 # from that wrong origin (~3 dB at 1625 kHz). scratch/ca_tbl_sensitivity_probe.cc calls each
 # engine's own GetSensitivityThreshold() (re-derives nothing); scripts/
 # sensitivity_fidelity_check.py holds Table 6-1 and Table 3-8, sharing no code with it.
-# Fixture first (seven directions). Then the default, which is FAIL BY FINDING until the D-8
+# Fixture first (fourteen directions; seven for tier 3, DW3000 Table 9 by --uwbMode). Then the default, which is FAIL BY FINDING until the D-8
 # campaign is decided -- and two corrected configurations, which MUST pass: if the
 # correction itself is broken that is an ERROR, not the expected red.
 # Ported from the local line (G19 there); docs/LOCAL_LINE_INTEGRATION.md.
@@ -1810,11 +1810,15 @@ else
         python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row.csv" scratch/ca_tbl_causal_sim.cc > "$WORK/g93_row.txt" || G93_OK=0
     "$G93_BIN" --t2SensitivityRowKHz=1625 --bw2p4=1625000 > "$WORK/g93_row1625.csv" 2>/dev/null &&
         python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row1625.csv" scratch/ca_tbl_causal_sim.cc --bw2p4 1625000 > "$WORK/g93_row1625.txt" || G93_OK=0
+    for m in 6m8 850k; do  # tier 3 in each --uwbMode, against DW3000 Table 9 (TECH_DEBT 2.4)
+        "$G93_BIN" --t2SensitivityRowKHz=812.5 --uwbMode=$m > "$WORK/g93_uwb_$m.csv" 2>/dev/null &&
+            python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_uwb_$m.csv" scratch/ca_tbl_causal_sim.cc --uwbMode $m > "$WORK/g93_uwb_$m.txt" || G93_OK=0
+    done
     if [ "$G93_OK" -ne 1 ]; then
-        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" 2>/dev/null
+        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" "$WORK"/g93_uwb_*.txt 2>/dev/null
         gerror G93 "the D-8 correction does not pass the data-sheet check -- the fix is broken"
     else
-        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4)\n'
+        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4); tier 3 passes in --uwbMode 6m8 and 850k\n'
         "$G93_BIN" > "$WORK/g93_default.csv" 2>/dev/null || gerror G93 "probe exited non-zero"
         if ! python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_default.csv" scratch/ca_tbl_causal_sim.cc; then
             printf '\n  G93 is FAIL BY FINDING: tier 2 applies the 1625 kHz row at 800 kHz (D-8)\n'

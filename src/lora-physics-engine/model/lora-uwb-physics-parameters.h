@@ -3,7 +3,26 @@
 
 #include "lora-physics-parameters.h"
 
+#include <cstdint>
+#include <string>
+
 namespace ns3 {
+
+/**
+ * @brief One DW3000 operating mode, as one data-sheet row (--uwbMode, TECH_DEBT 2.4).
+ *
+ * DW3000 Data Sheet v1.1 (Decawave 2020), Table 9, channel 9, 1 % PER: 850 kb/s with a
+ * 1024-symbol preamble -99.3 dBm; 6.8 Mb/s with a 64-symbol preamble -93.2 dBm. The scenario
+ * bills frames, integrates ranging and decodes in the mode this returns, and the sensitivity
+ * probe applies the same row, so G93 checks what the scenario runs.
+ * scripts/sensitivity_fidelity_check.py holds an independent copy.
+ *
+ * Returns false (and leaves the outputs untouched) unless \p mode is "6m8" or "850k".
+ */
+bool Dw3000Table9Row(const std::string& mode,
+                     uint32_t& preambleSymbols,
+                     double& dataRateBps,
+                     double& sensitivityDbm);
 
 /**
  * @brief Which LOS/NLOS state model the UWB engine uses (TECH_DEBT M.2).

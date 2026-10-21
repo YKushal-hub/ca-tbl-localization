@@ -2476,13 +2476,9 @@ Dc1ImuParams()
         c2p4.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
         cUwb.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
     }                                                                                              \
-    if (g_uwbMode == 1)                                                                            \
+    if (g_uwbMode != 0)                                                                            \
     {                                                                                              \
-        cUwb.ranging.uwbPreambleSymbols = 64.0; /* --uwbMode=6m8: DW3000 Table 9's 6.8 Mbps row */  \
-    }                                                                                              \
-    if (g_uwbMode == 2)                                                                            \
-    {                                                                                              \
-        cUwb.ranging.uwbPreambleSymbols = 1024.0; /* --uwbMode=850k: Table 9's 850 kbps row */      \
+        cUwb.ranging.uwbPreambleSymbols = CaTblEnergyModel::UwbPreambleSymbols(); /* --uwbMode */  \
     }                                                                                              \
     if (std::isfinite(g_uwbSensitivityDbm))                                                        \
     {                                                                                              \
@@ -20676,11 +20672,13 @@ main(int argc, char* argv[])
                          "--uwbSensitivityDbm\n";
             return 1;
         }
+        uint32_t uwbPreamble = 0;
+        double uwbRateBps = 0.0;
+        Dw3000Table9Row(uwbModeArg, uwbPreamble, uwbRateBps, g_uwbSensitivityDbm);
         g_uwbMode = (uwbModeArg == "6m8") ? 1 : 2;
-        g_uwbSensitivityDbm = (g_uwbMode == 1) ? -93.2 : -99.3;
-        CaTblEnergyModel::SetUwbMode(g_uwbMode == 1 ? 64u : 1024u, g_uwbMode == 1 ? 6.81e6 : 850e3);
+        CaTblEnergyModel::SetUwbMode(uwbPreamble, uwbRateBps);
         std::cout << "  UWB mode " << uwbModeArg << ": DW3000 Data Sheet v1.1 Table 9 (channel 9), "
-                  << (g_uwbMode == 1 ? "6.8 Mbps, preamble 64, -93.2 dBm" : "850 kbps, preamble 1024, -99.3 dBm")
+                  << uwbRateBps / 1e3 << " kb/s, preamble " << uwbPreamble << ", " << g_uwbSensitivityDbm << " dBm"
                   << "; frames billed and ranging integrated in the same mode; a 20-byte frame bills "
                   << std::setprecision(9) << CaTblEnergyModel::UwbFrameTimeS(20) << " s\n"
                   << std::setprecision(6); // the stream's default, for every later line

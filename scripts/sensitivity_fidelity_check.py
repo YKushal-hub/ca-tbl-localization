@@ -11,9 +11,9 @@ HERE, sharing no code with the engine.
 
 POPULATION. Tier 1 (SX1262) and tier 2 (SX1280), at the (SF, bandwidth) the scenario sets
 in ca_tbl_causal_sim.cc -- parsed from `phy[CA_TBL_TIER_...] = {sf, bw, txPower};`, so the
-check cannot drift from what runs -- and the engine's configured coding rate. Tier 3 (UWB)
-is NOT CHECKED: no DW3000 sensitivity table has been transcribed with its conditions. That
-is printed, not passed silently.
+check cannot drift from what runs -- and the engine's configured coding rate. Tier 3 (UWB) is checked when --uwbMode names
+the DW3000 mode the probe was run in; without it tier 3 is NOT CHECKED, printed, not passed
+silently: the code default mixes three DW3000 modes (TECH_DEBT 2.4) and so has no row.
 
 REFERENCES, transcribed verbatim with their conditions
   SX1280  Semtech SX1280/SX1281 Data Sheet Rev 3.2, March 2020, Table 6-1 "Receiver
@@ -24,16 +24,23 @@ REFERENCES, transcribed verbatim with their conditions
   SX1262  Semtech SX1261/2 Data Sheet Rev 1.2, June 2019, Table 3-8 "Receive Mode
           Specifications", RXS_LB: LoRa, Rx Boosted gain, split RF paths, RF switch loss
           excluded. Rx Power Saving gain is 4 dB worse at SF12/125 kHz (-133 vs -137).
+  DW3000  Decawave DW3000 Data Sheet v1.1, 2020, Table 9 "Typical receiver sensitivity",
+          channel 9, 1 % PER: 850 kb/s, preamble 1024: -99.3 dBm; 6.8 Mb/s, preamble 64:
+          -93.2 dBm. The 6.8 Mb/s no-data row (-98.0) and the PDoA variants (~1.4 dB worse) are
+          other modes, not tolerance.
 
 TOLERANCE. +/-2 dB, fixed before the first run: the data sheets' own mode spreads (low power
 vs high sensitivity on the SX1280, boosted vs power saving on the SX1262) are 2-4 dB, so an
 engine value inside +/-2 dB of the reference mode is defensible as either; outside it, the
 engine is modelling a different radio configuration than the one the scenario runs.
 
+--uwbMode <6m8|850k> states the DW3000 mode the probe was configured with (the probe's own
+--uwbMode). Tier 3 has no SF dependence; every SF at the configured CR must be within tolerance.
+
 SY-3. --bw2p4 <Hz> states the tier-2 bandwidth the probe was configured with (the probe's own
 --bw2p4), overriding the scenario's default line, so every SX1280 bandwidth can be checked.
 
-Usage: sensitivity_fidelity_check.py <probe.csv> [<scenario.cc>] [--bw2p4 <Hz>]
+Usage: sensitivity_fidelity_check.py <probe.csv> [<scenario.cc>] [--bw2p4 <Hz>] [--uwbMode <6m8|850k>]
 Exit 0 if every checked tier agrees, 1 if any disagrees, 2 if the check could not run.
 """
 
@@ -57,6 +64,8 @@ SX1262 = {
     (250.0, 7): -121, (250.0, 12): -134,
     (500.0, 7): -117, (500.0, 12): -129,
 }
+# DW3000 Table 9, channel 9, by the mode name ca_tbl_causal_sim's --uwbMode takes.
+DW3000 = {"6m8": -93.2, "850k": -99.3}
 TIER_KEY = {"868": "CA_TBL_TIER_868", "2p4": "CA_TBL_TIER_2P4"}
 
 
@@ -86,6 +95,14 @@ def main(argv):
         i = args.index("--bw2p4")
         bw2p4 = float(args[i + 1]) / 1e3
         del args[i:i + 2]
+    uwb_mode = None
+    if "--uwbMode" in args:
+        i = args.index("--uwbMode")
+        uwb_mode = args[i + 1]
+        del args[i:i + 2]
+        if uwb_mode not in DW3000:
+            print("ERROR: --uwbMode must be one of %s, got %r" % (" ".join(DW3000), uwb_mode))
+            return 2
     probe = args[0]
     scen = args[1] if len(args) > 1 else "scratch/ca_tbl_causal_sim.cc"
     phy = scenario_phy(scen)
@@ -144,11 +161,29 @@ def main(argv):
                   "OK" if ok else "FAIL", sf, row, eng, ref, d))
         if not ok:
             fails.append("tier1")
-    print("  NOT CHECKED tier 3  no DW3000 sensitivity table transcribed with its conditions")
+    # Tier 3: DW3000
+    if uwb_mode is None:
+        print("  NOT CHECKED tier 3  no --uwbMode: the code default mixes DW3000 modes and has no Table 9 row")
+    else:
+        vals = [float(r["thresholdDbm"]) for r in rows if r["tier"] == "uwb" and r["crDenom"] == r["configuredCr"]]
+        ref = DW3000[uwb_mode]
+        if not vals:
+            print("  FAIL tier 3  the probe has no UWB value")
+            fails.append("tier3")
+        else:
+            d = max(vals, key=lambda v: abs(v - ref)) - ref
+            ok = abs(d) <= TOL_DB
+            print("  %-4s tier 3  DW3000 %s (Table 9, ch 9): engine %.1f..%.1f dBm over SF5-12, data sheet %.1f dBm, "
+                  "worst engine - data sheet %+.1f dB" % ("OK" if ok else "FAIL", uwb_mode, min(vals), max(vals), ref, d))
+            if not ok:
+                match = [m for m, v in DW3000.items() if all(abs(x - v) <= 0.5 for x in vals)]
+                print("         the engine value matches %s" % (
+                    "the data sheet's %s row instead" % " / ".join(match) if match else "no Table 9 row"))
+                fails.append("tier3")
     if fails:
         print("G93 FAILED: %s" % " ".join(fails))
         return 1
-    print("G93 PASSED (tiers 1-2; tier 3 not checked)")
+    print("G93 PASSED (tiers 1-3)" if uwb_mode else "G93 PASSED (tiers 1-2; tier 3 not checked)")
     return 0
 
 
