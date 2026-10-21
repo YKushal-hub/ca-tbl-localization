@@ -13,9 +13,11 @@ they lived in `~/catbl_tmp_gates/` and `~/catbl_ref_spec0/` on the original one.
 | `upd_register.py ROW STATUS EVIDENCE PLAN NOTE` | Rewrites one row of `docs/SPEC_CONFORMANCE.md` and recounts the status table. |
 
 The per-item workflow, in order:
-1. Add a default-off flag. Inert combinations are FATAL; new outputs are digested.
+1. Add a default-off flag. A combination typed by hand that cannot act is FATAL. A setting the preset applies
+   that cannot act in this run is unused, with a NOTE, not refused (DESIGN_DECISIONS 24). New outputs are digested.
 2. Build: `CC=gcc-11 CXX=g++-11 ./ns3 build scratch/ca_tbl_causal_sim`.
-3. Run `tools/nullcontrol/nc.sh` until it PASSes.
+3. Run `tools/nullcontrol/nc.sh` until it PASSes. Since 2026-10-18 the null controls also run the preset cases (X1-X8,
+   `~/ns/catbl-work/nc_*/nc.sh`): the reference binary against the candidate, every file but `run_id.txt`.
 4. Add the gate trio: `scripts/<name>_gate.{sh,py}` and `_gate_selftest.sh`, registered in
    `scripts/catbl_gates.sh`.
 5. Run `tools/run_suites.sh` if the library changed.

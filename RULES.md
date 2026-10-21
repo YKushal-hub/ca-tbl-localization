@@ -179,7 +179,7 @@ bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scr
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-21, after the owner's decisions DD 19–22: reds G11 and G93 only.
+**The suite's expected reds** (2026-10-21, after the owner's decisions DD 19–22 and DD 23–24: reds G11 and G93 only.
 `docs/TECH_DEBT.md` R.1 and N.27 explain each, and docs/TECH_DEBT_STATUS.md records the decisions. G24 is green: its
 integrity populations are STRUCT under `--integrityCheck=false`, and five rare mechanisms are read from the registered
 PRESET-3 cells. Twenty-one gates written against the earlier preset pin it back through `scripts/preset_pins.sh`.)
@@ -268,7 +268,7 @@ Every new mechanism follows this or it is not mergeable.
    the existing flags explain *why* the default is what it is, and that is the house style.
 2. **Null-control test:** with the flag off, output is byte-identical to the pre-change binary.
    Diff `arm_summary.csv` and every trace. This is not optional — arms consume the shared RNG
-   stream at their own rate (`macRng`, seeded at `:6275`), so any added transmission perturbs
+   stream at their own rate (`macRng`, seeded at `:7318` on 2026-10-21; `grep -n 'macRng->SetStream'`), so any added transmission perturbs
    every arm and no before/after result is comparable without it.
 3. **Pre-registration** committed before the first measurement run (rule 13).
 4. **A gate, with its negative fixture** (rule 6).
@@ -367,7 +367,7 @@ scratch/
   ca_tbl_packet_validator.cc  MAC unit suite (one of the unit suites; counts drift, see G1/G9 output)
   python_handoff/verify_causal_sim.py    the invariant gate
 scripts/
-  catbl_gates.sh              the regression gates (`grep -c '^finish ' scripts/catbl_gates.sh`; 111 PASS at the 2026-10-18 merge)
+  catbl_gates.sh              the regression gates (`grep -c '^finish ' scripts/catbl_gates.sh`: 140 on 2026-10-21; 134 PASS + G47 fixed, reds G11 and G93)
   publication_ready.sh        manifest assertions; parses EXCLUDED.md as its source of truth
 report/
   PCS_REDESIGN_RESULTS.md     working evidence chain, Parts 0-8, with corrections registers

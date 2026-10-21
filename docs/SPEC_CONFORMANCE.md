@@ -11,6 +11,16 @@ what each section describes, or the divergence is recorded with a reason.* It is
 snapshot like every other status document here (RULES.md §8). Check the cited code and the
 `run_id.txt` sidecars before trusting a row.
 
+> **Status, 2026-10-21.** The rows stand as dated. Four owner decisions since change what the preset runs:
+> - **DD 19:** the Switching-Point Integrity Check is out of the preset (`--integrityCheck=false`). Rows 20–21 stay
+>   built and gated, but no preset run exercises them.
+> - **DD 23:** tier 3 bills, ranges and decodes on one DW3000 Table 9 row (`--uwbMode=850k`).
+> - **DD 22:** eight finders tasked in pairs.
+> - **DD 24:** dead nodes neither relay nor draw.
+>
+> Row 6 stays PARTIAL by decision (DESIGN_DECISIONS §9: no obstruction model of our own). `RULES.md` §3 lists the
+> preset as it stands.
+
 **Status words**, used strictly:
 
 | status | meaning |

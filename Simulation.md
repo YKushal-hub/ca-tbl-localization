@@ -11,6 +11,21 @@
 | **Evidence convention** | Every measured figure carries a tag`[M-nn]` resolved in §12                                                 |
 | **Diagrams**            | Mermaid — render/interactive in GitHub, VS Code, Obsidian, Typora,`mermaid.live`                            |
 
+> ## Status, 2026-10-21 — where the current numbers are
+>
+> This document's results sections are kept as measured, under the topology and engine of their date. **The current
+> state is elsewhere:**
+> - **The design requirement** (A ≥ 0.95 at R ≤ 25 m), campaign by campaign: `report/GOAL_STATUS.md`.
+> - **The preset as it stands:** `RULES.md` §3 and `Architecture.md`'s as-built box. Claims are drawn from it.
+> - **The registered campaigns since 2026-10-20**, each with predictions, rule and result in `report/PREREG_*.md`:
+>   PRESET-2, ANCHOR-SUPPLY, FIDELITY-1/1b, INTEG2/3, NEGINFO, PRESET-3, UWB-MODE, DISSEM, and DEPLOY-REQ (running).
+> - **The claim set:** Technical Report §4.6 and CR-24 to CR-26.
+> - **The work programme:** `docs/WORK_PACKAGES.md`, current section.
+>
+> Under the preset (three fresh 20-seed sets): tag 0 meets the requirement in the endgame (0.997) and on the
+> 8-gateway ring (0.98–0.99), and the endgame five-node pool meets it (0.96–0.98). At the brief's 5 km, tag 0 is
+> 0.93–0.98 and the five-node pool 0.83–0.84, short on anchor supply.
+
 > ## ⚠ SCOPE: the results in this document were measured under the LEGACY topology
 >
 > **Corrected 2026-09-07 (`99fdf1a`).** Until then the simulator modelled three **disjoint**

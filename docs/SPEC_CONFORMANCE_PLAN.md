@@ -1,5 +1,8 @@
 # Plan: make CA-TBL true to spec (`finalyearprojectcontext.docx`)
 
+> **Status, 2026-10-21: executed.** `docs/SPEC_CONFORMANCE.md` is the register. Its 2026-10-21 note records the
+> owner's decisions that changed the preset since (DD 19, 22, 23, 24).
+
 ## Context
 
 `~/catbl_work/finalyearprojectcontext.docx` is the spec that Bar 2 of `docs/TECH_DEBT.md` §L is measured against. An audit of it against the code on 2026-09-30 counted 52 checkable mechanisms. Hardware items and evaluation metrics were not counted.

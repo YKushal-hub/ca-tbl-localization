@@ -5,6 +5,13 @@
 
 **Scope.** One document covering both halves of the project: what the ns-3 implementation has built against what the Phase 1 blueprint specifies, where the two contradict, what remains unbuilt, what is measurably broken, and two branching routes forward with an explicit branch point and abort criteria.
 
+> **Status, 2026-10-21.** This plan was executed and then superseded by the goal-driven plan of 2026-10-20 and the
+> owner's decisions of 2026-10-21 (DESIGN_DECISIONS 19–24). Every ENG, CAMP and OWNER item is closed
+> (`docs/TECH_DEBT_STATUS.md`). The remaining open items, with entry points, are in `docs/WORK_PACKAGES.md`'s current
+> section. The requirement-level result is in `report/GOAL_STATUS.md`. The deployment-requirement question this plan
+> frames (what finder and gateway count meets the requirement) is DEPLOY-REQ (`report/PREREG_DEPLOY_REQ.md`). The
+> rest of this document is kept as written.
+
 > **⚠ TOPOLOGY, corrected 2026-09-07 (`99fdf1a`) — after this plan was written.** This document was drafted against the legacy deployment model of three **disjoint** anchor populations (tier-1 gateways on a grid; tier-2 anchors ringed at 150 m and tier-3 at 10 m around four facility sites). **That model was wrong.** The system has **one population of tri-band nodes** — every node carries all three radios, and a tier is a choice of *which radio to use*, not of *whom to talk to*. Gateways are the only immobile class; **finders** are mobile tri-band nodes; facility sites are mobility targets that **host no anchors**. Authoritative: `Architecture.md` §3, `RULES.md`, and `BuildDeployment()` at `scratch/ca_tbl_causal_sim.cc:177`.
 >
 > **Consequences for this plan.** Any row, gap or track whose reasoning rests on *anchors clustered at four facility sites* — notably the M-4 / §13.3 "coverage limit" diagnosis and the complementary-siting track — is reasoning about a geometry the system does not have, and needs re-deriving rather than re-reading. Every results figure quoted here predates the correction and is **provisional pending re-run**.

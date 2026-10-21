@@ -11,21 +11,32 @@
 | **Platform**            | ns-3.47, C++17, custom`lora-physics-engine` module                             |
 | **Evidence convention** | Every factual claim carries a tag`[E-nn]` resolved in §12                     |
 
-> ## As built, 2026-10-17
+> ## As built, 2026-10-21
 >
 > - **Radios:** Tier 1 SX1262, Tier 2 SX1280 (two separate chips: `--radioBasis=sx --halfDuplexChip=false`), Tier 3
->   DW3000-class. DESIGN_DECISIONS 11. The LR1121 single-die row in §2 describes an option, not the build.
-> - **The preset** (`--specProfile`) carries the engine corrections of DESIGN_DECISIONS 10 and 13:
->   - correlated-shadowing RSSI error;
->   - NLOS as range bias;
->   - reply positions;
->   - particle-filter acquisition;
->   - per-band fading;
->   - relayed-range NIS inflation;
->   - the exact log-normal 868 MHz σ (DD 14).
-> - **Default-off physics options:** 3GPP TR 38.901 RMa NLOS (`--nlos3gppRMa`) and ITU-R P.833-10 forest foliage
->   (`--foliageP833`).
-> - **Current measured numbers:** `report/CAMP_FINAL2_RESULTS.md`. RULES.md §3 lists the flags and gates.
+>   DW3000. DESIGN_DECISIONS 11. The LR1121 single-die row in §2 describes an option, not the build.
+> - **The preset** (`--specProfile`) is the configuration claims are drawn from. Its deployment is the brief's:
+>   - a 5 km box, 5 subjects all measured;
+>   - 3 gateways in the star layout;
+>   - 8 finders tasked in pairs (DD 22).
+> - **The world in the preset:**
+>   - the engine corrections of DD 10, 13 and 14;
+>   - receivers on their data-sheet rows (DD 18, 21, 23): SX1280 Table 6-1 at 812.5 kHz, and DW3000 Table 9 at
+>     850 kb/s with a 1024-symbol preamble, so tier 3 bills, ranges and decodes in one mode (`--uwbMode`);
+>   - the realistic IMU (DD 20): 0.15 °/s gyro bias, 5 % stride noise, a 3° magnetometer;
+>   - dead nodes neither relay nor draw (DD 24).
+> - **Estimation in the preset:**
+>   - the 5-state EKF (position, heading, gyro bias, stride scale), with the finder-position consider state and the
+>     relayed-range gate;
+>   - a 60-cycle sliding-window smoother (DD 21);
+>   - the Switching-Point Integrity Check off (DD 19).
+> - **Default-off options** each have a gate and a byte-identical null control; `docs/SCENARIO_FLAGS.md` lists all
+>   315 flags. Among them:
+>   - 3GPP TR 38.901 RMa NLOS and ITU-R P.833-10 foliage;
+>   - finder dissemination and tasking (G165);
+>   - five items built 2026-10-21 (G166).
+> - **Current measured numbers:** `report/GOAL_STATUS.md` (the design requirement, campaign by campaign) and the
+>   Technical Report §4.6 and CR-25 and CR-26. `RULES.md` §3 lists the gates and the expected reds.
 
 ---
 
@@ -193,6 +204,10 @@ every class carries **all three radios** — 868 MHz, 2.4 GHz and UWB.
   (gateway, tier) on that tier's channel — three radios on one node.
 - **Finders** — `--nFinders`, default **0**. Start at the box centre; motion per
   `--finderMode`.
+
+> **Code defaults, not the preset.** The values above are the code defaults the null controls are anchored to. The
+> preset (`--specProfile`) sets `--nGateways=3 --gwLayout=star --nFinders=8 --finderTasking=pairs --finderMode=2
+> --boxHalf=5000`.
 - **Facility sites** — 4, at (±0.47·`boxHalf`, ±0.47·`boxHalf`). They are **mobility
   targets only** and host **no anchors**. The field node dwells at them; that is all they
   do.
@@ -697,9 +712,12 @@ flowchart TD
     Z --> S2["Cycle k+1"]
 ```
 
-**The invariant that makes the experiment valid:** exactly one tier transmits per cycle, and only that tier is charged.
+**The invariant that makes the experiment valid** (RULES.md §6, restated 2026-10-18): every transmission is made inside
+the per-cycle loop, by a radio awake that cycle, and is charged to the tier that made it. A tier an arm never uses
+accrues its sleep current and nothing else.
 
-- An arm that never escalates accrues **exactly zero** energy on the tiers it never used.
+- The older wording, "exactly one tier transmits per cycle", has three deliberate exceptions: the tier-1 floor, the
+  dual base (`--loraDualBase`, in the preset) and the `poucet_fusion` comparator (TECH_DEBT K.3).
 - An earlier pipeline generated all three tiers' data unconditionally and selected afterwards — under which the energy saved by *not* escalating was structurally unmeasurable. `[E-11]`
 
 ### 9.2 Escalation rules

@@ -1,5 +1,33 @@
 # CA-TBL — work packages
 
+## Current state, 2026-10-21 — start here
+
+**Every package below is complete.** So are the goal-driven plan of 2026-10-20 and the owner's decisions of 2026-10-21
+(DESIGN_DECISIONS 19–24). `docs/TECH_DEBT_STATUS.md` strikes every ENG, CAMP and OWNER row. What is open:
+
+| item | what | entry point |
+|---|---|---|
+| **DEPLOY-REQ** | the gateway and finder count that meets A ≥ 0.95 at 5 km (plan item 26); running 2026-10-21 | `report/PREREG_DEPLOY_REQ.md`, `scripts/deploy_req_analyse.py` |
+| **T45 field test** | a same-site hardware test; the owner schedules it after 2026-10-22 | `docs/TECH_DEBT_STATUS.md` T45 |
+| **LIMIT rows** T22, T25, T35, T37 | measured limits or uncited constants, with no change known to fix them | their TECH_DEBT entries |
+| **SCOPE** T43 | a self-deploying mesh, outside the brief's deployment | TECH_DEBT C.5 |
+| **G11, G93** | the expected reds, each by owner decision | `RULES.md` |
+
+**Adding a mechanism:**
+1. Follow `RULES.md` §4: a default-off flag, a byte-identical null control (`~/ns/catbl-work/nc_*/nc.sh`: NC1–9
+   plus the preset cases X1–X8), a gate with negative fixtures, and pre-registration before any measurement.
+2. Then a registered campaign whose rule decides adoption into the preset.
+
+The last three gates added follow this pattern: G164 (`--uwbMode`), G165 (finder dissemination), G166 (the cut
+items).
+
+**Line numbers.** Re-grep before trusting any line number in this file. The packages below were written against
+`01c852d` (2026-09-02).
+
+---
+
+## Historical: the packages of 2026-09 (complete)
+
 Executable task specs. Strategy and justification live in `MASTER_PLAN.md`; this file is what to
 do, where, and how to know it worked.
 
