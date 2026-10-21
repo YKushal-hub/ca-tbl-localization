@@ -2178,6 +2178,9 @@ static bool g_rngKeyedProbeExtraTx = false;
 // TECH_DEBT M.2 (report/PREREG_UWB_NLOS.md). --uwbNlosModel, a file-scope global for the
 // same reason as the one above: written once after cmd.Parse(), read by the macro.
 static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
+// --tdoaToaScale (TDOA-TIMING, report/PREREG_TDOA_TIMING.md): multiplies the tier-1 arrival-time sigma. A file-scope
+// global for the same reason: written once after cmd.Parse(), read by Tier1Tdoa::Stamp(). 1 multiplies exactly.
+static double g_tdoaToaScale = 1.0;
 
 // SY-3. Receiver sensitivity offset for a bandwidth other than the one each engine's table
 // was written for (868 MHz: 125 kHz; 2.4 GHz: the 800 kHz this scenario has always used).
@@ -5778,7 +5781,7 @@ struct Tier1Tdoa
         {
             return; // a finder or a peer: no surveyed position to stamp against
         }
-        const double sigToaS = CaTblTdoaArrivalSigmaS(bwHz, sf, snrDbInBand);
+        const double sigToaS = g_tdoaToaScale * CaTblTdoaArrivalSigmaS(bwHz, sf, snrDbInBand);
         if (!std::isfinite(sigToaS))
         {
             ++unstampable;
@@ -16655,6 +16658,7 @@ main(int argc, char* argv[])
     bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
+    double tdoaToaScaleArg = 1.0;         // TDOA-TIMING; see --tdoaToaScale
     double tdoaPpsSigmaNsArg = 20.0;      // u-blox NEO/LEA-M8T time pulse, <= 20 ns 1-sigma
     bool nlosClassifierArg = false;       // L.2.2, off: no CIR, no score, nothing written
     bool pcsNlosClassifierArg = false;    // L.2.2, off: PCS term 3 reads the tag, as always
@@ -18958,6 +18962,16 @@ main(int argc, char* argv[])
                  "Drawn independently per broadcast; slow per-gateway wander is not "
                  "modelled. Read only under --tier1Tdoa.",
                  tdoaPpsSigmaNsArg);
+    cmd.AddValue("tdoaToaScale",
+                 "Multiplier on the tier-1 arrival-time sigma under --tier1Tdoa: the one-way "
+                 "Cramer-Rao bound per stamp, in the stamp's draw and in the sigma the solver "
+                 "is given. 1 by default, which multiplies exactly and reproduces every earlier "
+                 "result. NOT a physical constant: a probe of what better arrival timing (e.g. "
+                 "two-pass CFO/STO refinement) could buy; below 1 is timing BETTER than the "
+                 "one-symbol bound the model already assumes, so it bounds such methods from "
+                 "above (report/PREREG_TDOA_TIMING.md). Must be > 0: a zero sigma is refused "
+                 "by the solver.",
+                 tdoaToaScaleArg);
     cmd.AddValue("nlosClassifier",
                  "Give every link the node ranges the tier-specific NLOS_score of the spec "
                  "(Physical sect 1.3, 2.5; TECH_DEBT L.2.2) and score it against the channel "
@@ -20293,6 +20307,17 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --tdoaPpsSigmaNs=" << tdoaPpsSigmaNsArg << " must be >= 0\n";
         return 1;
+    }
+    if (!(tdoaToaScaleArg > 0.0) || !std::isfinite(tdoaToaScaleArg))
+    {
+        std::cerr << "FATAL: --tdoaToaScale=" << tdoaToaScaleArg << " must be > 0\n";
+        return 1;
+    }
+    g_tdoaToaScale = tdoaToaScaleArg;
+    if (tdoaToaScaleArg != 1.0)
+    {
+        std::cout << "TDOA TOA SCALE (--tdoaToaScale=" << tdoaToaScaleArg
+                  << "): tier-1 arrival-time sigma scaled -- a timing probe, not a physical model\n";
     }
     // L.2.2. A PCS input with no classifier behind it would silently fall back to the tag on
     // every cycle -- a flag that reads as on and does nothing.
