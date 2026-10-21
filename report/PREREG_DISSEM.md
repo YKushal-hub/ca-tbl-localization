@@ -124,3 +124,37 @@ D1, D3 and D4 fail. **`--beaconCarriesEntry` does not join the preset.** It stay
 None is a candidate. A subject's reported sigma is small while a finder is near it, so need-driven rules pull
 finders off the subjects they are serving. Moving finders bias every subject that ranges them, and a wide spread does
 useful work at kilometre sigma.
+
+## After the result: two more exploratory levers, and where the 5 km shortfall comes from (2026-10-21, not citable)
+
+**Finder-side beacon localization.** A finder logs each beacon it hears from its subject as an 868 MHz RSSI ring
+around its own GNSS position, fits the subject's position to the rings (log-range least squares), and steers on the
+fit when the subject's own entry is uncertain or stale. 5 km, seeds 1–6, five-node A(25 m):
+- pairs: 0.828;
+- with the fit: 0.802;
+- with the fit and beacon entries: 0.851.
+
+The fit lands farther from the subject than the subject's own entry (median 0.8–1.9 km). At a kilometre an RSSI ring
+carries about 70 % range error, the shadowing is correlated along the finder's walk, and only received frames are
+sampled. **Not committed.**
+
+**A 30 m cap on the finder spread:** 0.732. **Not committed.**
+
+**Where the shortfall is, over this campaign's 20 OFF seeds** (100 node-runs, five-node A(25 m) 0.840):
+
+| median distance to the nearest gateway | node-runs | A(25 m) | fix share |
+|---|---|---|---|
+| 1.5–3 km | 32 | 0.921 | 0.61 |
+| 3–4.5 km | 64 | 0.827 | 0.67 |
+| over 4.5 km | 4 | 0.391 | 0.46 |
+
+- **No node is within 1.5 km of a gateway** in the brief's 5 km geometry, so every node depends on finders.
+- **11 node-runs are nearly lost** (A(25 m) below 0.5), a median 4.25 km from any gateway, and carry two thirds of
+  the shortfall.
+
+Every finder-side lever measured tonight moves the pool by a few hundredths at most, some downward: tasking (four
+rules), stale search, digest order, beacon entries (registered), a beacon fit, a spread cap.
+
+**The requirement at 5 km is a supply limit.** Eight finders cannot keep two precise anchors within reach of four or
+five subjects scattered over 5 km when no gateway reaches any of them. The 8-gateway ring, which puts
+infrastructure within reach, meets it for tag 0 and comes within 0.04–0.05 for the pool.
