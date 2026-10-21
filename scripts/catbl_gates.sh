@@ -1965,6 +1965,15 @@ bash scripts/integrity_check_gate.sh "$WORK/g163" || fail G163
 bash scripts/integrity_check_gate_selftest.sh "$WORK/g163" || fail G163
 finish G163
 
+# ---------------- G164: --uwbMode, tier 3 on one DW3000 Table 9 row (TECH_DEBT 2.4)
+# scripts/uwb_mode_gate.py: 6m8 and 850k move only UWB's sensitivity, by the row against -104 dBm; the ranging
+# integrates the row's preamble; the billed 20-byte frame equals the 802.15.4z closed form for the row; legacy is the
+# flag absent byte for byte; an unknown mode or a mode with an explicit --uwbSensitivityDbm is refused.
+printf '\n--- G164 the DW3000 operating mode (--uwbMode) ---\n'
+bash scripts/uwb_mode_gate.sh "$WORK/g164" || fail G164
+bash scripts/uwb_mode_gate_selftest.sh "$WORK/g164" || fail G164
+finish G164
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

@@ -2295,6 +2295,8 @@ static bool g_sy3Given = false;
 static double g_t2SensitivityRowKHz = 0.0;
 //! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
 static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
+//! --uwbMode: 0 legacy (default), 1 6m8 (6.8 Mbps, 64-symbol preamble), 2 850k (850 kbps, 1024-symbol preamble).
+static int g_uwbMode = 0;
 //! --iqOverloadOnly: every tier's IQ degradation reaches rx power only under ADC clipping (help text at AddValue).
 static bool g_iqOverloadOnly = false;
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
@@ -2473,6 +2475,14 @@ Dc1ImuParams()
         c868.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
         c2p4.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
         cUwb.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+    }                                                                                              \
+    if (g_uwbMode == 1)                                                                            \
+    {                                                                                              \
+        cUwb.ranging.uwbPreambleSymbols = 64.0; /* --uwbMode=6m8: DW3000 Table 9's 6.8 Mbps row */  \
+    }                                                                                              \
+    if (g_uwbMode == 2)                                                                            \
+    {                                                                                              \
+        cUwb.ranging.uwbPreambleSymbols = 1024.0; /* --uwbMode=850k: Table 9's 850 kbps row */      \
     }                                                                                              \
     if (std::isfinite(g_uwbSensitivityDbm))                                                        \
     {                                                                                              \
@@ -16332,6 +16342,7 @@ main(int argc, char* argv[])
     uint32_t sf2p4Arg = 0;
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
+    std::string uwbModeArg = "legacy"; // --uwbMode
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
     double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
@@ -18946,6 +18957,15 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("uwbMode",
+                 "Tier 3's DW3000 operating mode, as ONE data-sheet row for everything the model takes from it "
+                 "(DW3000 Data Sheet v1.1, Table 9, channel 9, 1 % PER). legacy (default): every result so far -- "
+                 "frames billed at 6.81 Mbps with a 128-symbol preamble, ranging integrated over 1024 symbols, "
+                 "sensitivity from --uwbSensitivityDbm or the table's -104 dBm: three different modes at once. "
+                 "6m8: 6.8 Mbps, 64-symbol preamble -- billed, ranged and decoded at -93.2 dBm. 850k: 850 kbps, "
+                 "1024-symbol preamble -- billed, ranged and decoded at -99.3 dBm; each frame costs several times "
+                 "the airtime. Refused together with an explicit --uwbSensitivityDbm, which the mode sets.",
+                 uwbModeArg);
     cmd.AddValue("uwbSensitivityDbm",
                  "Tier 3's receiver sensitivity, dBm, flat across the table (TECH_DEBT 2.4). Not given (default): the "
                  "table's -104 dBm, which is OURS. The DW3000 data sheet the project cites gives -99.3 dBm (TECH_DEBT "
@@ -20644,6 +20664,30 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    if (uwbModeArg == "6m8" || uwbModeArg == "850k")
+    {
+        // One DW3000 Table 9 row for all three things the model takes from the radio mode: what a frame costs
+        // (preamble and data rate), what the ranging integrates (the preamble), and what is decodable.
+        if (explicitFlags.count("uwbSensitivityDbm"))
+        {
+            std::cerr << "FATAL: --uwbMode sets tier 3's sensitivity from the data sheet's row; do not also give "
+                         "--uwbSensitivityDbm\n";
+            return 1;
+        }
+        g_uwbMode = (uwbModeArg == "6m8") ? 1 : 2;
+        g_uwbSensitivityDbm = (g_uwbMode == 1) ? -93.2 : -99.3;
+        CaTblEnergyModel::SetUwbMode(g_uwbMode == 1 ? 64u : 1024u, g_uwbMode == 1 ? 6.81e6 : 850e3);
+        std::cout << "  UWB mode " << uwbModeArg << ": DW3000 Data Sheet v1.1 Table 9 (channel 9), "
+                  << (g_uwbMode == 1 ? "6.8 Mbps, preamble 64, -93.2 dBm" : "850 kbps, preamble 1024, -99.3 dBm")
+                  << "; frames billed and ranging integrated in the same mode; a 20-byte frame bills "
+                  << std::setprecision(9) << CaTblEnergyModel::UwbFrameTimeS(20) << " s\n"
+                  << std::setprecision(6); // the stream's default, for every later line
+    }
+    else if (uwbModeArg != "legacy")
+    {
+        std::cerr << "FATAL: --uwbMode must be legacy, 6m8 or 850k, got '" << uwbModeArg << "'\n";
         return 1;
     }
     if (!std::isnan(g_uwbSensitivityDbm) && !(g_uwbSensitivityDbm >= -130.0 && g_uwbSensitivityDbm <= -60.0))

@@ -345,9 +345,43 @@ CaTblEnergyModel::LoRaTimeOnAirS(uint8_t sf,
     return tPreamble + payloadSymbols * tSym;
 }
 
+namespace
+{
+// --uwbDataRateKbps. The defaults are the mode every result before it was billed in.
+uint32_t g_uwbPreambleSymbols = 128;
+double g_uwbDataRateBps = 6.81e6;
+} // namespace
+
+void
+CaTblEnergyModel::SetUwbMode(uint32_t preambleSymbols, double dataRateBps)
+{
+    g_uwbPreambleSymbols = preambleSymbols;
+    g_uwbDataRateBps = dataRateBps;
+}
+
+uint32_t
+CaTblEnergyModel::UwbPreambleSymbols()
+{
+    return g_uwbPreambleSymbols;
+}
+
+double
+CaTblEnergyModel::UwbDataRateBps()
+{
+    return g_uwbDataRateBps;
+}
+
 double
 CaTblEnergyModel::UwbFrameTimeS(uint32_t payloadBytes, uint32_t preambleSymbols, double dataRateBps)
 {
+    if (preambleSymbols == 0)
+    {
+        preambleSymbols = UwbPreambleSymbols();
+    }
+    if (dataRateBps == 0.0)
+    {
+        dataRateBps = UwbDataRateBps();
+    }
     if (dataRateBps <= 0.0)
     {
         return 0.0;
