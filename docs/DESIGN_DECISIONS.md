@@ -408,3 +408,84 @@ any cell. Physics chosen by its effect on A(25 m) would be selecting the world. 
 numbers are not citable. The size of the change is owed to a re-run (FIDELITY-1b).
 
 **Reproducing earlier preset results:** add `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
+
+## 20. The preset is the realistic world: the S stack enters `--specProfile` (owner decision 2026-10-21)
+**What.**
+- The filter: `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider --ekf5RelayGate`.
+- The world: `--unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2`.
+- The comparator's threshold: `--fixedVarThreshold=12`.
+
+**Why.** Every campaign since REAL-BEST (2026-10-18) passed these by hand. `--specProfile` alone still ran the
+constant-velocity filter with a near-perfect gyro, seeded at the truth, so a forgotten flag silently ran the
+optimistic world. This also closes T14 (the near-perfect gyro) and T38 (SHS is superseded by the 5-state filter).
+
+**Code defaults are unchanged**, and they anchor the null controls (NC1–9).
+
+**Reproducing earlier preset results:** give `--imuFilter=cv --imuMagSigmaDeg=0 --ekf5FinderConsider=false
+--ekf5RelayGate=false --unknownStart=false --imuGyroBiasSigmaDps=0 --imuStrideSigmaPct=0 --finderPosSigma=0
+--fixedVarThreshold=-1`.
+
+## 21. PRESET-2's candidate set enters the preset by owner override (owner decision O10, option A, 2026-10-21)
+**What.** `--t2SensitivityRowKHz=812.5 --publishAfterStep --nlosRSource=detector --foliageScaleBounds
+--interferenceDistance --rssiRangeFromRxPower --pcsByteScale=4`, and `--ekf5Window=60` in its own commit.
+
+**The registered rule failed, and the override is recorded as such.** PRESET-2 (`report/PRESET2_RESULTS.md`) failed
+P1 and P3 on one interval: the endgame five-node contrast +0.035 [−0.044, 0.103] (DESIGN_DECISIONS 17). Every
+measured effect was upward:
+- 5 km tag 0 A(25 m): 0.386 → 0.829;
+- 5 km five-node: 0.268 → 0.503;
+- 8-gateway ring tag 0: 0.790 → 0.959;
+- subject energy: −4 to −17 %.
+
+Four of the settings are corrections that remove known wrong numbers or an oracle (D-8, the NLOS truth leak, the
+foliage bounds, interference distance). The owner adopted the set as DESIGN_DECISIONS 9 adopted FIXES-N26.
+
+**Consequences:**
+- G93 stays red: the code default keeps the old row (O12, option B).
+- Arbitration V2 stays, as PRESET-2's P5 found.
+- Every claim drawn from the preset after this commit uses the set. The size of the whole preset change is measured
+  by PRESET-3.
+
+**Reproducing earlier preset results:** give `--t2SensitivityRowKHz=0 --publishAfterStep=false
+--nlosRSource=operative --foliageScaleBounds=false --interferenceDistance=false --rssiRangeFromRxPower=false
+--pcsByteScale=1 --ekf5Window=0`.
+
+## 19. The Switching-Point Integrity Check leaves the preset (owner decision O13, 2026-10-21)
+**What.** `--integrityCheck=false` in `kSpecProfile`. `ca_tbl_full` then runs exactly as the `ca_tbl_no_integrity` arm
+does (G163 asserts it, byte for byte). The check's code, its flags and the `ca_tbl_no_integrity` arm all stay.
+
+**Why.** Two registered results:
+- **INTEG2** (fault-injected): at the preset's χ² 1992.9 the check catches 0.03–0.10 of injected faults, and no
+  re-fit helps, because the fault-free distance tail (p99 21 322 at 5 km) blinds any threshold.
+- **INTEG3:** it is not the cause of any 5 km deficit, and it costs +0.036 [0.004, 0.070] five-node A(25 m) on the
+  8-gateway ring with no fault present.
+
+The integrity claim was already withdrawn in the shipped default (Technical Report CR-9).
+
+**What could bring it back:** a measurement covariance that carries NLOS and acquisition-state error (N.15), then a
+registered INTEG4.
+
+**Consequences:**
+- G24's integrity populations become structurally zero under the preset, with this decision as the reason.
+- **Reproducing earlier preset results:** give `--integrityCheck=true`.
+
+*(Numbered 19 because O13 was decided first; recorded after 20 and 21 in this file.)*
+
+## 22. Eight finders, tasked in pairs (owner decision O11, 2026-10-21)
+**What.** `--nFinders=8` (was 4, decision 6) and `--finderTasking=pairs` (was roundrobin) in `kSpecProfile`.
+
+**Why** (ANCHOR-SUPPLY, `report/PREREG_ANCHOR_SUPPLY.md`, seeds 121–140):
+- **Eight finders** take the endgame five-node A(25 m) from 0.873 (four) to **0.970** (R8), and to 0.962 under
+  pairs (P8). That is the first configuration in the project to meet the requirement for all five nodes.
+- **Why four fall short:** with four finders, 6–12 % of endgame subject-runs lock onto a position 130–300 m wrong
+  (TECH_DEBT R.13), and negative information cannot find them (NEGINFO). With eight there were none.
+- **Pairs** cuts endgame subject energy by 24 % at eight finders (P8 against R8: 17.8 against 23.5 J), with
+  five-node availability level (−0.008 [−0.048, 0.018]).
+
+**The brief's deployment changes:** four finders become eight. The requirement-level statement is "eight finders in
+the endgame" (open-decisions §10.1, option a).
+
+**At 5 km no finder count meets the requirement** (best five-node 0.58). The 8-gateway ring is the infrastructure
+that meets it for tag 0.
+
+**Reproducing earlier preset results:** give `--nFinders=4 --finderTasking=roundrobin`.

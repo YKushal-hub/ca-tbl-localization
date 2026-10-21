@@ -15,10 +15,11 @@
 #                         (in the scenario no link exceeds the -40 dBm AGC knee, so the flag is inert there)
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g147.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false"  # pinned: the preset turns these on (DESIGN_DECISIONS 13, 14); the firing checks below need the off state
+B="--specProfile=true $PIN_DD19_22 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false"  # pinned: the preset turns these on (DESIGN_DECISIONS 13, 14); the firing checks below need the off state
 OFF="--probeMonotoneTime=false --fadingPerBand=false --finderEnergyReport=false --dualBase868OnNeed=false --hold24AfterK=0 --tofRecal=false --tofCalibrate=false --acquireNegInfo=false --relayNisInflate=false --agcPerReceiver=false"
 run base $B &
 run off $B $OFF &
@@ -26,12 +27,12 @@ run fade $B --fadingPerBand=true &
 run fin $B --finderEnergyReport=true &
 run c3a $B --dualBase868OnNeed=true &
 run c3b $B --hold24AfterK=3 &
-run c2 --specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --tofRecal=true &
-run c1 --specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --unknownStart=true --acquireNegInfo=true &
+run c2 --specProfile=true $PIN_DD19_22 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --tofRecal=true &
+run c1 --specProfile=true $PIN_DD19_22 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --unknownStart=true --acquireNegInfo=true &
 wait
 run b1 $B --relayNisInflate=true &
-run wb --specProfile=true --arms=static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --tofErrorModel=wolf &
-run wc --specProfile=true --arms=static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --tofErrorModel=wolf --tofCalibrate=true &
+run wb --specProfile=true $PIN_DD19_22 --arms=static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --tofErrorModel=wolf &
+run wc --specProfile=true $PIN_DD19_22 --arms=static_2p4 --seed=7 --duration=600 --trace=true --traceRanges=true --boxHalf=750 --finderMode=1 --tofErrorModel=wolf --tofCalibrate=true &
 run p0 --probe=true --seed=3 --foliageDepthClamp=true &
 run pm --probe=true --seed=3 --foliageDepthClamp=true --probeMonotoneTime=true &
 wait

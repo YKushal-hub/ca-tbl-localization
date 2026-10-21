@@ -6567,6 +6567,8 @@ struct SpecOptions
     //! N.15 / N.26 fix 3. --integrityChi2: the integrity check's threshold on the Mahalanobis
     //! distance (CaTblPolicyConfig::mahalanobisThreshold), chi-square 2 DOF 99 % by default.
     double integrityChi2 = 9.21;
+    //! --integrityCheck: false skips the Switching-Point Integrity Check in ca_tbl_full (DESIGN_DECISIONS 19).
+    bool integrityCheck = true;
     //! N.25 / N.26 fix 4. --tdoaInnovationGate: a TDoA position enters the EKF only if its
     //! innovation against the RSSI-updated state is within chi-square 2 DOF 99 %.
     bool tdoaInnovationGate = false;
@@ -7046,6 +7048,7 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.mahalanobisThreshold = spec.integrityChi2; // N.26 fix 3
     }
+    pcfg.integrityCheck = spec.integrityCheck; // --integrityCheck (true by default)
     if (spec.tdoaInnovationGate)
     {
         pcfg.auxInnovationGate = true; // N.26 fix 4
@@ -8228,7 +8231,7 @@ RunArm(CaTblPolicyMode mode,
     // --integrityNlosFromScore (DC-8). One row per fix cycle the integrity check evaluated:
     // what its eligibility was read from, and the verdict. Only the arm that runs the check.
     std::unique_ptr<std::ofstream> integrityLog;
-    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL && spec.integrityCheck)
     {
         std::ostringstream ifn;
         ifn << traceDir << "/integrity_" << CaTblPolicyModeName(mode) << "_seed" << seed
@@ -15811,7 +15814,7 @@ RunArm(CaTblPolicyMode mode,
                   << "): subject-cycles fused without 868 MHz " << f2Dropped
                   << ", 868 MHz ranges left out " << f2DroppedRanges << "\n";
     }
-    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL)
+    if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL && spec.integrityCheck)
     {
         // DC-8. The measured node's policy, the only one whose links are scored.
         std::cout << "    DC-8 integrity eligibility from NLOS_score: "
@@ -16046,7 +16049,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"boxHalf", "5000", "the spec's 5 km search area"},
     {"nGateways", "3", "the spec's deployment: 3 gateways over 5 km (owner call, DESIGN_DECISIONS 9; was N8_ring, GEO-01's fallback)"},
     {"gwLayout", "star", "GEO-01 stage 2's best N = 3 layout, N3_star"},
-    {"nFinders", "4", "decision 6: four finders"},
+    {"nFinders", "8", "DD 22 / O11 (was 4, decision 6): eight finders, the deployment that meets the endgame five-node requirement (ANCHOR-SUPPLY R8 0.970)"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
@@ -16057,7 +16060,7 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"subjectIntegrityWitness", "true", "MS-1 step 2 / Physical 2.6: every subject's escalation is vetted by its own witnesses"},
     {"subjectTriggeredUpdates", "true", "MS-1 step 2 / MAC 7: every subject sends MC-2's large correction"},
     {"finderDigestPeriodS", "20", "MS-1: finders gossip digests"},
-    {"finderTasking", "roundrobin", "MS-1: finders tasked per subject"},
+    {"finderTasking", "pairs", "DD 22 / O11 (was roundrobin): finders 2k, 2k+1 to one subject; -24 % endgame subject energy at eight finders (ANCHOR-SUPPLY P8 vs R8)"},
     // FIXES-N26 (report/FIXES_N26_RESULTS.md), adopted by OWNER OVERRIDE on 2026-10-08: the
     // registered rule said DO NOT ADOPT on the 5 km energy term alone (16.69 against 12.37 J);
     // the owner took the fixes for availability, accuracy and UWB fixes (DESIGN_DECISIONS 9).
@@ -16087,6 +16090,31 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
     {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
     {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
+    // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 20, sect 2a of the open-decisions record): the preset IS the
+    // realistic world every campaign since REAL-BEST passed by hand. Earlier preset results reproduce with these
+    // given at their code defaults (--imuFilter=cv --unknownStart=false ...; RULES.md's preset list has the pin).
+    {"imuFilter", "ekf5", "DD 20 / N.28: the 5-state IMU filter (position, heading, gyro bias, stride scale)"},
+    {"imuMagSigmaDeg", "3", "DD 20 / N.59: a magnetometer heading reference at 3 deg"},
+    {"ekf5FinderConsider", "true", "DD 20 / N.60: a finder's GNSS error as a consider state, not range noise"},
+    {"ekf5RelayGate", "true", "DD 20: a relayed range whose NIS exceeds chi2_1(0.999) is not fused"},
+    {"unknownStart", "true", "DD 20 / N.50: every field node starts at the box centre, not at its truth"},
+    {"imuGyroBiasSigmaDps", "0.15", "DD 20 / DC-1: a turn-on gyro bias of 0.15 deg/s, not the bias instability"},
+    {"imuStrideSigmaPct", "5", "DD 20: 5 % stride-length noise"},
+    {"finderPosSigma", "2", "DD 20: a finder's GNSS position error, 2 m per axis"},
+    {"fixedVarThreshold", "12", "DD 20: fixed_threshold's variance threshold at REAL-BEST's setting"},
+    // OWNER OVERRIDE 2026-10-21 (DESIGN_DECISIONS 21, O10 option A): PRESET-2's candidate set, adopted although its
+    // registered rule failed on the endgame five-node interval (+0.035 [-0.044, 0.103]); every measured effect was
+    // upward (5 km tag 0 0.386 -> 0.829, energy -4..-17 %; report/PRESET2_RESULTS.md).
+    {"t2SensitivityRowKHz", "812.5", "DD 21 / N.27: tier 2 on its own SX1280 data-sheet row (D-8), not the 1625 kHz row"},
+    {"publishAfterStep", "true", "DD 21 / T2: a table entry carries its own cycle's estimate"},
+    {"nlosRSource", "detector", "DD 21 / D1: no NLOS truth reaches the filter's R"},
+    {"foliageScaleBounds", "true", "DD 21 / N.41: foliage frequency scaling applied to the bounds as well as the mean"},
+    {"interferenceDistance", "true", "DD 21 / M.1: an interferer attenuated by its distance to this receiver"},
+    {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
+    {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
+    {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
+    // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
+    {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
 };
 
 int
@@ -16895,6 +16923,16 @@ main(int argc, char* argv[])
                  "alarm rate the 9.21 was meant to give; it is fitted on seeds the evaluation does "
                  "not use (PREREG_FIXES_N26).",
                  spec.integrityChi2);
+    cmd.AddValue("integrityCheck",
+                 "The Switching-Point Integrity Check (the Mahalanobis test of a fix against the prior, NOT the evidence "
+                 "gate; RULES.md sect 2) in ca_tbl_full. TRUE by default: the check runs, as every result so far. "
+                 "FALSE: ca_tbl_full skips it and runs exactly as the ca_tbl_no_integrity arm does (G163 asserts the "
+                 "outputs match). Why it can be switched off: INTEG2 (registered, fault-injected) measured its recall at "
+                 "0.03-0.10 of injected faults at the preset's chi2 1992.9, with no re-fit helping because the fault-free "
+                 "tail blinds any threshold; INTEG3 (registered) found it costs +0.036 [0.004, 0.070] five-node A(25 m) "
+                 "on the 8-gateway ring with no fault present. The owner removed it from the preset on that evidence "
+                 "(DESIGN_DECISIONS 19).",
+                 spec.integrityCheck);
     cmd.AddValue("pcsTerm1Inverse",
                  "Register row 17 (Physical 2.5): PCS term 1 is the spec's literal 1/trace(Sigma), "
                  "in m^-2, unbounded above. FALSE by default: term 1 is traceRef/(traceRef+trace), "

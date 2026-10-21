@@ -226,7 +226,27 @@ def main():
             "DESIGN_DECISIONS 11: SX1262 + SX1280 are two chips, so no band can deafen the other"),
         "tag 0's finder ranges dropped": ("rangeReplyPosition", "true",
             "DESIGN_DECISIONS 10: a finder's reply carries its position, so no finder range lacks one"),
+        "integrity eligibility": ("integrityCheck", "false",
+            "DESIGN_DECISIONS 19: the Switching-Point Integrity Check left the preset; its own gate is G163"),
+        "suspect downweighted": ("integrityCheck", "false",
+            "DESIGN_DECISIONS 19: with the check off no fix is flagged SUSPECT, so none is downweighted"),
     }
+    # Option B of the owner's G24 decision (2026-10-21): a mechanism these three short seeds do not exercise may show its
+    # population in a campaign REGISTERED BEFORE IT RAN, under the adopted preset -- PRESET-3's cells, extracted with
+    # each run.log's sha256 (scripts/preset3_populations.py). Not more seeds of this gate until it fires: the
+    # population is read, never searched for. A zero there is still a FAIL.
+    REGISTERED = ("Case A fixes", "arbitration pre-emptions", "grant tie-break verdicts", "queue gossip items",
+                  "finder requests granted")
+    regp = os.environ.get("G24_POPULATIONS",
+                          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                       "results", "preset3_2026-10-21", "populations.csv"))
+    regpop = {}
+    if os.path.exists(regp):
+        for r in csv.DictReader(open(regp)):
+            n = int(r["count"])
+            c = regpop.setdefault(r["mechanism"], [0, 0])
+            c[0] += n
+            c[1] += 1 if n > 0 else 0
     spm = open(os.path.join(d, "main", "spec_profile.txt")).read() if os.path.exists(os.path.join(d, "main", "spec_profile.txt")) else ""
     zero = []
     for name, run, reader, flag in MECH:
@@ -237,11 +257,16 @@ def main():
                 continue
         seeds = [run] + ([f"{run}_s8", f"{run}_s9"] if run in ("main", "end") else [])
         vals = [reader(d, s) for s in seeds]
+        v = sum(x or 0 for x in vals)
+        if v <= 0 and name in REGISTERED and regpop.get(name, [0, 0])[0] > 0:
+            n_, k_ = regpop[name]
+            report(True, f"POP-REG {name}", f"{run}: 0 in these seeds; registered PRESET-3 (report/PREREG_PRESET3.md): "
+                   f"{n_} in {k_} cells ({os.path.relpath(regp)})")
+            continue
         if all(x is None for x in vals):
             missing(f"POP {name}", f"no evidence line in {seeds}")
             zero.append(name)
             continue
-        v = sum(x or 0 for x in vals)
         per = "+".join(str(int(x or 0)) for x in vals)
         report(v > 0, f"POP {name}", f"{run}: {int(v)}" + (f" (seeds 7/8/9: {per})" if len(vals) > 1 else "")
                + ("" if v > 0 else " (need > 0)"))

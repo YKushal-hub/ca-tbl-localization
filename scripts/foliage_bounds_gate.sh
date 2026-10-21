@@ -4,9 +4,10 @@
 # lifted); SCOPE every 868 MHz probe row is identical; FIXTURE the default probe compared with itself must fail FIRES.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g154.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-P="--specProfile=true --probe=true --probeTerms=true --seed=7"
+P="--specProfile=true $PIN_DD19_22 --probe=true --probeTerms=true --seed=7"
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $P --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $P --foliageScaleBounds=false --outdir="$D/off" > "$D/off.log" 2>&1 &

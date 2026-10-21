@@ -179,10 +179,10 @@ bash scripts/catbl_gates.sh          # every gate (count: grep -c '^finish ' scr
 python3 scratch/python_handoff/verify_causal_sim.py results/causal   # on G3's fresh run: 134 checks / 153 gates
 ```
 
-**The suite's expected reds** (2026-10-20: the final suite on `39c1dfee` and its fixes; reds G11, G24, G93 only.
-`docs/TECH_DEBT.md` R.1, R.4 and N.27 explain each, and docs/TECH_DEBT_STATUS.md O12/O13 track what the owner decides.
-Five gates the preset's receiver change turned red, G95, G99, G102, G136 and G161, are pinned or re-scoped with
-reasons; G47 followed a changed refusal message).
+**The suite's expected reds** (2026-10-21, after the owner's decisions DD 19–22: reds G11 and G93 only.
+`docs/TECH_DEBT.md` R.1 and N.27 explain each, and docs/TECH_DEBT_STATUS.md records the decisions. G24 is green: its
+integrity populations are STRUCT under `--integrityCheck=false`, and five rare mechanisms are read from the registered
+PRESET-3 cells. Twenty-one gates written against the earlier preset pin it back through `scripts/preset_pins.sh`.)
 G6 and G92 are green since 2026-10-18 (T16, T15).
 - **G4, G5:** green since DD 16. The code-default deployment shrank to `--boxHalf=340`, so tier 2 covers it.
 - **G6:** FAIL BY DESIGN while pre-D1 evidence is cited. Making it green by overwriting
@@ -192,8 +192,8 @@ G6 and G92 are green since 2026-10-18 (T16, T15).
   2.4 GHz margin and UWB r80 (degenerate) fail.
 - **G24:** FAIL BY FINDING. Mechanisms with no population under `--specProfile` (TECH_DEBT N.15). It passes when they
   are exercised or the owner accepts them.
-  2026-10-20 (R.4): arbitration pre-emptions have a population (ANCHOR-SUPPLY); Case A is rare in CA-TBL; tie-break
-  verdicts are not shown reachable.
+  **GREEN since 2026-10-21** (R.15): the integrity zeros are STRUCT under DD 19; Case A, pre-emptions, tie-breaks,
+  queue gossip and finder grants come from the registered PRESET-3 cells (tie-breaks are reachable: 2).
 - **G93:** FAIL BY FINDING on the code default (D-8). The preset question was PRESET-2's; the code default is O12.
 
 G63, G87 and G89 were red from 2026-10-08 until 2026-10-17. Their runners now pin the pre-adoption preset (the PIN
@@ -209,6 +209,16 @@ line in each script).
 - Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
 - DD 18 (2026-10-20, FIDELITY-1's rule): `--uwbSensitivityDbm=-99.3 --iqOverloadOnly`. Pin back with
   `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
+- DD 20 (2026-10-21, owner): the realistic world, `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider
+  --ekf5RelayGate --unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2
+  --fixedVarThreshold=12`. Pin back with the code defaults (DESIGN_DECISIONS 20 lists them).
+- DD 21 (2026-10-21, owner override of PRESET-2's rule): `--t2SensitivityRowKHz=812.5 --publishAfterStep
+  --nlosRSource=detector --foliageScaleBounds --interferenceDistance --rssiRangeFromRxPower --pcsByteScale=4
+  --ekf5Window=60`. Pin back as DESIGN_DECISIONS 21 lists.
+- DD 19 (2026-10-21, owner): `--integrityCheck=false`, the Switching-Point Integrity Check out of the preset. Pin back
+  with `--integrityCheck=true`.
+- DD 22 (2026-10-21, owner): `--nFinders=8 --finderTasking=pairs` (were 4, roundrobin). Pin back with
+  `--nFinders=4 --finderTasking=roundrobin`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

@@ -9,6 +9,7 @@
 # The preset in the endgame configuration (box half-width 750 m), ca_tbl_full, seed 7, 300 s.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -17,7 +18,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g130.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --boxHalf=750 --finderMode=1 --loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"  # pinned to the pre-adoption preset (DESIGN_DECISIONS 10, 11, 13, 14): the gate's populations were defined there
+B="--specProfile=true $PIN_DD19_22 --arms=ca_tbl_full --seed=7 --duration=300 --trace=true --boxHalf=750 --finderMode=1 --loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"  # pinned to the pre-adoption preset (DESIGN_DECISIONS 10, 11, 13, 14): the gate's populations were defined there
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

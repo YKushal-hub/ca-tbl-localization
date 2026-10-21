@@ -9,11 +9,12 @@
 # r_*      refusals: without ekf5, and a negative value
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_DD19_22: the preset this gate was written against (DESIGN_DECISIONS 19-22)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g102.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 # PIN (DESIGN_DECISIONS 18, 2026-10-20): this gate's thresholds were set before the preset adopted the receiver
 # corrections; the two flags restore the receiver it was written against, as G63/G87/G89 pin theirs.
-P="--specProfile=true --seed=12 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2 --imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider=true --ekf5RelayGate=true --reportAirtime=true --arms=ca_tbl_full --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
+P="--specProfile=true $PIN_DD19_22 --seed=12 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2 --imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider=true --ekf5RelayGate=true --reportAirtime=true --arms=ca_tbl_full --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
 # shellcheck disable=SC2086
 run on $P --duration=1800 --ekf5StateBounds=4 &

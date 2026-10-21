@@ -487,6 +487,27 @@ problems none). They help every arm, and at 5 km they help the comparators more.
 
 The 5 km comparator statements above were measured under the old receiver and are scoped by CR-21.
 
+### 4.6 The requirement under the preset the owner adopted on 2026-10-21 — PRESET-3, registered
+
+DESIGN_DECISIONS 19–22 changed the preset:
+- the realistic world;
+- PRESET-2's set, by override;
+- the integrity check off;
+- eight finders in pairs.
+
+PRESET-3 (`report/PREREG_PRESET3.md`, seeds 241–260, problems none) held all five predictions. CA-TBL under the
+adopted preset:
+- **Tag 0 meets A ≥ 0.95 in every geometry:** 5 km 0.979, endgame 0.997, 8-gateway ring 0.985.
+- **The five-node pool meets it in the endgame**, 0.982, in 20 of 20 runs. It does not at 5 km (0.811) or on the
+  ring (0.935).
+- **Subject energy falls 22–25 %** against the same preset with the decisions pinned back.
+
+**Comparators:**
+- **Level with `fixed_threshold`.** The escalation rule is not shown to beat a flat threshold (CR-19).
+- **Above Poucet fusion** on the five-node pool in the endgame (+0.054) and on the ring (+0.047), level at 5 km, at
+  about 1/30 of its energy.
+- **Above both single-band arms on tag 0.**
+
 ---
 
 ## 5. Results that do not stand
@@ -801,3 +822,4 @@ column; none is computed here.
 | CR-21 | Every preset result before `39c1dfee` | **SCOPED.** The preset now sets `--uwbSensitivityDbm=-99.3 --iqOverloadOnly` (DESIGN_DECISIONS 18). Earlier preset results reproduce with `--uwbSensitivityDbm=-104 --iqOverloadOnly=false` given (pinned X1: 274/275 files identical, the 275th the provenance lines). The size of the change awaits FIDELITY-1b | `report/PREREG_FIDELITY1.md`, `report/PREREG_FIDELITY1B.md` |
 | CR-22 | "CA-TBL is level with `fixed_threshold` at 5 km" — §4.5, measured under the pre-`39c1dfee` receiver | **REVERSED under the preset's corrected receiver.** FIDELITY-1b: CA-TBL − `fixed_threshold`, five-node A(25 m), 5 km −0.056 [−0.106, −0.006]. The correction helps `fixed_threshold` (+0.137) more than CA-TBL (+0.074). The endgame advantage over Poucet holds (+0.053 [0.009, 0.095]) | `report/PREREG_FIDELITY1B.md` result; `results/fidelity1b_2026-10-20` |
 | CR-23 | CR-22: "at 5 km CA-TBL's five-node A(25 m) is below `fixed_threshold`'s under the corrected receiver" — §4.5 | **NOT REPLICATED; SCOPED to seeds 161–180.** INTEG3, seeds 181–200, the same preset: `fixed_threshold` − CA-TBL −0.001 [−0.046, 0.045]. A single 20-seed interval excluding 0 was not a result about the policy (rule 8). The integrity-check explanation is falsified (I1: −0.024 [−0.056, 0.005]). On the 8-gateway ring the check costs +0.036 [0.004, 0.070] five-node | `report/PREREG_INTEG3.md` result; `results/integ3_2026-10-20` |
+| CR-24 | The system's claim set, after the owner's decisions of 2026-10-21 | **ACCEPTED as the supported set** (open-decisions record §10.2). **Claimed:** the assembly and its quantification; availability above single-band arms; above Poucet fusion on the five-node pool at ~1/30 of its energy; tag 0 meeting A ≥ 0.95 in every geometry; and the five-node pool meeting it in the endgame — **under the stated deployment of eight finders in pairs** (§10.1). **Not claimed:** the escalation rule beating a flat variance threshold, PCS carrying information beyond the covariance trace, the integrity check paying (it left the preset, DESIGN_DECISIONS 19) | §4.6; `report/PREREG_PRESET3.md`; `results/preset3_2026-10-21` |

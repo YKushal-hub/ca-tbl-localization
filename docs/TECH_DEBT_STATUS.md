@@ -31,7 +31,7 @@ them.
 | T14 | N.28 | DC-1's gyro bias is the bias instability: every preset accuracy figure assumes a near-perfect gyro. The EKF5 remedy is on another author's branches (not merged) | OWNER (merge EKF5?) → CAMP |
 | T15 | ~~1.3 / N.30(main) / G92~~ | ~~15 cited `results/` paths are not in the repo, 3 of them cited by the Technical Report~~ **DONE** G92 PASSES: 13 lost paths in RESULTS_NONREGENERABLE.tsv with reasons and successors, 3 allow-listed in EXCLUDED.md; citing documents note it. | ENG (re-point or exclude) |
 | T16 | ~~I.6 / G6~~ | ~~G6 red while pre-D1 evidence is cited; the remedy is regenerating to new paths and moving citations~~ **DONE** results/causal_v12 + det_a_v12 (clean, e93f35c0) and G6 repointed; a fresh run matches. | CAMP |
-| T17 | N.15 / G24 | G24 FAIL BY FINDING: mechanisms with no population under the preset -- *2026-10-18:* two zeros now exempt as structural (O.15); 3 genuine zeros remain for O2. | OWNER (accept) or ENG |
+| T17 | ~~N.15 / G24~~ | ~~G24 FAIL BY FINDING: mechanisms with no population under the preset~~ **DONE 2026-10-21 (R.15):** G24 green -- integrity zeros STRUCT under DD 19; Case A, pre-emptions, tie-breaks (reachable, 2), queue gossip and finder grants read from registered PRESET-3. | ENG |
 | T18 | ~~J.1 / 4.4 / G11~~ | ~~The analytic model and engines disagree (the 2.4 GHz gap grows with distance). Must not be tuned; research~~ **CLOSED (diagnosed)** path loss agrees; the gap is the engine's outcome-dependent effective sensitivity (−107.2 → −99.8 dBm, soft-degradation penalty) + engine-only terrain (0 → 4.8 dB). G11 stays red by design; a fair criterion is an owner change (O3). *2026-10-20, attribution corrected (TECH_DEBT R.10):* the −107.2 → −99.8 dBm "effective sensitivity" is a residual that absorbs the IQ degradation (0.6 → 6 dB, subtracted after the loss sum) and link hysteresis; the soft-degradation penalty runs only under SDR fidelity and is inactive here. G11 is re-pointed to probe_v8 (R.1). | LIMIT |
 | T19 | ~~2.3~~ | ~~UWB ~3.7 dB and 868 MHz ~3.5 dB near-field residuals unexplained~~ **SUPERSEDED 2026-10-20 (R.1, R.7, R.10)** measured against a pre-09-08 engine; against today's, UWB reconciles within 2.12 dB, and 2.4 GHz's gap is foliage density, terrain and the IQ degradation. The soft-degradation penalty named earlier is inactive under ULTRA_FAST. | LIMIT |
 | T20 | N.40 | Tier-2 ToF floor 3.0 m by default; every tier-2 accuracy claim is conditional on it (Wolf/Müller presets exist) | OWNER (preset ToF model) |
@@ -105,3 +105,25 @@ them.
 | O11 | deploy eight finders, and task them in pairs to save energy? | ANCHOR-SUPPLY: endgame five-node 0.873 → 0.970 with eight; pairs −35 % energy, same availability |
 | O13 | keep the Switching-Point Integrity Check in the preset? **Recommended: no.** | INTEG2 (fault-injected): recall 0.03–0.10 at χ² 1992.9, no re-fit helps; INTEG3: costs +0.036 [0.004, 0.070] five-node on the ring with no fault, not the 5 km cause |
 | O12 | make the D-8 row the CODE default (G93 green)? It breaks byte reproduction of every default-config result from its sidecar | D8-MAIN; G93 |
+
+## Owner decisions of 2026-10-21 (the open-decisions record, `CA_TBL_OPEN_DECISIONS_2026-10-21.md` outside the repo)
+
+| decision | choice | how it was carried out |
+|---|---|---|
+| §2a realistic stack in the preset | adopt | DESIGN_DECISIONS 20; `kSpecProfile` |
+| O10 PRESET-2's set | option A, recorded as an override | DESIGN_DECISIONS 21 (corrections, then `--ekf5Window`) |
+| O11 finders and tasking | eight finders in the preset, pairs tasking | DESIGN_DECISIONS 22 (`--nFinders=8 --finderTasking=pairs`) |
+| O13 integrity check | option A, out of the preset | `--integrityCheck` (G163), DESIGN_DECISIONS 19 |
+| O12 D-8 row as code default | option B, preset only | the preset carries it (DD 21); G93 stays red on the code default |
+| O9 one `RunSubjectCycle` | option B, keep two pipelines | R.14 stands; no unification |
+| G24 zero populations | B pre-emptions, C tie-breaks, A Case A | contention-run population and tie-break reachability (R.15); Case A accepted as rare |
+| G11 | option A, red with recorded reasons | R.1, R.7, R.10 |
+| T20/T23 tier-2 ToF floor | keep 3.0 m | claims stay conditional on it (N.40) |
+| T28 `--unknownStart` | preset only | in the preset via DD 20; code default unchanged |
+| T10 four zeroed loss terms | keep, recorded | unchanged |
+| T38 SHS gait calibration | close | superseded by DD 20's 5-state filter |
+| T40 wrong author email | leave | history not rewritten |
+| T34 explicit DENY frames | keep | unchanged |
+| §10.1 deployment | (a) stated honestly | eight finders for the endgame; the 8-gateway ring for tag 0 |
+| §10.2 claim set | accept the supported set | Technical Report CR-24 |
+| §10.3 field test | schedule after 2026-10-22 | T45 stays HW; owner to schedule |
