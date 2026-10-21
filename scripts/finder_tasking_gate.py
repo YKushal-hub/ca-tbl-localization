@@ -246,7 +246,7 @@ def main():
     safe("DIGEST", c_digest)
 
     def c_ref():
-        for n, need in (("r_bad", "FATAL: --finderTasking must be tag0, roundrobin or pairs"),
+        for n, need in (("r_bad", "FATAL: --finderTasking must be tag0, roundrobin, pairs or need"),
                         ("r_one", "FATAL: --finderTasking=roundrobin needs"),
                         ("r_nofind", "FATAL: --finderTasking=roundrobin needs"),
                         ("r_mode0", "FATAL: --finderTasking=roundrobin needs")):
