@@ -74,3 +74,46 @@ These are made knowing ML-PATHLOSS's range result.
 - **Prior from training routes.** The inverse-regression and ML ranges carry a prior from the training routes'
   distance distribution (ML-PATHLOSS, Reading 2). Their gain is measured where the test routes resemble the
   training routes.
+
+# RESULT — after the registration above (`78a22557`)
+
+**Run.** One run of the committed script, rc 0, with the inputs in `results/ml_pathloss_pos_2026-10-21/INPUTS.md`
+(same data and SHA-256 as ML-PATHLOSS). Output: `results/ml_pathloss_pos_2026-10-21/ML_PATHLOSS_POS.md`.
+
+**Data.** 21 292 packets heard by ≥ 3 gateways (of 56 540), 107 one-km blocks.
+
+| position from | median error | 68 % error | 95 % error |
+|---|---|---|---|
+| C1 global LDPL inverted | 2860 m | 4763 m | 9763 m |
+| C2 per-gateway LDPL inverted | 2296 m | 3691 m | 7678 m |
+| C3 per-gateway inverse regression (RSSI) | 1706 m | 2557 m | 4967 m |
+| C4 per-gateway inverse regression (RSSI, SNR) | 1365 m | 2143 m | 4941 m |
+| ML gradient boosting | 1337 m | 2175 m | 4952 m |
+| G0 centroid of receiving gateways (no ranging) | 1652 m | 2277 m | 4234 m |
+
+## Verdicts (mean log10 position error, block bootstrap 95 %)
+
+| contrast | difference | median ratio | verdict |
+|---|---|---|---|
+| ML − best classical (C4) | −0.0024 [−0.0085, +0.0040] | 0.980 | **NO GAIN** |
+| ML − best inversion (C2) | −0.1966 [−0.2413, −0.1436] | 0.582 | **GAIN** |
+| C4 − best inversion (C2) | −0.1942 [−0.2373, −0.1426] | 0.594 | **GAIN** |
+
+## Predictions
+
+| prediction | outcome |
+|---|---|
+| Q1 | Holds |
+| Q2 | Holds |
+| Q3 | Holds |
+| Q4 | Holds: ML 1337 m and C4 1365 m, against G0 1652 m |
+
+## Reading
+
+1. **An 868 MHz RSSI localiser gains from replacing inversion.** Replacing log-distance inversion with a learned or
+   regressed range model cuts its median position error by about 40 % (ratio 0.58–0.59).
+2. **ML is not what produces the gain.** A per-gateway linear regression on RSSI and SNR, three parameters per
+   gateway, gives the same result.
+3. **Not pre-registered: inversion is worse than the range-free centroid.** Multilateration from inverted ranges
+   (2296–2860 m median) is worse than the centroid of the gateways that heard the packet (1652 m). With σ ≈ 10 dB
+   shadowing, inverted ranges carry less position information than the receiving set alone.
