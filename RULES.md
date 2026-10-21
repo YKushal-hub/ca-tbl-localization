@@ -107,6 +107,23 @@ produces a wrong result that looks right.
     `PREDICTION.md` committed **before the first cell runs**. Directory timestamps must be
     checkable against the commit.
 14. **Atomic commits.** One change per commit, revertible in isolation, evidence in the message.
+15. **`run_id.txt`'s `source` line is the git HEAD of the directory the binary runs from, not the
+    commit that compiled it.** Pin a campaign's engine with a frozen binary copy whose SHA-256
+    manifest is checked before launch, plus the binary's own `build <date>` compile stamp. A
+    provenance check that expected the build commit in the source line failed all 100 runs of a
+    campaign that was in fact clean (`a01042c1`).
+16. **Never write `echo "$(date ...) ... exit $?"`.** The substitution resets `$?`, so the line
+    records `date`'s status, always 0. Capture first: `rc=$?; echo "$(date -u +%FT%TZ) ... exit $rc"`.
+    Every campaign run log of 2026-10-09 carries the masked value; only the per-run `rc` files
+    are evidence of how the runs ended (`7af1aa50`).
+17. **Never rebuild in a worktree while the gate suite runs in it.** Each gate runs whatever binary
+    is in `build/` when it starts, so a rebuild mid-run mixes two engines in one suite and the run
+    is void. Run the suite in its own worktree, or touch nothing until it ends. One full suite run
+    was discarded for this on 2026-10-09.
+18. **A verdict is computed from the interval its table row prints, as a plain `bool`.** A NumPy
+    boolean is neither `is True` nor `is False`: three registered verdicts printed "not
+    evaluable" and escaped the problem count. A verdict that re-draws its bootstrap can disagree
+    with its own row on a boundary case, and one did (`a401a439`).
 
 ---
 
