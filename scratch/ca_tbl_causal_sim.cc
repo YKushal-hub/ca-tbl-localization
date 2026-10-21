@@ -6646,6 +6646,8 @@ struct SpecOptions
     bool traceSubjectConsistency = false;
     //! --measVarScale: multiplies every range variance a filter fuses. 1 multiplies by exactly 1.
     double measVarScale = 1.0;
+    //! --oracleTrigger: fixed_threshold triggers on the true squared error. Off: on trace(P).
+    bool oracleTrigger = false;
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7193,6 +7195,7 @@ RunArm(CaTblPolicyMode mode,
     // The band, then DC-6's explicit per-tier thresholds; see ResolvePcsThresholds.
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
+    pcfg.oracleTrigger = spec.oracleTrigger; // ORACLE-ESC (false by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
@@ -11345,6 +11348,10 @@ RunArm(CaTblPolicyMode mode,
                 {
                     ex.tdoa->Solve(sb.policy, measS);
                 }
+                if (spec.oracleTrigger)
+                {
+                    sb.policy.SetOracleTruth(sb.pos.x, sb.pos.y); // ORACLE-ESC
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -13322,6 +13329,10 @@ RunArm(CaTblPolicyMode mode,
             policy.SetSilentAnchors(silentThisCycle); // C1
         }
         silentThisCycle.clear();
+        if (spec.oracleTrigger)
+        {
+            policy.SetOracleTruth(pos.x, pos.y); // ORACLE-ESC
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -16075,6 +16086,16 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(mode) << "): cycles the curvature guard kept the cloud "
                       << policy.GetPfCurvatureHolds() << "\n";
         }
+        if (spec.oracleTrigger)
+        {
+            uint64_t subjOracle = 0;
+            for (size_t k = 1; k < tags.size(); ++k)
+            {
+                subjOracle += tags[k].policy.GetOracleDecisions();
+            }
+            std::cout << "    ORACLE-ESC oracleTrigger (" << CaTblPolicyModeName(mode) << "): decisions on the true error, tag 0 "
+                      << policy.GetOracleDecisions() << ", subjects " << subjOracle << "\n";
+        }
         if (spec.acquireNegInfo)
         {
             std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
@@ -17481,6 +17502,15 @@ main(int argc, char* argv[])
                  "42 % of fixes at 5 km; ACC-A sect 2). The TDoA position and the scenario's "
                  "two-range solves form their own variances and are not scaled.",
                  spec.measVarScale);
+    cmd.AddValue("oracleTrigger",
+                 "fixed_threshold escalates and de-escalates on the node's TRUE squared position "
+                 "error, the quantity trace(P) estimates, instead of on trace(P); same threshold "
+                 "(--fixedVarThreshold), same hysteresis. Tag 0 and the measured subjects. FALSE "
+                 "by default, which keeps every earlier result. NOT a deployable system: a perfect "
+                 "confidence input, so the fixed_threshold curve it traces is the upper bound on "
+                 "any learned (e.g. ML) replacement for the variance the trigger reads "
+                 "(report/PREREG_ORACLE_ESC.md). Other arms are unaffected.",
+                 spec.oracleTrigger);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
@@ -20295,6 +20325,11 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --deadBatteryNoDraw needs --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
+    }
+    if (spec.oracleTrigger)
+    {
+        std::cout << "ORACLE TRIGGER (--oracleTrigger): fixed_threshold reads the true squared error, not "
+                     "trace(P) -- an upper bound, not a deployable system\n";
     }
     if (spec.deadBatteryNoDraw && !(batteryDepleteJArg > 0.0) && explicitFlags.count("deadBatteryNoDraw"))
     {

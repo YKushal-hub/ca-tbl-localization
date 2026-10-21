@@ -111,6 +111,7 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     hopWeight = 0.0; // no mesh yet -- see header note
     measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
+    oracleTrigger = false; // ORACLE-ESC; false triggers on trace(P), as before
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
     hold24AfterK = 0; // C3; off: UWB escalation as before
@@ -2732,11 +2733,21 @@ CaTblPolicy::StepImpl(double dt,
                           m_config.mode == CA_TBL_MODE_NO_INTEGRITY ||
                           m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD);
 
+    // ORACLE-ESC --oracleTrigger: the trigger reads the true squared position error, the quantity trace(P)
+    // estimates, instead of trace(P). A perfect confidence input: the upper bound on any learned one.
+    const bool oracle = m_config.oracleTrigger && m_oracleSet && m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD;
+    const double trigVar = oracle ? (FltX() - m_oracleX) * (FltX() - m_oracleX) +
+                                        (FltY() - m_oracleY) * (FltY() - m_oracleY)
+                                  : traceSigma;
+    if (oracle)
+    {
+        ++m_oracleDecisions;
+    }
     if (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
     {
         // The literature baseline: a flat variance threshold, no confidence
         // model, no integrity check, no geometry term.
-        wantEscalate = (traceSigma > m_config.fixedVarThresholdM2);
+        wantEscalate = (trigVar > m_config.fixedVarThresholdM2);
     }
     else if (m_config.mode == CA_TBL_MODE_FULL || m_config.mode == CA_TBL_MODE_NO_INTEGRITY)
     {
@@ -3067,7 +3078,7 @@ CaTblPolicy::StepImpl(double dt,
         // a missed escalation costs more than a wasted one, so the system is
         // biased toward staying at higher precision.
         const bool healthy = (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
-                                 ? (traceSigma < m_config.fixedVarThresholdM2 * 0.5)
+                                 ? (trigVar < m_config.fixedVarThresholdM2 * 0.5)
                                  : (!suspect && pcs > m_config.pcsThresholdDown[m_tier]);
         if (healthy)
         {
