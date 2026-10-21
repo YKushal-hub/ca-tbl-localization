@@ -83,3 +83,40 @@ A random-packet fold split is also reported as a contrast. It leaks location and
 - **Per packet only.** No temporal tracking and no fusion are tested.
 - **Ranging only.** Even a HELPS verdict concerns the 868 MHz tier's ranging alone. The endgame accuracy is set by
   2.4 GHz time of flight, which this does not touch.
+
+# RESULT — after the registration above (`72d6c780`)
+
+**Run.** One run of the committed script on the inputs in `results/ml_pathloss_2026-10-21/INPUTS.md`, rc 0. Output:
+`results/ml_pathloss_2026-10-21/ML_PATHLOSS.md`.
+
+**Data.** 131 057 packets, 9 gateways, 128 one-km blocks.
+
+**Verdict: NO GAIN.**
+- ML − C4 (the best classical model), mean absolute log10 error: **−0.0010 [−0.0031, +0.0009]**.
+- The 68 % factor is ×/÷1.61 for both (ratio 0.999).
+
+| model | 68 % factor | median abs error |
+|---|---|---|
+| C1 global LDPL inverted | ×/÷4.41 | 2576 m |
+| C2 per-gateway LDPL inverted | ×/÷2.68 | 1469 m |
+| C3 per-gateway inverse regression (RSSI) | ×/÷1.75 | 842 m |
+| C4 per-gateway inverse regression (RSSI, SNR) | ×/÷1.61 | 704 m |
+| ML gradient boosting | ×/÷1.61 | 707 m |
+
+## Predictions
+
+| prediction | outcome | evidence |
+|---|---|---|
+| M1 | Holds | C3 and C4 beat C1 and C2 |
+| M2 | Holds | NO GAIN |
+| M3 | Holds, barely | random-split ratio 1.54 / 1.56 = 0.987, against 0.999 blocked |
+
+## Reading
+
+1. **ML adds nothing.** A three-parameter linear model per gateway matches gradient-boosted trees at unseen
+   locations.
+2. **What does improve is not ML.** The improvement over the tier's inversion (C1/C2 → C3/C4) comes from regressing
+   in the inverse direction. That pulls each estimate toward the training set's distance distribution, here the
+   trucks' routes. Its size therefore depends on how far that distribution matches where the lost node actually is.
+   It is a prior, not better ranging. CA-TBL's filter already combines each range with its state prior.
+3. **None of this touches the endgame**, which is set by 2.4 GHz time of flight (section 6).
