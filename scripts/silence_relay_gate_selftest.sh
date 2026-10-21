@@ -75,8 +75,8 @@ fresh; printf '450.0,0,1,2,DISCOVERY,delivered,-90.0,pkt=1;hops=1\n' >> "$T/f/si
 check "N5 a mute node relaying inside its window" 1 SIL
 fresh; printf '    N.1 silenced radios (ca_tbl_full): relays refused 3\n' >> "$T/f/off.log"
 check "N6 the control refusing relays" 1 CONTROL
-fresh; echo 0 > "$T/f/r_none.rc"
-check "N7 the flag accepted with neither fault" 1 R
+fresh; sed -i '/NOTE: --silenceStopsRelay unused/d' "$T/f/r_none.log"
+check "N7 the flag silently idle with neither fault" 1 R
 fresh; echo 134 > "$T/f/sil.rc"
 check "N8 a run the checks read did not exit 0" 1 RUNS
 

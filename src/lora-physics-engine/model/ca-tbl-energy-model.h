@@ -187,10 +187,16 @@ class CaTblEnergyModel
      * Not a CSS waveform, so the LoRa formula does not apply. Modelled as
      * preamble symbols at the 1.0176 us PRF symbol period, plus SHR/PHR
      * overhead, plus payload at the selected data rate (6.81 Mbps default).
+     * preambleSymbols 0 / dataRateBps 0 (the defaults) take the run's UWB mode, SetUwbMode().
      */
     static double UwbFrameTimeS(uint32_t payloadBytes,
-                                uint32_t preambleSymbols = 128,
-                                double dataRateBps = 6.81e6);
+                                uint32_t preambleSymbols = 0,
+                                double dataRateBps = 0.0);
+
+    /** --uwbDataRateKbps: the DW3000 mode every UWB frame is billed in. Default 128 symbols, 6.81 Mbps. */
+    static void SetUwbMode(uint32_t preambleSymbols, double dataRateBps);
+    static uint32_t UwbPreambleSymbols();
+    static double UwbDataRateBps();
 
     // ------------------------------------------------------------ charging ---
 

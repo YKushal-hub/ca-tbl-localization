@@ -903,6 +903,38 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! under --anchorGrantGossipS > 0.
     void AddGossipAnchor(uint16_t id) { m_gossipAnchors.insert(id); }
 
+    /**
+     * \brief TECH_DEBT 3.5, --anchorPairCad. A surveyed gateway's CAD senses another surveyed gateway's frame on
+     * the anchor-pair link (EvaluateAnchorPair: the tier's engine, both masts at their surveyed height), for any
+     * frame type. Sensing only -- reception between gateways stays as it was. Default (no gateway registered):
+     * exactly EvaluateFrame(), so anchors stay hidden terminals to each other and beacon loss an upper bound.
+     */
+    CaTblLinkOutcome SenseFrame(uint16_t txId,
+                                uint16_t rxId,
+                                CaTblTier tier,
+                                double txPowerDbm,
+                                const CaTblHeader& hdr) override
+    {
+        if (!m_cadAnchors.empty() && m_cadAnchors.count(txId) != 0 && m_cadAnchors.count(rxId) != 0)
+        {
+            ++m_cadAnchorSenses;
+            const CaTblLinkOutcome o = EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+            m_cadAnchorBusy += o.received ? 1 : 0;
+            return o;
+        }
+        return EvaluateFrame(txId, rxId, tier, txPowerDbm, hdr);
+    }
+
+    bool IsSensePair(uint16_t txId, uint16_t rxId) const override
+    {
+        return !m_cadAnchors.empty() && m_cadAnchors.count(txId) != 0 && m_cadAnchors.count(rxId) != 0;
+    }
+
+    //! TECH_DEBT 3.5. Admit a surveyed gateway to anchor-pair sensing. Called only under --anchorPairCad.
+    void AddCadAnchor(uint16_t id) { m_cadAnchors.insert(id); }
+    uint64_t GetCadAnchorSenses() const { return m_cadAnchorSenses; }
+    uint64_t GetCadAnchorBusy() const { return m_cadAnchorBusy; }
+
     double SensitivityDbm(CaTblTier tier, uint8_t sf) override
     {
         // codingRateDenom 5 == CR 4/5, matching m_codingRate = 1 elsewhere.
@@ -1101,6 +1133,9 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! L.1.4. Gateways admitted to the gossip link class. EMPTY unless
     //! --anchorGrantGossipS > 0, and with it empty EvaluateFrame() is Evaluate().
     std::set<uint16_t> m_gossipAnchors;
+    std::set<uint16_t> m_cadAnchors;      //!< TECH_DEBT 3.5, --anchorPairCad
+    uint64_t m_cadAnchorSenses = 0;
+    uint64_t m_cadAnchorBusy = 0;
     //! SY-5. 0 unless the link-fault flags are on and the window is open.
     double m_faultTxDb = 0.0;
     double m_faultRxDb = 0.0;
@@ -2295,6 +2330,14 @@ static bool g_sy3Given = false;
 static double g_t2SensitivityRowKHz = 0.0;
 //! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
 static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
+//! --uwbMode: 0 legacy (default), 1 6m8 (6.8 Mbps, 64-symbol preamble), 2 850k (850 kbps, 1024-symbol preamble).
+static int g_uwbMode = 0;
+//! TECH_DEBT N.17 --subjectEnergyBuckets: subject_summary.csv gains rx/CAD/idle joules per tier.
+static bool g_subjectEnergyBuckets = false;
+//! TECH_DEBT 3.5 --anchorPairCad: surveyed gateways' CAD senses each other's frames.
+static bool g_anchorPairCad = false;
+//! TECH_DEBT M.1(b) --relayRoundInSlice: the relays' round meets the MAC frames of its window.
+static bool g_relayRoundInSlice = false;
 //! --iqOverloadOnly: every tier's IQ degradation reaches rx power only under ADC clipping (help text at AddValue).
 static bool g_iqOverloadOnly = false;
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
@@ -2473,6 +2516,10 @@ Dc1ImuParams()
         c868.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
         c2p4.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
         cUwb.iqImpairment.degradeRxPowerOnlyWhenClipped = true;                                    \
+    }                                                                                              \
+    if (g_uwbMode != 0)                                                                            \
+    {                                                                                              \
+        cUwb.ranging.uwbPreambleSymbols = CaTblEnergyModel::UwbPreambleSymbols(); /* --uwbMode */  \
     }                                                                                              \
     if (std::isfinite(g_uwbSensitivityDbm))                                                        \
     {                                                                                              \
@@ -3564,6 +3611,7 @@ struct CaTblTagState
     uint64_t caseSolved[5] = {0, 0, 0, 0, 0}; // [0]=D 3+ [1]=A [2]=B [3]=C [4]=floor
     double prevMeanRangeM = -1.0;
     uint64_t mobCounts[3] = {0, 0, 0};
+    uint64_t subjectHandshakes = 0; //!< plan item 9, --subjectMobilityFromRange
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
@@ -6490,6 +6538,10 @@ struct SpecOptions
     double injectAntennaLossDb = 0.0;
     //! DC-11. --sparseInStep: Cases A/B solved inside Step() against the propagated prior.
     bool sparseInStep = false;
+    //! Plan item 27. --caseAPreFuse: a fused set's gateway pair resolved as Case A first.
+    bool caseAPreFuse = false;
+    //! Plan item 9 / N.3. --subjectMobilityFromRange: subjects' mobility state and escalation handshake.
+    bool subjectMobilityFromRange = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
     bool imuPredict = false;
     //! N.28. --imuFilter=ekf5: the policy's filter is the 5-state CaTblImuEkf, fed DC-1's output.
@@ -6650,6 +6702,8 @@ struct SpecOptions
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
     //! "roundrobin" (finder k for subject (k mod N) + 1).
     std::string finderTasking;
+    //! Plan item 23b. --finderStaleSearch: a finder whose steering entry is stale searches around it.
+    bool finderStaleSearch = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -7035,6 +7089,7 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.sparseInStep = true;
         pcfg.sparseMarginM = sparseCaseAMarginM;
+        pcfg.caseAPreFuse = spec.caseAPreFuse; // plan item 27
     }
     if (spec.caseD)
     {
@@ -7480,6 +7535,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 gossip->AttachAnchor(aid, tier, am, provider);
             }
+            if (g_anchorPairCad)
+            {
+                provider.AddCadAnchor(aid); // TECH_DEBT 3.5
+            }
 
             BeaconDriver bd;
             bd.mac = am;
@@ -7743,10 +7802,17 @@ RunArm(CaTblPolicyMode mode,
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
     // cycle's instant and charged at its time, exactly as before.
     std::unique_ptr<RelayRound> relayRound;
+    uint64_t roundReplayed = 0, roundReplayCycles = 0; // M.1(b)
     if (relaySlots)
     {
         relayRound.reset(new RelayRound(static_cast<uint32_t>(tags.size()), relayChain,
                                         FixRouter::kSlotS));
+        if (g_relayRoundInSlice)
+        {
+            engine868.SetInterferenceJournal(true);
+            engine2p4.SetInterferenceJournal(true);
+            engineUwb.SetInterferenceJournal(true);
+        }
     }
     if (fixRouting)
     {
@@ -7923,6 +7989,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 gossip->AttachFinder(static_cast<uint16_t>(fid), tier, fm); // NW-6
             }
+            fm->SetMergesBeaconEntries(true); // --beaconCarriesEntry: finders steer on entries
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
             if (ti == 0)
@@ -9085,7 +9152,15 @@ RunArm(CaTblPolicyMode mode,
     // N.62 --finderTasking=pairs: finders 2k and 2k+1 search for the same subject, (k mod N) + 1, so a subject a
     // pair reaches has two precise anchors instead of one.
     const bool taskPairs = (spec.finderTasking == "pairs");
-    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs;
+    // Plan item 23 --finderTasking=need: the finders are spread over the subjects that need them most, re-decided
+    // every kNeedPeriodS from each finder's own table (below, before the finder loop).
+    const bool taskNeed = (spec.finderTasking == "need");
+    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs || taskNeed;
+    std::vector<uint32_t> needTaskK(nFinders, 0), needGrpI(nFinders, 0), needGrpN(nFinders, 1);
+    std::vector<uint64_t> needSwitches(nFinders, 0);
+    std::vector<double> needBlindSince;
+    double needNextS = 0.0;
+    uint64_t staleSearchCycles = 0; // plan item 23b, --finderStaleSearch
     std::unique_ptr<std::ofstream> taskLog;
     std::vector<uint64_t> taskSweep, taskConverge, taskBlind;
     if (taskRR)
@@ -10009,13 +10084,102 @@ RunArm(CaTblPolicyMode mode,
             }
             *taskLog << ',' << gx << ',' << gy << '\n';
         };
+        // Plan item 23, --finderTasking=need. Coverage first, then hold. At dispatch the finders are dealt round-robin
+        // starting from subject 1, so every subject has a finder and tag 0, which has the most anchors of its own,
+        // takes what is left (pairs gives it two and the fifth subject none). A finder then KEEPS its subject while
+        // its own table holds that subject's entry: chasing reported sigma oscillates, because a subject's sigma is
+        // small exactly while a finder is near it (exploratory pilot, seed 3: five-node 0.91 -> 0.40). Only a finder
+        // whose target's entry has been absent from its table for kNeedBlindS is re-dealt: to the subject it DOES
+        // hear that has the fewest finders, ties to the larger need (reported sigma plus kNeedDriftMps of entry age).
+        // A finder decides from its own table and the finder counts; nothing coordinates them. No random draws.
+        // kNeedBlindS and kNeedDriftMps are OURS.
+        if (taskNeed)
+        {
+            constexpr double kNeedBlindS = 60.0;
+            constexpr double kNeedDriftMps = 1.0;
+            const size_t nF = finderWalkers.size();
+            const uint32_t nS = spec.measuredSubjects;
+            if (needNextS == 0.0)
+            {
+                for (size_t f = 0; f < nF; ++f)
+                {
+                    needTaskK[f] = 1u + static_cast<uint32_t>((f / 2) % (nS - 1));
+                }
+                needNextS = -1.0; // dealt
+                needBlindSince.assign(nF, -1.0);
+            }
+            std::vector<uint32_t> count(nS, 0);
+            for (size_t f = 0; f < nF; ++f)
+            {
+                ++count[needTaskK[f]];
+            }
+            for (size_t me = 0; me < nF; ++me)
+            {
+                if (me >= finderMac.size() || finderMac[me] == nullptr)
+                {
+                    continue;
+                }
+                CaTblTableEntry cur;
+                const bool heard =
+                    finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
+                if (heard)
+                {
+                    needBlindSince[me] = -1.0;
+                    continue;
+                }
+                if (needBlindSince[me] < 0.0)
+                {
+                    needBlindSince[me] = t;
+                }
+                if (t - needBlindSince[me] < kNeedBlindS)
+                {
+                    continue;
+                }
+                int bestK = -1;
+                uint32_t bestC = 0;
+                double bestNeed = 0.0;
+                for (uint32_t k = 0; k < nS; ++k)
+                {
+                    CaTblTableEntry te;
+                    if (k == needTaskK[me] ||
+                        !(finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
+                    {
+                        continue;
+                    }
+                    const double need = std::sqrt(std::max(0.0, te.varX + te.varY)) +
+                                        kNeedDriftMps * std::max(0.0, t - te.timestampS);
+                    if (bestK < 0 || count[k] < bestC || (count[k] == bestC && need > bestNeed))
+                    {
+                        bestK = static_cast<int>(k);
+                        bestC = count[k];
+                        bestNeed = need;
+                    }
+                }
+                if (bestK >= 0)
+                {
+                    --count[needTaskK[me]];
+                    needTaskK[me] = static_cast<uint32_t>(bestK);
+                    ++count[needTaskK[me]];
+                    ++needSwitches[me];
+                    needBlindSince[me] = -1.0;
+                }
+            }
+            // The spread over the finders that share a subject, as pairs (a quarter turn when there are two).
+            std::vector<uint32_t> seen(nS, 0);
+            for (size_t f = 0; f < nF; ++f)
+            {
+                needGrpI[f] = seen[needTaskK[f]]++;
+                needGrpN[f] = count[needTaskK[f]];
+            }
+        }
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
             // MS-1. The subject this finder searches for: tag 0, or under roundrobin
             // subject (fi mod N) + 1. The assignment rule is OURS.
             const uint32_t taskK =
-                taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
+                taskNeed ? needTaskK[fi]
+                : taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
                           : (taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u);
             const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
             CaTblTableEntry taskTe;
@@ -10184,22 +10348,46 @@ RunArm(CaTblPolicyMode mode,
                         // MS-1: under roundrobin the spread is over the finders tasked
                         // to the same subject, finder fi being the (fi / N)-th of them.
                         const uint32_t grpN =
-                            taskPairs ? 2u
+                            taskNeed ? needGrpN[fi]
+                            : taskPairs ? 2u
                                       : (taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
                                                       spec.measuredSubjects
                                                 : nFinders);
-                        const size_t grpI = taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
+                        const size_t grpI = taskNeed ? needGrpI[fi]
+                                            : taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
                         if (finderDispersal > 0.0 && grpN > 1)
                         {
                             const double sx = std::sqrt(std::max(te.varX, 0.0));
                             const double sy = std::sqrt(std::max(te.varY, 0.0));
                             // Under pairs the two are a quarter turn apart, not opposite: two anchors on one line
                             // through the target leave the cross-line direction unobserved.
-                            const double th = taskPairs ? 0.5 * M_PI * static_cast<double>(grpI)
+                            const double th = (taskPairs || (taskNeed && grpN == 2))
+                                                  ? 0.5 * M_PI * static_cast<double>(grpI)
                                                         : 2.0 * M_PI * static_cast<double>(grpI) /
                                                               static_cast<double>(grpN);
                             gx += finderDispersal * sx * std::cos(th);
                             gy += finderDispersal * sy * std::sin(th);
+                        }
+                        // Plan item 23b, --finderStaleSearch. An entry older than kStaleSearchS is a LAST KNOWN
+                        // POSITION, not a position: the subject has walked on, and a finder parked on the point is
+                        // parked out of range (preset 5 km, seed 6: finder 504 1 090-1 210 m from its subject for the
+                        // whole run, its entry frozen at t = 690 s, at the edge of 868 MHz reach). It circles the
+                        // point instead, on a radius the subject could have covered since, kStaleDriftMps times the
+                        // entry's age, between 50 m and kStaleMaxM, advancing its bearing at 0.4 of walking speed
+                        // like MODE 2's sweep. Finders sharing a subject start evenly spread round the circle. A fresh
+                        // entry ends it. kStaleSearchS, kStaleDriftMps, kStaleMaxM are OURS; no random draws.
+                        if (spec.finderStaleSearch && (t - te.timestampS) > 120.0)
+                        {
+                            constexpr double kStaleDriftMps = 0.5;
+                            constexpr double kStaleMaxM = 1500.0;
+                            const double r =
+                                std::min(kStaleMaxM, std::max(50.0, kStaleDriftMps * (t - te.timestampS)));
+                            const double th = 2.0 * M_PI * static_cast<double>(grpI) /
+                                                  static_cast<double>(std::max<uint32_t>(1, grpN)) +
+                                              0.4 * finderSpeedMps * t / r;
+                            gx = te.x + r * std::cos(th);
+                            gy = te.y + r * std::sin(th);
+                            ++staleSearchCycles;
                         }
                     }
                 }
@@ -10290,6 +10478,19 @@ RunArm(CaTblPolicyMode mode,
             if (relayRound)
             {
                 relayRound->BeginCycle();
+                // TECH_DEBT M.1(b), --relayRoundInSlice. The round is evaluated after the slice the event layer
+                // already ran, and later MAC evaluations purged the frames that were in the air during the round's
+                // slots, so the round met no MAC frame. Put back, in every engine's registry, the transmissions
+                // that overlap the round's window [now - (K + 1) S, now): the round then meets them as an exchange
+                // at the instant always met the frames straddling it.
+                if (g_relayRoundInSlice)
+                {
+                    const Time from = relayRound->Burst(now, 0);
+                    roundReplayed += engine868.ReplayInterferenceJournal(from, now);
+                    roundReplayed += engine2p4.ReplayInterferenceJournal(from, now);
+                    roundReplayed += engineUwb.ReplayInterferenceJournal(from, now);
+                    ++roundReplayCycles;
+                }
             }
             for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
             {
@@ -11256,6 +11457,48 @@ RunArm(CaTblPolicyMode mode,
                                 ds.nextTier = act;
                                 ++ex.deferredAway;
                             }
+                        }
+                    }
+                }
+                // Plan item 9 / TECH_DEBT N.3, --subjectMobilityFromRange. A subject's MAC 11.11 mobility state
+                // from the trend of its own mean measured range, by tag 0's rule (5 % band on the previous mean),
+                // and the consumer tag 0 has: on escalation, the MAC handshake on the active tier, whose RECEDING
+                // branch is the one-shot eager push. Without it a subject's state stays STATIONARY and the push never
+                // runs for anyone but tag 0. Like tag 0's, the handshake frames are the MAC's, unbilled in joules.
+                if (spec.subjectMobilityFromRange && !measS.empty())
+                {
+                    double sum = 0.0;
+                    for (size_t k = 0; k < measS.size(); ++k)
+                    {
+                        sum += measS[k].rangeM;
+                    }
+                    const double mean = sum / static_cast<double>(measS.size());
+                    CaTblMobilityState ms = CA_TBL_MOB_STATIONARY;
+                    if (sb.prevMeanRangeM > 0.0)
+                    {
+                        const double band = 0.05 * sb.prevMeanRangeM;
+                        ms = (mean > sb.prevMeanRangeM + band)   ? CA_TBL_MOB_RECEDING
+                             : (mean < sb.prevMeanRangeM - band) ? CA_TBL_MOB_APPROACHING
+                                                                 : CA_TBL_MOB_STATIONARY;
+                    }
+                    ++sb.mobCounts[static_cast<int>(ms)];
+                    for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+                    {
+                        if (peerMacs[pi][ti] != nullptr)
+                        {
+                            peerMacs[pi][ti]->SetMobilityState(ms);
+                        }
+                    }
+                    sb.prevMeanRangeM = mean;
+                    if (ds.escalated && peerMacs[pi][static_cast<size_t>(act)] != nullptr &&
+                        !(spec.subjectBatteryDeplete && sb.batteryDead))
+                    {
+                        const std::vector<CaTblNeighbour> peersS =
+                            peerMacs[pi][static_cast<size_t>(act)]->GetNeighbours(act, t);
+                        if (!peersS.empty())
+                        {
+                            peerMacs[pi][static_cast<size_t>(act)]->StartHandshake(act, peersS[0].id, 4);
+                            ++sb.subjectHandshakes;
                         }
                     }
                 }
@@ -14553,6 +14796,21 @@ RunArm(CaTblPolicyMode mode,
             }
             o << ',' << po.GetEscalationCount() << ',' << po.GetDeescalationCount() << ','
               << po.GetNoFixCount() << ',' << req;
+            if (g_subjectEnergyBuckets)
+            {
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << std::setprecision(9) << en.GetAccount(static_cast<CaTblTier>(k)).rxJ;
+                }
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).cadJ;
+                }
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).idleJ;
+                }
+            }
             return o.str();
         };
         res.subjectRows.push_back(row(static_cast<uint32_t>(nodeId), steps, errors,
@@ -14566,6 +14824,38 @@ RunArm(CaTblPolicyMode mode,
                                           sb.energy, sb.policy, subj->extra[pt - 1].requests));
         }
         std::ostringstream line; // its own stream: cout's precision is left alone
+        if (spec.subjectMobilityFromRange)
+        {
+            uint64_t m[3] = {0, 0, 0}, hs = 0, rec = 0;
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                for (int k = 0; k < 3; ++k)
+                {
+                    m[k] += tags[pt].mobCounts[k];
+                }
+                hs += tags[pt].subjectHandshakes;
+                for (size_t ti = 0; ti < peerMacs[pt - 1].size(); ++ti)
+                {
+                    if (peerMacs[pt - 1][ti] != nullptr)
+                    {
+                        rec += peerMacs[pt - 1][ti]->GetRecedingPushesStarted();
+                    }
+                }
+            }
+            std::cout << "    subject mobility (" << CaTblPolicyModeName(mode) << "): stationary/approaching/"
+                      << "receding " << m[0] << "/" << m[1] << "/" << m[2] << "; escalation handshakes " << hs
+                      << ", RECEDING eager pushes " << rec << "\n";
+        }
+        if (spec.caseAPreFuse)
+        {
+            uint64_t pf = policy.GetCaseAPreFuseCount();
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                pf += tags[pt].policy.GetCaseAPreFuseCount();
+            }
+            std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(mode) << "): tag 0 "
+                      << policy.GetCaseAPreFuseCount() << ", all measured nodes " << pf << " cycles\n";
+        }
         line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
         for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
         {
@@ -14824,15 +15114,27 @@ RunArm(CaTblPolicyMode mode,
     {
         taskLog->close();
         std::ostringstream line;
-        line << (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):");
+        line << (taskNeed ? "    MS-1 tasking (need):"
+                          : (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):"));
         for (size_t fi = 0; fi < taskSweep.size(); ++fi)
         {
             line << " finder " << finderIds[fi] << " -> subject "
-                 << tags[taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects].nodeId
-                 << " sweep " << taskSweep[fi]
+                 << tags[taskNeed ? needTaskK[fi]
+                                  : (taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects)]
+                        .nodeId;
+            if (taskNeed)
+            {
+                line << " (last; switches " << needSwitches[fi] << ")";
+            }
+            line << " sweep " << taskSweep[fi]
                  << " converge " << taskConverge[fi] << " blind " << taskBlind[fi] << ";";
         }
         std::cout << line.str() << "\n";
+    }
+    if (spec.finderStaleSearch)
+    {
+        std::cout << "    stale-entry search (" << CaTblPolicyModeName(mode) << "): " << staleSearchCycles
+                  << " finder-cycles circled a last known position\n";
     }
     res.escalations = policy.GetEscalationCount();
     res.deescalations = policy.GetDeescalationCount();
@@ -15202,6 +15504,44 @@ RunArm(CaTblPolicyMode mode,
             flood += macs[i].GetResponsesFlooded();
             digPush += macs[i].GetDigestPushes();
             digNoOp += macs[i].GetDigestNoOps();
+        }
+        if (g_anchorPairCad)
+        {
+            std::cout << "    anchor-pair CAD (" << CaTblPolicyModeName(mode) << "): "
+                      << provider.GetCadAnchorSenses() << " gateway-to-gateway frame senses, "
+                      << provider.GetCadAnchorBusy() << " of them heard (channel busy); CAD decisions busy only "
+                      << "because of them " << [&]() {
+                             uint64_t n = 0;
+                             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                             {
+                                 n += chan[ti].GetSensePairOnlyBusy();
+                             }
+                             return n;
+                         }()
+                      << "\n";
+        }
+        if (CaTblMac::BeaconCarriesEntry())
+        {
+            uint64_t bm = 0, bi = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                bm += macs[i].GetBeaconMerges();
+                bi += macs[i].GetBeaconIgnored();
+            }
+            std::cout << "    beacon entries (" << CaTblPolicyModeName(mode) << "): " << bm
+                      << " merged by finders from DISCOVERY beacons; " << bi << " heard by other radios, not merged\n";
+        }
+        if (CaTblMac::DigestOwnFirst())
+        {
+            uint64_t own = 0, skips = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                own += macs[i].GetDigestOwnPushes();
+                skips += macs[i].GetDigestFullSkips();
+            }
+            std::cout << "    digest own-first (" << CaTblPolicyModeName(mode) << "): " << digPush
+                      << " digest answers, " << own << " of them the responder's own entry; " << skips
+                      << " entries missing from a full digest not sent\n";
         }
         uint64_t suppressed = 0;
         for (size_t i = 0; i < macs.size(); ++i)
@@ -15670,6 +16010,11 @@ RunArm(CaTblPolicyMode mode,
     if (relayRound)
     {
         relayRound->Report(std::cout, dt);
+        if (g_relayRoundInSlice)
+        {
+            std::cout << "    M.1(b) relay round in slice (" << CaTblPolicyModeName(mode) << "): " << roundReplayed
+                      << " MAC transmissions put back over " << roundReplayCycles << " rounds\n";
+        }
     }
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
@@ -16088,7 +16433,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // FIDELITY-1's registered adoption rule (report/PREREG_FIDELITY1.md; G161 green, null control 13/13), which does
     // not read the campaign: the two receiver corrections join together, since each alone moves tier 3 by 5-6 dB.
     // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
-    {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
+    // DESIGN_DECISIONS 23 (UWB-MODE, report/PREREG_UWB_MODE.md, registered rule): tier 3 bills, ranges and decodes on
+    // ONE DW3000 Table 9 row, 850 kb/s with a 1024-symbol preamble at -99.3 dBm -- the sensitivity DD 18 already set,
+    // now with the frames and ranging of the same mode. Earlier preset results reproduce with --uwbMode=legacy
+    // --uwbSensitivityDbm=-99.3.
+    {"uwbMode", "850k", "DD 23 / TECH_DEBT 2.4: tier 3 on DW3000 Table 9's 850 kb/s row (billing, ranging and -99.3 dBm sensitivity)"},
     {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 20, sect 2a of the open-decisions record): the preset IS the
     // realistic world every campaign since REAL-BEST passed by hand. Earlier preset results reproduce with these
@@ -16115,6 +16464,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
+    // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
+    // (--injectSilentId) or out of battery (--batteryDepleteJ), so a fault-free preset run is byte-identical with or
+    // without them (null control); in a fault run they stop the dead node relaying and being billed.
+    {"silenceStopsRelay", "true", "DD 24 / N.1: a silenced radio relays no other node's frame"},
+    {"deadBatteryNoDraw", "true", "DD 24 / N.20: a node whose battery has run out draws nothing more"},
 };
 
 int
@@ -16332,6 +16686,12 @@ main(int argc, char* argv[])
     uint32_t sf2p4Arg = 0;
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
+    std::string uwbModeArg = "legacy"; // --uwbMode
+    bool subjectEnergyBucketsArg = false; // TECH_DEBT N.17
+    bool anchorPairCadArg = false;        // TECH_DEBT 3.5
+    bool relayRoundInSliceArg = false;    // TECH_DEBT M.1(b)
+    bool digestOwnFirstArg = false;    // --digestOwnFirst
+    bool beaconCarriesEntryArg = false; // --beaconCarriesEntry
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
     double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
@@ -18801,8 +19161,52 @@ main(int argc, char* argv[])
                  "finders 2k and 2k+1 both search for subject (k mod N) + 1, dispersed a quarter turn apart, so a "
                  "subject a pair reaches has two precise anchors whose ranges cross. Why: under roundrobin each "
                  "subject has at most one finder, hence one precise anchor -- one circle, whose two sides the "
-                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m).",
+                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m). need "
+                 "(plan item 23): coverage first, then hold -- finders dealt round-robin from subject 1, so every "
+                 "subject has one and tag 0 takes what is left; a finder keeps its subject while its table holds the "
+                 "subject's entry, and only one blind for 60 s moves, to the heard subject with the fewest finders. "
+                 "Why: pairs is fixed by index, so with 8 finders and 5 subjects it gives tag 0 (the best-localised "
+                 "node) two finders and the fifth subject none, and a finder tasked to a subject whose entry never "
+                 "reaches it stands still for the whole run (preset 5 km, seed 261: two of eight finders blind 720 of "
+                 "720 cycles). Chasing reported sigma instead oscillates (a subject's sigma is small while a finder is "
+                 "near it). The 60 s and the rule are OURS.",
                  spec.finderTasking);
+    cmd.AddValue("beaconCarriesEntry",
+                 "A DISCOVERY beacon carries the sender's own published entry (plan item 24, N.32, widened from finders "
+                 "to every node). FALSE by default: every result so far; an entry travels only in the digest round "
+                 "trip. Why: at 5 km that trip completes far less often than a beacon is heard -- preset, seed 6, a "
+                 "subject's DISCOVERY heard by a finder 181 times, the finder's DIGEST heard by the subject 3 times -- "
+                 "so finders steer on entries hundreds of seconds old and park out of range. TRUE: +28 bytes "
+                 "(CA_TBL_TABLE_ENTRY_BYTES) on every beacon that has an entry, paid in airtime, duty cycle and "
+                 "collision exposure as every MAC frame is. Only FINDERS merge it (they steer on entries): a subject "
+                 "that merged its neighbours' beacon entries would range off them in the subject chain, and an "
+                 "overconfident wrong estimate became another subject's anchor (exploratory pilot, seed 2: a subject "
+                 "confident and wrong in 67 % of cycles). Like every MAC beacon, it is not billed in joules (the MACs "
+                 "carry no energy model).",
+                 beaconCarriesEntryArg);
+    cmd.AddValue("digestOwnFirst",
+                 "How a summary DIGEST is answered (plan: the 5 km dissemination defect). FALSE by default: every "
+                 "result so far -- the first entry the asker's digest does not list, else one it lists stale, one per "
+                 "answer. A digest lists at most 12 entries (CA_TBL_DIGEST_MAX_ITEMS), lowest node id first, so from "
+                 "a 13th table entry an entry missing from a FULL digest is not known to be missing; every answer is "
+                 "spent pushing it, and the responder's own fresh entry, which the asker holds stale, is never sent. "
+                 "Eight finders (DESIGN_DECISIONS 22) make the table 16 entries: preset 5 km, seed 6, a finder 1.1 km "
+                 "from its subject steered on that subject's entry frozen for 810 s while the subject was localised "
+                 "to 7 m. TRUE: the responder's own entry first when the asker lacks it or holds it stale; then an "
+                 "entry the asker lists stale; an unlisted one only when the digest was not full. Same frames, same "
+                 "airtime; only which entry rides in the answer changes. Needs --digestSummary.",
+                 digestOwnFirstArg);
+    cmd.AddValue("finderStaleSearch",
+                 "A finder whose steering entry is older than 120 s searches around it instead of standing on it "
+                 "(plan item 23b). FALSE by default: every result so far; a finder converges on its entry however "
+                 "old. Why: an old entry is a last known position, and the subject has walked on; a finder parked on "
+                 "the point can be parked out of 868 MHz reach, where it never hears a fresher one (preset 5 km, "
+                 "seed 6: finder 504 1 090-1 210 m from its subject for the whole run, its entry frozen at 690 s). "
+                 "TRUE: it circles the point on the radius the subject could have walked since (0.5 m/s times the "
+                 "entry's age, 50-1500 m), bearing advancing at 0.4 of walking speed, finders sharing a subject "
+                 "spread round the circle. A fresh entry ends it. 120 s, 0.5 m/s and 1500 m are OURS. Needs "
+                 "--finderMode 1 or 2.",
+                 spec.finderStaleSearch);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
                  "mesh'; docs/SPEC_CONFORMANCE_PLAN.md NW-0, the prerequisite of the network "
@@ -18844,6 +19248,24 @@ main(int argc, char* argv[])
                  "entrypred_<arm>_seed<N>.csv (digested) and one DC-13 line per arm. Needs "
                  "--entryVelocity, without which every velocity is 0 and nothing moves.",
                  spec.entryPrediction);
+    cmd.AddValue("subjectMobilityFromRange",
+                 "Subjects 2..N get MAC 11.11 mobility state and tag 0's escalation handshake (plan item 9, TECH_DEBT "
+                 "N.3). FALSE by default: every result so far; only tag 0 classifies its motion and only tag 0 runs "
+                 "StartHandshake, so a subject's state stays STATIONARY and the RECEDING eager push never runs for a "
+                 "subject. TRUE: each subject classifies its own mean measured range against its previous one, by "
+                 "tag 0's rule (a 5 % band), sets it on its radios, and on escalation runs the MAC handshake on its "
+                 "active tier, whose RECEDING branch is the one-shot push. Handshake frames are MAC frames, unbilled "
+                 "in joules as tag 0's are. Needs --measuredSubjects > 1.",
+                 spec.subjectMobilityFromRange);
+    cmd.AddValue("caseAPreFuse",
+                 "Case A inside a fused set (plan item 27). FALSE by default: every result so far; Case A runs only "
+                 "when the set holds EXACTLY two ranges, and in a larger set the gateway pair goes in as ranges. TRUE: "
+                 "in a set of three or more with exactly two ranges to surveyed gateways, the pair is resolved as Case "
+                 "A against the propagated prior (same solver, margin and 2(s0^2 + s1^2) variance) and fused once as a "
+                 "position; the rest of the set takes the full path without them, so the pair is never counted "
+                 "twice. A refused Case A leaves the set as it came. Why: G24 found Case A with almost no population "
+                 "in CA-TBL because better geometry joins the gateway pair (R.4). Needs --sparseInStep.",
+                 spec.caseAPreFuse);
     cmd.AddValue("caseD",
                  "Case D, single-range IMU-assisted tracking (Physical 2.4D; "
                  "docs/SPEC_CONFORMANCE_PLAN.md DC-4): when the final set holds exactly one "
@@ -18946,6 +19368,41 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("relayRoundInSlice",
+                 "The relays' round meets the MAC frames that were in the air during its slots (TECH_DEBT M.1(b)). "
+                 "FALSE by default: every result so far; the round (--relaySlots) is evaluated after the event "
+                 "layer has run the cycle's slice, whose later evaluations purged every MAC frame overlapping the "
+                 "round from the engines' interference registries, so the round meets no MAC frame (the KNOWN LIMIT "
+                 "in RelayRound's comment: about 16 % of exchanges on 2.4 GHz give up their MAC interference). TRUE: "
+                 "each engine journals its registrations, and at the start of each cycle's round the transmissions "
+                 "overlapping the round's window are put back (never duplicated), so each relay exchange meets them "
+                 "as the measured tag's exchange meets the frames straddling its instant. Needs --relaySlots on.",
+                 relayRoundInSliceArg);
+    cmd.AddValue("anchorPairCad",
+                 "A surveyed gateway's CAD senses another surveyed gateway's frames (TECH_DEBT 3.5). FALSE by "
+                 "default: every result so far; anchor-to-anchor pairs have no link, so every gateway is a hidden "
+                 "terminal to every other and gateway beacon loss is an upper bound. TRUE: CaTblChannel::IsBusy "
+                 "evaluates a gateway-to-gateway frame on the anchor-pair link (the tier's engine, both masts at "
+                 "their surveyed height), the class GRANT_GOSSIP already uses -- for SENSING only. Reception between "
+                 "gateways stays closed: opening it would make every gateway rebroadcast every other's flooded "
+                 "beacon. Finders are not admitted (no finder-to-gateway pair class exists).",
+                 anchorPairCadArg);
+    cmd.AddValue("subjectEnergyBuckets",
+                 "subject_summary.csv gains rx_*, cad_* and idle_* joules per tier for every measured subject "
+                 "(TECH_DEBT N.17). FALSE by default: the file keeps its columns, so every summary so far reproduces "
+                 "byte for byte. Why: the file had tx and sleep only, so a subject's listening and channel-sensing "
+                 "cost, which the energy model already accounts, could be read only as the remainder of totalJ. "
+                 "Output only: no value changes.",
+                 subjectEnergyBucketsArg);
+    cmd.AddValue("uwbMode",
+                 "Tier 3's DW3000 operating mode, as ONE data-sheet row for everything the model takes from it "
+                 "(DW3000 Data Sheet v1.1, Table 9, channel 9, 1 % PER). legacy (default): every result so far -- "
+                 "frames billed at 6.81 Mbps with a 128-symbol preamble, ranging integrated over 1024 symbols, "
+                 "sensitivity from --uwbSensitivityDbm or the table's -104 dBm: three different modes at once. "
+                 "6m8: 6.8 Mbps, 64-symbol preamble -- billed, ranged and decoded at -93.2 dBm. 850k: 850 kbps, "
+                 "1024-symbol preamble -- billed, ranged and decoded at -99.3 dBm; each frame costs several times "
+                 "the airtime. Refused together with an explicit --uwbSensitivityDbm, which the mode sets.",
+                 uwbModeArg);
     cmd.AddValue("uwbSensitivityDbm",
                  "Tier 3's receiver sensitivity, dBm, flat across the table (TECH_DEBT 2.4). Not given (default): the "
                  "table's -104 dBm, which is OURS. The DW3000 data sheet the project cites gives -99.3 dBm (TECH_DEBT "
@@ -19663,6 +20120,12 @@ main(int argc, char* argv[])
     // Refused rather than run: with no relay there is nothing to schedule and every count
     // would be a structural zero; and a round longer than the cycle would put its first
     // slots in the previous cycle, where they are not this cycle's exchanges.
+    if (relayRoundInSliceArg && !relaySlotsArg)
+    {
+        std::cerr << "FATAL: --relayRoundInSlice needs the relays' round (--relaySlots on): without it every relay "
+                     "exchange is at the cycle's instant and already meets the frames straddling it\n";
+        return 1;
+    }
     if (relaySlotsArg && (!relayedRangingArg || nTagsArg < 2))
     {
         std::cerr << "FATAL: --relaySlots schedules the relays' exchanges; it needs"
@@ -19825,12 +20288,17 @@ main(int argc, char* argv[])
                      "every node reports STATIONARY and no push is ever made\n";
         return 1;
     }
-    // N.20.
-    if (spec.deadBatteryNoDraw && (!(batteryDepleteJArg > 0.0) || !spec.silenceStopsRelay))
+    // N.20. A dead radio that still relayed would contradict this flag: refused. In a run where nothing dies the flag
+    // has nothing to act on: unused, not refused (DESIGN_DECISIONS 24 puts it in the preset, and G24 runs the preset's
+    // settings as plain flags), with a NOTE so a hand-typed flag is not silently idle.
+    if (spec.deadBatteryNoDraw && !spec.silenceStopsRelay)
     {
-        std::cerr << "FATAL: --deadBatteryNoDraw needs --batteryDepleteJ > 0 (nothing dies "
-                     "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
+        std::cerr << "FATAL: --deadBatteryNoDraw needs --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
+    }
+    if (spec.deadBatteryNoDraw && !(batteryDepleteJArg > 0.0) && explicitFlags.count("deadBatteryNoDraw"))
+    {
+        std::cout << "NOTE: --deadBatteryNoDraw unused: no --batteryDepleteJ, so nothing dies in this run\n";
     }
     // Row 55. Applied by the preset while the user turned a prerequisite off explicitly:
     // unused, not refused (as the preset's other dependent settings).
@@ -19900,12 +20368,13 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --halfDuplex is 0 (off), 1 (count only) or 2 (enforce)\n";
         return 1;
     }
-    // N.1. Nothing is ever silenced without one of the two faults.
-    if (spec.silenceStopsRelay && !(batteryDepleteJArg > 0.0) && injectSilentIdArg == 0)
+    // N.1. Nothing is ever silenced without one of the two faults: unused, not refused (DESIGN_DECISIONS 24, as
+    // N.20 above), with a NOTE when typed by hand.
+    if (spec.silenceStopsRelay && explicitFlags.count("silenceStopsRelay") && !(batteryDepleteJArg > 0.0) &&
+        injectSilentIdArg == 0)
     {
-        std::cerr << "FATAL: --silenceStopsRelay needs --batteryDepleteJ > 0 or "
-                     "--injectSilentId: without them no radio is ever silenced\n";
-        return 1;
+        std::cout << "NOTE: --silenceStopsRelay unused: no --batteryDepleteJ or --injectSilentId, so no radio is "
+                     "silenced in this run\n";
     }
     // M.4. Nothing to digest without the visualiser's files.
     if (digestVizOutputsArg && !vizEventsArg)
@@ -20036,13 +20505,13 @@ main(int argc, char* argv[])
         }
     }
     if (!spec.finderTasking.empty() && spec.finderTasking != "tag0" &&
-        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs")
+        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs" && spec.finderTasking != "need")
     {
-        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin or pairs, got '"
+        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin, pairs or need, got '"
                   << spec.finderTasking << "'\n";
         return 1;
     }
-    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs") &&
+    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need") &&
         (spec.measuredSubjects < 2 || nFindersArg == 0 ||
          (finderModeArg != 1 && finderModeArg != 2)))
     {
@@ -20223,6 +20692,11 @@ main(int argc, char* argv[])
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    if (spec.caseAPreFuse && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --caseAPreFuse needs --sparseInStep (Case A is solved inside Step)\n";
+        return 1;
+    }
     if (spec.caseD && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --caseD needs --sparseInStep=true: Case D is one of the sparse "
@@ -20644,6 +21118,46 @@ main(int argc, char* argv[])
     if (g_ekf5RelayGate && (!spec.imuFilterEkf5 || ekf5RobustArg != 0))
     {
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
+        return 1;
+    }
+    CaTblMac::SetDigestOwnFirst(digestOwnFirstArg);
+    g_subjectEnergyBuckets = subjectEnergyBucketsArg;
+    g_anchorPairCad = anchorPairCadArg;
+    g_relayRoundInSlice = relayRoundInSliceArg;
+    CaTblMac::SetBeaconCarriesEntry(beaconCarriesEntryArg);
+    if ((uwbModeArg == "6m8" || uwbModeArg == "850k") && explicitFlags.count("uwbSensitivityDbm") &&
+        !explicitFlags.count("uwbMode"))
+    {
+        // The mode came from the preset (DESIGN_DECISIONS 23) and the user set the sensitivity by hand: an explicit
+        // flag wins, and a hand-set sensitivity has no Table 9 row, so the whole mode yields to legacy.
+        std::cout << "NOTE: --uwbSensitivityDbm given by hand: the preset's --uwbMode=" << uwbModeArg
+                  << " yields to legacy (frames and ranging as before DESIGN_DECISIONS 23)\n";
+        uwbModeArg = "legacy";
+    }
+    if (uwbModeArg == "6m8" || uwbModeArg == "850k")
+    {
+        // One DW3000 Table 9 row for all three things the model takes from the radio mode: what a frame costs
+        // (preamble and data rate), what the ranging integrates (the preamble), and what is decodable.
+        if (explicitFlags.count("uwbSensitivityDbm"))
+        {
+            std::cerr << "FATAL: --uwbMode=" << uwbModeArg << " sets tier 3's sensitivity from the data sheet's row; "
+                         "do not also give --uwbSensitivityDbm (give --uwbMode=legacy to set it by hand)\n";
+            return 1;
+        }
+        uint32_t uwbPreamble = 0;
+        double uwbRateBps = 0.0;
+        Dw3000Table9Row(uwbModeArg, uwbPreamble, uwbRateBps, g_uwbSensitivityDbm);
+        g_uwbMode = (uwbModeArg == "6m8") ? 1 : 2;
+        CaTblEnergyModel::SetUwbMode(uwbPreamble, uwbRateBps);
+        std::cout << "  UWB mode " << uwbModeArg << ": DW3000 Data Sheet v1.1 Table 9 (channel 9), "
+                  << uwbRateBps / 1e3 << " kb/s, preamble " << uwbPreamble << ", " << g_uwbSensitivityDbm << " dBm"
+                  << "; frames billed and ranging integrated in the same mode; a 20-byte frame bills "
+                  << std::setprecision(9) << CaTblEnergyModel::UwbFrameTimeS(20) << " s\n"
+                  << std::setprecision(6); // the stream's default, for every later line
+    }
+    else if (uwbModeArg != "legacy")
+    {
+        std::cerr << "FATAL: --uwbMode must be legacy, 6m8 or 850k, got '" << uwbModeArg << "'\n";
         return 1;
     }
     if (!std::isnan(g_uwbSensitivityDbm) && !(g_uwbSensitivityDbm >= -130.0 && g_uwbSensitivityDbm <= -60.0))
@@ -21072,7 +21586,10 @@ main(int argc, char* argv[])
         *subjSummary << "arm,seed,subjectId,steps,rmseM,cep50M,cep95M,maxErrM,fixCycles,"
                         "totalJ,j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,tx_868,"
                         "tx_2p4,tx_uwb,sleep_868,sleep_2p4,sleep_uwb,escalations,"
-                        "deescalations,noFixCycles,escRequests\n";
+                        "deescalations,noFixCycles,escRequests"
+                     << (g_subjectEnergyBuckets ? ",rx_868,rx_2p4,rx_uwb,cad_868,cad_2p4,cad_uwb,idle_868,idle_2p4,idle_uwb"
+                                                : "")
+                     << "\n";
     }
     summary << "arm,seed,steps,durationS,rmseM,cep50M,cep95M,maxErrM,"
             << "rmseFixedM,cep50FixedM,fixCycles,totalJ,"
@@ -21457,7 +21974,7 @@ main(int argc, char* argv[])
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
-    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs")
+    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need")
     {
         digestPatterns += " tasking_*.csv";
     }

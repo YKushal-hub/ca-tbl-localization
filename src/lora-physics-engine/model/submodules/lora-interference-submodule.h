@@ -7,6 +7,7 @@
 #include "../lora-distribution-sampler.h"
 #include <vector>
 #include <list>
+#include <deque>
 
 namespace ns3 {
 
@@ -42,6 +43,17 @@ public:
         double txPowerDbm, Vector txPosition, double ownLinkDistM = 0.0);
 
     void NotifySuccessfulDecode(uint32_t txNodeId, uint32_t rxGatewayId, double decodedPowerDbm);
+
+    /**
+     * TECH_DEBT M.1(b), --relayRoundInSlice. A journal of every registration, so a later evaluation stamped at an
+     * EARLIER instant (the relays' round, evaluated after the MAC slice that already purged the frames overlapping
+     * it) can put back the transmissions that were in the air then. Off (default): nothing is recorded, and the
+     * registry behaves exactly as before. The journal keeps 10 s of registrations.
+     */
+    void SetJournal(bool on) { m_journalOn = on; }
+    //! Re-registers every journalled transmission overlapping [from, to) that is no longer in the registry;
+    //! returns how many. Entries still present are not duplicated.
+    uint32_t ReplayJournal(Time from, Time to);
 
     double ComputeInterferencePenaltyDb(
         uint32_t txNodeId, uint8_t rxSpreadingFactor, double bandwidthHz,
@@ -79,6 +91,8 @@ private:
     
     std::vector<ExternalInterferer> m_interferers;
     std::list<ActiveTransmission> m_activeRegistry;
+    bool m_journalOn = false;                 //!< M.1(b)
+    std::deque<ActiveTransmission> m_journal; //!< M.1(b)
     
     bool m_interfererMapInitialized;
     bool m_wasCollision;

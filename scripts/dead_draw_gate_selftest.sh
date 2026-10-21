@@ -91,6 +91,8 @@ fresh; printf '    N.20 dead radios (ca_tbl_full): radio-cycles unbilled, tag 0 
 check "N5 the control not billing a dead node" 1 CONTROL
 fresh; echo 0 > "$T/f/r_norelay.rc"
 check "N6 the flag accepted without --silenceStopsRelay" 1 R
+fresh; sed -i '/NOTE: --deadBatteryNoDraw unused/d' "$T/f/r_nobat.log"
+check "N6b the flag silently idle without a battery budget" 1 R
 fresh; sed -i '/FAULT sect 49 (subject/d' "$T/f/on.log"
 check "N7 no subject died" 1 DEAD
 fresh; echo 134 > "$T/f/on.rc"

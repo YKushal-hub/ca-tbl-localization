@@ -24,6 +24,8 @@
 #include "ns3/lora-uwb-physics-engine.h"
 #include "ns3/lora-uwb-physics-parameters.h"
 
+#include <string>
+
 #include <cmath>
 #include <cstdio>
 
@@ -54,6 +56,12 @@ main(int argc, char* argv[])
                  "does -- a 10*log10(BW/800 kHz) shift of the table, unless "
                  "--t2SensitivityRowKHz replaces the table, in which case no shift",
                  bw2p4);
+    std::string uwbMode;
+    cmd.AddValue("uwbMode",
+                 "Apply the scenario's --uwbMode row (Dw3000Table9Row), exactly as ca_tbl_causal_sim "
+                 "does -- tier 3's table filled flat with the row's sensitivity -- so G93 can check "
+                 "tier 3 in the mode the scenario runs. Absent: the code default's -104 dBm table",
+                 uwbMode);
     cmd.Parse(argc, argv);
 
     LoRaPhysicsConfig c868 =
@@ -81,6 +89,21 @@ main(int argc, char* argv[])
     {
         std::fprintf(stderr, "FATAL: %.3f kHz is not a tabulated SX1280 bandwidth\n", t2Row);
         return 1;
+    }
+    if (!uwbMode.empty())
+    {
+        uint32_t preamble = 0;
+        double rateBps = 0.0;
+        double sensDbm = 0.0;
+        if (!Dw3000Table9Row(uwbMode, preamble, rateBps, sensDbm))
+        {
+            std::fprintf(stderr, "FATAL: --uwbMode must be 6m8 or 850k, got '%s'\n", uwbMode.c_str());
+            return 1;
+        }
+        for (int si = 0; si < 8; ++si)
+        {
+            cUwb.receiver.sensitivityDbm[si] = sensDbm;
+        }
     }
     if (bw2p4 > 0.0 && !(t2Row > 0.0))
     {

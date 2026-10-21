@@ -7,7 +7,7 @@
 #
 # G67's regime (seed 7, 900 s, five subjects, a 3 J budget for tag 0 and every subject,
 # triggered updates so the last gasps go), with --silenceStopsRelay (which N.20 needs): the
-# flag on and off, and two refusals.
+# flag on and off, a refusal (no --silenceStopsRelay) and an unused flag (no battery budget, a NOTE).
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -31,6 +31,6 @@ run on $B --deadBatteryNoDraw=true &
 run off $B &
 wait
 run r_norelay --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --batteryDepleteJ=3 --deadBatteryNoDraw=true
-run r_nobat --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --deadBatteryNoDraw=true
+run r_nobat --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --silenceStopsRelay=true --deadBatteryNoDraw=true
 
 python3 scripts/dead_draw_gate.py "$D"

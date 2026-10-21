@@ -33,10 +33,10 @@ status was checked against the code, or against the preset's setting list
 | 1.1 sampler stream | PRESET (`--rngKeyed`, G138) | code default unkeyed; a default change regenerates everything (DECISION) |
 | 1.2 rule 8 cross-binary | CLOSED | `RULES.md` rule 8 carries it |
 | 1.3 cited results absent | RECORDED | G92 FAIL BY FINDING: 15 cited paths not held |
-| 2.1 four loss terms zeroed | DECISION | still zeroed (`lora-physics-engine.cc` antenna gain, multipath, Doppler, soil). Wire them in (every result moves) or delete the dead code |
+| 2.1 four loss terms zeroed | DECIDED (owner, 2026-10-21): keep, recorded (T10) | still zeroed (`lora-physics-engine.cc` antenna gain, multipath, Doppler, soil). Wire them in (every result moves) or delete the dead code |
 | 2.2 terrain at 868 MHz | PRESET (`--terrainPerTierFreq`) | code default 868 MHz |
 | 2.3 two residuals | SUPERSEDED (R.1, R.7) | measured against a pre-09-08 engine; against today's, UWB reconciles (2.12 dB) and 2.4 GHz's residual decomposes into foliage density, terrain and the IQ term |
-| 2.4 sensitivity values | OPEN | G93 checks tier 2 against the SX1280 data sheet; 868 MHz and UWB values are not checked against theirs (needs the SX1262 and DW3000 tables) |
+| 2.4 sensitivity values | CLOSED (2026-10-21) | G93 checks every tier against its data sheet: tier 2 against SX1280 Table 6-1, tier 1 against SX1262 Table 3-8, tier 3 against DW3000 Table 9 in each `--uwbMode` (6m8 −93.2, 850k −99.3 dBm). The code default's −104 dBm and its mixed modes have no Table 9 row and stay the byte-reproduction default; the preset runs one row (UWB-MODE, DD 23) |
 | 2.5 tier-1 CRLB | CLOSED | — |
 | 3.1 C5 remaining | CLOSED in substance | relays are measured subjects (MS-1, N.3); the subject chain is in the preset |
 | 3.2 hopWeight | RECORDED (deliberate, `RULES.md` 2) | — |
@@ -44,7 +44,7 @@ status was checked against the code, or against the preset's setting list
 | 3.4 A4/A5 | CLOSED in substance | consistency is measured by NEES/coverage (N.51, O.12) |
 | 3.5 anchor-to-anchor links | RECORDED | beacon loss is an upper bound |
 | 4.1 1-ulp divergence | DIAGNOSED (T8) | instruction-set codegen: one cause with 4.2; a portable build changes only last digits |
-| 4.2 `-march=native` | DECISION | `./ns3 --build-profile=optimized` turns it on (`ns3:923`); dropping it changes every binary's bits |
+| 4.2 `-march=native` | CLOSED (diagnosed, T8) | native against portable: summaries identical at defaults, last-digit trace columns only; `./ns3 --build-profile=optimized` turns it on (`ns3:923`); dropping it changes every binary's bits |
 | 4.3 G12 | CLOSED | trailer-anchored; history rewritten 2026-10-19 |
 | 4.4 / J.1 G11 red | RECORDED (deliberate) | must not be closed by tuning |
 | 5.1 author identity | CLOSED 2026-10-20 (owner) | — |
@@ -68,15 +68,15 @@ status was checked against the code, or against the preset's setting list
 | K.8 PCS | CLOSED by result | A8, N.31: no further PCS form |
 | K.9 SHS gait | RECORDED (owner) | superseded for the preset by DC-1 + `--imuFilter=ekf5` |
 | L.1 | CLOSED | — |
-| L.2.2 UWB CIR matrix | DECISION (M.2) | needs an obstruction model of our own |
+| L.2.2 UWB CIR matrix | DECIDED (DESIGN_DECISIONS §9 row 6) | no obstruction model of our own; a hardware-validation item (T45) |
 | L.2.4 hop count | PRESET | depth 2 in the preset's subject chain |
 | L.3 claims | superseded | read `CA-TBL_Technical_Report_SelfContained.md` and the REAL-* reports |
 | M.1 interferer distance; slot slice | CAMPAIGN | engine change (`lora-interference-submodule.cc`) |
-| M.2 | DECISION | as L.2.2 |
-| M.3 | FLAG (`--stampBinaryHash`, `--stampBuildCommit`) | not in the preset |
+| M.2 | DECIDED | as L.2.2 |
+| M.3 | PRESET | both stamps in the preset (T39) |
 | M.4–M.8, M.10, M.11 | CLOSED | — |
 | M.9 RECEDING push count | CLOSED 2026-10-20 | the count sums every radio; subjects never classify mobility, which is N.3's |
-| N.1 | FLAG (`--silenceStopsRelay`) | not in the preset |
+| N.1 | PRESET (2026-10-21, DD 24) | fault runs only; fault-free runs byte-identical |
 | N.2 | PRESET (`--sparseInStep`) | — |
 | N.3 two copies of the core | DONE as a refactor (2026-10-21, R.14); the rest is behaviour, O9 | the two shared computations extracted byte-identically; one `RunSubjectCycle` would change subject behaviour, so it is a registered change, not a refactor |
 | N.4, N.10, N.12, N.14, N.19, N.21, N.25, N.26 | CLOSED / PRESET | — |
@@ -86,25 +86,25 @@ status was checked against the code, or against the preset's setting list
 | N.11 | DECIDED (out of the preset) | ToF-tier form OURS |
 | N.15 G24 zeros | RECORDED | four zeros under FIXES-N26 |
 | N.16 | CLOSED (CAL-03) | an 8-gateway-ring property |
-| N.20 | FLAG (`--deadBatteryNoDraw`) | not in the preset |
+| N.20 | PRESET (2026-10-21, DD 24) | fault runs only; fault-free runs byte-identical |
 | N.23 | measured (`--reportAirtime`) | — |
-| N.27 D-8 sensitivity row | DECISION | `--t2SensitivityRowKHz` default |
-| N.28 gyro bias | DECISION | `--imuFilter=ekf5` and the realistic world proposed (REAL-BEST) |
+| N.27 D-8 sensitivity row | PRESET (2026-10-21, DD 21; O12 option B) | the 812.5 kHz row in the preset; the code default unchanged |
+| N.28 gyro bias | PRESET (2026-10-21, DD 20) | `--imuFilter=ekf5` and the realistic world in the preset |
 | N.29 | FIXED (`d6b6e122`) | harness artefact; frames spaced at 2× time on air |
 | N.30 (main) G10 / G92 | CLOSED / RECORDED | G92 FAIL BY FINDING |
 | N.31 (main) G63/G87/G89 | CLOSED (O.4) | — |
 | N.30 (acc) covariance | PRESET in part (`--imuQuScale=30`); ekf5 off-preset | error-state filter = ekf5 |
 | N.31 (acc), N.32 (acc) | CLOSED by result | — |
 | N.32 (IMU) finder extrapolation | RECORDED | remedy is a MAC change, unbuilt |
-| N.33 one-range heading | RESEARCH | consider form rejected; FEJ / iterated update not built |
+| N.33 one-range heading | SUPERSEDED (2026-10-20, §Q) | consider form rejected; FEJ / iterated update not built, superseded by the window smoother (N.62), which solves heading, bias and scale jointly and is in the preset (DD 21) |
 | N.35–N.37 | RESOLVED (2026-10-20) | the 5 km loss to static 2.4 GHz was the known-start artefact (N.50); under unknown start CA-TBL leads by +0.29..+0.33 five-node A(25 m) |
 | N.40 ToF floor | RECORDED | accuracy figures conditional on 3.0 m |
 | N.41 foliage clamp | CAMPAIGN | engine fix with null control |
 | N.42 citations | CLOSED (2026-10-21) | CFO coefficient is dead code (unit test only); delay spread ×3 moves PDR ≤ 0.034; values stay OURS |
-| N.50 unknown start | DECISION | campaigns pass `--unknownStart` |
+| N.50 unknown start | PRESET (2026-10-21, DD 20) | the code default unchanged (owner: preset only) |
 | N.51 subject overconfidence | CLOSED (2026-10-21) | against the effective sigma every class is consistent but relayed 2.4 GHz; that tail is wrong-root subjects (6–12 % of endgame subject-runs, none with 8 finders): a deployment answer (O11) |
 | N.52 NLOS keyed on truth | PRESET in part | `--nlosRangeBias` on; `--nlosRSource=operative` |
-| N.53 two Part B branches | DECISION | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
+| N.53 two Part B branches | CLOSED (the merge chose acc-part-b) | `work/2026-10-09-acc-part-b` against `work/2026-10-09-acc-reruns` |
 | N.54 acquisition | PRESET (`--acquireParticles`) | — |
 | N.55 | PRESET | — |
 | N.56 | CLOSED (O.2) | — |
@@ -114,10 +114,10 @@ status was checked against the code, or against the preset's setting list
 | O.9 RSSI model vs foliage | DIAGNOSED (T24) | the hypothesis is refuted (no foliage term in the inversion); the follow-on, `--rssiRangeFromRxPower` (T46), was in PRESET-2's set, not adopted (R.8) |
 | O.12 B2 5 km coverage | RECORDED (measured limit) | — |
 | N.57 selection bias | CLOSED (2026-10-21, measured limit) | NEGINFO: negative information has precision ≤ 0.21 and recall ≤ 4 % (subject side), precision 0.07 (finder side); no mechanism is built |
-| N.58 covariance collapse | FLAG (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
-| N.59, N.60 | DECISION | the realistic-world preset; the availability trade |
+| N.58 covariance collapse | MEASURED, not adopted (`--ekf5Iterate`, G151) | unit-consistent; the pilot worsens 5 km. The cause there is N.62 |
+| N.59, N.60 | PRESET (2026-10-21, DD 20) | the realistic world is the preset |
 | N.61 magnetometer state | RECORDED | kept as a patch |
-| N.62 5 km tag 0: one precise anchor | FLAG (`--ekf5Window`, G152); DECISION | 5 km not supported; the endgame gain replicated (EKF5-WINDOW-END −0.8 [−1.4, −0.2]), its availability bound met only at the edge; the default is the owner's |
+| N.62 5 km tag 0: one precise anchor | PRESET (2026-10-21, DD 21; `--ekf5Window=60`, G152) | 5 km not supported; the endgame gain replicated (EKF5-WINDOW-END −0.8 [−1.4, −0.2]), its availability bound met only at the edge; the default is the owner's |
 
 **What "finished" means here.** Every row is CLOSED, PRESET, RECORDED, or a DECISION with its
 question stated. Open engineering is N.3. RESEARCH and CAMPAIGN rows
@@ -243,6 +243,19 @@ carried in these headers. **A7 item 3 is therefore not implemented and the gate 
 narrower than the work package asks.** The six-decibel defect that passed every check in
 the project was of the *indexing* kind, which G14 now catches; a *transcription* error in
 the values themselves would still pass.
+
+**2026-10-21, closed against the data sheets.** G93 now holds an independent transcription
+of each tier's data-sheet table and checks the engine's own accessor against it at the
+configured operating point: SX1280 Table 6-1 (tier 2), SX1262 Table 3-8 (tier 1, ±2 dB) and
+DW3000 Data Sheet v1.1 Table 9, channel 9 (tier 3). Tier 3 had mixed three DW3000 modes --
+frames billed at 6.81 Mb/s with a 128-symbol preamble, ranging integrated over 1024 symbols,
+and −99.3 dBm from the 850 kb/s row -- so it had no single row to check. `--uwbMode`
+(G164) puts billing, ranging and sensitivity on one row (6m8: 64 symbols, 6.81 Mb/s,
+−93.2 dBm; 850k: 1024 symbols, 850 kb/s, −99.3 dBm), the probe applies the same row
+(`Dw3000Table9Row`), and G93 passes tier 3 in both modes. Its fixture has seven tier-3
+directions, among them the code default's −104 dBm, the rows swapped, and the 6.8 Mb/s
+no-data row (−98.0 dBm), each of which fails. The `kTB + NF + SNR` derivation the work
+package asked for is not built; the data-sheet tables are the stronger reference.
 
 ### 2.5 Tier-1 CRLB — RESOLVED 2026-09-06, kept as a record
 `report/NOT_DONE_2026_09_05.md` listed **D-3 as Done** while `RULES.md:177` called the
@@ -4679,8 +4692,8 @@ the argument; "recorded" is not a reason on its own.
 |---|---|---|
 | 2.1 four loss terms computed then zeroed | kept computed, not summed; not deleted | Wiring them in adds four terms with no cited values (unvalidated physics) and forces a full regeneration. Deleting is not free either: the Doppler term draws from the sampler (`ComputeDopplerPenaltyDb(..., m_sampler)`), so removing it shifts the unkeyed stream of every default run. Neither moves A(25 m) toward the requirement. |
 | 3.2 the PCS hop term (weight 0) | kept | `hopWeight` stays 0 (RULES.md §2): σ_eff already carries the relay's covariance, so a hop term double-counts it. Deleting the multiply-by-zero changes no value. |
-| N.3 subjects' mobility state | not built | It has no consumer. The RECEDING push lives only in `StartHandshake`, which subjects never call (T3), so a subject's mobility state would change nothing. |
-| N.17 subject rx/CAD/idle buckets | not built | No claim or gate reads them, and adding columns changes every `subject_summary.csv`. Energy is judged per arm through subject J and the tier totals, which are complete. |
+| N.3 subjects' mobility state | **built 2026-10-21: `--subjectMobilityFromRange` (G166)**, with its consumer | The consumer is built with it: on escalation a subject runs `StartHandshake`, whose RECEDING branch is the push (40 handshakes, 11 pushes, 5 km, seed 6). |
+| N.17 subject rx/CAD/idle buckets | **built 2026-10-21: `--subjectEnergyBuckets` (G166)** | Output only, default off so every `subject_summary.csv` keeps its columns. G166 checks per subject and tier that tx + rx + cad + idle + sleep = j_tier (worst 2.2e-16 J). |
 | N.61 the magnetometer disturbance as a state | not committed | Measured not decisive: the 5 km heading failures persist under a consistent 3° reference. The patch no longer applies to HEAD, and rebasing buys nothing toward the requirement. |
 | N.58 `--ekf5Iterate` | stays off | Measured: worsens 5 km in the pilot; the failing cycles are not mis-linearised (N.62). |
 | N.33 FEJ / observability-constrained update | not built | Superseded by the window smoother, which solves heading, bias and scale jointly over the trajectory (N.62). |
@@ -4790,15 +4803,15 @@ A(25 m), seeds 121–140.
 
 | plan item | decision | reason |
 |---|---|---|
-| M.1(b) relay round in the event slice | not built | It moves the relay round's timing, not its content. No measured A(25 m) effect is attributed to the slice, and it needs its own null control and campaign. Ranked below anchor supply, the measured bottleneck (N.62). |
-| 3.5 anchor-pair CAD | not built | Gateways are fixed, surveyed and few (3), and their mutual hidden-terminal loss is not in any measured failure. Same ranking. |
-| item 23 GDOP-driven finder tasking | not built | Pairs is its simplest member, and ANCHOR-SUPPLY measures whether a second precise anchor per subject helps at all before geometry is optimised. Building the optimiser first would answer a question the data has not yet asked. |
-| item 24 finder beacons carry position (N.32) | not built | `--rangeReplyPosition` (preset, DESIGN_DECISIONS 10) already carries a finder's position on every range reply, so the ranging that matters already has it. |
-| item 25 subject-to-subject precise ranging | not built | It needs subjects within 2.4 GHz/UWB reach of one another, which the 5 km geometry rarely gives. Its population would be the one N.62 says is missing. |
-| item 27 `--caseAPreFuse` | not built | R.4: Case A is not starved by fusion order. Two-gateway cycles are rare in CA-TBL because better geometry is present. |
-| item 28 finders in grant gossip | not built | Finders already attach to queue gossip when `--gossipQueue` and mesh links are on (`GrantGossip`). The missing population is contention, which pairs supplies (R.4). |
-| Phase 9 N.3 `RunSubjectCycle` refactor | not done | A pure refactor moves no result. It touches every subject path, and its byte-identity proof would need every campaign reference regenerated while three campaigns run. It is scheduled after them, on a quiet tree. |
-| N.1, N.20 dead nodes neither relay nor draw (plan item 10) | not in the preset; used with the battery model | Both are refused without `--batteryDepleteJ > 0` (PRESET-2 Amendment 1). A preset without a battery model has no dead node for them to act on, so adopting them would be refused or inert. Fault campaigns pass them with `--batteryDepleteJ`, which is where they act. |
+| M.1(b) relay round in the event slice | **built 2026-10-21: `--relayRoundInSlice` (G166)** | Each engine's interference registry journals its registrations, and at the start of each round the transmissions overlapping the round's window are put back (never duplicated): endgame, seed 6, 34 983 put back over 240 rounds, arm summary moves. Default off; null control 17/17. *First cut on 2026-10-20 as timing-only.* |
+| 3.5 anchor-pair CAD | **built 2026-10-21: `--anchorPairCad` (G166)** | A gateway's CAD senses another gateway's frames on the anchor-pair link; reception stays closed. 8-gateway ring, seed 6, 300 s: 114 senses, 19 heard, 19 CAD decisions busy only because of them, and no outcome moved (arm summary and every delivered frame identical): the hidden-terminal loss between gateways is real and does not reach a result here. |
+| item 23 GDOP-driven finder tasking | **built 2026-10-21: `--finderTasking=need`, `--finderStaleSearch` (G165); measured, not adopted** | Exploratory pilot (5 km, 6 seeds), five-node A(25 m) against pairs 0.828: chasing reported sigma 0.701 (a subject's sigma is small while a finder is near it, so the finder leaves and it degrades), coverage-first 0.781, static pairs over subjects 0.846, stale-entry search 0.742 (a moving finder biases the subjects that range it). The 5 km gap was dissemination, not tasking (item 24). |
+| item 24 finder beacons carry position (N.32) | **built 2026-10-21: `--beaconCarriesEntry` (G165), widened to every node's beacon; registered campaign DISSEM** | The cut reason was about finder positions; the defect was the other direction. Finders steered on subject entries hundreds of seconds old because an entry travelled only in the digest round trip (a subject's beacon heard 181 times, the finder's digest heard 3). With beacons carrying the entry and only finders merging it, the steering entry's median age falls 115 → 10 s; pilot five-node 0.828 → 0.886. |
+| item 25 subject-to-subject precise ranging | **exists: `--subjectRelayChain` (preset, owner decision 2026-10-03, N.18)** | This row was wrong. A subject one range short of three ranges every node holding a fix, other subjects included, with the relay covariance: under the preset at 5 km, seed 6, 229 exchanges, 84 fused (76 at depth 1, 8 at depth 2). |
+| item 27 `--caseAPreFuse` | **built 2026-10-21 (G166)** | In a set of three or more with exactly two surveyed-gateway ranges, the pair is resolved as Case A against the propagated prior and fused once as a position; the rest take the full path without it. Endgame, seed 6, 900 s: 80 pre-fused node-cycles; the arm summary moves. Default off; null control 17/17. |
+| item 28 finders in grant gossip | **exists: NW-6 (`GrantGossip::AttachFinder`), on under the preset** | This row said "not built" and then described it. Under the preset (5 km, seed 6, 900 s) every GRANT_GOSSIP frame on the air (16) came from a finder. |
+| Phase 9 N.3 `RunSubjectCycle` refactor | done as a refactor (R.14); the behaviour half is owner decision O9 (option B, keep two pipelines) | Plan item 9, the narrow N.3 part (subjects' MAC 11.11 mobility state), **built 2026-10-21: `--subjectMobilityFromRange` (G166)**, with its consumer: on escalation a subject runs tag 0's MAC handshake, whose RECEDING branch is the eager push. 5 km, seed 6, 900 s: 40 handshakes, 11 RECEDING pushes. |
+| N.1, N.20 dead nodes neither relay nor draw (plan item 10) | **in the preset since 2026-10-21 (DESIGN_DECISIONS 24)** | Their "needs a fault" refusals became an "unused" NOTE, so the preset can carry them (G24 runs the preset's settings as plain flags). Fault-free preset runs are byte-identical; fault runs are corrected. |
 | N.51 subject overconfidence, N.57 selection bias (Phase 8) | **done 2026-10-21 (R.13)** | First measurement made (per-range E[z²] against the effective sigma), then NEGINFO registered and run: N.57 closes as a measured limit, and N.51's tail is a deployment answer (O11). This row first deferred them. |
 | N.29 harness self-collision | **already fixed** (`d6b6e122`, 2026-10-18) | This row first said "not done": wrong. The ledger's own N.29 entry records the fix; the status table's RECORDED was stale and is corrected. |
 | §6 build profile not enforced | **FIXED at citation, not at run time** | Every sidecar records the profile, and nothing checked it where a citation is accepted. G92 now fails a cited directory whose tracked sidecar records a profile other than `optimized` (`NOT_OPTIMIZED`, a fixture direction). A run-time FATAL would only stop runs that are never cited. 9 753 of 9 753 tracked sidecars are optimized. |

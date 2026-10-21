@@ -362,6 +362,13 @@ public:
     
     // Updates node position dynamically for correct distance and velocity tracking
     void UpdateNodePosition(uint32_t nodeId, Vector newPosition);
+    //! TECH_DEBT M.1(b), --relayRoundInSlice: journal the interference registry (see InterferenceSubmodule).
+    void SetInterferenceJournal(bool on) { if (m_interference) { m_interference->SetJournal(on); } }
+    //! Put back the journalled transmissions overlapping [from, to); returns how many.
+    uint32_t ReplayInterferenceJournal(Time from, Time to)
+    {
+        return m_interference ? m_interference->ReplayJournal(from, to) : 0u;
+    }
     
     // Explicitly sets node velocity and heading (for unit testing and static time simulation)
     void SetNodeVelocity(uint32_t nodeId, double velocityMps, double headingRad = 0.0);

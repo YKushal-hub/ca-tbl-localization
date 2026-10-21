@@ -65,6 +65,42 @@ void InterferenceSubmodule::RegisterActiveTransmission(
     t.rxGatewayId = rxGatewayId;
     t.isCanceled = false;
     m_activeRegistry.push_back(t);
+    if (m_journalOn)
+    {
+        m_journal.push_back(t);
+        while (!m_journal.empty() && m_journal.front().endTime + Seconds(10.0) < startTime)
+        {
+            m_journal.pop_front();
+        }
+    }
+}
+
+uint32_t
+InterferenceSubmodule::ReplayJournal(Time from, Time to)
+{
+    uint32_t n = 0;
+    for (const ActiveTransmission& j : m_journal)
+    {
+        if (!(j.startTime < to && j.endTime > from))
+        {
+            continue;
+        }
+        bool present = false;
+        for (const ActiveTransmission& a : m_activeRegistry)
+        {
+            if (a.txNodeId == j.txNodeId && a.rxGatewayId == j.rxGatewayId && a.startTime == j.startTime)
+            {
+                present = true;
+                break;
+            }
+        }
+        if (!present)
+        {
+            m_activeRegistry.push_back(j);
+            ++n;
+        }
+    }
+    return n;
 }
 
 void InterferenceSubmodule::NotifySuccessfulDecode(uint32_t txNodeId, uint32_t rxGatewayId, double decodedPowerDbm) {

@@ -1794,7 +1794,7 @@ finish G92
 # from that wrong origin (~3 dB at 1625 kHz). scratch/ca_tbl_sensitivity_probe.cc calls each
 # engine's own GetSensitivityThreshold() (re-derives nothing); scripts/
 # sensitivity_fidelity_check.py holds Table 6-1 and Table 3-8, sharing no code with it.
-# Fixture first (seven directions). Then the default, which is FAIL BY FINDING until the D-8
+# Fixture first (fourteen directions; seven for tier 3, DW3000 Table 9 by --uwbMode). Then the default, which is FAIL BY FINDING until the D-8
 # campaign is decided -- and two corrected configurations, which MUST pass: if the
 # correction itself is broken that is an ERROR, not the expected red.
 # Ported from the local line (G19 there); docs/LOCAL_LINE_INTEGRATION.md.
@@ -1810,11 +1810,15 @@ else
         python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row.csv" scratch/ca_tbl_causal_sim.cc > "$WORK/g93_row.txt" || G93_OK=0
     "$G93_BIN" --t2SensitivityRowKHz=1625 --bw2p4=1625000 > "$WORK/g93_row1625.csv" 2>/dev/null &&
         python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_row1625.csv" scratch/ca_tbl_causal_sim.cc --bw2p4 1625000 > "$WORK/g93_row1625.txt" || G93_OK=0
+    for m in 6m8 850k; do  # tier 3 in each --uwbMode, against DW3000 Table 9 (TECH_DEBT 2.4)
+        "$G93_BIN" --t2SensitivityRowKHz=812.5 --uwbMode=$m > "$WORK/g93_uwb_$m.csv" 2>/dev/null &&
+            python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_uwb_$m.csv" scratch/ca_tbl_causal_sim.cc --uwbMode $m > "$WORK/g93_uwb_$m.txt" || G93_OK=0
+    done
     if [ "$G93_OK" -ne 1 ]; then
-        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" 2>/dev/null
+        cat "$WORK/g93_row.txt" "$WORK/g93_row1625.txt" "$WORK"/g93_uwb_*.txt 2>/dev/null
         gerror G93 "the D-8 correction does not pass the data-sheet check -- the fix is broken"
     else
-        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4)\n'
+        printf 'the D-8 correction passes at 812.5 kHz and at 1625 kHz (--bw2p4); tier 3 passes in --uwbMode 6m8 and 850k\n'
         "$G93_BIN" > "$WORK/g93_default.csv" 2>/dev/null || gerror G93 "probe exited non-zero"
         if ! python3 scripts/sensitivity_fidelity_check.py "$WORK/g93_default.csv" scratch/ca_tbl_causal_sim.cc; then
             printf '\n  G93 is FAIL BY FINDING: tier 2 applies the 1625 kHz row at 800 kHz (D-8)\n'
@@ -1964,6 +1968,34 @@ printf '\n--- G163 the integrity check as a switch (--integrityCheck) ---\n'
 bash scripts/integrity_check_gate.sh "$WORK/g163" || fail G163
 bash scripts/integrity_check_gate_selftest.sh "$WORK/g163" || fail G163
 finish G163
+
+# ---------------- G164: --uwbMode, tier 3 on one DW3000 Table 9 row (TECH_DEBT 2.4)
+# scripts/uwb_mode_gate.py: 6m8 and 850k move only UWB's sensitivity, by the row against -104 dBm; the ranging
+# integrates the row's preamble; the billed 20-byte frame equals the 802.15.4z closed form for the row; legacy is the
+# flag absent byte for byte; an unknown mode or a mode with an explicit --uwbSensitivityDbm is refused.
+printf '\n--- G164 the DW3000 operating mode (--uwbMode) ---\n'
+bash scripts/uwb_mode_gate.sh "$WORK/g164" || fail G164
+bash scripts/uwb_mode_gate_selftest.sh "$WORK/g164" || fail G164
+finish G164
+
+# ---------------- G165: finder dissemination and tasking (plan items 23, 23b, 24)
+# scripts/finder_dissem_gate.py: --beaconCarriesEntry puts the sender's entry on DISCOVERY, finders merge it and no
+# other radio does, and the entry a finder steers on is fresher; --digestOwnFirst answers with the responder's own
+# entry; --finderTasking=need gives every subject but tag 0 a finder at dispatch; --finderStaleSearch circles a last
+# known position; all four absent are byte-identical; an unknown tasking is refused.
+printf '\n--- G165 finder dissemination and tasking ---\n'
+bash scripts/finder_dissem_gate.sh "$WORK/g165" || fail G165
+bash scripts/finder_dissem_gate_selftest.sh "$WORK/g165" || fail G165
+finish G165
+
+# ---------------- G166: five items cut on 2026-10-20, built 2026-10-21 (N.17, 3.5, N.3, M.1(b); plan items 9, 27)
+# scripts/cut_items_gate.py: subject energy buckets close on j_tier; Case A pre-fusion is taken and moves the result;
+# gateways' CAD senses each other and decides some CADs; subjects classify mobility and push on RECEDING; the relays'
+# round meets the MAC frames of its window and the result moves; all five absent are byte-identical; two refusals.
+printf '\n--- G166 cut items built (subject buckets, Case A pre-fuse, anchor-pair CAD, subject mobility, round in slice) ---\n'
+bash scripts/cut_items_gate.sh "$WORK/g166" || fail G166
+bash scripts/cut_items_gate_selftest.sh "$WORK/g166" || fail G166
+finish G166
 
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the

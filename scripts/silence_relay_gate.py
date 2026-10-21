@@ -5,7 +5,7 @@ usage: silence_relay_gate.py <dir written by scripts/silence_relay_gate.sh>
 
 Runs read: on/ and off/ (G34's regime: seed 7, 900 s, a 3 J battery, triggered updates,
 the event log), sil/ (node 1 mute from 300 to 600 s under --injectSilentId, the flag on),
-r_none (refusal: neither fault).
+r_none (neither fault: unused, with a NOTE; DESIGN_DECISIONS 24).
 
 What a firing looks like on disk: events_ca_tbl_full_seed7.csv has one row per frame per
 receiver, with the transmitter (txId) and the frame's remaining hop limit (hops= in the
@@ -27,7 +27,7 @@ Checks (each prints "G70 ok|FAIL|MISSING <LABEL> ..."):
   SIL      sil/: no row with txId 1 in (300 + MARGIN, 600); node 1 transmits again after
            600 (the fault ends); relays refused > 0.
   CONTROL  off/: no N.1 line.
-  R        the refusal exits 1 with the reason.
+  R        with neither fault the run exits 0 and prints that the flag is unused.
 """
 import csv
 import os
@@ -129,7 +129,9 @@ def main():
     ol = refused(d, "off")
     report(ol is None, "CONTROL", f"off/: N.1 line {ol is not None} (need False)")
     t = read(os.path.join(d, "r_none.log")) or ""
-    report(rc(d, "r_none") == 1 and "--silenceStopsRelay needs" in t, "R", f"neither fault: exit {rc(d, 'r_none')} (need 1)")
+    # DESIGN_DECISIONS 24: with neither fault the flag is unused, not refused, and says so
+    report(rc(d, "r_none") == 0 and "NOTE: --silenceStopsRelay unused" in t, "R",
+           f"neither fault: exit {rc(d, 'r_none')} (need 0 with the unused NOTE)")
     print(f"  G70: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1
 

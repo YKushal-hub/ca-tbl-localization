@@ -5,6 +5,29 @@
 
 namespace ns3 {
 
+bool
+Dw3000Table9Row(const std::string& mode,
+                uint32_t& preambleSymbols,
+                double& dataRateBps,
+                double& sensitivityDbm)
+{
+    if (mode == "6m8")
+    {
+        preambleSymbols = 64;
+        dataRateBps = 6.81e6;
+        sensitivityDbm = -93.2;
+        return true;
+    }
+    if (mode == "850k")
+    {
+        preambleSymbols = 1024;
+        dataRateBps = 850e3;
+        sensitivityDbm = -99.3;
+        return true;
+    }
+    return false;
+}
+
 double
 UwbNlosProbabilityInfSl(double d2DM)
 {
