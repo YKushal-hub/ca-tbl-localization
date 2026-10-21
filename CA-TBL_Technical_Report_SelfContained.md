@@ -368,6 +368,13 @@ binary is rebuildable from a named commit.
 that baseline's own sidecar. Default flags do **not** reproduce it — a property worth
 stating, because it reads as a reproduction failure when it is a flag-set difference.
 
+**Later baselines.** `results/baseline_v8` to `results/baseline_v11` (newest: `baseline_v11`, 2026-09-08, clean tree
+at `51a2e5e`, profile optimized) are the null-control and gate references. Each runs at a pinned flag set
+(`--nlosSource=propagation --arbitrateDutyBudget=true --pcsForm=legacy`, in its sidecar) and describes the build of
+its own commit. They are not re-claimed here as reproducing on the current tree: code defaults changed after them
+(`--gatewayEdgeServer`, DESIGN_DECISIONS 16's box). Since 2026-10-18 the byte-identity anchors are the null controls
+(NC1–9 and the preset cases, `~/ns/catbl-work/nc_*/nc.sh`) and G6's `results/causal_v12`.
+
 **Mechanism-aware degeneracy screening.** One seed is run and screened before twenty
 are spent. "Degenerate" is meaningful only relative to a named mechanism — `tiering`,
 `integrity`, `trigger`, `energy` — and the tool refuses a single verdict without one.
