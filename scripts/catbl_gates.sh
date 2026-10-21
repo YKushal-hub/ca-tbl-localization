@@ -2006,6 +2006,14 @@ bash scripts/oracle_esc_gate.sh "$WORK/g167" || fail G167
 bash scripts/oracle_esc_gate_selftest.sh "$WORK/g167" || fail G167
 finish G167
 
+# ---------------- G168: --tdoaToaScale, TDOA-TIMING's mechanism (report/PREREG_TDOA_TIMING.md)
+# scripts/tdoa_timing_gate.py: --tdoaToaScale=1 is byte-identical to the flag absent; 0.01 with --tdoaPpsSigmaNs=0 is
+# announced and collapses static_868's tier-1 TDoA error below a tenth; 0 is refused.
+printf '\n--- G168 TDoA arrival-time scale ---\n'
+bash scripts/tdoa_timing_gate.sh "$WORK/g168" || fail G168
+bash scripts/tdoa_timing_gate_selftest.sh "$WORK/g168" || fail G168
+finish G168
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
