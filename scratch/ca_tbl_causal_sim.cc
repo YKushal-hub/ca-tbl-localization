@@ -16094,7 +16094,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // FIDELITY-1's registered adoption rule (report/PREREG_FIDELITY1.md; G161 green, null control 13/13), which does
     // not read the campaign: the two receiver corrections join together, since each alone moves tier 3 by 5-6 dB.
     // Every result before this commit reproduces with --uwbSensitivityDbm=-104 --iqOverloadOnly=false given.
-    {"uwbSensitivityDbm", "-99.3", "TECH_DEBT 2.4 / R.3: tier 3 at the DW3000 data sheet's sensitivity, not our -104 dBm"},
+    // DESIGN_DECISIONS 23 (UWB-MODE, report/PREREG_UWB_MODE.md, registered rule): tier 3 bills, ranges and decodes on
+    // ONE DW3000 Table 9 row, 850 kb/s with a 1024-symbol preamble at -99.3 dBm -- the sensitivity DD 18 already set,
+    // now with the frames and ranging of the same mode. Earlier preset results reproduce with --uwbMode=legacy
+    // --uwbSensitivityDbm=-99.3.
+    {"uwbMode", "850k", "DD 23 / TECH_DEBT 2.4: tier 3 on DW3000 Table 9's 850 kb/s row (billing, ranging and -99.3 dBm sensitivity)"},
     {"iqOverloadOnly", "true", "TECH_DEBT R.2: the IQ degradation reaches rx power only under ADC overload; a data-sheet sensitivity already contains the receiver's impairments (DESIGN_DECISIONS 18)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 20, sect 2a of the open-decisions record): the preset IS the
     // realistic world every campaign since REAL-BEST passed by hand. Earlier preset results reproduce with these
@@ -20677,8 +20681,9 @@ main(int argc, char* argv[])
         // (preamble and data rate), what the ranging integrates (the preamble), and what is decodable.
         if (explicitFlags.count("uwbSensitivityDbm"))
         {
-            std::cerr << "FATAL: --uwbMode sets tier 3's sensitivity from the data sheet's row; do not also give "
-                         "--uwbSensitivityDbm\n";
+            std::cerr << "FATAL: --uwbMode=" << uwbModeArg << " sets tier 3's sensitivity from the data sheet's row; "
+                         "do not also give --uwbSensitivityDbm (the preset sets --uwbMode=850k; give --uwbMode=legacy "
+                         "to set the sensitivity by hand)\n";
             return 1;
         }
         uint32_t uwbPreamble = 0;

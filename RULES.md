@@ -207,8 +207,8 @@ line in each script).
 - DD 14: `--rssiSigmaLogNormal`.
 - DD 15: `--imuQuScale=30` (campaigns no longer pass it).
 - Provenance (T39): `--stampBinaryHash --stampBuildCommit`. They change `run_id.txt` only.
-- DD 18 (2026-10-20, FIDELITY-1's rule): `--uwbSensitivityDbm=-99.3 --iqOverloadOnly`. Pin back with
-  `--uwbSensitivityDbm=-104 --iqOverloadOnly=false`.
+- DD 18 (2026-10-20, FIDELITY-1's rule): `--iqOverloadOnly`, and tier 3 at −99.3 dBm, carried since DD 23 by
+  `--uwbMode`. Pin back as DESIGN_DECISIONS 18 lists.
 - DD 20 (2026-10-21, owner): the realistic world, `--imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider
   --ekf5RelayGate --unknownStart --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2
   --fixedVarThreshold=12`. Pin back with the code defaults (DESIGN_DECISIONS 20 lists them).
@@ -219,6 +219,12 @@ line in each script).
   with `--integrityCheck=true`.
 - DD 22 (2026-10-21, owner): `--nFinders=8 --finderTasking=pairs` (were 4, roundrobin). Pin back with
   `--nFinders=4 --finderTasking=roundrobin`.
+- DD 23 (2026-10-21, UWB-MODE's registered rule): `--uwbMode=850k`, tier 3 billed, ranged and decoded on DW3000
+  Table 9's 850 kb/s row. Pin back as DESIGN_DECISIONS 23 lists.
+- DD 24 (2026-10-21): `--silenceStopsRelay --deadBatteryNoDraw`; fault runs only. Pin back with
+  `--silenceStopsRelay=false --deadBatteryNoDraw=false`.
+
+`scripts/preset_pins.sh` holds the pin for every 2026-10-21 change (DD 19–24) in one line, `PIN_PRE_DD19`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

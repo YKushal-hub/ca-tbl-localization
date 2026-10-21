@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # G164 runner: --uwbMode (DW3000 Data Sheet v1.1 Table 9). Checks in scripts/uwb_mode_gate.py.
 # p_leg/p_6m8/p_850  the probe with --probeNominalMargin in each mode (UWB sensitivity and ranging gain)
-# e_leg/e_6m8/e_850  the endgame preset, seed 7, 300 s, ca_tbl_full, --reportAirtime (UWB frames billed)
+# e_leg/e_6m8/e_850  the endgame preset, seed 7, 300 s, ca_tbl_full, --reportAirtime (UWB frames billed); e_leg
+#                    pins the preset before DESIGN_DECISIONS 23, e_850 is the preset as it stands
 # def/leg            code defaults, 300 s, flag absent and given legacy: byte-identical
 # r_*                refusals: an unknown mode; a mode with an explicit --uwbSensitivityDbm
 set -u
@@ -14,11 +15,11 @@ run p_leg --probe=true --probeNominalMargin=true &
 run p_6m8 --probe=true --probeNominalMargin=true --uwbMode=6m8 &
 run p_850 --probe=true --probeNominalMargin=true --uwbMode=850k &
 # shellcheck disable=SC2086
-run e_leg $E &
+run e_leg $E --uwbMode=legacy --uwbSensitivityDbm=-99.3 &
 # shellcheck disable=SC2086
 run e_6m8 $E --uwbMode=6m8 &
 # shellcheck disable=SC2086
-run e_850 $E --uwbMode=850k &
+run e_850 $E &
 run def --seed=7 --trace=true --duration=300 --arms=ca_tbl_full &
 run leg --seed=7 --trace=true --duration=300 --arms=ca_tbl_full --uwbMode=legacy &
 wait

@@ -490,6 +490,29 @@ that meets it for tag 0.
 
 **Reproducing earlier preset results:** give `--nFinders=4 --finderTasking=roundrobin`.
 
+## 23. Tier 3 runs one DW3000 mode: 850 kb/s, 1024-symbol preamble (UWB-MODE, registered rule, 2026-10-21)
+**What.** `--uwbMode=850k` replaces `--uwbSensitivityDbm=-99.3` in `kSpecProfile`.
+
+**Why a change was owed.** Tier 3 mixed three DW3000 modes (TECH_DEBT 2.4). Frames were billed at 6.81 Mb/s with a
+128-symbol preamble. Ranging integrated 1024 symbols. The sensitivity, from DD 18, was the 850 kb/s row (−99.3 dBm).
+The model billed a frame the receiver it described could not decode at that sensitivity. `--uwbMode` (G164) puts all
+three on one row of DW3000 Data Sheet v1.1 Table 9, and G93 now checks that row against the data sheet.
+
+**Why 850k** (`report/PREREG_UWB_MODE.md`, seeds 261–280, 180 cells). The owner asked to run both consistent modes
+and adopt the better one. The rule was registered before any cell. Steps 1–3 (availability) did not separate the
+modes. Step 4 did: **850k's subject energy is lower than 6m8's by 0.65 J [0.30, 1.03] in the endgame.** The extra
+6.1 dB of sensitivity and 12 dB of ranging gain save more than 850k's 10.4× frame airtime costs, because tier-3
+frames are a negligible share of the bill.
+
+**The size of the correction against the old preset (L):** none measurable. CA-TBL endgame five-node
++0.014 [−0.002, 0.038], 5 km and ring within ±0.001, subject J −0.19 J [−0.69, 0.32].
+
+**Choosing by performance is legitimate here, unlike DD 18.** The DW3000's mode is configured by the engineer
+deploying it, not given by the world. Legacy was not a candidate: it was inconsistent.
+
+**Reproducing earlier preset results:** give `--uwbMode=legacy --uwbSensitivityDbm=-99.3`
+(`scripts/preset_pins.sh` carries it).
+
 ## 24. Two fault-path corrections enter the preset (plan item 10, 2026-10-21)
 **What.** `--silenceStopsRelay=true` (TECH_DEBT N.1) and `--deadBatteryNoDraw=true` (N.20) in `kSpecProfile`.
 
