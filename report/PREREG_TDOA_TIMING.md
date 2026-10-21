@@ -80,3 +80,49 @@ The null control in `22af153e`'s message is a precondition and has passed.
   rest of CA-TBL can turn into availability.
 - **Three gateways only.** More gateways would make TDoA solves frequent.
 - **No hardware is added.** Both proposals' own hardware claims are not assessed.
+
+# RESULT — after the registration above (`c6f3b4ad`)
+
+**Run.** Launched 2026-10-21T21:05:16Z from `c6f3b4ad`, dirty 0, and done at 21:47:07Z:
+- 160 of 160 cells, every `rc` 0, one source, every section 5 check passed;
+- scored once (`results/tdoa_timing_2026-10-21/TDOA_TIMING.md`).
+
+**Housekeeping.** As in ORACLE-ESC: each cell was verified against its `run_id.txt` digest, then the files the
+analysis does not read were deleted (`results/tdoa_timing_2026-10-21/prune_cells.py`, `prune.log`: 160 verified).
+
+## Registered verdicts (ca_tbl_full, five-node A(25 m), paired 95 %)
+
+| contrast | 5 km | endgame |
+|---|---|---|
+| SYNC (S0 − L) | **NONE**, +0.001 [−0.000, +0.002] | **NONE**, −0.000 [−0.001, +0.000] |
+| TIMING (T0 − L) | **NONE**, −0.015 [−0.037, −0.001] | **NONE**, −0.001 [−0.004, +0.000] |
+| TDOA VALUE (L − N) | **NONE**, +0.006 [−0.000, +0.016] | **NONE**, +0.000 [−0.001, +0.002] |
+
+ca_tbl_full's tag 0 is unchanged by any configuration: 0.969 and 0.997.
+
+## static_868 (reported, no registered verdict)
+
+| contrast | endgame five-node | endgame tag-0 A(25 m) | endgame tag-0 CEP95 | endgame five-node J | 5 km |
+|---|---|---|---|---|---|
+| TIMING (T0 − L) | +0.074 [+0.032, +0.117] | +0.198 [+0.096, +0.303] | −37.8 m | **+4.57 J [+3.69, +5.33]** | +0.021 [+0.000, +0.047] |
+| TDOA VALUE (L − N) | +0.153 | +0.607 | −147.3 m | — | — |
+
+The energy rise under T0 is not explained here.
+
+## Predictions
+
+| prediction | outcome |
+|---|---|
+| D1 | Holds |
+| D2 | Holds |
+| D3 | Holds |
+
+## Reading
+
+1. **Better tier-1 timing would help an 868 MHz-only system** in the endgame (static_868: TIMING and TDOA VALUE
+   both clear their intervals).
+2. **It does nothing for CA-TBL.** CA-TBL takes its accuracy from 2.4 GHz time of flight, and its tag 0 does not
+   move. So neither nanosecond gateway sync nor two-pass CFO/STO refinement is worth pursuing for CA-TBL as
+   configured, with three gateways.
+3. **One adverse interval, unexplained.** At 5 km, TIMING for ca_tbl_full lies below 0. Not tested: the solver is
+   given a 1 % sigma while τ_nlos stays, so TDoA fixes may become overconfident.
