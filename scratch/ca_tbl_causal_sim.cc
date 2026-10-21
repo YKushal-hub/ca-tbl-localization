@@ -6656,6 +6656,8 @@ struct SpecOptions
     //! MS-1. --finderTasking: "" or "tag0" (every finder searches for tag 0), or
     //! "roundrobin" (finder k for subject (k mod N) + 1).
     std::string finderTasking;
+    //! Plan item 23b. --finderStaleSearch: a finder whose steering entry is stale searches around it.
+    bool finderStaleSearch = false;
     //! NW-3. --queryTierBinding: "" (not given) and "first" bind every tier's query driver
     //! to the first anchor MAC -- gateway 101's 868 MHz radio; "per-tier" binds each to
     //! that tier's radio. Given explicitly, either value prints the binding.
@@ -7929,6 +7931,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 gossip->AttachFinder(static_cast<uint16_t>(fid), tier, fm); // NW-6
             }
+            fm->SetMergesBeaconEntries(true); // --beaconCarriesEntry: finders steer on entries
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
             if (ti == 0)
@@ -9091,7 +9094,15 @@ RunArm(CaTblPolicyMode mode,
     // N.62 --finderTasking=pairs: finders 2k and 2k+1 search for the same subject, (k mod N) + 1, so a subject a
     // pair reaches has two precise anchors instead of one.
     const bool taskPairs = (spec.finderTasking == "pairs");
-    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs;
+    // Plan item 23 --finderTasking=need: the finders are spread over the subjects that need them most, re-decided
+    // every kNeedPeriodS from each finder's own table (below, before the finder loop).
+    const bool taskNeed = (spec.finderTasking == "need");
+    const bool taskRR = (spec.finderTasking == "roundrobin") || taskPairs || taskNeed;
+    std::vector<uint32_t> needTaskK(nFinders, 0), needGrpI(nFinders, 0), needGrpN(nFinders, 1);
+    std::vector<uint64_t> needSwitches(nFinders, 0);
+    std::vector<double> needBlindSince;
+    double needNextS = 0.0;
+    uint64_t staleSearchCycles = 0; // plan item 23b, --finderStaleSearch
     std::unique_ptr<std::ofstream> taskLog;
     std::vector<uint64_t> taskSweep, taskConverge, taskBlind;
     if (taskRR)
@@ -10015,13 +10026,102 @@ RunArm(CaTblPolicyMode mode,
             }
             *taskLog << ',' << gx << ',' << gy << '\n';
         };
+        // Plan item 23, --finderTasking=need. Coverage first, then hold. At dispatch the finders are dealt round-robin
+        // starting from subject 1, so every subject has a finder and tag 0, which has the most anchors of its own,
+        // takes what is left (pairs gives it two and the fifth subject none). A finder then KEEPS its subject while
+        // its own table holds that subject's entry: chasing reported sigma oscillates, because a subject's sigma is
+        // small exactly while a finder is near it (exploratory pilot, seed 3: five-node 0.91 -> 0.40). Only a finder
+        // whose target's entry has been absent from its table for kNeedBlindS is re-dealt: to the subject it DOES
+        // hear that has the fewest finders, ties to the larger need (reported sigma plus kNeedDriftMps of entry age).
+        // A finder decides from its own table and the finder counts; nothing coordinates them. No random draws.
+        // kNeedBlindS and kNeedDriftMps are OURS.
+        if (taskNeed)
+        {
+            constexpr double kNeedBlindS = 60.0;
+            constexpr double kNeedDriftMps = 1.0;
+            const size_t nF = finderWalkers.size();
+            const uint32_t nS = spec.measuredSubjects;
+            if (needNextS == 0.0)
+            {
+                for (size_t f = 0; f < nF; ++f)
+                {
+                    needTaskK[f] = 1u + static_cast<uint32_t>((f / 2) % (nS - 1));
+                }
+                needNextS = -1.0; // dealt
+                needBlindSince.assign(nF, -1.0);
+            }
+            std::vector<uint32_t> count(nS, 0);
+            for (size_t f = 0; f < nF; ++f)
+            {
+                ++count[needTaskK[f]];
+            }
+            for (size_t me = 0; me < nF; ++me)
+            {
+                if (me >= finderMac.size() || finderMac[me] == nullptr)
+                {
+                    continue;
+                }
+                CaTblTableEntry cur;
+                const bool heard =
+                    finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
+                if (heard)
+                {
+                    needBlindSince[me] = -1.0;
+                    continue;
+                }
+                if (needBlindSince[me] < 0.0)
+                {
+                    needBlindSince[me] = t;
+                }
+                if (t - needBlindSince[me] < kNeedBlindS)
+                {
+                    continue;
+                }
+                int bestK = -1;
+                uint32_t bestC = 0;
+                double bestNeed = 0.0;
+                for (uint32_t k = 0; k < nS; ++k)
+                {
+                    CaTblTableEntry te;
+                    if (k == needTaskK[me] ||
+                        !(finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
+                    {
+                        continue;
+                    }
+                    const double need = std::sqrt(std::max(0.0, te.varX + te.varY)) +
+                                        kNeedDriftMps * std::max(0.0, t - te.timestampS);
+                    if (bestK < 0 || count[k] < bestC || (count[k] == bestC && need > bestNeed))
+                    {
+                        bestK = static_cast<int>(k);
+                        bestC = count[k];
+                        bestNeed = need;
+                    }
+                }
+                if (bestK >= 0)
+                {
+                    --count[needTaskK[me]];
+                    needTaskK[me] = static_cast<uint32_t>(bestK);
+                    ++count[needTaskK[me]];
+                    ++needSwitches[me];
+                    needBlindSince[me] = -1.0;
+                }
+            }
+            // The spread over the finders that share a subject, as pairs (a quarter turn when there are two).
+            std::vector<uint32_t> seen(nS, 0);
+            for (size_t f = 0; f < nF; ++f)
+            {
+                needGrpI[f] = seen[needTaskK[f]]++;
+                needGrpN[f] = count[needTaskK[f]];
+            }
+        }
         for (size_t fi = 0; fi < finderWalkers.size(); ++fi)
         {
             Vector fp;
             // MS-1. The subject this finder searches for: tag 0, or under roundrobin
             // subject (fi mod N) + 1. The assignment rule is OURS.
             const uint32_t taskK =
-                taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
+                taskNeed ? needTaskK[fi]
+                : taskPairs ? static_cast<uint32_t>((fi / 2) % spec.measuredSubjects)
                           : (taskRR ? static_cast<uint32_t>(fi % spec.measuredSubjects) : 0u);
             const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
             CaTblTableEntry taskTe;
@@ -10190,22 +10290,46 @@ RunArm(CaTblPolicyMode mode,
                         // MS-1: under roundrobin the spread is over the finders tasked
                         // to the same subject, finder fi being the (fi / N)-th of them.
                         const uint32_t grpN =
-                            taskPairs ? 2u
+                            taskNeed ? needGrpN[fi]
+                            : taskPairs ? 2u
                                       : (taskRR ? (nFinders - taskK + spec.measuredSubjects - 1) /
                                                       spec.measuredSubjects
                                                 : nFinders);
-                        const size_t grpI = taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
+                        const size_t grpI = taskNeed ? needGrpI[fi]
+                                            : taskPairs ? fi % 2 : (taskRR ? fi / spec.measuredSubjects : fi);
                         if (finderDispersal > 0.0 && grpN > 1)
                         {
                             const double sx = std::sqrt(std::max(te.varX, 0.0));
                             const double sy = std::sqrt(std::max(te.varY, 0.0));
                             // Under pairs the two are a quarter turn apart, not opposite: two anchors on one line
                             // through the target leave the cross-line direction unobserved.
-                            const double th = taskPairs ? 0.5 * M_PI * static_cast<double>(grpI)
+                            const double th = (taskPairs || (taskNeed && grpN == 2))
+                                                  ? 0.5 * M_PI * static_cast<double>(grpI)
                                                         : 2.0 * M_PI * static_cast<double>(grpI) /
                                                               static_cast<double>(grpN);
                             gx += finderDispersal * sx * std::cos(th);
                             gy += finderDispersal * sy * std::sin(th);
+                        }
+                        // Plan item 23b, --finderStaleSearch. An entry older than kStaleSearchS is a LAST KNOWN
+                        // POSITION, not a position: the subject has walked on, and a finder parked on the point is
+                        // parked out of range (preset 5 km, seed 6: finder 504 1 090-1 210 m from its subject for the
+                        // whole run, its entry frozen at t = 690 s, at the edge of 868 MHz reach). It circles the
+                        // point instead, on a radius the subject could have covered since, kStaleDriftMps times the
+                        // entry's age, between 50 m and kStaleMaxM, advancing its bearing at 0.4 of walking speed
+                        // like MODE 2's sweep. Finders sharing a subject start evenly spread round the circle. A fresh
+                        // entry ends it. kStaleSearchS, kStaleDriftMps, kStaleMaxM are OURS; no random draws.
+                        if (spec.finderStaleSearch && (t - te.timestampS) > 120.0)
+                        {
+                            constexpr double kStaleDriftMps = 0.5;
+                            constexpr double kStaleMaxM = 1500.0;
+                            const double r =
+                                std::min(kStaleMaxM, std::max(50.0, kStaleDriftMps * (t - te.timestampS)));
+                            const double th = 2.0 * M_PI * static_cast<double>(grpI) /
+                                                  static_cast<double>(std::max<uint32_t>(1, grpN)) +
+                                              0.4 * finderSpeedMps * t / r;
+                            gx = te.x + r * std::cos(th);
+                            gy = te.y + r * std::sin(th);
+                            ++staleSearchCycles;
                         }
                     }
                 }
@@ -14830,15 +14954,27 @@ RunArm(CaTblPolicyMode mode,
     {
         taskLog->close();
         std::ostringstream line;
-        line << (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):");
+        line << (taskNeed ? "    MS-1 tasking (need):"
+                          : (taskPairs ? "    MS-1 tasking (pairs):" : "    MS-1 tasking (roundrobin):"));
         for (size_t fi = 0; fi < taskSweep.size(); ++fi)
         {
             line << " finder " << finderIds[fi] << " -> subject "
-                 << tags[taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects].nodeId
-                 << " sweep " << taskSweep[fi]
+                 << tags[taskNeed ? needTaskK[fi]
+                                  : (taskPairs ? (fi / 2) % spec.measuredSubjects : fi % spec.measuredSubjects)]
+                        .nodeId;
+            if (taskNeed)
+            {
+                line << " (last; switches " << needSwitches[fi] << ")";
+            }
+            line << " sweep " << taskSweep[fi]
                  << " converge " << taskConverge[fi] << " blind " << taskBlind[fi] << ";";
         }
         std::cout << line.str() << "\n";
+    }
+    if (spec.finderStaleSearch)
+    {
+        std::cout << "    stale-entry search (" << CaTblPolicyModeName(mode) << "): " << staleSearchCycles
+                  << " finder-cycles circled a last known position\n";
     }
     res.escalations = policy.GetEscalationCount();
     res.deescalations = policy.GetDeescalationCount();
@@ -15208,6 +15344,29 @@ RunArm(CaTblPolicyMode mode,
             flood += macs[i].GetResponsesFlooded();
             digPush += macs[i].GetDigestPushes();
             digNoOp += macs[i].GetDigestNoOps();
+        }
+        if (CaTblMac::BeaconCarriesEntry())
+        {
+            uint64_t bm = 0, bi = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                bm += macs[i].GetBeaconMerges();
+                bi += macs[i].GetBeaconIgnored();
+            }
+            std::cout << "    beacon entries (" << CaTblPolicyModeName(mode) << "): " << bm
+                      << " merged by finders from DISCOVERY beacons; " << bi << " heard by other radios, not merged\n";
+        }
+        if (CaTblMac::DigestOwnFirst())
+        {
+            uint64_t own = 0, skips = 0;
+            for (size_t i = 0; i < macs.size(); ++i)
+            {
+                own += macs[i].GetDigestOwnPushes();
+                skips += macs[i].GetDigestFullSkips();
+            }
+            std::cout << "    digest own-first (" << CaTblPolicyModeName(mode) << "): " << digPush
+                      << " digest answers, " << own << " of them the responder's own entry; " << skips
+                      << " entries missing from a full digest not sent\n";
         }
         uint64_t suppressed = 0;
         for (size_t i = 0; i < macs.size(); ++i)
@@ -16348,6 +16507,8 @@ main(int argc, char* argv[])
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     std::string uwbModeArg = "legacy"; // --uwbMode
+    bool digestOwnFirstArg = false;    // --digestOwnFirst
+    bool beaconCarriesEntryArg = false; // --beaconCarriesEntry
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
     double imuStrideSigmaPctArg = 0.0;   // DC-1 stride noise; see --imuStrideSigmaPct
     double imuMagSigmaDegArg = 0.0;      // magnetometer; see --imuMagSigmaDeg
@@ -18817,8 +18978,52 @@ main(int argc, char* argv[])
                  "finders 2k and 2k+1 both search for subject (k mod N) + 1, dispersed a quarter turn apart, so a "
                  "subject a pair reaches has two precise anchors whose ranges cross. Why: under roundrobin each "
                  "subject has at most one finder, hence one precise anchor -- one circle, whose two sides the "
-                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m).",
+                 "868 MHz ranges cannot tell apart (N.62's seed 5: 420 m on the mirror side at sigma 10 m). need "
+                 "(plan item 23): coverage first, then hold -- finders dealt round-robin from subject 1, so every "
+                 "subject has one and tag 0 takes what is left; a finder keeps its subject while its table holds the "
+                 "subject's entry, and only one blind for 60 s moves, to the heard subject with the fewest finders. "
+                 "Why: pairs is fixed by index, so with 8 finders and 5 subjects it gives tag 0 (the best-localised "
+                 "node) two finders and the fifth subject none, and a finder tasked to a subject whose entry never "
+                 "reaches it stands still for the whole run (preset 5 km, seed 261: two of eight finders blind 720 of "
+                 "720 cycles). Chasing reported sigma instead oscillates (a subject's sigma is small while a finder is "
+                 "near it). The 60 s and the rule are OURS.",
                  spec.finderTasking);
+    cmd.AddValue("beaconCarriesEntry",
+                 "A DISCOVERY beacon carries the sender's own published entry (plan item 24, N.32, widened from finders "
+                 "to every node). FALSE by default: every result so far; an entry travels only in the digest round "
+                 "trip. Why: at 5 km that trip completes far less often than a beacon is heard -- preset, seed 6, a "
+                 "subject's DISCOVERY heard by a finder 181 times, the finder's DIGEST heard by the subject 3 times -- "
+                 "so finders steer on entries hundreds of seconds old and park out of range. TRUE: +28 bytes "
+                 "(CA_TBL_TABLE_ENTRY_BYTES) on every beacon that has an entry, paid in airtime, duty cycle and "
+                 "collision exposure as every MAC frame is. Only FINDERS merge it (they steer on entries): a subject "
+                 "that merged its neighbours' beacon entries would range off them in the subject chain, and an "
+                 "overconfident wrong estimate became another subject's anchor (exploratory pilot, seed 2: a subject "
+                 "confident and wrong in 67 % of cycles). Like every MAC beacon, it is not billed in joules (the MACs "
+                 "carry no energy model).",
+                 beaconCarriesEntryArg);
+    cmd.AddValue("digestOwnFirst",
+                 "How a summary DIGEST is answered (plan: the 5 km dissemination defect). FALSE by default: every "
+                 "result so far -- the first entry the asker's digest does not list, else one it lists stale, one per "
+                 "answer. A digest lists at most 12 entries (CA_TBL_DIGEST_MAX_ITEMS), lowest node id first, so from "
+                 "a 13th table entry an entry missing from a FULL digest is not known to be missing; every answer is "
+                 "spent pushing it, and the responder's own fresh entry, which the asker holds stale, is never sent. "
+                 "Eight finders (DESIGN_DECISIONS 22) make the table 16 entries: preset 5 km, seed 6, a finder 1.1 km "
+                 "from its subject steered on that subject's entry frozen for 810 s while the subject was localised "
+                 "to 7 m. TRUE: the responder's own entry first when the asker lacks it or holds it stale; then an "
+                 "entry the asker lists stale; an unlisted one only when the digest was not full. Same frames, same "
+                 "airtime; only which entry rides in the answer changes. Needs --digestSummary.",
+                 digestOwnFirstArg);
+    cmd.AddValue("finderStaleSearch",
+                 "A finder whose steering entry is older than 120 s searches around it instead of standing on it "
+                 "(plan item 23b). FALSE by default: every result so far; a finder converges on its entry however "
+                 "old. Why: an old entry is a last known position, and the subject has walked on; a finder parked on "
+                 "the point can be parked out of 868 MHz reach, where it never hears a fresher one (preset 5 km, "
+                 "seed 6: finder 504 1 090-1 210 m from its subject for the whole run, its entry frozen at 690 s). "
+                 "TRUE: it circles the point on the radius the subject could have walked since (0.5 m/s times the "
+                 "entry's age, 50-1500 m), bearing advancing at 0.4 of walking speed, finders sharing a subject "
+                 "spread round the circle. A fresh entry ends it. 120 s, 0.5 m/s and 1500 m are OURS. Needs "
+                 "--finderMode 1 or 2.",
+                 spec.finderStaleSearch);
     cmd.AddValue("meshLinks",
                  "Which radio pairs can hear each other: star|all (the spec's 'sub-GHz LoRa "
                  "mesh'; docs/SPEC_CONFORMANCE_PLAN.md NW-0, the prerequisite of the network "
@@ -20067,13 +20272,13 @@ main(int argc, char* argv[])
         }
     }
     if (!spec.finderTasking.empty() && spec.finderTasking != "tag0" &&
-        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs")
+        spec.finderTasking != "roundrobin" && spec.finderTasking != "pairs" && spec.finderTasking != "need")
     {
-        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin or pairs, got '"
+        std::cerr << "FATAL: --finderTasking must be tag0, roundrobin, pairs or need, got '"
                   << spec.finderTasking << "'\n";
         return 1;
     }
-    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs") &&
+    if ((spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need") &&
         (spec.measuredSubjects < 2 || nFindersArg == 0 ||
          (finderModeArg != 1 && finderModeArg != 2)))
     {
@@ -20677,6 +20882,8 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
         return 1;
     }
+    CaTblMac::SetDigestOwnFirst(digestOwnFirstArg);
+    CaTblMac::SetBeaconCarriesEntry(beaconCarriesEntryArg);
     if ((uwbModeArg == "6m8" || uwbModeArg == "850k") && explicitFlags.count("uwbSensitivityDbm") &&
         !explicitFlags.count("uwbMode"))
     {
@@ -21523,7 +21730,7 @@ main(int argc, char* argv[])
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
-    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs")
+    if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need")
     {
         digestPatterns += " tasking_*.csv";
     }

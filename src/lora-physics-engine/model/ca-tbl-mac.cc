@@ -13,6 +13,45 @@ namespace ns3
 
 namespace
 {
+bool g_digestOwnFirst = false;     // --digestOwnFirst; see CaTblMac::SetDigestOwnFirst
+bool g_beaconCarriesEntry = false; // --beaconCarriesEntry; see CaTblMac::SetBeaconCarriesEntry
+} // namespace
+
+void
+CaTblMac::SetBeaconCarriesEntry(bool on)
+{
+    g_beaconCarriesEntry = on;
+}
+
+bool
+CaTblMac::BeaconCarriesEntry()
+{
+    return g_beaconCarriesEntry;
+}
+
+uint32_t
+CaTblMac::BeaconEntryBytes(const CaTblHeader& h)
+{
+    return (g_beaconCarriesEntry && h.GetMsgType() == CA_TBL_MSG_DISCOVERY && h.HasSelfEntry() &&
+            h.GetSelfEntry().valid)
+               ? CA_TBL_TABLE_ENTRY_BYTES
+               : 0u;
+}
+
+void
+CaTblMac::SetDigestOwnFirst(bool on)
+{
+    g_digestOwnFirst = on;
+}
+
+bool
+CaTblMac::DigestOwnFirst()
+{
+    return g_digestOwnFirst;
+}
+
+namespace
+{
 /**
  * What a frame is CARRYING, as one compact field for the event log.
  *
@@ -1472,6 +1511,15 @@ CaTblMac::Send(CaTblMsgType type, CaTblTier tier, uint32_t nEntries, uint16_t de
             }
         }
     }
+    else if (type == CA_TBL_MSG_DISCOVERY && g_beaconCarriesEntry)
+    {
+        // --beaconCarriesEntry: the beacon carries this node's own entry, when it has published one.
+        std::map<uint16_t, CaTblTableEntry>::const_iterator se = m_table.find(m_cfg.nodeId);
+        if (se != m_table.end() && se->second.valid)
+        {
+            f.hdr.SetSelfEntry(se->second);
+        }
+    }
     else if (type == CA_TBL_MSG_DIGEST && m_cfg.digestSummary)
     {
         // "I hold version N of peer X", for the most recently heard peers. Bounded,
@@ -1638,7 +1686,8 @@ CaTblMac::AttemptCad(PendingFrame f)
     const uint32_t payload = CA_TBL_MAC_HEADER_BYTES +
                              CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
                              ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
-        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr);
+        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr) +
+        BeaconEntryBytes(f.hdr);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1759,7 +1808,8 @@ CaTblMac::DoTransmit(PendingFrame f)
     const uint32_t payload =
         CA_TBL_MAC_HEADER_BYTES + CaTblPayloadBytes(f.hdr.GetMsgType(), f.nEntries) +
         ManifestOverheadBytes(f.hdr.GetMsgType(), f.nEntries) +
-        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr);
+        RouteOverheadBytes(f.hdr.GetMsgType()) + GossipQueueBytes(f.hdr) +
+        BeaconEntryBytes(f.hdr);
     const Time toa =
         (f.tier == CA_TBL_TIER_UWB)
             ? Seconds(CaTblEnergyModel::UwbFrameTimeS(payload))
@@ -1920,9 +1970,19 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
     // nothing in airtime. Strictly superseded: an older copy of something already held
     // is dropped rather than overwriting a newer one, which is what the modular
     // sequence comparison exists for.
-    if (hdr.HasSelfEntry())
+    if (g_beaconCarriesEntry && !m_mergesBeaconEntries && hdr.GetMsgType() == CA_TBL_MSG_DISCOVERY &&
+        hdr.HasSelfEntry() && hdr.GetSelfEntry().valid)
+    {
+        ++m_beaconIgnored;
+    }
+    if (hdr.HasSelfEntry() &&
+        !(hdr.GetMsgType() == CA_TBL_MSG_DISCOVERY && !(g_beaconCarriesEntry && m_mergesBeaconEntries)))
     {
         const CaTblTableEntry& in = hdr.GetSelfEntry();
+        if (hdr.GetMsgType() == CA_TBL_MSG_DISCOVERY && in.valid && in.nodeId != m_cfg.nodeId)
+        {
+            ++m_beaconMerges;
+        }
         if (in.valid && in.nodeId != m_cfg.nodeId)
         {
             std::map<uint16_t, CaTblTableEntry>::iterator ex = m_table.find(in.nodeId);
@@ -2374,8 +2434,58 @@ CaTblMac::DeliverRx(const CaTblHeader& hdr, const CaTblLinkOutcome& out, uint16_
             // version of, is a candidate; the rest is silence.
             const std::vector<CaTblDigestItem>& theirs = hdr.GetDigest();
             const CaTblTableEntry* best = nullptr;
+            if (DigestOwnFirst())
+            {
+                // --digestOwnFirst. What the asker lacks of THIS node is what only this node can tell it: its own
+                // entry first if unlisted or listed stale. Then an entry listed stale. An unlisted one only when the
+                // digest was not full: past CA_TBL_DIGEST_MAX_ITEMS, unlisted is not known to be missing.
+                const bool full = theirs.size() >= CA_TBL_DIGEST_MAX_ITEMS;
+                const CaTblTableEntry* stale = nullptr;
+                const CaTblTableEntry* unlisted = nullptr;
+                for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
+                     it != m_table.end(); ++it)
+                {
+                    if (!it->second.valid)
+                    {
+                        continue;
+                    }
+                    bool listed = false;
+                    bool current = false;
+                    for (size_t k = 0; k < theirs.size(); ++k)
+                    {
+                        if (theirs[k].nodeId == it->second.nodeId)
+                        {
+                            listed = true;
+                            current = !CaTblSeqNewer(it->second.seqNo, theirs[k].seqNo);
+                            break;
+                        }
+                    }
+                    if (it->second.nodeId == m_cfg.nodeId && (!listed || !current))
+                    {
+                        best = &it->second;
+                        ++m_digestOwnPushes;
+                        break;
+                    }
+                    if (listed && !current && stale == nullptr)
+                    {
+                        stale = &it->second;
+                    }
+                    else if (!listed && !full && unlisted == nullptr)
+                    {
+                        unlisted = &it->second;
+                    }
+                    else if (!listed && full)
+                    {
+                        ++m_digestFullSkips;
+                    }
+                }
+                if (best == nullptr)
+                {
+                    best = (unlisted != nullptr) ? unlisted : stale;
+                }
+            }
             for (std::map<uint16_t, CaTblTableEntry>::const_iterator it = m_table.begin();
-                 it != m_table.end(); ++it)
+                 !DigestOwnFirst() && it != m_table.end(); ++it)
             {
                 if (!it->second.valid)
                 {

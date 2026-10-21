@@ -445,6 +445,38 @@ class CaTblMac
 
     //! What this node knows about \p id, from any source. False if never heard of.
     bool GetTableEntry(uint16_t id, CaTblTableEntry& out) const;
+    /**
+     * --digestOwnFirst (process-wide, FALSE by default): how a summary DIGEST is answered. Default: the first entry
+     * the asker's digest does not list, else the first it lists stale. A digest lists at most
+     * CA_TBL_DIGEST_MAX_ITEMS entries, so from a 13th table entry on an entry missing from a FULL digest is not
+     * known to be missing, and every answer is spent on it while the responder's own fresh entry, which the asker
+     * holds stale, is never sent (eight finders: 16 entries). TRUE: the responder's own entry first when the asker
+     * lacks it or holds it stale; then a listed-stale entry; an unlisted one only when the digest was not full.
+     */
+    static void SetDigestOwnFirst(bool on);
+    static bool DigestOwnFirst();
+    /**
+     * --beaconCarriesEntry (process-wide, FALSE by default; plan item 24, N.32 widened to every node): a DISCOVERY
+     * beacon carries the sender's own published entry, +CA_TBL_TABLE_ENTRY_BYTES on the air. Receivers merge it as
+     * they merge any carried entry. Default: an entry travels only in the digest round trip, which at 5 km
+     * completes far less often than a beacon is heard (preset, seed 6: a subject's DISCOVERY heard by a finder 181
+     * times, the finder's DIGEST heard by the subject 3 times, so the finder steered on an entry 810 s old).
+     */
+    static void SetBeaconCarriesEntry(bool on);
+    static bool BeaconCarriesEntry();
+    //! --beaconCarriesEntry: whether THIS radio merges an entry a DISCOVERY carries. Only finders do: they steer on
+    //! entries. A subject that merged its neighbours' beacon entries would range off them in the subject chain, and
+    //! an overconfident wrong estimate would become another subject's anchor (exploratory pilot, 5 km, seed 2: a
+    //! subject confident and wrong in 67 % of cycles).
+    void SetMergesBeaconEntries(bool on) { m_mergesBeaconEntries = on; }
+    //! --digestOwnFirst: answers that sent the responder's own entry, and answers that skipped an entry missing
+    //! from a full digest.
+    uint64_t GetDigestOwnPushes() const { return m_digestOwnPushes; }
+    //! --beaconCarriesEntry: entries this radio merged from beacons.
+    uint64_t GetBeaconMerges() const { return m_beaconMerges; }
+    //! --beaconCarriesEntry: beacon entries a non-finder radio heard and did not merge.
+    uint64_t GetBeaconIgnored() const { return m_beaconIgnored; }
+    uint64_t GetDigestFullSkips() const { return m_digestFullSkips; }
 
     //! Everything this node knows. Read-only; nothing is polled from it.
     const std::map<uint16_t, CaTblTableEntry>& GetTable() const { return m_table; }
@@ -946,6 +978,11 @@ class CaTblMac
     uint64_t m_tableFuses;
     uint64_t m_tableDiscards;
     uint64_t m_digestPushes = 0;
+    bool m_mergesBeaconEntries = false;
+    uint64_t m_beaconMerges = 0;
+    uint64_t m_beaconIgnored = 0;
+    uint64_t m_digestOwnPushes = 0;
+    uint64_t m_digestFullSkips = 0;
     uint64_t m_digestNoOps = 0;
     bool m_silent = false;
     uint64_t m_suppressedTx = 0;
@@ -1036,6 +1073,8 @@ class CaTblMac
     uint64_t m_queueItemsSent = 0;
     void PublishQueue(double nowS);
     uint32_t GossipQueueBytes(const CaTblHeader& h) const;
+    //! --beaconCarriesEntry: the entry bytes a DISCOVERY carries, 0 otherwise.
+    static uint32_t BeaconEntryBytes(const CaTblHeader& h);
     double ScoreV2(double tDeg, double rem, double tStale, uint8_t qt, double* tBatt) const;
     int ArbitrateV2(const CaTblHeader& hdr, uint8_t* queuePos);
     void LogArb(double tS, uint16_t who, const char* ev, double u, double tDeg, double rem,
