@@ -30,6 +30,21 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-21: DISSEM — beacons carry the sender's entry (`report/PREREG_DISSEM.md`)
+
+Seeds 281–300, the preset after DD 18–24 (OFF) against it with `--beaconCarriesEntry` (ON). **Not adopted** (D1, D3, D4
+fail). The preset's CA-TBL on these seeds (OFF):
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km | 0.933 | 0.840 | 0.20 | 18.1 m | 13.6 |
+| B, endgame | **0.997** | **0.979** | 0.95 | 2.4 m | 16.9 |
+| C, 8-gateway ring | **0.987** | 0.914 | 0.60 | 5.4 m | 13.1 |
+
+At 5 km, tag 0 is 0.933 on these seeds (UWB-MODE's seeds gave 0.981). Across the three fresh 20-seed sets, the preset
+meets the requirement for tag 0 in the endgame and on the ring, and for the endgame five-node pool. At 5 km tag 0 is
+at the edge (0.93–0.98) and the pool is short (0.83–0.84).
+
 ## Registered, 2026-10-21: UWB-MODE — tier 3 on one DW3000 mode (`report/PREREG_UWB_MODE.md`)
 
 Seeds 261–280, the preset after DD 19–22, three variants. `--uwbMode=850k` is adopted (DESIGN_DECISIONS 23). CA-TBL

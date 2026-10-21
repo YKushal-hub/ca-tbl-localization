@@ -78,3 +78,49 @@ correction, so it is adopted on the requirement. If it fails, it stays a default
 - **Real hardware.**
 - **Billing:** the beacon's extra bytes are billed in airtime, duty cycle and collision exposure, not joules, as for
   every MAC beacon (the MACs carry no energy model).
+
+---
+
+# RESULT — after the registration above (`accfb6d2`)
+
+**Run.** Launched 2026-10-21T12:50:08Z from `accfb6d2`, dirty 0. Done 15:01:16Z. 120 of 120 cells, every `rc` 0, one
+source, no window solver failure; **problems none**. Scored once (`results/dissem_2026-10-21/DISSEM.md`).
+
+| # | verdict | measured (CA-TBL, ON − OFF, paired, 20 seeds) |
+|---|---|---|
+| D1 | **FAILS** | 5 km five-node −0.017 [−0.086, 0.068] |
+| D2 | FAILS (on width) | 5 km tag 0 +0.028 [−0.002, 0.073]; tag-0 CEP95 18.1 → 12.9 m |
+| D3 | FAILS (on width) | five-node: 5 km −0.017, endgame +0.006 [−0.001, 0.017], ring −0.013 [−0.096, 0.056] |
+| D4 | **FAILS** | subject J ratio 5 km 1.069, endgame **1.286**, ring 1.106 |
+| D5 | HOLDS | the steering entry's median age at 5 km: 50 → 10 s |
+
+## Adoption, by the registered rule
+
+D1, D3 and D4 fail. **`--beaconCarriesEntry` does not join the preset.** It stays a default-off flag (G165).
+
+## What it says
+
+- **The mechanism works, and the requirement does not move.** Finders now steer on entries a fifth as old. CA-TBL's
+  five-node pool at 5 km is unchanged (0.840 → 0.822, an interval spanning ±0.08).
+- **The pilot misled, as rule 8 warns.** Six seeds gave +0.058, up on six of six. Twenty fresh seeds give −0.017.
+  The pilot's seeds 2 and 6 carried most of it. The registration is what stopped it entering the preset.
+- **Where the 5 km gap is.** In the pilot's worst seeds, with the flag on, the shortfall was one subject per run with
+  no fix in 96–97 % of cycles, 4–6 km east of all three gateways (clustered on the west edge, x = −3 000 to −3 750 m).
+  Finders reach it only by walking to an estimate up to a kilometre wrong. That is the brief's geometry: the
+  8-gateway ring meets the requirement for tag 0 and comes closer for the pool.
+- **Energy rises.** Fresher entries move finders more and keep subjects escalating. The endgame's subject J rises
+  29 %, so the rule's energy guard alone would have refused it.
+
+## Exploratory measurements recorded with it (not citable; seeds 1–6, 5 km, CA-TBL)
+
+| variant | five-node A(25 m) |
+|---|---|
+| pairs (the preset) | 0.828 |
+| `--finderTasking=need`: chasing sigma / coverage first / static pairs over subjects / with beacon entries | 0.701 / 0.781 / 0.846 / 0.784 |
+| `--finderStaleSearch` | 0.742 |
+| `--digestOwnFirst` | 0.819 |
+| a 30 m cap on the finder dispersal offset (not committed) | 0.732 |
+
+None is a candidate. A subject's reported sigma is small while a finder is near it, so need-driven rules pull
+finders off the subjects they are serving. Moving finders bias every subject that ranges them, and a wide spread does
+useful work at kilometre sigma.
