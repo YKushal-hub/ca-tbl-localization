@@ -58,12 +58,12 @@ them.
 | T41 | ~~5.3~~ | ~~No gate catches stale documents~~ **DONE (the checkable part)** G158: documents name only real flags; RULES.md preset list ⊆ kSpecProfile; fake-flag fixture. | ENG (gate, partial) |
 | T42 | ~~L.3 claim 3~~ | ~~Identity-scoped arbitration has never been measured as a claim~~ **MEASURED** arbitration V2: −18 % energy when off, no accuracy loss; claim 3 unsupported on these metrics; O8. | CAMP |
 | T43 | C.5 | Self-deployable mesh is not built (fixed gateways plus finders) -- *excluded by scope (TECH_DEBT §Q, 2026-10-20): outside the brief's deployment. Stays listed: it is a capability the system does not have, not a defect.* | SCOPE |
-| T44 | 3.5 | Anchors are hidden terminals to each other (beacon loss is an upper bound) -- *recorded limit; no change known to fix it (see its TECH_DEBT entry).* | LIMIT (stated) |
+| T44 | ~~3.5~~ | ~~Anchors are hidden terminals to each other (beacon loss is an upper bound)~~ **BUILT 2026-10-21: `--anchorPairCad` (G166).** Gateways' CAD senses each other on the anchor-pair link; on the 8-gateway ring it decides 19 CADs in 300 s and moves no outcome. | LIMIT (stated) |
 | T45 | E1 | Same-site field test | HW |
 | T46 | ~~O.9 diagnosis~~ | ~~The simulated 868 MHz RSSI range omits foliage and fading from the 'measured' RSSI (error = shadowing only, ~7 dB, vs 9–17 dB realised margin spread)~~ **DONE (code + DEBT-A)** G155; 868 alone worse as expected; adoption O7. | CAMP |
 
-**State on 2026-10-21.** Every ENG, CAMP and OWNER row is struck. Seven rows stay open by nature:
-- five LIMIT rows (T22, T25, T35, T37, T44): measured limits or uncited constants, with no change known to fix them;
+**State on 2026-10-21.** Every ENG, CAMP and OWNER row is struck, and T44 is built. Six rows stay open by nature:
+- four LIMIT rows (T22, T25, T35, T37): measured limits or uncited constants, with no change known to fix them;
 - one SCOPE row (T43);
 - one HW row (T45, the field test, to be scheduled after 2026-10-22).
 
