@@ -19850,14 +19850,17 @@ main(int argc, char* argv[])
                      "every node reports STATIONARY and no push is ever made\n";
         return 1;
     }
-    // N.20. Applied by the preset (DESIGN_DECISIONS 24) in a run where nothing dies: unused, not refused, as the
-    // preset's other dependent settings. Given by hand without a battery budget: refused.
-    if (spec.deadBatteryNoDraw &&
-        ((explicitFlags.count("deadBatteryNoDraw") && !(batteryDepleteJArg > 0.0)) || !spec.silenceStopsRelay))
+    // N.20. A dead radio that still relayed would contradict this flag: refused. In a run where nothing dies the flag
+    // has nothing to act on: unused, not refused (DESIGN_DECISIONS 24 puts it in the preset, and G24 runs the preset's
+    // settings as plain flags), with a NOTE so a hand-typed flag is not silently idle.
+    if (spec.deadBatteryNoDraw && !spec.silenceStopsRelay)
     {
-        std::cerr << "FATAL: --deadBatteryNoDraw needs --batteryDepleteJ > 0 (nothing dies "
-                     "without it) and --silenceStopsRelay (a dead radio does not relay)\n";
+        std::cerr << "FATAL: --deadBatteryNoDraw needs --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
+    }
+    if (spec.deadBatteryNoDraw && !(batteryDepleteJArg > 0.0) && explicitFlags.count("deadBatteryNoDraw"))
+    {
+        std::cout << "NOTE: --deadBatteryNoDraw unused: no --batteryDepleteJ, so nothing dies in this run\n";
     }
     // Row 55. Applied by the preset while the user turned a prerequisite off explicitly:
     // unused, not refused (as the preset's other dependent settings).
@@ -19927,14 +19930,13 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --halfDuplex is 0 (off), 1 (count only) or 2 (enforce)\n";
         return 1;
     }
-    // N.1. Nothing is ever silenced without one of the two faults. Applied by the preset (DESIGN_DECISIONS 24) in a
-    // fault-free run: unused, not refused. Given by hand without a fault: refused.
+    // N.1. Nothing is ever silenced without one of the two faults: unused, not refused (DESIGN_DECISIONS 24, as
+    // N.20 above), with a NOTE when typed by hand.
     if (spec.silenceStopsRelay && explicitFlags.count("silenceStopsRelay") && !(batteryDepleteJArg > 0.0) &&
         injectSilentIdArg == 0)
     {
-        std::cerr << "FATAL: --silenceStopsRelay needs --batteryDepleteJ > 0 or "
-                     "--injectSilentId: without them no radio is ever silenced\n";
-        return 1;
+        std::cout << "NOTE: --silenceStopsRelay unused: no --batteryDepleteJ or --injectSilentId, so no radio is "
+                     "silenced in this run\n";
     }
     // M.4. Nothing to digest without the visualiser's files.
     if (digestVizOutputsArg && !vizEventsArg)
@@ -20675,6 +20677,15 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --ekf5RelayGate needs --imuFilter=ekf5 and no --ekf5Robust\n";
         return 1;
     }
+    if ((uwbModeArg == "6m8" || uwbModeArg == "850k") && explicitFlags.count("uwbSensitivityDbm") &&
+        !explicitFlags.count("uwbMode"))
+    {
+        // The mode came from the preset (DESIGN_DECISIONS 23) and the user set the sensitivity by hand: an explicit
+        // flag wins, and a hand-set sensitivity has no Table 9 row, so the whole mode yields to legacy.
+        std::cout << "NOTE: --uwbSensitivityDbm given by hand: the preset's --uwbMode=" << uwbModeArg
+                  << " yields to legacy (frames and ranging as before DESIGN_DECISIONS 23)\n";
+        uwbModeArg = "legacy";
+    }
     if (uwbModeArg == "6m8" || uwbModeArg == "850k")
     {
         // One DW3000 Table 9 row for all three things the model takes from the radio mode: what a frame costs
@@ -20682,8 +20693,7 @@ main(int argc, char* argv[])
         if (explicitFlags.count("uwbSensitivityDbm"))
         {
             std::cerr << "FATAL: --uwbMode=" << uwbModeArg << " sets tier 3's sensitivity from the data sheet's row; "
-                         "do not also give --uwbSensitivityDbm (the preset sets --uwbMode=850k; give --uwbMode=legacy "
-                         "to set the sensitivity by hand)\n";
+                         "do not also give --uwbSensitivityDbm (give --uwbMode=legacy to set it by hand)\n";
             return 1;
         }
         uint32_t uwbPreamble = 0;

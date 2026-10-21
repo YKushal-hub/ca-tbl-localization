@@ -5,7 +5,7 @@ N.20).
 usage: dead_draw_gate.py <dir written by scripts/dead_draw_gate.sh>
 
 Runs read: on/ and off/ (G67's regime with --silenceStopsRelay: tag 0 and four subjects on a
-3 J budget, triggered updates), r_norelay and r_nobat (refusals: without --silenceStopsRelay,
+3 J budget, triggered updates), r_norelay and r_nobat (without --silenceStopsRelay: refused;
 without --batteryDepleteJ).
 
 What a firing looks like on disk. Each death gets a FAULT line with its time. A node's trace
@@ -24,7 +24,7 @@ Checks (each prints "G71 ok|FAIL|MISSING <LABEL> ..."):
   COUNTS   on/: the N.20 line's radio-cycles equal 3 per trace row from the death on (three
            radios a cycle), for tag 0 and summed over the subjects.
   CONTROL  off/: no N.20 line.
-  R        both refusals exit 1 with the reason.
+  R        r_norelay exits 1 with the reason; r_nobat exits 0 and prints that the flag is unused.
 """
 import csv
 import glob
@@ -114,9 +114,11 @@ def main():
     report(got == (want0, wantS), "COUNTS", f"N.20 line {got}; 3 x rows from the death {(want0, wantS)}")
     ol = "N.20 dead radios" in (read(os.path.join(d, "off.log")) or "")
     report(not ol, "CONTROL", f"off/: N.20 line {ol} (need False)")
+    # DESIGN_DECISIONS 24: without --silenceStopsRelay refused; without a battery budget unused, with a NOTE
     rr = [(n, rc(d, n)) for n in ("r_norelay", "r_nobat")]
-    okr = all(c == 1 and "--deadBatteryNoDraw needs" in (read(os.path.join(d, n + ".log")) or "") for n, c in rr)
-    report(okr, "R", f"refusals {rr} (need exit 1 with the reason)")
+    okr = rr[0][1] == 1 and "--deadBatteryNoDraw needs" in (read(os.path.join(d, "r_norelay.log")) or "") and \
+        rr[1][1] == 0 and "NOTE: --deadBatteryNoDraw unused" in (read(os.path.join(d, "r_nobat.log")) or "")
+    report(okr, "R", f"{rr} (need r_norelay exit 1 with the reason; r_nobat exit 0 with the unused NOTE)")
     print(f"  G71: {nok} ok, {nfail} failed, {nmiss} missing input")
     return 0 if (nfail == 0 and nmiss == 0) else 1
 

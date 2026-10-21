@@ -37,5 +37,7 @@ fresh; sed -i 's/a 20-byte frame bills [0-9.eE+-]* s/a 20-byte frame bills 0.000
 fresh; sed -i 's/a 20-byte frame bills [0-9.eE+-]* s//' "$T/f/e_6m8.log"; check "N6 the billed frame time not printed" 1 BILL
 fresh; f=$(ls "$T/f/def" | grep -v run_id.txt | head -1); echo x >> "$T/f/def/$f"; check "N7 legacy not being the default" 1 OFF
 fresh; echo 0 > "$T/f/r_both.rc"; check "N8 a mode accepted with a contradicting sensitivity" 1 REFUSE
+fresh; echo 1 > "$T/f/y_pre.rc"; check "N9 the preset refusing a hand-set sensitivity" 1 YIELD
+fresh; echo "  UWB mode 850k: half applied" >> "$T/f/y_pre.log"; check "N10 the preset's mode applied beside a hand-set sensitivity" 1 YIELD
 echo "  G164 selftest: $pass as expected, $fail not"
 [ "$fail" -eq 0 ]

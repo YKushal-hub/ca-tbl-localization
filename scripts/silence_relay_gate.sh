@@ -7,7 +7,7 @@
 #
 # G34's regime (seed 7, 900 s, a 3 J battery, MC-2's triggered updates so the last gasp
 # goes, the per-frame event log): the flag on and off; the --injectSilentId fault (node 1
-# mute from 300 to 600 s) with the flag on; and a refusal.
+# mute from 300 to 600 s) with the flag on; and neither fault (unused, with a NOTE).
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"

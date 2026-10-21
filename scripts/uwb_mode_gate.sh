@@ -5,6 +5,7 @@
 #                    pins the preset before DESIGN_DECISIONS 23, e_850 is the preset as it stands
 # def/leg            code defaults, 300 s, flag absent and given legacy: byte-identical
 # r_*                refusals: an unknown mode; a mode with an explicit --uwbSensitivityDbm
+# y_pre              the preset's mode with a hand-set --uwbSensitivityDbm: the explicit flag wins, the mode yields
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -25,4 +26,5 @@ run leg --seed=7 --trace=true --duration=300 --arms=ca_tbl_full --uwbMode=legacy
 wait
 run r_name --arms=ca_tbl_full --seed=1 --duration=10 --uwbMode=2m
 run r_both --arms=ca_tbl_full --seed=1 --duration=10 --uwbMode=6m8 --uwbSensitivityDbm=-95
+run y_pre --specProfile=true --arms=ca_tbl_full --seed=1 --duration=10 --uwbSensitivityDbm=-104
 python3 scripts/uwb_mode_gate.py "$D"

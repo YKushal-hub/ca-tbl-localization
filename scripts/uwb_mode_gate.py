@@ -15,6 +15,8 @@ Reads the run set scripts/uwb_mode_gate.sh writes. What each failure looks like 
   OFF     def/ and leg/ byte-identical, run_id.txt aside                      (legacy not being the default)
   REFUSE  r_name and r_both exit 1                                             (an unknown mode, or a mode
                                                                                contradicting an explicit sensitivity)
+  YIELD   y_pre (the preset + --uwbSensitivityDbm) exits 0, prints the         (the preset refusing an explicit
+          yield NOTE and runs no mode                                          flag, or half-applying its mode)
 """
 import csv
 import os
@@ -86,6 +88,10 @@ def main():
     report(bool(fa) and not diff and fa == fb, "OFF", f"def/ against leg/: {len(fa)} files, differing {diff[:3]} (need none)")
     rr = {n: rc(d, n) for n in ("r_name", "r_both")}
     report(all(v == 1 for v in rr.values()), "REFUSE", f"exit codes {rr} (need 1, 1)")
+    yl = open(os.path.join(d, "y_pre.log"), errors="replace").read() if os.path.exists(os.path.join(d, "y_pre.log")) else ""
+    oky = rc(d, "y_pre") == 0 and "yields to legacy" in yl and "UWB mode " not in yl
+    report(oky, "YIELD", f"y_pre: exit {rc(d, 'y_pre')}, yield NOTE {'yields to legacy' in yl}, mode line {'UWB mode ' in yl} "
+                         f"(need 0, True, False: the preset's mode yields to a hand-set sensitivity)")
     print(f"  G164: {nok} ok, {nfail} failed")
     return 0 if nfail == 0 else 1
 

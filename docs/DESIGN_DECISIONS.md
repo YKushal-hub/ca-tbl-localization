@@ -513,6 +513,11 @@ deploying it, not given by the world. Legacy was not a candidate: it was inconsi
 **Reproducing earlier preset results:** give `--uwbMode=legacy --uwbSensitivityDbm=-99.3`
 (`scripts/preset_pins.sh` carries it).
 
+**An explicit sensitivity wins over the preset's mode.** Under `--specProfile`, a hand-set `--uwbSensitivityDbm` makes
+the preset's `--uwbMode` yield to legacy, with a NOTE. A hand-set sensitivity has no Table 9 row, so half-applying the
+mode would rebuild the mixed model. Typing `--uwbMode=6m8|850k` together with `--uwbSensitivityDbm` stays refused
+(G164 YIELD and REFUSE). The full suite found this: G89's pin sets −104 dBm by hand.
+
 ## 24. Two fault-path corrections enter the preset (plan item 10, 2026-10-21)
 **What.** `--silenceStopsRelay=true` (TECH_DEBT N.1) and `--deadBatteryNoDraw=true` (N.20) in `kSpecProfile`.
 
@@ -528,5 +533,10 @@ by the size G70 and G71 measure.
 **Not G157's defect class.** G157 asks whether an adopted mechanism fires into a zero in the fault-free endgame.
 These two have no population there by construction, so they are not listed in G157. Their reachability is G70's and
 G71's, on fault runs.
+
+**Unused, not refused.** Each flag used to refuse to run without a fault. G24 runs the preset's settings as plain
+flags, so a preset entry cannot be refused when typed by hand. Without a fault, each flag now prints a NOTE that it is
+unused and the run proceeds; G70 and G71 check for the NOTE, with a fixture where it is missing.
+`--deadBatteryNoDraw` without `--silenceStopsRelay` is a contradiction and stays refused.
 
 **Reproducing earlier fault-run preset results:** give `--silenceStopsRelay=false --deadBatteryNoDraw=false`.
