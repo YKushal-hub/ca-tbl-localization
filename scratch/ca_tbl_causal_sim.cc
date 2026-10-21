@@ -903,6 +903,38 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! under --anchorGrantGossipS > 0.
     void AddGossipAnchor(uint16_t id) { m_gossipAnchors.insert(id); }
 
+    /**
+     * \brief TECH_DEBT 3.5, --anchorPairCad. A surveyed gateway's CAD senses another surveyed gateway's frame on
+     * the anchor-pair link (EvaluateAnchorPair: the tier's engine, both masts at their surveyed height), for any
+     * frame type. Sensing only -- reception between gateways stays as it was. Default (no gateway registered):
+     * exactly EvaluateFrame(), so anchors stay hidden terminals to each other and beacon loss an upper bound.
+     */
+    CaTblLinkOutcome SenseFrame(uint16_t txId,
+                                uint16_t rxId,
+                                CaTblTier tier,
+                                double txPowerDbm,
+                                const CaTblHeader& hdr) override
+    {
+        if (!m_cadAnchors.empty() && m_cadAnchors.count(txId) != 0 && m_cadAnchors.count(rxId) != 0)
+        {
+            ++m_cadAnchorSenses;
+            const CaTblLinkOutcome o = EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+            m_cadAnchorBusy += o.received ? 1 : 0;
+            return o;
+        }
+        return EvaluateFrame(txId, rxId, tier, txPowerDbm, hdr);
+    }
+
+    bool IsSensePair(uint16_t txId, uint16_t rxId) const override
+    {
+        return !m_cadAnchors.empty() && m_cadAnchors.count(txId) != 0 && m_cadAnchors.count(rxId) != 0;
+    }
+
+    //! TECH_DEBT 3.5. Admit a surveyed gateway to anchor-pair sensing. Called only under --anchorPairCad.
+    void AddCadAnchor(uint16_t id) { m_cadAnchors.insert(id); }
+    uint64_t GetCadAnchorSenses() const { return m_cadAnchorSenses; }
+    uint64_t GetCadAnchorBusy() const { return m_cadAnchorBusy; }
+
     double SensitivityDbm(CaTblTier tier, uint8_t sf) override
     {
         // codingRateDenom 5 == CR 4/5, matching m_codingRate = 1 elsewhere.
@@ -1101,6 +1133,9 @@ class EnginePhyProvider : public CaTblPhyProvider
     //! L.1.4. Gateways admitted to the gossip link class. EMPTY unless
     //! --anchorGrantGossipS > 0, and with it empty EvaluateFrame() is Evaluate().
     std::set<uint16_t> m_gossipAnchors;
+    std::set<uint16_t> m_cadAnchors;      //!< TECH_DEBT 3.5, --anchorPairCad
+    uint64_t m_cadAnchorSenses = 0;
+    uint64_t m_cadAnchorBusy = 0;
     //! SY-5. 0 unless the link-fault flags are on and the window is open.
     double m_faultTxDb = 0.0;
     double m_faultRxDb = 0.0;
@@ -2297,6 +2332,12 @@ static double g_t2SensitivityRowKHz = 0.0;
 static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
 //! --uwbMode: 0 legacy (default), 1 6m8 (6.8 Mbps, 64-symbol preamble), 2 850k (850 kbps, 1024-symbol preamble).
 static int g_uwbMode = 0;
+//! TECH_DEBT N.17 --subjectEnergyBuckets: subject_summary.csv gains rx/CAD/idle joules per tier.
+static bool g_subjectEnergyBuckets = false;
+//! TECH_DEBT 3.5 --anchorPairCad: surveyed gateways' CAD senses each other's frames.
+static bool g_anchorPairCad = false;
+//! TECH_DEBT M.1(b) --relayRoundInSlice: the relays' round meets the MAC frames of its window.
+static bool g_relayRoundInSlice = false;
 //! --iqOverloadOnly: every tier's IQ degradation reaches rx power only under ADC clipping (help text at AddValue).
 static bool g_iqOverloadOnly = false;
 // DC-1 bias. 0 keeps CaTblImuParams' gyro bias sigma, the MPU-6050's bias INSTABILITY
@@ -3570,6 +3611,7 @@ struct CaTblTagState
     uint64_t caseSolved[5] = {0, 0, 0, 0, 0}; // [0]=D 3+ [1]=A [2]=B [3]=C [4]=floor
     double prevMeanRangeM = -1.0;
     uint64_t mobCounts[3] = {0, 0, 0};
+    uint64_t subjectHandshakes = 0; //!< plan item 9, --subjectMobilityFromRange
     uint64_t caseAAdmitted = 0;
     uint64_t caseARefused[4] = {0, 0, 0, 0};
 };
@@ -6496,6 +6538,10 @@ struct SpecOptions
     double injectAntennaLossDb = 0.0;
     //! DC-11. --sparseInStep: Cases A/B solved inside Step() against the propagated prior.
     bool sparseInStep = false;
+    //! Plan item 27. --caseAPreFuse: a fused set's gateway pair resolved as Case A first.
+    bool caseAPreFuse = false;
+    //! Plan item 9 / N.3. --subjectMobilityFromRange: subjects' mobility state and escalation handshake.
+    bool subjectMobilityFromRange = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
     bool imuPredict = false;
     //! N.28. --imuFilter=ekf5: the policy's filter is the 5-state CaTblImuEkf, fed DC-1's output.
@@ -7043,6 +7089,7 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.sparseInStep = true;
         pcfg.sparseMarginM = sparseCaseAMarginM;
+        pcfg.caseAPreFuse = spec.caseAPreFuse; // plan item 27
     }
     if (spec.caseD)
     {
@@ -7488,6 +7535,10 @@ RunArm(CaTblPolicyMode mode,
             {
                 gossip->AttachAnchor(aid, tier, am, provider);
             }
+            if (g_anchorPairCad)
+            {
+                provider.AddCadAnchor(aid); // TECH_DEBT 3.5
+            }
 
             BeaconDriver bd;
             bd.mac = am;
@@ -7751,10 +7802,17 @@ RunArm(CaTblPolicyMode mode,
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
     // cycle's instant and charged at its time, exactly as before.
     std::unique_ptr<RelayRound> relayRound;
+    uint64_t roundReplayed = 0, roundReplayCycles = 0; // M.1(b)
     if (relaySlots)
     {
         relayRound.reset(new RelayRound(static_cast<uint32_t>(tags.size()), relayChain,
                                         FixRouter::kSlotS));
+        if (g_relayRoundInSlice)
+        {
+            engine868.SetInterferenceJournal(true);
+            engine2p4.SetInterferenceJournal(true);
+            engineUwb.SetInterferenceJournal(true);
+        }
     }
     if (fixRouting)
     {
@@ -10420,6 +10478,19 @@ RunArm(CaTblPolicyMode mode,
             if (relayRound)
             {
                 relayRound->BeginCycle();
+                // TECH_DEBT M.1(b), --relayRoundInSlice. The round is evaluated after the slice the event layer
+                // already ran, and later MAC evaluations purged the frames that were in the air during the round's
+                // slots, so the round met no MAC frame. Put back, in every engine's registry, the transmissions
+                // that overlap the round's window [now - (K + 1) S, now): the round then meets them as an exchange
+                // at the instant always met the frames straddling it.
+                if (g_relayRoundInSlice)
+                {
+                    const Time from = relayRound->Burst(now, 0);
+                    roundReplayed += engine868.ReplayInterferenceJournal(from, now);
+                    roundReplayed += engine2p4.ReplayInterferenceJournal(from, now);
+                    roundReplayed += engineUwb.ReplayInterferenceJournal(from, now);
+                    ++roundReplayCycles;
+                }
             }
             for (uint32_t pt = 1; pt < nTags && pt < tags.size(); ++pt)
             {
@@ -11386,6 +11457,48 @@ RunArm(CaTblPolicyMode mode,
                                 ds.nextTier = act;
                                 ++ex.deferredAway;
                             }
+                        }
+                    }
+                }
+                // Plan item 9 / TECH_DEBT N.3, --subjectMobilityFromRange. A subject's MAC 11.11 mobility state
+                // from the trend of its own mean measured range, by tag 0's rule (5 % band on the previous mean),
+                // and the consumer tag 0 has: on escalation, the MAC handshake on the active tier, whose RECEDING
+                // branch is the one-shot eager push. Without it a subject's state stays STATIONARY and the push never
+                // runs for anyone but tag 0. Like tag 0's, the handshake frames are the MAC's, unbilled in joules.
+                if (spec.subjectMobilityFromRange && !measS.empty())
+                {
+                    double sum = 0.0;
+                    for (size_t k = 0; k < measS.size(); ++k)
+                    {
+                        sum += measS[k].rangeM;
+                    }
+                    const double mean = sum / static_cast<double>(measS.size());
+                    CaTblMobilityState ms = CA_TBL_MOB_STATIONARY;
+                    if (sb.prevMeanRangeM > 0.0)
+                    {
+                        const double band = 0.05 * sb.prevMeanRangeM;
+                        ms = (mean > sb.prevMeanRangeM + band)   ? CA_TBL_MOB_RECEDING
+                             : (mean < sb.prevMeanRangeM - band) ? CA_TBL_MOB_APPROACHING
+                                                                 : CA_TBL_MOB_STATIONARY;
+                    }
+                    ++sb.mobCounts[static_cast<int>(ms)];
+                    for (size_t ti = 0; ti < peerMacs[pi].size(); ++ti)
+                    {
+                        if (peerMacs[pi][ti] != nullptr)
+                        {
+                            peerMacs[pi][ti]->SetMobilityState(ms);
+                        }
+                    }
+                    sb.prevMeanRangeM = mean;
+                    if (ds.escalated && peerMacs[pi][static_cast<size_t>(act)] != nullptr &&
+                        !(spec.subjectBatteryDeplete && sb.batteryDead))
+                    {
+                        const std::vector<CaTblNeighbour> peersS =
+                            peerMacs[pi][static_cast<size_t>(act)]->GetNeighbours(act, t);
+                        if (!peersS.empty())
+                        {
+                            peerMacs[pi][static_cast<size_t>(act)]->StartHandshake(act, peersS[0].id, 4);
+                            ++sb.subjectHandshakes;
                         }
                     }
                 }
@@ -14683,6 +14796,21 @@ RunArm(CaTblPolicyMode mode,
             }
             o << ',' << po.GetEscalationCount() << ',' << po.GetDeescalationCount() << ','
               << po.GetNoFixCount() << ',' << req;
+            if (g_subjectEnergyBuckets)
+            {
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << std::setprecision(9) << en.GetAccount(static_cast<CaTblTier>(k)).rxJ;
+                }
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).cadJ;
+                }
+                for (int k = 0; k < CA_TBL_TIER_COUNT; ++k)
+                {
+                    o << ',' << en.GetAccount(static_cast<CaTblTier>(k)).idleJ;
+                }
+            }
             return o.str();
         };
         res.subjectRows.push_back(row(static_cast<uint32_t>(nodeId), steps, errors,
@@ -14696,6 +14824,38 @@ RunArm(CaTblPolicyMode mode,
                                           sb.energy, sb.policy, subj->extra[pt - 1].requests));
         }
         std::ostringstream line; // its own stream: cout's precision is left alone
+        if (spec.subjectMobilityFromRange)
+        {
+            uint64_t m[3] = {0, 0, 0}, hs = 0, rec = 0;
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                for (int k = 0; k < 3; ++k)
+                {
+                    m[k] += tags[pt].mobCounts[k];
+                }
+                hs += tags[pt].subjectHandshakes;
+                for (size_t ti = 0; ti < peerMacs[pt - 1].size(); ++ti)
+                {
+                    if (peerMacs[pt - 1][ti] != nullptr)
+                    {
+                        rec += peerMacs[pt - 1][ti]->GetRecedingPushesStarted();
+                    }
+                }
+            }
+            std::cout << "    subject mobility (" << CaTblPolicyModeName(mode) << "): stationary/approaching/"
+                      << "receding " << m[0] << "/" << m[1] << "/" << m[2] << "; escalation handshakes " << hs
+                      << ", RECEDING eager pushes " << rec << "\n";
+        }
+        if (spec.caseAPreFuse)
+        {
+            uint64_t pf = policy.GetCaseAPreFuseCount();
+            for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
+            {
+                pf += tags[pt].policy.GetCaseAPreFuseCount();
+            }
+            std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(mode) << "): tag 0 "
+                      << policy.GetCaseAPreFuseCount() << ", all measured nodes " << pf << " cycles\n";
+        }
         line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
         for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
         {
@@ -15345,6 +15505,21 @@ RunArm(CaTblPolicyMode mode,
             digPush += macs[i].GetDigestPushes();
             digNoOp += macs[i].GetDigestNoOps();
         }
+        if (g_anchorPairCad)
+        {
+            std::cout << "    anchor-pair CAD (" << CaTblPolicyModeName(mode) << "): "
+                      << provider.GetCadAnchorSenses() << " gateway-to-gateway frame senses, "
+                      << provider.GetCadAnchorBusy() << " of them heard (channel busy); CAD decisions busy only "
+                      << "because of them " << [&]() {
+                             uint64_t n = 0;
+                             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
+                             {
+                                 n += chan[ti].GetSensePairOnlyBusy();
+                             }
+                             return n;
+                         }()
+                      << "\n";
+        }
         if (CaTblMac::BeaconCarriesEntry())
         {
             uint64_t bm = 0, bi = 0;
@@ -15835,6 +16010,11 @@ RunArm(CaTblPolicyMode mode,
     if (relayRound)
     {
         relayRound->Report(std::cout, dt);
+        if (g_relayRoundInSlice)
+        {
+            std::cout << "    M.1(b) relay round in slice (" << CaTblPolicyModeName(mode) << "): " << roundReplayed
+                      << " MAC transmissions put back over " << roundReplayCycles << " rounds\n";
+        }
     }
     for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
     {
@@ -16507,6 +16687,9 @@ main(int argc, char* argv[])
     double bw2p4Arg = 0.0;
     double t2SensitivityRowKHzArg = 0.0; // D-8; see --t2SensitivityRowKHz
     std::string uwbModeArg = "legacy"; // --uwbMode
+    bool subjectEnergyBucketsArg = false; // TECH_DEBT N.17
+    bool anchorPairCadArg = false;        // TECH_DEBT 3.5
+    bool relayRoundInSliceArg = false;    // TECH_DEBT M.1(b)
     bool digestOwnFirstArg = false;    // --digestOwnFirst
     bool beaconCarriesEntryArg = false; // --beaconCarriesEntry
     double imuGyroBiasSigmaDpsArg = 0.0; // DC-1 bias; see --imuGyroBiasSigmaDps
@@ -19065,6 +19248,24 @@ main(int argc, char* argv[])
                  "entrypred_<arm>_seed<N>.csv (digested) and one DC-13 line per arm. Needs "
                  "--entryVelocity, without which every velocity is 0 and nothing moves.",
                  spec.entryPrediction);
+    cmd.AddValue("subjectMobilityFromRange",
+                 "Subjects 2..N get MAC 11.11 mobility state and tag 0's escalation handshake (plan item 9, TECH_DEBT "
+                 "N.3). FALSE by default: every result so far; only tag 0 classifies its motion and only tag 0 runs "
+                 "StartHandshake, so a subject's state stays STATIONARY and the RECEDING eager push never runs for a "
+                 "subject. TRUE: each subject classifies its own mean measured range against its previous one, by "
+                 "tag 0's rule (a 5 % band), sets it on its radios, and on escalation runs the MAC handshake on its "
+                 "active tier, whose RECEDING branch is the one-shot push. Handshake frames are MAC frames, unbilled "
+                 "in joules as tag 0's are. Needs --measuredSubjects > 1.",
+                 spec.subjectMobilityFromRange);
+    cmd.AddValue("caseAPreFuse",
+                 "Case A inside a fused set (plan item 27). FALSE by default: every result so far; Case A runs only "
+                 "when the set holds EXACTLY two ranges, and in a larger set the gateway pair goes in as ranges. TRUE: "
+                 "in a set of three or more with exactly two ranges to surveyed gateways, the pair is resolved as Case "
+                 "A against the propagated prior (same solver, margin and 2(s0^2 + s1^2) variance) and fused once as a "
+                 "position; the rest of the set takes the full path without them, so the pair is never counted "
+                 "twice. A refused Case A leaves the set as it came. Why: G24 found Case A with almost no population "
+                 "in CA-TBL because better geometry joins the gateway pair (R.4). Needs --sparseInStep.",
+                 spec.caseAPreFuse);
     cmd.AddValue("caseD",
                  "Case D, single-range IMU-assisted tracking (Physical 2.4D; "
                  "docs/SPEC_CONFORMANCE_PLAN.md DC-4): when the final set holds exactly one "
@@ -19167,6 +19368,32 @@ main(int argc, char* argv[])
                  "while the error was 213 m, and the persistent innovations were then absorbed as stride scale and "
                  "heading. Refused without ekf5 or with --ekf5Robust.",
                  g_ekf5Iterate);
+    cmd.AddValue("relayRoundInSlice",
+                 "The relays' round meets the MAC frames that were in the air during its slots (TECH_DEBT M.1(b)). "
+                 "FALSE by default: every result so far; the round (--relaySlots) is evaluated after the event "
+                 "layer has run the cycle's slice, whose later evaluations purged every MAC frame overlapping the "
+                 "round from the engines' interference registries, so the round meets no MAC frame (the KNOWN LIMIT "
+                 "in RelayRound's comment: about 16 % of exchanges on 2.4 GHz give up their MAC interference). TRUE: "
+                 "each engine journals its registrations, and at the start of each cycle's round the transmissions "
+                 "overlapping the round's window are put back (never duplicated), so each relay exchange meets them "
+                 "as the measured tag's exchange meets the frames straddling its instant. Needs --relaySlots on.",
+                 relayRoundInSliceArg);
+    cmd.AddValue("anchorPairCad",
+                 "A surveyed gateway's CAD senses another surveyed gateway's frames (TECH_DEBT 3.5). FALSE by "
+                 "default: every result so far; anchor-to-anchor pairs have no link, so every gateway is a hidden "
+                 "terminal to every other and gateway beacon loss is an upper bound. TRUE: CaTblChannel::IsBusy "
+                 "evaluates a gateway-to-gateway frame on the anchor-pair link (the tier's engine, both masts at "
+                 "their surveyed height), the class GRANT_GOSSIP already uses -- for SENSING only. Reception between "
+                 "gateways stays closed: opening it would make every gateway rebroadcast every other's flooded "
+                 "beacon. Finders are not admitted (no finder-to-gateway pair class exists).",
+                 anchorPairCadArg);
+    cmd.AddValue("subjectEnergyBuckets",
+                 "subject_summary.csv gains rx_*, cad_* and idle_* joules per tier for every measured subject "
+                 "(TECH_DEBT N.17). FALSE by default: the file keeps its columns, so every summary so far reproduces "
+                 "byte for byte. Why: the file had tx and sleep only, so a subject's listening and channel-sensing "
+                 "cost, which the energy model already accounts, could be read only as the remainder of totalJ. "
+                 "Output only: no value changes.",
+                 subjectEnergyBucketsArg);
     cmd.AddValue("uwbMode",
                  "Tier 3's DW3000 operating mode, as ONE data-sheet row for everything the model takes from it "
                  "(DW3000 Data Sheet v1.1, Table 9, channel 9, 1 % PER). legacy (default): every result so far -- "
@@ -19893,6 +20120,12 @@ main(int argc, char* argv[])
     // Refused rather than run: with no relay there is nothing to schedule and every count
     // would be a structural zero; and a round longer than the cycle would put its first
     // slots in the previous cycle, where they are not this cycle's exchanges.
+    if (relayRoundInSliceArg && !relaySlotsArg)
+    {
+        std::cerr << "FATAL: --relayRoundInSlice needs the relays' round (--relaySlots on): without it every relay "
+                     "exchange is at the cycle's instant and already meets the frames straddling it\n";
+        return 1;
+    }
     if (relaySlotsArg && (!relayedRangingArg || nTagsArg < 2))
     {
         std::cerr << "FATAL: --relaySlots schedules the relays' exchanges; it needs"
@@ -20459,6 +20692,11 @@ main(int argc, char* argv[])
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    if (spec.caseAPreFuse && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --caseAPreFuse needs --sparseInStep (Case A is solved inside Step)\n";
+        return 1;
+    }
     if (spec.caseD && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --caseD needs --sparseInStep=true: Case D is one of the sparse "
@@ -20883,6 +21121,9 @@ main(int argc, char* argv[])
         return 1;
     }
     CaTblMac::SetDigestOwnFirst(digestOwnFirstArg);
+    g_subjectEnergyBuckets = subjectEnergyBucketsArg;
+    g_anchorPairCad = anchorPairCadArg;
+    g_relayRoundInSlice = relayRoundInSliceArg;
     CaTblMac::SetBeaconCarriesEntry(beaconCarriesEntryArg);
     if ((uwbModeArg == "6m8" || uwbModeArg == "850k") && explicitFlags.count("uwbSensitivityDbm") &&
         !explicitFlags.count("uwbMode"))
@@ -21345,7 +21586,10 @@ main(int argc, char* argv[])
         *subjSummary << "arm,seed,subjectId,steps,rmseM,cep50M,cep95M,maxErrM,fixCycles,"
                         "totalJ,j_868,j_2p4,j_uwb,cycles_868,cycles_2p4,cycles_uwb,tx_868,"
                         "tx_2p4,tx_uwb,sleep_868,sleep_2p4,sleep_uwb,escalations,"
-                        "deescalations,noFixCycles,escRequests\n";
+                        "deescalations,noFixCycles,escRequests"
+                     << (g_subjectEnergyBuckets ? ",rx_868,rx_2p4,rx_uwb,cad_868,cad_2p4,cad_uwb,idle_868,idle_2p4,idle_uwb"
+                                                : "")
+                     << "\n";
     }
     summary << "arm,seed,steps,durationS,rmseM,cep50M,cep95M,maxErrM,"
             << "rmseFixedM,cep50FixedM,fixCycles,totalJ,"

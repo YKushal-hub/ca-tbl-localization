@@ -149,6 +149,31 @@ class CaTblPhyProvider
         return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
     }
 
+    /**
+     * \brief What a CAD at \p rxId senses of a frame in flight (CaTblChannel::IsBusy). TECH_DEBT 3.5.
+     *
+     * The default is EvaluateFrame(), so sensing and reception are the same decision, as they have always been.
+     * The scenario's provider overrides it under --anchorPairCad so that one surveyed gateway's CAD senses
+     * another's frame on the anchor-pair link -- for sensing only: reception between gateways stays closed
+     * (opening it would make every gateway rebroadcast every other gateway's flooded beacon).
+     */
+    virtual CaTblLinkOutcome SenseFrame(uint16_t txId,
+                                        uint16_t rxId,
+                                        CaTblTier tier,
+                                        double txPowerDbm,
+                                        const CaTblHeader& hdr)
+    {
+        return EvaluateFrame(txId, rxId, tier, txPowerDbm, hdr);
+    }
+
+    //! TECH_DEBT 3.5: whether SenseFrame() senses this pair on a link EvaluateFrame() does not have. Default false.
+    virtual bool IsSensePair(uint16_t txId, uint16_t rxId) const
+    {
+        (void)txId;
+        (void)rxId;
+        return false;
+    }
+
     /** Sensitivity floor for the APC loop (§2.1.1). */
     virtual double SensitivityDbm(CaTblTier tier, uint8_t sf) = 0;
 };
@@ -1218,6 +1243,8 @@ class CaTblChannel
     uint64_t GetTotalCollisions() const { return m_totalCollisions; }
     uint64_t GetTotalCaptures() const { return m_totalCaptures; }
     uint64_t GetTotalDeliveries() const { return m_totalDeliveries; }
+    //! TECH_DEBT 3.5: CAD decisions that only a sense-only pair (IsSensePair) made busy.
+    uint64_t GetSensePairOnlyBusy() const { return m_sensePairOnlyBusy; }
 
   private:
     struct InFlight
@@ -1242,6 +1269,7 @@ class CaTblChannel
     std::vector<InFlight> m_done; //!< N.22: completed frames still overlapping one on air
     bool m_collisionBothLost = false;
     uint64_t m_lateCollisions = 0;
+    uint64_t m_sensePairOnlyBusy = 0;
     double m_captureThresholdDb;
     uint64_t m_txnCounter;
     uint64_t m_totalTx;

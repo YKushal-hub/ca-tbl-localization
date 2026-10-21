@@ -598,6 +598,11 @@ struct CaTblPolicyConfig
     bool sparseInStep = false;
     //! The Case A/B acceptance margin in Mahalanobis units (--sparseCaseAMargin).
     double sparseMarginM = 1.0;
+    //! Plan item 27 (--caseAPreFuse). A set of three or more ranges of which exactly two are to surveyed gateways:
+    //! the two are first resolved as Case A against the propagated prior and fused once as a position, then the
+    //! rest go down the full path WITHOUT them (no double count). A refused Case A leaves the set untouched.
+    //! Requires sparseInStep. False reproduces every prior result.
+    bool caseAPreFuse = false;
     //! DC-4. Case D (Physical 2.4D): a set of exactly ONE range is applied as a scalar
     //! measurement on the propagated state, when its innovation passes NIS <= 6.63 (chi^2,
     //! 1 dof, 0.99 -- a distributional constant). The cycle is not a position fix (hadFix
@@ -1265,6 +1270,8 @@ class CaTblPolicy
     uint64_t GetIntegrityScoreEligible() const { return m_integrityScoreEligible; }
     uint64_t GetIntegrityScoreIneligible() const { return m_integrityScoreIneligible; }
     uint64_t GetIntegrityTagFallback() const { return m_integrityTagFallback; }
+    //! Plan item 27: cycles whose two gateway ranges were pre-fused as Case A.
+    uint64_t GetCaseAPreFuseCount() const { return m_caseAPreFuses; }
     uint64_t GetNoFixCount() const { return m_noFixCycles; }
 
     /** Per-tier count of cycles spent with that tier active. */
@@ -1408,6 +1415,7 @@ class CaTblPolicy
     uint64_t m_deescalations;
     uint64_t m_suspects;
     uint64_t m_noFixCycles;
+    uint64_t m_caseAPreFuses = 0; //!< plan item 27
     uint64_t m_tierCycles[CA_TBL_TIER_COUNT];
 
     // Tier-1 TDoA hand-off (SetAuxPositionFix). Appended last so every existing member

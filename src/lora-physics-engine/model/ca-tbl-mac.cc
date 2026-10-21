@@ -2851,10 +2851,24 @@ CaTblChannel::IsBusy(uint16_t observerId, CaTblTier tier)
         // signal does not reach the observer is invisible to its CAD, so the
         // observer will transmit into a collision -- hidden terminals emerge from
         // the model rather than being assumed away.
-        const CaTblLinkOutcome o =
-            m_phy->EvaluateFrame(f.txId, observerId, tier, f.txPowerDbm, f.hdr);
+        const CaTblLinkOutcome o = m_phy->SenseFrame(f.txId, observerId, tier, f.txPowerDbm, f.hdr);
         if (o.received)
         {
+            if (m_phy->IsSensePair(f.txId, observerId))
+            {
+                // TECH_DEBT 3.5: would the channel have been busy without the sense-only pair? Earlier frames were
+                // not heard; look at the later ones.
+                bool other = false;
+                for (size_t j = i + 1; j < m_inFlight.size() && !other; ++j)
+                {
+                    const InFlight& g = m_inFlight[j];
+                    if (g.tier == tier && g.txId != observerId && !m_phy->IsSensePair(g.txId, observerId))
+                    {
+                        other = m_phy->SenseFrame(g.txId, observerId, tier, g.txPowerDbm, g.hdr).received;
+                    }
+                }
+                m_sensePairOnlyBusy += other ? 0 : 1;
+            }
             return true;
         }
     }

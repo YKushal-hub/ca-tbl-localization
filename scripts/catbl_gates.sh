@@ -1988,6 +1988,15 @@ bash scripts/finder_dissem_gate.sh "$WORK/g165" || fail G165
 bash scripts/finder_dissem_gate_selftest.sh "$WORK/g165" || fail G165
 finish G165
 
+# ---------------- G166: five items cut on 2026-10-20, built 2026-10-21 (N.17, 3.5, N.3, M.1(b); plan items 9, 27)
+# scripts/cut_items_gate.py: subject energy buckets close on j_tier; Case A pre-fusion is taken and moves the result;
+# gateways' CAD senses each other and decides some CADs; subjects classify mobility and push on RECEDING; the relays'
+# round meets the MAC frames of its window and the result moves; all five absent are byte-identical; two refusals.
+printf '\n--- G166 cut items built (subject buckets, Case A pre-fuse, anchor-pair CAD, subject mobility, round in slice) ---\n'
+bash scripts/cut_items_gate.sh "$WORK/g166" || fail G166
+bash scripts/cut_items_gate_selftest.sh "$WORK/g166" || fail G166
+finish G166
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

@@ -1902,7 +1902,7 @@ CaTblPolicy::StepRecal(double dt,
 
 CaTblDecision
 CaTblPolicy::StepImpl(double dt,
-                  const std::vector<CaTblRangeMeasurement>& meas,
+                  const std::vector<CaTblRangeMeasurement>& measIn,
                   uint32_t hopCount,
                   int32_t activeTierRanges,
                   int32_t activeTierNeighbours,
@@ -1984,6 +1984,68 @@ CaTblPolicy::StepImpl(double dt,
         {
             PfPredict(dt, 0.0, 0.0, -1.0, -1.0);
         }
+    }
+
+    // Plan item 27, --caseAPreFuse. In a set of three or more ranges, exactly two to surveyed gateways are resolved
+    // here as Case A, against the propagated prior (the same solver, margin and conservative variance as the
+    // two-range branch below), and fused once as a position; the rest of the set then takes the full path without
+    // them, so the pair is never also applied as ranges. Why: Case A otherwise runs only when the set is EXACTLY two,
+    // and in a fused set its gateway pair goes in as ranges whose ring ambiguity the prior must resolve implicitly.
+    // A refused Case A leaves the set as it came.
+    std::vector<CaTblRangeMeasurement> measPre;
+    bool preFused = false;
+    if (m_config.caseAPreFuse && m_config.sparseInStep && m_acquired && measIn.size() >= 3)
+    {
+        int gi = -1, gj = -1, ng = 0;
+        for (size_t k = 0; k < measIn.size(); ++k)
+        {
+            if (measIn[k].sourceKind == CA_TBL_SRC_SURVEYED_GATEWAY)
+            {
+                ++ng;
+                (gi < 0 ? gi : gj) = static_cast<int>(k);
+            }
+        }
+        if (ng == 2)
+        {
+            const CaTblRangeMeasurement& a = measIn[static_cast<size_t>(gi)];
+            const CaTblRangeMeasurement& b = measIn[static_cast<size_t>(gj)];
+            const CaTblSparseResult sr =
+                CaTblSolveCaseA(a.anchorX, a.anchorY, a.rangeM, b.anchorX, b.anchorY, b.rangeM, FltX(), FltY(),
+                                FltPxx(), FltPxy(), FltPyy(), m_config.sparseMarginM);
+            const double var = 2.0 * (a.sigmaM * a.sigmaM + b.sigmaM * b.sigmaM);
+            if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
+            {
+                FltFusePosition(sr.x, sr.y, var);
+                ++m_caseAPreFuses;
+                preFused = true;
+                d.positionFuses = 1;
+                d.sparseX = sr.x;
+                d.sparseY = sr.y;
+                d.sparseVarM2 = var;
+                d.sparseVerdict = static_cast<uint8_t>(sr.verdict);
+                for (size_t k = 0; k < measIn.size(); ++k)
+                {
+                    if (static_cast<int>(k) != gi && static_cast<int>(k) != gj)
+                    {
+                        measPre.push_back(measIn[k]);
+                    }
+                }
+            }
+        }
+    }
+    const std::vector<CaTblRangeMeasurement>& meas = preFused ? measPre : measIn;
+    if (preFused && meas.size() < 2)
+    {
+        // The pair was the fix; a single remaining range is not applied, as the two-range branch applies only its
+        // pair. Two remaining go on to that branch (Case B against the updated prior); three or more, the full path.
+        d.fixKind = CA_TBL_FIX_CASE_A;
+        d.hadFix = true;
+        d.estX = FltX();
+        d.estY = FltY();
+        d.traceSigma = FltTracePos();
+        d.nAnchorsUsed = 2;
+        d.nextTier = m_tier;
+        return d;
     }
 
     // Did the ACTIVE tier deliver, as distinct from "did we get a fix from
