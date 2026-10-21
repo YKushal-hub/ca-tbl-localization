@@ -132,3 +132,82 @@ results file.
   ranges. Field behaviour may differ.
 - **Only fixed_threshold is tested.** CA-TBL's rule is covered only through the S2-C finding that its PCS is a
   monotone function of trace(P) on the S2-C preset.
+
+# RESULT — after the registration above (`1136c314`)
+
+## Run
+
+| time (UTC) | event | cells |
+|---|---|---|
+| — | first launch, from `1136c314` | aborted after 23 |
+| 20:01:00 | relaunch, from `e8195863`, dirty 0 | — |
+| — | disk full (`ENOSPC`) | stopped at 64: 60 finished, 4 partial |
+| 20:12:56 | resume, same source, same verified binary | — |
+| 20:53:04 | done | **322 of 322**, every `rc` 0 |
+
+- **First launch aborted.** Commits made during it moved the repository HEAD to `e8195863`, so its cells carried two
+  source lines (20 and 3). Section 5 check 3 would have failed. It was not analysed, and its cells were deleted (its
+  `RUN.md` is kept outside the repository).
+- **Final run.** One source, every section 5 check passed, scored once. Output:
+  `results/oracle_esc_2026-10-21/ORACLE_ESC.md`.
+
+**Housekeeping, disclosed.** The disk allowance could not hold 322 full cells (17–24 MB each).
+- After each cell finished, `results/oracle_esc_2026-10-21/prune_cells.py` did two things:
+  1. verified every file against the SHA-256 digest the simulator writes into the cell's `run_id.txt`;
+  2. deleted the files the analysis never reads (event, entry and NLOS link logs).
+- Every cell's `run_id.txt` still records the digest of every file the run wrote.
+- The four preset-check cells were kept whole.
+- All 322 cells verified (`prune.log`).
+
+**Binary provenance, corrected.** Section 3 says the binary was built from the commit that adds this file. It was
+compiled from the working tree before `bd15470a` was committed:
+- its stamp reads `build source a2e738cd dirty 3`;
+- the three dirty files are exactly `bd15470a`'s diff;
+- `src/` and `scratch/` are unchanged from `bd15470a` to `e8195863`;
+- the copied binary's SHA-256 is in `build.sha256`.
+
+## Verdicts (as registered)
+
+| geometry | accuracy headroom | energy headroom | pair that decides it |
+|---|---|---|---|
+| A (5 km) | **NONE** | **NONE** | no pair qualifies |
+| B (endgame) | **SMALL** (H = +0.000) | **MATERIAL** (E = 0.131) | accuracy: O T200 − K T200, +0.022 [+0.000, +0.059]; energy: O T200 − K T3, dJ −4.05 J [−5.51, −2.67], dA +0.015 [−0.008, +0.072] |
+
+The registered reading is "a learned confidence input has room": **True**.
+
+## The rule was too loose (found after scoring; disclosed, the script is not edited)
+
+**What went wrong.** Section 4 lets an oracle point qualify against **any** trace setting, including ones another
+trace setting beats on both axes. Both endgame qualifiers use such dominated settings:
+- **K T3** (0.962, 20.30 J) is beaten by K T12 (0.977, 16.81 J);
+- **K T200** (0.955, 16.70 J) is beaten by K T50 (0.975, 16.49 J).
+
+**Post hoc.** The non-dominated trace settings are T12, T50 and T200 at 5 km, and T12 and T50 in the endgame. Against
+them **no oracle pair qualifies, on accuracy or on energy**. These use the same resample matrices; endgame examples:
+
+| pair | dA | dJ (J) |
+|---|---|---|
+| O12 − K12 | −0.002 [−0.006, +0.002] | +0.91 [−0.18, +2.13] |
+| O50 − K50 | −0.004 [−0.011, +0.002] | +0.25 [−0.75, +1.26] |
+
+The registered MATERIAL is what retuning T alone already gives: K T3 → K T50 saves 3.81 J.
+
+**Reading.** Perfect knowledge of the position error does not move fixed_threshold's energy–accuracy frontier:
+- at 5 km, every same-T accuracy interval includes 0;
+- in the endgame, tag 0 is at 0.997 under every configuration.
+
+So a learned confidence input to this trigger has nothing to gain in this simulator.
+
+## Predictions
+
+| prediction | outcome | evidence |
+|---|---|---|
+| P1 | **Fails** | holds only at 5 km, T3: +21.1 [+11.5, +31.3] escalations; the other seven intervals include 0 or fall below it |
+| P2 | Holds | endgame accuracy headroom SMALL |
+| P3 | Holds | 5 km accuracy headroom NONE |
+
+## Not established
+
+- **This bound does not cover every learned policy.** It says nothing about learned policies that predict whether
+  escalating would pay off, or about learned estimators that change the position.
+- **Field behaviour is untested** (section 8).
