@@ -30,6 +30,18 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-22: PRESET-5 — the adopted preset, 12 gateways and 12 finders (`report/PREREG_PRESET5.md`)
+
+Fresh seeds 341–360. CA-TBL under the preset:
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km | **0.986** | **0.952** | 0.90 | 4.7 m | 13.3 |
+| B, endgame | **0.999** | **0.993** | 1.00 | 1.4 m | 25.7 |
+
+**The requirement is met for tag 0 and all five nodes at 5 km and in the endgame.** The 5 km margin is modest.
+PRESET-4 (`report/PREREG_PRESET4.md`) had measured DD 25's 8 gateways at 0.947; DD 26 followed.
+
 ## Registered, 2026-10-21: DEPLOY-REQ — what the 5 km geometry needs (`report/PREREG_DEPLOY_REQ.md`)
 
 Seeds 301–320, the preset unchanged, gateways × finders at 5 km. CA-TBL, A(25 m) tag 0 / five-node:
