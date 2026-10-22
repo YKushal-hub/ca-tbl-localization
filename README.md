@@ -61,18 +61,17 @@ Source: `report/PREREG_PRESET5.md` (registered, seeds 341–360, all five predic
 - **The deployment** is DESIGN_DECISIONS 25–26 (owner, from DEPLOY-REQ): 12 gateways in a ring and 12 finders. It
   replaces the brief's 3 gateways and 8 finders, which stay short at 5 km (five-node 0.83–0.88) and stay measurable
   by pinning back.
-- **Short, in the brief's deployment:** the 5 km five-node pool. No node there is within 1.5 km of a gateway, so the
-  shortfall is anchor supply (DISSEM's addendum).
-- **What 5 km needs, measured** (DEPLOY-REQ, `report/PREREG_DEPLOY_REQ.md`): **8 gateways and 12 finders meet the
-  requirement** (tag 0 0.987, five-node 0.955), and **12 gateways meet it with a margin** (0.970–0.975 from 12
-  finders). Three gateways do not, at any finder count up to 24 (best 0.936).
+- **How the deployment was found.** In the brief's deployment no 5 km node is within 1.5 km of a gateway (DISSEM's
+  addendum). DEPLOY-REQ (`report/PREREG_DEPLOY_REQ.md`) measured gateways × finders: 3 gateways fail at any finder
+  count up to 24 (best 0.936). PRESET-4 put 8 gateways on the line (0.947 on fresh seeds). 12 gateways meet it.
 
 **Against the comparators:**
-- **Poucet fusion:** CA-TBL is above it on the five-node pool in the endgame (+0.05 to +0.06) at about 1/30 of its
-  subject energy.
+- **Poucet fusion:** under the preset (PRESET-5), CA-TBL is above it in the endgame (+0.011 [0.003, 0.025]) and level
+  at 5 km, at about 1/30 of its subject energy. It was above by +0.05 to +0.06 under the brief's deployment.
 - **`fixed_threshold`:** CA-TBL is level with it on availability.
-- **Single-band arms:** CA-TBL is above static 868 MHz everywhere. It is above static 2.4 GHz on tag 0 at 5 km and on
-  the ring, and level with it on tag 0 in the endgame.
+- **Single-band arms:** CA-TBL is above static 868 MHz everywhere. Under the preset it is level with static 2.4 GHz
+  on availability (PRESET-5) and spends about 7 J more per subject. It was above static 2.4 GHz at 5 km under the
+  brief's deployment.
 
 **Not claimed** (Technical Report CR-24):
 - that the escalation rule beats a flat variance threshold;
