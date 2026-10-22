@@ -1,4 +1,4 @@
-# Sourced by gate runners. The preset settings DESIGN_DECISIONS 19-25 changed on 2026-10-21, pinned back to what
+# Sourced by gate runners. The preset settings DESIGN_DECISIONS 19-26 changed on 2026-10-21, pinned back to what
 # they were, so a gate written against the earlier preset tests what it was written to test. Inserted right after
 # --specProfile=true: any flag the gate gives itself comes later on the command line and wins (last value wins).
 # shellcheck disable=SC2034

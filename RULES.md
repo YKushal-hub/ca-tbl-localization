@@ -226,8 +226,10 @@ line in each script).
 - DD 25 (2026-10-22, owner, from DEPLOY-REQ): `--nGateways=8 --gwLayout=legacy --nFinders=12`, the smallest deployment
   meeting the requirement at 5 km (was 3 gateways in the star layout, 8 finders). Pin back with `--nGateways=3
   --gwLayout=star --nFinders=8`.
+- DD 26 (2026-10-22, owner, after PRESET-4): `--nGateways=12`, the 12-gateway ring, for a margin at 5 km. Pin back
+  with `--nGateways=8` (DD 25) or as DD 25 lists (the brief).
 
-`scripts/preset_pins.sh` holds the pin for every change since 2026-10-21 (DD 19–25) in one line, `PIN_PRE_DD19`.
+`scripts/preset_pins.sh` holds the pin for every change since 2026-10-21 (DD 19–26) in one line, `PIN_PRE_DD19`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

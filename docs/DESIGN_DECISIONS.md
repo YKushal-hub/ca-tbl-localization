@@ -562,3 +562,15 @@ measurable by pinning back.
 
 **Reproducing earlier preset results:** give `--nGateways=3 --gwLayout=star --nFinders=8`. `scripts/preset_pins.sh`
 carries it for gates written against the earlier preset.
+
+## 26. Twelve gateways: the requirement at 5 km with a margin (owner decision, 2026-10-22, after PRESET-4)
+**What.** `--nGateways=12` in `kSpecProfile` (was 8, DD 25). The ring layout and 12 finders stay.
+
+**Why.** PRESET-4 (`report/PREREG_PRESET4.md`) measured DD 25 on fresh seeds. The 5 km five-node pool came to 0.947,
+against 0.955 on DEPLOY-REQ's seeds. At 8 gateways the requirement sits on the line. DEPLOY-REQ's 12-gateway ring
+met it at every finder count from 12 (0.970–0.975; 100 % of runs at 12 finders), so the margin comes from gateways,
+not from doubling finders (8 + 24: 0.982, at a large energy cost). PRESET-5 (`report/PREREG_PRESET5.md`) measures
+the adopted preset against the brief's deployment on fresh seeds.
+
+**Reproducing earlier preset results:** give `--nGateways=8` for DD 25's preset, and `--nGateways=3 --gwLayout=star
+--nFinders=8` for the brief's. `scripts/preset_pins.sh` pins the latter.
