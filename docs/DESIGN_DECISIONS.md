@@ -540,3 +540,37 @@ unused and the run proceeds; G70 and G71 check for the NOTE, with a fixture wher
 `--deadBatteryNoDraw` without `--silenceStopsRelay` is a contradiction and stays refused.
 
 **Reproducing earlier fault-run preset results:** give `--silenceStopsRelay=false --deadBatteryNoDraw=false`.
+
+## 25. Eight gateways and twelve finders: the deployment that meets the requirement at 5 km (owner decision, 2026-10-22)
+**What.** In `kSpecProfile`:
+- `--nGateways=8 --gwLayout=legacy`, an 8-gateway ring (was 3, star layout; DD 9);
+- `--nFinders=12` (was 8; DD 22). Pairs tasking stays.
+
+**Why** (DEPLOY-REQ, `report/PREREG_DEPLOY_REQ.md`, registered, 240 cells, seeds 301–320):
+- **The brief's 3 gateways do not meet A ≥ 0.95 for the five-node pool at 5 km at any finder count up to 24** (best
+  0.936). No node is within 1.5 km of a gateway (DISSEM's addendum), and finders alone cannot replace that
+  infrastructure.
+- **8 gateways and 12 finders is the smallest deployment that meets it:** tag 0 0.987, five-node 0.955, 95 % of runs.
+- 12 gateways meet it with more margin (0.970–0.975). The owner chose the smaller deployment.
+
+**Known margin.** With 8 gateways, 16 finders gave 0.941: a single 20-seed mean is not monotone in finders, and the
+8-gateway result meets the requirement on the mean, not with room. PRESET-4 (`report/PREREG_PRESET4.md`) measures the
+adopted preset against the old on fresh seeds, at 5 km and in the endgame, which DEPLOY-REQ did not run.
+
+**This departs from the brief's deployment** (3 gateways, DD 9) by owner decision. The brief's deployment stays
+measurable by pinning back.
+
+**Reproducing earlier preset results:** give `--nGateways=3 --gwLayout=star --nFinders=8`. `scripts/preset_pins.sh`
+carries it for gates written against the earlier preset.
+
+## 26. Twelve gateways: the requirement at 5 km with a margin (owner decision, 2026-10-22, after PRESET-4)
+**What.** `--nGateways=12` in `kSpecProfile` (was 8, DD 25). The ring layout and 12 finders stay.
+
+**Why.** PRESET-4 (`report/PREREG_PRESET4.md`) measured DD 25 on fresh seeds. The 5 km five-node pool came to 0.947,
+against 0.955 on DEPLOY-REQ's seeds. At 8 gateways the requirement sits on the line. DEPLOY-REQ's 12-gateway ring
+met it at every finder count from 12 (0.970–0.975; 100 % of runs at 12 finders), so the margin comes from gateways,
+not from doubling finders (8 + 24: 0.982, at a large energy cost). PRESET-5 (`report/PREREG_PRESET5.md`) measures
+the adopted preset against the brief's deployment on fresh seeds.
+
+**Reproducing earlier preset results:** give `--nGateways=8` for DD 25's preset, and `--nGateways=3 --gwLayout=star
+--nFinders=8` for the brief's. `scripts/preset_pins.sh` pins the latter.

@@ -7,7 +7,7 @@
 
 | item | what | entry point |
 |---|---|---|
-| **DEPLOY-REQ** | the gateway and finder count that meets A ≥ 0.95 at 5 km (plan item 26); running 2026-10-21 | `report/PREREG_DEPLOY_REQ.md`, `scripts/deploy_req_analyse.py` |
+| ~~DEPLOY-REQ~~ | **done 2026-10-22:** 8 gateways + 12 finders meet A ≥ 0.95 at 5 km; 12 gateways with a margin (plan item 26) | `report/PREREG_DEPLOY_REQ.md` result |
 | **T45 field test** | a same-site hardware test; the owner schedules it after 2026-10-22 | `docs/TECH_DEBT_STATUS.md` T45 |
 | **LIMIT rows** T22, T25, T35, T37 | measured limits or uncited constants, with no change known to fix them | their TECH_DEBT entries |
 | **SCOPE** T43 | a self-deploying mesh, outside the brief's deployment | TECH_DEBT C.5 |

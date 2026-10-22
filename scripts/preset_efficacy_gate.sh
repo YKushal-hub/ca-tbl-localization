@@ -10,7 +10,10 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g157.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true --arms=ca_tbl_full,static_868 --seed=7 --duration=600 --trace=true --unknownStart=true --boxHalf=750 --finderMode=1"
+# Pinned to the deployment the inert fixture was calibrated on (3 gateways, 8 finders, before DESIGN_DECISIONS 25-26).
+# With 12 gateways in the 750 m endgame some links exceed the AGC knee, so --agcPerReceiver acts and is no longer an
+# inert control (suite of 2026-10-23); the question asked of each preset setting does not depend on gateway count.
+B="--specProfile=true --nGateways=3 --gwLayout=star --nFinders=8 --arms=ca_tbl_full,static_868 --seed=7 --duration=600 --trace=true --unknownStart=true --boxHalf=750 --finderMode=1"
 declare -A OFF
 OFF[rngKeyed]="--rngKeyed=false"; OFF[rangeErrorNoLinkLeak]="--rangeErrorNoLinkLeak=false"
 OFF[rssiRangeFromShadowing]="--rssiRangeFromShadowing=false"; OFF[nlosRangeBias]="--nlosRangeBias=false"

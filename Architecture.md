@@ -11,14 +11,14 @@
 | **Platform**            | ns-3.47, C++17, custom`lora-physics-engine` module                             |
 | **Evidence convention** | Every factual claim carries a tag`[E-nn]` resolved in §12                     |
 
-> ## As built, 2026-10-21
+> ## As built, 2026-10-22
 >
 > - **Radios:** Tier 1 SX1262, Tier 2 SX1280 (two separate chips: `--radioBasis=sx --halfDuplexChip=false`), Tier 3
 >   DW3000. DESIGN_DECISIONS 11. The LR1121 single-die row in §2 describes an option, not the build.
-> - **The preset** (`--specProfile`) is the configuration claims are drawn from. Its deployment is the brief's:
+> - **The preset** (`--specProfile`) is the configuration claims are drawn from. Its deployment:
 >   - a 5 km box, 5 subjects all measured;
->   - 3 gateways in the star layout;
->   - 8 finders tasked in pairs (DD 22).
+>   - 12 gateways in a ring and 12 finders tasked in pairs (DD 25–26, owner, from DEPLOY-REQ). The brief's 3 gateways
+>     and 8 finders do not meet the requirement at 5 km and stay measurable by pinning back.
 > - **The world in the preset:**
 >   - the engine corrections of DD 10, 13 and 14;
 >   - receivers on their data-sheet rows (DD 18, 21, 23): SX1280 Table 6-1 at 812.5 kHz, and DW3000 Table 9 at
@@ -206,7 +206,7 @@ every class carries **all three radios** — 868 MHz, 2.4 GHz and UWB.
   `--finderMode`.
 
 > **Code defaults, not the preset.** The values above are the code defaults the null controls are anchored to. The
-> preset (`--specProfile`) sets `--nGateways=3 --gwLayout=star --nFinders=8 --finderTasking=pairs --finderMode=2
+> preset (`--specProfile`) sets `--nGateways=12 --gwLayout=legacy --nFinders=12 --finderTasking=pairs --finderMode=2
 > --boxHalf=5000`.
 - **Facility sites** — 4, at (±0.47·`boxHalf`, ±0.47·`boxHalf`). They are **mobility
   targets only** and host **no anchors**. The field node dwells at them; that is all they
