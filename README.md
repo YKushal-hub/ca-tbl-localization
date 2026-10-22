@@ -34,10 +34,10 @@ role only:
 | **subject**, a field node being localised; tag 0 is node 1 | yes | `1`–`5` | 2.5 % |
 
 **Claims are drawn from the preset, `--specProfile=true`** (`kSpecProfile[]` in `scratch/ca_tbl_causal_sim.cc`; any
-flag given explicitly wins). It is the brief's deployment:
+flag given explicitly wins). Its deployment:
 - a 5 km search box, 5 subjects all measured;
-- 3 gateways in the star layout;
-- 8 finders tasked in pairs.
+- 12 gateways in a ring and 12 finders tasked in pairs (DD 25–26, from DEPLOY-REQ; the brief's 3 gateways and 8
+  finders do not meet the requirement at 5 km).
 
 It also fixes the realistic world and the decisions recorded in `docs/DESIGN_DECISIONS.md`:
 - the IMU: 0.15 °/s gyro bias, 5 % stride noise, a magnetometer, and the 5-state filter with a 60-cycle window;
@@ -48,16 +48,19 @@ It also fixes the realistic world and the decisions recorded in `docs/DESIGN_DEC
 
 `RULES.md` lists every preset entry and how to pin one back.
 
-## Where the requirement stands (2026-10-21, CA-TBL, preset, fresh 20-seed sets)
+## Where the requirement stands (2026-10-22, CA-TBL, the preset: 12 gateways and 12 finders, fresh seeds)
 
-| geometry | tag 0 A(25 m) | five-node A(25 m) |
-|---|---|---|
-| endgame (`--boxHalf=750 --finderMode=1`) | **0.997** | **0.96–0.98** |
-| 8-gateway ring (`--nGateways=8 --gwLayout=legacy`) | **0.98–0.99** | 0.91–0.94 |
-| the brief's 5 km, 3 gateways | 0.93–0.98 | 0.83–0.84 |
+| geometry | tag 0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) |
+|---|---|---|---|
+| 5 km | **0.986** | **0.952** | 90 % |
+| endgame (`--boxHalf=750 --finderMode=1`) | **0.999** | **0.993** | 100 % |
 
-Sources: `report/PREREG_PRESET3.md`, `report/PREREG_UWB_MODE.md`, `report/PREREG_DISSEM.md`.
-- **Met:** tag 0 in the endgame and on the ring, and the endgame five-node pool.
+Source: `report/PREREG_PRESET5.md` (registered, seeds 341–360, all five predictions held).
+- **Met for tag 0 and all five nodes, at 5 km and in the endgame.** The 5 km margin is modest (0.952 here, 0.975 on
+  DEPLOY-REQ's seeds).
+- **The deployment** is DESIGN_DECISIONS 25–26 (owner, from DEPLOY-REQ): 12 gateways in a ring and 12 finders. It
+  replaces the brief's 3 gateways and 8 finders, which stay short at 5 km (five-node 0.83–0.88) and stay measurable
+  by pinning back.
 - **Short, in the brief's deployment:** the 5 km five-node pool. No node there is within 1.5 km of a gateway, so the
   shortfall is anchor supply (DISSEM's addendum).
 - **What 5 km needs, measured** (DEPLOY-REQ, `report/PREREG_DEPLOY_REQ.md`): **8 gateways and 12 finders meet the
@@ -79,7 +82,7 @@ Sources: `report/PREREG_PRESET3.md`, `report/PREREG_UWB_MODE.md`, `report/PREREG
 The contribution is the assembly and its quantification, and the measurement apparatus (`Architecture.md` §13.2).
 
 `CA-TBL_Technical_Report_SelfContained.md` is authoritative for results and claims, with a corrections register (CR-1
-to CR-27). `report/GOAL_STATUS.md` tracks the requirement campaign by campaign.
+to CR-28). `report/GOAL_STATUS.md` tracks the requirement campaign by campaign.
 
 ## Where the work is
 

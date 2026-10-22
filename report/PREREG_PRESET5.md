@@ -42,3 +42,36 @@ All five arms. Seeds 341–360: **80 cells**, one frozen binary.
 - a finder count or preset lines not matching the variant;
 - a window solver failure;
 - an arm with fewer than 20 seeds.
+
+---
+
+# RESULT — after the registration above (`8e92fe3a`)
+
+**Run.** Launched 2026-10-22T15:37:24Z from `8e92fe3a`, dirty 0. Done 17:07:32Z. 80 of 80 cells, every `rc` 0, one
+source, no window solver failure; **problems none**. Scored once (`results/preset5_2026-10-22/PRESET5.md`).
+
+| # | verdict | measured (CA-TBL, 20 seeds) |
+|---|---|---|
+| P1 | HOLDS | NEW five-node at 5 km **0.952** (90 % of runs ≥ 0.95) |
+| P2 | HOLDS | NEW − OLD five-node at 5 km **+0.077 [0.029, 0.123]** |
+| P3 | HOLDS | NEW five-node in the endgame **0.993** (every run ≥ 0.95) |
+| P4 | HOLDS | NEW − OLD five-node: 5 km +0.077, endgame +0.011 [0.007, 0.015] |
+| P5 | HOLDS | NEW tag 0: 5 km 0.986, endgame 0.999 |
+
+## The requirement under the adopted preset
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km | **0.986** | **0.952** | 0.90 | 4.7 m | 13.3 |
+| B, endgame | **0.999** | **0.993** | 1.00 | 1.4 m | 25.7 |
+
+- **A ≥ 0.95 at R ≤ 25 m is met for tag 0 and for all five nodes, at 5 km and in the endgame,** on seeds no campaign
+  had run.
+- **The 5 km margin is modest.** The same deployment gave 0.975 on DEPLOY-REQ's seeds and 0.952 here. The requirement
+  is met on both 20-seed sets; it is not met with a wide margin.
+- **Energy.** Endgame subject J rises 7.8 J [6.6, 8.9] against the brief's deployment, from the extra finders. At
+  5 km it is unchanged.
+- **Against the comparators under the preset:**
+  - level with `fixed_threshold`;
+  - above Poucet fusion in the endgame (+0.011 [0.003, 0.025]) and level at 5 km, at about 1/30 of its subject energy;
+  - level with static 2.4 GHz on availability.
