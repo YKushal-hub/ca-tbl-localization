@@ -47,3 +47,35 @@ All five arms; `--duration=1800 --trace=true --traceCovariance=true --reportAirt
 - a cell whose finder count or preset lines do not match its variant;
 - any window solver failure;
 - an arm with fewer than 20 seeds.
+
+---
+
+# RESULT — after the registration above (`617d06bc`)
+
+**Run.** Launched 2026-10-22T07:04:17Z from `617d06bc`, dirty 0. Done 08:31:40Z. 80 of 80 cells, every `rc` 0, one
+source, no window solver failure; **problems none**. Scored once (`results/preset4_2026-10-22/PRESET4.md`).
+
+| # | verdict | measured (CA-TBL, 20 seeds) |
+|---|---|---|
+| P1 | **FAILS** | NEW five-node at 5 km **0.947** (80 % of runs ≥ 0.95) |
+| P2 | HOLDS | NEW − OLD five-node at 5 km **+0.127 [0.064, 0.201]** |
+| P3 | HOLDS | NEW five-node in the endgame **0.993** (every run ≥ 0.95) |
+| P4 | HOLDS | NEW − OLD five-node: 5 km +0.127, endgame +0.016 [0.011, 0.021] |
+| P5 | HOLDS | NEW tag 0: 5 km 0.989, endgame 0.998 |
+
+## What it says
+
+- **DD 25's deployment is a large improvement and sits on the line at 5 km.** Two independent 20-seed sets give
+  0.955 (DEPLOY-REQ) and 0.947 (here). At 8 gateways and 12 finders the five-node pool meets A ≥ 0.95 on one set and
+  misses by 0.003 on the other. DD 25 recorded that margin as thin, and it is.
+- **The endgame improves and meets it in every run** (0.977 → 0.993), at a cost: subject energy +6.9 J
+  [5.7, 8.1] (+40 %), from the four extra finders' ranging.
+- **5 km tag-0 CEP95** falls from 7.0 to 4.1 m.
+- **Against the comparators under NEW:**
+  - level with `fixed_threshold`;
+  - above Poucet fusion on the five-node pool, +0.029 at 5 km and +0.017 in the endgame, at about 1/30 of its
+    subject energy;
+  - level with static 2.4 GHz at 5 km, and above it in the endgame.
+
+**The deployment that meets the requirement with a margin** is DEPLOY-REQ's 12 gateways (0.970–0.975 at 12 or more
+finders) or 8 gateways with 24 finders (0.982). This is reported to the owner, who chose DD 25.
