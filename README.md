@@ -58,8 +58,11 @@ It also fixes the realistic world and the decisions recorded in `docs/DESIGN_DEC
 
 Sources: `report/PREREG_PRESET3.md`, `report/PREREG_UWB_MODE.md`, `report/PREREG_DISSEM.md`.
 - **Met:** tag 0 in the endgame and on the ring, and the endgame five-node pool.
-- **Short:** the 5 km five-node pool. No node there is within 1.5 km of a gateway, so the shortfall is anchor supply
-  (DISSEM's addendum). `report/PREREG_DEPLOY_REQ.md` measures what deployment would meet it.
+- **Short, in the brief's deployment:** the 5 km five-node pool. No node there is within 1.5 km of a gateway, so the
+  shortfall is anchor supply (DISSEM's addendum).
+- **What 5 km needs, measured** (DEPLOY-REQ, `report/PREREG_DEPLOY_REQ.md`): **8 gateways and 12 finders meet the
+  requirement** (tag 0 0.987, five-node 0.955), and **12 gateways meet it with a margin** (0.970–0.975 from 12
+  finders). Three gateways do not, at any finder count up to 24 (best 0.936).
 
 **Against the comparators:**
 - **Poucet fusion:** CA-TBL is above it on the five-node pool in the endgame (+0.05 to +0.06) at about 1/30 of its
@@ -76,7 +79,7 @@ Sources: `report/PREREG_PRESET3.md`, `report/PREREG_UWB_MODE.md`, `report/PREREG
 The contribution is the assembly and its quantification, and the measurement apparatus (`Architecture.md` §13.2).
 
 `CA-TBL_Technical_Report_SelfContained.md` is authoritative for results and claims, with a corrections register (CR-1
-to CR-26). `report/GOAL_STATUS.md` tracks the requirement campaign by campaign.
+to CR-27). `report/GOAL_STATUS.md` tracks the requirement campaign by campaign.
 
 ## Where the work is
 
