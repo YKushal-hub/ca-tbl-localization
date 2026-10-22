@@ -6,7 +6,7 @@
 #
 # Since 2026-10-21 G24 PASSES on the real run set: the integrity populations are STRUCT under
 # integrityCheck=false (DESIGN_DECISIONS 19), and the mechanisms these short seeds miss show their
-# population in the registered PRESET-3 cells (option B of the owner's G24 decision). P0 asserts a
+# population in the registered PRESET-5 cells (PRESET-3 before DESIGN_DECISIONS 26; option B of the owner's G24 decision). P0 asserts a
 # clean pass; each fixture -- a copy of the real set with one thing changed -- must FAIL the check
 # it names. The flag-efficacy half of G24 (the preset with one flag off, per mechanism) is
 # made of real runs and needs no fixture: each EFF line already shows the mechanism off.
@@ -93,8 +93,8 @@ check "N10 the preset refused with routing turned off explicitly" RUNS
 fresh; echo 'hopVarianceTerms=true  # final plan item 1' >> "$T/f/main/spec_profile.txt"
 check "N11 the preset still setting --hopVarianceTerms" NOHV
 
-fresh; awk -F, 'BEGIN{OFS=","} NR>1{$3=0} {print}' "$ROOT/results/preset3_2026-10-21/populations.csv" > "$T/zero_pop.csv"
-G24_POPULATIONS="$T/zero_pop.csv" check "N14 a registered population of zero (the route still fails on 0)" "POP grant tie-break verdicts"
+fresh; awk -F, 'BEGIN{OFS=","} NR>1{$3=0} {print}' "$ROOT/results/preset5_2026-10-22/populations.csv" > "$T/zero_pop.csv"
+G24_POPULATIONS="$T/zero_pop.csv" check "N14 a registered population of zero (the route still fails on 0)" "POP Case A fixes"
 fresh; sed -i 's/^integrityCheck=false/integrityCheck=true/' "$T/f/main/spec_profile.txt"
 check "N15 a preset that runs the integrity check: no STRUCT exemption" "POP (integrity eligibility|suspect downweighted)"
 

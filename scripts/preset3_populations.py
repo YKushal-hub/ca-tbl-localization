@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Extract the contention and rare-mechanism populations of PRESET-3's registered cells (report/PREREG_PRESET3.md) into
+"""Extract the contention and rare-mechanism populations of a registered preset campaign's cells (PRESET-3, PRESET-5) into
 a tracked CSV, one row per cell and mechanism, with the sha256 of the run.log it was read from (raw_manifest.sha256
 names the same file). G24 reads it (option B of the owner's G24 decision, 2026-10-21): a mechanism its own three short
 seeds do not exercise is shown to have a population in a campaign registered before it ran, under the adopted preset.
 
-usage: preset3_populations.py <PRESET-3 outdir> <output csv>
+usage: preset3_populations.py <campaign outdir with A_NEW/ and B_NEW/> <output csv>
 """
 import csv
 import glob
@@ -19,6 +19,7 @@ PATS = {
     "queue gossip items": (r"queue items sent (\d+)", (1,)),
     "finder requests granted": (r"TA-1b finder requester escalation \(\S+\): [^\n]*granted (\d+)", (1,)),
     "Case A fixes": (r"A\(2 gateways\) (\d+)", (1,)),
+    "Case B fixes": (r"B\(anchor\+peer\) (\d+)", (1,)),
 }
 
 
