@@ -21,7 +21,7 @@ from paper_tables import TEXCOL, paired  # noqa: E402
 
 ROOT = os.path.join(HERE, "..")
 R = {k: os.path.join(ROOT, "results", v) for k, v in {
-    "tt": "tdoa_timing_2026-10-21", "tb": "tdoa_timing_b_2026-10-21", "oe": "oracle_esc_2026-10-21",
+    "tt": "tdoa_timing_2026-10-21", "tb": "tdoa_timing_b_2026-10-22", "oe": "oracle_esc_2026-10-21",
     "mp": "ml_pathloss_2026-10-21", "pp": "ml_pathloss_pos_2026-10-21"}.items()}
 OUT = os.path.join(ROOT, "report", "paper_tables")
 CLAB = {"A": "5 km", "B": "Endgame", "C": "8 GW"}
@@ -45,6 +45,8 @@ THRESHOLDS = (3, 12, 50, 200)
 def cell(t, hb, p, sc):
     m, lo, hi = t
     cls = "" if not (lo > 0 or hi < 0) else ("fav" if (m > 0) == hb else "unf")
+    if cls and round(m * sc, p) == 0:
+        p = 3  # an interval that excludes 0 around a mean that rounds to 0: show the digits that do
     return f"{m * sc:+.{p}f}", f"{m * sc:+.{p}f} [{lo * sc:+.{p}f}, {hi * sc:+.{p}f}]", cls
 
 
@@ -131,7 +133,7 @@ def main():
           "Paired differences, option minus without it, mean of 20 seeds with 95 % seed-bootstrap intervals; "
           "🟩 the option improves the method, 🟥 it worsens it (interval excludes 0).", ""]
     # ---- Table 5: tier-1 timing
-    tex += ["\\begin{table*}[t]", "\\centering", "\\small", "\\setlength{\\tabcolsep}{4pt}",
+    tex += ["\\begin{table*}[t]", "\\centering", "\\footnotesize", "\\setlength{\\tabcolsep}{2.5pt}",
             "\\caption{Better tier-1 (868\\,MHz) arrival timing, paired over 20 seeds: each ceiling minus the preset. "
             "Shaded where the 95\\,\\% CI excludes 0: \\colorbox{fav}{the option improves the method}, "
             "\\colorbox{unf}{it worsens it}. --: configuration not run for the method.}", "\\label{tab:nohw-timing}",
@@ -157,7 +159,7 @@ def main():
     # ---- Table 6: oracle escalation input
     grp2 = " & ".join(f"\\multicolumn{{3}}{{c}}{{{CLAB[k]}}}" for k in ("A", "B"))
     sub2 = " & ".join(" & ".join(m[1] for m in METRICS) for _ in ("A", "B"))
-    tex += ["\\begin{table}[t]", "\\centering", "\\small", "\\setlength{\\tabcolsep}{3pt}",
+    tex += ["\\begin{table*}[t]", "\\centering", "\\small", "\\setlength{\\tabcolsep}{4pt}",
             "\\caption{Perfect error knowledge in the escalation trigger: Fixed threshold escalating on the true "
             "squared position error minus escalating on $\\mathrm{trace}(P)$, at the same threshold $T$ (m$^2$), "
             "paired over 20 seeds. Shading as Table~\\ref{tab:nohw-timing}.}", "\\label{tab:nohw-oracle}",
@@ -171,10 +173,10 @@ def main():
     for name, cells in oc:
         tex.append(name + " & " + " & ".join(TEXCOL[c[2]] + c[0] for c in cells) + " \\\\")
         md.append(f"| {name.replace('$', '')} | " + " | ".join(md_mark(c[2]) + c[1] for c in cells) + " |")
-    tex += ["\\bottomrule", "\\end{tabular}", "\\end{table}", ""]
+    tex += ["\\bottomrule", "\\end{tabular}", "\\end{table*}", ""]
     md.append("")
     # ---- Table 7: learned 868 MHz ranging on real data
-    tex += ["\\begin{table}[t]", "\\centering", "\\small", "\\setlength{\\tabcolsep}{3pt}",
+    tex += ["\\begin{table*}[t]", "\\centering", "\\small", "\\setlength{\\tabcolsep}{4pt}",
             "\\caption{Learned 868\\,MHz ranging on real measurements (Bonn; Rademacher et al.\\ 2021), evaluated on "
             "1\\,km blocks unseen in training. Range: one packet, one gateway. Position: least-squares "
             "multilateration of each packet heard by $\\geq 3$ gateways.}", "\\label{tab:nohw-ml}",
@@ -189,7 +191,7 @@ def main():
     for label, f68, rmed, pmed, p68 in br:
         tex.append(f"{label} & {f68} & {rmed} & {pmed} & {p68} \\\\")
         md.append(f"| {label} | {f68} | {rmed} | {pmed} | {p68} |")
-    tex += ["\\bottomrule", "\\end{tabular}", "\\end{table}", ""]
+    tex += ["\\bottomrule", "\\end{tabular}", "\\end{table*}", ""]
     md += ["", "Contrasts (block-bootstrap 95 %):", ""] + [f"- Range: {ln}" for ln in rcon] + \
           [f"- Position, {k}: {v[0]} (median error ratio {v[1]}), {v[2]}" for k, v in bcon.items()] + [""]
     os.makedirs(OUT, exist_ok=True)
