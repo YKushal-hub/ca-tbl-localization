@@ -72,8 +72,49 @@ gateways that heard the packet (1652 m median).
 
 ## 3. Better tier-1 arrival timing (Table 5)
 
-TIMING_PARAGRAPH
+**What was tested.** A tier-1 TDoA stamp carries two errors:
+- the gateway's GPS-PPS residual, 20 ns (u-blox M8T);
+- the arrival-time error, at the one-way Cramér–Rao bound.
+
+Two ceilings remove them:
+- **S0**, perfect sync, removes the first. It is the ceiling for nanosecond synchronisation.
+- **T0** also cuts the second to 1 % of the bound, beyond any receiver. It is the ceiling for two-pass CFO/STO
+  refinement.
+
+Both were run on CA-TBL and every comparator, at 5 km, in the endgame and with 8 gateways, over 20 seeds per cell.
+
+**Result: no comparator's availability improves.**
+- No comparator availability interval in Table 5 lies above 0.
+- One lies below: LoRa-868 RSSI+TDoA at 8 gateways under T0, −2.1 pp [−3.4, −0.9].
+
+**CA-TBL's availability moves by under 1 pp.**
+- Endgame, S0: +0.7 pp [+0.2, +1.3].
+- 5 km, T0: +0.5 pp [+0.0, +1.0].
+- On TDOA-TIMING's registered metric (share of the five nodes within 25 m) the same two contrasts are −0.000 and
+  −0.015.
+
+**Where better timing does act: CEP95 of the 868 MHz-only system.**
+- Perfect sync cuts LoRa-868 RSSI+TDoA's endgame CEP95 by 18.8 m [4.1, 34.2].
+- The timing ceiling's CEP95 intervals for that system include 0.
+- For the fusion methods and CA-TBL, the ceiling buys at most 1.9 m of CEP95, at 8 gateways, for +1.1 to +2.0 J.
+
+**Why.**
+1. **Availability counts cycles that have a fix.** Tier-1 timing changes where a fix lands, not whether there is
+   one.
+2. **The fusion methods and CA-TBL take their accuracy from 2.4 GHz time of flight or UWB.** Tier-1 TDoA as
+   configured adds at most 0.8 m to their CEP95 and no availability (Table 5, L − N), so better timing has little to
+   act on. For the 868 MHz-only system, TDoA is what sets CEP95: L − N is −160 m in the endgame and −509 m at
+   8 gateways. That is where better timing shows.
+3. **The T0 ceiling's energy cost comes from the triggered-update rule.** It costs +4.4 to +5.1 J for the 868 MHz-only
+   system. The rule pushes an update when an estimate moves more than √trace(P), and a near-exact stamp sigma shrinks
+   P: in one checked cell, updates rose from 8 to 544. A real refinement would report a realistic sigma. A deployment
+   adopting one would need a floor on that threshold.
 
 ## Summary
 
-SUMMARY_TABLE
+| option | CA-TBL | comparators | why |
+|---|---|---|---|
+| Learned escalation confidence | Bounded through Fixed threshold, whose trigger reads the same kind of input | Fixed threshold: no gain against its best trace settings | The trigger is not limited by how well it knows the error |
+| Learned 868 MHz path loss (real data) | Untested (needs a survey of the search area) | RSSI-only localiser: median position error 2296 → 1337 m; a 3-parameter linear model gives 1365 m | A regression prior, not ML |
+| Nanosecond gateway sync (ceiling) | Availability +0.7 pp in the endgame only | No availability gain; 868 MHz-only CEP95 −18.8 m in the endgame | Timing moves where a fix lands; CA-TBL's accuracy is from 2.4 GHz |
+| Two-pass CFO/STO timing (ceiling) | CEP95 −0.4 to −1.9 m, at up to +1.1 J | No availability gain (one −2.1 pp); fusion CEP95 −1.8 m at 8 gateways | The same; the energy goes to triggered updates |
