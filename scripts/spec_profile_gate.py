@@ -232,14 +232,15 @@ def main():
             "DESIGN_DECISIONS 19: with the check off no fix is flagged SUSPECT, so none is downweighted"),
     }
     # Option B of the owner's G24 decision (2026-10-21): a mechanism these three short seeds do not exercise may show its
-    # population in a campaign REGISTERED BEFORE IT RAN, under the adopted preset -- PRESET-3's cells, extracted with
+    # population in a campaign REGISTERED BEFORE IT RAN, under the adopted preset -- PRESET-5's cells since DESIGN_DECISIONS
+    # 26 (PRESET-3's before it; with 12 gateways Case B joins the rare mechanisms, 1 cell in 40), extracted with
     # each run.log's sha256 (scripts/preset3_populations.py). Not more seeds of this gate until it fires: the
     # population is read, never searched for. A zero there is still a FAIL.
     REGISTERED = ("Case A fixes", "arbitration pre-emptions", "grant tie-break verdicts", "queue gossip items",
-                  "finder requests granted")
+                  "finder requests granted", "Case B fixes")
     regp = os.environ.get("G24_POPULATIONS",
                           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                       "results", "preset3_2026-10-21", "populations.csv"))
+                                       "results", "preset5_2026-10-22", "populations.csv"))
     regpop = {}
     if os.path.exists(regp):
         for r in csv.DictReader(open(regp)):
@@ -260,7 +261,7 @@ def main():
         v = sum(x or 0 for x in vals)
         if v <= 0 and name in REGISTERED and regpop.get(name, [0, 0])[0] > 0:
             n_, k_ = regpop[name]
-            report(True, f"POP-REG {name}", f"{run}: 0 in these seeds; registered PRESET-3 (report/PREREG_PRESET3.md): "
+            report(True, f"POP-REG {name}", f"{run}: 0 in these seeds; registered PRESET-5 (report/PREREG_PRESET5.md): "
                    f"{n_} in {k_} cells ({os.path.relpath(regp)})")
             continue
         if all(x is None for x in vals):

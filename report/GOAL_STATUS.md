@@ -30,6 +30,31 @@ CA-TBL means, S (REAL-BEST's stack) → N (S plus the PRESET-2 candidates; not a
 - it is level with Poucet fusion and fixed_threshold (every interval spans 0);
 - it uses 383–446 J less subject energy than Poucet fusion.
 
+## Registered, 2026-10-22: PRESET-5 — the adopted preset, 12 gateways and 12 finders (`report/PREREG_PRESET5.md`)
+
+Fresh seeds 341–360. CA-TBL under the preset:
+
+| configuration | tag-0 A(25 m) | five-node A(25 m) | runs ≥ 0.95 (five-node) | CEP95 tag 0 | subject J |
+|---|---|---|---|---|---|
+| A, 5 km | **0.986** | **0.952** | 0.90 | 4.7 m | 13.3 |
+| B, endgame | **0.999** | **0.993** | 1.00 | 1.4 m | 25.7 |
+
+**The requirement is met for tag 0 and all five nodes at 5 km and in the endgame.** The 5 km margin is modest.
+PRESET-4 (`report/PREREG_PRESET4.md`) had measured DD 25's 8 gateways at 0.947; DD 26 followed.
+
+## Registered, 2026-10-21: DEPLOY-REQ — what the 5 km geometry needs (`report/PREREG_DEPLOY_REQ.md`)
+
+Seeds 301–320, the preset unchanged, gateways × finders at 5 km. CA-TBL, A(25 m) tag 0 / five-node:
+
+| gateways \ finders | 8 | 12 | 16 | 24 |
+|---|---|---|---|---|
+| 3 (the brief) | 0.956 / 0.794 | 0.985 / 0.827 | 0.988 / 0.900 | 0.992 / 0.936 |
+| 8 (ring) | 0.986 / 0.916 | **0.987 / 0.955** | 0.988 / 0.941 | **0.990 / 0.982** |
+| 12 (ring) | 0.985 / 0.912 | **0.988 / 0.975** | **0.990 / 0.970** | **0.992 / 0.972** |
+
+**The requirement is met at 5 km from 8 gateways and 12 finders**, and with a margin at 12 gateways. The brief's 3
+gateways do not meet it at any finder count up to 24.
+
 ## Registered, 2026-10-21: DISSEM — beacons carry the sender's entry (`report/PREREG_DISSEM.md`)
 
 Seeds 281–300, the preset after DD 18–24 (OFF) against it with `--beaconCarriesEntry` (ON). **Not adopted** (D1, D3, D4
