@@ -223,8 +223,11 @@ line in each script).
   Table 9's 850 kb/s row. Pin back as DESIGN_DECISIONS 23 lists.
 - DD 24 (2026-10-21): `--silenceStopsRelay --deadBatteryNoDraw`; fault runs only. Pin back with
   `--silenceStopsRelay=false --deadBatteryNoDraw=false`.
+- DD 25 (2026-10-22, owner, from DEPLOY-REQ): `--nGateways=8 --gwLayout=legacy --nFinders=12`, the smallest deployment
+  meeting the requirement at 5 km (was 3 gateways in the star layout, 8 finders). Pin back with `--nGateways=3
+  --gwLayout=star --nFinders=8`.
 
-`scripts/preset_pins.sh` holds the pin for every 2026-10-21 change (DD 19–24) in one line, `PIN_PRE_DD19`.
+`scripts/preset_pins.sh` holds the pin for every change since 2026-10-21 (DD 19–25) in one line, `PIN_PRE_DD19`.
 
 To reproduce a pre-adoption preset result, pin these back. NC10.args (`~/catbl_ref_switch0/nc`) shows exactly how.
 Current headline numbers: `report/CAMP_FINAL2_RESULTS.md`, measured before DD 14 and 15. The final preset's own

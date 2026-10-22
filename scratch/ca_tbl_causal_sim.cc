@@ -16392,9 +16392,13 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"measuredSubjects", "5", "decision 4: all five field nodes are measured"},
     {"nTags", "5", "decision 4: five field nodes"},
     {"boxHalf", "5000", "the spec's 5 km search area"},
-    {"nGateways", "3", "the spec's deployment: 3 gateways over 5 km (owner call, DESIGN_DECISIONS 9; was N8_ring, GEO-01's fallback)"},
-    {"gwLayout", "star", "GEO-01 stage 2's best N = 3 layout, N3_star"},
-    {"nFinders", "8", "DD 22 / O11 (was 4, decision 6): eight finders, the deployment that meets the endgame five-node requirement (ANCHOR-SUPPLY R8 0.970)"},
+    // OWNER DECISION 2026-10-22 (DESIGN_DECISIONS 25, from DEPLOY-REQ, report/PREREG_DEPLOY_REQ.md): the smallest
+    // deployment meeting A >= 0.95 at R <= 25 m for tag 0 and all five nodes at 5 km. The brief's 3 gateways (DD 9)
+    // do not meet it at any finder count up to 24. Earlier preset results reproduce with
+    // --nGateways=3 --gwLayout=star --nFinders=8 (scripts/preset_pins.sh).
+    {"nGateways", "8", "DD 25 (was 3, DD 9): DEPLOY-REQ's smallest deployment meeting the requirement at 5 km, 8 gateways"},
+    {"gwLayout", "legacy", "DD 25 (was star): the 8-gateway ring DEPLOY-REQ measured"},
+    {"nFinders", "12", "DD 25 (was 8, DD 22): with 8 gateways, 12 finders meet the five-node requirement at 5 km (DEPLOY-REQ 0.955)"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
