@@ -116,3 +116,6 @@ scratchpad/
 # editor and local scratch
 .vscode/
 scratchpad/
+
+# MkDocs build output
+/site/
