@@ -1,6 +1,6 @@
 # Quick start
 
-One run of the preset: all five arms, the endgame geometry, ten minutes of simulated time, scored on the design
+One run of the preset: the default four arms, the endgame geometry, ten minutes of simulated time, scored on the design
 requirement. It needs the [build](installation.md) to be done and nothing else.
 
 ```bash
@@ -18,10 +18,27 @@ python3 scripts/goal_report.py /tmp/catbl_demo
 | `--boxHalf=750 --finderMode=1` | the endgame geometry: a box of 750 m half-width, finders converging directly |
 | `--trace=true` | write the per-cycle traces that `goal_report.py` reads |
 | `--outdir` | **must already exist** |
+| `--arms` | not given here: the default runs four arms. `poucet_fusion` is run **by name only** (`--arms=ca_tbl_full,fixed_threshold,poucet_fusion,static_2p4,static_868`) |
 
 `goal_report.py` reads a campaign layout, `<dir>/<GROUP>_<name>/s<seed>/`, and prints the requirement per arm:
 A(25 m) for tag 0 and for the five-node pool, the fraction of runs at or above 0.95, CEP95 for tag 0 and the mean
 subject energy in joules.
+
+## What this run printed
+
+Verified on 2026-10-26 with a binary built at commit `fa8ee2f0` (one seed, 600 s; the run took **5 min 26 s** on
+the verifying machine and exited 0). A single seed is a demonstration, not a result; the registered campaigns use
+20 seeds and 1800 s.
+
+| arm | A(25 m) tag 0 | A(25 m) five-node | CEP95 tag 0 (m) | subject J |
+|---|---|---|---|---|
+| `ca_tbl_full` | 1.000 | 0.980 | 1.5 | 10.49 |
+| `fixed_threshold` | 1.000 | 0.980 | 1.3 | 7.92 |
+| `static_868` | 0.933 | 0.751 | 31.1 | 3.46 |
+| `static_2p4` | 1.000 | 0.979 | 1.6 | 3.39 |
+
+The two LoRa-band static arms and the tiered arms differ the way the [results](../research/results.md) say they should
+(static 868 MHz far below the requirement), but one seed cannot rank `ca_tbl_full` against `fixed_threshold`.
 
 !!! note
     Output is block-buffered: a run in progress shows an empty log and no rows until it finishes. One arm is about
