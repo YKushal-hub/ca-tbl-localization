@@ -1074,7 +1074,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
 // ratio r/d (the RSSI inversion's error law), the others Gaussian; each term is floored at -8 (4 sigma), so
 // a relayed or NLOS outlier cannot annihilate the true mode. Handover to the EKF when the cloud is unimodal:
 // split along its principal axis, and it is one mode when either half carries < 2 % of the weight or
-// Ashman's D between the halves is below 4 (a single Gaussian split at its mean gives D ~ 2.7).
+// Ashman's D between the halves is below 3 (a single Gaussian split at its mean gives D ~ 2.7).
 
 void
 CaTblPolicy::PfInit(double cx, double cy, double half)
