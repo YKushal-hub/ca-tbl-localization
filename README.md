@@ -138,7 +138,7 @@ invocation, build profile, source commit, dirty count and a SHA-256 per output f
 | `report/PREREG_*.md` | registered campaigns, each with its result |
 | `Simulation.md`, `MASTER_PLAN.md` | specifications and the work programme; strategy |
 | `SETUP_NEW_MACHINE.md` | a fresh clone to a green suite |
-| `HANDOFF_*.md`, `*_AUDIT*.md`, `VERIFICATION_*.md`, `LOCAL_RUN_*.md`, `WORKSTREAMS_*.md`, `simstatus.md`, `docs/archive/` | **dated records**: true on their date, kept for their findings, not current |
+| `docs/archive/` (including `docs/archive/history/`: session handoffs, audits, the local verification run) | **dated records**: true on their date, kept for their findings, not current |
 
 ## A note on what is shipped
 
@@ -153,4 +153,4 @@ predictions, and campaigns whose registered rule refused a mechanism (most recen
 ## Licence
 
 ns-3 is licensed **GPLv2**, and this is a derivative work to which that licence applies. See `LICENSE`. Upstream ns-3
-documentation is preserved in [`README.ns3.md`](README.ns3.md); upstream authorship is unmodified in the git history.
+documentation is preserved in [`docs/upstream/README.ns3.md`](docs/upstream/README.ns3.md); upstream authorship is unmodified in the git history.

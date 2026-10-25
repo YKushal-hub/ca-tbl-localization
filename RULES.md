@@ -159,7 +159,7 @@ produces a wrong result that looks right.
   matches `Co-Authored-By:`; it still catches `Generated with`, `Assisted-by:` and
   vendor handles. So a trailer will not turn the suite red, and it is still not to
   be written. The tooling references that already
-  exist — `RULES.md` itself and `docs/KICKOFF.md` — are project infrastructure, not
+  exist — `RULES.md` itself and `docs/archive/history/KICKOFF.md` — are project infrastructure, not
   attribution, and stay. Tool settings directories are ignored per clone in
   `.git/info/exclude`, so the tracked tree names no tool.
 - **Do not add a new mechanism without a default-off flag** whose off state reproduces the
