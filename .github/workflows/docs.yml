@@ -37,7 +37,7 @@ jobs:
           cache-dependency-path: requirements-docs.txt
       - name: Install documentation dependencies
         run: pip install -r requirements-docs.txt
-      - name: Build (strict: warnings and broken internal links fail the build)
+      - name: "Build (strict: warnings and broken internal links fail the build)"
         run: mkdocs build --strict
       - uses: actions/configure-pages@v5
         if: github.event_name != 'pull_request'
