@@ -67,7 +67,7 @@ Source: `report/PREREG_PRESET5.md` (registered, seeds 341–360, all five predic
 
 **Against the comparators:**
 - **Poucet fusion:** under the preset (PRESET-5), CA-TBL is above it in the endgame (+0.011 [0.003, 0.025]) and level
-  at 5 km, at about 1/30 of its subject energy. It was above by +0.05 to +0.06 under the brief's deployment.
+  at 5 km, at 1/34 of its subject energy at 5 km and 1/15 in the endgame (PRESET-5). It was above by +0.05 to +0.06 under the brief's deployment.
 - **`fixed_threshold`:** CA-TBL is level with it on availability.
 - **Single-band arms:** CA-TBL is above static 868 MHz everywhere. Under the preset it is level with static 2.4 GHz
   on availability (PRESET-5) and spends about 7 J more per subject. It was above static 2.4 GHz at 5 km under the
@@ -137,18 +137,24 @@ invocation, build profile, source commit, dirty count and a SHA-256 per output f
 | `report/GOAL_STATUS.md` | the requirement, campaign by campaign |
 | `report/PREREG_*.md` | registered campaigns, each with its result |
 | `Simulation.md`, `MASTER_PLAN.md` | specifications and the work programme; strategy |
-| `SETUP_NEW_MACHINE.md` | a fresh clone to a green suite |
+| `docs/INSTALL.md` | a fresh clone to a built, verified simulator |
+| `CONTRIBUTING.md` | how to propose a change, and what it must include |
+| `docs/README.md` | the index of every document |
 | `docs/archive/` (including `docs/archive/history/`: session handoffs, audits, the local verification run) | **dated records**: true on their date, kept for their findings, not current |
 
 ## A note on what is shipped
 
-`results/` holds 25 050 tracked files (about 350 MB): every campaign's `arm_summary.csv`, `subject_summary.csv`,
+`results/` holds 26 263 tracked files (about 380 MB): every campaign's `arm_summary.csv`, `subject_summary.csv`,
 `run_id.txt` and a SHA-256 manifest of its raw files. Every table in the Technical Report is sourced from a file in
 this repository. Per-cycle `trace_*.csv` are not tracked (tens of GB); they regenerate from each cell's `run_id.txt`,
 and runs are deterministic.
 
 The repository ships the evidence for its negative results as well as its positive ones: withdrawn claims, failed
 predictions, and campaigns whose registered rule refused a mechanism (most recently DISSEM).
+
+## Citing
+
+See [`CITATION.cff`](CITATION.cff). Cite a result by its campaign directory and the commit in its `run_id.txt`.
 
 ## Licence
 

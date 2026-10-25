@@ -1,0 +1,23 @@
+name: Documentation and script checks
+
+# Lightweight checks that need no ns-3 build. The full regression suite is `bash scripts/catbl_gates.sh` (docs/INSTALL.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Shell scripts parse
+        run: |
+          for f in scripts/*.sh tools/*.sh tools/nullcontrol/*.sh; do bash -n "$f" || exit 1; done
+      - name: Python scripts compile
+        run: python -m compileall -q scripts analysis tools src/catbl-propagation-study scratch/python_handoff
+      - name: Relative links in the documentation resolve
+        run: python scripts/check_doc_links.py README.md CONTRIBUTING.md docs/README.md docs/INSTALL.md
