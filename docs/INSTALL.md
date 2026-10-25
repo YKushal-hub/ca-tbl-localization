@@ -50,7 +50,19 @@ for t in $SUITES; do
 done
 ```
 
-Each suite ends with its pass/fail count; all should report zero failures.
+Each suite ends with its pass/fail count; all should report zero failures. Counts on the tree of 2026-10-25
+(401 checks in all):
+
+| suite | checks | suite | checks |
+|---|---|---|---|
+| `ca_tbl_packet_validator` | 76 | `ca_tbl_sparse_anchor_test` | 33 |
+| `ca_tbl_session_test` | 32 | `ca_tbl_loocv_test` | 9 |
+| `ca_tbl_routing_test` | 27 | `ca_tbl_tdoa_test` | 33 |
+| `ca_tbl_lifecycle_test` | 16 | `ca_tbl_nlos_test` | 41 |
+| `ca_tbl_netlayer_test` | 30 | `ca_tbl_integrity_test` | 40 |
+| `ca_tbl_relay_admission_test` | 22 | `ca_tbl_imu_test` | 42 |
+
+A suite that gains a check changes its count; the requirement is zero failures, not the number.
 
 The regression gates run every check, summarise them, and never stop at the first failure:
 
