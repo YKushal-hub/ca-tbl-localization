@@ -1,0 +1,105 @@
+site_name: CA-TBL
+site_description: Covariance-Aware Tier-Based Logic for GPS-denied search and rescue, an ns-3.47 simulation
+site_url: https://ykushal-hub.github.io/ca-tbl-localization/
+repo_url: https://github.com/YKushal-hub/ca-tbl-localization
+repo_name: YKushal-hub/ca-tbl-localization
+edit_uri: ""
+# The site lives in docs-site/, not docs/: docs/ holds the repository's own design record, which links to files outside
+# it and is read on GitHub. This site links to those documents by URL rather than copying them.
+docs_dir: docs-site
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quick start: getting-started/quickstart.md
+      - Troubleshooting: getting-started/troubleshooting.md
+  - Project:
+      - Overview and scope: project/overview.md
+  - Theory:
+      - Observables and estimation: theory/observables-and-estimation.md
+      - The uncertainty score: theory/uncertainty-score.md
+      - Tier escalation: theory/tier-escalation.md
+  - Architecture:
+      - System overview: architecture/system-overview.md
+      - Components: architecture/components.md
+      - The per-cycle loop: architecture/cycle-loop.md
+      - Failure modes: architecture/failure-modes.md
+  - Implementation:
+      - Repository structure: implementation/repository-structure.md
+      - Configuration and the preset: implementation/configuration.md
+      - Execution and provenance: implementation/execution-pipeline.md
+  - Radios:
+      - Three tiers: radios.md
+  - Energy and compliance:
+      - Energy model: energy-and-compliance/energy-model.md
+      - Regulatory considerations: energy-and-compliance/regulatory.md
+  - Research:
+      - Methodology and baselines: research/methodology.md
+      - Results: research/results.md
+      - Limitations: research/limitations.md
+  - Development:
+      - Testing and gates: development/testing.md
+      - Contributing and roadmap: development/contributing.md
+  - Reference:
+      - Glossary: reference/glossary.md
+      - References: reference/references.md
+      - Licence and citation: reference/licence.md
