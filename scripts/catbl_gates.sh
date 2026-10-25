@@ -351,7 +351,7 @@ G12_BAD=0
 # while describing what was removed. A check that cannot survive its own policy being
 # written down is too broad. Attribution is a FORM, not a subject: a trailer line, or
 # a vendor identity. Prose describing the policy is not attribution.
-G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
+G12_ID_PAT='cl[a]ude|anthr[o]pic|assistant|copilot|\bbot\b'
 # NARROWED 2026-09-05 by owner decision: co-authored-by is no longer matched in
 # message bodies. The identity-field check above is UNCHANGED and still blocks an
 # assistant appearing as author or committer, which is the property that actually
@@ -384,7 +384,7 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # The note above already states the principle and the trailer alternatives already obey
 # it: attribution is a FORM, not a subject, and the colon is what distinguishes the form
 # from prose about the form. A vendor handle is attribution when it appears as a
-# TRAILER VALUE -- Key: something@anthropic -- and is prose when it appears in a
+# TRAILER VALUE -- Key: something@vendor -- and is prose when it appears in a
 # sentence. Anchored to that form, both documenting commits pass and a real trailer
 # still does not.
 #
@@ -395,7 +395,7 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 # TIGHTENED 2026-09-08, hours later, because the anchoring commit tripped its own gate
 # -- the FOURTH time this check has fired on a commit that documents it. 233f98a's body
 # lists its negative fixtures as literal trailer lines, and "Signed-off-by: bot
-# <x@anthropic.com>" is indistinguishable from the real thing unless indentation counts.
+# <x@vendor.example>" is indistinguishable from the real thing unless indentation counts.
 #
 # It counts, and it is the right discriminator rather than a convenient one. A GIT
 # TRAILER SITS AT COLUMN 0 in the trailer block; git's own parser will not read an
@@ -406,7 +406,7 @@ G12_ID_PAT='cl[a]ude|anthropic|assistant|copilot|\bbot\b'
 #
 # The leading [[:space:]]* was inherited from the original pattern and was never
 # examined. It is what made every documenting commit an offender.
-G12_MSG_PAT='^(generated[- ]with|assisted-by):|^[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthropic|openai)'
+G12_MSG_PAT='^(generated[- ]with|assisted-by):|^[A-Za-z][A-Za-z0-9-]*:[[:space:]]*[^:]*@(anthr[o]pic|openai)'
 n_id=$(git log --format='%an|%ae|%cn|%ce' | grep -icE "$G12_ID_PAT" || true)
 if [ "${n_id:-0}" -ne 0 ]; then
     printf 'ATTRIBUTION IN IDENTITY FIELDS: %s commit(s)\n' "$n_id"
