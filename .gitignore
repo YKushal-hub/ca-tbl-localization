@@ -112,3 +112,7 @@ src/catbl-propagation-study/results/corpus.json
 # Demo and scratch run outputs. Holds trace_*.csv, which must never be tracked (~13 GB
 # across the tree, regenerable from each directory's run_id.txt invocation).
 scratchpad/
+
+# editor and local scratch
+.vscode/
+scratchpad/

@@ -194,7 +194,7 @@ unconditional column, changes what that gate decides and is not a bug fix.
 **−15.43 dB** (bias +0.91 dB), so that argument survives on the clean axis.
 `src/catbl-propagation-study/validate.py` never reads the column and is
 unaffected. `mean_snr_db` also appears in `run_final_validation.py` and
-`average.py`, which write their own CSVs from a different accumulator and were not
+`average.py` (both now in `src/catbl-propagation-study/legacy/`), which write their own CSVs from a different accumulator and were not
 examined.
 
 ---

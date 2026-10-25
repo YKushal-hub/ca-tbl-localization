@@ -17,7 +17,7 @@
 #   --injectFaultAnchors=1  ->  F1   single-anchor, the canonical RAIM fault model
 #   --injectFaultAnchors=0  ->  F3   common-mode across every tier-2 link
 #
-# The mapping is NOT fa+1. docs/WORK_PACKAGES.md A2 and docs/KICKOFF.md both give
+# The mapping is NOT fa+1. docs/WORK_PACKAGES.md A2 and docs/archive/history/KICKOFF.md both give
 # F$((fa+1)), which labels common-mode as F1 and emits a nonexistent F2 -- and would
 # silently set F3 beside F1 when read against section 5.1. Verified against
 # results/abl_clean/bounded_F1_seed1/run_id.txt (injectFaultAnchors=1) and

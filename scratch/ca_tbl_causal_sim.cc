@@ -17535,7 +17535,7 @@ main(int argc, char* argv[])
                  "(2000 particles over the prior box, robust range likelihoods: log-normal for 868 MHz, Gaussian "
                  "otherwise, each term floored at 4 sigma), which keeps every circle-intersection root alive; the "
                  "EKF carries the cloud's mean and covariance meanwhile, and takes over when the cloud is one mode "
-                 "(principal-axis split: a half under 2 % or Ashman's D < 4). One PFACQ_HANDOVER line per node. "
+                 "(principal-axis split: a half under 2 % or Ashman's D < 3). One PFACQ_HANDOVER line per node. "
                  "Why: R1 showed a single Gaussian started at any one root stays there.",
                  spec.acquireParticles);
     cmd.AddValue("rangeBiasStates",
