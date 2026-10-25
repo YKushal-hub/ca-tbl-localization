@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    CFG["flags + preset"] --> SIM["ca_tbl_causal_sim<br/>(five arms, one seed)"]
+    CFG["flags + preset"] --> SIM["ca_tbl_causal_sim<br/>(selected arms, one seed)"]
     SIM --> OUT["arm_summary.csv<br/>trace_*.csv, subjtrace_*.csv"]
     SIM --> RID["run_id.txt<br/>commit, dirty, profile, SHA-256 per file"]
     OUT --> GR["scripts/goal_report.py<br/>A(25 m), CEP95, energy"]

@@ -23,7 +23,7 @@ pinning that flag back. [`RULES.md`](https://github.com/YKushal-hub/ca-tbl-local
 | `--seedCount` | 1 | | number of consecutive seeds; the summary is appended per seed |
 | `--duration` | 3600 | | simulated seconds |
 | `--outdir` | `results/causal` | | output directory; must exist |
-| `--arms` | all | | comma-separated arms; `poucet_fusion` and `lora_fusion` only by name |
+| `--arms` | all (four arms) | | comma-separated arms; `poucet_fusion` and `lora_fusion` are **not** in `all` and run only by name |
 | `--trace` | | | write per-cycle traces |
 | `--boxHalf` | 340 | 5000 | search-box half-width, metres |
 | `--finderMode` | | 2 | 1 converge; 2 two-phase search |
