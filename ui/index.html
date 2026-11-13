@@ -4,106 +4,65 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CA-TBL Search Console</title>
-<style>
-:root{
-  --bg:#000000; --map:#000000;
-  --panel:#0a0a0a; --panel2:#141414; --glass:rgba(12,12,12,.88); --line:#2a2a2a; --line2:#3a3a3a;
-  --text:#e8e8e8; --mute:#9a9a9a;
-  --accent:#38bdf8; --accent2:#0ea5e9;
-  --gw:#60a5fa; --missing:#ef4444; --finder:#22c55e; --relay:#a78bfa; --camp:#fbbf24; --lkp:#e879f9;
-  --ok:#22c55e; --bad:#f43f5e; --hl:#facc15;
-  --r:12px; --shadow:0 10px 30px rgba(0,0,0,.35);
-}
-*{box-sizing:border-box}
-html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font:13px/1.45 "Inter",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
-#app{display:grid;grid-template-columns:minmax(0,85fr) minmax(0,15fr);height:100vh}
-/* the map owns the whole 85 %: the canvas fills it and everything else floats over it */
-#mapWrap{position:relative;min-width:0;overflow:hidden;background:var(--map)}
-#map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab}
-#map.dragging{cursor:grabbing}
-.glass{background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
-#side{display:flex;flex-direction:column;gap:14px;padding:14px 12px;overflow-y:auto;background:linear-gradient(180deg,#0a0a0a,#000000);border-left:1px solid var(--line);min-width:0}
-#side::-webkit-scrollbar{width:8px} #side::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
-.brand{display:flex;align-items:center;gap:9px;font-weight:650}
-.brand i{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);flex:none}
-.brand small{display:block;font-weight:400;color:var(--mute);font-size:11px}
-h3{margin:0 0 8px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);font-weight:600}
-.card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
-.pal{display:flex;align-items:center;gap:9px;padding:8px 9px;margin-bottom:6px;border:1px solid var(--line);border-radius:9px;cursor:grab;user-select:none;background:#111111;transition:border-color .15s,transform .15s,background .15s}
-.pal:hover{border-color:var(--line2);background:#1a1a1a;transform:translateY(-1px)}
-.pal.off{cursor:default;opacity:.65;transform:none}
-.pal small{display:block;color:var(--mute);font-size:10.5px;line-height:1.3}
-.ico{width:14px;height:14px;flex:none;display:inline-block}
-.ico.gw{background:none;width:16px;height:16px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 15 L8 5 L13 15 M5.5 10.5 H10.5' stroke='%2360a5fa' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='8' cy='4' r='1.8' fill='%2360a5fa'/%3E%3Cpath d='M4.2 1.6 A5 5 0 0 0 4.2 6.4 M11.8 1.6 A5 5 0 0 1 11.8 6.4' stroke='%2360a5fa' stroke-width='1.3' fill='none'/%3E%3C/svg%3E")}
-.ico.missing{background:var(--missing);clip-path:polygon(50% 0,100% 100%,0 100%)}
-.ico.finder{background:var(--finder);border-radius:2px;width:12px;height:12px;margin:1px}
-.ico.lkp{background:var(--lkp);clip-path:polygon(50% 100%,15% 45%,15% 20%,50% 0,85% 20%,85% 45%)}
-.ico.camp{background:none;width:16px;height:16px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 15 V1' stroke='%23fbbf24' stroke-width='2'/%3E%3Cpolygon points='4,1 14,4.5 4,8' fill='%23fbbf24'/%3E%3C/svg%3E")}
-.ico.relay{background:var(--relay);clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%)}
-.field{display:grid;grid-template-columns:1fr 72px;gap:6px;align-items:center;font-size:12px;margin-bottom:6px;color:#d4d4d4}
-.field.wide{grid-template-columns:1fr}
-input[type=number],select{width:100%;min-width:0;background:#050505;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 7px;font:inherit;transition:border-color .15s}
-input[type=number]:focus,select:focus{outline:none;border-color:var(--accent)}
-button{background:#1a1a1a;color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:6px 11px;cursor:pointer;font:inherit;font-weight:500;transition:background .15s,border-color .15s,transform .1s}
-button:hover:not(:disabled){border-color:var(--accent);background:#242424}
-button:active:not(:disabled){transform:translateY(1px)}
-button.primary{background:linear-gradient(180deg,var(--accent),var(--accent2));border-color:transparent;color:#03111d;font-weight:650}
-button.primary:hover:not(:disabled){filter:brightness(1.08)}
-button:disabled{opacity:.4;cursor:not-allowed}
-.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.check{display:flex;gap:7px;align-items:center;font-size:12px;color:#d4d4d4;margin-top:3px}
-.check input{accent-color:var(--accent)}
-#status{font-size:11.5px;color:var(--mute);word-break:break-word;line-height:1.45;white-space:pre-line}
-#nodeList .grp{font-size:10.5px;color:var(--mute);margin:8px 0 3px;text-transform:uppercase;letter-spacing:.06em}
-#nodeList .n{padding:4px 7px;border-radius:7px;cursor:pointer;display:flex;gap:8px;align-items:center;transition:background .12s}
-#nodeList .n:hover{background:#1a1a1a}
-#nodeList .n.hl{box-shadow:inset 0 0 0 1px var(--hl);background:#2a2610}
-.meshSwitch{display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);cursor:pointer;font-size:12.5px}
-.meshSwitch input{display:none}
-.meshSwitch .knob{flex:none;width:34px;height:18px;border-radius:9px;background:#3a3a3a;position:relative;transition:background .15s}
-.meshSwitch .knob::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#d4d4d4;transition:left .15s}
-.meshSwitch input:checked + .knob{background:var(--accent)}
-.meshSwitch input:checked + .knob::after{left:18px;background:#fff}
-.meshSwitch small{display:block;color:var(--mute);font-size:10.5px}
-.note{font-size:10.5px;color:#d9c26a;border:1px dashed #facc1555;border-radius:9px;padding:6px 8px;line-height:1.4}
-#tip{position:absolute;pointer-events:none;padding:8px 10px;font-size:12px;display:none;white-space:nowrap;z-index:4}
-#legend{position:absolute;right:14px;top:14px;padding:10px 12px;font-size:11.5px;z-index:2;max-width:300px}
-#legend .items{display:grid;grid-template-columns:18px auto;gap:4px 8px;align-items:center;margin-top:6px}
-#legend.collapsed .items{display:none}
-#legend header{display:flex;justify-content:space-between;align-items:center;gap:14px;cursor:pointer;color:var(--mute);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
-#banner{position:absolute;left:14px;top:14px;max-width:min(540px,55%);padding:11px 14px;display:none;z-index:3;border-color:#facc1588;background:rgba(40,33,8,.9);animation:pop .25s ease}
-#banner .t{font-weight:650;color:var(--hl);margin-bottom:4px}
-#banner ul{margin:4px 0 6px;padding-left:18px}
-#banner .m{color:var(--mute);font-size:11.5px}
-@keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-#bar{position:absolute;left:14px;right:14px;bottom:14px;padding:9px 12px;display:flex;flex-direction:column;gap:6px;z-index:2}
-#bar .top{display:flex;gap:10px;align-items:center}
-#bar select{width:auto}
-#timeline{width:100%;margin:0;accent-color:var(--accent);display:block}
-#tlWrap{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
-#tierStrip{width:100%;height:10px;border-radius:4px;cursor:pointer;display:block;background:#111111}
-#jumps{display:flex;gap:8px;align-items:center;font-size:11.5px;color:var(--mute);flex:none}
-#jumps .j{display:flex;align-items:center;gap:3px;border:1px solid var(--line);border-radius:7px;padding:2px 3px 2px 7px;background:#111111}
-#jumps .j i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:3px}
-#jumps button{padding:1px 6px;font-size:11px;line-height:1.3;border-radius:5px}
-#jumps .n{color:var(--text);font-weight:600;margin:0 3px}
-#hud{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:12px;color:var(--mute)}
-#hud b{color:var(--text);font-weight:600}
-#zoom{position:absolute;right:14px;bottom:104px;display:flex;flex-direction:column;gap:4px;padding:5px;z-index:2}
-#zoom button{width:34px;height:30px;padding:0;font-size:15px}
-#scale{position:absolute;left:18px;bottom:104px;font-size:11px;color:#cfcfcf;z-index:1;pointer-events:none}
-#scale div{height:3px;background:#cfcfcf;border-radius:2px;margin-top:3px}
-#modal{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:9}
-#modal .box{width:min(940px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);animation:pop .2s ease}
-#modal header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
-#modal .body{overflow:auto;padding:0 16px 14px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{text-align:left;padding:4px 7px;border-bottom:1px solid #222222;white-space:nowrap}
-th{position:sticky;top:0;background:var(--panel);color:var(--mute);font-weight:600}
-td.ok{color:var(--ok)} td.bad{color:var(--bad)}
-</style>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/landing.css">
 </head>
 <body>
+<div id="landing" class="view">
+  <canvas id="bgCanvas"></canvas>
+  <div class="blobs"><span></span><span></span><span></span></div>
+  <header class="nav glass">
+    <div class="brand"><div class="mark"><canvas class="markGl"></canvas><i></i></div><div>CA-TBL<small>Confidence-aware tier-based localization</small></div></div>
+    <nav class="links"><a class="link" href="#tiers" data-go="tiers">Radios</a><a class="link" href="#method" data-go="method">Method</a><a class="link" href="#console" data-go="consoleInfo">Console</a><a class="link" href="#evidence" data-go="evidence">Evidence</a></nav>
+    <button class="primary" data-go="console">Open console</button>
+  </header>
+  <div class="wrap">
+    <section class="hero">
+      <div class="reveal">
+        <span class="eyebrow"><i></i>Search and rescue &middot; GPS-denied terrain</span>
+        <h1 class="display">Locating a missing person across <em>three radio tiers</em></h1>
+        <p class="lead">CA-TBL estimates a position where satellite navigation is unavailable. It chooses between long-range LoRa, 2.4&nbsp;GHz time-of-flight ranging and ultra-wideband according to how uncertain the estimate is, so that precision is spent only where it can be reached.</p>
+        <div class="cta"><button class="primary" data-go="console">Open the console</button><button data-go="tiers">How it works</button></div>
+        <div class="chips"><span class="chip">ns-3 simulation</span><span class="chip">Pre-registered evaluation</span><span class="chip">GPL-2.0 licensed</span></div>
+      </div>
+      <div class="stage glass" id="stage"><canvas id="heroGl"></canvas><div class="fallback3d"><span></span><span></span><span></span></div><div class="hint">Drag to rotate &middot; hover a tier</div></div>
+    </section>
+
+    <section class="block" id="tiers">
+      <div class="reveal"><div class="kicker">Radios</div><h2 class="title">Three radios, three roles</h2><p class="sub">Every node carries all three radios. A tier is a choice of radio, not of peer: the same neighbours are reachable on each, at different range and precision.</p></div>
+      <div class="grid3">
+        <article class="card3 glass tilt reveal" style="--c:#8ea2c8;--d:.05s"><div class="bar"></div><div class="tag">Tier 1 &middot; coverage</div><h3 class="h">868&nbsp;MHz LoRa</h3><p>Reaches furthest, so it covers the whole search area. Position from signal strength and arrival-time differences is coarse; the tier is a floor that keeps every node reachable.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="r868">&hellip;</b></div></article>
+        <article class="card3 glass tilt reveal" style="--c:#38bdf8;--d:.15s"><div class="bar"></div><div class="tag">Tier 2 &middot; refinement</div><h3 class="h">2.4&nbsp;GHz LoRa</h3><p>Time-of-flight ranging at metre scale, with a precision floor of about 3&nbsp;m taken from published field measurements. It is used once a node is within a few hundred metres of an anchor.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="r24">&hellip;</b></div></article>
+        <article class="card3 glass tilt reveal" style="--c:#f472b6;--d:.25s"><div class="bar"></div><div class="tag">Tier 3 &middot; precision</div><h3 class="h">Ultra-wideband</h3><p>Decimetre-level two-way ranging with a floor of 0.10&nbsp;m, over a range of metres. It confirms a position when a searcher is close, and it is the costliest radio to keep listening.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="rUwb">&hellip;</b></div></article>
+      </div>
+      <p class="fine reveal">Reach figures are measured live by this build's own range test, in the console's default configuration.</p>
+    </section>
+
+    <section class="block" id="method">
+      <div class="reveal"><div class="kicker">Method</div><h2 class="title">From measurement to decision</h2><p class="sub">Each cycle follows the same three steps. Only the radio that transmitted is charged for energy, so the cost of escalating is measurable.</p></div>
+      <div class="steps">
+        <div class="step glass reveal" style="--d:.05s"><div class="n">1</div><h3 class="h">Measure</h3><p>Nodes range against gateways and searchers on the active tier. A filter combines the ranges with inertial dead reckoning into a position and an uncertainty.</p></div>
+        <div class="step glass reveal" style="--d:.15s"><div class="n">2</div><h3 class="h">Score</h3><p>A position-confidence score is computed from that uncertainty. A low score means the estimate is too coarse for the radio in use.</p></div>
+        <div class="step glass reveal" style="--d:.25s"><div class="n">3</div><h3 class="h">Escalate</h3><p>When enough precise anchors are within reach, the node requests the next radio. When confidence recovers it steps back down, so precision is spent only while it helps.</p></div>
+      </div>
+    </section>
+
+    <section class="block" id="consoleInfo">
+      <div class="split">
+        <div class="panel glass reveal"><div class="kicker">Console</div><h2 class="title">Build a layout, run it, watch it</h2>
+          <ul><li><i></i><span>Place gateways, a base camp, a last known position and a missing node on a map, or load one of three ready scenarios.</span></li>
+          <li><i></i><span>Run the simulator on that layout. The console reads its output files and replays the run cycle by cycle.</span></li>
+          <li><i></i><span>Inspect the radio in use over time, every packet a node sent or received, and where each searcher was told to go.</span></li></ul>
+          <div class="cta2"><button class="primary" data-go="console">Open the console</button></div></div>
+        <div class="panel glass reveal" id="evidence" style="--d:.12s"><div class="kicker">Evidence</div><h2 class="title">What the evaluation supports</h2>
+          <div class="stats"><div class="stat"><b>0.986</b><span>lost node<br>5&nbsp;km</span></div><div class="stat"><b>0.952</b><span>all five nodes<br>5&nbsp;km</span></div><div class="stat"><b>0.993</b><span>all five nodes<br>endgame</span></div></div>
+          <p class="s">Share of decision cycles with a position within 25&nbsp;m; the requirement is at least 0.95. These are the paper's evaluated configuration (12 gateways, 12 searchers, 20 paired seeds), not what a console run produces by default.</p>
+          <p class="s">Against a flat variance threshold the decision layer is level on availability. Its measured advantage is energy: about 1/34 of the subject energy of fusing every radio at 5&nbsp;km.</p></div>
+      </div>
+    </section>
+    <footer class="foot"><span>CA-TBL &middot; research simulator built on ns-3.47 &middot; GPL-2.0-only</span><span>Documentation: docs/README.md &middot; Technical report: CA-TBL_Technical_Report_SelfContained.md</span></footer>
+  </div>
+</div>
 <div id="app">
   <div id="mapWrap">
     <canvas id="map"></canvas>
@@ -134,7 +93,7 @@ td.ok{color:var(--ok)} td.bad{color:var(--bad)}
     </div>
   </div>
   <aside id="side">
-    <div class="brand"><i></i><div>CA-TBL Search Console<small>build a layout · run · watch</small></div></div>
+    <div class="brand"><div class="mark"><canvas class="markGl"></canvas><i></i></div><div>CA-TBL Console<small>build a layout · run · watch</small></div><button class="home" data-go="home" title="Back to the overview">&larr; Overview</button></div>
     <div>
       <h3>Scenario</h3>
       <div class="row"><button id="presetBtn" class="primary" style="flex:1" title="Missing node 7.0 km from the camp, last seen 2.9 km out">Scenario 1</button><button id="preset2Btn" class="primary" style="flex:1" title="Missing node 4.5 km from the nearest gateway: 3 km beyond its reliable 868 MHz range">Scenario 2</button></div>
@@ -410,13 +369,14 @@ function drawnAt(id){ if (+id === MISSING && mode === "sim") return estAt(); ret
 function draw(){
   if (!world) world = buildWorld();
   const w = cv.clientWidth, h = cv.clientHeight, b = boxHalf(), now = performance.now();
-  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const bgg = ctx.createRadialGradient(w * 0.5, h * 0.42, 0, w * 0.5, h * 0.42, Math.max(w, h) * 0.8); bgg.addColorStop(0, "#0c1533"); bgg.addColorStop(1, "#04060f");
+  ctx.fillStyle = bgg; ctx.fillRect(0, 0, w, h);
   // the simulator's box, a shade lighter; a two-level grid across the whole view
   const [bx0, by0] = toPx(-b, b), side = 2 * b * cam.s;
-  ctx.fillStyle = "#000000"; ctx.fillRect(bx0, by0, side, side);
+  ctx.fillStyle = "rgba(96, 130, 255, 0.05)"; ctx.fillRect(bx0, by0, side, side);
   const step = niceStep(90 / cam.s), [wx0, wy1] = toW(0, 0), [wx1, wy0] = toW(w, h);
   ctx.lineWidth = 1;
-  for (const [st, col] of [[step, "#1a1a1a"], [step * 5, "#333333"]]) {
+  for (const [st, col] of [[step, "rgba(140, 165, 255, 0.07)"], [step * 5, "rgba(140, 165, 255, 0.15)"]]) {
     ctx.strokeStyle = col; ctx.beginPath();
     for (let gx = Math.floor(wx0 / st) * st; gx <= wx1; gx += st) { const [p] = toPx(gx, 0); ctx.moveTo(p, 0); ctx.lineTo(p, h); }
     for (let gy = Math.floor(wy0 / st) * st; gy <= wy1; gy += st) { const [, p] = toPx(0, gy); ctx.moveTo(0, p); ctx.lineTo(w, p); }
@@ -1054,5 +1014,7 @@ fetch("/api/status").then(r => r.json()).then(s => {
   if (!s.simBuilt) setStatus("Simulator not built yet: " + s.sim);
 }).catch(() => setStatus("Open this page through ui/server.py, not as a file."));
 </script>
+<script src="/static/vendor/three.min.js"></script>
+<script src="/static/landing.js"></script>
 </body>
 </html>

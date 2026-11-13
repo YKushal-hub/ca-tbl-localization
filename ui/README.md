@@ -4,6 +4,21 @@ A browser UI for building a layout and running the simulator (`scratch/ca_tbl_ca
 on it. The UI only wires things up: every position, packet and outcome it shows is read from
 the files the simulator writes. The simulator changes made for it are listed at the end.
 
+## Pages
+
+The page opens on an **overview** (what the system is, the three radios with this build's own measured reach,
+the method in three steps, and what the evaluation supports). **Open console** (or `#/console`) switches to the
+console below; **Overview** in the console's header goes back. The two are one HTML file and one script; the
+console's script is unchanged except for the three fills in `draw()` that paint the map background and grid.
+
+The look is glass surfaces over a deep blue field, with soft raised and inset controls. `ui/static/` holds
+`app.css` (console), `landing.css` and `landing.js` (overview, view routing, the 3D hero scene and the small
+console mark) and `vendor/three.min.js` (three.js 0.128.0, MIT, licence beside it). `server.py` serves that
+directory and nothing else. The 3D scenes fall back to a CSS drawing without WebGL, stop when the console is open
+or the tab is hidden, and honour `prefers-reduced-motion`. The overview's reach figures come from `/api/ranges`
+(the simulator's `--probe`, default configuration); its evaluation figures are the paper's evaluated
+configuration (PRESET-5) and are labelled as such.
+
 ## Run it
 
 ```bash
