@@ -401,7 +401,7 @@ def start_run(body):
     # answer is always the responder's own entry, so a location only ever travels one hop.
     multi_hop = bool(body.get("multiHop"))
     if multi_hop:
-        cmd += ["--digestSummary=true"]
+        cmd += ["--digestSummary=true", "--finderDigestSummary=true"]
     # GATEWAYS ASK (--gatewayDigestPeriodS, added for the UI, 0 = off): each gateway sends a
     # DIGEST every 20 s (the searchers' period), so nodes holding a newer location push it to
     # the gateway. Without it gateways only answer, and nothing is ever pushed to them.

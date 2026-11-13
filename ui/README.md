@@ -76,8 +76,9 @@ including `<cmath>`, which GCC 13 rejects. It changes no source file.
     ENDS when a searcher's own direct UWB range to the missing node is 2 m or less (FOUND). An
     anchor with no close range for 60 s is released and another can take its place. Also
     `--meshLinks` from the **Mesh** switch at the top of the right panel (off = star, the default),
-    and `--digestSummary=true` from the **Multi-hop** switch below it (off by default; the
-    simulator's own option, no simulator change). Off, a node answering a digest always sends
+    and `--digestSummary=true --finderDigestSummary=true` from the **Multi-hop** switch below it
+    (off by default; `--digestSummary` is the simulator's own option, `--finderDigestSummary` is
+    the UI's, change 11). Off, a node answering a digest always sends
     its own position, so the missing node's location travels one hop only. On, it sends the
     entry the asker lacks or holds older, so a location can be passed on; searcher-to-searcher
     passing also needs the Mesh switch on, because with star searchers have no links to each
@@ -236,12 +237,14 @@ with and without a base camp).
    side by side) and then sweeps its slice of the cone beyond it (±cone about the bearing
    camp → LKP, split evenly between teams) in arcs that move out by `--finderGroupTrackM`
    each pass. No hand-over while walking out; after that the rules of item 4.
-11. `--digestSummary` (the simulator's own option, off by default) now reaches the search nodes'
-   and relays' radios too (one line where their MAC is configured). Before, only the missing
-   node, gateways and peers got it, so a finder's digest was always empty and every answer to it
-   was the responder's own entry: nothing was ever passed on. Checked: without
-   `--digestSummary`, star and full-mesh runs are byte-identical to the previous binary (all 7
-   output files, Scenario 3 settings, seed 7, 600 s).
+11. `--finderDigestSummary` (default off): with `--digestSummary` also on, the search nodes' and
+   relays' radios carry and answer the summary too (one guarded line where their MAC is
+   configured). Before, only the missing node, gateways and peers got it, so a finder's digest was
+   always empty and every answer to it was the responder's own entry: nothing was ever passed on.
+   It is a flag of its own because `--specProfile` turns `--digestSummary` on: the first version of
+   this change had no such flag, and a null control against `main` showed it moved every preset run
+   (seed 341, 5 km: tag 0 CEP95 57.1 -> 31.1 m). Checked: with the flag off, default and
+   `--specProfile` runs (endgame seed 7 and 5 km seed 341, 600 s) are byte-identical to `main`.
 12. `--gatewayDigestPeriodS` (default 0 = off): every gateway's 868 MHz radio sends a DIGEST every
    this many seconds, so nodes holding an entry the gateway lacks or holds older push it to the
    gateway (with `--digestSummary`). Without it gateways only answer and nothing is pushed to

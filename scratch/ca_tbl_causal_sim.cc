@@ -2226,6 +2226,9 @@ static bool g_finderPartyShare = false;
 // the node whose DIGEST asked, and only finders and the subject sent DIGESTs, so nothing was ever
 // pushed TO a gateway. With a period set, each gateway's 868 MHz MAC sends a DIGEST every period.
 static double g_gatewayDigestPeriodS = 0.0;
+//! UI --finderDigestSummary: finders carry and answer the anti-entropy summary too (see where the finders' MAC
+//! config is built). FALSE (default) = every finder's DIGEST is empty, exactly as before the UI.
+static bool g_finderDigestSummary = false;
 static std::vector<CaTblMac*> g_gwMac868; // filled where the gateways' MACs are built
 //! UI --finderHoldM / --finderHoldReleaseS: FOUND -> HOLD. A searching finder that had a DIRECT
 //! (not relayed) 2.4 GHz or UWB range of at most finderHoldM to the subject stops following
@@ -8115,10 +8118,15 @@ RunArm(CaTblPolicyMode mode,
             fc.sendHandshakeFrames = sendHandshakeFrames;
             fc.handshakeFixes = spec.handshakeFixes;
             fc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
-            // UI: --digestSummary reaches the finders too. Without it a finder's DIGEST is empty
-            // and every answer to it is the responder's own entry, so no entry is ever passed
-            // on through finders or relays. Off by default, so default runs are unchanged.
-            fc.digestSummary = digestSummary;
+            // UI: --finderDigestSummary lets --digestSummary reach the finders too. Without it a
+            // finder's DIGEST is empty and every answer to it is the responder's own entry, so no
+            // entry is ever passed on through finders or relays. Off by default, and a SEPARATE flag
+            // because --digestSummary is on in --specProfile: tying the finders to it would change
+            // every preset run (a null control against main caught exactly that).
+            if (g_finderDigestSummary)
+            {
+                fc.digestSummary = digestSummary;
+            }
             fc.sf = phy[ti].sf;
             fc.bandwidthHz = phy[ti].bandwidthHz;
             fc.txPowerDbm = phy[ti].txPowerDbm;
@@ -19443,6 +19451,14 @@ main(int argc, char* argv[])
                  "30, which is tier-1 scale -- the loosest tier, so the test is "
                  "deliberately reluctant to call a disagreement.",
                  corroborationRangeSigmaMArg);
+    cmd.AddValue("finderDigestSummary",
+                 "UI: finders carry and answer the {node_id, seq_no} anti-entropy summary too, when "
+                 "--digestSummary is on, so a location can be passed on through finders and relays. "
+                 "FALSE by default: a finder's DIGEST is empty and every answer to it is the "
+                 "responder's own entry, which is every result before the UI. It is a flag of its own "
+                 "because --specProfile turns --digestSummary on, and a finder change tied to that "
+                 "flag moved every preset run (tag 0 CEP95 at 5 km 57.1 -> 31.1 m on seed 341).",
+                 g_finderDigestSummary);
     cmd.AddValue("gatewayDigestPeriodS",
                  "UI: every gateway's 868 MHz radio sends a DIGEST every this many seconds, so nodes "
                  "holding an entry the gateway lacks or holds older push it to the gateway (with "
