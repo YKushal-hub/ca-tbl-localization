@@ -9,12 +9,23 @@
 
   // ---------- view routing: #/console shows the console, anything else the overview ----------
   let inConsole = false;
+  let routed = false;
   function route() {
-    inConsole = location.hash === "#/console";
-    document.body.classList.toggle("in-console", inConsole);
-    document.title = inConsole ? "CA-TBL Search Console" : "CA-TBL: confidence-aware localization";
-    if (inConsole) { stopLanding(); setTimeout(() => window.dispatchEvent(new Event("resize")), 60); }
-    else { startLanding(); $("landing").scrollTo({ top: 0 }); }
+    const want = location.hash === "#/console";
+    const apply = () => {
+      inConsole = want;
+      document.body.classList.toggle("in-console", inConsole);
+      $("landing").inert = inConsole; $("app").inert = !inConsole;
+      document.title = inConsole ? "CA-TBL Search Console" : "CA-TBL: confidence-aware localization";
+      if (inConsole) { stopLanding(); }          // the console is laid out while hidden (visibility, not display), so it needs no resize
+      else { startLanding(); $("landing").scrollTo({ top: 0 }); }
+    };
+    if (!routed || reduced) { routed = true; apply(); return; }
+    // warm the incoming view while it is still transparent, then switch two frames later
+    const incoming = $(want ? "app" : "landing");
+    incoming.classList.add("warm");
+    if (!want) startLanding();
+    requestAnimationFrame(() => requestAnimationFrame(() => { apply(); setTimeout(() => incoming.classList.remove("warm"), 900); }));
   }
   window.addEventListener("hashchange", route);
   document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", e => {
@@ -28,15 +39,19 @@
   const bg = $("bgCanvas"), bctx = bg.getContext("2d");
   let dots = [], bgRaf = 0, mouse = { x: .5, y: .5 };
   function sizeBg() {
-    const r = Math.min(window.devicePixelRatio || 1, 1.5);
+    const r = Math.min(window.devicePixelRatio || 1, 1.25);
     bg.width = innerWidth * r; bg.height = innerHeight * r; bctx.setTransform(r, 0, 0, r, 0, 0);
-    const n = Math.round(Math.min(90, innerWidth * innerHeight / 17000));
+    const n = Math.round(Math.min(55, innerWidth * innerHeight / 26000));
     dots = Array.from({ length: n }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, vx: (Math.random() - .5) * .22, vy: (Math.random() - .5) * .22, r: Math.random() * 1.4 + .6, z: Math.random() * .8 + .2 }));
   }
-  function bgFrame() {
+  let bgLast = 0;
+  function bgFrame(now) {
+    if (!reduced) bgRaf = requestAnimationFrame(bgFrame);
+    if (now && now - bgLast < 33) return;                 // about 30 fps is plenty for slow drift
+    const k = now && bgLast ? Math.min((now - bgLast) / 16.7, 3) : 1; bgLast = now || 0;
     bctx.clearRect(0, 0, innerWidth, innerHeight);
     const ox = (mouse.x - .5) * 26, oy = (mouse.y - .5) * 26;
-    for (const d of dots) { d.x += d.vx; d.y += d.vy; if (d.x < -20) d.x = innerWidth + 20; if (d.x > innerWidth + 20) d.x = -20; if (d.y < -20) d.y = innerHeight + 20; if (d.y > innerHeight + 20) d.y = -20; }
+    for (const d of dots) { d.x += d.vx * k; d.y += d.vy * k; if (d.x < -20) d.x = innerWidth + 20; if (d.x > innerWidth + 20) d.x = -20; if (d.y < -20) d.y = innerHeight + 20; if (d.y > innerHeight + 20) d.y = -20; }
     for (let i = 0; i < dots.length; i++) {
       const a = dots[i], ax = a.x + ox * a.z, ay = a.y + oy * a.z;
       for (let j = i + 1; j < dots.length; j++) {
@@ -45,7 +60,6 @@
       }
       bctx.fillStyle = `rgba(190,215,255,${.25 + a.z * .45})`; bctx.beginPath(); bctx.arc(ax, ay, a.r, 0, 7); bctx.fill();
     }
-    if (!reduced) bgRaf = requestAnimationFrame(bgFrame);
   }
   addEventListener("pointermove", e => { mouse.x = e.clientX / innerWidth; mouse.y = e.clientY / innerHeight; }, { passive: true });
   addEventListener("resize", () => { if (!inConsole) sizeBg(); });
@@ -56,7 +70,7 @@
   function makeHero(canvas, stage) {
     const T = window.THREE; if (!T || !hasGL()) { stage.classList.add("nogl"); return null; }
     let renderer; try { renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch (e) { stage.classList.add("nogl"); return null; }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     const scene = new T.Scene(), cam = new T.PerspectiveCamera(38, 1, .1, 100);
     cam.position.set(0, 3.4, 11.6); cam.lookAt(0, 0, 0);
     scene.add(new T.AmbientLight(0x8fa6ff, .55));
@@ -98,31 +112,42 @@
     // overlay tags
     const tags = plates.map(p => { const d = document.createElement("div"); d.className = "tag3d"; d.style.setProperty("--c", hex(TIERCOL[p.t.key])); d.innerHTML = `<b><i style="background:${hex(TIERCOL[p.t.key])}"></i>${p.t.name}</b><small>${p.t.sub}</small>`; stage.appendChild(d); return d; });
     // interaction: drag to orbit with inertia; hover a plane to light it
-    let rx = -.34, ry = .5, vx = 0, vy = 0, drag = false, lx = 0, ly = 0, hover = -1, mx = 0, my = 0, idle = 0;
+    let rx = -.34, ry = .5, vx = 0, vy = 0, drag = false, lx = 0, ly = 0, hover = -1, mx = 0, my = 0, idle = 0, onScreen = true, moved = true;
     const ray = new T.Raycaster(), ndc = new T.Vector2();
     canvas.addEventListener("pointerdown", e => { drag = true; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); canvas.classList.add("drag"); });
     canvas.addEventListener("pointerup", e => { drag = false; canvas.classList.remove("drag"); });
     canvas.addEventListener("pointermove", e => {
-      const b = canvas.getBoundingClientRect(); ndc.set((e.clientX - b.left) / b.width * 2 - 1, -((e.clientY - b.top) / b.height * 2 - 1)); mx = ndc.x; my = ndc.y; idle = 0;
+      const b = canvas.getBoundingClientRect(); ndc.set((e.clientX - b.left) / b.width * 2 - 1, -((e.clientY - b.top) / b.height * 2 - 1)); mx = ndc.x; my = ndc.y; idle = 0; moved = true;
       if (drag) { vy = (e.clientX - lx) * .006; vx = (e.clientY - ly) * .004; ry += vy; rx = Math.max(-1.1, Math.min(.5, rx + vx)); lx = e.clientX; ly = e.clientY; }
     });
-    canvas.addEventListener("pointerleave", () => { hover = -1; mx = my = 0; });
+    canvas.addEventListener("pointerleave", () => { hover = -1; mx = my = 0; moved = false; });
     function resize() { const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
     new ResizeObserver(resize).observe(stage); resize();
+    if ("IntersectionObserver" in window) new IntersectionObserver(es => { onScreen = es[0].isIntersecting; }, { root: $("landing") }).observe(stage);
     const v = new T.Vector3(), clock = new T.Clock();
+    // adaptive quality: a slow GPU gets a lower pixel ratio first, then half the frame rate, so motion stays even rather than stuttering
+    let ema = 16, seen = 0, tier = 0, skip = false;
+    function adapt(raw) {
+      if (raw > .25) return;                                 // a tab switch or a stall, not a measure of load
+      ema += (raw * 1000 - ema) * .1; if (++seen < 40) return;
+      if (tier === 0 && ema > 30) { tier = 1; seen = 0; renderer.setPixelRatio(1); resize(); }
+      else if (tier === 1 && ema > 38) { tier = 2; seen = 0; }
+    }
     function frame() {
-      const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime;
+      const raw = clock.getDelta(), dt = Math.min(raw, .05), t = clock.elapsedTime;
+      if (!onScreen) return;                               // scrolled past the hero: no drawing at all
+      adapt(raw); if (tier === 2) { skip = !skip; if (skip) return; }
+                                    // scrolled past the hero: no drawing at all
       if (!drag) { ry += vy; vy *= .94; rx += vx; vx *= .94; idle += dt; if (!reduced && idle > 1.2) ry += dt * .18; rx += ((-.34 + my * -.12) - rx) * .03; }
       root.rotation.y = ry; root.rotation.x = rx; root.position.y = reduced ? 0 : Math.sin(t * .8) * .06;
       // hover test against the three planes
-      ray.setFromCamera(ndc, cam); const hit = ray.intersectObjects(plates.map(p => p.disc), false)[0];
-      hover = hit && !drag ? plates.findIndex(p => p.disc === hit.object) : -1;
+      if (moved) { moved = false; ray.setFromCamera(ndc, cam); const hit = ray.intersectObjects(plates.map(p => p.disc), false)[0]; hover = hit && !drag ? plates.findIndex(p => p.disc === hit.object) : -1; }
       plates.forEach((p, i) => { const on = i === hover; p.disc.material.opacity += ((on ? .42 : p.base) - p.disc.material.opacity) * .12; p.edge.material.emissiveIntensity += ((on ? 1.8 : .9) - p.edge.material.emissiveIntensity) * .12; const s = on ? 1.035 : 1; p.g.scale.x += (s - p.g.scale.x) * .12; p.g.scale.z = p.g.scale.x; });
       seek.forEach((s, i) => { const k = (Math.sin(t * .35 + i) * .5 + .5), r = 2.0 - k * 1.2; s.a += dt * s.s; s.m.position.set(Math.cos(s.a) * r, 0 + .15, Math.sin(s.a) * r); s.m.rotation.y = s.a; });
       miss.rotation.y += dt * 1.2; miss.rotation.x += dt * .6;
       pulses.forEach(p => { p.p = (p.p + dt * .22) % 1; p.m.position.y = -1.8 + p.p * 3.6; p.m.scale.setScalar(.6 + Math.sin(p.p * Math.PI) * .9); });
       renderer.render(scene, cam);
-      plates.forEach((p, i) => { v.set(p.t.r * .72, p.t.y + .1, p.t.r * .72).applyMatrix4(root.matrixWorld).project(cam); const x = (v.x * .5 + .5) * stage.clientWidth, y = (-v.y * .5 + .5) * stage.clientHeight; const tw = tags[i].offsetWidth, th = tags[i].offsetHeight, tx = Math.max(8, Math.min(stage.clientWidth - tw - 8, x - tw * .25)), ty = Math.max(8, Math.min(stage.clientHeight - th - 44, y - th * .5)); tags[i].style.transform = `translate(${Math.round(tx)}px,${Math.round(ty)}px)`; tags[i].classList.toggle("on", i === hover); });
+      plates.forEach((p, i) => { v.set(p.t.r * .72, p.t.y + .1, p.t.r * .72).applyMatrix4(root.matrixWorld).project(cam); const x = (v.x * .5 + .5) * stage.clientWidth, y = (-v.y * .5 + .5) * stage.clientHeight; const tw = tags[i].offsetWidth, th = tags[i].offsetHeight, tx = Math.max(8, Math.min(stage.clientWidth - tw - 8, x - tw * .25)), ty = Math.max(8, Math.min(stage.clientHeight - th - 44, y - th * .5)); const tf = `translate(${Math.round(tx)}px,${Math.round(ty)}px)`; if (tags[i]._tf !== tf) { tags[i]._tf = tf; tags[i].style.transform = tf; } tags[i].classList.toggle("on", i === hover); });
     }
     return { frame };
   }
@@ -147,7 +172,8 @@
   document.querySelectorAll(".reveal").forEach((el, i) => { if (io) io.observe(el); else el.classList.add("in"); });
   document.querySelectorAll(".tilt").forEach(el => {
     if (reduced) return;
-    el.addEventListener("pointermove", e => { const b = el.getBoundingClientRect(), x = (e.clientX - b.left) / b.width, y = (e.clientY - b.top) / b.height; el.style.setProperty("--ry", ((x - .5) * 9).toFixed(2) + "deg"); el.style.setProperty("--rx", ((.5 - y) * 7).toFixed(2) + "deg"); el.style.setProperty("--mx", (x * 100) + "%"); el.style.setProperty("--my", (y * 100) + "%"); });
+    let pend = null;
+    el.addEventListener("pointermove", e => { if (pend) { pend = e; return; } pend = e; requestAnimationFrame(() => { const ev = pend; pend = null; const b = el.getBoundingClientRect(), x = (ev.clientX - b.left) / b.width, y = (ev.clientY - b.top) / b.height; el.style.setProperty("--ry", ((x - .5) * 8).toFixed(2) + "deg"); el.style.setProperty("--rx", ((.5 - y) * 6).toFixed(2) + "deg"); el.style.setProperty("--mx", (x * 100) + "%"); el.style.setProperty("--my", (y * 100) + "%"); }); });
     el.addEventListener("pointerleave", () => { el.style.setProperty("--rx", "0deg"); el.style.setProperty("--ry", "0deg"); });
   });
   const fmt = m => m >= 1000 ? (m / 1000).toFixed(2) + " km" : (m >= 100 ? Math.round(m) : m.toFixed(1)) + " m";
@@ -165,14 +191,15 @@
   function loop() { if (!running) return; if (hero) hero.frame(); raf = requestAnimationFrame(loop); }
   // the small console marks keep turning in both views (a few hundred triangles each)
   let markRaf = 0;
-  function markLoop() { const t = performance.now() / 1000; marks.forEach(m => m.frame(t)); markRaf = requestAnimationFrame(markLoop); }
-  function startLanding() { if (running) return; running = true; sizeBg(); if (!reduced) bgFrame(); else bgFrame(); loop(); }
+  let markLast = 0;
+  function markLoop(now) { markRaf = requestAnimationFrame(markLoop); if (now - markLast < 41) return; markLast = now; const t = now / 1000; marks.forEach(m => m.frame(t)); }
+  function startLanding() { if (running) return; running = true; sizeBg(); bgLast = 0; if (!reduced) bgRaf = requestAnimationFrame(bgFrame); else bgFrame(0); loop(); }
   function stopLanding() { running = false; cancelAnimationFrame(raf); cancelAnimationFrame(bgRaf); }
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { stopLanding(); cancelAnimationFrame(markRaf); } else { if (!inConsole) startLanding(); if (!reduced && marks.length) markLoop(); } });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { stopLanding(); cancelAnimationFrame(markRaf); } else { if (!inConsole) startLanding(); if (!reduced && marks.length) markRaf = requestAnimationFrame(markLoop); } });
 
   hero = makeHero($("heroGl"), $("stage"));
   document.querySelectorAll("canvas.markGl").forEach(c => { const m = makeMark(c); if (m) marks.push(m); });
-  if (!reduced && marks.length) markLoop();
+  if (!reduced && marks.length) markRaf = requestAnimationFrame(markLoop);
   reach(8);
   route();
   if (reduced) { if (hero) hero.frame(); marks.forEach(m => m.frame(0)); }
