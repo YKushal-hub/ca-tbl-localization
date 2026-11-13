@@ -2203,6 +2203,126 @@ static bool g_rssiSigmaLogNormal = false;
 //! V2b --probeTerms (master plan v3): the probe also writes probe_terms.csv, per tier and distance the
 //! realised margin's mean and SD and the SD of every loss term, to find what flattens the delivery curve.
 static bool g_probeTerms = false;
+//! UI --subjectStartX / --subjectStartY: where the subject (tag 0, node 1) starts. NaN (default) =
+//! off, the start is exactly as before. Placement only: it calls the walker's existing
+//! SetPosition() after every other start rule; no physics, radio or filter code reads it.
+static double g_subjectStartX = std::numeric_limits<double>::quiet_NaN();
+static double g_subjectStartY = std::numeric_limits<double>::quiet_NaN();
+//! UI --finderRelays / --finderRelaySpacingM: the last K finders stay behind as a relay chain
+//! from the base camp toward the searching party (see the finder loop). 0 (default) = off.
+static uint32_t g_finderRelays = 0;
+static double g_finderRelaySpacingM = 1500.0;
+//! UI --finderGroupSize / --finderGroupSpacingM / --finderGroupTrackM: group search in mode 2
+//! (teams on interleaved spirals; see the sweep in the finder loop). 0 (default) = off.
+static uint32_t g_finderGroupSize = 0;
+static double g_finderGroupSpacingM = 300.0;
+static double g_finderGroupTrackM = 4000.0;
+static double g_finderGroupFineM = 150.0;
+static bool g_finderGroupSweep = true;
+//! UI --finderPartyShare: every searching finder steers on the freshest location any of them
+//! holds (and, with --lkpX/Y, on the last known position until one exists). Off by default.
+static bool g_finderPartyShare = false;
+// UI: gateways ask for entries too (--gatewayDigestPeriodS, 0 = off). A pushed entry goes only to
+// the node whose DIGEST asked, and only finders and the subject sent DIGESTs, so nothing was ever
+// pushed TO a gateway. With a period set, each gateway's 868 MHz MAC sends a DIGEST every period.
+static double g_gatewayDigestPeriodS = 0.0;
+//! UI --finderDigestSummary: finders carry and answer the anti-entropy summary too (see where the finders' MAC
+//! config is built). FALSE (default) = every finder's DIGEST is empty, exactly as before the UI.
+static bool g_finderDigestSummary = false;
+static std::vector<CaTblMac*> g_gwMac868; // filled where the gateways' MACs are built
+//! UI --finderHoldM / --finderHoldReleaseS: FOUND -> HOLD. A searching finder that had a DIRECT
+//! (not relayed) 2.4 GHz or UWB range of at most finderHoldM to the subject stops following
+//! broadcast locations and stays where it is, until no such range has come for finderHoldReleaseS.
+//! 0 (default) = off. g_lastCloseRangeS: per finder id, when the last such range was measured.
+static double g_finderHoldM = 0.0;
+static double g_finderHoldReleaseS = 60.0;
+static std::map<uint32_t, double> g_lastCloseRangeS;
+//! The measured range that set g_lastCloseRangeS, per finder id (to pick the nearest holder).
+static std::map<uint32_t, double> g_lastCloseRangeM;
+//! UI --finderContactM / --finderContactSigmaM: the CONTACT STEP. While the location the party
+//! holds is no coarser than finderContactSigmaM, the nearest holding finder (shortest measured
+//! direct range) walks straight to it, no stand-off; the others keep holding. FOUND when its own
+//! direct UWB range is at most finderContactM: it stays, and one "UI FOUND" line is printed.
+//! 0 (default) = off.
+static double g_finderContactM = 0.0;
+static double g_finderContactSigmaM = 2.0;
+static std::map<uint32_t, std::pair<double, double>> g_lastUwbRange; // id -> (t, range)
+static double g_foundT = -1.0;
+//! UI --vizFixSet: OUTPUT ONLY. With --vizEvents, write fixset_<arm>_seed<N>.csv: for each cycle
+//! the subject's filter took a fix, the nodes whose ranges were handed to it (id:tier, ';'-joined).
+static bool g_vizFixSet = false;
+//! UI --stopOnFound (with --finderContactM): end the run at FOUND instead of at --duration.
+static bool g_stopOnFound = false;
+//! UI --finderAnchors=K (with --finderHoldM and --finderContactM): ANCHORS AND VERIFIERS; see the
+//! contact step in the finder loop. 0 (default) = off: every close finder holds, as before.
+static uint32_t g_finderAnchors = 0;
+//! UI --finderGroupFollow (with the sweep): team sharing, hand-over on the team's freshest entry,
+//! then walk to it and re-target only to a newer entry no coarser than --finderGroupHandoverM.
+static bool g_finderGroupFollow = false;
+//! UI --lkpX / --lkpY / --lkpConeDeg: the subject's LAST KNOWN POSITION, out in the field, with
+//! the subject somewhere beyond it, within +-cone of the bearing camp -> LKP. NaN (default) = off:
+//! the camp is the last known position, as before. Moves the filter prior's centre to the LKP,
+//! and makes group search walk out to it and sweep the cone beyond it.
+static double g_lkpX = std::numeric_limits<double>::quiet_NaN();
+static double g_lkpY = std::numeric_limits<double>::quiet_NaN();
+static double g_lkpConeDeg = 45.0;
+
+/**
+ * \brief Group search with a last known position: where a team member is after walking s metres.
+ *
+ * The team walks from the camp to the LKP (members side by side across the direction of
+ * travel), then sweeps its slice [a0, a1] of the cone beyond the LKP: out along a0 to radius
+ * track/2, an arc to a1, out by one track, an arc back to a0, and so on (members side by side
+ * across the track, i.e. along the radius, on the arcs). rNow returns the radius from the LKP
+ * reached so far (0 while walking out), the area swept being the cone out to it.
+ */
+static Vector
+GroupSectorPoint(double s, double cx, double cy, double lx, double ly, double a0, double a1,
+                 double track, double off, double& rNow)
+{
+    const double dx = lx - cx, dy = ly - cy, d = std::hypot(dx, dy);
+    if (s < d && d > 1e-9)
+    {
+        rNow = 0.0;
+        const double ux = dx / d, uy = dy / d;
+        return Vector(cx + ux * s - uy * off, cy + uy * s + ux * off, 0.0);
+    }
+    s -= d;
+    double r = 0.5 * track;
+    if (s < r) // out along the slice's first edge
+    {
+        rNow = s;
+        return Vector(lx + (s + off) * std::cos(a0), ly + (s + off) * std::sin(a0), 0.0);
+    }
+    s -= r;
+    bool forward = true; // arc from a0 to a1, then back
+    for (int k = 0; k < 100000; ++k)
+    {
+        const double arc = std::abs(a1 - a0) * r;
+        if (s < arc)
+        {
+            rNow = r;
+            const double f = (arc > 1e-9) ? s / arc : 0.0;
+            const double a = forward ? a0 + (a1 - a0) * f : a1 + (a0 - a1) * f;
+            const double rr = std::max(0.0, r + off);
+            return Vector(lx + rr * std::cos(a), ly + rr * std::sin(a), 0.0);
+        }
+        s -= arc;
+        const double a = forward ? a1 : a0;
+        if (s < track) // out by one track along the edge
+        {
+            rNow = r + s;
+            const double rr = std::max(0.0, r + s + off);
+            return Vector(lx + rr * std::cos(a), ly + rr * std::sin(a), 0.0);
+        }
+        s -= track;
+        r += track;
+        forward = !forward;
+    }
+    rNow = r;
+    return Vector(lx + r * std::cos(a0), ly + r * std::sin(a0), 0.0);
+}
+static double g_finderGroupHandoverM = std::numeric_limits<double>::infinity();
 //! TECH_DEBT J.1 / G11b --probeNominalMargin: the sweep also reports rx power minus the TABLE sensitivity, the
 //! margin before link hysteresis, and the IQ-impairment degradation each engine subtracts from rx power.
 static bool g_probeNominalMargin = false;
@@ -7056,6 +7176,10 @@ RunArm(CaTblPolicyMode mode,
             walker.SetPosition(dep.facilities[0].x, dep.facilities[0].y);
         }
     }
+    if (std::isfinite(g_subjectStartX) && std::isfinite(g_subjectStartY))
+    {
+        walker.SetPosition(g_subjectStartX, g_subjectStartY);
+    }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
@@ -7266,6 +7390,13 @@ RunArm(CaTblPolicyMode mode,
     {
         initX = dep.baseCampX;
         initY = dep.baseCampY;
+        // UI --lkpX/--lkpY: the subject was last seen there, not at the camp. Same rule as the
+        // camp's (sigma from the distance to the truth), centred on the last known position.
+        if (std::isfinite(g_lkpX) && std::isfinite(g_lkpY))
+        {
+            initX = g_lkpX;
+            initY = g_lkpY;
+        }
         const double away = std::hypot(pos.x - initX, pos.y - initY);
         initStdM = std::max(100.0, away);
     }
@@ -7365,6 +7496,7 @@ RunArm(CaTblPolicyMode mode,
     // rather than as a total.
     std::ofstream vizEvents;
     std::ofstream vizNodes;
+    std::ofstream vizFixSet; // UI --vizFixSet
     // PER-NODE TABLE SNAPSHOTS. Two files, because they are two different things and
     // conflating them is the mistake the header of CaTblTableEntry warns about:
     //
@@ -7413,6 +7545,16 @@ RunArm(CaTblPolicyMode mode,
         std::ostringstream nfn;
         nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
         vizNodes.open(nfn.str().c_str());
+        if (g_vizFixSet)
+        {
+            std::ostringstream ffn;
+            ffn << traceDir << "/fixset_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+            vizFixSet.open(ffn.str().c_str());
+            if (vizFixSet.is_open())
+            {
+                vizFixSet << "t,nAnchors,nodes\n";
+            }
+        }
         if (vizNodes.is_open())
         {
             vizNodes << "t,nodeId,x,y\n";
@@ -7440,6 +7582,7 @@ RunArm(CaTblPolicyMode mode,
     std::unique_ptr<FixRouter> router;
     std::unique_ptr<FixRouter> tierRouters[CA_TBL_TIER_COUNT]; // NW-2, null without the flag
     std::deque<CaTblMac> macs; // deque: push_back must not invalidate held pointers
+    g_gwMac868.clear(); // UI: this arm's gateways only (see g_gatewayDigestPeriodS)
     std::deque<BeaconDriver> beacons;
     std::map<uint16_t, Vector> anchorPosById;
 
@@ -7531,6 +7674,10 @@ RunArm(CaTblPolicyMode mode,
             // AGAINST -- without it there are no witnesses, only its own opinion.
             am->PublishSelfEntry(ad.pos.x, ad.pos.y, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0);
             chan[ti].Register(am);
+            if (g_gatewayDigestPeriodS > 0.0 && tier == CA_TBL_TIER_868)
+            {
+                g_gwMac868.push_back(am);
+            }
             if (gossip)
             {
                 gossip->AttachAnchor(aid, tier, am, provider);
@@ -7971,6 +8118,15 @@ RunArm(CaTblPolicyMode mode,
             fc.sendHandshakeFrames = sendHandshakeFrames;
             fc.handshakeFixes = spec.handshakeFixes;
             fc.discoveryOneHop = (spec.meshLinks == "all"); // NW-0
+            // UI: --finderDigestSummary lets --digestSummary reach the finders too. Without it a
+            // finder's DIGEST is empty and every answer to it is the responder's own entry, so no
+            // entry is ever passed on through finders or relays. Off by default, and a SEPARATE flag
+            // because --digestSummary is on in --specProfile: tying the finders to it would change
+            // every preset run (a null control against main caught exactly that).
+            if (g_finderDigestSummary)
+            {
+                fc.digestSummary = digestSummary;
+            }
             fc.sf = phy[ti].sf;
             fc.bandwidthHz = phy[ti].bandwidthHz;
             fc.txPowerDbm = phy[ti].txPowerDbm;
@@ -9620,6 +9776,14 @@ RunArm(CaTblPolicyMode mode,
     const uint64_t nSteps = static_cast<uint64_t>(std::floor(durationS / dt));
     for (uint64_t stepIdx = 0; stepIdx < nSteps; ++stepIdx)
     {
+        // UI --stopOnFound: the search ends the cycle after a searcher's own direct UWB range to
+        // the subject came within --finderContactM (FOUND). The usual end-of-run reports follow.
+        if (g_stopOnFound && g_foundT >= 0.0 && stepIdx > 0)
+        {
+            std::cout << "UI SEARCH COMPLETE t=" << std::fixed << std::setprecision(1) << g_foundT
+                      << " stoppedAtStep=" << stepIdx << std::endl;
+            break;
+        }
         walker.Step(dt);
         pos = walker.Position();
 
@@ -9819,6 +9983,28 @@ RunArm(CaTblPolicyMode mode,
                 if (b > a && t >= phase)
                 {
                     finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                }
+            }
+        }
+        // UI: the gateways ask too (see g_gatewayDigestPeriodS). Same broadcast DIGEST, same
+        // airtime and duty-cycle accounting; staggered 1.5 s off the finders' 3 s grid.
+        if (g_gatewayDigestPeriodS > 0.0 && sendHandshakeFrames)
+        {
+            for (size_t gi = 0; gi < g_gwMac868.size(); ++gi)
+            {
+                const double phase = 1.5 + static_cast<double>(gi) * 3.0;
+                const double a = std::floor((t - dt - phase) / g_gatewayDigestPeriodS);
+                const double b = std::floor((t - phase) / g_gatewayDigestPeriodS);
+                if (b > a && t >= phase)
+                {
+                    // Off the cycle grid: everything a cycle sends starts at the step instant,
+                    // and the 868 engine's interference model (stage 13) then drowns a frame
+                    // sent at that instant. Fixed offsets, no random draw, so no other
+                    // stream moves.
+                    const double off = 0.7 + 0.6 * static_cast<double>(gi % 3);
+                    Simulator::Schedule(Seconds(off), &CaTblMac::Send, g_gwMac868[gi],
+                                        CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1u,
+                                        static_cast<uint16_t>(0));
                 }
             }
         }
@@ -10184,6 +10370,34 @@ RunArm(CaTblPolicyMode mode,
             const uint16_t taskId = static_cast<uint16_t>(tags[taskK].nodeId);
             CaTblTableEntry taskTe;
             bool taskFound = false;
+            // UI team sharing (--finderGroupSweep=false or --finderGroupFollow): the freshest
+            // valid entry for the task held by any member of this finder's team, its own included.
+            const bool teamShare =
+                g_finderGroupSize >= 2 && (!g_finderGroupSweep || g_finderGroupFollow);
+            auto teamEntry = [&](CaTblTableEntry& out) -> bool {
+                bool have = false;
+                const size_t nSearchT = finderWalkers.size() - g_finderRelays;
+                size_t j0 = fi, j1 = fi + 1;
+                if (fi < nSearchT && nSearchT >= g_finderGroupSize)
+                {
+                    const size_t teamsT = nSearchT / g_finderGroupSize;
+                    const size_t teamT = std::min(fi / g_finderGroupSize, teamsT - 1);
+                    j0 = teamT * g_finderGroupSize;
+                    j1 = (teamT == teamsT - 1) ? nSearchT : j0 + g_finderGroupSize;
+                }
+                for (size_t j = j0; j < j1; ++j)
+                {
+                    CaTblTableEntry tj;
+                    if (j < finderMac.size() && finderMac[j] != nullptr &&
+                        finderMac[j]->GetTableEntry(taskId, tj) && tj.valid &&
+                        (!have || tj.timestampS > out.timestampS))
+                    {
+                        out = tj;
+                        have = true;
+                    }
+                }
+                return have;
+            };
             // No alert yet: the party is at base camp and has been told nothing. Standing
             // still is correct here, and it makes the moment of dispatch visible instead
             // of implicit.
@@ -10205,6 +10419,65 @@ RunArm(CaTblPolicyMode mode,
                 }
                 continue;
             }
+            // UI --finderRelays (default 0 = off, nothing below runs). STAY-BEHIND RELAYS: the
+            // last K finders do not search. Relay j (1..K) walks at the searchers' speed toward
+            // the point on the line from the camp to the searching party's mean position, at
+            // j/(K+1) of that distance but never beyond j * --finderRelaySpacingM from the camp,
+            // so the party keeps a chain of nodes back to the infrastructure. Movement only:
+            // radios, ranging and the MAC are untouched, and a relay is published like any
+            // finder. The party's positions are the finders' true ones (they carry GNSS).
+            if (g_finderRelays > 0 && fi + g_finderRelays >= finderPos.size())
+            {
+                const size_t nSearch = finderPos.size() - g_finderRelays;
+                const size_t j = fi - nSearch + 1;
+                const double cx = dep.baseCampX, cy = dep.baseCampY;
+                double mx = cx, my = cy;
+                if (nSearch > 0)
+                {
+                    mx = my = 0.0;
+                    for (size_t s = 0; s < nSearch; ++s)
+                    {
+                        mx += finderPos[s].x;
+                        my += finderPos[s].y;
+                    }
+                    mx /= static_cast<double>(nSearch);
+                    my /= static_cast<double>(nSearch);
+                }
+                const double dPartyM = std::hypot(mx - cx, my - cy);
+                const double want = std::min(dPartyM * static_cast<double>(j) /
+                                                 static_cast<double>(g_finderRelays + 1),
+                                             static_cast<double>(j) * g_finderRelaySpacingM);
+                double gx = cx, gy = cy;
+                if (dPartyM > 1e-9)
+                {
+                    gx = cx + (mx - cx) * want / dPartyM;
+                    gy = cy + (my - cy) * want / dPartyM;
+                }
+                Vector c = finderPos[fi];
+                const double dx = gx - c.x, dy = gy - c.y, dist = std::hypot(dx, dy);
+                const double stepM = finderSpeedMps * dt;
+                if (dist > 1e-9)
+                {
+                    const double f = std::min(1.0, stepM / dist);
+                    c.x += dx * f;
+                    c.y += dy * f;
+                }
+                finderPos[fi] = c;
+                fp = c;
+                const uint16_t fidR = static_cast<uint16_t>(finderIds[fi]);
+                engine868.UpdateNodePosition(fidR, fp);
+                engine2p4.UpdateNodePosition(fidR, fp);
+                engineUwb.UpdateNodePosition(fidR, fp);
+                provider.SetAnchorPosition(fidR, fp);
+                anchorPosById[fidR] = fp;
+                republishFinder(fi, fp, t);
+                if (vizNodes.is_open())
+                {
+                    vizNodes << std::fixed << std::setprecision(2) << t << ',' << fidR << ','
+                             << fp.x << ',' << fp.y << '\n';
+                }
+                continue;
+            }
             // MODE 2, PHASE 1: sweep outward from the last known position.
             //
             // Runs only while no entry is more informative than the sweep itself.
@@ -10216,7 +10489,15 @@ RunArm(CaTblPolicyMode mode,
             if (finderMode == 2 && dep.hasBaseCamp)
             {
                 double entrySigma = std::numeric_limits<double>::infinity();
-                if (fi < finderMac.size() && finderMac[fi] != nullptr)
+                if (g_finderGroupFollow && teamShare)
+                {
+                    CaTblTableEntry te;
+                    if (teamEntry(te))
+                    {
+                        entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
+                    }
+                }
+                else if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
                     if (finderMac[fi]->GetTableEntry(taskId, te) && te.valid)
@@ -10250,11 +10531,98 @@ RunArm(CaTblPolicyMode mode,
                 const double swept = 0.9 * finderSpeedMps * t;
                 const double radius =
                     std::max(1.0, std::min(dep.boxHalfM, swept));
-                if (entrySigma > radius)
+                // UI --finderGroupSize=G (default 0 = off, the sweep below runs unchanged).
+                // GROUP SEARCH: the searching finders form floor(n/G) teams (leftovers join
+                // the last). Each team walks an Archimedean spiral out from the camp at the
+                // searchers' speed; the teams' spirals are interleaved (bearing offset
+                // 2*pi*team/teams, pitch teams * --finderGroupTrackM), so together they cover
+                // the ground in rings --finderGroupTrackM apart. Members walk side by side
+                // across the track, --finderGroupSpacingM apart, so a node near a team is
+                // ranged by several finders at once -- a fix needs three ranges in one cycle.
+                // The hand-over to converging is the existing rule: an entry tighter than the
+                // area swept so far (the spiral's radius), and below --finderGroupHandoverM if given.
+                const size_t nSearchG = finderWalkers.size() - g_finderRelays;
+                if (g_finderGroupSize >= 2 && nSearchG >= g_finderGroupSize)
+                {
+                  if (g_finderGroupSweep)
+                  {
+                    const size_t teams = nSearchG / g_finderGroupSize;
+                    const size_t team = std::min(fi / g_finderGroupSize, teams - 1);
+                    const size_t m = fi - team * g_finderGroupSize;
+                    const size_t members =
+                        (team == teams - 1) ? nSearchG - team * g_finderGroupSize : g_finderGroupSize;
+                    const double pitch = static_cast<double>(teams) * g_finderGroupTrackM;
+                    // arc length walked s = v t; for r = pitch * phi / (2 pi) that is
+                    // about pitch * phi^2 / (4 pi), so phi = sqrt(4 pi s / pitch)
+                    const double s = finderSpeedMps * t;
+                    const double phi = std::sqrt(4.0 * M_PI * s / pitch);
+                    double rSpiral = pitch * phi / (2.0 * M_PI);
+                    const double off = (static_cast<double>(m) -
+                                        0.5 * static_cast<double>(members - 1)) *
+                                       g_finderGroupSpacingM;
+                    // With a last known position the team instead walks out to it and sweeps
+                    // its slice of the cone beyond it (GroupSectorPoint); the area swept is the
+                    // cone out to the radius reached (none while walking out: no hand-over then).
+                    const bool lkp = std::isfinite(g_lkpX) && std::isfinite(g_lkpY);
+                    Vector sectorP;
+                    if (lkp)
+                    {
+                        const double b = std::atan2(g_lkpY - dep.baseCampY, g_lkpX - dep.baseCampX);
+                        const double h = g_lkpConeDeg * M_PI / 180.0;
+                        const double w = 2.0 * h / static_cast<double>(teams);
+                        const double a0 = b - h + w * static_cast<double>(team);
+                        sectorP = GroupSectorPoint(s, dep.baseCampX, dep.baseCampY, g_lkpX, g_lkpY, a0,
+                                                   a0 + w, g_finderGroupTrackM, off, rSpiral);
+                    }
+                    // LATCHED: once a finder has left the wide sweep it stays out of it (the
+                    // area search round its entry takes over), because the sweep places a
+                    // finder on its spiral point and a return would be a jump, not a walk.
+                    static std::map<size_t, double> leftSweepS; // per finder; reset per run
+                    auto ls = leftSweepS.find(fi);
+                    if (ls != leftSweepS.end() && t < ls->second)
+                    {
+                        leftSweepS.erase(ls); // a new run (or arm) restarted the clock
+                        ls = leftSweepS.end();
+                    }
+                    const bool sweepNow =
+                        ls == leftSweepS.end() &&
+                        entrySigma > std::min(std::max(1.0, rSpiral), g_finderGroupHandoverM);
+                    if (!sweepNow && ls == leftSweepS.end())
+                    {
+                        leftSweepS.emplace(fi, t);
+                    }
+                    if (sweepNow)
+                    {
+                        searching = true;
+                        if (lkp)
+                        {
+                            fp = sectorP;
+                        }
+                        else
+                        {
+                            const double th = phi + 2.0 * M_PI * static_cast<double>(team) /
+                                                        static_cast<double>(teams);
+                            const double rr = std::max(0.0, rSpiral + off);
+                            fp = Vector(dep.baseCampX + rr * std::cos(th),
+                                        dep.baseCampY + rr * std::sin(th), 0.0);
+                        }
+                        finderWalkers[fi].SetPosition(fp.x, fp.y);
+                        if (taskLog)
+                        {
+                            ++taskSweep[fi];
+                            writeTask(fi, taskId, "sweep", taskFound, taskTe, fp.x, fp.y);
+                        }
+                    }
+                  } // g_finderGroupSweep
+                }
+                else if (entrySigma > radius)
                 {
                     searching = true;
+                    // Spread over the SEARCHING finders: --finderRelays (default 0) takes the
+                    // last K out of the sweep, and leaving their bearings in would leave an
+                    // unswept sector the relays never walk.
                     const double n = static_cast<double>(
-                        std::max<size_t>(1, finderWalkers.size()));
+                        std::max<size_t>(1, finderWalkers.size() - g_finderRelays));
                     // Archimedean sweep: radius grows with time, bearing advances
                     // so the tangential component stays about half the walking
                     // speed, and finder i is offset by 2*pi*i/n so the party
@@ -10273,6 +10641,144 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
             }
+            // UI --finderHoldM: FOUND -> HOLD. A searching finder with a recent direct close range
+            // to the subject stays where it is instead of following broadcast locations, so the
+            // reference points the subject's fix is anchored to stop moving with its estimate.
+            if (g_finderHoldM > 0.0 && !searching && fi < finderWalkers.size() - g_finderRelays)
+            {
+                const uint32_t fidH = finderIds[fi];
+                auto lc = g_lastCloseRangeS.find(fidH);
+                if (lc != g_lastCloseRangeS.end() && lc->second > t)
+                {
+                    g_lastCloseRangeS.erase(lc); // a new run (or arm) restarted the clock
+                    lc = g_lastCloseRangeS.end();
+                }
+                if (lc != g_lastCloseRangeS.end() && t - lc->second <= g_finderHoldReleaseS)
+                {
+                    fp = finderPos[fi];
+                    // CONTACT STEP (--finderContactM). Never before the first close range.
+                    if (g_finderContactM > 0.0)
+                    {
+                        if (g_foundT > t)
+                        {
+                            g_foundT = -1.0; // a new run (or arm) restarted the clock
+                        }
+                        const size_t nSearchC = finderWalkers.size() - g_finderRelays;
+                        // FOUND: this finder's own direct UWB range is within the contact distance.
+                        auto ur = g_lastUwbRange.find(fidH);
+                        if (g_foundT < 0.0 && ur != g_lastUwbRange.end() && ur->second.first <= t &&
+                            t - ur->second.first <= 2.0 * dt && ur->second.second <= g_finderContactM)
+                        {
+                            g_foundT = t;
+                            std::cout << "UI FOUND t=" << std::fixed << std::setprecision(1) << t
+                                      << " finder=" << fidH << " uwbRangeM=" << std::setprecision(2)
+                                      << ur->second.second << std::endl;
+                        }
+                        // The nearest holder: shortest measured direct range among the holding finders.
+                        uint32_t nearestId = 0;
+                        double nearestM = std::numeric_limits<double>::infinity();
+                        for (size_t j = 0; j < nSearchC; ++j)
+                        {
+                            const uint32_t idj = finderIds[j];
+                            auto sj = g_lastCloseRangeS.find(idj);
+                            auto mj = g_lastCloseRangeM.find(idj);
+                            if (sj != g_lastCloseRangeS.end() && mj != g_lastCloseRangeM.end() &&
+                                sj->second <= t && t - sj->second <= g_finderHoldReleaseS &&
+                                mj->second < nearestM)
+                            {
+                                nearestM = mj->second;
+                                nearestId = idj;
+                            }
+                        }
+                        // The location the party holds: the freshest entry any searcher has.
+                        CaTblTableEntry pe;
+                        bool havePe = false;
+                        for (size_t j = 0; j < nSearchC; ++j)
+                        {
+                            CaTblTableEntry tj;
+                            if (j < finderMac.size() && finderMac[j] != nullptr &&
+                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                (!havePe || tj.timestampS > pe.timestampS))
+                            {
+                                pe = tj;
+                                havePe = true;
+                            }
+                        }
+                        const double peSig = havePe ? std::sqrt(std::max(0.0, pe.varX + pe.varY))
+                                                    : std::numeric_limits<double>::infinity();
+                        // UI --finderAnchors=K: ANCHORS AND VERIFIERS. The first K finders to range the
+                        // subject closely become ANCHORS and stay put (fixed reference points); every
+                        // other close finder is a VERIFIER and walks straight to the party's location,
+                        // no stand-off, until FOUND. An anchor with no close range for
+                        // --finderHoldReleaseS is released and its place can be taken.
+                        bool walkIn;
+                        if (g_finderAnchors > 0)
+                        {
+                            static std::set<uint32_t> anchorsSet;
+                            static double anchorsT = -1.0;
+                            if (t < anchorsT)
+                            {
+                                anchorsSet.clear(); // a new run (or arm) restarted the clock
+                            }
+                            anchorsT = t;
+                            for (auto ai = anchorsSet.begin(); ai != anchorsSet.end();)
+                            {
+                                auto sj = g_lastCloseRangeS.find(*ai);
+                                if (sj == g_lastCloseRangeS.end() || t - sj->second > g_finderHoldReleaseS)
+                                {
+                                    std::cout << "UI ANCHOR-RELEASED t=" << std::fixed << std::setprecision(1) << t
+                                              << " finder=" << *ai << std::endl;
+                                    ai = anchorsSet.erase(ai);
+                                }
+                                else
+                                {
+                                    ++ai;
+                                }
+                            }
+                            bool isAnchor = anchorsSet.count(fidH) > 0;
+                            if (!isAnchor && anchorsSet.size() < g_finderAnchors)
+                            {
+                                anchorsSet.insert(fidH);
+                                isAnchor = true;
+                                std::cout << "UI ANCHOR t=" << std::fixed << std::setprecision(1) << t
+                                          << " finder=" << fidH << std::endl;
+                            }
+                            walkIn = g_foundT < 0.0 && !isAnchor && havePe;
+                        }
+                        else
+                        {
+                            walkIn = g_foundT < 0.0 && fidH == nearestId && havePe && peSig <= g_finderContactSigmaM;
+                        }
+                        if (walkIn)
+                        {
+                            Vector c = finderPos[fi];
+                            const double dx = pe.x - c.x, dy = pe.y - c.y, dist = std::hypot(dx, dy);
+                            const double stepM = finderSpeedMps * dt;
+                            if (dist > 1e-9)
+                            {
+                                const double f = std::min(1.0, stepM / dist);
+                                c.x += dx * f;
+                                c.y += dy * f;
+                            }
+                            finderPos[fi] = c;
+                            fp = c;
+                        }
+                    }
+                    const uint16_t fidh = static_cast<uint16_t>(fidH);
+                    engine868.UpdateNodePosition(fidh, fp);
+                    engine2p4.UpdateNodePosition(fidh, fp);
+                    engineUwb.UpdateNodePosition(fidh, fp);
+                    provider.SetAnchorPosition(fidh, fp);
+                    anchorPosById[fidh] = fp;
+                    republishFinder(fi, fp, t);
+                    if (vizNodes.is_open())
+                    {
+                        vizNodes << std::fixed << std::setprecision(2) << t << ',' << fidh << ','
+                                 << fp.x << ',' << fp.y << '\n';
+                    }
+                    continue;
+                }
+            }
             if (!searching && (finderMode == 1 || finderMode == 2))
             {
                 // Converge on the ESTIMATE, which is all a searcher is ever given.
@@ -10288,7 +10794,53 @@ RunArm(CaTblPolicyMode mode,
                 if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    if (finderMac[fi]->GetTableEntry(taskId, te))
+                    bool haveEntry = finderMac[fi]->GetTableEntry(taskId, te);
+                    // TEAM SHARING: team-mates walk side by side and tell each other what they
+                    // hold, so a finder steers on the freshest entry any member of its team has.
+                    if (teamShare)
+                    {
+                        CaTblTableEntry tt;
+                        if (teamEntry(tt) && (!haveEntry || tt.timestampS > te.timestampS))
+                        {
+                            te = tt;
+                            haveEntry = true;
+                        }
+                    }
+                    // UI --finderPartyShare: the whole search party shares what it holds. A finder
+                    // steers on the freshest entry any searching finder holds (its own included):
+                    // whenever the party has a location, every searcher moves toward it.
+                    if (g_finderPartyShare)
+                    {
+                        const size_t nSearchP = finderWalkers.size() - g_finderRelays;
+                        for (size_t j = 0; j < nSearchP; ++j)
+                        {
+                            CaTblTableEntry tj;
+                            if (j != fi && j < finderMac.size() && finderMac[j] != nullptr &&
+                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                (!haveEntry || tj.timestampS > te.timestampS))
+                            {
+                                te = tj;
+                                haveEntry = true;
+                            }
+                        }
+                    }
+                    // UI --finderGroupSweep=false with --lkpX/Y: the BRIEFING. A team that holds
+                    // no location over the air yet still knows where the subject was last seen
+                    // (it is told before it sets out, not by radio), so it moves toward that;
+                    // the first location received over the air replaces it.
+                    if (!haveEntry &&
+                        ((g_finderGroupSize >= 2 && !g_finderGroupSweep) || g_finderPartyShare) &&
+                        std::isfinite(g_lkpX) && std::isfinite(g_lkpY))
+                    {
+                        te = CaTblTableEntry();
+                        te.nodeId = taskId;
+                        te.x = g_lkpX;
+                        te.y = g_lkpY;
+                        te.timestampS = t;
+                        te.valid = true;
+                        haveEntry = true;
+                    }
+                    if (haveEntry)
                     {
                         gx = te.x;
                         gy = te.y;
@@ -10389,6 +10941,142 @@ RunArm(CaTblPolicyMode mode,
                             gy = te.y + r * std::sin(th);
                             ++staleSearchCycles;
                         }
+                        // UI --finderGroupSize, AREA SEARCH round a coarse location. While the
+                        // entry's sigma is above --finderGroupFineM, walking to the point lands
+                        // where the error put it; the team instead sweeps an Archimedean spiral
+                        // centred on the entry, tracks one team-width apart (members x spacing,
+                        // at least 2 x spacing), out to the sigma, then starts it again. Members
+                        // keep their side-by-side offsets. Below the bound the finder converges
+                        // as before. Off (no state, nothing computed) without the flag.
+                        // UI --finderGroupSweep=false, ESTIMATE-LED team search: no wide sweep; a
+                        // team heads for the location it holds (the system's estimate as the
+                        // network passed it on). While that is coarser than --finderGroupFineM it
+                        // walks to it, then sweeps a spiral round it (as below); when a newer
+                        // estimate moves more than max(500 m, the spiral's radius) from where it
+                        // is searching, it drops that and heads for the new one. Finer than the
+                        // bound: the converge step as before.
+                        if (g_finderGroupSize >= 2 && known && teamShare)
+                        {
+                            struct AreaState
+                            {
+                                double lastT, ax, ay, t0;
+                                bool spiralling;
+                            };
+                            static std::map<size_t, AreaState> areaS; // per finder; reset per run
+                            const double sig = std::sqrt(std::max(0.0, te.varX + te.varY));
+                            auto it = areaS.find(fi);
+                            if (it != areaS.end() && t < it->second.lastT)
+                            {
+                                areaS.erase(it); // a new run (or arm) restarted the clock
+                                it = areaS.end();
+                            }
+                            if (sig > g_finderGroupFineM)
+                            {
+                                const size_t nSearchA = finderWalkers.size() - g_finderRelays;
+                                const size_t teamsA = std::max<size_t>(1, nSearchA / g_finderGroupSize);
+                                const size_t teamA = std::min(fi / g_finderGroupSize, teamsA - 1);
+                                const size_t membersA =
+                                    (teamA == teamsA - 1) ? nSearchA - teamA * g_finderGroupSize
+                                                          : g_finderGroupSize;
+                                const size_t mA = fi - teamA * g_finderGroupSize;
+                                const double trackA = std::max(2.0, static_cast<double>(membersA)) *
+                                                      std::max(1.0, g_finderGroupSpacingM);
+                                const double offA = (static_cast<double>(mA) -
+                                                     0.5 * static_cast<double>(membersA - 1)) *
+                                                    g_finderGroupSpacingM;
+                                if (it == areaS.end())
+                                {
+                                    it = areaS.emplace(fi, AreaState{t, te.x, te.y, t, false}).first;
+                                }
+                                AreaState& st = it->second;
+                                st.lastT = t;
+                                double rA = 0.0, phiA = 0.0;
+                                if (st.spiralling)
+                                {
+                                    const double sA = finderSpeedMps * (t - st.t0);
+                                    phiA = std::sqrt(4.0 * M_PI * sA / trackA);
+                                    rA = trackA * phiA / (2.0 * M_PI);
+                                }
+                                // a newer estimate elsewhere: head for it (following, only one that is
+                                // itself usable; a coarse one keeps the search round the last usable)
+                                if (std::hypot(te.x - st.ax, te.y - st.ay) > std::max(500.0, rA) &&
+                                    (!g_finderGroupFollow || sig <= g_finderGroupHandoverM))
+                                {
+                                    st.ax = te.x;
+                                    st.ay = te.y;
+                                    st.spiralling = false;
+                                    rA = phiA = 0.0;
+                                }
+                                if (!st.spiralling &&
+                                    std::hypot(finderPos[fi].x - st.ax, finderPos[fi].y - st.ay) < trackA)
+                                {
+                                    st.spiralling = true; // arrived: search round it
+                                    st.t0 = t;
+                                }
+                                if (rA > std::max(sig, trackA))
+                                {
+                                    st.t0 = t; // swept out to the sigma: start again
+                                    rA = phiA = 0.0;
+                                }
+                                if (st.spiralling)
+                                {
+                                    const double rrA = std::max(0.0, rA + offA);
+                                    gx = st.ax + rrA * std::cos(phiA);
+                                    gy = st.ay + rrA * std::sin(phiA);
+                                }
+                                else
+                                {
+                                    gx = st.ax + offA; // walking there, side by side
+                                    gy = st.ay;
+                                }
+                            }
+                            else if (it != areaS.end())
+                            {
+                                areaS.erase(it);
+                            }
+                        }
+                        else if (g_finderGroupSize >= 2 && known)
+                        {
+                            const double sig = std::sqrt(std::max(0.0, te.varX + te.varY));
+                            static std::map<size_t, double> fineStartS; // per finder; reset per run
+                            auto it = fineStartS.find(fi);
+                            if (sig > g_finderGroupFineM)
+                            {
+                                if (it == fineStartS.end() || t < it->second)
+                                {
+                                    it = fineStartS.insert_or_assign(fi, t).first;
+                                }
+                                const size_t nSearchA = finderWalkers.size() - g_finderRelays;
+                                const size_t teamsA = std::max<size_t>(1, nSearchA / g_finderGroupSize);
+                                const size_t teamA = std::min(fi / g_finderGroupSize, teamsA - 1);
+                                const size_t membersA =
+                                    (teamA == teamsA - 1) ? nSearchA - teamA * g_finderGroupSize
+                                                          : g_finderGroupSize;
+                                const size_t mA = fi - teamA * g_finderGroupSize;
+                                const double trackA = std::max(2.0, static_cast<double>(membersA)) *
+                                                      std::max(1.0, g_finderGroupSpacingM);
+                                double sA = finderSpeedMps * (t - it->second);
+                                double phiA = std::sqrt(4.0 * M_PI * sA / trackA);
+                                double rA = trackA * phiA / (2.0 * M_PI);
+                                if (rA > std::max(sig, trackA))
+                                {
+                                    it->second = t; // swept out to the sigma: start again
+                                    sA = 0.0;
+                                    phiA = 0.0;
+                                    rA = 0.0;
+                                }
+                                const double offA = (static_cast<double>(mA) -
+                                                     0.5 * static_cast<double>(membersA - 1)) *
+                                                    g_finderGroupSpacingM;
+                                const double rrA = std::max(0.0, rA + offA);
+                                gx = te.x + rrA * std::cos(phiA);
+                                gy = te.y + rrA * std::sin(phiA);
+                            }
+                            else if (it != fineStartS.end())
+                            {
+                                fineStartS.erase(it);
+                            }
+                        }
                     }
                 }
                 if (taskLog)
@@ -10427,7 +11115,10 @@ RunArm(CaTblPolicyMode mode,
                 const double dx = gx - bel.x, dy = gy - bel.y;
                 const double dist = std::sqrt(dx * dx + dy * dy);
                 const double standoff = 8.0;
-                const double stepM = walkSpeedMps * dt;
+                // The SEARCHER's speed: a660ac20 separated it from --speed (the subject's)
+                // but this step still read walkSpeedMps, so --speed=0 froze converging
+                // searchers. Identical whenever --finderSpeed is unset (it then follows --speed).
+                const double stepM = finderSpeedMps * dt;
                 if (dist > standoff && dist > 1e-9)
                 {
                     const double f = std::min(1.0, stepM / dist);
@@ -13322,6 +14013,27 @@ RunArm(CaTblPolicyMode mode,
             policy.SetSilentAnchors(silentThisCycle); // C1
         }
         silentThisCycle.clear();
+        // UI --finderHoldM: note which finders the subject ranged DIRECTLY and closely on a
+        // fine tier this cycle. A two-way range is an exchange both ends take part in, so the
+        // finder is taken to know it too. Recording only; nothing here changes the fix.
+        if (g_finderHoldM > 0.0 && static_cast<uint32_t>(nodeId) == 1u)
+        {
+            for (const CaTblRangeMeasurement& m : meas)
+            {
+                if (m.anchorId >= 501 && m.hopDepth == 0 &&
+                    (m.tier == CA_TBL_TIER_2P4 || m.tier == CA_TBL_TIER_UWB) && m.rangeM > 0.0 &&
+                    m.rangeM <= g_finderHoldM)
+                {
+                    g_lastCloseRangeS[m.anchorId] = t;
+                    g_lastCloseRangeM[m.anchorId] = m.rangeM;
+                }
+                if (g_finderContactM > 0.0 && m.anchorId >= 501 && m.hopDepth == 0 &&
+                    m.tier == CA_TBL_TIER_UWB && m.rangeM > 0.0)
+                {
+                    g_lastUwbRange[m.anchorId] = std::make_pair(t, m.rangeM);
+                }
+            }
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -13329,6 +14041,28 @@ RunArm(CaTblPolicyMode mode,
                                             static_cast<int32_t>(activeMeasAddressed +
                                                                  crossAddedThisCycle),
                                             tierEvidenceMask);
+        // UI --vizFixSet: who this fix was computed from (output only).
+        if (vizFixSet.is_open() && static_cast<uint32_t>(nodeId) == 1u && d.hadFix &&
+            !d.measurementRejected)
+        {
+            std::map<uint16_t, uint8_t> who; // node id -> finest tier it was ranged on
+            for (const CaTblRangeMeasurement& m : meas)
+            {
+                auto w = who.find(m.anchorId);
+                if (w == who.end() || (m.tier != 255 && (w->second == 255 || m.tier > w->second)))
+                {
+                    who[m.anchorId] = m.tier;
+                }
+            }
+            vizFixSet << std::fixed << std::setprecision(2) << t << ',' << meas.size() << ',';
+            bool first = true;
+            for (const auto& w : who)
+            {
+                vizFixSet << (first ? "" : ";") << w.first << ':' << static_cast<int>(w.second);
+                first = false;
+            }
+            vizFixSet << '\n';
+        }
         if (fuseFA)
         {
             fuseFloorLog->Row(t, nodeId, active, activeMeas.size(), floorMeas.size(), d, fixTier);
@@ -15809,6 +16543,18 @@ RunArm(CaTblPolicyMode mode,
                       << ", digests answered with nothing (asker already current) "
                       << digNoOp << "\n";
         }
+        if (g_gatewayDigestPeriodS > 0.0)
+        {
+            for (CaTblMac* gm : g_gwMac868)
+            {
+                const CaTblMsgCounters& c = gm->GetCounters(CA_TBL_MSG_DIGEST);
+                const CaTblMsgCounters& p = gm->GetCounters(CA_TBL_MSG_ENTRY_PUSH);
+                std::cout << "UI GATEWAY-DIGEST gw=" << gm->GetNodeId() << " digests sent=" << c.sent
+                          << " refused duty=" << c.droppedDutyCycle << " cad=" << c.droppedCadExhausted
+                          << " | pushes received=" << p.received << " sent=" << p.sent
+                          << " refused duty=" << p.droppedDutyCycle << "\n";
+            }
+        }
         if (proxyStale + uni + flood + proxyOk > 0)
         {
             std::cout << "    NET4/TRANS1: proxy answered " << proxyOk << ", proxy refused stale "
@@ -16517,6 +17263,9 @@ main(int argc, char* argv[])
     double boxHalfM = 340.0;
     // 0.0 = off. See --baseCampFrac.
     double baseCampFrac = 0.0;
+    // UI: an explicit camp position (NaN = off, the camp stays at (f*boxHalf, f*boxHalf)).
+    double baseCampXArg = std::numeric_limits<double>::quiet_NaN();
+    double baseCampYArg = std::numeric_limits<double>::quiet_NaN();
     double subjectKeepOutM = 0.0;
     double maxTurnRateRadS = 0.0;
     // 0 = feed every fix, which is what every run before 2026-09-08 did.
@@ -16804,6 +17553,13 @@ main(int argc, char* argv[])
                  "leaving them central would put the searchers in the search area at "
                  "t=0 and flatter the very mechanism this is meant to test.",
                  baseCampFrac);
+    cmd.AddValue("baseCampX",
+                 "UI: put the base camp at this x, m (with --baseCampY; needs --baseCampFrac > 0, "
+                 "which still switches the camp on). Replaces only the camp's position "
+                 "(f*boxHalf, f*boxHalf): everything that uses the camp uses this point instead. "
+                 "Unset = off, byte-identical to before. Not with --gwRidge.",
+                 baseCampXArg);
+    cmd.AddValue("baseCampY", "UI: the base camp's y, m (with --baseCampX).", baseCampYArg);
     cmd.AddValue("shsSnapPosition",
                  "Anchor the SHS position at each CLEAN trusted fix. FALSE by default. "
                  "REQUIRED BY --imuFusion, and the two are only correct together: the "
@@ -17363,6 +18119,99 @@ main(int argc, char* argv[])
                  "or not --dualBaseOnDemand is on), whether 2.4 GHz was attempted, and how many 2.4 GHz ranges it "
                  "returned. Output only, no draw.",
                  g_traceOnDemand);
+    cmd.AddValue("subjectStartX",
+                 "UI placement: the subject's (node 1) start x, m. Both X and Y must be given; "
+                 "unset keeps the existing start rule. Applied after the base-camp rule.",
+                 g_subjectStartX);
+    cmd.AddValue("subjectStartY", "UI placement: the subject's (node 1) start y, m. See --subjectStartX.",
+                 g_subjectStartY);
+    cmd.AddValue("finderRelays",
+                 "UI stay-behind relays: the last K finders do not search but walk toward the "
+                 "point on the camp-to-party line at j/(K+1) of the party's distance, capped at "
+                 "j * --finderRelaySpacingM (relay j = 1..K). 0 (default) = off. Needs "
+                 "--baseCampFrac and K < --nFinders.",
+                 g_finderRelays);
+    cmd.AddValue("finderRelaySpacingM",
+                 "UI stay-behind relays: the most a relay j stands from the camp is j times this, m. "
+                 "Default 1500, the 868 MHz r80 the --probe sweep measures.",
+                 g_finderRelaySpacingM);
+    cmd.AddValue("finderGroupSize",
+                 "UI group search (--finderMode=2 with --baseCampFrac): the searching finders "
+                 "sweep in teams of this size, each team on an interleaved Archimedean spiral "
+                 "from the camp, members side by side across the track. 0 (default) = off.",
+                 g_finderGroupSize);
+    cmd.AddValue("finderGroupSpacingM", "UI group search: distance between team members, m (default 300).",
+                 g_finderGroupSpacingM);
+    cmd.AddValue("finderGroupTrackM",
+                 "UI group search: distance between neighbouring sweep tracks of all teams together, m "
+                 "(default 4000).",
+                 g_finderGroupTrackM);
+    cmd.AddValue("finderGroupFineM",
+                 "UI group search: while the steering entry's sigma is above this (m, default 150), a "
+                 "team sweeps a spiral round the entry instead of walking to it.",
+                 g_finderGroupFineM);
+    cmd.AddValue("lkpX",
+                 "UI: the subject's last known position x, m (with --lkpY; needs --baseCampFrac). The "
+                 "filter's prior is centred there, and group search walks out to it and sweeps the cone "
+                 "beyond it. Unset (default): the camp is the last known position.",
+                 g_lkpX);
+    cmd.AddValue("lkpY", "UI: the subject's last known position y, m. See --lkpX.", g_lkpY);
+    cmd.AddValue("lkpConeDeg",
+                 "UI: group search with --lkpX/Y sweeps +- this many degrees about the bearing from the camp "
+                 "to the last known position (default 45: last seen south means south, south-west or south-east).",
+                 g_lkpConeDeg);
+    cmd.AddValue("finderGroupSweep",
+                 "UI group search: true (default) sweeps first (spirals from the camp, or the cone beyond "
+                 "--lkpX/Y). false: ESTIMATE-LED, each team heads for the location it holds, searches round it "
+                 "while it is coarse, and re-targets when a newer estimate moves; no base camp needed.",
+                 g_finderGroupSweep);
+    cmd.AddValue("finderGroupFollow",
+                 "UI group search with the sweep: FOLLOW USABLE LOCATIONS. Team-mates share the freshest entry "
+                 "any of them holds; a team leaves the sweep when that entry's sigma is under "
+                 "--finderGroupHandoverM (and the swept radius), walks to it and searches round it, and "
+                 "re-targets only to a newer entry that is itself under the bound. Default false.",
+                 g_finderGroupFollow);
+    cmd.AddValue("finderPartyShare",
+                 "UI: the search party shares what it holds. Each searching finder steers on the freshest "
+                 "location any searching finder holds (its own included); with --lkpX/Y, on the last known "
+                 "position until the party has one. Steering only; radios and the MAC are untouched. "
+                 "FALSE (default): each finder steers on its own table entry, as before.",
+                 g_finderPartyShare);
+    cmd.AddValue("finderHoldM",
+                 "UI FOUND -> HOLD: a searching finder that had a DIRECT 2.4 GHz or UWB range of at most this "
+                 "many metres to the subject stops following broadcast locations and stays where it is. 0 "
+                 "(default) = off.",
+                 g_finderHoldM);
+    cmd.AddValue("finderHoldReleaseS",
+                 "UI FOUND -> HOLD: a holding finder resumes following once no such close range has come for this "
+                 "many seconds (default 60).",
+                 g_finderHoldReleaseS);
+    cmd.AddValue("finderContactM",
+                 "UI CONTACT STEP (with --finderHoldM): while the location the party holds is no coarser than "
+                 "--finderContactSigmaM, the nearest holding finder walks straight to it; FOUND when its own direct "
+                 "UWB range is at most this many metres. 0 (default) = off.",
+                 g_finderContactM);
+    cmd.AddValue("finderContactSigmaM",
+                 "UI CONTACT STEP: the most uncertain (m, 1-sigma) the party's location may be for the nearest "
+                 "holder to walk in (default 2).",
+                 g_finderContactSigmaM);
+    cmd.AddValue("finderAnchors",
+                 "UI (with --finderHoldM and --finderContactM): the first K finders to range the subject within "
+                 "--finderHoldM stay put as ANCHORS; every other close finder is a VERIFIER and walks straight to "
+                 "the party's location, no stand-off, until FOUND. 0 (default) = off: every close finder holds.",
+                 g_finderAnchors);
+    cmd.AddValue("stopOnFound",
+                 "UI: with --finderContactM, end the run at FOUND (a searcher's own direct UWB range to the "
+                 "subject within --finderContactM) instead of at --duration. Default false.",
+                 g_stopOnFound);
+    cmd.AddValue("vizFixSet",
+                 "UI, OUTPUT ONLY (with --vizEvents): write fixset_<arm>_seed<N>.csv, the nodes whose ranges "
+                 "each of the subject's fixes was computed from. Default false.",
+                 g_vizFixSet);
+    cmd.AddValue("finderGroupHandoverM",
+                 "UI group search: a team leaves the wide sweep only for an entry whose sigma is below "
+                 "both the area swept so far and this, m. Default: no bound (the swept area alone).",
+                 g_finderGroupHandoverM);
     cmd.AddValue("probeTerms",
                  "V2b (master plan v3), with --probe only. True: also write probe_terms.csv -- per tier and "
                  "distance, the realised sensitivity margin's mean and SD and the mean and SD of every loss "
@@ -18602,6 +19451,20 @@ main(int argc, char* argv[])
                  "30, which is tier-1 scale -- the loosest tier, so the test is "
                  "deliberately reluctant to call a disagreement.",
                  corroborationRangeSigmaMArg);
+    cmd.AddValue("finderDigestSummary",
+                 "UI: finders carry and answer the {node_id, seq_no} anti-entropy summary too, when "
+                 "--digestSummary is on, so a location can be passed on through finders and relays. "
+                 "FALSE by default: a finder's DIGEST is empty and every answer to it is the "
+                 "responder's own entry, which is every result before the UI. It is a flag of its own "
+                 "because --specProfile turns --digestSummary on, and a finder change tied to that "
+                 "flag moved every preset run (tag 0 CEP95 at 5 km 57.1 -> 31.1 m on seed 341).",
+                 g_finderDigestSummary);
+    cmd.AddValue("gatewayDigestPeriodS",
+                 "UI: every gateway's 868 MHz radio sends a DIGEST every this many seconds, so nodes "
+                 "holding an entry the gateway lacks or holds older push it to the gateway (with "
+                 "--digestSummary). 0 (default) = off: gateways never ask, and nothing is ever pushed "
+                 "to them. Needs --sendHandshakeFrames.",
+                 g_gatewayDigestPeriodS);
     cmd.AddValue("finderDigestPeriodS",
                  "How often each finder broadcasts a digest asking for table entries, "
                  "seconds. Default 30. This is what makes the casualty's position reach "
@@ -21310,6 +22173,29 @@ main(int argc, char* argv[])
                    : 1;
     }
 
+    if (g_finderRelays > 0 && (!(baseCampFrac > 0.0) || g_finderRelays >= nFindersArg ||
+                               !(g_finderRelaySpacingM > 0.0)))
+    {
+        std::cerr << "FATAL: --finderRelays needs --baseCampFrac > 0, fewer relays than "
+                     "--nFinders, and --finderRelaySpacingM > 0\n";
+        return 1;
+    }
+    if (g_finderGroupSize > 0 &&
+        (g_finderGroupSize < 2 || (g_finderGroupSweep && !(baseCampFrac > 0.0)) || finderModeArg != 2 ||
+         nFindersArg < g_finderRelays + g_finderGroupSize || !(g_finderGroupSpacingM >= 0.0) ||
+         !(g_finderGroupTrackM > 0.0)))
+    {
+        std::cerr << "FATAL: --finderGroupSize needs a size >= 2, --finderMode=2, --baseCampFrac > 0, "
+                     "at least that many searching finders, spacing >= 0 and track > 0\n";
+        return 1;
+    }
+    if (std::isfinite(g_lkpX) != std::isfinite(g_lkpY) ||
+        (std::isfinite(g_lkpX) && (!(baseCampFrac > 0.0) || !(g_lkpConeDeg > 0.0 && g_lkpConeDeg <= 180.0))))
+    {
+        std::cerr << "FATAL: --lkpX and --lkpY go together, need --baseCampFrac > 0 and "
+                     "0 < --lkpConeDeg <= 180\n";
+        return 1;
+    }
     if (uwbAnchorsPerSite < 3 || t2AnchorsPerSite < 3)
     {
         std::cout << "ERROR: at least 3 anchors per site are needed for a 2D fix.\n";
@@ -21336,10 +22222,20 @@ main(int argc, char* argv[])
     // run and reaching it needs a searcher to walk out. Applied here rather than
     // inside BuildDeployment so every arm sees the identical deployment and the
     // legacy topology path is untouched.
+    if (std::isfinite(baseCampXArg) != std::isfinite(baseCampYArg) ||
+        (std::isfinite(baseCampXArg) &&
+         (!(baseCampFrac > 0.0) || gwRidgeArg || std::fabs(baseCampXArg) > boxHalfM ||
+          std::fabs(baseCampYArg) > boxHalfM)))
+    {
+        std::cerr << "FATAL: --baseCampX and --baseCampY go together, need --baseCampFrac > 0, "
+                  << "lie inside the box, and do not combine with --gwRidge\n";
+        return 1;
+    }
     if (baseCampFrac > 0.0)
     {
-        const double bcx = baseCampFrac * boxHalfM;
-        const double bcy = baseCampFrac * boxHalfM;
+        const bool campXY = std::isfinite(baseCampXArg);
+        const double bcx = campXY ? baseCampXArg : baseCampFrac * boxHalfM;
+        const double bcy = campXY ? baseCampYArg : baseCampFrac * boxHalfM;
         // A RIDGE IS ALREADY A DEPLOYMENT, so do not translate it. The corner-shift above
         // exists to put the subject outside a CENTRED footprint; a ridge is deliberately
         // placed and shifting it by three quarters of the box lands it off the map and
