@@ -137,7 +137,6 @@
       const raw = clock.getDelta(), dt = Math.min(raw, .05), t = clock.elapsedTime;
       if (!onScreen) return;                               // scrolled past the hero: no drawing at all
       adapt(raw); if (tier === 2) { skip = !skip; if (skip) return; }
-                                    // scrolled past the hero: no drawing at all
       if (!drag) { ry += vy; vy *= .94; rx += vx; vx *= .94; idle += dt; if (!reduced && idle > 1.2) ry += dt * .18; rx += ((-.34 + my * -.12) - rx) * .03; }
       root.rotation.y = ry; root.rotation.x = rx; root.position.y = reduced ? 0 : Math.sin(t * .8) * .06;
       // hover test against the three planes
