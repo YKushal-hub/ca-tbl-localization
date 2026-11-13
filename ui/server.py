@@ -29,6 +29,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 UI_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.realpath(os.path.join(UI_DIR, "static"))  # the only directory served as files
+STATIC_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+                ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2"}
 REPO = os.path.dirname(UI_DIR)
 RUNS_DIR = os.path.join(UI_DIR, "runs")  # NOT results/: that tree is tracked evidence
 SIM = os.path.join(REPO, "build", "scratch", "ns3.47-ca_tbl_causal_sim-optimized")
@@ -450,6 +453,22 @@ class H(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+            return
+        if u.path.startswith("/static/"):
+            # Files under ui/static only: the path is resolved and must stay inside it, and the type
+            # must be one listed above, so nothing else in the repository can be read through here.
+            full = os.path.realpath(os.path.join(STATIC_DIR, u.path[len("/static/"):]))
+            kind = STATIC_TYPES.get(os.path.splitext(full)[1].lower())
+            if not full.startswith(STATIC_DIR + os.sep) or kind is None or not os.path.isfile(full):
+                self.send_json({"error": "not found"}, 404)
+                return
+            b = open(full, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(b)
             return
