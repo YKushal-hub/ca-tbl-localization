@@ -2330,6 +2330,8 @@ static bool g_sy3Given = false;
 static double g_t2SensitivityRowKHz = 0.0;
 //! TECH_DEBT 2.4 --uwbSensitivityDbm: tier 3's flat receiver sensitivity. NaN (default): the table's -104 dBm.
 static double g_uwbSensitivityDbm = std::numeric_limits<double>::quiet_NaN();
+//! --tier1ExtraLossDb: dB added to tier 1's receiver sensitivity table (0 = off). See the flag's help text.
+static double g_tier1ExtraLossDb = 0.0;
 //! --uwbMode: 0 legacy (default), 1 6m8 (6.8 Mbps, 64-symbol preamble), 2 850k (850 kbps, 1024-symbol preamble).
 static int g_uwbMode = 0;
 //! TECH_DEBT N.17 --subjectEnergyBuckets: subject_summary.csv gains rx/CAD/idle joules per tier.
@@ -2498,6 +2500,13 @@ Dc1ImuParams()
         for (int sfi = 0; sfi < 6; ++sfi)                                                          \
         {                                                                                          \
             c868.receiver.sensitivityDbm[sfi] += g_sensShiftDb868;                                 \
+        }                                                                                          \
+    }                                                                                              \
+    if (g_tier1ExtraLossDb != 0.0)                                                                 \
+    {                                                                                              \
+        for (int sfi = 0; sfi < 6; ++sfi)                                                          \
+        {                                                                                          \
+            c868.receiver.sensitivityDbm[sfi] += g_tier1ExtraLossDb;                               \
         }                                                                                          \
     }                                                                                              \
     if (g_sensShiftDb2p4 != 0.0)                                                                   \
@@ -19409,6 +19418,19 @@ main(int argc, char* argv[])
                  "1024-symbol preamble -- billed, ranged and decoded at -99.3 dBm; each frame costs several times "
                  "the airtime. Refused together with an explicit --uwbSensitivityDbm, which the mode sets.",
                  uwbModeArg);
+    cmd.AddValue("tier1ExtraLossDb",
+                 "L1 reach-sensitivity study (report/PREREG_LIMITS_2026-11-14.md). DB added to tier 1's receiver "
+                 "sensitivity table, so every 868 MHz link needs that many dB more received power to be heard: "
+                 "the link budget loses a fixed margin, with no change to the SF, the antenna or the channel model. "
+                 "0 (default): off, and the run is byte-identical to one without the flag. It stands for what the "
+                 "engine does not carry and field measurements do -- body and ground-level antennas, a lower mast, "
+                 "canopy and clutter beyond the environment class -- as ONE number, because the engine's 2390 m "
+                 "r80 against a field ~250 m (TIER1_VALIDATION, L1) cannot be attributed term by term. It is a "
+                 "SENSITIVITY shift, not a path-loss term: an RSSI range is still read from the unshifted received "
+                 "power, so it moves reach and delivery and not the RSSI-to-range inversion. Tier 1 only; "
+                 "2.4 GHz and UWB are untouched. A flag to measure with, not a tuning: it is never set to match a "
+                 "field number.",
+                 g_tier1ExtraLossDb);
     cmd.AddValue("uwbSensitivityDbm",
                  "Tier 3's receiver sensitivity, dBm, flat across the table (TECH_DEBT 2.4). Not given (default): the "
                  "table's -104 dBm, which is OURS. The DW3000 data sheet the project cites gives -99.3 dBm (TECH_DEBT "
