@@ -150,7 +150,12 @@ enum CaTblPolicyMode
     //! radios are on and ranged every cycle and their ranges fused; the UWB radio sleeps and
     //! is billed only for sleeping. The LoRa-only comparator on both LoRa bands. Selectable
     //! only by name (--arms=lora_fusion).
-    CA_TBL_MODE_FUSE_LORA
+    CA_TBL_MODE_FUSE_LORA,
+    //! Two-tier ablation: the adopted decision rule (CA_TBL_MODE_NO_INTEGRITY, which is what CA_TBL_MODE_FULL runs as
+    //! under the preset's --integrityCheck=false) on a node that carries only the 868 MHz and UWB radios -- it never
+    //! uses tier 2. Selectable only by name (--arms=ca_tbl_two_tier), so --arms=all is unchanged. The scenario maps
+    //! it to CA_TBL_MODE_NO_INTEGRITY plus CaTblPolicyConfig::skipTier2; the policy never sees this value.
+    CA_TBL_MODE_TWO_TIER
 };
 
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);
@@ -401,6 +406,15 @@ struct CaTblPolicyConfig
     //! --integrityCheck (DESIGN_DECISIONS 19). True (default): CA_TBL_MODE_FULL runs the Switching-Point Integrity
     //! Check. False: it does not, and the mode then runs as CA_TBL_MODE_NO_INTEGRITY does.
     bool integrityCheck;
+    //! Two-tier ablation (CA_TBL_MODE_TWO_TIER). False (default): the three-tier ladder 868 -> 2.4 -> UWB, unchanged.
+    //! True: tier 2 does not exist for this node. It escalates 868 MHz -> UWB directly and demotes UWB -> 868 MHz, and
+    //! every precondition the three-tier policy applies on the 2.4 GHz -> UWB step (the NW-7 grant, the UWB evidence
+    //! test, the request-in-flight bookkeeping) applies on the 868 MHz -> UWB step instead. The one exception, which
+    //! favours the two-tier arm, is the evidence gate's estimate-quality veto (sigma > uwbPredictMaxSigmaFrac x
+    //! uwbPredictRadiusM = 5 m): it exists to stop a 2.4 GHz node escalating on a position it should not trust, and a
+    //! tier-1-only estimate would almost never pass it, which would make the arm unable to reach UWB by construction
+    //! rather than by measurement. The neighbour-presence half of the gate is kept.
+    bool skipTier2 = false;
     //! Use the correctly specified integrity gate: weighted multilateration for the
     //! test point, and S = P_prior_pos + (J^T R^-1 J)^-1 for the distance. Both
     //! defects are one mechanism -- a biased numerator against a denominator missing
@@ -1450,6 +1464,26 @@ class CaTblPolicy
     //! The same tests as Step()'s, with no side effect.
     bool UwbEvidenceWouldBlock(double traceSigma,
                                const std::vector<CaTblRangeMeasurement>& meas) const;
+    //! Two-tier ablation helpers (CaTblPolicyConfig::skipTier2). The tier a node is on when it asks for UWB: 2.4 GHz on
+    //! the three-tier ladder, 868 MHz when tier 2 is skipped. Every site that used to compare m_tier with
+    //! CA_TBL_TIER_2P4 to mean "one step below UWB" uses this, so the checks stay consistent.
+    CaTblTier UwbEntryTier() const
+    {
+        return m_config.skipTier2 ? CA_TBL_TIER_868 : CA_TBL_TIER_2P4;
+    }
+    //! The tier one step up / down the ladder this node uses (the caller has checked the bound).
+    CaTblTier TierAbove(CaTblTier t) const
+    {
+        return (m_config.skipTier2 && t == CA_TBL_TIER_868)
+                   ? CA_TBL_TIER_UWB
+                   : static_cast<CaTblTier>(static_cast<int>(t) + 1);
+    }
+    CaTblTier TierBelow(CaTblTier t) const
+    {
+        return (m_config.skipTier2 && t == CA_TBL_TIER_UWB)
+                   ? CA_TBL_TIER_868
+                   : static_cast<CaTblTier>(static_cast<int>(t) - 1);
+    }
 
   public:
     uint64_t GetWitnessEvaluations() const { return m_witnessEvals; }

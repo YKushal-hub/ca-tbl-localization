@@ -32,6 +32,8 @@ CaTblPolicyModeName(CaTblPolicyMode mode)
         return "poucet_fusion";
     case CA_TBL_MODE_FUSE_LORA:
         return "lora_fusion";
+    case CA_TBL_MODE_TWO_TIER:
+        return "ca_tbl_two_tier";
     default:
         return "unknown";
     }
@@ -1658,15 +1660,15 @@ CaTblPolicy::UwbEvidenceWouldBlock(double traceSigma,
     // DC-9. Step()'s evidence-gate UWB branch, side-effect free. The tier-2 branch runs
     // BEFORE the witness, so a witness that was evaluated has already passed it.
     const bool haveMap = !m_config.uwbAnchorX.empty();
-    if (!m_config.escalationRequiresEvidence || m_tier != CA_TBL_TIER_2P4 ||
+    if (!m_config.escalationRequiresEvidence || m_tier != UwbEntryTier() ||
         !(m_config.uwbEvidenceFromNeighbours || haveMap))
     {
         return false;
     }
     const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
-    if (sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
+    if (!m_config.skipTier2 && sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
     {
-        return true;
+        return true; // skipTier2 waives this veto: see CaTblPolicyConfig::skipTier2
     }
     if (m_config.uwbEvidenceFromNeighbours)
     {
@@ -1703,7 +1705,7 @@ CaTblPolicy::RequestQueryEscalation()
 void
 CaTblPolicy::QueryEscalateOneTier(CaTblDecision& d)
 {
-    if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+    if (m_config.grantGatedUwb && m_tier == UwbEntryTier())
     {
         if (!m_uwbPending)
         {
@@ -1715,7 +1717,7 @@ CaTblPolicy::QueryEscalateOneTier(CaTblDecision& d)
     }
     else if (m_tier < CA_TBL_TIER_UWB)
     {
-        m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
+        m_tier = TierAbove(m_tier);
         m_escalations++;
         d.escalated = true;
     }
@@ -1725,7 +1727,7 @@ CaTblPolicy::QueryEscalateOneTier(CaTblDecision& d)
 bool
 CaTblPolicy::ConfirmUwbGrant()
 {
-    if (!m_uwbPending || m_tier != CA_TBL_TIER_2P4)
+    if (!m_uwbPending || m_tier != UwbEntryTier())
     {
         ++m_uwbLate;
         return false;
@@ -1749,7 +1751,7 @@ CaTblPolicy::AcceptGrantOnBehalf()
         ++m_oboAccepted;
         return true;
     }
-    if (hybrid && m_tier == CA_TBL_TIER_2P4)
+    if (hybrid && m_tier == UwbEntryTier())
     {
         m_tier = CA_TBL_TIER_UWB;
         m_escalations++;
@@ -1914,7 +1916,7 @@ CaTblPolicy::StepImpl(double dt,
     // the freeze allows) has cancelled it. Otherwise this is one more cycle waiting.
     if (m_uwbPending)
     {
-        if (m_tier != CA_TBL_TIER_2P4)
+        if (m_tier != UwbEntryTier())
         {
             m_uwbPending = false;
             ++m_uwbCoverageClears;
@@ -2140,7 +2142,7 @@ CaTblPolicy::StepImpl(double dt,
             d.queryTriggered = true;
             d.wantedEscalation = true;
             bool blocked = false;
-            if (m_tier == CA_TBL_TIER_2P4)
+            if (m_tier == UwbEntryTier())
             {
                 blocked = UwbEvidenceWouldBlock(d.traceSigma, meas);
             }
@@ -2185,7 +2187,7 @@ CaTblPolicy::StepImpl(double dt,
             {
                 if (m_tier > CA_TBL_TIER_868)
                 {
-                    m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) - 1);
+                    m_tier = TierBelow(m_tier);
                     m_deescalations++;
                     d.deescalated = true;
                 }
@@ -2828,7 +2830,7 @@ CaTblPolicy::StepImpl(double dt,
     //
     // Suppress-only, like every other evidence predicate here: it can refuse an
     // escalation the score already wanted and can never create one.
-    if (m_config.escalationRequiresEvidenceT2 && wantEscalate && dynamic &&
+    if (m_config.escalationRequiresEvidenceT2 && wantEscalate && dynamic && !m_config.skipTier2 &&
         m_tier == CA_TBL_TIER_868)
     {
         int32_t nearT2 = 0;
@@ -2894,7 +2896,7 @@ CaTblPolicy::StepImpl(double dt,
     if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
     {
         const bool haveMap = !m_config.uwbAnchorX.empty();
-        if (m_tier == CA_TBL_TIER_2P4 &&
+        if (m_tier == UwbEntryTier() &&
             (m_config.uwbEvidenceFromNeighbours || haveMap))
         {
             // Two stages, and the order matters: a coverage judgement computed from
@@ -2903,7 +2905,7 @@ CaTblPolicy::StepImpl(double dt,
             // the strength of an estimate, and an estimate too poor to trust is a
             // reason to stay regardless of what is audible.
             const double sigPos = std::sqrt(std::max(traceSigma, 0.0));
-            if (!m_config.c2bEscalation &&
+            if (!m_config.c2bEscalation && !m_config.skipTier2 &&
                 sigPos > m_config.uwbPredictMaxSigmaFrac * m_config.uwbPredictRadiusM)
             {
                 wantEscalate = false;
@@ -3020,8 +3022,8 @@ CaTblPolicy::StepImpl(double dt,
                 // up precision the node is currently earning. Here the active tier
                 // has nothing, so any intermediate tier that also has nothing is pure
                 // blind cost on the way to the floor.
-                int target = static_cast<int>(m_tier) - 1;
-                if (m_config.multiStepDemote)
+                int target = static_cast<int>(TierBelow(m_tier));
+                if (m_config.multiStepDemote && !m_config.skipTier2)
                 {
                     target = static_cast<int>(CA_TBL_TIER_868);
                     for (int k = static_cast<int>(m_tier) - 1;
@@ -3044,7 +3046,7 @@ CaTblPolicy::StepImpl(double dt,
     }
     else if (dynamic && wantEscalate)
     {
-        if (m_config.grantGatedUwb && m_tier == CA_TBL_TIER_2P4)
+        if (m_config.grantGatedUwb && m_tier == UwbEntryTier())
         {
             // NW-7: into UWB only on a confirmed grant. The first cycle that wants it asks
             // (escalated, so the caller sends the request); while pending, nothing more.
@@ -3059,7 +3061,7 @@ CaTblPolicy::StepImpl(double dt,
         }
         else if (m_tier < CA_TBL_TIER_UWB)
         {
-            m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) + 1);
+            m_tier = TierAbove(m_tier);
             m_escalations++;
             d.escalated = true;
             m_deescalateCounter = 0;
@@ -3095,7 +3097,7 @@ CaTblPolicy::StepImpl(double dt,
         {
             if (m_tier > CA_TBL_TIER_868)
             {
-                m_tier = static_cast<CaTblTier>(static_cast<int>(m_tier) - 1);
+                m_tier = TierBelow(m_tier);
                 m_deescalations++;
                 d.deescalated = true;
             }
