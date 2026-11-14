@@ -1151,3 +1151,53 @@ bundle.
 | `ff4f8bbd1538` | `8c21d2ce8f89` | the sidecar now vouches for grant_verdicts_*.csv: L.1.4's done-when evidence was the one m |
 | `ff6faaf02ee7` | `54836e2789d8` | LORA-CMP results: CA-TBL against outdoor LoRa localisation on our simulator -- L1-L5 held; |
 | `ffd5e72741b7` | `bd578474fa90` | G96: --ekf5Robust=8 is wired, reached, decides its motivating cell, and is off by default |
+
+# SHA map — attribution rewrite of 2026-11-14
+
+The repository owner directed that no commit carry Claude/Anthropic attribution. 22 commit messages carried
+`Co-Authored-By: Claude ... <noreply@anthropic.com>` (12 Sonnet 5.5 + 10 Opus 5.5 lines) and, on the 10 Opus commits, a
+`Claude-Session:` URL trailer. A history rewrite was authorised for that purpose only, as on 2026-09-01.
+
+**Metadata only.** Every rewritten commit has the same tree as its original; `git diff <old-tip> <new-tip>` is empty
+for every branch; commit count (1772 across all refs) and merge structure are unchanged; author, committer and all
+dates are unchanged (no commit had Claude as author or committer). Only the trailer lines were removed from messages;
+no other text was touched, so hashes quoted in message bodies still read as originally written. The rewrite was done
+with a plumbing script that rebuilds only affected commits and their descendants, so every earlier commit keeps its SHA.
+GPG signatures on the 13 rewritten commits that had one (GitHub merge commits) cannot survive and are dropped.
+
+30 commits changed SHA: the 22 whose messages carried a trailer plus 8 descendants (merges and commits after them).
+Sidecars (`run_id.txt`) are untouched. A sidecar citing a SHA from an earlier table resolves by chaining through that table
+and then this one.
+
+| old | new | subject |
+|---|---|---|
+| `3f2f993d43c5` | `07bf2b4923bb` | UI: smoother view transitions and adaptive hero quality |
+| `256a2e8f5ebc` | `260bf47f0dd5` | UI: drop a stray duplicated comment line |
+| `c6c045e4701c` | `3d2d4229fb97` | Merge pull request #31 from YKushal-hub/UI-Integration-nullc |
+| `afc1ad9b18e5` | `be590f752aaa` | merge work/2026-10-21-oracle-escalation (ORACLE-ESC result)  |
+| `e46060d2bdfc` | `9fd4cf34dc4a` | results: track the ORACLE-ESC and TDOA-TIMING files .gitigno |
+| `a9174090922b` | `1ad2898df26a` | pre-register TDOA-TIMING-B, before any cell: better tier-1 t |
+| `78a225577e18` | `00b01ad7ac33` | pre-register ML-PATHLOSS-POS, before any solve: learned 868  |
+| `5507ff426405` | `7310836c5d05` | paper_tables_nohw.py: Tables 5-7 for the no-hardware options |
+| `91dd6e657ffa` | `1c43699af7da` | ML-PATHLOSS-POS result: learned ranging helps an 868 MHz RSS |
+| `1f487b9404c7` | `684ac971757d` | nohw_section.md: paper section draft for the no-hardware opt |
+| `bec39dc2bcdc` | `d7b1d0ff5727` | TDOA-TIMING-B result: better tier-1 timing gives no comparat |
+| `08d43ba3425b` | `b0c234040734` | paper: Tables 5-7 and section for the no-hardware options, o |
+| `38c2fac81786` | `8ba01974974b` | HANDOFF_2026_10_22: continue the no-hardware-options branch  |
+| `b7fb5d9048d9` | `1b28234f37e6` | Merge main (85cc60e4, PRs #25-#26: DEPLOY-REQ, DD 25-26, PRE |
+| `8956d701f5ae` | `eb8fc3d80cce` | Merge main (c6c045e4: PRs #27, #31, docs site) into work/202 |
+| `50fa4f05268d` | `122244648122` | G92: allow-list the two ML-PATHLOSS result directories, whic |
+| `fdb4c696b32e` | `edf748041027` | Merge pull request #33 from YKushal-hub/work/2026-10-21-nohw |
+| `36230af42fa6` | `f2391d6ad11e` | Register ENV-SWEEP: the adopted preset in four environments, |
+| `b98e4b0120bb` | `4ba0269f35d1` | Merge branch 'work/2026-11-14-env-sweep': register ENV-SWEEP |
+| `a5743159826e` | `0994fe0941de` | policy: skipTier2, the two-tier ablation's ladder (868 -> UW |
+| `5ec5373fb4cb` | `105126559ef6` | scenario: --tier1ExtraLossDb, a tier-1 receiver-sensitivity  |
+| `fcf1cdc0a3cd` | `04087c4439fb` | scenario: --arms=ca_tbl_two_tier, the adopted decision rule  |
+| `83519595cdd0` | `41d59a683b30` | Register LIMITS: tier-1 reach sensitivity (L1) and the two-t |
+| `c65115f68c69` | `018815921cfd` | Gate G167: ca_tbl_two_tier never ticks tier 2 and is by name |
+| `3a0378b84075` | `67f349fd0cfd` | LIMITS results: L1 reach sensitivity and L2 the two-tier arm |
+| `d06c7619d7ac` | `a4d8439f104f` | LIMITS report: gate attribution (G93, G157, G165 red on the  |
+| `4e64c3c7b743` | `482572c78589` | Merge branch 'work/2026-11-14-limits': tier-2 skip arm, tier |
+| `9a2922d25ef7` | `20dfc9767c70` | Results: ENV-SWEEP (160 cells) and LIMITS L1/L2 (240 cells)  |
+| `c512f28a3988` | `29243dee2f22` | README: point at the ENV-SWEEP and LIMITS campaigns (registr |
+| `4aa0c1da3a7e` | `307b117cee1c` | Merge pull request #32 from YKushal-hub/work/2026-11-14-env- |
