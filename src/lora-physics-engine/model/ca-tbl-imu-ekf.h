@@ -16,6 +16,7 @@
 #include "ca-tbl-imu-sensor-model.h"
 
 #include <array>
+#include <cmath>
 #include <deque>
 #include <map>
 #include <vector>

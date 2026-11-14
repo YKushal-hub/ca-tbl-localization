@@ -2178,6 +2178,9 @@ static bool g_rngKeyedProbeExtraTx = false;
 // TECH_DEBT M.2 (report/PREREG_UWB_NLOS.md). --uwbNlosModel, a file-scope global for the
 // same reason as the one above: written once after cmd.Parse(), read by the macro.
 static UwbNlosModel g_uwbNlosModel = UWB_NLOS_LEGACY;
+// --tdoaToaScale (TDOA-TIMING, report/PREREG_TDOA_TIMING.md): multiplies the tier-1 arrival-time sigma. A file-scope
+// global for the same reason: written once after cmd.Parse(), read by Tier1Tdoa::Stamp(). 1 multiplies exactly.
+static double g_tdoaToaScale = 1.0;
 
 // SY-3. Receiver sensitivity offset for a bandwidth other than the one each engine's table
 // was written for (868 MHz: 125 kHz; 2.4 GHz: the 800 kHz this scenario has always used).
@@ -5898,7 +5901,7 @@ struct Tier1Tdoa
         {
             return; // a finder or a peer: no surveyed position to stamp against
         }
-        const double sigToaS = CaTblTdoaArrivalSigmaS(bwHz, sf, snrDbInBand);
+        const double sigToaS = g_tdoaToaScale * CaTblTdoaArrivalSigmaS(bwHz, sf, snrDbInBand);
         if (!std::isfinite(sigToaS))
         {
             ++unstampable;
@@ -6766,6 +6769,8 @@ struct SpecOptions
     bool traceSubjectConsistency = false;
     //! --measVarScale: multiplies every range variance a filter fuses. 1 multiplies by exactly 1.
     double measVarScale = 1.0;
+    //! --oracleTrigger: fixed_threshold triggers on the true squared error. Off: on trace(P).
+    bool oracleTrigger = false;
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7317,6 +7322,7 @@ RunArm(CaTblPolicyMode mode,
     // The band, then DC-6's explicit per-tier thresholds; see ResolvePcsThresholds.
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
+    pcfg.oracleTrigger = spec.oracleTrigger; // ORACLE-ESC (false by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
@@ -12036,6 +12042,10 @@ RunArm(CaTblPolicyMode mode,
                 {
                     ex.tdoa->Solve(sb.policy, measS);
                 }
+                if (spec.oracleTrigger)
+                {
+                    sb.policy.SetOracleTruth(sb.pos.x, sb.pos.y); // ORACLE-ESC
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -14013,6 +14023,10 @@ RunArm(CaTblPolicyMode mode,
             policy.SetSilentAnchors(silentThisCycle); // C1
         }
         silentThisCycle.clear();
+        if (spec.oracleTrigger)
+        {
+            policy.SetOracleTruth(pos.x, pos.y); // ORACLE-ESC
+        }
         // UI --finderHoldM: note which finders the subject ranged DIRECTLY and closely on a
         // fine tier this cycle. A two-way range is an exchange both ends take part in, so the
         // finder is taken to know it too. Recording only; nothing here changes the fix.
@@ -16821,6 +16835,16 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(mode) << "): cycles the curvature guard kept the cloud "
                       << policy.GetPfCurvatureHolds() << "\n";
         }
+        if (spec.oracleTrigger)
+        {
+            uint64_t subjOracle = 0;
+            for (size_t k = 1; k < tags.size(); ++k)
+            {
+                subjOracle += tags[k].policy.GetOracleDecisions();
+            }
+            std::cout << "    ORACLE-ESC oracleTrigger (" << CaTblPolicyModeName(mode) << "): decisions on the true error, tag 0 "
+                      << policy.GetOracleDecisions() << ", subjects " << subjOracle << "\n";
+        }
         if (spec.acquireNegInfo)
         {
             std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
@@ -17389,6 +17413,7 @@ main(int argc, char* argv[])
     bool fixRoutingArg = false;           // L.1.1, off: no table is built, nothing routed
     bool fixRoutingConfidenceArg = false; // L.1.1, off: ETX routes, confidence only scored
     bool tier1TdoaArg = false;            // L.2.1, off: tier 1 localises by RSSI alone
+    double tdoaToaScaleArg = 1.0;         // TDOA-TIMING; see --tdoaToaScale
     double tdoaPpsSigmaNsArg = 20.0;      // u-blox NEO/LEA-M8T time pulse, <= 20 ns 1-sigma
     bool nlosClassifierArg = false;       // L.2.2, off: no CIR, no score, nothing written
     bool pcsNlosClassifierArg = false;    // L.2.2, off: PCS term 3 reads the tag, as always
@@ -18336,6 +18361,15 @@ main(int argc, char* argv[])
                  "42 % of fixes at 5 km; ACC-A sect 2). The TDoA position and the scenario's "
                  "two-range solves form their own variances and are not scaled.",
                  spec.measVarScale);
+    cmd.AddValue("oracleTrigger",
+                 "fixed_threshold escalates and de-escalates on the node's TRUE squared position "
+                 "error, the quantity trace(P) estimates, instead of on trace(P); same threshold "
+                 "(--fixedVarThreshold), same hysteresis. Tag 0 and the measured subjects. FALSE "
+                 "by default, which keeps every earlier result. NOT a deployable system: a perfect "
+                 "confidence input, so the fixed_threshold curve it traces is the upper bound on "
+                 "any learned (e.g. ML) replacement for the variance the trigger reads "
+                 "(report/PREREG_ORACLE_ESC.md). Other arms are unaffected.",
+                 spec.oracleTrigger);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
@@ -19797,6 +19831,16 @@ main(int argc, char* argv[])
                  "Drawn independently per broadcast; slow per-gateway wander is not "
                  "modelled. Read only under --tier1Tdoa.",
                  tdoaPpsSigmaNsArg);
+    cmd.AddValue("tdoaToaScale",
+                 "Multiplier on the tier-1 arrival-time sigma under --tier1Tdoa: the one-way "
+                 "Cramer-Rao bound per stamp, in the stamp's draw and in the sigma the solver "
+                 "is given. 1 by default, which multiplies exactly and reproduces every earlier "
+                 "result. NOT a physical constant: a probe of what better arrival timing (e.g. "
+                 "two-pass CFO/STO refinement) could buy; below 1 is timing BETTER than the "
+                 "one-symbol bound the model already assumes, so it bounds such methods from "
+                 "above (report/PREREG_TDOA_TIMING.md). Must be > 0: a zero sigma is refused "
+                 "by the solver.",
+                 tdoaToaScaleArg);
     cmd.AddValue("nlosClassifier",
                  "Give every link the node ranges the tier-specific NLOS_score of the spec "
                  "(Physical sect 1.3, 2.5; TECH_DEBT L.2.2) and score it against the channel "
@@ -21133,6 +21177,17 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --tdoaPpsSigmaNs=" << tdoaPpsSigmaNsArg << " must be >= 0\n";
         return 1;
     }
+    if (!(tdoaToaScaleArg > 0.0) || !std::isfinite(tdoaToaScaleArg))
+    {
+        std::cerr << "FATAL: --tdoaToaScale=" << tdoaToaScaleArg << " must be > 0\n";
+        return 1;
+    }
+    g_tdoaToaScale = tdoaToaScaleArg;
+    if (tdoaToaScaleArg != 1.0)
+    {
+        std::cout << "TDOA TOA SCALE (--tdoaToaScale=" << tdoaToaScaleArg
+                  << "): tier-1 arrival-time sigma scaled -- a timing probe, not a physical model\n";
+    }
     // L.2.2. A PCS input with no classifier behind it would silently fall back to the tag on
     // every cycle -- a flag that reads as on and does nothing.
     if (pcsNlosClassifierArg && !nlosClassifierArg)
@@ -21164,6 +21219,11 @@ main(int argc, char* argv[])
     {
         std::cerr << "FATAL: --deadBatteryNoDraw needs --silenceStopsRelay (a dead radio does not relay)\n";
         return 1;
+    }
+    if (spec.oracleTrigger)
+    {
+        std::cout << "ORACLE TRIGGER (--oracleTrigger): fixed_threshold reads the true squared error, not "
+                     "trace(P) -- an upper bound, not a deployable system\n";
     }
     if (spec.deadBatteryNoDraw && !(batteryDepleteJArg > 0.0) && explicitFlags.count("deadBatteryNoDraw"))
     {

@@ -539,6 +539,7 @@ struct CaTblPolicyConfig
     double measVarScale; //!< S2-C --measVarScale: multiplies every range variance Step() fuses
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
+    bool oracleTrigger; //!< ORACLE-ESC --oracleTrigger: fixed_threshold triggers on the true squared error (SetOracleTruth)
     bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
     bool acquireHandoverCurvature; //!< N.58 --acquireHandoverCurvature: hand over only once every range is linearisable
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
@@ -1029,6 +1030,14 @@ class CaTblPolicy
         uint8_t tier;
     };
     void SetSilentAnchors(const std::vector<SilentAnchor>& s) { m_silent = s; }
+    /** ORACLE-ESC: the node's true position this cycle. Read only by fixed_threshold under oracleTrigger. */
+    void SetOracleTruth(double x, double y)
+    {
+        m_oracleX = x;
+        m_oracleY = y;
+        m_oracleSet = true;
+    }
+    uint64_t GetOracleDecisions() const { return m_oracleDecisions; }
     uint64_t GetNegInfoApplied() const { return m_negApplied; }
     /** V4 test hooks (scratch/v4_acquire_unit.cc only): run the acquisition filter without a scenario. */
     void PfTestInit(double cx, double cy, double half) { PfInit(cx, cy, half); }
@@ -1514,6 +1523,10 @@ class CaTblPolicy
     std::vector<PfParticle> m_pf;
     uint32_t m_streak24 = 0;
     std::vector<SilentAnchor> m_silent; //!< C1
+    bool m_oracleSet = false;      //!< ORACLE-ESC: SetOracleTruth called
+    double m_oracleX = 0.0;        //!< ORACLE-ESC: true position
+    double m_oracleY = 0.0;
+    uint64_t m_oracleDecisions = 0; //!< ORACLE-ESC: fixed_threshold decisions taken on the true error
     uint64_t m_negApplied = 0;          //!< C1: silent-anchor factors applied
     double m_recalBias = 0.0;   //!< C2: EWMA of ln(r868 / r2.4) over same-anchor pairs
     uint64_t m_recalPairs = 0;  //!< C2

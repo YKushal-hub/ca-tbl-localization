@@ -1997,6 +1997,23 @@ bash scripts/cut_items_gate.sh "$WORK/g166" || fail G166
 bash scripts/cut_items_gate_selftest.sh "$WORK/g166" || fail G166
 finish G166
 
+# ---------------- G167: --oracleTrigger, ORACLE-ESC's mechanism (report/PREREG_ORACLE_ESC.md)
+# scripts/oracle_esc_gate.py: --oracleTrigger=false is byte-identical to the flag absent; true is announced, reaches
+# no other arm, counts decisions on the true error for fixed_threshold's tag 0 and subjects, and every fixed_threshold
+# de-escalation then has a true squared error below T/2 (the flag-absent control's do not all).
+printf '\n--- G167 oracle trigger (fixed_threshold on the true squared error) ---\n'
+bash scripts/oracle_esc_gate.sh "$WORK/g167" || fail G167
+bash scripts/oracle_esc_gate_selftest.sh "$WORK/g167" || fail G167
+finish G167
+
+# ---------------- G168: --tdoaToaScale, TDOA-TIMING's mechanism (report/PREREG_TDOA_TIMING.md)
+# scripts/tdoa_timing_gate.py: --tdoaToaScale=1 is byte-identical to the flag absent; 0.01 with --tdoaPpsSigmaNs=0 is
+# announced and collapses static_868's tier-1 TDoA error below a tenth; 0 is refused.
+printf '\n--- G168 TDoA arrival-time scale ---\n'
+bash scripts/tdoa_timing_gate.sh "$WORK/g168" || fail G168
+bash scripts/tdoa_timing_gate_selftest.sh "$WORK/g168" || fail G168
+finish G168
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
