@@ -127,4 +127,6 @@ Lost directories are listed in `RESULTS_NONREGENERABLE.tsv` instead.
 baseline_v3 tracked arm_summary.csv from the pre-sidecar era (shipped in 77dd45ee); no run_id.txt was ever written; cited as history by report/PCS_REDESIGN_RESULTS.md
 tracegw9 tracked per-seed arm_summary.csv from the pre-sidecar era (77dd45ee); no run_id.txt was ever written; cited as history by CA_TBL_AUDIT_REPORT.md
 camp_final2_2026-10-08 the planned output path of the unregistered CAMP-FINAL-2 draft (report/DRAFT_CAMP_FINAL2_LORAFUSION.md); never run, so nothing exists to hold
+ml_pathloss_2026-10-21 a Python ML result on the public lora-bonn dataset, not a simulator run, so no run_id.txt exists; provenance (dataset commit, input SHA-256, script commit 72d6c780, library versions) is in its tracked INPUTS.md; cited by report/PREREG_ML_PATHLOSS.md
+ml_pathloss_pos_2026-10-21 a Python ML result on the public lora-bonn dataset, not a simulator run, so no run_id.txt exists; provenance (script commit 78a22557, same inputs as ml_pathloss_2026-10-21) is in its tracked INPUTS.md; cited by report/PREREG_ML_PATHLOSS_POS.md
 ```
