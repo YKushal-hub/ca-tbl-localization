@@ -18,8 +18,8 @@ held); five-node pools tag 0 and four subjects. Times are IST.
 2. **Tier-1 reach shrunk to the field value (+30 dB, probe r80 245 m):** CA-TBL five-node A(25 m) falls from 0.962 to 0.949 in config A
    (median seed 0.975 -> 0.969) and stays 0.993 in config B; `static_868` collapses 0.337 -> 0.015 (A) and 0.799 -> 0.585 (B);
    `static_2p4` does not move at all. **Tiering keeps its gain over `static_868` and gains nothing over `static_2p4`** (availability
-   difference +0.000 [-0.033, 0.018] in A, +0.000 in B at +30 dB) **while costing 12-14 J more subject energy.**
-3. **L2, two-tier arm:** without tier 2, five-node A(25 m) is 0.350-0.356 against CA-TBL's 0.962 in config A, forest (paired
+   difference +0.000 [-0.033, 0.018] in A, +0.000 in B at +30 dB) **while costing 12.4 J (A) and 14.0 J (B) more subject energy at +30 dB.**
+3. **L2, two-tier arm:** without tier 2, five-node A(25 m) is 0.356 against CA-TBL's 0.962 in config A, forest (paired
    +0.606 [0.565, 0.647]); the UWB rung on top of 868 MHz adds +0.019 [-0.007, 0.045] over `static_868`. Tier 2 is needed in rural open, forest and
    suburban (all intervals above 0) and **hurts in urban moderate** (two-tier better than CA-TBL in E3 in both configs). The arm is a
    lower bound on tier 2's necessity (section 2).
@@ -196,8 +196,8 @@ Each arm, 0 dB minus +30 dB (positive = loses when tier-1 reach shrinks), five-n
 - Does CA-TBL still meet 0.95 at the field-value reach? **Config B: yes** (0.993). **Config A: on the line** (0.949 mean, 0.969 median; 0.75
   of runs at or above 0.95, against 0.90 at 0 dB).
 - Does tiering gain or lose? Against the single-band **868 MHz** arm it gains more as reach shrinks (+0.626 -> +0.933 in A). Against the
-  single-band **2.4 GHz** arm there is **no availability gain at any offset or config** (all intervals contain 0), and CA-TBL costs
-  **+7.7 to +12.4 J (A) and +14.0 to +15.8 J (B)** more subject energy. This is for forest, `--env=1`, the four arms measured; `poucet_fusion` was not run, so nothing is claimed about the
+  single-band **2.4 GHz** arm there is **no five-node availability gain at any offset or config** (all five-node intervals contain 0), and CA-TBL costs
+  **+7.7 to +12.4 J (A) and +14.0 to +15.4 J (B)** more subject energy than `static_2p4` (paired: A +7.66, +8.05, +12.42; B +15.44, +14.60, +14.01; the 15.5-15.8 J figures belong to the `static_868` comparator). This is for forest, `--env=1`, the four arms measured; `poucet_fusion` was not run, so nothing is claimed about the
   fusion comparator or about "unique" availability.
 - Limits of the instrument: the shift is a sensitivity shift, so tier-1 RSSI ranges are not biased by it; a field-like loss would also bias
   them. These results are optimistic about tier-1 accuracy at short reach. Tier 1's *reach* mattering little to CA-TBL here is because the
@@ -266,7 +266,7 @@ CA-TBL (`ca_tbl_full`) minus `ca_tbl_two_tier`, paired:
 | B | E3 | -0.515 [-0.565, -0.466] | -0.541 [-0.630, -0.436] | 73.1 [33.8, 108.4] | 0.21 [-2.45, 2.69] |
 
 Two-tier minus `static_868`, five-node A(25 m): A E0 0.030 [-0.014, 0.076], E1 0.019 [-0.007, 0.045], E2 -0.000 [-0.022, 0.021], E3 0.020 [0.001, 0.040]; B E0 0.077 [0.035, 0.117], E1 0.028 [-0.011, 0.063],
-E2 0.059 [0.012, 0.103], E3 0.136 [0.065, 0.200]. Subject energy of the two-tier arm is 2.5-3x `static_868`'s in config A (E1 23.5 J against 8.5 J) and about 7x in B E0-E2 (E1 67.4 J against 9.9 J), and 2.6-3.0x CA-TBL's in B E0-E2.
+E2 0.059 [0.012, 0.103], E3 0.136 [0.065, 0.200]. Subject energy of the two-tier arm is 1.6-2.8x `static_868`'s in config A (E1 23.5 J against 8.5 J; E3 1.6x) and 6.8-7.7x in B E0-E2 (E1 67.4 J against 9.9 J; B E3 3.3x), and 2.6-3.1x CA-TBL's in B E0-E2.
 
 **Mechanism** (tag 0, 20 seeds pooled, denominators in the table; UWB cycle = active tier UWB; 'no UWB fix' = the cycle's fix tier is not UWB; 'no anchor in reach' = no UWB anchor within the deployment's nominal UWB range, truth-based):
 
@@ -281,7 +281,7 @@ E2 0.059 [0.012, 0.103], E3 0.136 [0.065, 0.200]. Subject energy of the two-tier
 | A | E3 | two-tier | 0.003 | 233 | 0.807 | 0.794 |
 | B | E3 | two-tier | 0.056 | 1961 | 0.585 | 0.556 |
 
-(14 400 tag-0 cycles per config x env cell; the two-tier arm spends 1.6-17 % of them on UWB (A E1: 6.3 % against CA-TBL's 0.24 %, 26x; B E1: 16.8 % against 2.3 %, 7x), and almost none of those cycles yields a UWB fix.) The
+(14 400 tag-0 cycles per config x env cell; the two-tier arm spends 1.6-17 % of them on UWB (A E1: 6.3 % against CA-TBL's 0.24 %, 26x; B E1: 16.8 % against 2.3 %, 7.5x), and almost none of those cycles yields a UWB fix.) The
 two-tier node is on UWB with no anchor in reach on 91 % (A, forest) of its UWB cycles, and at UWB reach of about 6 m (probe, E1) that is the expected result: it pays UWB's 0.63 J/cycle
 for no fix. Reading: **the UWB rung without tier 2 behind it is mostly a way to spend energy**; the gain of the adopted arm over `static_868` in A comes from the 2.4 GHz ranging, not from UWB.
 
@@ -313,9 +313,21 @@ improves it. I have not diagnosed why (NLOS-biased 2.4 GHz ranges are the obviou
 | G157 | FAIL | "the inert fixture was called effective: the comparison cannot see 'no effect'" |
 | G165 | FAIL | the real run set fails one check: steering-entry age median 15.0 s with the feature, 30.0 s without, required `< off / 2` (15.0), a boundary tie; its selftest then reports 1 fixture not as expected (P0) |
 
-G93, G157 and G165 are not on CLAUDE.md's list of known reds. None of them exercises the new code: they run default-arm or preset runs in which the flag is off and the arm unselected, and the
-null controls above show those runs byte-identical to the frozen binary's (1620 + 279 files), so their verdicts cannot differ from the base commit's. **That is an argument from byte-identity, not a re-run
-of these three gates on the base commit**; it was not independently confirmed and I report them as red.
+G93, G157 and G165 are not on CLAUDE.md's list of known reds; they are attributed below by re-running them on the base commit.
+
+## Gate attribution
+
+G93, G157 and G165 were re-run on `8e92fe3a` (the commit before this branch) in a throwaway detached worktree, built optimized (`ca_tbl_causal_sim`, `ca_tbl_sensitivity_probe`), using the gates' own blocks
+extracted verbatim from `scripts/catbl_gates.sh` (G93 and G157 through one temp copy of the suite header, G165 also run directly with a fresh temp dir). `git status --porcelain` empty before and after.
+Logs: `~/ns/catbl-work/limits_2026-11-14/base3.log`, `~/ns/catbl-work/limits_2026-11-14/base_g165.log`.
+
+| gate | 8e92fe3a (base) | this branch | failure text | verdict |
+|---|---|---|---|---|
+| G93 | red | red | identical (the whole block diffs empty): `FAIL tier 2 SX1280 SF7 @ 812.5 kHz (configured 800.0 kHz): engine -106.0 dBm, data sheet -112.0 dBm, +6.0 dB` | pre-existing |
+| G157 | red | red | identical: `G157 FAIL FIXTURE the inert fixture was called effective: the comparison cannot see 'no effect'` | pre-existing |
+| G165 | red | red | identical, both the gate (`BCE ... steering entry age median bce 15.0 s, off 30.0 s (need bce < off / 2)`) and the selftest (10 as expected, 1 not, P0) | pre-existing |
+
+All three are red on the base with the same first message, so none of the branch's six commits flips any gate; the earlier byte-identity argument is now confirmed by re-run.
 
 ## Provenance and what is not claimed
 
