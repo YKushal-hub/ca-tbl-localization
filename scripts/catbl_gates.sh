@@ -2265,6 +2265,16 @@ bash scripts/acc_b2_gate.sh "$WORK/g111" || fail G111
 bash scripts/acc_b2_gate_selftest.sh "$WORK/g111" || fail G111
 finish G111
 
+# ---------------- G167: LIMITS (report/PREREG_LIMITS_2026-11-14.md): --arms=ca_tbl_two_tier and --tier1ExtraLossDb
+# Read by scripts/two_tier_gate.py: the arm exists by name only (the default arms list has 6 rows, none of them it); it never
+# ticks tier 2 (zero cycles, tx, rx, CAD, idle; tier-2 joules are the sleep current) on tag 0 and on every subject, and the
+# same run shows ca_tbl_full using tier 2 and the arm reaching UWB, so the zero is not vacuous; the flag at 0 changes no byte;
+# at +30 dB the probe's 868 MHz r80 falls and tiers 2/3 do not move. Negative fixtures in scripts/two_tier_gate_selftest.sh.
+printf '\n--- G167 two-tier arm and tier-1 extra loss ---\n'
+bash scripts/two_tier_gate.sh "$WORK/g167" || fail G167
+bash scripts/two_tier_gate_selftest.sh "$WORK/g167" || fail G167
+finish G167
+
 # ------------------------------------------------------------------ summary
 printf '\n\n================ GATE SUMMARY (seed=%s duration=%s) ================\n' "$SEED" "$DUR"
 SUITE_BAD=0
