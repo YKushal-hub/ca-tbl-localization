@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CA-TBL Search Console</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/landing.css">
+</head>
+<body>
+<div id="landing" class="view">
+  <canvas id="bgCanvas"></canvas>
+  <div class="blobs"><span></span><span></span><span></span></div>
+  <header class="nav glass">
+    <div class="brand"><div class="mark"><canvas class="markGl"></canvas><i></i></div><div>CA-TBL<small>Confidence-aware tier-based localization</small></div></div>
+    <nav class="links"><a class="link" href="#tiers" data-go="tiers">Radios</a><a class="link" href="#method" data-go="method">Method</a><a class="link" href="#console" data-go="consoleInfo">Console</a><a class="link" href="#evidence" data-go="evidence">Evidence</a></nav>
+    <button class="primary" data-go="console">Open console</button>
+  </header>
+  <div class="wrap">
+    <section class="hero">
+      <div class="reveal">
+        <span class="eyebrow"><i></i>Search and rescue &middot; GPS-denied terrain</span>
+        <h1 class="display">Locating a missing person across <em>three radio tiers</em></h1>
+        <p class="lead">CA-TBL estimates a position where satellite navigation is unavailable. It chooses between long-range LoRa, 2.4&nbsp;GHz time-of-flight ranging and ultra-wideband according to how uncertain the estimate is, so that precision is spent only where it can be reached.</p>
+        <div class="cta"><button class="primary" data-go="console">Open the console</button><button data-go="tiers">How it works</button></div>
+        <div class="chips"><span class="chip">ns-3 simulation</span><span class="chip">Pre-registered evaluation</span><span class="chip">GPL-2.0 licensed</span></div>
+      </div>
+      <div class="stage glass" id="stage"><canvas id="heroGl"></canvas><div class="fallback3d"><span></span><span></span><span></span></div><div class="hint">Drag to rotate &middot; hover a tier</div></div>
+    </section>
+
+    <section class="block" id="tiers">
+      <div class="reveal"><div class="kicker">Radios</div><h2 class="title">Three radios, three roles</h2><p class="sub">Every node carries all three radios. A tier is a choice of radio, not of peer: the same neighbours are reachable on each, at different range and precision.</p></div>
+      <div class="grid3">
+        <article class="card3 glass tilt reveal" style="--c:#8ea2c8;--d:.05s"><div class="bar"></div><div class="tag">Tier 1 &middot; coverage</div><h3 class="h">868&nbsp;MHz LoRa</h3><p>Reaches furthest, so it covers the whole search area. Position from signal strength and arrival-time differences is coarse; the tier is a floor that keeps every node reachable.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="r868">&hellip;</b></div></article>
+        <article class="card3 glass tilt reveal" style="--c:#38bdf8;--d:.15s"><div class="bar"></div><div class="tag">Tier 2 &middot; refinement</div><h3 class="h">2.4&nbsp;GHz LoRa</h3><p>Time-of-flight ranging at metre scale, with a precision floor of about 3&nbsp;m taken from published field measurements. It is used once a node is within a few hundred metres of an anchor.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="r24">&hellip;</b></div></article>
+        <article class="card3 glass tilt reveal" style="--c:#f472b6;--d:.25s"><div class="bar"></div><div class="tag">Tier 3 &middot; precision</div><h3 class="h">Ultra-wideband</h3><p>Decimetre-level two-way ranging with a floor of 0.10&nbsp;m, over a range of metres. It confirms a position when a searcher is close, and it is the costliest radio to keep listening.</p><div class="reach"><span>Reach at 80&nbsp;% delivery</span><b id="rUwb">&hellip;</b></div></article>
+      </div>
+      <p class="fine reveal">Reach figures are measured live by this build's own range test, in the console's default configuration.</p>
+    </section>
+
+    <section class="block" id="method">
+      <div class="reveal"><div class="kicker">Method</div><h2 class="title">From measurement to decision</h2><p class="sub">Each cycle follows the same three steps. Only the radio that transmitted is charged for energy, so the cost of escalating is measurable.</p></div>
+      <div class="steps">
+        <div class="step glass reveal" style="--d:.05s"><div class="n">1</div><h3 class="h">Measure</h3><p>Nodes range against gateways and searchers on the active tier. A filter combines the ranges with inertial dead reckoning into a position and an uncertainty.</p></div>
+        <div class="step glass reveal" style="--d:.15s"><div class="n">2</div><h3 class="h">Score</h3><p>A position-confidence score is computed from that uncertainty. A low score means the estimate is too coarse for the radio in use.</p></div>
+        <div class="step glass reveal" style="--d:.25s"><div class="n">3</div><h3 class="h">Escalate</h3><p>When enough precise anchors are within reach, the node requests the next radio. When confidence recovers it steps back down, so precision is spent only while it helps.</p></div>
+      </div>
+    </section>
+
+    <section class="block" id="consoleInfo">
+      <div class="split">
+        <div class="panel glass reveal"><div class="kicker">Console</div><h2 class="title">Build a layout, run it, watch it</h2>
+          <ul><li><i></i><span>Place gateways, a base camp, a last known position and a missing node on a map, or load one of three ready scenarios.</span></li>
+          <li><i></i><span>Run the simulator on that layout. The console reads its output files and replays the run cycle by cycle.</span></li>
+          <li><i></i><span>Inspect the radio in use over time, every packet a node sent or received, and where each searcher was told to go.</span></li></ul>
+          <div class="cta2"><button class="primary" data-go="console">Open the console</button></div></div>
+        <div class="panel glass reveal" id="evidence" style="--d:.12s"><div class="kicker">Evidence</div><h2 class="title">What the evaluation supports</h2>
+          <div class="stats"><div class="stat"><b>0.986</b><span>lost node<br>5&nbsp;km</span></div><div class="stat"><b>0.952</b><span>all five nodes<br>5&nbsp;km</span></div><div class="stat"><b>0.993</b><span>all five nodes<br>endgame</span></div></div>
+          <p class="s">Share of decision cycles with a position within 25&nbsp;m; the requirement is at least 0.95. These are the paper's evaluated configuration (12 gateways, 12 searchers, 20 paired seeds), not what a console run produces by default.</p>
+          <p class="s">Against a flat variance threshold the decision layer is level on availability. Its measured advantage is energy: about 1/34 of the subject energy of fusing every radio at 5&nbsp;km.</p></div>
+      </div>
+    </section>
+    <footer class="foot"><span>CA-TBL &middot; research simulator built on ns-3.47 &middot; GPL-2.0-only</span><span>Documentation: docs/README.md &middot; Technical report: CA-TBL_Technical_Report_SelfContained.md</span></footer>
+  </div>
+</div>
+<div id="app">
+  <div id="mapWrap">
+    <canvas id="map"></canvas>
+    <div id="legend" class="glass"><header id="legendHead"><span>Legend</span><span id="legendToggle">hide</span></header><div class="items" id="legendItems"></div></div>
+    <div id="tip" class="glass"></div>
+    <div id="banner" class="glass"></div>
+    <div id="scale"><span id="scaleTxt"></span><div id="scaleBar"></div></div>
+    <div id="zoom" class="glass">
+      <button id="zIn" title="Zoom in">+</button><button id="zOut" title="Zoom out">−</button><button id="zFit" title="Fit and follow the action">⤢</button>
+    </div>
+    <div id="bar" class="glass">
+      <div class="top">
+        <button id="playBtn" class="primary" disabled style="min-width:74px">Play</button>
+        <select id="speed" title="Playback speed">
+          <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1">1× real time</option>
+          <option value="5">5×</option><option value="25" selected>25×</option><option value="100">100×</option><option value="400">400×</option>
+        </select>
+        <div id="tlWrap">
+          <canvas id="tierStrip" title="Radio in use across the run: grey 868 MHz, blue 2.4 GHz, pink UWB. Click to jump there."></canvas>
+          <input id="timeline" type="range" min="0" max="0" value="0" disabled>
+        </div>
+        <div id="jumps">
+          <span class="j" title="Periods on 2.4 GHz (LoRa 2.4). Jumps land a few seconds before the switch."><i style="background:#38bdf8"></i>2.4 GHz<span class="n" id="n24">0</span><button id="p24" title="Previous switch onto 2.4 GHz">◀</button><button id="x24" title="Next switch onto 2.4 GHz">▶</button></span>
+          <span class="j" title="Periods on UWB. Jumps land a few seconds before the switch."><i style="background:#f472b6"></i>UWB<span class="n" id="nUwb">0</span><button id="pUwb" title="Previous switch onto UWB">◀</button><button id="xUwb" title="Next switch onto UWB">▶</button></span>
+        </div>
+      </div>
+      <div id="hud"></div>
+    </div>
+  </div>
+  <aside id="side">
+    <div class="brand"><div class="mark"><canvas class="markGl"></canvas><i></i></div><div>CA-TBL Console<small>build a layout · run · watch</small></div><button class="home" data-go="home" title="Back to the overview">&larr; Overview</button></div>
+    <div>
+      <h3>Scenario</h3>
+      <div class="row"><button id="presetBtn" class="primary" style="flex:1" title="Missing node 7.0 km from the camp, last seen 2.9 km out">Scenario 1</button><button id="preset2Btn" class="primary" style="flex:1" title="Missing node 4.5 km from the nearest gateway: 3 km beyond its reliable 868 MHz range">Scenario 2</button></div>
+      <label class="meshSwitch" title="--meshLinks: Off (star) = each node exchanges packets only with gateways and searchers. On (full mesh) = every node pair can talk; slower (~20 min per run, 1-3 GB memory) and measured worse.">
+        <input id="meshOn" type="checkbox"><span class="knob"></span>
+        <span><b>Mesh</b> <span id="meshState">off (star)</span><small>every node can talk to every node</small></span>
+      </label>
+      <label class="meshSwitch" title="--digestSummary (the simulator's own option, off by default). Off: a node answering a digest always sends its OWN position, so the missing node's location travels one hop only. On: the answer is the entry the asker lacks or holds an older copy of, so a location can be passed on from node to node. Searcher-to-searcher passing needs the Mesh switch on too: with mesh off, searchers have no links to each other.">
+        <input id="multiHopOn" type="checkbox"><span class="knob"></span>
+        <span><b>Multi-hop</b> <span id="multiHopState">off (one hop)</span><small>nodes pass locations on</small></span>
+      </label>
+      <label class="meshSwitch" title="--finderPartyShare (our addition). On (default): every searcher steers on the newest location ANY searcher holds, shared instantly and for free, not over the radio. Off: each searcher steers only on the location in its own table, received over the radio -- the simulator's original behaviour and the paper's.">
+        <input id="partyShareOn" type="checkbox" checked><span class="knob"></span>
+        <span><b>Party share</b> <span id="partyShareState">on (instant)</span><small>searchers share locations without radio</small></span>
+      </label>
+      <label class="meshSwitch" title="--gatewayDigestPeriodS=20: each gateway asks its neighbours for newer locations every 20 s, so a location carried by searchers and relays is pushed to the gateways. Off (default): gateways only answer and nothing is ever pushed to them. Useful with Mesh and Multi-hop on (with star, gateways have no links to searchers or relays).">
+        <input id="gwAskOn" type="checkbox"><span class="knob"></span>
+        <span><b>Gateways ask</b> <span id="gwAskState">off</span><small>locations delivered to gateways</small></span>
+      </label>
+      <div class="row" style="margin-top:6px"><button id="preset3Btn" class="primary" style="flex:1" title="Missing node 2.5 km from the nearest gateway: 1 km beyond its reliable 868 MHz range; 12 search nodes">Scenario 3</button></div>
+      <div class="row" style="margin-top:6px"><button id="clearBtn" style="flex:1">Clear</button></div>
+    </div>
+    <div>
+      <h3>Palette</h3>
+      <div class="pal" draggable="true" data-kind="gateway"><span class="ico gw"></span><div>Gateway<small>drag onto the map · at least 3</small></div></div>
+      <div class="pal" draggable="true" data-kind="missing" title="One missing node. It stays where you drop it (--speed=0). If you don't place one, the simulator picks its start."><span class="ico missing"></span><div>Missing node<small>drag onto the map · one</small></div></div>
+      <div class="pal" draggable="true" data-kind="lkp" title="Where the missing node was last seen (needs a base camp). It lies beyond this point, within ±cone of the direction from the camp: last seen south means south, south-west or south-east. Search teams walk out to it and sweep that cone."><span class="ico lkp"></span><div>Last known position<small>drag onto the map · one</small></div></div>
+      <div class="pal" draggable="true" data-kind="camp" title="Where the search starts (--baseCampX/--baseCampY). Drop or drag it anywhere inside the simulator's area. Double-click it on the map to remove it."><span class="ico camp"></span><div>Base camp<small>drag onto the map · one</small></div></div>
+      <div class="pal off" title="The simulator starts search nodes at the base camp (near the centre without one) and moves them itself. Set how many below."><span class="ico finder"></span><div>Search node<small>count below · start at the camp</small></div></div>
+    </div>
+    <div>
+      <h3>Run settings</h3>
+      <label class="check" style="margin-bottom:6px"><input id="campOn" type="checkbox"> Base camp (the search starts here)</label>
+      <div class="field">Camp position <input id="campFrac" type="number" value="0.3" min="0.05" max="0.95" step="0.01" title="--baseCampFrac: puts the camp at (f × map half-size, f × map half-size). Typing here replaces a dragged camp."></div>
+      <div class="field">Search nodes <input id="nFinders" type="number" value="6" min="0" max="388" title="Every searcher moves toward the latest location the party holds, each to its own point on that location's uncertainty circle; one that ranges the missing node directly within 15 m stops and stays"></div>
+      <div class="field">…of which stay back <input id="relays" type="number" value="0" min="0" title="--finderRelays: these search nodes form a relay chain from the camp toward the searchers (needs a base camp)"></div>
+      <div class="field wide">Missing node's last known position
+        <select id="prior"><option value="unknown">Unknown (map centre)</option><option value="camp">The last known position (or the camp)</option></select></div>
+      <div class="field">Map half-size (m) <input id="boxHalf" type="number" value="340" min="50" step="10"></div>
+      <div class="field">Duration (s) <input id="duration" type="number" value="600" min="10" step="10"></div>
+      <div class="field">Seed <input id="seed" type="number" value="7" min="1"></div>
+      <div class="row" style="margin-top:8px"><button id="startBtn" class="primary" style="flex:1">Start</button><button id="stopBtn" disabled>Stop</button></div>
+    </div>
+    <div>
+      <h3>Playback</h3>
+      <div class="field wide">On each advancement
+        <select id="onAdv"><option value="slow" selected>Slow down &amp; highlight</option><option value="pause">Pause</option><option value="none">Keep going</option></select></div>
+      <label class="check"><input id="showPk" type="checkbox" checked> Show this moment's packets</label>
+      <label class="check"><input id="showSig" type="checkbox" checked> Show the estimate's search area</label>
+      <label class="check"><input id="showRange" type="checkbox" checked> Show gateway range (estimate)</label>
+      <label class="check"><input id="showRelayRange" type="checkbox" checked> Show relay range (estimate)</label>
+    </div>
+    <div class="card" id="status">Load the SAR preset, or drag gateways onto the map, then Start.</div>
+    <div>
+      <h3>Nodes <span style="text-transform:none;letter-spacing:0;font-weight:400">· click for packet log</span></h3>
+      <div id="nodeList"></div>
+    </div>
+    <div class="note" id="rangeNote">Gateway range: measuring with the simulator's range test…</div>
+  </aside>
+</div>
+<div id="modal"><div class="box">
+  <header><b id="mTitle"></b>
+    <div class="row"><select id="mFilter" style="width:auto"><option value="all">All packets</option><option value="ok">Delivered</option><option value="bad">Failed</option></select>
+    <button id="mClose">Close</button></div></header>
+  <div class="body"><div id="mSummary" style="padding:10px 0;color:var(--mute)"></div><table><thead><tr><th>t (s)</th><th>from</th><th>to</th><th>radio</th><th>type</th><th>outcome</th><th>rx dBm</th><th>payload</th></tr></thead><tbody id="mRows"></tbody></table></div>
+</div></div>
+<script>
+"use strict";
+const TIER = ["868 MHz", "2.4 GHz", "UWB"];
+const COL = { lkp: "#e879f9", gateway: "#60a5fa", missing: "#ef4444", finder: "#22c55e", relay: "#a78bfa", camp: "#fbbf24", peer: "#c4b5fd", ok: "#22c55e", bad: "#f43f5e", hl: "#facc15" };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const cv = $("map"), ctx = cv.getContext("2d");
+const MISSING = 1, DT = 2.5;
+
+// The search-and-rescue preset. Positions only: every behaviour is the simulator's own
+// (sweep out from the last known position, converge on a location, relays stay back).
+const PRESET = {
+  boxHalf: 10000, campFrac: 0.3,                 // base camp at (3000, 3000), clear of the map edge
+  gateways: [{ x: 3000, y: 3300 }, { x: 2740, y: 2850 }, { x: 3260, y: 2850 }],   // around the camp
+  missing: { x: -1950, y: -1950 },              // 7.0 km from the camp
+  lkp: { x: 1100, y: 800 },                      // last seen 2.9 km out; the missing node lies 4.1 km beyond, 7° off the line
+  nFinders: 17, relays: 3, prior: "camp", duration: 18000,   // 14 searching + 3 relays
+  seed: 7,   // the simulator's default seed (not picked for the outcome); ui/README.md lists five
+  status: `Scenario 1 loaded (seed 7, the simulator's default).\n3 gateways at the base camp. The missing node is 7.0 km away: the camp still hears it now and then on 868 MHz but can't locate it.\nIt was last seen 2.9 km out (the pink pin). 14 search nodes head for the pin, then move toward the latest location the party holds, each to its own point on that location's uncertainty circle. The first 3 searchers to range the missing node within 15 m stay put as anchors; the others walk straight in. The search stops when one measures 2 m or less by UWB. 3 more stay back as relays.\nPress Start, then watch at 100–400×: the search takes hours of simulated time.`,
+};
+// Scenario 2: the same camp and gateways; the missing node 4.5 km from the nearest gateway, i.e.
+// 3 km beyond the gateways' reliable 868 MHz range (r80 1.5 km, the simulator's --probe), on the
+// same south-west bearing. No last known position: teams move toward the first location the
+// network gives them.
+const PRESET2 = Object.assign({}, PRESET, {
+  missing: { x: -387, y: -387 },                 // 4.79 km from the camp, 4.50 km from gateway 102
+  lkp: null, duration: 10800,
+  nFinders: 28, relays: 3,                       // 25 searching + 3 staying back as relays
+  status: `Scenario 2 loaded (seed 7, the simulator's default).\n3 gateways at the base camp. The missing node is 4.5 km from the nearest gateway: 3 km beyond its reliable 868 MHz range (1.5 km), so the gateways hear it only now and then.\n25 search nodes move toward the latest location the party holds, each to its own point on that location's uncertainty circle, so they spread out rather than cluster. The first 3 searchers to range the missing node within 15 m stay put as anchors; the others walk straight in. The search stops when one measures 2 m or less by UWB. 3 more stay back as relays.\nPress Start, then watch at 100–400×.`,
+});
+// Scenario 3: the same camp and gateways; the missing node 2.5 km from the nearest gateway, i.e.
+// about 1 km beyond the gateways' reliable 868 MHz range (r80 1.5 km), on the same south-west
+// bearing; 12 search nodes. No last known position.
+const PRESET3 = Object.assign({}, PRESET, {
+  missing: { x: 1028, y: 1028 },                 // 2.79 km from the camp, 2.50 km from the nearest gateway
+  lkp: null, duration: 10800,
+  nFinders: 15, relays: 3,                       // 12 searching + 3 relays
+  status: `Scenario 3 loaded (seed 7, the simulator's default).\n3 gateways at the base camp. The missing node is 2.5 km from the nearest gateway: about 1 km beyond its reliable 868 MHz range (1.5 km).\n12 search nodes move toward the latest location the party holds. The first 3 to range the missing node within 15 m stay put as anchors; the others walk straight in. The search stops when one measures 2 m or less by UWB. 3 more stay back as relays.\nPress Start, then watch at 100–400×.`,
+});
+
+// ---------------- state ----------------
+let gateways = [], missingPos = null, lkpPos = null, MIN_GW = 3;
+const LKP_ID = -3, CAMP_ID = -4;
+let campPos = null;   // a dragged camp (--baseCampX/Y); null = the fraction's diagonal point
+function setCampFrom(x, y){
+  const b = boxHalf(); campPos = { x: clamp(x, b), y: clamp(y, b) }; $("campOn").checked = true;
+}
+// FOUND: the simulator's contact event (--finderContactM): {t, finder, uwbRangeM}, or null
+let foundEv = null, foundShown = false;
+// FIXES (--vizFixSet): per cycle, the [nodeId, tier] whose ranges the missing node's fix used.
+// MILESTONES pause playback: the first fix, the first using a 2.4 GHz range, the first using a
+// UWB range, the first using a search node's range.
+let fixes = {}, milestonesSeen = new Set();
+// ANCHORS (--finderAnchors): [[t, searcher id, assigned(true)/released(false)]], from the run log
+let anchorEv = [];
+function isAnchor(id, t){ let on = false; for (const [at, f, a] of anchorEv) { if (at > t) break; if (f === +id) on = a; } return on; }
+const MILESTONES = [
+  ["first", "First position fix", f => true],
+  ["t24", "First fix using a 2.4 GHz range", f => f.some(([, tr]) => tr === 1)],
+  ["uwb", "First fix using a UWB range", f => f.some(([, tr]) => tr === 2)],
+  ["search", "First fix using a search node", f => f.some(([id]) => id >= 501)],
+];
+const foundAt = () => foundEv && (curCycle()?.trace?.t ?? cursor * DT) >= foundEv.t;   // the last-known-position marker in pick(), hover and dragging
+function lkpXY(){ if (mode === "sim") return runCfg && runCfg.lkp; return lkpPos ? [lkpPos.x, lkpPos.y] : null; }
+let mode = "edit", run = null, runCfg = null, cycles = [], lastCycle = -1, finished = false, deployment = null;
+let cursor = 0, playing = false, lastTs = 0, acc = 0;
+let revealed = false, highlight = null, prevFresh = {}, hover = null, dragIdx = -1, world = null;
+const HL_CYCLES = 3, SLOW_SPEED = 0.5; let slowUntil = -1;
+// at most one slow-motion / pause alert per COOLDOWN cycles (60 s of simulated time); highlights
+// still follow every advancement. A search node's fresh entry is news only the first time.
+const COOLDOWN = 24, COOLDOWN_WALL_MS = 10000; let lastAlertAt = -1e9, quietUntil = 0, everFresh = {};
+const hlActive = () => highlight && cursor >= highlight.c && cursor <= highlight.c + HL_CYCLES;
+
+const boxHalf = () => mode === "sim" && deployment ? deployment.boxHalfM : +$("boxHalf").value;
+function campXY(){
+  if (mode === "sim") return runCfg && runCfg.camp;
+  if (!$("campOn").checked) return null;
+  if (campPos) return [campPos.x, campPos.y];
+  const f = +$("campFrac").value, b = boxHalf(); return [f * b, f * b];
+}
+const nF = () => mode === "sim" ? (runCfg?.nFinders || 0) : +$("nFinders").value;
+const nRelays = () => mode === "sim" ? (runCfg?.finderRelays || 0) : 0;
+function roleOf(id){
+  id = +id;
+  if (id >= 101 && id <= 199) return "gateway";
+  if (id >= 501) return (id > 500 + nF() - nRelays()) ? "relay" : "finder";
+  if (id === MISSING) return "missing";
+  return "peer";
+}
+function colorOf(id){ return COL[roleOf(id)] || "#aaa"; }
+const isSearch = id => { const r = roleOf(id); return r === "finder" || r === "relay"; };
+const nameOf = id => ({ gateway: "Gateway", finder: "Search node", relay: "Relay (stays back)", missing: "Missing node", peer: "Node" })[roleOf(id)] + " " + id;
+
+// ---------------- camera: fills the map area; follows the action until you pan or zoom ----------------
+const cam = { x: 0, y: 0, s: 1, follow: true, tx: 0, ty: 0, ts: 1 };
+const toPx = (x, y) => [cv.clientWidth / 2 + (x - cam.x) * cam.s, cv.clientHeight / 2 - (y - cam.y) * cam.s];
+const toW = (px, py) => [(px - cv.clientWidth / 2) / cam.s + cam.x, (cv.clientHeight / 2 - py) / cam.s + cam.y];
+// The view is bounded by the simulator's area: zoomed all the way out it shows the whole area;
+// zoomed in, panning stops at its edges. Following fits the action but never shows past the edge.
+function sMin(){ return Math.min(cv.clientWidth, cv.clientHeight) / (2 * boxHalf()); }     // whole area visible
+function sCover(){ return Math.max(cv.clientWidth, cv.clientHeight) / (2 * boxHalf()); }   // area fills the screen
+function clampCam(){
+  // Pan and zoom freely: the view may go well past every edge of the simulator's area
+  // (a safety limit of 4 half-sizes from the centre only stops you getting lost).
+  const b = boxHalf(), lim = 4 * b; cam.s = Math.max(cam.s, sMin() / 4);
+  cam.x = Math.max(-lim, Math.min(lim, cam.x));
+  cam.y = Math.max(-lim, Math.min(lim, cam.y));
+}
+function fitTarget(){
+  if (mode === "edit") { cam.tx = 0; cam.ty = 0; cam.ts = sCover(); return; }   // the whole area, filling the screen
+  const pts = [];
+  for (const id in world.pos) if (roleOf(id) !== "missing") pts.push(world.pos[id]);
+  const c = campXY(); if (c) pts.push(c);
+  const l = lkpXY(); if (l) pts.push(l);
+  if (revealed) { const e = estAt(); if (e) pts.push(e); }
+  if (!pts.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const w = Math.max(x1 - x0, 400), h = Math.max(y1 - y0, 400);
+  const W = Math.max(cv.clientWidth - 140, 200), H = Math.max(cv.clientHeight - 220, 200);   // clear of the bar
+  cam.ts = Math.max(Math.min(W / w, H / h) * 0.92, sCover());
+  cam.tx = (x0 + x1) / 2; cam.ty = (y0 + y1) / 2 - 40 / cam.ts;
+}
+function stepCamera(snap){
+  if (cam.follow) {
+    fitTarget();
+    const k = snap ? 1 : 0.08;
+    cam.x += (cam.tx - cam.x) * k; cam.y += (cam.ty - cam.y) * k; cam.s *= Math.pow(cam.ts / cam.s, k);
+  }
+  clampCam();
+}
+function zoomAt(px, py, f){
+  const [wx, wy] = toW(px, py); cam.follow = false; cam.s = Math.max(cam.s * f, sMin());
+  const [nx, ny] = toW(px, py); cam.x += wx - nx; cam.y += wy - ny; clampCam();
+}
+$("zIn").onclick = () => zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 1.4);
+$("zOut").onclick = () => zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 1 / 1.4);
+$("zFit").onclick = () => { cam.follow = true; };
+cv.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+function resize(){ const r = window.devicePixelRatio || 1; cv.width = Math.round(cv.clientWidth * r); cv.height = Math.round(cv.clientHeight * r); ctx.setTransform(r, 0, 0, r, 0, 0); }
+new ResizeObserver(() => { resize(); stepCamera(true); draw(); }).observe(cv);
+
+// ---------------- what the simulator says, up to the playback cursor ----------------
+// pos: latest written position (nodes_*.csv). A search node is written there only once it moves,
+// so before that its own location-table entry (its reported, GNSS position) stands in.
+// told: where each search node was told the missing node is. trail: its path so far.
+function buildWorld(){
+  const W = { pos: {}, trail: {}, told: {}, selfPos: {} };
+  if (mode === "edit") {
+    gateways.forEach((g, i) => W.pos[101 + i] = [g.x, g.y]);
+    if (missingPos) W.pos[MISSING] = [missingPos.x, missingPos.y];
+    return W;
+  }
+  if (deployment && deployment.anchors) for (const a of deployment.anchors["0"]) W.pos[a.id] = [a.x, a.y];
+  const B = baseAt(cursor);
+  Object.assign(W.pos, B.pos); W.trail = B.trail; W.told = B.told; W.selfPos = B.selfPos; W.tip = {};
+  for (const k in W.selfPos) if (!W.pos[k]) W.pos[k] = W.selfPos[k];
+  // the party shares what it holds (--finderPartyShare): every searcher steers on the freshest
+  // location any searcher holds, so show that one as where each heads
+  if (runCfg?.partyShare) {
+    let best = null;
+    for (const j in W.told) if (roleOf(j) === "finder" && (!best || W.told[j].ageS < best.ageS)) best = W.told[j];
+    if (best) { const shared = Object.assign({}, W.told); for (const k in W.pos) if (roleOf(k) === "finder") shared[k] = best; W.told = shared; }
+  }
+  // display-only smoothing: glide in a straight line between two recorded 2.5 s cycles
+  const f = frac(), nx = cycles[cursor + 1];
+  if (f > 0 && nx) {
+    const nextPos = Object.assign({}, nx.pos);
+    for (const k in nx.loc) if (isSearch(k) && !nextPos[k]) { const e = nx.loc[k].find(x => x.entry === +k); if (e) nextPos[k] = [e.x, e.y]; }
+    for (const k in nextPos) { if (!W.pos[k]) continue; W.pos[k] = lerp2(W.pos[k], nextPos[k], f); if (W.trail[k]) W.tip[k] = W.pos[k]; }
+  }
+  return W;
+}
+// The history up to the cursor, built INCREMENTALLY: playback moves forward a few cycles per
+// frame, so only the new cycles are folded in; a jump backwards (or a new run) rebuilds it.
+// Its arrays are shared with every frame's world and must not be modified there.
+let base = null;
+function baseAt(cur){
+  if (!base || base.run !== run || cur < base.upTo) base = { run, upTo: -1, pos: {}, trail: {}, told: {}, selfPos: {} };
+  for (let i = base.upTo + 1; i <= cur; i++) {
+    const c = cycles[i]; if (!c) continue;
+    for (const k in c.pos) { base.pos[k] = c.pos[k]; if (isSearch(k)) (base.trail[k] = base.trail[k] || []).push(c.pos[k]); }
+    for (const k in c.loc) {
+      if (!isSearch(k)) continue;
+      for (const e of c.loc[k]) {
+        if (e.entry === +k) base.selfPos[k] = [e.x, e.y];
+        if (e.entry === MISSING) base.told[k] = { x: e.x, y: e.y, fresh: e.fresh, ageS: e.ageS };
+      }
+    }
+  }
+  base.upTo = Math.max(base.upTo, cur);
+  return base;
+}
+const lerp2 = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+const frac = () => (mode === "sim" && cursor < lastCycle && cycles[cursor + 1]) ? Math.min(acc, 0.999) : 0;
+const curCycle = () => cycles[cursor] || null;
+function estAt(){
+  const t = curCycle()?.trace; if (!t) return null;
+  const n = cycles[cursor + 1]?.trace, f = frac();
+  return n && f > 0 ? lerp2([t.estX, t.estY], [n.estX, n.estY], f) : [t.estX, t.estY];
+}
+function sigAt(){ const t = curCycle()?.trace; if (!t) return 0; const n = cycles[cursor + 1]?.trace, f = frac(); return n && f > 0 ? t.sigM + (n.sigM - t.sigM) * f : t.sigM; }
+function drawnAt(id){ if (+id === MISSING && mode === "sim") return estAt(); return world.pos[id] || null; }
+
+// ---------------- drawing ----------------
+function draw(){
+  if (!world) world = buildWorld();
+  const w = cv.clientWidth, h = cv.clientHeight, b = boxHalf(), now = performance.now();
+  const bgg = ctx.createRadialGradient(w * 0.5, h * 0.42, 0, w * 0.5, h * 0.42, Math.max(w, h) * 0.8); bgg.addColorStop(0, "#0c1533"); bgg.addColorStop(1, "#04060f");
+  ctx.fillStyle = bgg; ctx.fillRect(0, 0, w, h);
+  // the simulator's box, a shade lighter; a two-level grid across the whole view
+  const [bx0, by0] = toPx(-b, b), side = 2 * b * cam.s;
+  ctx.fillStyle = "rgba(96, 130, 255, 0.05)"; ctx.fillRect(bx0, by0, side, side);
+  const step = niceStep(90 / cam.s), [wx0, wy1] = toW(0, 0), [wx1, wy0] = toW(w, h);
+  ctx.lineWidth = 1;
+  for (const [st, col] of [[step, "rgba(140, 165, 255, 0.07)"], [step * 5, "rgba(140, 165, 255, 0.15)"]]) {
+    ctx.strokeStyle = col; ctx.beginPath();
+    for (let gx = Math.floor(wx0 / st) * st; gx <= wx1; gx += st) { const [p] = toPx(gx, 0); ctx.moveTo(p, 0); ctx.lineTo(p, h); }
+    for (let gy = Math.floor(wy0 / st) * st; gy <= wy1; gy += st) { const [, p] = toPx(0, gy); ctx.moveTo(0, p); ctx.lineTo(w, p); }
+    ctx.stroke();
+  }
+  // no border: zoomed out, the map is one blue field (panning still stops at the area's edge)
+  scaleBar();
+  drawGatewayRanges();
+
+  const c = curCycle(), hl = hlActive() ? highlight.ids : null, pulse = 0.5 + 0.5 * Math.sin(now / 260), camp = campXY();
+
+  if (mode === "sim") {
+    // the system's belief: estimate ± 1 sigma, a translucent "search area"
+    // (skipped when the area is bigger than the whole map: it would only tint the screen)
+    if (revealed && $("showSig").checked && c?.trace && sigAt() < 2 * b) {
+      const e = estAt(), [ex, ey] = toPx(e[0], e[1]), r = Math.min(Math.max(sigAt() * cam.s, 4), 4 * (w + h));
+      const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r);
+      g.addColorStop(0, rgba(COL.missing, 0.16)); g.addColorStop(1, rgba(COL.missing, 0.04));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex, ey, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = rgba(COL.missing, 0.35); ctx.setLineDash([4, 5]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // relay chain: camp -> relay 1 -> relay 2 ... (in the order the simulator assigns them)
+    const relayIds = Object.keys(world.pos).filter(k => roleOf(k) === "relay").map(Number).sort((a, b) => a - b);
+    if (camp && relayIds.length) {
+      ctx.strokeStyle = rgba(COL.relay, 0.6); ctx.lineWidth = 2; ctx.setLineDash([2, 6]); ctx.lineCap = "round";
+      ctx.beginPath(); const [sx, sy] = toPx(camp[0], camp[1]); ctx.moveTo(sx, sy);
+      for (const id of relayIds) { const [x, y] = toPx(world.pos[id][0], world.pos[id][1]); ctx.lineTo(x, y); }
+      ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = "butt";
+    }
+    // this moment's packets
+    if ($("showPk").checked && c) {
+      ctx.lineWidth = 1;
+      for (const p of c.pk) {
+        if (!revealed && (p.tx === MISSING || p.rx === MISSING)) continue;
+        const a = drawnAt(p.tx), d = drawnAt(p.rx); if (!a || !d) continue;
+        const [ax, ay] = toPx(a[0], a[1]), [dx, dy] = toPx(d[0], d[1]);
+        ctx.strokeStyle = p.ok ? "rgba(34,197,94,.22)" : "rgba(244,63,94,.35)";
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(dx, dy); ctx.stroke();
+      }
+    }
+    // paths so far, fading with age
+    for (const k in world.trail) {
+      const tr = world.trail[k]; if (tr.length < 2) continue;
+      const col = colorOf(k), n = tr.length, stride = Math.max(1, Math.floor(n / 300));
+      ctx.lineWidth = 2; ctx.lineCap = "round";
+      let prev = toPx(tr[0][0], tr[0][1]);
+      for (let i = stride; i < n; i += stride) {
+        const p = toPx(tr[i][0], tr[i][1]);
+        ctx.strokeStyle = rgba(col, 0.08 + 0.55 * (i / n)); ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(p[0], p[1]); ctx.stroke(); prev = p;
+      }
+      const end = world.tip[k] || tr[n - 1], last = toPx(end[0], end[1]); ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(last[0], last[1]); ctx.stroke();
+      ctx.lineCap = "butt";
+    }
+    // where each searcher was told the missing node is
+    if (revealed) for (const k in world.told) {
+      if (roleOf(k) !== "finder") continue;
+      const f = world.pos[k], t = world.told[k]; if (!f) continue;
+      const [fx, fy] = toPx(f[0], f[1]), [tx, ty] = toPx(t.x, t.y);
+      ctx.setLineDash([5, 5]); ctx.strokeStyle = rgba(colorOf(k), 0.5); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+      cross(tx, ty, colorOf(k));
+    }
+  }
+  const lk = lkpXY();
+  if (lk) {
+    const [lx, ly] = toPx(lk[0], lk[1]);
+    if (camp) {
+      const [cx, cy] = toPx(camp[0], camp[1]);
+      ctx.strokeStyle = rgba(COL.lkp, 0.5); ctx.setLineDash([2, 5]); ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly); ctx.stroke(); ctx.setLineDash([]);
+    }
+    lkpGlyph(lx, ly, hover && hover.id === LKP_ID); label("last known position", lx, ly, COL.lkp);
+  }
+  if (camp) { const [cx, cy] = toPx(camp[0], camp[1]); campGlyph(cx, cy); label("base camp", cx, cy, COL.camp); }
+  for (const id of Object.keys(world.pos)) {
+    if (roleOf(id) === "missing") continue;
+    const [px, py] = toPx(world.pos[id][0], world.pos[id][1]);
+    if (hl && hl.has(+id)) ring(px, py, pulse);
+    if (mode === "sim" && roleOf(id) === "finder" && anchorEv.length && isAnchor(id, curCycle()?.trace?.t ?? cursor * DT)) {
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.strokeRect(px - 11, py - 11, 22, 22); ctx.lineWidth = 1;
+      label("anchor", px, py + 20, "#ffffff");
+    }
+    const fx = fixes[cursor];
+    if (fx && fx.some(([fid]) => fid === +id)) { ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, 10, 0, 7); ctx.stroke(); ctx.lineWidth = 1; }
+    if (foundAt() && +id === foundEv.finder) { ctx.strokeStyle = "#4ade80"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, 12, 0, 7); ctx.stroke(); ctx.lineWidth = 1; }
+    glyph(roleOf(id), px, py, hover && hover.id == id, colorOf(id));
+    // labels only when zoomed in enough to read them, or on hover (25 searchers would bury the map)
+    if ((hover && hover.id == id) || (roleOf(id) === "relay") || cam.s > 0.3) label(String(id), px, py);
+  }
+  if (mode === "edit" && missingPos) {
+    const [mx, my] = toPx(missingPos.x, missingPos.y);
+    glyph("missing", mx, my, hover && hover.id == MISSING); label("missing node", mx, my, COL.missing);
+    if (camp) label(`${(Math.hypot(missingPos.x - camp[0], missingPos.y - camp[1]) / 1000).toFixed(1)} km from the camp`, mx, my + 19);
+  }
+  if (mode === "sim" && revealed && c?.trace) {
+    const t = c.trace, e = estAt(), [ex, ey] = toPx(e[0], e[1]);
+    if (hl && hl.has(MISSING)) ring(ex, ey, pulse);
+    ctx.strokeStyle = COL.missing; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(ex, ey - 10); ctx.lineTo(ex + 9.5, ey + 7); ctx.lineTo(ex - 9.5, ey + 7); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = COL.missing; ctx.beginPath(); ctx.arc(ex, ey + 1.5, 2.3, 0, 7); ctx.fill();
+    label("missing · estimate", ex, ey, COL.missing);
+    if (hover && hover.id == MISSING) {
+      const [tx, ty] = toPx(t.trueX, t.trueY);
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = COL.missing; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+      glyph("missing", tx, ty, true); label("actual", tx, ty, COL.missing);
+    }
+  }
+  hud();
+}
+// GATEWAY RANGE (estimate): the simulator's own range test (--probe, served by /api/ranges): the
+// distance at which 80 % (solid ring) and 50 % (dashed ring) of packets still arrive, for 868 MHz
+// (blue) and 2.4 GHz (cyan). Reception is decided per packet, so these are guides, not edges.
+let ranges = null;
+const RANGE_COL = { "868": "#60a5fa", "2p4": "#22d3ee" };
+function drawGatewayRanges(){
+  if (!ranges) return;
+  const gws = $("showRange").checked ? Object.keys(world.pos).filter(k => roleOf(k) === "gateway") : [];
+  ctx.save(); ctx.lineWidth = 1.2;
+  for (const tier of ["868", "2p4"]) {
+    const r = ranges[tier]; if (!r) continue;
+    for (const [rad, dash, alpha] of [[r.r80, [], 0.45], [r.r50, [6, 6], 0.28]]) {
+      if (!(rad > 0)) continue;
+      ctx.strokeStyle = rgba(RANGE_COL[tier], alpha); ctx.setLineDash(dash);
+      for (const k of gws) { const [x, y] = toPx(world.pos[k][0], world.pos[k][1]); ctx.beginPath(); ctx.arc(x, y, rad * cam.s, 0, 7); ctx.stroke(); }
+    }
+    if (tier === "868") { ctx.fillStyle = rgba(RANGE_COL[tier], 0.035); for (const k of gws) { const [x, y] = toPx(world.pos[k][0], world.pos[k][1]); ctx.beginPath(); ctx.arc(x, y, r.r80 * cam.s, 0, 7); ctx.fill(); } }
+  }
+  // RELAY RANGE: the same 868 MHz radio. The range test measures it with one end on a 15 m mast
+  // (no option for ground-to-ground), so for a relay carried at ~1.5 m this is an UPPER BOUND.
+  // Under the default --meshLinks=star a relay only links to the missing node, so the chain carries
+  // nothing back to the camp yet: the rings show reach, not delivered relaying.
+  const r8 = ranges["868"];
+  if ($("showRelayRange").checked && r8) {
+    const rl = Object.keys(world.pos).filter(k => roleOf(k) === "relay");
+    for (const [rad, dash, alpha] of [[r8.r80, [], 0.5], [r8.r50, [6, 6], 0.3]]) {
+      ctx.strokeStyle = rgba(COL.relay, alpha); ctx.setLineDash(dash);
+      for (const k of rl) { const [x, y] = toPx(world.pos[k][0], world.pos[k][1]); ctx.beginPath(); ctx.arc(x, y, rad * cam.s, 0, 7); ctx.stroke(); }
+    }
+  }
+  ctx.setLineDash([]); ctx.restore();
+}
+function loadRanges(){
+  fetch("/api/ranges").then(r => r.json()).then(d => {
+    if (d.state === "pending") { setTimeout(loadRanges, 2000); return; }
+    if (d.state !== "ok") { $("rangeNote").textContent = "Gateway range: the range test failed (" + (d.error || "?") + "), so no rings are drawn."; return; }
+    ranges = d.tiers;
+    const km = m => m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m";
+    $("rangeNote").textContent = `Gateway range rings are estimates from the simulator's own range test (--probe): solid where 80 % of packets get through, dashed where 50 % do. 868 MHz ${km(ranges["868"].r80)} / ${km(ranges["868"].r50)}, 2.4 GHz ${km(ranges["2p4"].r80)} / ${km(ranges["2p4"].r50)}, UWB ${km(ranges.uwb.r50)} (50 %; too small to draw). Reception is decided per packet, so these are guides, not edges. Relay rings (purple) use the same 868 MHz figures, measured with one end on a 15 m mast, so for a relay at ground level they are an upper bound. With the current mesh setting (star) a relay only links to the missing node, so the relay chain shows reach, not data actually carried back to the camp.`;
+    legend(); draw();
+  }).catch(() => setTimeout(loadRanges, 3000));
+}
+function ring(x, y, p){ ctx.strokeStyle = rgba(COL.hl, 0.55 + 0.45 * p); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 14 + 4 * p, 0, 7); ctx.stroke(); ctx.lineWidth = 1; }
+function cross(x, y, col){ ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5); ctx.stroke(); ctx.lineWidth = 1; }
+function glyph(role, x, y, hot, colour){
+  const col = colour || COL[role] || "#aaa";
+  ctx.save(); ctx.shadowColor = rgba(col, 0.7); ctx.shadowBlur = hot ? 16 : 9;
+  ctx.fillStyle = col; ctx.strokeStyle = hot ? "#fff" : "rgba(0,0,0,.9)"; ctx.lineWidth = hot ? 2 : 1.4;
+  if (role === "gateway") {
+    // a radio tower: a mast on an A-frame, with a beacon and two radiating arcs each side
+    ctx.strokeStyle = col; ctx.lineWidth = hot ? 2.6 : 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(x - 6, y + 9); ctx.lineTo(x, y - 5); ctx.lineTo(x + 6, y + 9);
+    ctx.moveTo(x - 3.5, y + 3); ctx.lineTo(x + 3.5, y + 3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y - 6, 2.4, 0, 7); ctx.fill();
+    ctx.lineWidth = 1.6; ctx.shadowBlur = 0;
+    for (const r of [6, 10]) {
+      ctx.beginPath(); ctx.arc(x, y - 6, r, -Math.PI * 0.82, -Math.PI * 0.58); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y - 6, r, -Math.PI * 0.42, -Math.PI * 0.18); ctx.stroke();
+    }
+    ctx.lineCap = "butt"; ctx.restore(); return;
+  }
+  ctx.beginPath();
+  if (role === "missing") { ctx.moveTo(x, y - 9); ctx.lineTo(x + 8.5, y + 6); ctx.lineTo(x - 8.5, y + 6); ctx.closePath(); }
+  else if (role === "finder") { ctx.rect(x - 6.5, y - 6.5, 13, 13); }
+  else if (role === "relay") { for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i; ctx.lineTo(x + 8 * Math.cos(a), y + 8 * Math.sin(a)); } ctx.closePath(); }
+  else ctx.arc(x, y, 7, 0, 7);
+  ctx.fill(); ctx.shadowBlur = 0; ctx.stroke(); ctx.restore();
+}
+function lkpGlyph(x, y, hot){
+  ctx.save(); ctx.shadowColor = rgba(COL.lkp, 0.7); ctx.shadowBlur = hot ? 16 : 10;
+  ctx.fillStyle = COL.lkp; ctx.strokeStyle = hot ? "#fff" : "rgba(0,0,0,.9)"; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 9, y - 10, x - 8, y - 20, x, y - 20); ctx.bezierCurveTo(x + 8, y - 20, x + 9, y - 10, x, y); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.fillStyle = "#000000"; ctx.beginPath(); ctx.arc(x, y - 13, 3, 0, 7); ctx.fill(); ctx.restore();
+}
+function campGlyph(x, y){
+  ctx.save(); ctx.shadowColor = rgba(COL.camp, 0.6); ctx.shadowBlur = 12;
+  ctx.fillStyle = rgba(COL.camp, 0.15); ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.fill();
+  // a flag on a pole (not a triangle: that is the missing node)
+  ctx.strokeStyle = COL.camp; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(x - 5, y + 9); ctx.lineTo(x - 5, y - 10); ctx.stroke();
+  ctx.fillStyle = COL.camp; ctx.beginPath(); ctx.moveTo(x - 5, y - 10); ctx.lineTo(x + 8, y - 6); ctx.lineTo(x - 5, y - 1); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function label(text, x, y, col){
+  ctx.font = "500 11.5px Inter,system-ui,sans-serif"; const w = ctx.measureText(text).width;
+  ctx.fillStyle = "rgba(0,0,0,.8)"; roundRect(x + 11, y - 22, w + 10, 17, 5); ctx.fill();
+  ctx.fillStyle = col || "#e8e8e8"; ctx.fillText(text, x + 16, y - 9.5);
+}
+function roundRect(x, y, w, h, r){ ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function niceStep(x){ const p = Math.pow(10, Math.floor(Math.log10(x))); for (const m of [1, 2, 5, 10]) if (m * p >= x) return m * p; return 10 * p; }
+function scaleBar(){ const m = niceStep(110 / cam.s); $("scaleBar").style.width = (m * cam.s) + "px"; $("scaleTxt").textContent = m >= 1000 ? (m / 1000) + " km" : m + " m"; }
+
+function legend(){
+  const sw = s => `<svg width="16" height="16" viewBox="0 0 16 16">${s}</svg>`;
+  const items = [
+    [sw(`<path d="M3 15 L8 5 L13 15 M5.5 10.5 H10.5" stroke="${COL.gateway}" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="8" cy="4" r="1.8" fill="${COL.gateway}"/><path d="M4.2 1.6 A5 5 0 0 0 4.2 6.4 M11.8 1.6 A5 5 0 0 1 11.8 6.4" stroke="${COL.gateway}" stroke-width="1.3" fill="none"/>`), "Gateway (fixed)"],
+    [sw(`<path d="M4 15 V1" stroke="${COL.camp}" stroke-width="2"/><polygon points="4,1 14,4.5 4,8" fill="${COL.camp}"/>`), "Base camp: the search starts here"],
+    [sw(`<path d="M8 15 C3 10 3 2 8 2 C13 2 13 10 8 15 Z" fill="${COL.lkp}"/>`), "Last known position (where it was last seen)"],
+    [sw(`<rect x="2.5" y="2.5" width="11" height="11" rx="1.5" fill="${COL.finder}"/>`), "Search node"],
+    ...(ranges ? [[sw(`<circle cx="8" cy="8" r="6.5" fill="none" stroke="${RANGE_COL["868"]}" stroke-width="1.5"/>`), "Gateway range 868 MHz (solid 80 %, dashed 50 %)"],
+                  [sw(`<circle cx="8" cy="8" r="6.5" fill="none" stroke="${RANGE_COL["2p4"]}" stroke-width="1.5"/>`), "Gateway range 2.4 GHz (solid 80 %, dashed 50 %)"],
+                  [sw(`<circle cx="8" cy="8" r="6.5" fill="none" stroke="${COL.relay}" stroke-width="1.5"/>`), "Relay reach 868 MHz, upper bound (solid 80 %, dashed 50 %)"]] : []),
+    [sw(`<polygon points="15,8 11.5,14 4.5,14 1,8 4.5,2 11.5,2" fill="${COL.relay}"/>`), "Relay: stays back to keep the chain"],
+  ];
+  if (mode === "edit") items.push([sw(`<polygon points="8,1.5 15,14 1,14" fill="${COL.missing}"/>`), "Missing node (placed)"]);
+  else items.push(
+    [sw(`<polygon points="8,2 14.5,13.5 1.5,13.5" fill="none" stroke="${COL.missing}" stroke-width="2"/><circle cx="8" cy="9.5" r="1.8" fill="${COL.missing}"/>`), "Missing node: estimate (hover = actual, filled)"],
+    [sw(`<circle cx="8" cy="8" r="7" fill="${rgba(COL.missing, .18)}" stroke="${rgba(COL.missing, .5)}" stroke-dasharray="2 2"/>`), "Where the system thinks it is (±1σ)"],
+    [sw(`<path d="M1 14 L8 9 L15 4" stroke="${COL.finder}" stroke-width="2" fill="none" opacity=".7"/>`), "Path so far"],
+    [sw(`<path d="M1 8 H10" stroke="${COL.finder}" stroke-dasharray="3 2" stroke-width="1.5"/><path d="M10 5 l5 5 M15 5 l-5 5" stroke="${COL.finder}" stroke-width="2"/>`), "Heading to: where it was told to go"],
+    [sw(`<path d="M1 8 H15" stroke="${COL.relay}" stroke-dasharray="1 3" stroke-width="2" stroke-linecap="round"/>`), "Relay chain back to the camp"],
+    [sw(`<path d="M1 8 H15" stroke="${COL.ok}" stroke-width="2"/>`), "Packet delivered"],
+    [sw(`<path d="M1 8 H15" stroke="${COL.bad}" stroke-width="2"/>`), "Packet failed"],
+    [sw(`<circle cx="8" cy="8" r="6" fill="none" stroke="${COL.hl}" stroke-width="2"/>`), "Involved in the latest advancement"],
+    [sw(`<circle cx="8" cy="8" r="6" fill="none" stroke="#fff" stroke-width="1.5"/>`), "Used in this moment's position fix"],
+    [sw(`<rect x="1.5" y="1.5" width="13" height="13" fill="none" stroke="#fff" stroke-width="1.8"/><rect x="5" y="5" width="6" height="6" fill="${COL.finder}"/>`), "Anchor: one of 3 searchers that stay put near the missing node"],
+    [sw(`<circle cx="8" cy="8" r="6" fill="none" stroke="#4ade80" stroke-width="2.5"/>`), "Found: the search node that reached it (UWB range ≤ 2 m)"]);
+  $("legendItems").innerHTML = items.map(([i, t]) => `${i}<span>${t}</span>`).join("");
+}
+$("legendHead").onclick = () => { $("legend").classList.toggle("collapsed"); $("legendToggle").textContent = $("legend").classList.contains("collapsed") ? "show" : "hide"; };
+
+const fmtT = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, "0")} min` : s >= 60 ? `${Math.floor(s / 60)} min ${String(Math.floor(s % 60)).padStart(2, "0")} s` : `${s.toFixed(1)} s`;
+function hud(){
+  if (mode === "edit") {
+    const need = gateways.length < MIN_GW ? ` · <b>${MIN_GW - gateways.length} more needed</b> (a 2D fix needs ${MIN_GW})` : "";
+    $("hud").innerHTML = `<span><b>Building the layout</b></span><span>${gateways.length} gateway(s)${need}</span><span>missing node <b>${missingPos ? "placed" : "not placed"}</b></span><span>drag to move · double-click to remove · scroll to zoom · drag the map to pan</span>`;
+    return;
+  }
+  const c = curCycle(), t = c?.trace ? c.trace.t : cursor * DT, P = [];
+  P.push(`<span><b>${fmtT(t)}</b> of ${fmtT(Math.max(0, lastCycle) * DT)}${finished ? "" : " · simulator running"}</span>`);
+  if (!revealed) P.push(`<span>missing node <b>hidden</b> until the first advancement</span>`);
+  else if (c?.trace) P.push(`<span>radio <b>${TIER[c.trace.activeTier] || "?"}</b></span>`, `<span>estimate error <b>${c.trace.errM.toFixed(0)} m</b></span>`, `<span>search area ±<b>${c.trace.sigM >= 1000 ? (c.trace.sigM / 1000).toFixed(1) + " km" : c.trace.sigM.toFixed(0) + " m"}</b></span>`);
+  const sIds = Object.keys(world.pos).filter(k => roleOf(k) === "finder");
+  if (sIds.length && revealed && c?.trace) { const d = Math.min(...sIds.map(k => Math.hypot(world.pos[k][0] - c.trace.trueX, world.pos[k][1] - c.trace.trueY))); P.push(`<span>nearest searcher <b>${d >= 1000 ? (d / 1000).toFixed(2) + " km" : d.toFixed(0) + " m"}</b> away</span>`); }
+  if (c) { const ok = c.pk.filter(p => p.ok).length; P.push(`<span>packets <b style="color:${COL.ok}">${ok}</b> ok · <b style="color:${COL.bad}">${c.pk.length - ok}</b> failed</span>`); }
+  if (mode === "sim" && anchorEv.length) { const tn = c?.trace?.t ?? cursor * DT; const n = Object.keys(world.pos).filter(k => roleOf(k) === "finder" && isAnchor(k, tn)).length; if (n) P.push(`<span>anchors <b>${n}</b>, other close searchers walking in</span>`); }
+  if (foundAt()) P.push(`<span style="color:#4ade80"><b>FOUND</b> at ${fmtT(foundEv.t)} by search node ${foundEv.finder}</span>`);
+  if (cursor <= slowUntil) P.push(`<span style="color:${COL.hl}">slow motion</span>`);
+  if (!finished && cursor >= lastCycle && playing) P.push(`<span>waiting for the simulator…</span>`);
+  $("hud").innerHTML = P.join("");
+  const tl = $("timeline"); tl.max = Math.max(0, lastCycle); if (document.activeElement !== tl) tl.value = cursor;
+}
+
+// ---------------- palette, editing, panning ----------------
+for (const el of document.querySelectorAll(".pal[draggable=true]")) el.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", el.dataset.kind));
+cv.addEventListener("dragover", e => { if (mode === "edit") e.preventDefault(); });
+cv.addEventListener("drop", e => {
+  e.preventDefault(); if (mode !== "edit") return;
+  const kind = e.dataTransfer.getData("text/plain"), r = cv.getBoundingClientRect();
+  const [x, y] = toW(e.clientX - r.left, e.clientY - r.top), b = boxHalf(), p = { x: clamp(x, b), y: clamp(y, b) };
+  if (kind === "gateway") gateways.push(p); else if (kind === "missing") missingPos = p;
+  else if (kind === "lkp") { lkpPos = p; $("campOn").checked = true; $("prior").value = "camp"; }
+  else if (kind === "camp") setCampFrom(x, y);
+  else return;
+  editChanged();
+});
+const clamp = (v, b) => Math.max(-b, Math.min(b, Math.round(v)));
+function editChanged(){
+  world = buildWorld(); refreshList(); legend();
+  const ok = gateways.length >= MIN_GW;
+  $("startBtn").disabled = !ok;
+  $("startBtn").title = ok ? "" : `Place at least ${MIN_GW} gateways: the simulator needs ${MIN_GW} anchors for a 2D fix`;
+  setStatus(ok ? "Ready. Press Start." : `Place at least ${MIN_GW} gateways to start (${gateways.length} placed). The simulator needs ${MIN_GW} anchors for a 2D fix.`);
+  draw();
+}
+for (const id of ["campOn", "campFrac", "boxHalf"]) $(id).addEventListener("input", () => { if (mode === "edit") { if (id === "campFrac") campPos = null; cam.follow = true; editChanged(); } });
+function loadPreset(P){
+  if (mode === "sim") backToEdit();
+  $("boxHalf").value = P.boxHalf; $("campOn").checked = true; $("campFrac").value = P.campFrac; campPos = null;
+  $("nFinders").value = P.nFinders; $("relays").value = P.relays; $("prior").value = P.prior;
+  $("duration").value = P.duration; $("seed").value = P.seed;
+  gateways = P.gateways.map(g => ({ ...g })); missingPos = { ...P.missing }; lkpPos = P.lkp ? { ...P.lkp } : null;
+  cam.follow = true; editChanged();
+  setStatus(P.status);
+}
+$("presetBtn").onclick = () => loadPreset(PRESET);
+$("preset2Btn").onclick = () => loadPreset(PRESET2);
+$("preset3Btn").onclick = () => loadPreset(PRESET3);
+function pick(px, py){
+  if (!world) return null;
+  let best = null, bd = 13;
+  for (const id in world.pos) {
+    if (roleOf(id) === "missing" && mode !== "edit") continue;
+    const [x, y] = toPx(world.pos[id][0], world.pos[id][1]), d = Math.hypot(x - px, y - py);
+    if (d < bd) { bd = d; best = +id; }
+  }
+  if (mode === "sim" && revealed) { const e = estAt(); if (e) { const [x, y] = toPx(e[0], e[1]); if (Math.hypot(x - px, y - py) < bd) { bd = Math.hypot(x - px, y - py); best = MISSING; } } }
+  const l = lkpXY(); if (l) { const [x, y] = toPx(l[0], l[1]); if (Math.hypot(x - px, y - 10 - py) < bd) { bd = Math.hypot(x - px, y - 10 - py); best = LKP_ID; } }
+  const cp = mode === "edit" && campXY(); if (cp) { const [x, y] = toPx(cp[0], cp[1]); if (Math.hypot(x - px, y - py) < Math.max(bd, 16)) best = CAMP_ID; }
+  return best;
+}
+const MISSING_DRAG = -2; let pan = null, moved = false;
+cv.addEventListener("mousedown", e => {
+  moved = false;
+  const id = pick(e.offsetX, e.offsetY);
+  if (mode === "edit" && id) { dragIdx = id === MISSING ? MISSING_DRAG : id === LKP_ID ? LKP_ID : id === CAMP_ID ? CAMP_ID : id - 101; return; }
+  pan = { x: e.offsetX, y: e.offsetY, cx: cam.x, cy: cam.y }; cv.classList.add("dragging");
+});
+window.addEventListener("mouseup", () => { if (dragIdx !== -1) editChanged(); dragIdx = -1; pan = null; cv.classList.remove("dragging"); });
+cv.addEventListener("dblclick", e => {
+  if (mode !== "edit") return; const id = pick(e.offsetX, e.offsetY); if (!id) return;
+  if (id === MISSING) missingPos = null;
+  else if (id === LKP_ID) lkpPos = null;
+  else if (id === CAMP_ID) { $("campOn").checked = false; lkpPos = null; $("relays").value = 0; $("prior").value = "unknown"; }
+  else gateways.splice(id - 101, 1);
+  editChanged();
+});
+cv.addEventListener("mousemove", e => {
+  if (mode === "edit" && dragIdx !== -1) {
+    const [x, y] = toW(e.offsetX, e.offsetY), b = boxHalf(), p = { x: clamp(x, b), y: clamp(y, b) };
+    if (dragIdx === MISSING_DRAG) missingPos = p; else if (dragIdx === LKP_ID) lkpPos = p; else if (dragIdx === CAMP_ID) setCampFrom(x, y); else gateways[dragIdx] = p;
+    world = buildWorld();
+  } else if (pan) {
+    if (Math.hypot(e.offsetX - pan.x, e.offsetY - pan.y) > 3) { moved = true; cam.follow = false; }
+    if (moved) { cam.x = pan.cx - (e.offsetX - pan.x) / cam.s; cam.y = pan.cy + (e.offsetY - pan.y) / cam.s; clampCam(); }
+  }
+  const id = pick(e.offsetX, e.offsetY); hover = id ? { id } : null; showTip(e, id);
+});
+cv.addEventListener("mouseleave", () => { hover = null; $("tip").style.display = "none"; });
+cv.addEventListener("click", e => { if (mode === "sim" && !moved) { const id = pick(e.offsetX, e.offsetY); if (id && id > 0) openLog(id); } });
+
+function showTip(e, id){
+  const tip = $("tip");
+  if (!id) { tip.style.display = "none"; return; }
+  if (id === CAMP_ID) {
+    const cp = campXY();
+    tip.innerHTML = `<b style="color:${COL.camp}">Base camp</b><br>(${cp[0].toFixed(0)}, ${cp[1].toFixed(0)}) m${campPos ? " · --baseCampX/Y" : " · --baseCampFrac=" + $("campFrac").value}<br><span style="color:var(--mute)">the search starts here: search nodes and relays set out from this point. Drag to move it anywhere inside the area; double-click to remove.</span>`;
+    tip.style.display = "block"; tip.style.left = (e.offsetX + 16) + "px"; tip.style.top = (e.offsetY + 16) + "px"; return;
+  }
+  if (id === LKP_ID) {
+    const l = lkpXY(), cp = campXY();
+    tip.innerHTML = `<b style="color:${COL.lkp}">Last known position</b><br>(${l[0].toFixed(0)}, ${l[1].toFixed(0)}) m${cp ? ` · ${(Math.hypot(l[0] - cp[0], l[1] - cp[1]) / 1000).toFixed(1)} km from the camp` : ""}<br><span style="color:var(--mute)">where it was last seen: the searchers head here until the party receives a location over the air</span>`;
+    tip.style.display = "block"; tip.style.left = (e.offsetX + 16) + "px"; tip.style.top = (e.offsetY + 16) + "px"; return;
+  }
+  const role = roleOf(id), c = curCycle(), P = world.pos, xy = p => `(${(+p[0]).toFixed(0)}, ${(+p[1]).toFixed(0)}) m`;
+  const km = d => d >= 1000 ? (d / 1000).toFixed(2) + " km" : d.toFixed(0) + " m";
+  let html = `<b style="color:${colorOf(id)}">${nameOf(id)}</b><br>`;
+  if (role === "missing" && mode === "edit") html += `placed at ${xy([missingPos.x, missingPos.y])}<br><span style="color:var(--mute)">stays here; hidden during the run until the first advancement</span>`;
+  else if (role === "missing" && c?.trace) {
+    const t = c.trace;
+    html += `actual: ${xy([t.trueX, t.trueY])}<br>estimate: ${xy([t.estX, t.estY])} ± ${km(t.sigM)}<br>error: <b>${km(t.errM)}</b> · fix from ${TIER[t.fixTier] || "none this moment"}`;
+  } else if (P[id]) {
+    html += `actual: ${xy(P[id])}`;
+    if (role === "gateway") html += `<br><span style="color:var(--mute)">surveyed; the simulator keeps no estimate for gateways</span>`;
+    if (isSearch(id) && mode === "sim") {
+      const cp = campXY(); if (cp) html += `<br>${km(Math.hypot(P[id][0] - cp[0], P[id][1] - cp[1]))} from the camp`;
+      if (role === "relay") html += `<br><span style="color:var(--mute)">holds a point on the line from the camp to the searchers</span>`;
+      const t = world.told[id];
+      if (t && revealed && role === "finder") html += `<br>told the missing node is at ${xy([t.x, t.y])} (${t.fresh.toLowerCase()}, ${t.ageS.toFixed(0)} s old)`;
+      if (c?.trace && revealed) html += `<br>distance to the missing node: <b>${km(Math.hypot(P[id][0] - c.trace.trueX, P[id][1] - c.trace.trueY))}</b>`;
+    }
+  }
+  if (mode === "sim") html += `<br><span style="color:var(--mute)">click for its packet log</span>`;
+  tip.innerHTML = html; tip.style.display = "block";
+  const r = $("mapWrap").getBoundingClientRect();
+  tip.style.left = Math.min(e.offsetX + 16, r.width - tip.offsetWidth - 10) + "px";
+  tip.style.top = Math.min(e.offsetY + 16, r.height - tip.offsetHeight - 10) + "px";
+}
+
+function refreshList(){
+  if (!world) world = buildWorld();
+  const ids = Object.keys(world.pos).map(Number).filter(id => roleOf(id) !== "missing");
+  if ((mode === "sim" && revealed) || (mode === "edit" && missingPos)) ids.push(MISSING);
+  const hl = hlActive() ? highlight.ids : new Set();
+  let html = "";
+  for (const [role, title] of [["missing", "Missing node"], ["gateway", "Gateways"], ["finder", "Search nodes"], ["relay", "Relays (stay back)"]]) {
+    const g = ids.filter(id => roleOf(id) === role).sort((a, b) => a - b); if (!g.length) continue;
+    html += `<div class="grp">${title}</div>` + g.map(id => `<div class="n${hl.has(id) ? " hl" : ""}" data-id="${id}"><span class="ico ${role === "gateway" ? "gw" : role}"></span>${nameOf(id)}</div>`).join("");
+  }
+  $("nodeList").innerHTML = html || `<span style="color:var(--mute)">none yet</span>`;
+  for (const d of $("nodeList").querySelectorAll(".n")) d.onclick = () => openLog(+d.dataset.id);
+}
+
+// ---------------- packet log ----------------
+let logId = null;
+function openLog(id){ if (mode !== "sim") { setStatus("Packet logs are available once a simulation is running."); return; } logId = id; $("modal").style.display = "flex"; renderLog(); }
+function renderLog(){
+  if (logId === null) return;
+  const f = $("mFilter").value, rows = []; let ok = 0, bad = 0;
+  const now = curCycle()?.trace?.t ?? cursor * DT;
+  for (let i = 0; i <= cursor; i++) {
+    const c = cycles[i]; if (!c) continue;
+    for (const p of c.pk) if ((p.tx === logId || p.rx === logId) && p.t <= now) { p.ok ? ok++ : bad++; if (f === "all" || (f === "ok") === p.ok) rows.push(p); }
+  }
+  $("mTitle").textContent = `${nameOf(logId)} · packet log`;
+  const shown = rows.slice(-1000).reverse();
+  $("mSummary").textContent = `${ok + bad} packets up to t = ${now.toFixed(1)} s: ${ok} delivered, ${bad} failed (capture or collision). Newest first.` + (rows.length > 1000 ? ` Showing the latest 1000 of ${rows.length}.` : "");
+  $("mRows").innerHTML = shown.map(p => `<tr><td>${p.t.toFixed(3)}</td><td>${p.tx}</td><td>${p.rx}</td><td>${TIER[p.tier] || p.tier}</td><td>${esc(p.type)}</td><td class="${p.ok ? "ok" : "bad"}">${esc(p.outcome)}</td><td>${p.rxDbm}</td><td>${esc(p.payload)}</td></tr>`).join("");
+}
+$("mFilter").onchange = renderLog;
+$("mClose").onclick = () => { $("modal").style.display = "none"; logId = null; };
+$("modal").onclick = e => { if (e.target === $("modal")) $("mClose").onclick(); };
+
+// ---------------- run control ----------------
+function setStatus(s){ $("status").textContent = s; }
+$("clearBtn").onclick = () => { if (mode === "edit") { gateways = []; missingPos = null; lkpPos = null; editChanged(); } else backToEdit(); };
+$("startBtn").onclick = async () => {
+  if (gateways.length < MIN_GW) { editChanged(); return; }
+  const note = "";
+  const camp = $("campOn").checked;
+  const body = { gateways, missing: missingPos, lkp: lkpPos, meshLinks: $("meshOn").checked ? "all" : "star", multiHop: $("multiHopOn").checked, gatewayAsk: $("gwAskOn").checked, partyShare: $("partyShareOn").checked, boxHalf: +$("boxHalf").value, duration: +$("duration").value, seed: +$("seed").value,
+    nFinders: +$("nFinders").value, finderRelays: +$("relays").value, baseCampFrac: camp ? +$("campFrac").value : 0, campPos: camp && campPos ? campPos : null, prior: $("prior").value };
+  setStatus("Starting the simulator…");
+  let r;
+  try { r = await fetch("/api/run", { method: "POST", body: JSON.stringify(body) }).then(r => r.json()); }
+  catch (e) { setStatus("Can't reach the server: " + e); return; }
+  if (r.error) { setStatus("Can't start: " + r.error); return; }
+  run = r.run; runCfg = r.config; mode = "sim"; cycles = []; lastCycle = -1; finished = false; deployment = null;
+  foundEv = null; foundShown = false; fixes = {}; milestonesSeen = new Set(); anchorEv = [];
+  cursor = 0; acc = 0; slowUntil = -1; lastAlertAt = -1e9; quietUntil = 0; everFresh = {}; revealed = false; highlight = null; prevFresh = {}; setPlaying(true); cam.follow = true;
+  $("startBtn").disabled = true; $("stopBtn").disabled = false; $("playBtn").disabled = false; $("timeline").disabled = false;
+  $("clearBtn").textContent = "Edit layout"; $("presetBtn").disabled = true; $("preset2Btn").disabled = true; $("preset3Btn").disabled = true; $("banner").style.display = "none";
+  computePeriods(); legend(); setStatus(note + "Simulator running (run " + run + ").");
+  pollLoop();
+};
+$("stopBtn").onclick = async () => { if (run) await fetch("/api/stop", { method: "POST", body: JSON.stringify({ run }) }); };
+function backToEdit(){
+  periods = { 1: [], 2: [] }; setTimeout(() => { computePeriods(); drawStrip(); });
+  mode = "edit"; run = null; runCfg = null; setPlaying(false); cam.follow = true;
+  $("stopBtn").disabled = true; $("playBtn").disabled = true; $("timeline").disabled = true; $("presetBtn").disabled = false; $("preset2Btn").disabled = false; $("preset3Btn").disabled = false;
+  $("clearBtn").textContent = "Clear"; $("banner").style.display = "none"; editChanged();
+}
+async function pollLoop(){
+  const my = run;
+  while (run === my) {
+    let r;
+    try { r = await fetch(`/api/poll?run=${my}&since=${lastCycle}`).then(r => r.json()); }
+    catch (e) { setStatus("Lost the server: " + e); return; }
+    if (run !== my) return;
+    if (r.deployment && !deployment) deployment = r.deployment;
+    if (r.found && !foundEv) foundEv = r.found;
+    if (r.fixes) Object.assign(fixes, r.fixes);
+    if (r.anchors) anchorEv = r.anchors;
+    for (const c of r.cycles) { cycles[c.c] = c; lastCycle = Math.max(lastCycle, c.c); }
+    if (r.cycles.length || r.finished) { finished = finished || r.finished; computePeriods(); }
+    if (r.finished) {
+      finished = true; $("stopBtn").disabled = true;
+      setStatus(r.exit !== 0 ? `Simulator exited with code ${r.exit}.\n${r.logTail}`
+        : foundEv ? `Search complete: found at ${fmtT(foundEv.t)} by search node ${foundEv.finder} (UWB range ${foundEv.uwbRangeM.toFixed(2)} m). The simulation stopped there.`
+        : `Simulator finished: ${fmtT(lastCycle * DT)} of simulated time. Not found within the run: no searcher got a UWB range of 2 m or less.`);
+      return;
+    }
+    await new Promise(res => setTimeout(res, 500));
+  }
+}
+
+// ---------------- playback ----------------
+function setPlaying(p){ playing = p; $("playBtn").textContent = p ? "Pause" : "Play"; if (p && $("onAdv").value === "pause") $("banner").style.display = "none"; }
+$("playBtn").onclick = () => setPlaying(!playing);
+// FIX MILESTONES: pause and highlight the nodes the fix was computed from
+const TIER_NAME = ["868 MHz", "2.4 GHz", "UWB"];
+function checkFixMilestone(ci){
+  const f = fixes[ci]; if (!f) return false;
+  const hits = MILESTONES.filter(([k, , test]) => !milestonesSeen.has(k) && test(f));
+  if (!hits.length) return false;
+  for (const [k] of hits) milestonesSeen.add(k);
+  revealed = true; setPlaying(false);
+  highlight = { c: ci, ids: new Set([MISSING, ...f.map(([id]) => id)]) };
+  const gw = f.filter(([id]) => roleOf(id) === "gateway"), sn = f.filter(([id]) => id >= 501);
+  const lst = a => a.map(([id, tr]) => `${id} (${TIER_NAME[tr] || "?"})`).join(", ");
+  $("banner").innerHTML = `<div class="t">Paused · ${hits.map(h => h[1]).join(" · ")} at ${fmtT(ci * DT)}</div>` +
+    `The missing node's position was computed from ranges to <b>${f.length}</b> node${f.length === 1 ? "" : "s"}:` +
+    `<ul>${gw.length ? `<li>gateways ${lst(gw)}</li>` : ""}${sn.length ? `<li>search nodes ${lst(sn)}</li>` : ""}</ul>` +
+    `<div class="m">Highlighted in yellow. Every fix's nodes glow white as playback runs. Press Play or Space to continue.</div>`;
+  $("banner").style.display = "block"; refreshList();
+  return true;
+}
+// FOUND: pause and say so the first time playback reaches the contact moment
+function checkFound(){
+  if (!foundEv || foundShown || !foundAt()) return false;
+  foundShown = true; revealed = true; setPlaying(false);
+  highlight = { c: cursor, ids: new Set([foundEv.finder, MISSING]) };
+  const tr = curCycle()?.trace;
+  $("banner").innerHTML = `<div class="t" style="color:#4ade80">SEARCH COMPLETE · found at ${fmtT(foundEv.t)}</div>Search node ${foundEv.finder} reached the missing node: its own UWB range to it measured <b>${foundEv.uwbRangeM.toFixed(2)} m</b>.` +
+    (tr ? `<br>Final position estimate: <b>${tr.errM.toFixed(1)} m</b> from the actual position (the system's own ±${tr.sigM.toFixed(1)} m).` : "") +
+    `<div class="m">The search stops here: the simulation ends at this moment.</div>`;
+  $("banner").style.display = "block"; refreshList();
+  return true;
+}
+function jumpTo(ci){
+  cursor = Math.max(0, Math.min(ci, Math.max(0, lastCycle))); acc = 0; slowUntil = -1; lastAlertAt = cursor; $("banner").style.display = "none";
+  foundShown = !!foundEv && cursor * DT >= foundEv.t;   // jumping past it does not re-announce it
+  milestonesSeen = new Set();                              // milestones already passed are not re-announced
+  for (const k in fixes) if (+k <= cursor) for (const [m, , test] of MILESTONES) if (test(fixes[k])) milestonesSeen.add(m);
+  for (let i = 0; i <= cursor && !revealed; i++) if (advancementsAt(i).length) revealed = true;
+  refreshList(); renderLog();
+}
+$("timeline").addEventListener("input", e => jumpTo(+e.target.value));
+
+// ---------------- radio strip: which radio was in use when, and jumps to each switch ----------------
+// From the trace's activeTier. A PERIOD on a radio is a run of cycles on it (or a finer one);
+// returns to a coarser radio shorter than MERGE_CYCLES (30 s) do not end it, so a radio that
+// flickers is one period, not hundreds. Jumps land LEAD_CYCLES (10 s) before a period starts.
+const TIER_COL = ["#334155", "#38bdf8", "#f472b6"], MERGE_CYCLES = 12, LEAD_CYCLES = 4;
+let periods = { 1: [], 2: [] }, stripDirty = true;
+function computePeriods(){
+  const out = { 1: [], 2: [] };
+  for (const T of [1, 2]) {
+    let start = -1, lastOn = -1;
+    for (let i = 0; i <= lastCycle; i++) {
+      const at = cycles[i]?.trace?.activeTier; if (at == null) continue;
+      if (at >= T) { if (start < 0 || i - lastOn > MERGE_CYCLES) { if (start >= 0) out[T].push([start, lastOn]); start = i; } lastOn = i; }
+    }
+    if (start >= 0) out[T].push([start, lastOn]);
+  }
+  periods = out;
+  $("n24").textContent = out[1].length; $("nUwb").textContent = out[2].length;
+  for (const [T, p, x] of [[1, "p24", "x24"], [2, "pUwb", "xUwb"]]) {
+    const none = mode !== "sim" || !out[T].length;
+    $(p).disabled = none; $(x).disabled = none;
+    $(T === 1 ? "n24" : "nUwb").title = none && mode === "sim" ? "not used in this run" : "";
+  }
+  $("nUwb").textContent = out[2].length || (mode === "sim" && finished ? "not used" : "0");
+}
+function drawStrip(){
+  const el = $("tierStrip"), r = window.devicePixelRatio || 1, W = el.clientWidth, H = el.clientHeight;
+  if (el.width !== Math.round(W * r)) { el.width = Math.round(W * r); el.height = Math.round(H * r); }
+  const g = el.getContext("2d"); g.setTransform(r, 0, 0, r, 0, 0); g.clearRect(0, 0, W, H);
+  if (mode !== "sim" || lastCycle < 1) return;
+  const n = lastCycle + 1;
+  // each pixel column shows the FINEST radio used in its span, so a short UWB period still shows
+  for (let x = 0; x < W; x++) {
+    const a = Math.floor(x / W * n), b = Math.max(a, Math.floor((x + 1) / W * n) - 1); let best = -1;
+    for (let i = a; i <= b; i++) { const t = cycles[i]?.trace?.activeTier; if (t != null && t > best) best = t; }
+    if (best >= 0) { g.fillStyle = TIER_COL[best] || TIER_COL[0]; g.fillRect(x, 0, 1, H); }
+  }
+  if (foundEv) { const fx = foundEv.t / DT / Math.max(1, lastCycle) * W; g.fillStyle = "#4ade80"; g.fillRect(Math.round(fx) - 2, 0, 4, H); }
+  const cx = cursor / Math.max(1, lastCycle) * W; g.fillStyle = "#fff"; g.fillRect(Math.round(cx) - 1, 0, 2, H);
+}
+$("tierStrip").addEventListener("click", e => { if (mode === "sim" && lastCycle > 0) jumpTo(Math.round(e.offsetX / e.target.clientWidth * lastCycle)); });
+function jumpPeriod(T, dir){
+  const starts = periods[T].map(p => p[0]); if (!starts.length) return;
+  // the switch we are at or just before counts as "here": next means strictly after it
+  const here = cursor + LEAD_CYCLES;
+  const target = dir > 0 ? starts.find(s => s > here) : [...starts].reverse().find(s => s < here);
+  if (target == null) { setStatus(`No ${dir > 0 ? "later" : "earlier"} switch onto ${T === 1 ? "2.4 GHz" : "UWB"} in this run.`); return; }
+  jumpTo(target - LEAD_CYCLES);
+  const k = starts.indexOf(target) + 1, len = (periods[T][k - 1][1] - target + 1) * DT;
+  setStatus(`Switch ${k} of ${starts.length} onto ${T === 1 ? "2.4 GHz" : "UWB"} at ${fmtT(target * DT)}, lasting ${fmtT(len)}. Playback is placed ${LEAD_CYCLES * DT} s before it.`);
+}
+$("p24").onclick = () => jumpPeriod(1, -1); $("x24").onclick = () => jumpPeriod(1, 1);
+$("pUwb").onclick = () => jumpPeriod(2, -1); $("xUwb").onclick = () => jumpPeriod(2, 1);
+document.addEventListener("keydown", e => { if (e.code === "Space" && mode === "sim" && !["INPUT", "SELECT"].includes(e.target.tagName)) { e.preventDefault(); setPlaying(!playing); } });
+let listTick = 0;
+function tick(ts){
+  requestAnimationFrame(tick);                       // scheduled first: a throw below must not stop the loop
+  const dtMs = lastTs ? Math.min(ts - lastTs, 100) : 0; lastTs = ts;
+  if (mode === "sim" && playing && cursor < lastCycle) {
+    const slow = cursor <= slowUntil, speed = slow ? Math.min(SLOW_SPEED, +$("speed").value) : +$("speed").value;
+    acc += dtMs / 1000 * speed / DT;                 // 1x = one 2.5 s cycle per 2.5 s of wall time
+    while (acc >= 1 && cursor < lastCycle) { acc -= 1; cursor++; if (checkFound() || checkFixMilestone(cursor) || checkAdvancement(cursor)) { acc = 0; break; } }
+    if (slow && cursor > slowUntil) { $("banner").style.display = "none"; quietUntil = performance.now() + COOLDOWN_WALL_MS; }
+    if (logId !== null && listTick % 10 === 0) renderLog();
+    if (++listTick % 20 === 0) refreshList();
+  } else if (mode !== "sim" || cursor >= lastCycle) acc = 0;   // paused: keep the glide where it stopped
+  world = buildWorld(); stepCamera(false); draw();
+  if (++stripTick % 4 === 0) drawStrip();
+}
+let stripTick = 0;
+
+// Advancements: (1) the decision layer escalates (the trace's `escalated` flag); (2) a search
+// node newly holds a FRESH location entry for the missing node. Highlighted: the nodes the
+// simulator's own records tie to the event.
+function advancementsAt(ci){
+  const c = cycles[ci]; if (!c) return [];
+  const found = [];
+  if (c.trace && c.trace.escalated) {
+    const peers = new Set();
+    for (const p of c.pk) if (p.ok && (p.tx === MISSING || p.rx === MISSING)) peers.add(p.tx === MISSING ? p.rx : p.tx);
+    const gw = [...peers].filter(i => roleOf(i) === "gateway").sort((a, b) => a - b), fd = [...peers].filter(i => isSearch(i)).sort((a, b) => a - b);
+    found.push({ ids: [MISSING, ...peers], html: `<b>Escalation</b>: the decision layer asked for a finer radio to locate the missing node (radio in use: ${TIER[c.trace.activeTier] || "?"}).` +
+      `<br><span class="m">It exchanged packets this moment with ${gw.length ? "gateways " + gw.join(", ") : "no gateway"}${fd.length ? " and search nodes " + fd.join(", ") : ""}.</span>` });
+  }
+  for (const nid in c.loc) {
+    if (!isSearch(nid)) continue;
+    const e = c.loc[nid].find(x => x.entry === MISSING), fresh = !!(e && e.fresh === "FRESH");
+    if (fresh && !prevFresh[nid] && !everFresh[nid]) found.push({ ids: [+nid, MISSING], html: `<b>${nameOf(nid)} got a fresh location</b> for the missing node: (${e.x.toFixed(0)}, ${e.y.toFixed(0)}) m.${roleOf(nid) === "finder" ? " It may now head toward it." : ""}` });
+  }
+  return found;
+}
+function checkAdvancement(ci){
+  const found = advancementsAt(ci), c = cycles[ci];
+  if (c) for (const nid in c.loc) if (isSearch(nid)) { const e = c.loc[nid].find(x => x.entry === MISSING); prevFresh[nid] = !!(e && e.fresh === "FRESH"); if (prevFresh[nid]) everFresh[nid] = true; }
+  if (!found.length) return false;
+  const first = !revealed; revealed = true;
+  highlight = { c: ci, ids: new Set(found.flatMap(f => f.ids)) };
+  refreshList();
+  const how = $("onAdv").value; if (how === "none") return false;
+  if (ci - lastAlertAt < COOLDOWN || performance.now() < quietUntil) return false;
+  lastAlertAt = ci;
+  const t = c.trace ? c.trace.t : ci * DT;
+  const head = how === "pause" ? "Paused" : "Slow motion";
+  const foot = how === "pause" ? "Highlighted in yellow. Press Play or Space to continue."
+    : `Highlighted in yellow. Playing at ${SLOW_SPEED}× for ${HL_CYCLES * DT} s of simulated time, then back to your speed. Space pauses.`;
+  $("banner").innerHTML = `<div class="t">${head} · progress at ${fmtT(t)}${first ? " · the missing node is now shown" : ""}</div><ul>${found.map(f => `<li>${f.html}</li>`).join("")}</ul><div class="m">${foot}</div>`;
+  $("banner").style.display = "block";
+  if (how === "pause") { setPlaying(false); return true; }
+  slowUntil = ci + HL_CYCLES; return false;
+}
+
+resize(); world = buildWorld(); stepCamera(true); editChanged(); computePeriods(); requestAnimationFrame(tick);
+$("showRange").addEventListener("change", () => draw());
+$("meshOn").addEventListener("change", () => {
+  const on = $("meshOn").checked;
+  $("meshState").textContent = on ? "on (full mesh)" : "off (star)";
+  if (on) setStatus("Mesh on: every node pair can talk. Runs are slower (about 20 min) and use 1-3 GB of memory; run one at a time. In testing the full mesh did worse than star (found 0 of 10 runs against 5 of 10).");
+});
+$("multiHopOn").addEventListener("change", () => {
+  const on = $("multiHopOn").checked;
+  $("multiHopState").textContent = on ? "on (pass on)" : "off (one hop)";
+  if (on && !$("meshOn").checked) setStatus("Multi-hop on. With Mesh off, searchers have no links to each other, so a location can only be passed between the missing node and the searchers. Turn Mesh on as well for searcher-to-searcher passing.");
+});
+$("partyShareOn").addEventListener("change", () => {
+  const on = $("partyShareOn").checked;
+  $("partyShareState").textContent = on ? "on (instant)" : "off (own table, radio only)";
+  setStatus(on ? "Party share on: every searcher steers on the newest location any searcher holds, shared instantly (not over the radio)."
+               : "Party share off: each searcher steers only on its own table entry, received over the radio, as in the original simulator and the paper. In testing (Scenario 3, mesh + multi-hop) this found 1 of 5 against 4 of 5 with sharing.");
+});
+$("gwAskOn").addEventListener("change", () => {
+  const on = $("gwAskOn").checked;
+  $("gwAskState").textContent = on ? "on (every 20 s)" : "off";
+  if (on && !($("meshOn").checked && $("multiHopOn").checked)) setStatus("Gateways ask on. It only delivers locations to the gateways with Mesh and Multi-hop on as well: with star, gateways have no links to searchers or relays, and without Multi-hop nodes only answer with their own position.");
+});
+$("showRelayRange").addEventListener("change", () => draw());
+loadRanges();
+fetch("/api/status").then(r => r.json()).then(s => {
+  if (s.minGateways) { MIN_GW = s.minGateways; editChanged(); }
+  if (!s.simBuilt) setStatus("Simulator not built yet: " + s.sim);
+}).catch(() => setStatus("Open this page through ui/server.py, not as a file."));
+</script>
+<script src="/static/vendor/three.min.js"></script>
+<script src="/static/landing.js"></script>
+</body>
+</html>

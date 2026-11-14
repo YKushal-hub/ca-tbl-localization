@@ -39,7 +39,7 @@ note() { printf '  %-7s %s\n' "$1" "$2"; }
 printf '\n--- presence: files that must be TRACKED, not merely present ---\n'
 for f in CA-TBL_Technical_Report_SelfContained.md \
          report/PCS_REDESIGN_RESULTS.md \
-         CA_TBL_AUDIT_REPORT.md \
+         docs/archive/history/CA_TBL_AUDIT_REPORT.md \
          README.md \
          scripts/catbl_gates.sh \
          scripts/catbl_verifier_selftest.sh \

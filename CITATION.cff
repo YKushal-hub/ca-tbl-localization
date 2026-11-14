@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "CA-TBL: Confidence-Aware Tier-Based Localization for GPS-Denied Search and Rescue (ns-3.47 simulation)"
+type: software
+abstract: >-
+  A three-tier radio localisation simulation (868 MHz LoRa, 2.4 GHz LoRa time of flight, UWB) with a decision layer
+  that escalates between tiers on a position-confidence score, a five-state inertial filter, per-action energy
+  accounting, and the registered campaigns and regression gates used to evaluate it. Built on ns-3.47.
+authors:
+  - family-names: "Yalamanchi"
+    given-names: "Kushal"
+  - family-names: "KN"
+    given-names: "Kushaal"
+repository-code: "https://github.com/YKushal-hub/ca-tbl-localization"
+license: GPL-2.0-only
+keywords:
+  - localization
+  - search and rescue
+  - LoRa
+  - ultra-wideband
+  - ns-3
+  - Kalman filter

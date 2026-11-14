@@ -1,0 +1,58 @@
+# Quick start
+
+One run of the preset: the default four arms, the endgame geometry, ten minutes of simulated time, scored on the design
+requirement. It needs the [build](installation.md) to be done and nothing else.
+
+```bash
+mkdir -p /tmp/catbl_demo/B_endgame/s7
+./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --seed=7 --duration=600 \
+    --boxHalf=750 --finderMode=1 --trace=true --outdir=/tmp/catbl_demo/B_endgame/s7
+python3 scripts/goal_report.py /tmp/catbl_demo
+```
+
+| flag | meaning |
+|---|---|
+| `--specProfile=true` | the preset every claim is drawn from; any flag given explicitly wins over it ([configuration](../implementation/configuration.md)) |
+| `--seed=7` | the random seed; runs are deterministic |
+| `--duration=600` | simulated seconds; the campaigns use 1800 |
+| `--boxHalf=750 --finderMode=1` | the endgame geometry: a box of 750 m half-width, finders converging directly |
+| `--trace=true` | write the per-cycle traces that `goal_report.py` reads |
+| `--outdir` | **must already exist** |
+| `--arms` | not given here: the default runs four arms. `poucet_fusion` is run **by name only** (`--arms=ca_tbl_full,fixed_threshold,poucet_fusion,static_2p4,static_868`) |
+
+`goal_report.py` reads a campaign layout, `<dir>/<GROUP>_<name>/s<seed>/`, and prints the requirement per arm:
+A(25 m) for tag 0 and for the five-node pool, the fraction of runs at or above 0.95, CEP95 for tag 0 and the mean
+subject energy in joules.
+
+## What this run printed
+
+Verified on 2026-10-26 with a binary built at commit `fa8ee2f0` (one seed, 600 s; the run took **5 min 26 s** on
+the verifying machine and exited 0). A single seed is a demonstration, not a result; the registered campaigns use
+20 seeds and 1800 s.
+
+| arm | A(25 m) tag 0 | A(25 m) five-node | CEP95 tag 0 (m) | subject J |
+|---|---|---|---|---|
+| `ca_tbl_full` | 1.000 | 0.980 | 1.5 | 10.49 |
+| `fixed_threshold` | 1.000 | 0.980 | 1.3 | 7.92 |
+| `static_868` | 0.933 | 0.751 | 31.1 | 3.46 |
+| `static_2p4` | 1.000 | 0.979 | 1.6 | 3.39 |
+
+The two LoRa-band static arms and the tiered arms differ the way the [results](../research/results.md) say they should
+(static 868 MHz far below the requirement), but one seed cannot rank `ca_tbl_full` against `fixed_threshold`.
+
+!!! note
+    Output is block-buffered: a run in progress shows an empty log and no rows until it finishes. One arm is about
+    six times faster (`--arms=ca_tbl_full`) and is byte-identical to that arm's row in a full run.
+
+!!! warning "Do not write new runs into `results/`"
+    That tree is tracked evidence. Each run writes `run_id.txt` with the invocation, build profile, source commit,
+    dirty count and a SHA-256 for each output file; a run with a dirty tree is not citable.
+
+`./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --PrintHelp` lists every flag, and
+[`docs/SCENARIO_FLAGS.md`](https://github.com/YKushal-hub/ca-tbl-localization/blob/main/docs/SCENARIO_FLAGS.md) explains them.
+
+## Reproducing a published result
+
+Each tracked results directory carries a `run_id.txt`. Check out the commit it names, build with the optimized
+profile, and run the recorded invocation into a new directory. Sidecars that cite a commit that no longer exists
+resolve through [`SHA_MAP.md`](https://github.com/YKushal-hub/ca-tbl-localization/blob/main/SHA_MAP.md). See [execution and provenance](../implementation/execution-pipeline.md).

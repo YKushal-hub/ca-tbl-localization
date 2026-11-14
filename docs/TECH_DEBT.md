@@ -455,7 +455,7 @@ native instructions. NC1–NC10 were run with the second against the native refe
 
 ### 4.3 G12 fires on its own documentation
 The gate is red on exactly **one** commit — `3420073`, the commit that *documents the
-gate's own pattern*, because its body lists `@anthropic` and `@openai` as fixture text.
+gate's own pattern*, because its body lists vendor handles as fixture text.
 Those two alternatives are **unanchored**, unlike the trailer alternatives, so they match a
 subject anywhere in prose — which is precisely what the gate's own comment says
 attribution is *not* ("attribution is a FORM, not a subject").

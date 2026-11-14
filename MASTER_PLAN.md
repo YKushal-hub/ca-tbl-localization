@@ -29,7 +29,7 @@ Every statement in this plan traces to one of the following. Where a number appe
 | S3 | `Simulation.md` §13–14 (repo) | Work programme and project standing |
 | S4 | `report/PCS_REDESIGN_RESULTS.md` Parts 0–8 (repo) | Evidence chain for the decision-layer question, corrections registers |
 | S5 | `docs/archive/CA_TBL_PHASE8_SCOPE.md` (repo) | Line-level scoping of the three unbuilt novelty components |
-| S6 | `CA_TBL_SIM_AUDIT.md`, `CA_TBL_AUDIT_REPORT.md` (repo) | Build-order history; independent adversarial audit |
+| S6 | `docs/archive/history/CA_TBL_SIM_AUDIT.md`, `docs/archive/history/CA_TBL_AUDIT_REPORT.md` (repo) | Build-order history; independent adversarial audit |
 | S7 | `EXCLUDED.md`, `SHA_MAP.md` (repo) | Evidence-tracking discipline, history-rewrite lookup |
 | S8 | `CA-DBL_Phase1_Blueprint.md` (project) | Phase 1 drafting plan, source hierarchy, chapter map, §6 engine-coverage gap table |
 | S9 | `terminology_lock.md`, `pending_items.md`, `drafting_status.md` (project) | Locked terminology, 43 open items, per-chapter status |
