@@ -6759,7 +6759,7 @@ ResolvePcsThresholds(CaTblPolicyConfig& pcfg, double pcsHysteresisBand, const Sp
 }
 
 ArmResult
-RunArm(CaTblPolicyMode mode,
+RunArm(CaTblPolicyMode armMode,
        uint32_t seed,
        double durationS,
        double dt,
@@ -6885,8 +6885,29 @@ RunArm(CaTblPolicyMode mode,
        double nlosScoreThreshold,
        bool relaySlots,
        bool edgeDownlinkOnFixTier,
-       const SpecOptions& spec)
+       const SpecOptions& specIn)
 {
+    // ca_tbl_two_tier (by name only). The arm is the adopted decision rule on a node that has no 2.4 GHz radio: its
+    // policy mode is CA_TBL_MODE_NO_INTEGRITY (what ca_tbl_full runs as under the preset's --integrityCheck=false)
+    // with CaTblPolicyConfig::skipTier2, so every `mode == FULL || NO_INTEGRITY` site below treats it as the
+    // adopted arm, and `armMode` -- the name the arm reports and files its traces under -- stays ca_tbl_two_tier.
+    //
+    // WHAT IS REMOVED FOR THE SUBJECT AND WHAT IS NOT. The subject's own tier 2 is gone: the policy never selects it
+    // (skipTier2), and the dual base's 2.4 GHz legs are not ranged, woken or billed awake (`twoTier` guards below:
+    // tag0Wake24, the subject's otherS and the awake/asleep sites). The dual base's OTHER half -- ranging 868 MHz on
+    // every cycle and fusing it with the active tier's ranges -- stays on: that is 868 + UWB fusion, which a node with
+    // those two radios has, and turning it off would make this arm's deficit tier 2 PLUS the loss of that fusion.
+    // The infrastructure (gateway and finder radios, the 2.4 GHz request-over-mesh path of TA-2/N.10) is NOT touched,
+    // so the arm keeps every advantage the adopted arm's anchors give it; the subject's own request for UWB goes out
+    // on its 868 MHz radio. These choices favour the two-tier arm or leave it level; none handicaps it.
+    const bool twoTier = (armMode == CA_TBL_MODE_TWO_TIER);
+    const CaTblPolicyMode mode = twoTier ? CA_TBL_MODE_NO_INTEGRITY : armMode;
+    SpecOptions specTwoTier = specIn; // a copy for every arm; only the two-tier arm changes it
+    if (twoTier)
+    {
+        specTwoTier.dualBaseOnDemand = false; // tag0Wake24 below is fixed false for this arm
+    }
+    const SpecOptions& spec = specTwoTier;
     RngSeedManager::SetSeed(seed);
     RngSeedManager::SetRun(1);
     // WITHOUT THIS LINE NO TWO ARMS SHARE A CHANNEL REALISATION, AND NONE EVER DID.
@@ -7080,6 +7101,7 @@ RunArm(CaTblPolicyMode mode,
 
     CaTblPolicyConfig pcfg;
     pcfg.mode = mode;
+    pcfg.skipTier2 = twoTier;
     pcfg.mahalUseR = mahalUseR;
     pcfg.pcsTerm1Inverse = spec.pcsTerm1Inverse; // row 17
     pcfg.suspectRecovery = suspectRecovery;
@@ -7104,7 +7126,14 @@ RunArm(CaTblPolicyMode mode,
     {
         pcfg.caseD = true;
     }
-    if (spec.grantGatedUwb)
+    // ca_tbl_two_tier does NOT take the NW-7 grant gate. Found by the L2 pilot (seed 361, 900 s): the arbiters are the
+    // 2.4 GHz radios of anchors and finders (arbMacById), and an arbiter grants only on UWB-reach evidence that is
+    // itself recorded from a UWB exchange or a 2.4 GHz range under 29.5 m (noteUwbEvidence). A node without a 2.4 GHz
+    // radio therefore can never be granted -- 0 confirmations against 7-11 timeouts -- so keeping the gate would measure
+    // the arbitration plumbing's dependence on tier 2, not tier 2's necessity. The arm enters UWB directly from 868 MHz
+    // on the policy's own decision (PCS and the neighbour-presence half of the evidence gate). That favours the
+    // two-tier arm: it skips the grant latency, the denials and the slot arbitration the adopted arm pays for.
+    if (spec.grantGatedUwb && !twoTier)
     {
         pcfg.grantGatedUwb = true; // NW-7
     }
@@ -7393,7 +7422,7 @@ RunArm(CaTblPolicyMode mode,
     if (vizEventsOn && vizTablePeriodS > 0.0)
     {
         std::ostringstream bfn;
-        bfn << traceDir << "/nbrtable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        bfn << traceDir << "/nbrtable_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         vizNbrTable.open(bfn.str().c_str());
         if (vizNbrTable.is_open())
@@ -7401,7 +7430,7 @@ RunArm(CaTblPolicyMode mode,
             vizNbrTable << "t,nodeId,tier,peerId,lastHeardS,rxPowerDbm,snrDb,heardCount\n";
         }
         std::ostringstream lfn;
-        lfn << traceDir << "/loctable_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        lfn << traceDir << "/loctable_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         vizLocTable.open(lfn.str().c_str());
         if (vizLocTable.is_open())
@@ -7413,14 +7442,14 @@ RunArm(CaTblPolicyMode mode,
     if (vizEventsOn)
     {
         std::ostringstream vfn;
-        vfn << traceDir << "/events_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        vfn << traceDir << "/events_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         vizEvents.open(vfn.str().c_str());
         if (vizEvents.is_open())
         {
             vizEvents << "t,tier,txId,rxId,msgType,outcome,rxPowerDbm,payload\n";
         }
         std::ostringstream nfn;
-        nfn << traceDir << "/nodes_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        nfn << traceDir << "/nodes_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         vizNodes.open(nfn.str().c_str());
         if (vizNodes.is_open())
         {
@@ -7438,7 +7467,7 @@ RunArm(CaTblPolicyMode mode,
     if (anchorGrantGossipS > 0.0)
     {
         std::ostringstream gfn;
-        gfn << traceDir << "/grant_verdicts_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        gfn << traceDir << "/grant_verdicts_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         gossip.reset(new GrantGossip(anchorGrantGossipS, dt, gfn.str(), phy));
         gossip->windowS = spec.arbSlotHoldS;
@@ -7789,7 +7818,7 @@ RunArm(CaTblPolicyMode mode,
     if (relayChain)
     {
         std::ostringstream cfn;
-        cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        cfn << traceDir << "/relay_chain_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         chain.reset(new RelayChain(tags.size(), cfn.str(), spec.hopVarianceTerms));
         chain->hopProvenance = spec.hopProvenance;
@@ -7805,7 +7834,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.fuseFloorActive)
     {
         std::ostringstream ffn;
-        ffn << traceDir << "/fusefloor_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        ffn << traceDir << "/fusefloor_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         fuseFloorLog.reset(new FuseFloorLog(ffn.str()));
     }
     // C5_INSTANT. Null unless --relaySlots, and while null every relay exchange is at the
@@ -7828,7 +7857,7 @@ RunArm(CaTblPolicyMode mode,
         const CaTblTier rrt = static_cast<CaTblTier>(
             std::min<uint32_t>(CA_TBL_TIER_COUNT - 1, relayTier));
         std::ostringstream rfn;
-        rfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        rfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         CaTblRoutingWeights rw; // NW-2
         rw.alphaNlos = spec.routeAlpha;
@@ -7862,7 +7891,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 const CaTblTier tt = static_cast<CaTblTier>(ti);
                 std::ostringstream tfn;
-                tfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(mode) << "_seed"
+                tfn << traceDir << "/fix_routing_" << CaTblPolicyModeName(armMode) << "_seed"
                     << seed << "_tier" << ti << ".csv";
                 tierRouters[ti].reset(new FixRouter(tags, nTags, tt, fixRoutingConfidence,
                                                     dep.anchors[tt], beaconPeriodS[tt], dt,
@@ -8182,7 +8211,7 @@ RunArm(CaTblPolicyMode mode,
     if (writeTrace)
     {
         std::ostringstream fn;
-        fn << traceDir << "/trace_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        fn << traceDir << "/trace_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         trace.open(fn.str().c_str());
         // CHECKED, and aborts rather than degrading. An unchecked failure here makes
         // every later `trace << ...` a silent no-op, so the run completes and emits a
@@ -8287,7 +8316,7 @@ RunArm(CaTblPolicyMode mode,
     if (tier1Tdoa)
     {
         std::ostringstream tfn;
-        tfn << traceDir << "/tdoa_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        tfn << traceDir << "/tdoa_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         tdoa.reset(new Tier1Tdoa(seed, tdoaPpsSigmaNs, phy[CA_TBL_TIER_868],
                                  dep.anchors[CA_TBL_TIER_868], energy.GetTier1ChargeReplies(),
                                  energy.GetEdgeServer(), tfn.str()));
@@ -8298,8 +8327,8 @@ RunArm(CaTblPolicyMode mode,
     {
         std::ostringstream lfn;
         std::ostringstream sfn;
-        lfn << traceDir << "/nlos_links_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
-        sfn << traceDir << "/nlos_summary_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        lfn << traceDir << "/nlos_links_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        sfn << traceDir << "/nlos_summary_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         nlosScorer.reset(new NlosScoring(seed, nlosScoreThreshold, engine2p4.GetConfig(),
                                          engineUwb.GetConfig(), lfn.str(), sfn.str()));
@@ -8310,7 +8339,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.integrityNlosFromScore && mode == CA_TBL_MODE_FULL && spec.integrityCheck)
     {
         std::ostringstream ifn;
-        ifn << traceDir << "/integrity_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        ifn << traceDir << "/integrity_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         integrityLog.reset(new std::ofstream(ifn.str().c_str()));
         *integrityLog << "t,fixTier,nRanges,nNlosTag,nScored,meanScore,basis,eligible,"
@@ -8337,7 +8366,7 @@ RunArm(CaTblPolicyMode mode,
     if (g_traceOnDemand)
     {
         std::ostringstream ofn;
-        ofn << traceDir << "/ondemand_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        ofn << traceDir << "/ondemand_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         onDemandLog.reset(new std::ofstream(ofn.str().c_str()));
         *onDemandLog << "t,activeTier,n868,pAny,pCal,attempted24,n24\n";
     }
@@ -8351,7 +8380,7 @@ RunArm(CaTblPolicyMode mode,
     double odThisLogit = 0.0;
     uint64_t onDemandEvals = 0;  // B2 --dualBaseOnDemand: tag-0 cycles decided
     uint64_t onDemandSleeps = 0; // B2 --dualBaseOnDemand: of which the 2.4 GHz radio slept
-    bool tag0Wake24 = true;      // B2: this cycle's decision (true when the flag is off)
+    bool tag0Wake24 = !twoTier;  // B2: this cycle's decision (true when the flag is off); ca_tbl_two_tier: never
     uint64_t crossTierPolls = 0; // N.26 fix 2: UWB polls added from the LoRa tables
     uint64_t f1TagLegs = 0;      // --dualBaseRelayTier: tag 0's relay legs on 2.4 GHz, 868 active
     uint64_t f1TagAdmitted = 0;  // ... of which admitted
@@ -8424,7 +8453,7 @@ RunArm(CaTblPolicyMode mode,
         // subject 0 (MS-1 adds 97 per subject).
         imuPred->rk.Configure(Dc1ImuParams(), static_cast<int64_t>(seed) * 7919 + 1400071);
         std::ostringstream ifn;
-        ifn << traceDir << "/imu_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        ifn << traceDir << "/imu_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         imuPred->log.open(ifn.str().c_str());
         imuPred->log << "t,dxTrue,dyTrue,ux,uy,psi,quxx,quxy,quyy,sigXX,sigXY,sigYY,accX,accY,"
                         "elapsedS,imuPredicted,hadFix,rejected,reset,estX,estY\n";
@@ -8510,8 +8539,8 @@ RunArm(CaTblPolicyMode mode,
     {
         std::ostringstream a;
         std::ostringstream b;
-        a << traceDir << "/case_c_ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
-        b << traceDir << "/case_c_relative_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        a << traceDir << "/case_c_ranges_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        b << traceDir << "/case_c_relative_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         caseCRangeLog.reset(new std::ofstream(a.str().c_str()));
         caseCShapeLog.reset(new std::ofstream(b.str().c_str()));
         *caseCRangeLog << "t,nodeId,peerId,tier,rangeM,trueM,deliveredAt\n";
@@ -8617,7 +8646,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.traceRanges)
     {
         std::ostringstream rfn;
-        rfn << traceDir << "/ranges_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        rfn << traceDir << "/ranges_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         rangeLog.reset(new std::ofstream(rfn.str().c_str()));
         *rangeLog << "t,src,tier,anchorId,sourceKind,fromFloor,inSet,nSet,rangeM,sigmaM,trueRangeM,errM,"
                      "nlosTruth,nlosScore,hadFix\n";
@@ -8627,7 +8656,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.hopProvenance)
     {
         std::ostringstream hfn;
-        hfn << traceDir << "/hops_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        hfn << traceDir << "/hops_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         hopLog.reset(new std::ofstream(hfn.str().c_str()));
         *hopLog << "t,nMeas,nRelayed,maxHop,usedFloor,hadFix,rejected,hopCountAtFix\n";
     }
@@ -8640,7 +8669,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.arbitrationV2)
     {
         std::ostringstream afn;
-        afn << traceDir << "/arb_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        afn << traceDir << "/arb_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         arbLog.reset(new std::ofstream(afn.str().c_str()));
         *arbLog << "t,arbiter,requester,event,u,tDeg,rem,tBatt,tStale,qt,queuePos,evidenceAgeS\n";
         for (size_t m = 0; m < macs.size(); ++m)
@@ -8727,7 +8756,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.requesterEscalation)
     {
         std::ostringstream qfn2;
-        qfn2 << traceDir << "/reqesc_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        qfn2 << traceDir << "/reqesc_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         reqLog.reset(new std::ofstream(qfn2.str().c_str()));
         *reqLog << "t,target,manifest,pcs,threshold,arbiter,entryT,qt,outcome\n";
     }
@@ -8752,7 +8781,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.finderRequesterEscalation)
     {
         std::ostringstream ffn;
-        ffn << traceDir << "/finderreq_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        ffn << traceDir << "/finderreq_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         finderReqLog.reset(new std::ofstream(ffn.str().c_str()));
         *finderReqLog << "t,finderId,target,manifest,pcs,threshold,route,arbiter,entryT,qt,outcome\n";
     }
@@ -8764,7 +8793,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.requestOverMesh)
     {
         std::ostringstream cfn;
-        cfn << traceDir << "/reqcarry_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        cfn << traceDir << "/reqcarry_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         carryLog.reset(new std::ofstream(cfn.str().c_str()));
         *carryLog << "t,requester,subject,arbiter,carrier,heardAgeS,outcome\n";
     }
@@ -8853,7 +8882,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.sessionOverMesh) // TA-1b's finder rows ride the same log
     {
         std::ostringstream sfn;
-        sfn << traceDir << "/session_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sfn << traceDir << "/session_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         sessLog.reset(new std::ofstream(sfn.str().c_str()));
         *sessLog << "t,requesterId,sessionId,event,manifest,queryId,answererId,entryNode,"
                     "tierSource,pcs,suspect,hopCountAtFix,stateBefore,stateAfter,uwbActive,"
@@ -8862,8 +8891,8 @@ RunArm(CaTblPolicyMode mode,
     if (spec.queryV2)
     {
         std::ostringstream rfn, qfn;
-        rfn << traceDir << "/responses_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
-        qfn << traceDir << "/queryv2_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        rfn << traceDir << "/responses_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        qfn << traceDir << "/queryv2_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         respLog.reset(new std::ofstream(rfn.str().c_str()));
         qv2Log.reset(new std::ofstream(qfn.str().c_str()));
         *respLog << "t,requesterId,tier,queryId,manifest,answererId,entryNode,entryT,x,y,seq,hop,"
@@ -9145,7 +9174,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.grantGatedUwb)
     {
         std::ostringstream gfn;
-        gfn << traceDir << "/grants_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        gfn << traceDir << "/grants_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         grantLog.reset(new std::ofstream(gfn.str().c_str()));
         *grantLog << "t,subjectId,event,anchorId\n";
     }
@@ -9175,7 +9204,7 @@ RunArm(CaTblPolicyMode mode,
     if (taskRR)
     {
         std::ostringstream tfn;
-        tfn << traceDir << "/tasking_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        tfn << traceDir << "/tasking_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         taskLog.reset(new std::ofstream(tfn.str().c_str()));
         *taskLog << "t,finderId,targetId,phase,entryX,entryY,entryVarX,entryVarY,entryT,goalX,"
                     "goalY\n";
@@ -9208,7 +9237,8 @@ RunArm(CaTblPolicyMode mode,
                                          (hybrid0 && t0 != CA_TBL_TIER_868 &&
                                           ti == CA_TBL_TIER_868) ||
                                          (spec.loraDualBase && hybrid0 &&
-                                          ti != static_cast<int>(CA_TBL_TIER_UWB))));
+                                          ti != static_cast<int>(CA_TBL_TIER_UWB) &&
+                                          !(twoTier && ti == static_cast<int>(CA_TBL_TIER_2P4)))));
             }
         }
     }
@@ -9237,7 +9267,7 @@ RunArm(CaTblPolicyMode mode,
     {
         witness.reset(new ImuWitnessState());
         std::ostringstream wfn;
-        wfn << traceDir << "/witness_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        wfn << traceDir << "/witness_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         witness->log.open(wfn.str().c_str());
         witness->log << "t,anchored,wx,wy,haveFix,fixX,fixY,rxx,ryy,sigTrace,disagree,tol,"
                         "evaluated,refused,absorbed,estX,estY\n";
@@ -9254,7 +9284,7 @@ RunArm(CaTblPolicyMode mode,
     {
         entryPred.reset(new EntryPredState());
         std::ostringstream efn2;
-        efn2 << traceDir << "/entrypred_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        efn2 << traceDir << "/entrypred_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         entryPred->log.open(efn2.str().c_str());
         entryPred->log << "t,anchorId,seqNo,ageS,x0,y0,vx,vy,xPred,yPred,varAdd,varAddLegacy\n";
     }
@@ -9274,7 +9304,7 @@ RunArm(CaTblPolicyMode mode,
     {
         caseDst.reset(new CaseDState());
         std::ostringstream cfn;
-        cfn << traceDir << "/cased_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        cfn << traceDir << "/cased_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         caseDst->log.open(cfn.str().c_str());
         caseDst->log << "t,activeTier,anchorId,sourceKind,nis,applied,traceSigma,pcs,"
                         "wantedEscalation,escalated,deescalated,nextTier\n";
@@ -9297,7 +9327,7 @@ RunArm(CaTblPolicyMode mode,
     {
         sparse.reset(new SparseInStepState());
         std::ostringstream sfn;
-        sfn << traceDir << "/sparse_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sfn << traceDir << "/sparse_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         sparse->log.open(sfn.str().c_str());
         sparse->log << "t,nMeas,verdict,fixKind,priorX,priorY,prevX,prevY,x,y,varM2,estX,estY,"
                        "rangeUpdates,positionFuses,priorSource\n";
@@ -9331,14 +9361,14 @@ RunArm(CaTblPolicyMode mode,
     if (spec.finderPseudoAnchorStrict)
     {
         std::ostringstream sfn2;
-        sfn2 << traceDir << "/pseudo_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sfn2 << traceDir << "/pseudo_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         strictLog.reset(new std::ofstream(sfn2.str().c_str()));
         *strictLog << "t,finderId,kind,usedX,usedY,trueX,trueY\n";
     }
     if (spec.subjectFinderPseudoAnchor)
     {
         std::ostringstream pfn;
-        pfn << traceDir << "/subjpseudo_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        pfn << traceDir << "/subjpseudo_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         pseudoS.reset(new std::ofstream(pfn.str().c_str()));
         *pseudoS << "t,subjectId,finderId,kind,entryT,entryX,entryY,vx,vy,predX,predY,trueX,trueY,"
                     "entryVarX,entryVarY,ageVar,sigmaRaw,sigmaEff\n";
@@ -9346,7 +9376,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.subjectTriggeredUpdates)
     {
         std::ostringstream sfn;
-        sfn << traceDir << "/subjtriggered_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+        sfn << traceDir << "/subjtriggered_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
         trigS.reset(new std::ofstream(sfn.str().c_str()));
         *trigS << "t,subjectId,kind,tier,moveM,threshM,estX,estY,predX,predY,totalJ,framesBilled\n";
     }
@@ -9354,7 +9384,7 @@ RunArm(CaTblPolicyMode mode,
     {
         trig.reset(new TriggeredUpdateState());
         std::ostringstream tfn;
-        tfn << traceDir << "/triggered_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        tfn << traceDir << "/triggered_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         trig->log.open(tfn.str().c_str());
         trig->log << "t,kind,tier,moveM,threshM,estX,estY,predX,predY,totalJ,framesBilled\n";
@@ -9363,7 +9393,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.entryVelocity)
     {
         std::ostringstream efn;
-        efn << traceDir << "/entries_" << CaTblPolicyModeName(mode) << "_seed" << seed
+        efn << traceDir << "/entries_" << CaTblPolicyModeName(armMode) << "_seed" << seed
             << ".csv";
         entriesLog.reset(new std::ofstream(efn.str().c_str()));
         *entriesLog << "kind,t,holderId,entryId,seqNo,hopCount,timestampS,x,y,vx,vy,refVx,"
@@ -9492,13 +9522,13 @@ RunArm(CaTblPolicyMode mode,
             }
             SubjectExtra ex;
             std::ostringstream sfn;
-            sfn << traceDir << "/subjtrace_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            sfn << traceDir << "/subjtrace_" << CaTblPolicyModeName(armMode) << "_seed" << seed
                 << "_subj" << sb.nodeId << ".csv";
             ex.trace.reset(new std::ofstream(sfn.str().c_str()));
             if (spec.traceNegInfo)
             {
                 std::ostringstream nfn;
-                nfn << traceDir << "/neginfo_" << CaTblPolicyModeName(mode) << "_seed" << seed << "_subj"
+                nfn << traceDir << "/neginfo_" << CaTblPolicyModeName(armMode) << "_seed" << seed << "_subj"
                     << sb.nodeId << ".csv";
                 ex.negLog.reset(new std::ofstream(nfn.str().c_str()));
                 *ex.negLog << "t,subjectId,activeTier,finderId,dEstM,entryAgeS,silenceS,contactNow,sigmaClaimM,"
@@ -9520,7 +9550,7 @@ RunArm(CaTblPolicyMode mode,
                 // Row 55. Tag 0's TDoA, its own instance: its own gateways' stamps, its own
                 // log, its own two streams (+97 per subject, as its IMU's).
                 std::ostringstream tfn;
-                tfn << traceDir << "/subjtdoa_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                tfn << traceDir << "/subjtdoa_" << CaTblPolicyModeName(armMode) << "_seed" << seed
                     << "_subj" << sb.nodeId << ".csv";
                 std::ostringstream lab;
                 lab << " (subject " << sb.nodeId << ")";
@@ -9535,7 +9565,7 @@ RunArm(CaTblPolicyMode mode,
                 // Row 55. Tag 0's switching-point witnesses, for this subject's own estimate.
                 ex.wit.reset(new SubjectWitness());
                 std::ostringstream wfn;
-                wfn << traceDir << "/subjwitness_" << CaTblPolicyModeName(mode) << "_seed" << seed
+                wfn << traceDir << "/subjwitness_" << CaTblPolicyModeName(armMode) << "_seed" << seed
                     << "_subj" << sb.nodeId << ".csv";
                 ex.wit->log.open(wfn.str().c_str());
                 ex.wit->log << "t,anchored,wx,wy,haveFix,fixX,fixY,rxx,ryy,sigTrace,disagree,tol,"
@@ -9548,9 +9578,9 @@ RunArm(CaTblPolicyMode mode,
                 // (tag 0's constant + 97 per subject).
                 std::ostringstream lfn;
                 std::ostringstream sfn2;
-                lfn << traceDir << "/subjnlos_links_" << CaTblPolicyModeName(mode) << "_seed"
+                lfn << traceDir << "/subjnlos_links_" << CaTblPolicyModeName(armMode) << "_seed"
                     << seed << "_subj" << sb.nodeId << ".csv";
-                sfn2 << traceDir << "/subjnlos_summary_" << CaTblPolicyModeName(mode) << "_seed"
+                sfn2 << traceDir << "/subjnlos_summary_" << CaTblPolicyModeName(armMode) << "_seed"
                      << seed << "_subj" << sb.nodeId << ".csv";
                 std::ostringstream lab;
                 lab << " (subject " << sb.nodeId << ")";
@@ -11076,7 +11106,7 @@ RunArm(CaTblPolicyMode mode,
                 std::vector<CaTblRangeMeasurement> otherS;
                 if (dualS)
                 {
-                    if (act != CA_TBL_TIER_2P4 && !(preempt && pendT == CA_TBL_TIER_2P4))
+                    if (act != CA_TBL_TIER_2P4 && !(preempt && pendT == CA_TBL_TIER_2P4) && !twoTier)
                     {
                         otherS = rangeS(CA_TBL_TIER_2P4);
                     }
@@ -11598,7 +11628,7 @@ RunArm(CaTblPolicyMode mode,
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
                     const bool awake = FuseTierOn(mode, k) || (tr == act) ||
                                        (floorOn && tr == CA_TBL_TIER_868) ||
-                                       (dualS && tr != CA_TBL_TIER_UWB);
+                                       (dualS && tr != CA_TBL_TIER_UWB && !(twoTier && tr == CA_TBL_TIER_2P4));
                     if (mesh)
                     {
                         const double air = mm->GetRebroadcastAirtimeS();
@@ -11651,7 +11681,8 @@ RunArm(CaTblPolicyMode mode,
                         mm->SetAsleep(!(FuseTierOn(mode, k) ||
                                         k == static_cast<int>(ds.nextTier) ||
                                         (floorNext && k == CA_TBL_TIER_868) ||
-                                        (dualS && k != static_cast<int>(CA_TBL_TIER_UWB))));
+                                        (dualS && k != static_cast<int>(CA_TBL_TIER_UWB) &&
+                                         !(twoTier && k == static_cast<int>(CA_TBL_TIER_2P4)))));
                     }
                 }
                 *ex.trace << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId << ','
@@ -12624,7 +12655,7 @@ RunArm(CaTblPolicyMode mode,
                 onDemandSleeps += tag0Wake24 ? 0 : 1;
             }
             if (active != CA_TBL_TIER_2P4 && preemptTier != static_cast<int>(CA_TBL_TIER_2P4) &&
-                tag0Wake24)
+                tag0Wake24 && !twoTier)
             {
                 otherLoraMeas = rangeTier(CA_TBL_TIER_2P4);
                 ranged2p4Other = true;
@@ -14423,7 +14454,7 @@ RunArm(CaTblPolicyMode mode,
 
         if (writeTrace)
         {
-            trace << std::fixed << std::setprecision(4) << t << "," << CaTblPolicyModeName(mode)
+            trace << std::fixed << std::setprecision(4) << t << "," << CaTblPolicyModeName(armMode)
                   << "," << seed << "," << CaTblTierName(d.activeTier) << ","
                   << CaTblTierName(d.nextTier) << "," << CaTblTierName(fixTier) << ","
                   << (usedFloor ? 1 : 0) << "," << pos.x << "," << pos.y << "," << d.estX
@@ -14675,7 +14706,7 @@ RunArm(CaTblPolicyMode mode,
     }
 
     ArmResult res;
-    res.arm = CaTblPolicyModeName(mode);
+    res.arm = CaTblPolicyModeName(armMode);
     res.seed = seed;
     res.steps = steps;
     res.durationS = durationS;
@@ -14781,7 +14812,7 @@ RunArm(CaTblPolicyMode mode,
                 q += er[i] * er[i];
             }
             std::ostringstream o;
-            o << CaTblPolicyModeName(mode) << ',' << seed << ',' << id << ',' << st << ','
+            o << CaTblPolicyModeName(armMode) << ',' << seed << ',' << id << ',' << st << ','
               << std::fixed << std::setprecision(4)
               << (er.empty() ? 0.0 : std::sqrt(q / static_cast<double>(er.size()))) << ','
               << Percentile(er, 0.50) << ',' << Percentile(er, 0.95) << ','
@@ -14851,7 +14882,7 @@ RunArm(CaTblPolicyMode mode,
                     }
                 }
             }
-            std::cout << "    subject mobility (" << CaTblPolicyModeName(mode) << "): stationary/approaching/"
+            std::cout << "    subject mobility (" << CaTblPolicyModeName(armMode) << "): stationary/approaching/"
                       << "receding " << m[0] << "/" << m[1] << "/" << m[2] << "; escalation handshakes " << hs
                       << ", RECEDING eager pushes " << rec << "\n";
         }
@@ -14862,7 +14893,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 pf += tags[pt].policy.GetCaseAPreFuseCount();
             }
-            std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(mode) << "): tag 0 "
+            std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(armMode) << "): tag 0 "
                       << policy.GetCaseAPreFuseCount() << ", all measured nodes " << pf << " cycles\n";
         }
         line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
@@ -14889,7 +14920,7 @@ RunArm(CaTblPolicyMode mode,
         sessLog.reset();
         std::map<uint32_t, CaTblSession>::const_iterator si = sessions.Sessions().find(sessionId);
         std::ostringstream line;
-        line << "    TA-1 base-station session (" << CaTblPolicyModeName(mode)
+        line << "    TA-1 base-station session (" << CaTblPolicyModeName(armMode)
              << "): answers delivered " << baseResults << ", path "
              << (si != sessions.Sessions().end() ? si->second.Path().c_str() : "none")
              << "; first coarse/precise (s):";
@@ -14924,7 +14955,7 @@ RunArm(CaTblPolicyMode mode,
         // TA-1b. Closed before the digest.
         finderReqLog->close();
         finderReqLog.reset();
-        std::cout << "    TA-1b finder requester escalation (" << CaTblPolicyModeName(mode)
+        std::cout << "    TA-1b finder requester escalation (" << CaTblPolicyModeName(armMode)
                   << "): requests own-arbiter " << finderReq[0] << ", named " << finderReq[1]
                   << ", unroutable " << finderReq[2] << "; granted " << finderReq[3]
                   << ", queued " << finderReq[4] << ", refused " << finderReq[5] << "\n";
@@ -14945,7 +14976,7 @@ RunArm(CaTblPolicyMode mode,
                 vd[k] += c->second->GetOboFramesVerdict(k);
             }
         }
-        std::cout << "    N.10 request over mesh (" << CaTblPolicyModeName(mode) << "): carried "
+        std::cout << "    N.10 request over mesh (" << CaTblPolicyModeName(armMode) << "): carried "
                   << carryCounts[0] << ", unheard " << carryCounts[1] << "; frames sent " << sent
                   << ", heard at arbiters " << heard << ": granted " << vd[0] << ", queued "
                   << vd[1] << ", refused " << vd[2] << "\n";
@@ -14961,7 +14992,7 @@ RunArm(CaTblPolicyMode mode,
             acc += tags[pt].policy.GetOboAccepted();
             ref += tags[pt].policy.GetOboRefused();
         }
-        std::cout << "    TA-2 requester escalation (" << CaTblPolicyModeName(mode)
+        std::cout << "    TA-2 requester escalation (" << CaTblPolicyModeName(armMode)
                   << "): granted " << reqCounts[0] << ", queued " << reqCounts[1] << ", refused "
                   << reqCounts[2] << ", unroutable " << reqCounts[3] << "; at the targets accepted "
                   << acc << ", refused " << ref << "\n";
@@ -14972,7 +15003,7 @@ RunArm(CaTblPolicyMode mode,
         const FinderSearch& fs = finderSearch[fi];
         const CaTblSession& se = fs.mgr.Sessions().at(fs.sid);
         std::ostringstream line;
-        line << "    TA-1b finder session (" << CaTblPolicyModeName(mode) << "): finder "
+        line << "    TA-1b finder session (" << CaTblPolicyModeName(armMode) << "): finder "
              << finderIds[fi] << " target m" << static_cast<int>(fs.target) << ", answers "
              << fs.results << ", path " << (se.Path().empty() ? "SEARCHING" : se.Path())
              << ", first coarse/precise (s) " << std::fixed << std::setprecision(1)
@@ -14985,7 +15016,7 @@ RunArm(CaTblPolicyMode mode,
         // NW-1. Closed before the digest.
         hopLog->close();
         hopLog.reset();
-        std::cout << "    NW-1 hop provenance (" << CaTblPolicyModeName(mode)
+        std::cout << "    NW-1 hop provenance (" << CaTblPolicyModeName(armMode)
                   << "): fixes by depth of the fused set 0:" << hopFixesByDepth[0] << " 1:"
                   << hopFixesByDepth[1] << " 2:" << hopFixesByDepth[2] << " 3+:"
                   << hopFixesByDepth[3] << "\n";
@@ -15006,7 +15037,7 @@ RunArm(CaTblPolicyMode mode,
         {
             doubled += gc->second->DoubleQueued();
         }
-        std::cout << "    NW-6 queue gossip (" << CaTblPolicyModeName(mode) << "): queue items sent "
+        std::cout << "    NW-6 queue gossip (" << CaTblPolicyModeName(armMode) << "): queue items sent "
                   << sent << ", heard " << heard << ", double-queued " << doubled
                   << ", queued requests yielded to a higher id " << yields << " ("
                   << gossip->finder1.size() << " finders gossiping)\n";
@@ -15032,7 +15063,7 @@ RunArm(CaTblPolicyMode mode,
         }
         arbLog->close();
         arbLog.reset();
-        std::cout << "    NW-5 arbitration (" << CaTblPolicyModeName(mode) << "): grants " << g
+        std::cout << "    NW-5 arbitration (" << CaTblPolicyModeName(armMode) << "): grants " << g
                   << " (by finders " << gFinder << "), pre-emptions " << pre
                   << ", from the queue " << aged << ", queued " << q << ", out of range " << oor
                   << ", dropped from the queue " << ex << "\n";
@@ -15055,7 +15086,7 @@ RunArm(CaTblPolicyMode mode,
             a[3] += po.GetQueryEscSuppressed();
             a[4] += po.GetQueryEscIgnored();
         }
-        std::cout << "    NW-4 query-triggered escalation (" << CaTblPolicyModeName(mode)
+        std::cout << "    NW-4 query-triggered escalation (" << CaTblPolicyModeName(armMode)
                   << "): URGENT queries latched " << latched << "; hook armed " << a[0]
                   << ", fired " << a[1] << ", escalations " << a[2] << ", suppressed " << a[3]
                   << ", ignored " << a[4] << "\n";
@@ -15077,7 +15108,7 @@ RunArm(CaTblPolicyMode mode,
         }
         respLog->close();
         qv2Log->close();
-        std::cout << "    NW-9 queries v2 (" << CaTblPolicyModeName(mode) << "): answered as target "
+        std::cout << "    NW-9 queries v2 (" << CaTblPolicyModeName(armMode) << "): answered as target "
                   << an << ", by proxy " << px << ", rebroadcasts suppressed " << sp
                   << ", lists reduced " << rd << ", answers heard by requesters " << hd
                   << " (with an entry " << en << ")\n";
@@ -15093,7 +15124,7 @@ RunArm(CaTblPolicyMode mode,
               << ", cycles waiting " << po.GetUwbWaitCycles();
         };
         std::ostringstream line;
-        line << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(mode) << "), tag 0: ";
+        line << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(armMode) << "), tag 0: ";
         put(line, policy);
         std::cout << line.str() << "\n";
         if (subj)
@@ -15111,7 +15142,7 @@ RunArm(CaTblPolicyMode mode,
                 a[6] += po.GetUwbCoverageClears();
                 a[7] += po.GetUwbWaitCycles();
             }
-            std::cout << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(mode)
+            std::cout << "    NW-7 grant-gated UWB (" << CaTblPolicyModeName(armMode)
                       << "), subjects 2.." << spec.measuredSubjects
                       << ": requests " << a[0] << ", confirmed " << a[1] << ", denied " << a[2]
                       << ", timed out " << a[3] << ", late grants " << a[4] << ", aborted "
@@ -15142,7 +15173,7 @@ RunArm(CaTblPolicyMode mode,
     }
     if (spec.finderStaleSearch)
     {
-        std::cout << "    stale-entry search (" << CaTblPolicyModeName(mode) << "): " << staleSearchCycles
+        std::cout << "    stale-entry search (" << CaTblPolicyModeName(armMode) << "): " << staleSearchCycles
                   << " finder-cycles circled a last known position\n";
     }
     res.escalations = policy.GetEscalationCount();
@@ -15227,7 +15258,7 @@ RunArm(CaTblPolicyMode mode,
     if (edgeUpS)
     {
         std::ostringstream line;
-        line << "    SY-1 edge uplink (subjects, " << CaTblPolicyModeName(mode) << "):";
+        line << "    SY-1 edge uplink (subjects, " << CaTblPolicyModeName(armMode) << "):";
         for (uint32_t pt = 1; pt < spec.measuredSubjects && pt < edgeUpS->size(); ++pt)
         {
             const EdgeUplinkTally& eu = (*edgeUpS)[pt];
@@ -15392,7 +15423,7 @@ RunArm(CaTblPolicyMode mode,
         // N.21 strict. Closed before the digest.
         strictLog->close();
         strictLog.reset();
-        std::cout << "    N.21 strict pseudo-anchors (" << CaTblPolicyModeName(mode)
+        std::cout << "    N.21 strict pseudo-anchors (" << CaTblPolicyModeName(armMode)
                   << "): tag 0 finder ranges on reports " << strictReport << ", dropped for want of a "
                   << "position " << strictDropped << ", reports used uninflated " << strictNoInflate
                   << "; subjects' reports used uninflated " << strictNoInflateS << "\n";
@@ -15402,7 +15433,7 @@ RunArm(CaTblPolicyMode mode,
         // N.21. Closed before the digest.
         pseudoS->close();
         pseudoS.reset();
-        std::cout << "    N.21 finder pseudo-anchors (subjects, " << CaTblPolicyModeName(mode)
+        std::cout << "    N.21 finder pseudo-anchors (subjects, " << CaTblPolicyModeName(armMode)
                   << "): digests asked " << pseudoDigests << ", reported positions used " << pseudoSubs
                   << ", dropped for want of a position " << pseudoNoEntry << "\n";
     }
@@ -15411,7 +15442,7 @@ RunArm(CaTblPolicyMode mode,
         // N.3 / row 55. Closed before the digest.
         trigS->close();
         trigS.reset();
-        std::cout << "    MC-2 triggered updates (subjects, " << CaTblPolicyModeName(mode)
+        std::cout << "    MC-2 triggered updates (subjects, " << CaTblPolicyModeName(armMode)
                   << "): large correction " << trigSLarge << ", frames billed " << trigSBilled
                   << (spec.subjectBatteryDeplete ? ", last gasp " : "")
                   << (spec.subjectBatteryDeplete ? std::to_string(trigSGasp) : std::string())
@@ -15516,7 +15547,7 @@ RunArm(CaTblPolicyMode mode,
         }
         if (g_anchorPairCad)
         {
-            std::cout << "    anchor-pair CAD (" << CaTblPolicyModeName(mode) << "): "
+            std::cout << "    anchor-pair CAD (" << CaTblPolicyModeName(armMode) << "): "
                       << provider.GetCadAnchorSenses() << " gateway-to-gateway frame senses, "
                       << provider.GetCadAnchorBusy() << " of them heard (channel busy); CAD decisions busy only "
                       << "because of them " << [&]() {
@@ -15537,7 +15568,7 @@ RunArm(CaTblPolicyMode mode,
                 bm += macs[i].GetBeaconMerges();
                 bi += macs[i].GetBeaconIgnored();
             }
-            std::cout << "    beacon entries (" << CaTblPolicyModeName(mode) << "): " << bm
+            std::cout << "    beacon entries (" << CaTblPolicyModeName(armMode) << "): " << bm
                       << " merged by finders from DISCOVERY beacons; " << bi << " heard by other radios, not merged\n";
         }
         if (CaTblMac::DigestOwnFirst())
@@ -15548,7 +15579,7 @@ RunArm(CaTblPolicyMode mode,
                 own += macs[i].GetDigestOwnPushes();
                 skips += macs[i].GetDigestFullSkips();
             }
-            std::cout << "    digest own-first (" << CaTblPolicyModeName(mode) << "): " << digPush
+            std::cout << "    digest own-first (" << CaTblPolicyModeName(armMode) << "): " << digPush
                       << " digest answers, " << own << " of them the responder's own entry; " << skips
                       << " entries missing from a full digest not sent\n";
         }
@@ -15565,7 +15596,7 @@ RunArm(CaTblPolicyMode mode,
         }
         if (spec.deadBatteryNoDraw)
         {
-            std::cout << "    N.20 dead radios (" << CaTblPolicyModeName(mode)
+            std::cout << "    N.20 dead radios (" << CaTblPolicyModeName(armMode)
                       << "): radio-cycles unbilled, tag 0 " << deadNoDrawT0 << ", subjects "
                       << deadNoDrawS << "; tag 0 escalation handshakes unbilled " << deadNoDrawHs
                       << "\n";
@@ -15581,7 +15612,7 @@ RunArm(CaTblPolicyMode mode,
                 deaf += macs[i].GetDeafRx();
             }
             std::cout << "    N.6 half-duplex (" << (spec.halfDuplex == 1 ? "count" : "enforce")
-                      << ", " << CaTblPolicyModeName(mode) << "): frames due over the radio's own "
+                      << ", " << CaTblPolicyModeName(armMode) << "): frames due over the radio's own "
                       << ov << ", sent back to CAD " << dfr << ", receptions while transmitting "
                       << deaf << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
         }
@@ -15598,7 +15629,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 pairs += (chipPairs[i].first != nullptr && chipPairs[i].second != nullptr) ? 1 : 0;
             }
-            std::cout << "    N.6 chip (" << CaTblPolicyModeName(mode) << "): chips " << pairs
+            std::cout << "    N.6 chip (" << CaTblPolicyModeName(armMode) << "): chips " << pairs
                       << ", frames due over the other band's " << cov
                       << ", receptions while the other band transmitted " << cdeaf
                       << (spec.halfDuplex == 1 ? " (kept)" : " (lost)") << "\n";
@@ -15610,12 +15641,12 @@ RunArm(CaTblPolicyMode mode,
             // FULL_PUSH_CF row is what pushing the whole table instead of each transmitted
             // DIGEST would have cost (report only).
             std::ostringstream afn;
-            afn << traceDir << "/airtime_" << CaTblPolicyModeName(mode) << "_seed" << seed
+            afn << traceDir << "/airtime_" << CaTblPolicyModeName(armMode) << "_seed" << seed
                 << ".csv";
             std::ofstream af(afn.str().c_str());
             af << "tier,msgType,framesSent,rebroadcasts,airtimeS\n";
             std::ostringstream line;
-            line << "    AIRTIME (" << CaTblPolicyModeName(mode) << "):";
+            line << "    AIRTIME (" << CaTblPolicyModeName(armMode) << "):";
             for (int ti = 0; ti < CA_TBL_TIER_COUNT; ++ti)
             {
                 uint64_t framesT = 0;
@@ -15667,7 +15698,7 @@ RunArm(CaTblPolicyMode mode,
                 late += chan[ti].GetLateCollisions();
                 coll += chan[ti].GetTotalCollisions();
             }
-            std::cout << "    N.22 both colliding frames judged (" << CaTblPolicyModeName(mode)
+            std::cout << "    N.22 both colliding frames judged (" << CaTblPolicyModeName(armMode)
                       << "): collisions " << coll << ", of them against a completed frame "
                       << late << "\n";
         }
@@ -15679,7 +15710,7 @@ RunArm(CaTblPolicyMode mode,
             {
                 refusedRelays += macs[i].GetSilentRelayRefused();
             }
-            std::cout << "    N.1 silenced radios (" << CaTblPolicyModeName(mode)
+            std::cout << "    N.1 silenced radios (" << CaTblPolicyModeName(armMode)
                       << "): relays refused " << refusedRelays << "\n";
         }
         if (spec.subjectBatteryDeplete)
@@ -15739,7 +15770,7 @@ RunArm(CaTblPolicyMode mode,
                 started += macs[i].GetRecedingPushesStarted();
                 sent += macs[i].GetRecedingPushesSent();
             }
-            std::cout << "    M.9 RECEDING pushes (" << CaTblPolicyModeName(mode)
+            std::cout << "    M.9 RECEDING pushes (" << CaTblPolicyModeName(armMode)
                       << "): handshakes on the RECEDING branch " << started
                       << ", push frames transmitted " << sent
                       << " (the redundant class repeats each up to 3 times)\n";
@@ -15845,7 +15876,7 @@ RunArm(CaTblPolicyMode mode,
         }
         if (queryProxy)
         {
-            WriteProxyChecks(macs, traceDir, mode, seed, queryStalenessBoundS);
+            WriteProxyChecks(macs, traceDir, armMode, seed, queryStalenessBoundS);
         }
     }
     if (imuCrossCheck || corroborationCheck)
@@ -15998,15 +16029,15 @@ RunArm(CaTblPolicyMode mode,
     }
     if (fuseFloorLog)
     {
-        fuseFloorLog->Report(std::cout, CaTblPolicyModeName(mode));
+        fuseFloorLog->Report(std::cout, CaTblPolicyModeName(armMode));
     }
     if (legTerms)
     {
-        legTerms->Report(std::cout, CaTblPolicyModeName(mode));
+        legTerms->Report(std::cout, CaTblPolicyModeName(armMode));
     }
     if (spec.caseCRelative)
     {
-        std::cout << "  DC-3 Case C relative (" << CaTblPolicyModeName(mode)
+        std::cout << "  DC-3 Case C relative (" << CaTblPolicyModeName(armMode)
                   << "): 0-anchor node-cycles " << caseCCycles << " (no peer heard " << caseCLonely
                   << "); peer exchanges " << caseCTried << ", ranged " << caseCGot
                   << " (carried on entries, " << std::fixed << std::setprecision(6) << caseCCarryS
@@ -16021,7 +16052,7 @@ RunArm(CaTblPolicyMode mode,
         relayRound->Report(std::cout, dt);
         if (g_relayRoundInSlice)
         {
-            std::cout << "    M.1(b) relay round in slice (" << CaTblPolicyModeName(mode) << "): " << roundReplayed
+            std::cout << "    M.1(b) relay round in slice (" << CaTblPolicyModeName(armMode) << "): " << roundReplayed
                       << " MAC transmissions put back over " << roundReplayCycles << " rounds\n";
         }
     }
@@ -16065,7 +16096,7 @@ RunArm(CaTblPolicyMode mode,
             fusedAux += tags[pt].policy.GetAuxFusedCount();
             suspects += tags[pt].policy.GetSuspectCount();
         }
-        std::cout << "    N.26 fixes (" << CaTblPolicyModeName(mode) << "): dual LoRa base node-cycles "
+        std::cout << "    N.26 fixes (" << CaTblPolicyModeName(armMode) << "): dual LoRa base node-cycles "
                   << dualCycles << ", ranges in their sets " << dualRanges << "; UWB cross-tier polls "
                   << crossTierPolls << "; TDoA innovation gate refused " << gated << ", TDoA fused "
                   << fusedAux << "; integrity threshold " << pcfg.mahalanobisThreshold
@@ -16076,38 +16107,38 @@ RunArm(CaTblPolicyMode mode,
         }
         if (spec.tofRecal)
         {
-            std::cout << "    C2 tofRecal (" << CaTblPolicyModeName(mode) << "): tag-0 learnt 868 MHz log-bias "
+            std::cout << "    C2 tofRecal (" << CaTblPolicyModeName(armMode) << "): tag-0 learnt 868 MHz log-bias "
                       << policy.GetTofRecalBias() << " from " << policy.GetTofRecalPairs() << " pairs\n";
         }
         if (spec.acquireHandoverCurvature)
         {
-            std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(mode) << "): cycles the curvature guard kept the cloud "
+            std::cout << "    N.58 acquireHandoverCurvature (" << CaTblPolicyModeName(armMode) << "): cycles the curvature guard kept the cloud "
                       << policy.GetPfCurvatureHolds() << "\n";
         }
         if (spec.acquireNegInfo)
         {
-            std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(mode) << "): silent-gateway factors applied "
+            std::cout << "    C1 acquireNegInfo (" << CaTblPolicyModeName(armMode) << "): silent-gateway factors applied "
                       << policy.GetNegInfoApplied() << "\n";
         }
         if (spec.rssiCorrInflate)
         {
-            std::cout << "    B2 rssiCorrInflate (" << CaTblPolicyModeName(mode) << "): tag-0 868 MHz ranges inflated "
+            std::cout << "    B2 rssiCorrInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 868 MHz ranges inflated "
                       << policy.GetRssiCorrApplied() << ", mean variance factor " << policy.GetRssiCorrMeanFactor() << "\n";
         }
         if (spec.relayNisInflate)
         {
-            std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(mode) << "): tag-0 running NIS "
+            std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 running NIS "
                       << policy.GetNisMean() << "\n";
         }
         if (spec.dualBase868OnNeed || spec.hold24AfterK > 0)
         {
-            std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(mode) << "): 868 MHz slots skipped "
+            std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(armMode) << "): 868 MHz slots skipped "
                       << dual868Skipped << "\n";
         }
         if (!finderEnergy.empty())
         {
             std::ostringstream ffn;
-            ffn << traceDir << "/finder_summary_" << CaTblPolicyModeName(mode) << "_seed" << seed << ".csv";
+            ffn << traceDir << "/finder_summary_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
             std::ofstream fs(ffn.str().c_str());
             fs << "finderId,totalJ,j_868,j_2p4,j_uwb,rangingAnswered\n";
             double sumJ = 0.0;
@@ -16139,7 +16170,7 @@ RunArm(CaTblPolicyMode mode,
                 fs << (501 + fi) << ',' << (j0 + j1 + j2) << ',' << j0 << ',' << j1 << ',' << j2 << ',' << ans << '\n';
                 sumJ += j0 + j1 + j2;
             }
-            std::cout << "    B11 finderEnergyReport (" << CaTblPolicyModeName(mode) << "): " << finderEnergy.size()
+            std::cout << "    B11 finderEnergyReport (" << CaTblPolicyModeName(armMode) << "): " << finderEnergy.size()
                       << " finders, " << sumJ << " J in all\n";
         }
         if (spec.dualBaseOnDemand)
@@ -16156,7 +16187,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.dualBaseRelayTier)
     {
         // S2 Part B, F1. Printed only with the flag, so the flag-off stdout is unchanged.
-        std::cout << "    B-F1 dual-base relay tier (" << CaTblPolicyModeName(mode)
+        std::cout << "    B-F1 dual-base relay tier (" << CaTblPolicyModeName(armMode)
                   << "): tag 0 legs on 2.4 GHz with 868 MHz active " << f1TagLegs << ", admitted "
                   << f1TagAdmitted << "; subject exchanges moved from 868 MHz to 2.4 GHz "
                   << f1SubjRetiered << "\n";
@@ -16164,7 +16195,7 @@ RunArm(CaTblPolicyMode mode,
     if (spec.subjectPreciseOnly)
     {
         // S2 Part B, F2. Printed only with the flag.
-        std::cout << "    B-F2 subject precise-only (" << CaTblPolicyModeName(mode)
+        std::cout << "    B-F2 subject precise-only (" << CaTblPolicyModeName(armMode)
                   << "): subject-cycles fused without 868 MHz " << f2Dropped
                   << ", 868 MHz ranges left out " << f2DroppedRanges << "\n";
     }
@@ -17946,7 +17977,10 @@ main(int argc, char* argv[])
                  "from all three tiers fused, no switching, every tier billed. 'lora_fusion' "
                  "(by name only): the same without UWB -- the 868 MHz and 2.4 GHz LoRa radios "
                  "ranged and fused every cycle, the UWB radio asleep -- so the comparison "
-                 "covers LoRa on both of its bands, not only 868 MHz RSSI and TDoA.",
+                 "covers LoRa on both of its bands, not only 868 MHz RSSI and TDoA. "
+                 "'ca_tbl_two_tier' (by name only): the adopted decision rule on a node with no "
+                 "2.4 GHz radio -- 868 MHz to UWB directly, UWB back to 868 MHz, the dual base off "
+                 "-- so tier 2's necessity is tested rather than argued from reach.",
                  armsArg);
     cmd.AddValue("injectRangeBias",
                  "S7-lite: metres of COMMON-MODE range bias added to every tier-2 "
@@ -21567,6 +21601,11 @@ main(int argc, char* argv[])
             if (!found && name == CaTblPolicyModeName(CA_TBL_MODE_FUSE_LORA))
             {
                 arms.push_back(CA_TBL_MODE_FUSE_LORA); // by name only: 'all' is unchanged
+                found = true;
+            }
+            if (!found && name == CaTblPolicyModeName(CA_TBL_MODE_TWO_TIER))
+            {
+                arms.push_back(CA_TBL_MODE_TWO_TIER); // by name only: 'all' is unchanged
                 found = true;
             }
             if (!found && !name.empty())
