@@ -149,6 +149,11 @@ invocation, build profile, source commit, dirty count and a SHA-256 per output f
 this repository. Per-cycle `trace_*.csv` are not tracked (tens of GB); they regenerate from each cell's `run_id.txt`,
 and runs are deterministic.
 
+Most recent campaigns (2026-11-14), each with its registration in `report/` and its summaries and sidecars under `results/`:
+ENV-SWEEP (`report/PREREG_ENV_SWEEP.md`, `results/envsweep_2026-11-14/`, 160 cells, summary `ENV_SWEEP.md`) and LIMITS
+(`report/PREREG_LIMITS_2026-11-14.md`, `report/LIMITS_RESULTS_2026-11-14.md`, `results/limits_2026-11-14/`, L1 80 cells and
+L2 160 cells). These add 806 tracked files (about 9 MB, counted after the `26 263`-file figure above was taken).
+
 The repository ships the evidence for its negative results as well as its positive ones: withdrawn claims, failed
 predictions, and campaigns whose registered rule refused a mechanism (most recently DISSEM).
 
