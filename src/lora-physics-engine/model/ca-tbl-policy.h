@@ -156,6 +156,33 @@ enum CaTblPolicyMode
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);
 
 /**
+ * TII-1 (--benefitLambda). An anchor a candidate radio would range: its surveyed or reported
+ * position and the range standard deviation that radio would deliver.
+ */
+struct CaTblBenefitAnchor
+{
+    double x;
+    double y;
+    double sigmaM;
+};
+
+/**
+ * TII-1. The expected reduction in tr(P) of a 2-D position estimate at (ex, ey) with covariance
+ * [pxx pxy; pxy pyy] from fusing scalar ranges to `extra`, given that ranges to `base` are fused
+ * as well. Information form: J = P^-1 + sum_i u_i u_i^T / sigma_i^2 over the anchors, u_i the unit
+ * vector from the anchor to the estimate (the linearised range Jacobian). Returns
+ * tr((J_base)^-1) - tr((J_base + J_extra)^-1), clamped at 0; 0 when P is not positive definite.
+ * Every range is assumed to arrive: the Jensen-optimistic form (MODEL_REGISTER M5.2), stated, not hidden.
+ */
+double CaTblTraceReduction(double pxx,
+                           double pxy,
+                           double pyy,
+                           double ex,
+                           double ey,
+                           const std::vector<CaTblBenefitAnchor>& base,
+                           const std::vector<CaTblBenefitAnchor>& extra);
+
+/**
  * \brief Which functional form the Position Confidence Score uses.
  *
  * See report/PCS_REDESIGN_RESULTS.md §0 for the pre-registration, which was
@@ -540,6 +567,14 @@ struct CaTblPolicyConfig
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
     bool oracleTrigger; //!< ORACLE-ESC --oracleTrigger: fixed_threshold triggers on the true squared error (SetOracleTruth)
+    //! TII-1 --benefitLambda: 0 (default) off. > 0: fixed_threshold's trigger becomes the predicted-benefit rule --
+    //! escalate when the next tier's expected tr(P) reduction per joule exceeds lambda (m^2/J), demote after
+    //! nDeescalate cycles on which the current tier's falls below lambda/2. Sensor selection (Joshi & Boyd) on tiers.
+    double benefitLambda;
+    double benefitCost2p4J;  //!< TII-1: joules per cycle on 2.4 GHz (OURS, measured from PRESET-5 tag-0 energy)
+    double benefitCostUwbJ;  //!< TII-1: joules per cycle on UWB (OURS, measured as above)
+    double benefitSigma2p4M; //!< TII-1: predicted 2.4 GHz range sigma (the engine's 3.0 m floor, cited)
+    double benefitSigmaUwbM; //!< TII-1: predicted UWB range sigma (the engine's 0.10 m floor, cited)
     bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
     bool acquireHandoverCurvature; //!< N.58 --acquireHandoverCurvature: hand over only once every range is linearisable
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
@@ -1114,6 +1149,9 @@ class CaTblPolicy
     double Pxx() const { return FltPxx(); }
     double Pxy() const { return FltPxy(); }
     double Pyy() const { return FltPyy(); }
+    //! TII-1: expected tr(P) reduction from ranging `tier` this cycle, over the distinct anchors in `meas` that the
+    //! tier's evidence radius reaches (t2PredictRadiusM / uwbPredictRadiusM), at that tier's benefit sigma.
+    double BenefitTierGain(CaTblTier tier, const std::vector<CaTblRangeMeasurement>& meas) const;
 
     /** Queue one absolute position observation with its full covariance for the NEXT
      *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast

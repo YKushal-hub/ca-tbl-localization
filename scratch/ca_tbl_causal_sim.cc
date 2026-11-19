@@ -6771,6 +6771,12 @@ struct SpecOptions
     double measVarScale = 1.0;
     //! --oracleTrigger: fixed_threshold triggers on the true squared error. Off: on trace(P).
     bool oracleTrigger = false;
+    //! TII-1 --benefitLambda (m^2 per J): 0 off. > 0: fixed_threshold uses the predicted-benefit rule.
+    double benefitLambda = 0.0;
+    double benefitCost868J = 0.015; //!< TII-1: joules per 868 MHz slot (OURS: ~ tag-0 j_868 / cycles, PRESET-5)
+    double benefitCost2p4J = 0.03;  //!< TII-1: joules per 2.4 GHz cycle (OURS, as above)
+    double benefitCostUwbJ = 0.5;   //!< TII-1: joules per UWB cycle (OURS, as above)
+    bool benefitSkip868 = false;    //!< TII-1: also skip the 868 MHz slot when it is not worth lambda per joule
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7323,6 +7329,9 @@ RunArm(CaTblPolicyMode mode,
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
     pcfg.oracleTrigger = spec.oracleTrigger; // ORACLE-ESC (false by default)
+    pcfg.benefitLambda = spec.benefitLambda;     // TII-1 (0 by default: off)
+    pcfg.benefitCost2p4J = spec.benefitCost2p4J; // TII-1
+    pcfg.benefitCostUwbJ = spec.benefitCostUwbJ; // TII-1
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
@@ -8486,6 +8495,59 @@ RunArm(CaTblPolicyMode mode,
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
     uint64_t dual868Skipped = 0; // C3 --dualBase868OnNeed
+    // TII-1 --benefitSkip868: per node, the 868 MHz anchors of its last 868 MHz ranging set, and the decisions taken.
+    std::map<uint32_t, std::vector<CaTblBenefitAnchor>> benefit868Cache;
+    std::map<uint32_t, std::pair<uint64_t, bool>> benefit868Memo; // one decision per node per cycle
+    uint64_t benefit868Considered = 0;
+    uint64_t benefit868Skipped = 0;
+    const bool benefit868On =
+        spec.benefitLambda > 0.0 && spec.benefitSkip868 && mode == CA_TBL_MODE_FIXED_THRESHOLD;
+    auto benefitSkip868 = [&](uint32_t key,
+                              const CaTblPolicy& pol,
+                              const std::vector<CaTblRangeMeasurement>& act) -> bool {
+        if (!benefit868On)
+        {
+            return false;
+        }
+        auto memo = benefit868Memo.find(key);
+        if (memo != benefit868Memo.end() && memo->second.first == cycleIndex)
+        {
+            return memo->second.second; // already decided this cycle (two call sites can ask)
+        }
+        auto it = benefit868Cache.find(key);
+        if (it == benefit868Cache.end() || it->second.empty())
+        {
+            return false; // nothing known about 868 MHz here yet: range it
+        }
+        std::vector<CaTblBenefitAnchor> base;
+        for (const CaTblRangeMeasurement& m : act)
+        {
+            base.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+        ++benefit868Considered;
+        const double g =
+            CaTblTraceReduction(pol.Pxx(), pol.Pxy(), pol.Pyy(), pol.EstX(), pol.EstY(), base, it->second);
+        const bool skip = spec.benefitCost868J > 0.0 && g / spec.benefitCost868J < spec.benefitLambda;
+        if (skip)
+        {
+            ++benefit868Skipped;
+        }
+        benefit868Memo[key] = std::make_pair(static_cast<uint64_t>(cycleIndex), skip);
+        return skip;
+    };
+    auto cache868 = [&](uint32_t key, const std::vector<CaTblRangeMeasurement>& m868) {
+        if (!benefit868On || m868.empty())
+        {
+            return;
+        }
+        std::vector<CaTblBenefitAnchor>& v = benefit868Cache[key];
+        v.clear();
+        for (const CaTblRangeMeasurement& m : m868)
+        {
+            v.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+    };
+    const uint32_t kBenefitTag0Key = 0xFFFFFFFFu;
     std::unique_ptr<std::ofstream> onDemandLog; // V6 --traceOnDemand
     if (g_traceOnDemand)
     {
@@ -11746,7 +11808,7 @@ RunArm(CaTblPolicyMode mode,
                     actM = rangeS(act);
                 }
                 std::vector<CaTblRangeMeasurement> floorM;
-                if (floorOn)
+                if (floorOn && !benefitSkip868(sb.nodeId, sb.policy, actM)) // TII-1: skip only under --benefitSkip868
                 {
                     if (preempt && pendT == CA_TBL_TIER_868)
                     {
@@ -11756,10 +11818,15 @@ RunArm(CaTblPolicyMode mode,
                     {
                         floorM = rangeS(CA_TBL_TIER_868);
                         ++ex.floorCycles;
+                        cache868(sb.nodeId, floorM); // TII-1
                     }
                 }
                 // N.26 fix 1, as tag 0's: the other LoRa tier too, every cycle (the floor
                 // already ranges whenever the subject is off 868 MHz).
+                if (act == CA_TBL_TIER_868)
+                {
+                    cache868(sb.nodeId, actM); // TII-1
+                }
                 const bool dualS = spec.loraDualBase && hybridS;
                 std::vector<CaTblRangeMeasurement> otherS;
                 if (dualS)
@@ -13227,7 +13294,8 @@ RunArm(CaTblPolicyMode mode,
             {
                 energy.AccountCad(active);
             }
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 if (pendingHandshakeTier != CA_TBL_TIER_868)
                 {
@@ -13261,7 +13329,8 @@ RunArm(CaTblPolicyMode mode,
         {
             pendingHandshake = false;  // consumed or stale
             activeMeas = rangeTier(active);
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
@@ -13278,8 +13347,9 @@ RunArm(CaTblPolicyMode mode,
         {
             // C3 --dualBase868OnNeed: when the active 2.4 GHz tier already returned enough ranges for a fix on its
             // own (>= 3), the dual base's 868 MHz slot is skipped this cycle -- the energy lever V6/V9 located.
-            const bool skip868 = (spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
-                                 activeMeas.size() >= 3;
+            const bool skip868 = ((spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
+                                  activeMeas.size() >= 3) ||
+                                 (active != CA_TBL_TIER_868 && benefitSkip868(kBenefitTag0Key, policy, activeMeas));
             if (active != CA_TBL_TIER_868 && !floorRanged && !skip868 &&
                 preemptTier != static_cast<int>(CA_TBL_TIER_868))
             {
@@ -13354,6 +13424,14 @@ RunArm(CaTblPolicyMode mode,
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
+        }
+        if (floorRanged) // TII-1: remember where 868 MHz reached this node
+        {
+            cache868(kBenefitTag0Key, floorMeas);
+        }
+        else if (active == CA_TBL_TIER_868)
+        {
+            cache868(kBenefitTag0Key, activeMeas);
         }
 
         // Fix selection: prefer the escalated tier when it solved, fall back to the
@@ -16865,6 +16943,12 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(mode) << "): 868 MHz slots skipped "
                       << dual868Skipped << "\n";
         }
+        if (benefit868On)
+        {
+            std::cout << "    TII-1 benefitSkip868 (" << CaTblPolicyModeName(mode) << ", lambda " << spec.benefitLambda
+                      << " m^2/J): 868 MHz slots considered " << benefit868Considered << ", skipped "
+                      << benefit868Skipped << " (all measured nodes)\n";
+        }
         if (!finderEnergy.empty())
         {
             std::ostringstream ffn;
@@ -18370,6 +18454,28 @@ main(int argc, char* argv[])
                  "any learned (e.g. ML) replacement for the variance the trigger reads "
                  "(report/PREREG_ORACLE_ESC.md). Other arms are unaffected.",
                  spec.oracleTrigger);
+    cmd.AddValue("benefitLambda",
+                 "TII-1. 0 (default): off, every earlier result unchanged. > 0 (m^2 of tr(P) per joule): the "
+                 "fixed_threshold arm's trigger becomes the PREDICTED-BENEFIT rule -- the sensor-selection criterion of "
+                 "Joshi & Boyd applied to radio tiers. Each cycle the node predicts, from its own posterior P and the "
+                 "anchors this cycle's ranges show within the next tier's evidence radius, how much one cycle of that "
+                 "tier would shrink tr(P), divides by the tier's per-cycle cost, and escalates when the ratio exceeds "
+                 "lambda; it demotes after --nDeescalate cycles on which staying is worth less than lambda/2. "
+                 "--fixedVarThreshold is then unused. The suppress-only checks (evidence gate, witnesses) still apply. "
+                 "Other arms are unaffected.",
+                 spec.benefitLambda);
+    cmd.AddValue("benefitCost868J", "TII-1: joules per 868 MHz ranging slot, the cost --benefitSkip868 weighs (OURS, "
+                 "~ tag-0 j_868 per cycle in PRESET-5)", spec.benefitCost868J);
+    cmd.AddValue("benefitCost2p4J", "TII-1: joules per cycle on 2.4 GHz (OURS, ~ tag-0 j_2p4 / cycles_2p4, PRESET-5)",
+                 spec.benefitCost2p4J);
+    cmd.AddValue("benefitCostUwbJ", "TII-1: joules per cycle on UWB (OURS, ~ tag-0 j_uwb / cycles_uwb, PRESET-5)",
+                 spec.benefitCostUwbJ);
+    cmd.AddValue("benefitSkip868",
+                 "TII-1. False (default). True (needs --benefitLambda > 0; fixed_threshold arm only): a node off "
+                 "868 MHz skips its 868 MHz ranging slot on a cycle where the 868 MHz anchors it last heard are "
+                 "predicted to shrink tr(P), on top of this cycle's ranges, by less than lambda per joule of the slot. "
+                 "The radio stays awake and listening; only the exchange is skipped and not billed.",
+                 spec.benefitSkip868);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
