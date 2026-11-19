@@ -46,3 +46,24 @@ because the 868 MHz skip saturates by λ = 1.
 chosen; an interrupted run resumes the same frozen binary.
 
 **Reporting.** `PARETO1.md` written by the analyser; result section appended here after the run, whatever it says.
+
+## Result (run 2026-11-20 01:11–03:41 IST, source 0a794076, 560/560 cells rc 0, dirty 0)
+
+Full tables: `results/pareto1_2026-11-20/PARETO1.md` (scripts/pareto1_analyse.py). Traces are not tracked; their
+SHA-256 manifest is.
+
+- **P1: NO-GO.** Feasible simple rules: ca_tbl_full, FT12, lora_fusion, FT30, FT100, FT300, OPP, D868; E* = lora_fusion
+  (12.67 J in A). No BEN λ is feasible: every one keeps the endgame above 0.95 (0.991–0.993) but stays below 0.95
+  five-worker A(25 m) at 5 km (0.874–0.942; best BEN1000 0.942). Energy against E* in A: ratio 0.72–0.91, every
+  paired difference below 0 (BEN1000 −3.55 [−4.22, −3.05] J); five-worker difference against E* in A from
+  −0.076 [−0.139, −0.023] (BEN0.01) to −0.009 [−0.033, 0.016] (BEN1000).
+- **P2: HOLDS.** Every BEN λ spends less subject energy than FT12 in A with the paired interval below 0
+  (BEN1000 −4.18 [−4.63, −3.75] J, 13.30 → 9.12 J), at a five-worker cost of −0.010 [−0.018, −0.004] (BEN1000) to
+  −0.078 (BEN0.01). In the endgame BEN10–BEN1000 spend 18.3–18.9 J against FT12's 26.4 J at equal A(25 m).
+- **P3: HOLDS.** Subject 868 MHz energy BNS100 7.79 J vs BEN100 3.31 J (A), 7.91 vs 2.43 J (B): the skip carries the
+  saving; the trigger alone (BNS100) costs +0.86 [0.19, 1.57] J against FT12 in A.
+- **P4: not triggered.** Every one of the 240 BEN cells skipped ≥ 2006 868 MHz slots; the mechanism ran.
+
+Also observed (not registered): lost-worker CEP95 at 5 km is 7.3–10.3 m under BEN against 4.0–4.3 m for the threshold
+rules; static_2p4 again misses 0.95 at 5 km (0.943) at 6.16 J; time to the first 25 m fix is the same for every hybrid
+rule (21–23 s at 5 km, 5 s in the endgame).
