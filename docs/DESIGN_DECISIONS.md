@@ -574,3 +574,21 @@ the adopted preset against the brief's deployment on fresh seeds.
 
 **Reproducing earlier preset results:** give `--nGateways=8` for DD 25's preset, and `--nGateways=3 --gwLayout=star
 --nFinders=8` for the brief's. `scripts/preset_pins.sh` pins the latter.
+
+## 27. A realistic deployment: three gateways on a line, searchers dispatched from one camp (owner decision, 2026-11-20)
+**What.** In `kSpecProfile`: `--nGateways=3 --gwRidge=true --baseCampFrac=0.9 --nFinders=2 --searchLaunchOnLoss=300`
+(`--gwLayout` stays `legacy`, the builder that places ridge lines). Replaces DD 25–26 (12 gateways on a ring, 12 finders
+in the field from t = 0).
+
+**Why.** An industrial site does not ring its work area with twelve powered, GPS-timed masts, and its responders do not
+stand beside every worker from the first second. Gateways follow a line (an access road, a pipeline, a ridge) or a few
+convenient spots, and a small team sets out from one place after an alarm. The ring and the finders in the field
+manufactured the coverage: PARETO-2 found the 2.4 GHz-only arm meeting A(25 m) there only because a searcher was always
+in reach. On one exploratory seed (7, 1800 s, not citable) the line deployment gave the lost node A(25 m) 0.989 for
+ca_tbl_full against 0.519 for static_2p4 and 0.010 for static_868, and every arm's five-node pool fell below 0.2, which
+is why the realistic study (`~/catbl_work/tii_paper/PLAN_REALISTIC.md`) measures time to find rather than A(25 m) alone.
+
+**Reproducing earlier preset results:** `PIN_PRE_DD27` in `scripts/preset_pins.sh` restores DD 26's deployment (verified
+2026-11-20: preset + pin against the pre-change build, seed 7, 600 s, six arms, 5 km and endgame: every output file
+byte-identical except `spec_profile.txt`, the preset's own description). `PIN_PRE_DD19` gains `--gwRidge=false
+--baseCampFrac=0 --searchLaunchOnLoss=0` and reproduces exactly as before (same check).

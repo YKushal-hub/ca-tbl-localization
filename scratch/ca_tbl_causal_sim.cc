@@ -17310,9 +17310,17 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // --nGateways=3 --gwLayout=star --nFinders=8 (scripts/preset_pins.sh).
     // DESIGN_DECISIONS 26 (owner, 2026-10-22, after PRESET-4): 8 gateways sat on the line on fresh seeds (0.955, then
     // 0.947), so the ring grows to 12, DEPLOY-REQ's margin (0.970-0.975 at 12 finders and more).
-    {"nGateways", "12", "DD 26 (was 8, DD 25; 3, DD 9): the 12-gateway ring, which meets the 5 km requirement with a margin (DEPLOY-REQ 0.975)"},
-    {"gwLayout", "legacy", "DD 25 (was star): the 8-gateway ring DEPLOY-REQ measured"},
-    {"nFinders", "12", "DD 25 (was 8, DD 22): with 8 gateways, 12 finders meet the five-node requirement at 5 km (DEPLOY-REQ 0.955)"},
+    // DESIGN_DECISIONS 27 (owner, 2026-11-20): the 12-gateway ring with 12 finders in the field from t = 0 (DD 25-26)
+    // is not a deployment an industrial site has. The preset deployment is now the realistic one: three gateways
+    // strung along a line (an access road / ridge, --gwRidge), the base camp at its trailhead end, and two searchers
+    // who wait at the camp and set out only when a node has had no gateway contact for 300 s. DD 26's ring and
+    // finders reproduce with PIN_PRE_DD27 (scripts/preset_pins.sh).
+    {"nGateways", "3", "DD 27 (was 12, DD 26; 8, DD 25; 3 star, DD 9): three gateways, as the brief"},
+    {"gwLayout", "legacy", "DD 27: the legacy builder, which places --gwRidge lines"},
+    {"gwRidge", "true", "DD 27: the gateways follow a line (access road / ridge), not a ring"},
+    {"baseCampFrac", "0.9", "DD 27: a base camp; in ridge mode it is the trailhead at the west end of the line"},
+    {"nFinders", "2", "DD 27 (was 12, DD 25-26): two searchers, starting together from the camp"},
+    {"searchLaunchOnLoss", "300", "DD 27: searchers leave the camp only after 300 s without gateway contact"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},

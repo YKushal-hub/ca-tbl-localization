@@ -228,6 +228,9 @@ line in each script).
   --gwLayout=star --nFinders=8`.
 - DD 26 (2026-10-22, owner, after PRESET-4): `--nGateways=12`, the 12-gateway ring, for a margin at 5 km. Pin back
   with `--nGateways=8` (DD 25) or as DD 25 lists (the brief).
+- DD 27 (2026-11-20, owner): `--nGateways=3 --gwRidge=true --baseCampFrac=0.9 --nFinders=2 --searchLaunchOnLoss=300`,
+  three gateways on a line, a trailhead camp, two searchers dispatched on lost contact (no more 12-gateway ring or
+  finders in the field from t = 0). Pin back with `PIN_PRE_DD27` (scripts/preset_pins.sh).
 
 `scripts/preset_pins.sh` holds the pin for every change since 2026-10-21 (DD 19–26) in one line, `PIN_PRE_DD19`.
 
