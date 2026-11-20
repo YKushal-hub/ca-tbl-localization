@@ -612,3 +612,17 @@ using the surveyed mast height and its own carried height; peer and searcher ran
 elevation still enters only as signal loss; slopes, multi-level sites and estimating height are out of scope.
 Off: byte-identical to the build before the flag (seed 7, 7200 s, one station, three arms: every output except
 `run_id.txt`). Gate G172 (+ selftest, five negative fixtures).
+
+## 29. The work area's side of a gateway line (`--acquireSideOfRoad`, default off; 2026-11-20)
+
+Found in REALISTIC-1 (ROAD3 with no searchers, before its result): with every gateway on one line, a range-only position
+and its mirror image across the line are equally likely, and filters locked onto the mirror (estimates at y ~ 3150 m for
+a worker at 2350 m, the ridge at 2750 m; ~800 m off for every design). A real deployment knows which side of its access
+road the work area lies on. With the flag (needs `--gwRidge` and `--acquireParticles`) the acquisition particles are
+drawn only on the work sites' side (y <= gwRidgeY x boxHalf) and particles that drift across carry no weight; after
+hand-over, a Kalman estimate that crosses the line is reflected back (ranges to anchors on the line are unchanged by the
+reflection; position rows of P mapped by the reflection). Pilot (not citable; seeds 501 and 504, 3600 s, no searchers):
+lost-worker error at 10-50 min from 300-6600 m to 1-75 m for ca_tbl_full and static_2p4; no reflections were needed
+(the acquisition constraint was enough). Off: byte-identical to the build before (seed 503, 900 s, two arms, against
+REALISTIC-1's frozen binary; every output except run_id.txt and paths in run.log). Gate G173 (+ selftest, five negative
+fixtures). Tested in REALISTIC-3; REALISTIC-1 and -2 stand as registered (flag off).

@@ -590,6 +590,10 @@ struct CaTblPolicyConfig
     uint32_t hold24AfterK;        //!< C3 --hold24AfterK: 0 off; K: after K straight 2.4 GHz cycles with >= 3 ranges, no UWB escalation
     bool c2bEscalation;           //!< V5 --c2bEscalation: escalate when the next tier is observed in reach, never on confidence
     bool acquireParticles;        //!< V4 --acquireParticles: particle-filter acquisition before the EKF takes over
+    //! DD 29 --acquireSideOfRoad: the acquisition cloud is confined to the half-plane a x + b y + c >= 0 (the work
+    //! area's side of a line of gateways, whose ranges cannot tell the two sides apart). Off: no constraint.
+    bool acquireHalfPlane;
+    double acquireHpA, acquireHpB, acquireHpC;
     uint32_t acquireParticleCount; //!< V4: particles per node
     uint64_t acquireSeed;         //!< V4: per-run seed; each node mixes in its own salt (SetAcquireSalt)
     double acquireSpeedMps;       //!< V4: random-walk speed scale of the node between cycles
@@ -1060,6 +1064,10 @@ class CaTblPolicy
      *  Configure, before Initialize). Distinct per node so two nodes never share a particle cloud. */
     void SetAcquireSalt(uint64_t salt) { m_pfSalt = salt; }
     bool AcquiringByParticles() const { return m_pfActive; }
+    /** DD 29: particle-updates zeroed by --acquireSideOfRoad. */
+    uint64_t GetHalfPlaneCuts() const { return m_pfHalfPlaneCut; }
+    /** DD 29: estimates reflected back across the gateway line. */
+    uint64_t GetHalfPlaneReflects() const { return m_hpReflects; }
     /** C1 --acquireNegInfo: gateways addressed this cycle that returned no range (surveyed positions), per tier. */
     struct SilentAnchor
     {
@@ -1564,6 +1572,8 @@ class CaTblPolicy
         double w;
     };
     std::vector<PfParticle> m_pf;
+    uint64_t m_pfHalfPlaneCut = 0; //!< DD 29: particle-updates zeroed for lying across the gateway line
+    uint64_t m_hpReflects = 0;     //!< DD 29: Kalman estimates reflected back across the gateway line
     uint32_t m_streak24 = 0;
     std::vector<SilentAnchor> m_silent; //!< C1
     bool m_oracleSet = false;      //!< ORACLE-ESC: SetOracleTruth called

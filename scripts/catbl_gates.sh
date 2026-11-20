@@ -2035,6 +2035,9 @@ bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
 printf '\n--- G172 range height correction ---\n'
 bash scripts/height_gate.sh "$WORK/g172" || fail G172
 bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
+printf '\n--- G173 side of the gateway line ---\n'
+bash scripts/side_of_road_gate.sh "$WORK/g173" || fail G173
+bash scripts/side_of_road_gate_selftest.sh "$WORK/g173" || fail G173
 finish G171
 
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)

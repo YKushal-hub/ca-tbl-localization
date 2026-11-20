@@ -486,6 +486,38 @@ CaTblImuEkf::SetPositionCov(double x, double y, double pxx, double pxy, double p
 }
 
 void
+CaTblImuEkf::ReflectAcross(double a, double b, double c)
+{
+    const double nn = std::hypot(a, b);
+    if (!(nn > 0.0))
+    {
+        return;
+    }
+    const double nx = a / nn, ny = b / nn;
+    const double sd = (a * m_x[0] + b * m_x[1] + c) / nn; // signed distance to the line
+    WinClear();
+    m_x[0] -= 2.0 * sd * nx;
+    m_x[1] -= 2.0 * sd * ny;
+    const double R[2][2] = {{1.0 - 2.0 * nx * nx, -2.0 * nx * ny}, {-2.0 * nx * ny, 1.0 - 2.0 * ny * ny}};
+    // P <- T P T' with T = diag(R, I): rows 0-1 first, then columns 0-1.
+    for (int j = 0; j < N; ++j)
+    {
+        const double r0 = R[0][0] * m_P[0][j] + R[0][1] * m_P[1][j];
+        const double r1 = R[1][0] * m_P[0][j] + R[1][1] * m_P[1][j];
+        m_P[0][j] = r0;
+        m_P[1][j] = r1;
+    }
+    for (int i = 0; i < N; ++i)
+    {
+        const double c0 = m_P[i][0] * R[0][0] + m_P[i][1] * R[0][1];
+        const double c1 = m_P[i][0] * R[1][0] + m_P[i][1] * R[1][1];
+        m_P[i][0] = c0;
+        m_P[i][1] = c1;
+    }
+    SnapshotPrior();
+}
+
+void
 CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
     if (m_iterMax > 0 && m_robust == 0 && !meas.empty() && !varM2.empty())

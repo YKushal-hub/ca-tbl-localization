@@ -6744,6 +6744,9 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
+    bool acquireSideOfRoad = false;
+    double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
     //! N.58 --acquireHandoverCurvature: the cloud hands over only once every range is linearisable.
     bool acquireHandoverCurvature = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
@@ -7369,6 +7372,10 @@ RunArm(CaTblPolicyMode mode,
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
     pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
+    pcfg.acquireHalfPlane = spec.acquireSideOfRoad;  // --- DD 29 --- (false by default: off)
+    pcfg.acquireHpA = spec.acquireHpA;
+    pcfg.acquireHpB = spec.acquireHpB;
+    pcfg.acquireHpC = spec.acquireHpC;
     pcfg.c2bEscalation = spec.c2bEscalation;         // --- V5 --- (false by default: off)
     pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
@@ -17043,6 +17050,13 @@ RunArm(CaTblPolicyMode mode,
                           << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
             }
         }
+        if (spec.acquireSideOfRoad)
+        {
+            std::cout << "    DD29 acquireSideOfRoad (" << CaTblPolicyModeName(mode) << "): cloud confined to y <= "
+                      << spec.acquireHpC << " m; tag-0 particle-updates zeroed across the line "
+                      << policy.GetHalfPlaneCuts() << ", tag-0 estimates reflected back " << policy.GetHalfPlaneReflects()
+                      << "\n";
+        }
         if (g_rangeHeightCorrect)
         {
             std::cout << "    DD28 rangeHeightCorrect (" << CaTblPolicyModeName(mode)
@@ -18650,6 +18664,17 @@ main(int argc, char* argv[])
                  "868 MHz the return the RSSI range itself needs, billed only under --tier1ChargeReplies, in both "
                  "variants alike. The table remains the fallback.",
                  spec.rangeReplyPosition);
+    cmd.AddValue("acquireSideOfRoad",
+                 "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
+                 "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "
+                 "on one line cannot tell a node from its mirror image across the line, so a range-only cloud keeps both "
+                 "and the filter can lock onto the mirror (about 2 x the node's distance to the line off). The operator "
+                 "knows which side of the road the site is on; this tells the filter. Particles drawn across the line are "
+                 "redrawn and particles that drift across carry no weight; the Kalman filter after hand-over is "
+                 "then kept on that side: an estimate that crosses the line (the mirror root) is reflected back, which moves no "
+                 "likelihood of the anchors on the line. False (default): no constraint, byte-identical to every earlier result. FATAL without "
+                 "--gwRidge or --acquireParticles. One 'DD29 acquireSideOfRoad' line per arm when on.",
+                 spec.acquireSideOfRoad);
     cmd.AddValue("acquireParticles",
                  "V4 (master plan v3; TECH_DEBT N.54). False (default): each filter acquires from its prior with "
                  "range updates, as in every earlier result. True: every node acquires with a particle filter "
@@ -22382,6 +22407,17 @@ main(int argc, char* argv[])
         std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
+    if (spec.acquireSideOfRoad)
+    {
+        if (!gwRidgeArg || !spec.acquireParticles)
+        {
+            std::cerr << "FATAL: --acquireSideOfRoad needs --gwRidge (the line it refers to) and --acquireParticles\n";
+            return 1;
+        }
+        spec.acquireHpA = 0.0; // allowed: -y + ridgeY >= 0, the work sites' side
+        spec.acquireHpB = -1.0;
+        spec.acquireHpC = gwRidgeYArg * boxHalfM;
+    }
     if (spec.acquireHandoverCurvature && !spec.acquireParticles)
     {
         std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";

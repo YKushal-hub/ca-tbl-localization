@@ -120,6 +120,12 @@ class CaTblImuEkf
      *  the cloud says nothing about them, and what the filter has learned of them is kept. */
     void SetPositionCov(double x, double y, double pxx, double pxy, double pyy);
 
+    /** DD 29 --acquireSideOfRoad: reflect the position across the line a x + b y + c = 0, with the position rows and
+     *  columns of P mapped by the reflection R = I - 2 n n' (n the unit normal). Ranges to anchors on the line are
+     *  identical at both points, so this moves no likelihood they carry; the window is cleared (its path was the
+     *  mirror's). Heading, bias and stride are kept. */
+    void ReflectAcross(double a, double b, double c);
+
     /** --relayNisInflate: running mean (EWMA, weight 0.02) of the range updates' NIS, nu^2 / S,
      *  exactly as CaTblEkf's. Observation only: the update's arithmetic is unchanged. */
     void EnableNisTracking() { m_trackNis = true; }

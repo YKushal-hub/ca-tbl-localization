@@ -43,3 +43,8 @@ than the registered seeds in a cell → incomplete; nothing is evaluated until c
 A long thin corridor site needs a scenario change not yet built; ROAD5 (stations every 2 km on the line) stands in.
 
 **Reporting.** `REALISTIC2.md` by the analyser; a Result section is appended here after the run, whatever it says.
+
+**Amendment before any cell (2026-11-20, 23:50 IST).** The binary is built from the commit that adds DESIGN_DECISIONS 29
+(`--acquireSideOfRoad`, default off) and REALISTIC-3, one commit after this file. The flag is not passed by this
+campaign; its off state is byte-identical to the build before it (DESIGN_DECISIONS 29), so nothing registered here
+changes. Order of running: REALISTIC-1, then REALISTIC-3, then this campaign.

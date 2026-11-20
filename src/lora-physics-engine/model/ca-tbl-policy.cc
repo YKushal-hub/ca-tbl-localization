@@ -223,6 +223,10 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     c2bEscalation = false; // V5; off: escalation triggered by PCS / the trace threshold, as before
     acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
     acquireParticleCount = 2000;
+    acquireHalfPlane = false; // DD 29; off: the cloud is the whole prior box, as before
+    acquireHpA = 0.0;
+    acquireHpB = 0.0;
+    acquireHpC = 0.0;
     acquireSeed = 0;
     acquireSpeedMps = 1.5;
     rangeBiasStates = false; // V3; off: every range error treated as independent, as before
@@ -1182,6 +1186,14 @@ CaTblPolicy::PfInit(double cx, double cy, double half)
     {
         p.x = cx + half * u(m_pfRng);
         p.y = cy + half * u(m_pfRng);
+        // DD 29 --acquireSideOfRoad: redraw a particle on the far side of the gateway line (bounded; off: never).
+        for (int tries = 0; m_config.acquireHalfPlane && tries < 1000 &&
+                            m_config.acquireHpA * p.x + m_config.acquireHpB * p.y + m_config.acquireHpC < 0.0;
+             ++tries)
+        {
+            p.x = cx + half * u(m_pfRng);
+            p.y = cy + half * u(m_pfRng);
+        }
     }
     m_pfActive = true;
     m_pfCycles = 0;
@@ -1260,6 +1272,13 @@ CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std:
                 const double p = 0.5 * std::erfc(-z / std::sqrt(2.0));
                 l += std::log(std::max(1e-3, 1.0 - std::min(p, 0.999)));
             }
+        }
+        // DD 29 --acquireSideOfRoad: a particle the prediction or roughening moved across the line carries no weight.
+        if (m_config.acquireHalfPlane &&
+            m_config.acquireHpA * m_pf[k].x + m_config.acquireHpB * m_pf[k].y + m_config.acquireHpC < 0.0)
+        {
+            l -= 1000.0;
+            ++m_pfHalfPlaneCut;
         }
         lw[k] = l;
         lmax = std::max(lmax, l);
@@ -2785,6 +2804,14 @@ CaTblPolicy::StepImpl(double dt,
         }
     }
 
+    // DD 29 --acquireSideOfRoad: after hand-over, an estimate on the far side of the gateway line is the mirror root
+    // (equal ranges to every anchor on the line); reflect it back to the work area's side. Off: nothing.
+    if (m_config.acquireHalfPlane && m_config.imuFilterEkf5 && !m_pfActive &&
+        m_config.acquireHpA * FltX() + m_config.acquireHpB * FltY() + m_config.acquireHpC < 0.0)
+    {
+        m_ekf5.ReflectAcross(m_config.acquireHpA, m_config.acquireHpB, m_config.acquireHpC);
+        ++m_hpReflects;
+    }
     const double traceSigma = FltTracePos();
     double sumVar = 0.0;
     for (size_t i = 0; i < varM2.size(); ++i)
