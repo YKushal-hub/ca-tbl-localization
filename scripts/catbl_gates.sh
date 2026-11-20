@@ -2032,6 +2032,9 @@ finish G170
 printf '\n--- G171 overdue alarm ---\n'
 bash scripts/overdue_gate.sh "$WORK/g171" || fail G171
 bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
+printf '\n--- G172 range height correction ---\n'
+bash scripts/height_gate.sh "$WORK/g172" || fail G172
+bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
 finish G171
 
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)

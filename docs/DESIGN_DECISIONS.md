@@ -592,3 +592,23 @@ is why the realistic study (`~/catbl_work/tii_paper/PLAN_REALISTIC.md`) measures
 2026-11-20: preset + pin against the pre-change build, seed 7, 600 s, six arms, 5 km and endgame: every output file
 byte-identical except `spec_profile.txt`, the preset's own description). `PIN_PRE_DD19` gains `--gwRidge=false
 --baseCampFrac=0 --searchLaunchOnLoss=0` and reproduces exactly as before (same check).
+
+## 28. Estimation on the worker's device, and mast-height correction of ranges (owner decision, 2026-11-20)
+
+**Where the filter runs.** For the realistic study (REALISTIC-1) and the paper, every worker's device runs its own filter
+(`--gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false`); stations measure the 868 MHz broadcast
+and reply, and each reply is billed to the device (`--tier1ChargeReplies`, default true). Reason: with station-side
+estimation a worker no station hears gets no update, yet the simulator runs every node's filter each cycle, so
+station-side results described a system that would not behave that way out of station contact. On the device the
+filter keeps going on the motion sensor and on searcher/peer ranges. Exploratory check (seed 7, one station): positions
+byte-identical to station-side estimation, battery +7 % (ca_tbl_full) and +20 % (static_868). Processor energy is not
+modelled (stated limitation). The preset is unchanged (station-side), so earlier results and gates replay as they are;
+the study passes the three flags on every run.
+
+**Height (`--rangeHeightCorrect`, default off).** Ground is flat; gateways are on 15 m masts and devices are carried at
+1.5 m. The engines measure slant ranges, while the filter is 2-D and read every range as horizontal: about 0.9 m long at
+100 m and 4 m at 20 m. With the flag the device projects each mast range onto the ground, sqrt(max(r^2 - dh^2, 0)),
+using the surveyed mast height and its own carried height; peer and searcher ranges (dh = 0) are untouched. Terrain
+elevation still enters only as signal loss; slopes, multi-level sites and estimating height are out of scope.
+Off: byte-identical to the build before the flag (seed 7, 7200 s, one station, three arms: every output except
+`run_id.txt`). Gate G172 (+ selftest, five negative fixtures).

@@ -2166,6 +2166,32 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+
+// --rangeHeightCorrect (DD 28). The filter estimates horizontal position and reads every range as horizontal,
+// while the engines measure the slant range between a surveyed mast (15 m) and a device carried at 1.5 m. Both
+// heights are known, so the device can project the range onto the ground: sqrt(max(r^2 - dh^2, 0)). Peers and
+// finders carry their device at the same height (dh = 0), so only mast anchors move. Off (the default) returns r
+// unchanged, byte-identical to every earlier result. Written once after cmd.Parse(), read at the three sites
+// that turn an anchor range into a CaTblRangeMeasurement (tag 0, subjects, passive tags).
+static bool g_rangeHeightCorrect = false;
+static uint64_t g_rangeHeightCorrected = 0;
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ)
+{
+    if (!g_rangeHeightCorrect)
+    {
+        return r;
+    }
+    const double dh = anchorZ - nodeZ;
+    if (dh == 0.0)
+    {
+        return r;
+    }
+    ++g_rangeHeightCorrected;
+    const double h2 = r * r - dh * dh;
+    return h2 > 0.0 ? std::sqrt(h2) : 0.0;
+}
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
 //! C4 --foliageP833 (scope 2026-10-17): forest foliage gamma and Am from ITU-R P.833-10 at each band's carrier.
@@ -11381,7 +11407,7 @@ RunArm(CaTblPolicyMode mode,
                         CaTblRangeMeasurement m;
                         m.anchorX = anchorPos.x;
                         m.anchorY = anchorPos.y;
-                        m.rangeM = range;
+                        m.rangeM = HorizontalRange(range, anchorPos.z, tags[pt].pos.z);
                         m.nlos = nlosProp || hiddenActive;
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
@@ -11753,7 +11779,7 @@ RunArm(CaTblPolicyMode mode,
                                     }
                                 }
                             }
-                            m.rangeM = range;
+                            m.rangeM = HorizontalRange(range, ap.z, sb.pos.z);
                             m.nlos = nlosF;
                             m.nlosScore = nlosScoreS; // row 55: -1 unless scored
                             m.nlosPropagation = nlosP;
@@ -13138,7 +13164,7 @@ RunArm(CaTblPolicyMode mode,
                             }
                         }
                     }
-                    m.rangeM = range;
+                    m.rangeM = HorizontalRange(range, anchorPos.z, pos.z);
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
@@ -17017,6 +17043,12 @@ RunArm(CaTblPolicyMode mode,
                           << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
             }
         }
+        if (g_rangeHeightCorrect)
+        {
+            std::cout << "    DD28 rangeHeightCorrect (" << CaTblPolicyModeName(mode)
+                      << "): mast ranges projected to the ground, cumulative in this process "
+                      << g_rangeHeightCorrected << "\n";
+        }
         if (!finderEnergy.empty())
         {
             std::ostringstream ffn;
@@ -17556,6 +17588,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool rangeHeightCorrectArg = false;
     bool foliageDepthClampArg = false;
     bool rngKeyedArg = false;
     bool rngKeyedProbeExtraTxArg = false;
@@ -19270,6 +19303,13 @@ main(int argc, char* argv[])
                  "Gate G138 only: one extra 868 MHz engine evaluation on an unused link at arm start, "
                  "the perturbation the keyed draws must absorb. Never part of a measured configuration.",
                  rngKeyedProbeExtraTxArg);
+    cmd.AddValue("rangeHeightCorrect",
+                 "DD 28. Project every range to a mast anchor onto the ground before the filter reads it: "
+                 "sqrt(max(r^2 - dh^2, 0)), dh = the anchor's surveyed height minus the device's carried height "
+                 "(15 m - 1.5 m for a gateway). The filter is 2-D and read slant ranges as horizontal, about "
+                 "0.9 m long at 100 m and 4 m at 20 m. Peers and finders (dh = 0) are untouched. False (default) "
+                 "is every earlier result, byte-identical. One 'DD28 rangeHeightCorrect' line when on.",
+                 rangeHeightCorrectArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -20980,6 +21020,7 @@ main(int argc, char* argv[])
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+    g_rangeHeightCorrect = rangeHeightCorrectArg;
     g_foliageDepthClamp = foliageDepthClampArg;
     SetFadingPerBand(g_fadingPerBandArg); // B7
     RadioFrontendSubmodule::SetAgcPerReceiver(g_agcPerReceiverArg); // B6
