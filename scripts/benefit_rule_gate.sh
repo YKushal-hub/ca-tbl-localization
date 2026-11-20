@@ -3,6 +3,7 @@
 # abs  the preset in the endgame, seed 7, 600 s, fixed_threshold and ca_tbl_full, flags absent
 # off  the same with --benefitLambda=0 --benefitSkip868=false: byte-identical to abs
 # on   the same with --benefitLambda=200 --benefitSkip868=true: only fixed_threshold changes
+# min3 as on, plus --benefitSkip868Min3=true (TII-2): announced, and skips fewer 868 MHz slots than on, but some
 set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
@@ -15,5 +16,7 @@ run abs $E &
 run off $E --benefitLambda=0 --benefitSkip868=false &
 # shellcheck disable=SC2086
 run on $E --benefitLambda=200 --benefitSkip868=true &
+# shellcheck disable=SC2086
+run min3 $E --benefitLambda=200 --benefitSkip868=true --benefitSkip868Min3=true &
 wait
 python3 scripts/benefit_rule_gate.py "$D"

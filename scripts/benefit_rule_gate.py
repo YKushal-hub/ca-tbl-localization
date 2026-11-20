@@ -7,6 +7,7 @@
   ARMS  on's ca_tbl_full files are byte-identical to abs's (the flags reach no other arm)
   SKIP  on: 868 MHz slots considered > 0 and skipped > 0, and fixed_threshold's tag-0 j_868 is below abs's
   RULE  on's fixed_threshold trace differs from abs's (the trigger changed what the node did)
+  MIN3  min3 (TII-2) exits 0, is announced, and skips fewer 868 MHz slots than on but more than 0
 """
 import csv
 import filecmp
@@ -72,6 +73,11 @@ def main():
     pa, po = os.path.join(d, "abs", TR), os.path.join(d, "on", TR)
     differ = os.path.exists(pa) and os.path.exists(po) and not filecmp.cmp(pa, po, shallow=False)
     report(differ, "RULE", f"fixed_threshold trace on vs abs differs: {differ} (need True)")
+    sk = lambda n: (lambda m: int(m.group(1)) if m else None)(re.search(r"skipped (\d+) \(all measured nodes\)", log(d, n)))
+    so, s3 = sk("on"), sk("min3")
+    ok = rc(d, "min3") == 0 and "TII-2 benefitSkip868Min3" in log(d, "min3") and "TII-2" not in log(d, "on") \
+        and so is not None and s3 is not None and 0 < s3 < so
+    report(ok, "MIN3", f"rc {rc(d, 'min3')}, skipped on {so} min3 {s3} (need 0 < min3 < on), announced")
     print(f"  G169 summary: {nok} ok, {nfail} failed")
     return 0 if nfail == 0 else 1
 

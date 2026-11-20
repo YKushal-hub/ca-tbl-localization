@@ -6777,6 +6777,7 @@ struct SpecOptions
     double benefitCost2p4J = 0.03;  //!< TII-1: joules per 2.4 GHz cycle (OURS, as above)
     double benefitCostUwbJ = 0.5;   //!< TII-1: joules per UWB cycle (OURS, as above)
     bool benefitSkip868 = false;    //!< TII-1: also skip the 868 MHz slot when it is not worth lambda per joule
+    bool benefitSkip868Min3 = false; //!< TII-2: ...but only on a cycle whose active tier delivered >= 3 ranges
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -8508,6 +8509,10 @@ RunArm(CaTblPolicyMode mode,
         if (!benefit868On)
         {
             return false;
+        }
+        if (spec.benefitSkip868Min3 && act.size() < 3)
+        {
+            return false; // TII-2: the active tier cannot fix on its own this cycle, so the 868 MHz slot is kept
         }
         auto memo = benefit868Memo.find(key);
         if (memo != benefit868Memo.end() && memo->second.first == cycleIndex)
@@ -16948,6 +16953,10 @@ RunArm(CaTblPolicyMode mode,
             std::cout << "    TII-1 benefitSkip868 (" << CaTblPolicyModeName(mode) << ", lambda " << spec.benefitLambda
                       << " m^2/J): 868 MHz slots considered " << benefit868Considered << ", skipped "
                       << benefit868Skipped << " (all measured nodes)\n";
+            if (spec.benefitSkip868Min3)
+            {
+                std::cout << "    TII-2 benefitSkip868Min3: the 868 MHz slot kept whenever the active tier gave < 3 ranges\n";
+            }
         }
         if (!finderEnergy.empty())
         {
@@ -18476,6 +18485,13 @@ main(int argc, char* argv[])
                  "predicted to shrink tr(P), on top of this cycle's ranges, by less than lambda per joule of the slot. "
                  "The radio stays awake and listening; only the exchange is skipped and not billed.",
                  spec.benefitSkip868);
+    cmd.AddValue("benefitSkip868Min3",
+                 "TII-2. False (default): --benefitSkip868 as registered in PARETO-1. True: the 868 MHz slot may be "
+                 "skipped only on a cycle whose active tier delivered >= 3 ranges -- a fix on its own -- AND the "
+                 "predicted benefit says skip. Why: in PARETO-1 the rule skipped 868 MHz at 5 km on cycles where 2.4 GHz "
+                 "alone was too sparse to fix, and five-worker A(25 m) fell below 0.95 there. Inert without "
+                 "--benefitSkip868.",
+                 spec.benefitSkip868Min3);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
