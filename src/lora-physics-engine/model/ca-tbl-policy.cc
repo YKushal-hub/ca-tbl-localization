@@ -96,7 +96,8 @@ CaTblPolicy::BenefitTierGain(CaTblTier tier, const std::vector<CaTblRangeMeasure
             cand.push_back({m.anchorX, m.anchorY, sig});
         }
     }
-    return CaTblTraceReduction(FltPxx(), FltPxy(), FltPyy(), FltX(), FltY(), {}, cand);
+    const double k = BenefitPScale(); // TII-3 F1 (1 by default, which multiplies exactly)
+    return CaTblTraceReduction(k * FltPxx(), k * FltPxy(), k * FltPyy(), FltX(), FltY(), {}, cand);
 }
 
 const char*
@@ -1103,7 +1104,7 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
     {
         m_ekf.EnableConsider(config.rangeBiasCorrM, 0.05);
     }
-    if (config.relayNisInflate)
+    if (config.relayNisInflate || config.benefitNisInflate) // TII-3 F1 reads the same record
     {
         m_ekf.EnableNisTracking();
         m_ekf5.EnableNisTracking(); // read only when ekf5 is the policy filter (GetNisMean)

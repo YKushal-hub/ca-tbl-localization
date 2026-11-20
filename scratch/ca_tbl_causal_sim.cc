@@ -6778,6 +6778,9 @@ struct SpecOptions
     double benefitCostUwbJ = 0.5;   //!< TII-1: joules per UWB cycle (OURS, as above)
     bool benefitSkip868 = false;    //!< TII-1: also skip the 868 MHz slot when it is not worth lambda per joule
     bool benefitSkip868Min3 = false; //!< TII-2: ...but only on a cycle whose active tier delivered >= 3 ranges
+    bool benefitNisInflate = false;  //!< TII-3 F1: benefits computed on P x max(1, mean NIS)
+    uint32_t benefitHeartbeat868N = 0; //!< TII-3 F2: 0 off; N: never more than N-1 consecutive 868 MHz skips per node
+    double benefitSkipNisMax = 0.0;  //!< TII-3 F4: 0 off; > 0: no skip on a cycle whose active ranges' max NIS exceeds it
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7333,6 +7336,7 @@ RunArm(CaTblPolicyMode mode,
     pcfg.benefitLambda = spec.benefitLambda;     // TII-1 (0 by default: off)
     pcfg.benefitCost2p4J = spec.benefitCost2p4J; // TII-1
     pcfg.benefitCostUwbJ = spec.benefitCostUwbJ; // TII-1
+    pcfg.benefitNisInflate = spec.benefitNisInflate; // TII-3 F1 (false by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
@@ -8499,6 +8503,9 @@ RunArm(CaTblPolicyMode mode,
     // TII-1 --benefitSkip868: per node, the 868 MHz anchors of its last 868 MHz ranging set, and the decisions taken.
     std::map<uint32_t, std::vector<CaTblBenefitAnchor>> benefit868Cache;
     std::map<uint32_t, std::pair<uint64_t, bool>> benefit868Memo; // one decision per node per cycle
+    std::map<uint32_t, uint32_t> benefit868Run; // TII-3 F2: consecutive skips per node
+    uint64_t benefitHeartbeatForced = 0;        // TII-3 F2
+    uint64_t benefitNisVetoes = 0;              // TII-3 F4
     uint64_t benefit868Considered = 0;
     uint64_t benefit868Skipped = 0;
     const bool benefit868On =
@@ -8530,9 +8537,44 @@ RunArm(CaTblPolicyMode mode,
             base.push_back({m.anchorX, m.anchorY, m.sigmaM});
         }
         ++benefit868Considered;
-        const double g =
-            CaTblTraceReduction(pol.Pxx(), pol.Pxy(), pol.Pyy(), pol.EstX(), pol.EstY(), base, it->second);
-        const bool skip = spec.benefitCost868J > 0.0 && g / spec.benefitCost868J < spec.benefitLambda;
+        const double kP = pol.BenefitPScale(); // TII-3 F1 (1 by default)
+        const double g = CaTblTraceReduction(kP * pol.Pxx(), kP * pol.Pxy(), kP * pol.Pyy(), pol.EstX(), pol.EstY(),
+                                             base, it->second);
+        bool skip = spec.benefitCost868J > 0.0 && g / spec.benefitCost868J < spec.benefitLambda;
+        // TII-3 F4: an innovation outlier among this cycle's precise ranges means the precise tier is not to be trusted
+        // alone this cycle: keep the 868 MHz slot. Scalar NIS against the (unscaled) prior P.
+        if (skip && spec.benefitSkipNisMax > 0.0)
+        {
+            double worst = 0.0;
+            for (const CaTblRangeMeasurement& m : act)
+            {
+                const double dx = pol.EstX() - m.anchorX;
+                const double dy = pol.EstY() - m.anchorY;
+                const double d = std::sqrt(dx * dx + dy * dy);
+                if (d < 1e-6 || !(m.sigmaM > 0.0) || !(m.rangeM > 0.0))
+                {
+                    continue;
+                }
+                const double ux = dx / d;
+                const double uy = dy / d;
+                const double s = ux * ux * pol.Pxx() + 2.0 * ux * uy * pol.Pxy() + uy * uy * pol.Pyy() +
+                                 m.sigmaM * m.sigmaM;
+                const double v = m.rangeM - d;
+                worst = std::max(worst, v * v / s);
+            }
+            if (worst > spec.benefitSkipNisMax)
+            {
+                skip = false;
+                ++benefitNisVetoes;
+            }
+        }
+        // TII-3 F2: never more than N-1 consecutive skips per node.
+        if (skip && spec.benefitHeartbeat868N > 0 && benefit868Run[key] + 1 >= spec.benefitHeartbeat868N)
+        {
+            skip = false;
+            ++benefitHeartbeatForced;
+        }
+        benefit868Run[key] = skip ? benefit868Run[key] + 1 : 0;
         if (skip)
         {
             ++benefit868Skipped;
@@ -16957,6 +16999,13 @@ RunArm(CaTblPolicyMode mode,
             {
                 std::cout << "    TII-2 benefitSkip868Min3: the 868 MHz slot kept whenever the active tier gave < 3 ranges\n";
             }
+            if (spec.benefitNisInflate || spec.benefitHeartbeat868N > 0 || spec.benefitSkipNisMax > 0.0)
+            {
+                std::cout << "    TII-3 (" << CaTblPolicyModeName(mode) << "): nisInflate " << spec.benefitNisInflate
+                          << ", heartbeat N " << spec.benefitHeartbeat868N << " forced " << benefitHeartbeatForced
+                          << ", NIS veto threshold " << spec.benefitSkipNisMax << " vetoes " << benefitNisVetoes
+                          << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
+            }
         }
         if (!finderEnergy.empty())
         {
@@ -18492,6 +18541,22 @@ main(int argc, char* argv[])
                  "alone was too sparse to fix, and five-worker A(25 m) fell below 0.95 there. Inert without "
                  "--benefitSkip868.",
                  spec.benefitSkip868Min3);
+    cmd.AddValue("benefitNisInflate",
+                 "TII-3 F1. False (default). True (with --benefitLambda > 0): every predicted benefit -- the UWB "
+                 "escalation and the 868 MHz skip -- is computed on P scaled by max(1, the filter's running mean NIS), so "
+                 "a filter whose innovations are larger than it expects (over-confident) predicts larger gains and keeps "
+                 "ranging. Why: in PARETO-1 the rule's skips made the filter over-confident (95 % region coverage "
+                 "0.89 -> 0.69 at 5 km) and it then read that P to decide the next skip.",
+                 spec.benefitNisInflate);
+    cmd.AddValue("benefitHeartbeat868N",
+                 "TII-3 F2. 0 (default): off. N: a node never skips more than N-1 consecutive 868 MHz slots, whatever "
+                 "the benefit says, so a gross error the Gaussian benefit cannot see is caught at least every N cycles.",
+                 spec.benefitHeartbeat868N);
+    cmd.AddValue("benefitSkipNisMax",
+                 "TII-3 F4. 0 (default): off. > 0: no 868 MHz skip on a cycle where any of the active tier's ranges has a "
+                 "normalised innovation (range residual squared over its predicted variance against the prior) above "
+                 "this value (chi^2_1(0.99) = 6.63 is the natural choice).",
+                 spec.benefitSkipNisMax);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "

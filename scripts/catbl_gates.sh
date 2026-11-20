@@ -2022,6 +2022,12 @@ bash scripts/benefit_rule_gate.sh "$WORK/g169" || fail G169
 bash scripts/benefit_rule_gate_selftest.sh "$WORK/g169" || fail G169
 finish G169
 
+# ---------------- G170: TII-3 (--benefitNisInflate, --benefitHeartbeat868N, --benefitSkipNisMax)
+printf '\n--- G170 TII-3 consistency-aware benefit ---\n'
+bash scripts/tii3_gate.sh "$WORK/g170" || fail G170
+bash scripts/tii3_gate_selftest.sh "$WORK/g170" || fail G170
+finish G170
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

@@ -575,6 +575,9 @@ struct CaTblPolicyConfig
     double benefitCostUwbJ;  //!< TII-1: joules per cycle on UWB (OURS, measured as above)
     double benefitSigma2p4M; //!< TII-1: predicted 2.4 GHz range sigma (the engine's 3.0 m floor, cited)
     double benefitSigmaUwbM; //!< TII-1: predicted UWB range sigma (the engine's 0.10 m floor, cited)
+    //! TII-3 F1 --benefitNisInflate: before any benefit is computed, P is scaled by max(1, the filter's running mean
+    //! NIS), so an over-confident filter predicts larger gains and keeps ranging. False (default): P as it is.
+    bool benefitNisInflate = false;
     bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
     bool acquireHandoverCurvature; //!< N.58 --acquireHandoverCurvature: hand over only once every range is linearisable
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
@@ -1152,6 +1155,8 @@ class CaTblPolicy
     //! TII-1: expected tr(P) reduction from ranging `tier` this cycle, over the distinct anchors in `meas` that the
     //! tier's evidence radius reaches (t2PredictRadiusM / uwbPredictRadiusM), at that tier's benefit sigma.
     double BenefitTierGain(CaTblTier tier, const std::vector<CaTblRangeMeasurement>& meas) const;
+    //! TII-3 F1: the factor P is scaled by before a benefit is computed (1 unless --benefitNisInflate).
+    double BenefitPScale() const { return m_config.benefitNisInflate ? std::max(1.0, GetNisMean()) : 1.0; }
 
     /** Queue one absolute position observation with its full covariance for the NEXT
      *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast
