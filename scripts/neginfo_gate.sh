@@ -4,10 +4,13 @@
 # realistic stack, without and with the flag.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+# DD 27 (2026-11-20): this gate was written against DD 26's deployment; pin it back (scripts/preset_pins.sh).
+# shellcheck source=/dev/null
+. scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g162.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
-P="--specProfile=true --seed=205 --duration=600 --trace=true --arms=ca_tbl_full --boxHalf=750 --finderMode=1 --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2 --imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider=true --ekf5RelayGate=true --ekf5Window=60"
+P="--specProfile=true $PIN_PRE_DD27 --seed=205 --duration=600 --trace=true --arms=ca_tbl_full --boxHalf=750 --finderMode=1 --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2 --imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider=true --ekf5RelayGate=true --ekf5Window=60"
 # shellcheck disable=SC2086
 run base $P &
 # shellcheck disable=SC2086
