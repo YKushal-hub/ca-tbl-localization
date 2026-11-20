@@ -10362,12 +10362,17 @@ RunArm(CaTblPolicyMode mode,
             // time, the other is an inference from the network's own confidence.
             // A.10 records that on these deployments the second does not
             // separate, so the first is what the demo uses.
-            if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
-            {
-                partyDeployed = true;
-                deployedAtS = t;
-                deployCause = "reported overdue";
-            }
+            // (2026-11-20: moved below, out of this block -- see there.)
+        }
+        // THE OVERDUE REPORT, now outside the lost-contact block. Inside it, the report fired only when
+        // --searchLaunchOnLoss was also > 0, so --searchLaunchAtS alone silently never dispatched. With both set the
+        // order is unchanged (the triggers above run first and latch partyDeployed), so every earlier run with both,
+        // or with neither, behaves exactly as before; only --searchLaunchAtS without --searchLaunchOnLoss changes.
+        if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
+        {
+            partyDeployed = true;
+            deployedAtS = t;
+            deployCause = "reported overdue";
         }
 
         auto writeTask = [&](size_t fi, uint16_t tid, const char* phase, bool found,
@@ -16568,12 +16573,17 @@ RunArm(CaTblPolicyMode mode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
-        if (deployedAtS >= 0.0)
+        if (deployedAtS >= 0.0 && searchLaunchOnLossS > 0.0)
         {
             std::cout << "    ALERT: " << deployCause << " for " << std::fixed
                       << std::setprecision(0) << searchLaunchOnLossS
                       << " s -- party deployed at t=" << std::setprecision(1)
                       << deployedAtS << " s\n";
+        }
+        else if (deployedAtS >= 0.0)
+        {
+            std::cout << "    ALERT: " << deployCause << " -- party deployed at t=" << std::fixed
+                      << std::setprecision(1) << deployedAtS << " s\n";
         }
         else if (searchLaunchOnLossS > 0.0)
         {

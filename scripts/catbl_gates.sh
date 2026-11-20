@@ -2028,6 +2028,12 @@ bash scripts/tii3_gate.sh "$WORK/g170" || fail G170
 bash scripts/tii3_gate_selftest.sh "$WORK/g170" || fail G170
 finish G170
 
+# ---------------- G171: --searchLaunchAtS alone dispatches the party (DD 27's realistic study)
+printf '\n--- G171 overdue alarm ---\n'
+bash scripts/overdue_gate.sh "$WORK/g171" || fail G171
+bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
+finish G171
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
