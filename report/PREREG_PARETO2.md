@@ -34,3 +34,18 @@ dropped: in PARETO-1 none was the cheapest feasible rule, and OPP cost more than
 
 **Abort / completeness** as PARETO-1: any rc ≠ 0, not `dirty 0`, manifest mismatch or < 20 seeds in a cell → P1 is
 not evaluated until complete; no cell dropped or chosen.
+
+## Result (run 2026-11-20 10:16–12:22 IST, source a74404c5, 400/400 cells rc 0, dirty 0)
+
+Full tables: `results/pareto2_2026-11-20/PARETO2.md`. Traces are not tracked; their SHA-256 manifest is.
+
+- **P1: NO-GO.** Every TII-2 setting is feasible (five-worker A(25 m) 0.966–0.968 at 5 km, 0.993 in the endgame), but
+  on these seeds static_2p4 is feasible too (0.954 at 5 km, 0.994 in the endgame) and becomes E* at 6.14 J; TII-2 spends
+  1.96–2.10× that (BEN1000 +5.97 [5.73, 6.24] J), so condition (ii) fails for every λ.
+- **P2: HOLDS.** BEN1000 (TII-2) minus P1BEN1000 (PARETO-1's form), five-worker A(25 m) at 5 km:
+  +0.024 [0.007, 0.046] (0.966 vs 0.941). The three-range condition removes PARETO-1's accuracy loss.
+- **P3: HOLDS.** BEN1000 minus FT12, subject energy at 5 km: −1.16 [−1.47, −0.85] J (12.11 vs 13.27, −9 %), five-worker
+  A(25 m) −0.000 [−0.011, 0.014]. In the endgame BEN100–BEN10000 spend 19.6–19.7 J against FT12's 26.1 J.
+
+Also observed (not registered): static_2p4 was 0.943 at 5 km on PARETO-1's seeds and 0.954 here, so its feasibility
+under the "mean ≥ 0.95" rule turns on the seed set; P1BEN1000 replicated PARETO-1 (0.941 vs 0.942).
