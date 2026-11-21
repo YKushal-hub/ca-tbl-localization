@@ -685,3 +685,29 @@ refuses crews above ~7 in a 2.5 s cycle; larger crews run with `--relaySlots=fal
 gateways' 868 MHz replies under device-side estimation are billed to the node but not simulated as gateway frames
 against the 10 % access-point duty cycle; one batched broadcast per gateway per cycle (~3 % duty for 7 nodes) is the
 protocol the bill corresponds to.
+
+## 36. Collapse extension, World side: the rubble model (no flag yet; nothing sets it; 2026-11-21)
+
+First module of the collapse extension (plan: ~/catbl_work/tii_paper/PLAN_COLLAPSE.md; numbers: docs/SOURCES_COLLAPSE.md).
+`CaTblRubbleWorld` (ca-tbl-rubble-world.{h,cc}) holds the ground truth of a collapsed structure: non-overlapping rubble
+boxes and survivable voids inside them, plus one bracket (low / central / high). For a link it gives the metres of pile
+on the straight path (slab method, voids subtracted), the loss in dB and the time-of-flight bias in m.
+- **Loss.** Below 2.5 GHz: A(f) = A2·(f/2 GHz)^k, with A2 = 20 / 31 / 80 dB/m and k = log2(20/8) / log2(31/14) /
+  log2(31/14) (Oestges 2013 layered and measured rubble). 868 MHz gives 6.63 / 11.90 / 30.71 dB/m, 2.44 GHz gives
+  26.01 / 38.94 / 100.49. Above 3 GHz: η·A_solid(f). η = 0.3522 / 0.5459 / 0.7706 is derived as A_rubble(2 GHz) /
+  A_solid(2 GHz) (no pile density measurement was found). A_solid is ITU-R P.2040-4 concrete (low, central) or
+  NISTIR 6055 plain concrete (high). 7.99 GHz gives 59.09 / 91.59 / 219.45 dB/m.
+- **Bias.** η·(√ε′ − 1) = 0.454 / 0.704 / 1.541 m per metre of pile, added to 2.4 GHz and UWB ranges after the
+  engines' own error draw. 868 MHz RSSI-inversion ranging sees the loss as distance: d·10^(L/10n). Both are applied
+  after the engines' link-leak handling, so the loss enters the budget once (tier 3).
+- **Not modelled yet:** loss of the direct path under deep rubble (Alsindi 2009 tables pending). This is a stated
+  limitation until sourced.
+- **Engines.** Each engine has `SetRubbleWorld(const CaTblRubbleWorld*)`; nullptr is the default and every hook is
+  inside `if (m_rubble)`. Nothing in the simulator calls it yet; `--scenario=collapse` (DD 37) will.
+- **World/system split.** System-side files may not include the header; G177 fails if one does.
+Off: byte-identical. The three reference runs were static_868 device-side at seed 7 for 600 s, preset ca_tbl_full at
+seed 7 for 300 s, and ca_tbl_full at seed 11 for 900 s. They were run on the build before the hooks (ec656a27b
+sources) and after the hooks, giving 178 files. All are identical except run_id.txt, which holds the build stamp.
+Gate G177 (`scripts/rubble_gate.sh`): 50 checks covering code values against the log's rows, the A5 targets (the
+868 MHz 2–5 m totals span NIST's 30 and 80 dB bounds; Oestges' detection range is 10.92 m against ~10 m), geometry,
+refusals and the no-leak rule. Selftest: 12 doctored inputs, all caught.

@@ -71,6 +71,7 @@ set(source_files
     model/ca-tbl-imu-model.cc      # CA-TBL DC-1 synthetic IMU dead-reckoning error model
     model/ca-tbl-imu-sensor-model.cc  # local-line IMU sensor model (G91)
     model/ca-tbl-imu-ekf.cc        # local-line 5-state inertial filter (G91, G94)
+    model/ca-tbl-rubble-world.cc   # collapse extension, World only (rubble gate)
 )
 
 set(header_files
@@ -144,6 +145,7 @@ set(header_files
     model/ca-tbl-imu-model.h       # CA-TBL DC-1 synthetic IMU dead-reckoning error model
     model/ca-tbl-imu-sensor-model.h
     model/ca-tbl-imu-ekf.h
+    model/ca-tbl-rubble-world.h    # collapse extension, World only
     model/ca-tbl-tdoa.h            # CA-TBL Physical sect 1.1 tier-1 TDoA solver
     model/ca-tbl-nlos-classifier.h  # CA-TBL Physical sect 1.3/2.5 NLOS scores
 )
