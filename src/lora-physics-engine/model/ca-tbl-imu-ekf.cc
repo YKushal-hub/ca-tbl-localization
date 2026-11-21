@@ -639,9 +639,30 @@ CaTblImuEkf::UpdateBody(const std::vector<CaTblRangeMeasurement>& meas, const st
             }
         }
         NoteNis(innovation * innovation / S); // --relayNisInflate; a no-op unless enabled
-        if (m_winW > 0 && !m_win.empty())
+        const bool coarse = m_coarsePosOnly && meas[k].tier == 0; // DD 33
+        if (m_winW > 0 && !m_win.empty() && !coarse)
         {
             m_win.back().ranges.push_back({meas[k].anchorX, meas[k].anchorY, meas[k].rangeM, varM2[k], -1}); // --ekf5Window
+        }
+        if (coarse)
+        {
+            // DD 33: Schmidt gain (heading, bias, scale are consider states) and the general-gain covariance update
+            // P <- P - K u' - u K' + K S K' with u = P H'.
+            K[2] = K[3] = K[4] = 0.0;
+            ++m_coarseN;
+            for (int i = 0; i < N; ++i)
+            {
+                m_x[i] += K[i] * innovation;
+            }
+            for (int i = 0; i < N; ++i)
+            {
+                for (int j = 0; j < N; ++j)
+                {
+                    m_P[i][j] += -K[i] * PH[j] - PH[i] * K[j] + K[i] * S * K[j];
+                }
+            }
+            Symmetrise();
+            continue;
         }
         for (int i = 0; i < N; ++i)
         {
@@ -1314,10 +1335,16 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             }
         }
         NoteNis(innovation * innovation / S);
-        if (m_winW > 0 && !m_win.empty())
+        const bool coarse = m_coarsePosOnly && mm.tier == 0; // DD 33
+        if (m_winW > 0 && !m_win.empty() && !coarse)
         {
             m_win.back().ranges.push_back(
                 {mm.anchorX, mm.anchorY, mm.rangeM, varM2[k], finder ? static_cast<int>(mm.anchorId) : -1}); // --ekf5Window
+        }
+        if (coarse)
+        {
+            K[2] = K[3] = K[4] = 0.0; // DD 33: heading, bias, scale are consider states for an 868 MHz range
+            ++m_coarseN;
         }
         // Cross-covariances first, from pre-update values. For the ranged finder:
         // X_a <- X_a - K (H X_a + Ha C) = X_a - K (H X_a - var h). Every other finder: X_b <- X_b - K (H X_b).
@@ -1344,12 +1371,15 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             m_x[i] += K[i] * innovation;
         }
         // Schmidt: P <- P - K (H P + Ha X') = P - K (PH + XH)'.
+        // DD 33, a coarse range with a partial (suboptimal) gain: the general form P - K u' - u K' + K S K',
+        // u = PH + XH, which equals the line above when K = u / S.
         double newP[N][N];
         for (int i = 0; i < N; ++i)
         {
             for (int j = 0; j < N; ++j)
             {
-                newP[i][j] = m_P[i][j] - K[i] * (PH[j] + XH[j]);
+                newP[i][j] = coarse ? m_P[i][j] - K[i] * (PH[j] + XH[j]) - (PH[i] + XH[i]) * K[j] + K[i] * S * K[j]
+                                    : m_P[i][j] - K[i] * (PH[j] + XH[j]);
             }
         }
         for (int i = 0; i < N; ++i)

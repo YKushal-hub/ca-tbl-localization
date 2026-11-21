@@ -648,3 +648,23 @@ at the cluster site as fast as ca_tbl_full (692 vs 720-748 s) and on ROAD3 later
 never vs 2208 s). Off: byte-identical (seed 501, CLUS3, 7200 s and seed 503, ROAD3, 3300 s, against REALISTIC-3's
 frozen binary). Gate G174 (+ selftest, five negative fixtures). REALISTIC-1/2/3's searcher results were measured
 without these fixes and are reported as such; REALISTIC-4 repeats the searcher cells with them.
+
+## 33-34. Crew filters that are lost and confident (flags default off; 2026-11-21)
+
+Found while asking why REALISTIC-2's 8 h quiet shift at the cluster site (Q1 failed: ours 0.22 against 2.4 GHz only's
+0.55 rough-position availability) went wrong. On traces (seed 541, subject 2) the crew's filters, lost after start-up
+(sqrt(tr P) of kilometres), were pulled onto a wrong root by the first long 2.4 GHz range (6.8 km in open terrain) or a
+two-gateway intersection, then claimed +/-20-30 m while 0.4-5 km off; one learned a stride scale of -50 and a gyro bias
+of -0.37 rad/s and circled in place. Over 7200 s, 8124 of 14400 tracked-node cycles were "confidently wrong" (error >
+500 m at sqrt(tr P) < 50 m).
+- **DD 33 `--ekf5CoarsePosOnly`.** An 868 MHz range corrects position only (heading, bias, scale are Schmidt consider
+  states for it; kept out of the window smoother). Pilot (8 h, seeds 541-543, not citable): ours' A250 0.09/0.29/0.42
+  against 0.09/0.39/0.24 off. **Not adopted** (no consistent gain); kept, documented, default off.
+- **DD 34 `--reacquireSigmaM`.** A filter whose sqrt(tr P) exceeds the threshold (after a hand-over has armed it)
+  re-enters the particle acquisition round its estimate, the cloud as wide as its uncertainty and never wider than the
+  start-up prior, and hands over again when the cloud is one mode. Pilot (8 h, seeds 541-543, threshold 500 m, not
+  citable): ours' A250 0.54/0.61/0.69 (from 0.09/0.39/0.24) at 32-40 J/h (from ~45); 2.4 GHz only 0.56/0.53/0.37 (from
+  0.63/0.65/0.67). Confidently wrong cycles 8124 -> 13 (G175). `--acquireHandoverCurvature` was tried alongside and
+  lowered both designs (ours 0.09/0.09/0.24, 2.4 GHz only 0.37/0.23/0.37); not used.
+Off: byte-identical (seed 505, ROAD3 with every REALISTIC-4 flag, 3300 s, two arms, against REALISTIC-4's frozen binary).
+Gate G175 (+ selftest, five negative fixtures). Tested in REALISTIC-5 on new seeds.

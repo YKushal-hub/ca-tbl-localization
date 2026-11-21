@@ -1149,6 +1149,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetIterate(m_config.ekf5Iterate, m_config.ekf5IterateTolM);
         m_ekf5.SetWindow(m_config.ekf5Window, m_config.ekf5WindowMin, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5.SetStateBounds(m_config.ekf5StateBoundsK, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
+        m_ekf5.SetCoarsePosOnly(m_config.ekf5CoarsePosOnly); // DD 33
         m_ekf5HaveHeading = false;
     }
     m_deescalateCounter = 0;
@@ -1160,6 +1161,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
     {
         // V4: the prior is the box the filter is told about (uniform, half-width sqrt(3) sigma).
         PfInit(x0, y0, std::sqrt(3.0) * posStdM);
+        m_pfInitHalf = std::sqrt(3.0) * posStdM; // DD 34: the widest a re-acquisition cloud may be
     }
 }
 
@@ -2494,6 +2496,7 @@ CaTblPolicy::StepImpl(double dt,
         if (oneMode)
         {
             m_pfActive = false;
+            m_reacqArmed = true; // DD 34: a hand-over arms the re-acquisition (inert unless --reacquireSigmaM)
             ++m_pfHandovers;
             std::cout << "PFACQ_HANDOVER cycles=" << m_pfCycles << " x=" << mx << " y=" << my
                       << " sd=" << std::sqrt(std::max(0.0, cxx + cyy)) << "\n";
@@ -2811,6 +2814,25 @@ CaTblPolicy::StepImpl(double dt,
     {
         m_ekf5.ReflectAcross(m_config.acquireHpA, m_config.acquireHpB, m_config.acquireHpC);
         ++m_hpReflects;
+    }
+    // DD 34 --reacquireSigmaM: a filter this uncertain is lost, and the next range or two would be linearised into one
+    // root of an ambiguous intersection and believed (REALISTIC-2's quiet shift: +/-23 m at 400 m off). Re-enter the
+    // particle acquisition round the current estimate, whose cloud keeps every root until the ranges resolve them, and
+    // hand over again when it is one mode. Needs --acquireParticles (the cloud) and ekf5. Off: nothing.
+    // Armed only once the filter has been inside the threshold, so a broad but single-mode hand-over is not thrown back
+    // into a fresh cloud every cycle.
+    if (m_config.reacquireSigmaM > 0.0 && !m_pfActive &&
+        std::sqrt(std::max(0.0, FltTracePos())) <= m_config.reacquireSigmaM)
+    {
+        m_reacqArmed = true;
+    }
+    if (m_config.reacquireSigmaM > 0.0 && m_config.acquireParticles && m_config.imuFilterEkf5 && !m_pfActive &&
+        m_reacqArmed && std::sqrt(std::max(0.0, FltTracePos())) > m_config.reacquireSigmaM)
+    {
+        m_reacqArmed = false;
+        const double sAxis = std::sqrt(std::max(0.0, FltTracePos()) / 2.0);
+        PfInit(FltX(), FltY(), std::min(std::sqrt(3.0) * sAxis, m_pfInitHalf)); // never wider than the start-up prior
+        ++m_reacquires;
     }
     const double traceSigma = FltTracePos();
     double sumVar = 0.0;

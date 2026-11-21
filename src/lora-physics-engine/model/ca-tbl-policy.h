@@ -704,6 +704,8 @@ struct CaTblPolicyConfig
     int ekf5Window = 0;                   //!< --ekf5Window: sliding-window smoother length, cycles (0 = off)
     int ekf5WindowMin = 8;                //!< --ekf5WindowMin: cycles buffered before the first solve
     double ekf5StateBoundsK = 0.0;        //!< --ekf5StateBounds: clamp b, s to +/- k prior sigmas (0 = off)
+    bool ekf5CoarsePosOnly = false;       //!< DD 33 --ekf5CoarsePosOnly: 868 MHz ranges correct position only
+    double reacquireSigmaM = 0.0;         //!< DD 34 --reacquireSigmaM: re-enter particle acquisition when sqrt(tr P) exceeds this (0 = off)
     double ekf5FinderConsiderVar = 4.0;   //!< their variance, m^2
     double ekf5StrideRel = 0.0;           //!< --imuStrideSigmaPct / 100: the filter's per-step stride model
     double ekf5StrideLenM = 0.7;          //!< step length the stride model counts steps with
@@ -1068,6 +1070,8 @@ class CaTblPolicy
     uint64_t GetHalfPlaneCuts() const { return m_pfHalfPlaneCut; }
     /** DD 29: estimates reflected back across the gateway line. */
     uint64_t GetHalfPlaneReflects() const { return m_hpReflects; }
+    /** DD 34: re-entries into particle acquisition. */
+    uint64_t GetReacquires() const { return m_reacquires; }
     /** C1 --acquireNegInfo: gateways addressed this cycle that returned no range (surveyed positions), per tier. */
     struct SilentAnchor
     {
@@ -1574,6 +1578,9 @@ class CaTblPolicy
     std::vector<PfParticle> m_pf;
     uint64_t m_pfHalfPlaneCut = 0; //!< DD 29: particle-updates zeroed for lying across the gateway line
     uint64_t m_hpReflects = 0;     //!< DD 29: Kalman estimates reflected back across the gateway line
+    uint64_t m_reacquires = 0;     //!< DD 34: re-entries into particle acquisition
+    double m_pfInitHalf = 0.0;     //!< DD 34: the start-up prior half-width (cap for a re-acquisition cloud)
+    bool m_reacqArmed = false;     //!< DD 34: set once sqrt(tr P) has been within the threshold
     uint32_t m_streak24 = 0;
     std::vector<SilentAnchor> m_silent; //!< C1
     bool m_oracleSet = false;      //!< ORACLE-ESC: SetOracleTruth called

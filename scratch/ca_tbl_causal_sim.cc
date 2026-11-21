@@ -2550,6 +2550,8 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
+static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -7421,6 +7423,8 @@ RunArm(CaTblPolicyMode mode,
         pcfg.ekf5Window = g_ekf5Window;
         pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5CoarsePosOnly = g_ekf5CoarsePosOnly;
+        pcfg.reacquireSigmaM = g_reacquireSigmaM;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
@@ -16185,6 +16189,17 @@ RunArm(CaTblPolicyMode mode,
              << (mesh->billedAir[0] + mesh->billedAir[1] + mesh->billedAir[2]) << " s\n";
         std::cout << line.str();
     }
+    // DD 34: re-entries into particle acquisition over every tracked node (tag 0 and the subjects).
+    if (g_reacquireSigmaM > 0.0)
+    {
+        uint64_t reacqAll = 0;
+        for (uint32_t pt = 0; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            reacqAll += tags[pt].policy.GetReacquires();
+        }
+        std::cout << "    DD34 reacquireSigmaM (" << CaTblPolicyModeName(mode) << "): re-entries over all tracked nodes "
+                  << reacqAll << "\n";
+    }
     // DC-9. The model witness's counters, split. Printed only under the flag.
     if (witness)
     {
@@ -16249,6 +16264,15 @@ RunArm(CaTblPolicyMode mode,
             if (g_ekf5StateBoundsK > 0.0)
             {
                 line << "    ekf5 state bounds: projections " << policy.Ekf5().BoundsApplied() << "\n";
+            }
+            if (g_reacquireSigmaM > 0.0)
+            {
+                line << "    DD34 reacquireSigmaM: tag-0 re-entries into particle acquisition " << policy.GetReacquires() << "\n";
+            }
+            if (g_ekf5CoarsePosOnly)
+            {
+                line << "    DD33 ekf5CoarsePosOnly: tag-0 868 MHz ranges applied position-only " << policy.Ekf5().CoarsePosOnlyApplied()
+                     << "\n";
             }
             if (g_ekf5RelayGate)
             {
@@ -20589,6 +20613,22 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("reacquireSigmaM",
+                 "DD 34. With --acquireParticles and ekf5: when the filter's sqrt(trace P) exceeds this many metres it is "
+                 "lost, and it re-enters the particle acquisition round its current estimate (cloud as wide as its own "
+                 "uncertainty, never wider than the start-up prior), handing over again once the cloud is one mode. Why: in "
+                 "REALISTIC-2's quiet shift a lost crew filter (+/-34 km) linearised one 6.8 km range and then a two-"
+                 "gateway intersection into the wrong root and claimed +/-23 m at 400 m off. 0 (default): never, "
+                 "byte-identical to every earlier result.",
+                 g_reacquireSigmaM);
+    cmd.AddValue("ekf5CoarsePosOnly",
+                 "DD 33. With --imuFilter=ekf5: an 868 MHz range corrects the POSITION only. Heading offset, gyro bias and "
+                 "stride scale are consider states for it (Schmidt-Kalman gain, covariance in the general-gain form), and it "
+                 "is not put into the --ekf5Window smoother. Why: in REALISTIC-2's 8 h quiet shift at the cluster site the "
+                 "crew's filters, fed kilometre-scale RSSI ranges, learned a stride scale of -50 and a gyro bias of "
+                 "-0.37 rad/s and froze in place at a claimed +/-20 m while 1-3 km off. False (default): every range "
+                 "updates every state, byte-identical to every earlier result. Refused without ekf5.",
+                 g_ekf5CoarsePosOnly);
     cmd.AddValue("ekf5StateBounds",
                  "With --imuFilter=ekf5: after every update the gyro bias and stride scale are clamped to +/- this many of "
                  "their prior sigmas (estimate projection onto the admissible region, Simon & Chia 2002). 0 (default): no "
@@ -22369,6 +22409,11 @@ main(int argc, char* argv[])
     {
         // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
+        return 1;
+    }
+    if (g_ekf5CoarsePosOnly && !spec.imuFilterEkf5)
+    {
+        std::cerr << "FATAL: --ekf5CoarsePosOnly needs --imuFilter=ekf5\n";
         return 1;
     }
     if (g_ekf5StateBoundsK != 0.0 && (!spec.imuFilterEkf5 || !(g_ekf5StateBoundsK > 0.0)))

@@ -2052,6 +2052,12 @@ bash scripts/search_doctrine_gate.sh "$WORK/g174" || fail G174
 bash scripts/search_doctrine_gate_selftest.sh "$WORK/g174" || fail G174
 finish G174
 
+# ---------------- G175: --reacquireSigmaM, a lost filter re-enters particle acquisition (DD 34)
+printf '\n--- G175 re-acquisition ---\n'
+bash scripts/reacquire_gate.sh "$WORK/g175" || fail G175
+bash scripts/reacquire_gate_selftest.sh "$WORK/g175" || fail G175
+finish G175
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
