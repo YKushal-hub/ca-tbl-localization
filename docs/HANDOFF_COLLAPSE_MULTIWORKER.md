@@ -126,9 +126,12 @@ The Windows clone `C:\projects\ca-tbl-localization` talks to GitHub. Push a WSL 
 
 ```bash
 cd /mnt/c/projects/ca-tbl-localization
-git.exe fetch //wsl.localhost/Ubuntu-20.04/home/nethi/catbl_multi work/2026-11-22-multiworker:work/2026-11-22-multiworker
+git.exe fetch "$(wslpath -w ~/projects/ca-tbl-localization)" work/2026-11-22-multiworker:work/2026-11-22-multiworker
 git.exe push origin work/2026-11-22-multiworker
 ```
+
+Fetch from `~/projects/ca-tbl-localization`, the repository every WSL worktree belongs to. A worktree's `.git` is a
+pointer file that Windows git cannot follow.
 
 Direct pushes to `main` are rejected; use a PR (`gh.exe pr create`). The owner authorised pushing this working branch
 and opening a PR on 2026-11-22.
@@ -184,18 +187,21 @@ Depth error median is 1.3–2.5 m, so depth is the weak axis. In the high bracke
   ca_tbl_full, seed 7, 300 s; ca_tbl_full, seed 11, 900 s) give **178 files byte-identical** to the pre-merge build.
   Only `run_id.txt` (build stamp) differs.
 - **G177 and G178** pass, with their selftests (14 and 5 doctored inputs, all caught).
-- **`main`'s side: IN PROGRESS.**
-  - Replaying `main`'s tracked LIMITS cell (`results/limits_2026-11-14/L1/A_O15/s361`) with the merged binary and
-    `$PIN_PRE_DD27`: `arm_summary.csv` is identical, but 31 diagnostic files differ.
-  - The ENV-SWEEP cell (`results/envsweep_2026-11-14/A_E0/s361`) differs more, including `arm_summary.csv`.
-  - Both cells were recorded with binaries built from older commits (`fcf1cdc0`; `a02cfb16` dirty), so their digests
-    may not match `main`'s own tip either.
-  - **Next:** run `bash scripts/merge_identity_check.sh ~/catbl_mainref/build/scratch/ns3.47-ca_tbl_causal_sim-optimized /tmp/mic`.
-    It runs `main`'s binary and the branch binary + pin on the same three of `main`'s campaign configurations.
-    - If identical: the merge is behaviour-preserving, and the cell differences come from the old recording
-      builds. Record that in the PR.
-    - If not identical: bisect which merged commit changes `main`'s behaviour under the pin, and fix it so that the
-      pin (or the flag defaults) restores `main` exactly.
+- **`main`'s side: VERIFIED (2026-11-22).**
+  - `bash scripts/merge_identity_check.sh ~/catbl_mainref/build/scratch/ns3.47-ca_tbl_causal_sim-optimized DIR`
+    ran `main`'s own binary and this branch's binary + `$PIN_PRE_DD27` on three of `main`'s campaign configurations:
+    LIMITS L1 (`--tier1ExtraLossDb=15`), LIMITS L2 (`ca_tbl_two_tier`) and ENV-SWEEP E0 (600 s).
+  - **614 output files byte-identical** (223 + 113 + 278). `run_id.txt` and `spec_profile.txt` are excluded: the
+    latter prints the preset text, which the pin changes.
+  - The tracked cells' recorded digests (`results/limits_2026-11-14/...`, `results/envsweep_2026-11-14/...`) are not
+    reproduced on this machine by **`main`'s own binary either**: 30 diagnostic files differ in the LIMITS cell, while
+    `arm_summary.csv` matches. The merged binary's replay equals `main`'s replay file for file, apart from the pin's
+    `spec_profile.txt`.
+  - So the difference predates this branch. The likely cause is `NS3_NATIVE_OPTIMIZATIONS=ON` (`-march=native`): the
+    cells were recorded on another machine (`/home/kushal/...`), and floating-point detail in diagnostic traces
+    differs by CPU.
+  - Not investigated further. If cross-machine digests matter, rebuild with native optimisations off on both
+    machines.
 - **Known pre-existing issues (not introduced here):**
   - `main` already has two gates numbered G167 (ORACLE-ESC and LIMITS).
   - 8 stale row references in `docs/SCENARIO_FLAGS.md`; fixed on this branch.
@@ -315,7 +321,7 @@ simulator output quantity is compared with a published value, with a tolerance s
 - Collapse results will not make a Monday 2026-11-23 submission. Owner to decide: later submission with the
   collapse study, or paper on the earlier results first.
 - De Bruycker 1983 PDF and HAZUS manual need a browser download (automated fetch blocked).
-- The ENV-SWEEP / LIMITS digest differences (§5) once the identity check is in.
+- Whether tracked cells must reproduce across machines. They do not today, even with `main`'s own binary (§5).
 
 ## 9. Status log (append; newest last)
 
@@ -326,4 +332,5 @@ simulator output quantity is compared with a published value, with a tolerance s
   - Collapse work re-parented onto `main`'s rewritten history (no attribution trailers re-enter).
   - Merged, with one conflict (generated `docs/SCENARIO_FLAGS.md`, regenerated: 361 flags).
   - G177/G178 added to the suite.
-  - Our side byte-identical; `main`-side identity check in progress (§5).
+  - Our side byte-identical; `main`'s side byte-identical under `PIN_PRE_DD27` (614 files, §5).
+  - Branch pushed; PR opened.

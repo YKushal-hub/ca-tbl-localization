@@ -11,7 +11,7 @@ RID=$1
 W=$2
 shift 2
 EXTRA="$*"
-BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
+BIN="${REPLAY_BIN:-$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized}"
 [ -f "$RID" ] || { echo "no $RID"; exit 2; }
 ARGS=$(sed -n 2p "$RID" | sed 's/^build [^|]*| [^ ]* //' | sed 's/ --outdir=[^ ]*//')
 mkdir -p "$W"
