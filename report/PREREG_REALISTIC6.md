@@ -30,3 +30,20 @@ off), ROAD3MUL and CLUS3MUL (`--tofErrorModel=muller`). 280 runs. Measures and s
 fewer than 20 seeds in a cell → incomplete; nothing is evaluated until complete. No cell dropped or chosen.
 
 **Reporting.** `REALISTIC6.md` by the analyser; a Result section is appended here after the run, whatever it says.
+
+## Result (run 2026-11-21 14:01–16:16 IST, source b0b9cbbd1, 280/280 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/realistic6_2026-11-21/REALISTIC6.md`. Traces are not tracked; their SHA-256 manifest is. Every run
+drew its own incident (DD35 line in every log).
+
+- **H1: HOLDS.** Ours − 2.4 GHz only, searcher within 10 m: ROAD3 −1488 s [−2034, −892], RAND3 −1471 s [−2103, −699],
+  ROAD3F4 −1725 s [−2171, −1255]; ROAD1 −584 s [−1173, 72]; CLUS3 +8 s [−1, 25].
+- **H2: HOLDS.** Ours − the better single-radio design, time to 25 m: ROAD1 −862 s [−1570, −198], ROAD3 −1312 s
+  [−2211, −418], RAND3 −2472 s [−3329, −1473], ROAD3F4 −2355 s [−3326, −1274], CLUS3 0.
+- **H3: FAILS** at one site: 250 m availability, CLUS3 −0.017 [−0.039, −0.001] against 2.4 GHz only; elsewhere +0.094 to
+  +0.272, every lower bound > 0.
+- **H4 (reported).** Crew of 10 / 15 (ROAD3, relay slots off), ours − 2.4 GHz only: searcher −825 s [−1517, −69] /
+  −1470 s [−1922, −1017]; time to 25 m −1364 s / −1901 s; A250 +0.045 / +0.047; J/h ours 31.9 / 31.7, 2.4 GHz only 13.3 /
+  11.6. Field-measured 2.4 GHz error: ROAD3 searcher −522 s [−1038, −29], time to 25 m −104 s [−844, 632], A250 +0.009
+  [−0.017, 0.032]; CLUS3 searcher 0, time to 25 m −82 s [−330, 83], A250 −0.025 [−0.054, −0.001]. Under that error law
+  every design slows: ours reached 25 m in 60 % (ROAD3) and 25 % (CLUS3) of runs.
