@@ -136,49 +136,33 @@ pointer file that Windows git cannot follow.
 Direct pushes to `main` are rejected; use a PR (`gh.exe pr create`). The owner authorised pushing this working branch
 and opening a PR on 2026-11-22.
 
-## 4. What is implemented (done, committed, gated)
+## 4. What is implemented — status table (updated 2026-11-22)
 
-### 4.1 Earlier work, unchanged and merged here
-
-The realistic-site single-worker study is merged here, including:
-- DD 27–35 and gates G169–G176;
-- results REALISTIC-1..6 and PARETO-1/2;
-- the paper draft `~/catbl_work/tii_paper/tii/tii_main.tex` (outside the repo).
-
-The flags are default-off. DD 27 changed what `--specProfile=true` means: three gateways on a line and two
-dispatched searchers. `PIN_PRE_DD27` in `scripts/preset_pins.sh` restores `main`'s preset (12-gateway ring,
-12 finders).
-
-### 4.2 Collapse extension: World (ground truth)
-
-| Item | Status | Where / numbers |
-|---|---|---|
-| Sourced rubble loss brackets | done | 868 MHz 6.63 / 11.90 / 30.71 dB/m; 2.4 GHz 25.45 / 38.21 / 98.60; 8 GHz 59.15 / 91.68 / 219.7 (rows OES-*, UWB8-*) |
-| Solid fraction η (derived, since no pile-density primary exists) | done | 0.3522 / 0.5459 / 0.7706 = A_rubble(2 GHz) / A_solid(2 GHz) (rows ETA-*) |
-| ToF slowing | done | 0.454 / 0.704 / 1.541 m per metre of pile (row SLOW-BR) |
-| Lowest-loss path (exit through the pile surface) | done (DD 37) | Snell critical angle and Fresnel transmission per crossing (ITU-R P.2040-4 eqs. 30–35); pile index n = 1 + η(√ε′ − 1) |
-| Engine hooks | done (DD 36/37) | loss into tier-3 sum; ToF bias on 2.4 GHz/UWB; 868 RSSI range sees the loss; null by default, byte-identical |
-| Collapse generator | done (DD 37) | box pile, N workers, surface grid points × hold heights, ring stations; keyed RNG; obs/truth split |
-| Validation targets in G177 | done | 868 MHz totals for 2–5 m span NIST TN 1542 / 1540 bounds (30 / 80 dB); detection range 10.92 m vs Oestges ~10 m |
-
-### 4.3 Collapse extension: System (estimation)
-
-| Item | Status | Notes |
-|---|---|---|
-| Air path-loss law fitted from the system's own point-to-station links | done (DD 38) | no rubble on those links |
-| `tof` / `rss` / `joint` (B1: ToF bias tied to RSS excess through ρ = A/(n − 1)) | done (DD 38) | ρ prior 55.33–65.21 dB/m at 2.44 GHz, spans all brackets |
-| Generic depth prior (worker below the surface) | done | |
-| Local frame (σ 0.10 m) and GPS frame (GPS SPS PS Table 3.8-3) | done | the rescuer frame itself is not solved yet (B3) |
-
-**First numbers** (3 seeds × 3 brackets, 20 workers, **not citable**). Fraction within 2 m horizontally:
-
-| Bracket | joint | rss | tof |
+| Plan item | Status | Where | Evidence |
 |---|---|---|---|
-| low / central | 0.55–0.80 | 0.45–0.75 | 0.25–0.55 |
-| high | 0.25–0.40 | — | — |
+| Source log: every input number with quote, page, calculation | DONE (pending rows listed in §6.3) | `docs/SOURCES_COLLAPSE.md` | ~80 rows VERIFIED / DERIVED |
+| A1–A4 rubble physics (loss brackets, solid fraction, ToF slowing) | DONE | `ca-tbl-rubble-world.{h,cc}` (DD 36) | G177 |
+| Lowest-loss path with Snell and Fresnel surface crossing | DONE | same (DD 37) | G177 path fixtures |
+| A5 validation targets (NIST, Oestges) | DONE | G177, `score_validate.py` | VAL-1/2/3/6 pass |
+| Scenario geometry sourced (HAZUS storeys and floor areas, 28.8 workers/floor, NIOSH collapse zone, De Bruycker survival) | DONE | §5d of the source log | — |
+| Collapse World in the main simulator, N = 1 / 20 / 30 through the full pipeline | DONE | `--collapse` (DD 39) | G179 |
+| Link field with the preset's engines | DONE | `--collapseField` (DD 40) | VAL 11/12 |
+| Multi-subject reception defect (copies of one broadcast collided) | FIXED behind a flag | `--interferenceFrameKey` (DD 41) | G180; owner decision pending (§8) |
+| B1 cross-band self-calibration (joint RSS + ToF via ρ = A/(n − 1)) | DONE (field estimator) | `scripts/collapse/estimate_collapse.py` (DD 38) | first results in DD 38 |
+| B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
+| B2 depth estimator in the main simulator's 2-D filters | NOT DONE | — | the 2-D filters estimate (x, y) only |
+| B3 rescuer frame from UWB + GPS + IMU | PARTIAL | main simulator: finder position model (`--finderPosSigma`, DD 20); field: `--collapseLocalSigma` | a dedicated frame solve is not implemented |
+| B4 worker-to-worker cooperation | DONE (field estimator), modest | `coop` (DD 42) | helps the median at ≥ half coverage, hurts the tails |
+| B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
+| B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
+| Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
+| COLLAPSE-1 (localisation, scaling, designs, digging) | RUNNING | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
+| COLLAPSE-3 (72 h on one CR123A) | REGISTERED | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
+| COLLAPSE-2 (sensitivity: stations, teams, t_dig, coverage) | NOT DONE | — | see §6 |
+| Paper section | NOT DONE | `~/catbl_work/tii_paper/tii/tii_main.tex` | after COLLAPSE-1 |
 
-Depth error median is 1.3–2.5 m, so depth is the weak axis. In the high bracket 15–35% of workers are not heard at
-868 MHz.
+**Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
+`--interferenceFrameKey=true --reacquireSigmaM=500` plus the REALISTIC device-side set (see the runner).
 
 ## 5. Verification state of this branch (the PR)
 
@@ -404,3 +388,15 @@ simulator output quantity is compared with a published value, with a tolerance s
 - 2026-11-22: DD 41 (`--interferenceFrameKey`, gate G180).
   - Explains the starved subjects 2..N found in DD 39.
   - With it, 20 buried workers have median CEP50 2.7 m (full) and 1.8 m (868 only), against 11.7 / 18.2 m without.
+- 2026-11-22: DD 42 (B4 `coop`, CRB), DD 43 (Phase 0).
+  - COLLAPSE-1 registered and launched (`c93ee19f2`, 210 runs).
+  - COLLAPSE-3 registered.
+  - Battery row (CR123A, 16,740 J) and host CoreMark row added.
+  - Null controls hold after every change (178 + 614 files).
+
+**To continue when COLLAPSE-1 finishes:**
+1. `python3 scripts/collapse1_analyse.py ~/catbl_work/campaigns/collapse1` (hypotheses H1–H6) and
+   `python3 scripts/collapse3_analyse.py ~/catbl_work/campaigns/collapse1` (H7).
+2. Record the results in the two PREREG files ("Results" section; do not edit the hypotheses).
+3. Copy the summary CSVs and provenance into `results/collapse1/`. Traces stay untracked, as for REALISTIC.
+4. Write the paper section.
