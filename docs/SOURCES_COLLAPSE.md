@@ -84,6 +84,19 @@ Source: W. C. Stone, "Electromagnetic Signal Attenuation in Construction Materia
 
 **Consistency with the rubble brackets.** NIST solid concrete at 2 GHz × the high η (0.92, DENS-*, PENDING) gives 103.8·0.92 = 95.5 dB/m, within 3% of the high 2.4 GHz bracket 98.6 dB/m that came from Oestges' 80 dB/m measurement (independent sources). At 868 MHz, 114.2·0.92 = 105 dB/m is far above the high bracket 30.7 dB/m. The ITU solid value (33.0 dB/m at 1 GHz) and NIST (111.1) differ by 3.4×; NIST specimens were laboratory-cast concrete (28-day strength tests, Table 3.3.4 p. 46; age and moisture at test not stated in the parts read), and the reason for the gap is not established here. So NIST is kept as an **extra-high solid-material case** ("wet concrete"), reported as a sensitivity case, not as the high bracket; the brackets of §2 stay as derived. No value is changed to fit results.
 
+### 3b. Floor loss, ITU-R P.1238-13
+
+Source: Recommendation ITU-R P.1238-13 (09/2025), "Propagation data and prediction methods for the planning of indoor radiocommunication systems and radio local area networks in the frequency range from 300 MHz to 450 GHz" (in force; listed at itu.int/rec/R-REC-P.1238/en, checked 2026-11-21).
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| P1238-EQ2 | L_total = L(d0) + N·log10(d/d0) + Lf(n), Lf = 0 for n = 0 | W: form of the standing-building floor term (validation only) | §3, eq. (2), pp. 7–8 | "Lf : floor penetration loss factor (dB)"; "n: number of floors between base station and portable terminal (n ≥ 0), Lf = 0 dB for n = 0." | — | VERIFIED 2026-11-21 |
+| P1238-T5-900 | 0.9 GHz, office: 9 / 19 / 24 dB for 1 / 2 / 3 floors | W: validation target A5.2 (standing structure, not rubble) | Table 5, p. 9 | "Floor penetration loss factors, Lf (dB) with n being the number of floors penetrated, for indoor transmission loss calculation (n ≥ 1)"; row "0.9 … 9 (1 floor) 19 (2 floors) 24 (3 floors)" in the Office column (Residential and Commercial "–") | — (note: earlier plan text said residential; the current table puts these in the Office column) | VERIFIED 2026-11-21 |
+| P1238-T5-24 | 2.4 GHz: office 14 dB; residential 10 (apartment, per concrete wall) / 5 (house) | W: validation, 2.4 GHz floor term | Table 5, p. 9 | row "2.4 … 10 (apartment) 5 (house) … 14"; note "(1) Per concrete wall." | — | VERIFIED 2026-11-21 |
+| P1238-T5-18 | 1.8–2 GHz: residential 4n; office 15 + 4(n − 1); commercial 6 + 3(n − 1) | W: validation | Table 5, p. 9 | "1.8-2 4n 15 + 4 (n − 1) 6 + 3 (n − 1)" | n = 2 office: 15 + 4 = 19 dB | VERIFIED 2026-11-21 |
+| P1238-ISOL | multi-floor loss saturates (external paths) | W: why the rubble model is per metre of material, not per floor | text after Table 5, p. 9 | "It should be noted that there may be a limit on the isolation expected through multiple floors. The signal may find other external paths to complete the link with less total loss than that due to the penetration loss through many floors." | — | VERIFIED 2026-11-21 |
+| P1238-52 | 5.2 GHz reinforced concrete floor, normal incidence: 20 dB (SD 1.5); with lighting 30 (SD 3); with ducts 36 (SD 5) | W: UWB cross-check (one intact slab) | text after Table 5, p. 9 | "measurements at 5.2 GHz have shown that at normal incidence the mean additional loss due to a typical reinforced concrete floor with a suspended false ceiling is 20 dB, with a standard deviation of 1.5 dB." | — | VERIFIED 2026-11-21 |
+
 ## 4. Ranging through obstacles
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -101,7 +114,7 @@ Source: W. C. Stone, "Electromagnetic Signal Attenuation in Construction Materia
 |---|---|---|---|---|---|
 | INSARAG-HEAVY | heavy team: 2 sites, 24 h operations, up to 10 days; operational within 48 h | X: dig sites, arrival | INSARAG Guidelines and Methodology (UN OCHA, March 2011), p. 33, §7.3 | "A heavy team must be adequately staffed to allow for 24 hour operations at 2 separate sites for up to 10 days."; "operational in the affected country within 48 hours" | VERIFIED 2026-11-21 |
 | INSARAG-MED | medium team: 1 site, up to 7 days; operational within 32 h | X: dig sites, arrival | same, p. 33, §7.2 | "A medium team must be adequately staffed to allow for 24 hour operations at 1 site for up to 7 days."; "operational in the affected country within 32 hours" | VERIFIED 2026-11-21 |
-| DEBRUY-1983 | 93.6% of live extrications within 24 h; 80% of trapped extricated within 2 days; trapped mortality 35.0% | X: survival weighting | De Bruycker, Greco et al., "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO, 1983 | (from a search summary only) | PENDING (open PDF at iris.unina.it) |
+| DEBRUY-1983 | 93.6% of live extrications within 24 h; 80% of trapped extricated within 2 days; trapped mortality 35.0% | X: survival weighting | De Bruycker, Greco et al., "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO, 1983 | (from a search summary only) | PENDING: PMC2536241 (Bull. WHO 61(6):1021–1025) is behind a browser check, iris.unina.it and WHO IRIS return 403 to automated fetch; owner to download the PDF. Until then survival weighting in B6 is swept, not fixed |
 | RESCUE-TIME | extrication time per victim | X: digging model | Natural Hazards (Springer) 2014, DOI 10.1007/s11069-014-1304-3 | — | PENDING (library access) |
 
 ## 5a. Many devices on air, Bor et al. 2016
@@ -112,6 +125,16 @@ Source: M. Bor, U. Roedig, T. Voigt, J. M. Alonso, "Do LoRa Low-Power Wide-Area 
 |---|---|---|---|---|---|---|
 | BOR-TIMING | overlap tolerated if ≥ 5 preamble symbols stay intact; critical section x_cs = (a_x + T_sym·(N_pp − 5), b_x) | X: collision timing in B5 (new switch only) | §3, "Timing" | "packets can overlap, as long there are at least 5 preamble symbols left intact (in case of a weak packet). In other words, the critical section of a packet reception starts at the last 5 preamble symbols" | with N_pp = 8 (paper's preamble), the first 3 symbols may overlap | VERIFIED 2026-11-21 |
 | BOR-CAP | capture observed with 3 dBm vs 2 dBm transmitters (1 dB transmit difference); the paper gives eq. (9) but no number for P_threshold | X: capture threshold sweep in B5 | §3, "Power", eq. (9), Figure 3 | "One transmitter is set to transmit a 32-byte packet on a regular interval at a weak transmit power (2 dBm), while another transmitter was set to transmit a 32-byte packet at a strong transmit power (3 dBm)." | the existing simulator uses 6 dB (ca-tbl-mac.cc `m_captureThresholdDb`, commented as a model parameter to sweep). Collapse runs keep 6 dB as the default (earlier work unchanged) and sweep 1 dB (Bor experiment) to 6 dB | VERIFIED 2026-11-21; numeric threshold absent in primary (recorded) |
+
+## 5b. GPS for rescuers on the surface
+
+Source: U.S. DoD, "Global Positioning System Standard Positioning Service Performance Standard", 5th Edition, April 2020 (in effect; archive.gps.gov/technical/ps/2020-SPS-performance-standard.pdf, fetched 2026-11-21).
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| GPS-SPS-AVG | ≤ 8 m horizontal, ≤ 13 m vertical (95%), global average | S: rescuer GPS model, B3 (high/conservative bracket) | Table 3.8-3, p. 58 | "Global Average Position Accuracy … ≤ 8 m 95% Horizontal Error … ≤ 13 m 95% Vertical Error" | horizontal: circular 2-D Gaussian R95 = 2.4477·σ, so σ per axis = 8/2.4477 = **3.27 m**; vertical: 95% = 1.95996·σ, so σ_v = 13/1.95996 = **6.63 m** | VERIFIED 2026-11-21 |
+| GPS-SPS-WORST | ≤ 15 m horizontal, ≤ 33 m vertical (95%), worst site | S: stress case | Table 3.8-3, p. 58 | "Worst Site Position Accuracy … ≤ 15 m 95% Horizontal Error … ≤ 33 m 95% Vertical Error" | σ per axis = 15/2.4477 = 6.13 m; σ_v = 33/1.95996 = 16.84 m | VERIFIED 2026-11-21 |
+| GPS-SPS-NOTE | the standard is a bound for representative user conditions; it is not the typical error | S: why the earlier 2 m/axis model (DD 20) stays for earlier work and is not re-tuned | Table 3.8-3 "Conditions and Constraints" | "Defined for a position/time solution meeting the representative user conditions" | collapse runs: low = existing 2 m/axis (DD 20, its own source row), high = 3.27 m/axis + 6.63 m vertical; vertical relative heights come from UWB (B3) | VERIFIED 2026-11-21; typical-performance source (e.g. the 2020 SPS performance analysis report) PENDING |
 
 ## 6. Hardware
 
@@ -132,8 +155,8 @@ Source: M. Bor, U. Roedig, T. Voigt, J. M. Alonso, "Do LoRa Low-Power Wide-Area 
 | Solid density of concrete | EN 1991-1-1 Annex A, Table A.1 | PENDING |
 | Debris bulk density | UN-based 1.4 t/m³ estimate (primary document); 1.69–2.25 t/m³ (ScienceDirect S2949750726000088) | PENDING |
 | Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
-| 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238, current edition (P.1238-12 URL returned 404) | PENDING |
+| 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238-13 (09/2025) | DONE → §3b |
 | Collapse geometry and void types | FEMA US&R Structural Collapse Technician; USACE Structures Specialist FOG; Rana Plaza reviewed sources | PENDING |
-| GPS horizontal and vertical accuracy for rescuers | GPS Standard Positioning Service Performance Standard (current edition) | PENDING |
+| GPS horizontal and vertical accuracy for rescuers | GPS SPS PS 5th ed. (2020) | DONE → §5b |
 | Battery capacity | manufacturer cell datasheet | PENDING |
 | Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |
