@@ -60,6 +60,22 @@ UCLouvain DIAL 2078.5/255172.
 | OES-RANGE | detection range at 130 dB dynamic range: GSM-900 ~10 m (concrete + mixed), < 2 m (ferro) | W: validation target A5.4 | §VI, Table III | "Concrete + mixed ~ 15 m ~ 10 m ~4m"; "Ferro-concrete <3m <2m <1m" (TETRA / GSM-900 / UMTS) | central 868 MHz: 130/11.90 = **10.9 m** ✓; high: 130/30.71 = 4.2 m vs "< 2 m" (limitation recorded) | VERIFIED 2026-11-21 |
 | OES-BIMPAS | 60–100 dB measured at 2.45 GHz in ruins (Bimpas et al., EuMC 2003) | W: validation target A5.3 | §I (secondary) | "Attenuations of 60 to 100 dB were measured at 2.45 GHz (compared to more than 250 dB at 10 GHz)." | — | PENDING (primary: Bimpas et al., "Development and testing of a detector system for trapped humans in building ruins", EuMC 2003, pp. 999–1002) |
 
+### 2a. Solid fraction and UWB rubble loss (derived only from rows above)
+
+No primary source found (2026-11-21) gives a measured solid fraction or bulk density for an in-place collapsed RC pile. Loose hauled C&D waste densities (e.g. Florida DEP loads) describe trucks, not piles, and are not used. Instead the effective solid fraction is **derived from sourced losses**: η_eff = A_rubble(2 GHz) / A_solid(2 GHz), using the same measured rubble values as the §2 brackets. This relies on loss being proportional to solid fill: supported by NIST6055-DENSLAW ("signal loss per unit thickness is proportional to the material density") and by OES-SPHERE (A = α·η). The ratio is assumed frequency-independent from 2 to 8 GHz. That assumption is stated in the paper. Script: scripts/collapse/eta_uwb_brackets.py.
+
+| ID | Value | Used for | Calculation (all inputs are rows above) | Status |
+|---|---|---|---|---|
+| ETA-LOW | η = 0.3522 | W: low bracket fill; bias | OES layered no-ferro 20 dB/m at 2 GHz ÷ ITU2040-T3 solid concrete 56.78 dB/m at 2 GHz = 0.3522 | DERIVED 2026-11-21 |
+| ETA-CEN | η = 0.5459 | W: central | OES with ferro 31 ÷ 56.78 = 0.5459 | DERIVED 2026-11-21 |
+| ETA-HIGH | η = 0.7706 | W: high | OES measured 80 ÷ NIST6055-LOW 103.82 (2 GHz) = 0.7706 (the 80 dB/m pile was ~75% ferro, so the higher NIST solid value is paired with it) | DERIVED 2026-11-21 |
+| ETA-XCHK | interclast porosity 34–39% for simulated room-collapse rubble (salt clasts) → η 0.61–0.66 | cross-check only, not used | WIPP rubble study (InterPore Journal, ipjournal.interpore.org/index.php/interpore/article/view/45), from a search summary; PENDING primary. Inside [0.35, 0.77] | PENDING (cross-check) |
+| UWB65-LOW / CEN / HIGH | **50.28 / 77.94 / 186.74 dB/m** at 6.5 GHz | W: UWB channel 5 rubble loss | 0.3522·142.76 (ITU 6.5 GHz) = 50.28; 0.5459·142.76 = 77.94; 0.7706·242.34 (NIST6055-HIGH) = 186.74 | DERIVED 2026-11-21 |
+| UWB8-LOW / CEN / HIGH | **59.15 / 91.68 / 219.7 dB/m** at 8 GHz | W: UWB channel 9 rubble loss | 0.3522·167.94 = 59.15; 0.5459·167.94 = 91.68; high: NIST 6.5 GHz scaled by the ITU frequency ratio 167.94/142.76 = 1.1764: 242.34·1.1764 = 285.1 dB/m solid (cross-check: NIST6055-8G text "approximatey 90 dB" for 305 mm = 295 dB/m including interfaces ✓), ×0.7706 = 219.7 | DERIVED 2026-11-21 |
+| SLOW-BR | ranging bias per metre of rubble **0.454 / 0.704 / 1.541 m/m** | W: ToF bias, A4 | b = η·(√ε′ − 1), with ε′ paired to the solid-loss source: low and central ITU ε′ = 5.24 (√ε′ − 1 = 1.2891); high Oestges ε′ = 9 (√ε′ − 1 = 2.000). 0.3522·1.2891 = 0.454; 0.5459·1.2891 = 0.704; 0.7706·2.000 = 1.541. Sensitivity case: central η with ε′ = 9 gives 1.092 m/m | DERIVED 2026-11-21 |
+
+These rows **replace** the plan's η = 0.57 / 0.69 / 0.92 and bias 0.73 / 1.32 / 1.84 m/m, which depended on the unsourced debris densities (DENS-*). The 868 MHz and 2.4 GHz brackets of §2 are unchanged, because they come from rubble measurements directly.
+
 ## 3. Measured building and rubble loss, NIST
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -152,8 +168,8 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 |---|---|---|
 | 868 MHz excess loss and group delay under real earthquake rubble | DiCarlofelice, Di Giampaolo, Feliziani & Tognolatti, IEEE TVT 64(6):2288–2296, 2015, DOI 10.1109/TVT.2014.2346580 | PENDING |
 | Concrete loss 3–8 GHz vs thickness | Stone, NISTIR 6055 (1997), DOI 10.6028/NIST.IR.6055 | DONE → §3a |
-| Solid density of concrete | EN 1991-1-1 Annex A, Table A.1 | PENDING |
-| Debris bulk density | UN-based 1.4 t/m³ estimate (primary document); 1.69–2.25 t/m³ (ScienceDirect S2949750726000088) | PENDING |
+| Solid density of concrete | EN 1991-1-1 paywalled; not needed after §2a (NIST6055-DENS 2346 kg/m³ recorded) | CLOSED |
+| Debris bulk density | not found as a pile measurement; replaced by derived η (§2a) | CLOSED → §2a |
 | Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
 | 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238-13 (09/2025) | DONE → §3b |
 | Collapse geometry and void types | FEMA US&R Structural Collapse Technician; USACE Structures Specialist FOG; Rana Plaza reviewed sources | PENDING |
