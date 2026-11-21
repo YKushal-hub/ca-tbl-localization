@@ -12,6 +12,10 @@ everything heard so far. Three estimators:
          point-to-station links)
   joint  B1: rss + tof together, the ToF bias tied to the same excess through the rubble's
          loss-to-delay ratio rho_b (system_priors.RHO_RANGE): r = |x - a| + C_b / rho_b
+  coop   B4: every worker at once, joint's residuals plus the worker-to-worker 868 MHz links. A
+         worker-to-worker path leaves the pile above one worker and re-enters above the other (DD 37),
+         so its rubble excess is the two workers' own excesses: P_ij = Ptx - L(|x_i - x_j|) - C_i - C_j.
+         No new unknowns; workers that few rescuers heard are pulled into place by their neighbours.
 
 Positions live in the rescuers' local frame (--frame local) or the GPS frame (--frame gps).
 Output: estimates.csv (method, slot, worker, x, y, z, sd_h, sd_v, n_meas).
@@ -160,12 +164,57 @@ def solve(meas, law, A, method, surf_z):
     return sol.x[:3], sd_h, sd_v, len(rss) + len(tof)
 
 
+def solve_coop(meas, vv, law, A, surf_z, init):
+    """meas[w]: worker w's list as in solve(); vv: list of (i, j, band, rx_dbm); init[w]: (x, c868, c24, cuwb)."""
+    W = sorted(init)
+    idx = {w: k for k, w in enumerate(W)}
+    bands = ("868", "2400", "uwb")
+    nper = 3 + len(bands)
+    th0 = np.concatenate([np.concatenate([init[w][0], init[w][1]]) for w in W])
+
+    def resid(th):
+        out = []
+        for w in W:
+            base = idx[w] * nper
+            x = th[base:base + 3]
+            C = dict(zip(bands, th[base + 3:base + nper]))
+            for (b, a, p, r) in meas[w]:
+                L0, n, s, _ = law[b]
+                pa, sa, _ = A[a]
+                dd = max(np.linalg.norm(x - pa), 0.5)
+                if p is not None:
+                    s_tot = math.hypot(s, 10 * n / math.log(10) * float(np.mean(sa)) / dd)
+                    out.append((P.TX_DBM[b] - p - (L0 + 10 * n * math.log10(dd)) - C[b]) / s_tot)
+                if r is not None and b in TOF_BANDS:
+                    c = max(C[b], 0.0)
+                    s_tot = math.hypot(P.TOF_SIGMA_M[b], float(np.mean(sa)), c / P.rho_mid(b) * P.rho_rel_sd(b))
+                    out.append((r - (dd + c / P.rho_mid(b))) / s_tot)
+            out.append(max(0.0, x[2] - surf_z) / 0.1)
+            for b in bands:
+                out.append(max(0.0, -C[b]) / 1.0)
+        for (i, j, b, p) in vv:
+            if i not in idx or j not in idx:
+                continue
+            bi, bj = idx[i] * nper, idx[j] * nper
+            xi, xj = th[bi:bi + 3], th[bj:bj + 3]
+            ci, cj = th[bi + 3 + bands.index(b)], th[bj + 3 + bands.index(b)]
+            L0, n, s, _ = law[b]
+            dd = max(np.linalg.norm(xi - xj), 0.5)
+            out.append((P.TX_DBM[b] - p - (L0 + 10 * n * math.log10(dd)) - ci - cj) / s)
+        return np.array(out)
+
+    sol = least_squares(resid, th0, loss="soft_l1", f_scale=2.0, max_nfev=200)
+    return {w: sol.x[idx[w] * nper: idx[w] * nper + 3] for w in W}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
     ap.add_argument("--frame", choices=("local", "gps"), default="local")
     ap.add_argument("--rescuers", type=int, default=2)
-    ap.add_argument("--methods", default="tof,rss,joint")
+    ap.add_argument("--methods", default="tof,rss,joint,coop")
+    ap.add_argument("--spots", type=float, default=1.0,
+                    help="fraction of the surface spots the rescuers reach (coverage); 1 = all")
     ap.add_argument("--every", type=int, default=1, help="estimate every k slots")
     a = ap.parse_args()
     A = load_anchors(a.run, a.frame)
@@ -173,6 +222,7 @@ def main():
     links = list(csv.DictReader(open(os.path.join(a.run, "obs_links.csv"))))
     law = fit_air_law(links, A)
     order = serpentine_spots(A, len(holds))
+    order = order[: max(1, int(round(a.spots * len(order))))]
     chunks = np.array_split(np.arange(len(order)), a.rescuers)
     nslots = max(len(c) for c in chunks)
     # which spot each rescuer stands at in each slot
@@ -191,6 +241,7 @@ def main():
     surf_z = float(np.median([A[i][0][2] for i, v in A.items() if v[2] == "point"])) - min(holds)
     surf_z_est = surf_z  # rescuers know their hold heights; the surface is the points minus hold
     meas = {w: [] for w in workers}
+    vv = []  # worker-to-worker 868 MHz links heard so far (B4)
     out = open(os.path.join(a.run, f"estimates_{a.frame}.csv"), "w")
     out.write("method,slot,worker,x,y,z,sd_h,sd_v,n_meas\n")
     methods = a.methods.split(",")
@@ -198,6 +249,9 @@ def main():
         here = {pid for spot in at_slot[t] for pid in spot}
         for r in by_slot.get(t, []):
             rx = int(r["rx"])
+            if rx < 10000 and r["received"] == "1" and r["band"] == "868":
+                vv.append((int(r["tx"]), rx, "868", float(r["rx_dbm"])))
+                continue
             if rx not in here:
                 continue
             if r["received"] != "1":
@@ -206,13 +260,38 @@ def main():
             meas[int(r["tx"])].append((r["band"], rx, float(r["rx_dbm"]), rng))
         if (t + 1) % a.every and t != nslots - 1:
             continue
+        init = {}
         for w in sorted(workers):
             for m in methods:
+                if m == "coop":
+                    continue
                 res = solve(meas[w], law, A, m, surf_z_est)
                 if res is None:
                     continue
                 x, sh, sv, n = res
                 out.write(f"{m},{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},{sh:.3f},{sv:.3f},{n}\n")
+        if "coop" in methods:
+            # B4: start each worker at its joint solution, or, if it has too few rescuer links, at the
+            # centroid of the rescuer points that heard it (or the surface centre)
+            for w in sorted(workers):
+                res = solve(meas[w], law, A, "joint", surf_z_est)
+                if res is not None:
+                    x0 = res[0]
+                else:
+                    heard = [A[a][0] for (b, a, p, r) in meas[w]]
+                    pts_all = [v[0] for v in A.values() if v[2] == "point"]
+                    x0 = np.mean(heard if heard else pts_all, axis=0)
+                    x0[2] = surf_z_est - 1.5
+                init[w] = (np.array(x0, dtype=float), np.array([20.0, 60.0, 120.0]))
+            # one residual per worker pair: the median received power over the slots heard. A pair is heard in
+            # every slot and its shadowing is fixed per link, so repeated slots would only overweight it.
+            agg = {}
+            for (i, j, b, p) in vv:
+                agg.setdefault((min(i, j), max(i, j), b), []).append(p)
+            vv_seen = [(i, j, b, float(np.median(ps))) for (i, j, b), ps in agg.items()]
+            X = solve_coop(meas, vv_seen, law, A, surf_z_est, init)
+            for w, x in X.items():
+                out.write(f"coop,{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},nan,nan,{len(meas[w])}\n")
     out.close()
     lawtxt = "; ".join(f"{b}: L0={v[0]:.1f} n={v[1]:.2f} sd={v[2]:.1f} (n={v[3]})" for b, v in law.items())
     print(f"air law {lawtxt}; slots {nslots}")

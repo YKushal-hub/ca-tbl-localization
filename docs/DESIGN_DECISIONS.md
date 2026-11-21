@@ -903,3 +903,34 @@ where several field nodes share the mesh.
 - on: ≤ 5% (1.0%);
 - tag 0 keeps its anchors in both.
 Selftest: 3 doctored outputs, all caught.
+
+## 42. Worker-to-worker cooperation (B4) and the depth bound (B2 theory) (2026-11-22)
+
+**B4 (`coop` in `scripts/collapse/estimate_collapse.py`).** All workers are solved together: joint's residuals plus
+the 868 MHz worker-to-worker links.
+- **Coupling.** A worker-to-worker path leaves the pile above one worker and re-enters above the other (DD 37), so
+  its excess is the two workers' own: P_ij = Ptx − L(|x_i − x_j|) − C_i − C_j, with no new unknowns.
+- **Checked against the World.** C_ij − (C_i + C_j) has median 0.78 dB, 10th–90th percentile 0.28–2.35 dB (190
+  pairs; 8-storey IND2; central).
+- **One residual per pair** (median power over the slots heard). Repeated slots of a link whose shadowing is fixed
+  only overweight it. With every slot used, coop was worse than joint (median 3.36 m against 1.63 m).
+
+**Result** (preset-physics field, seed 31, 20 workers; not citable):
+
+| Rescuer coverage | Median error, coop | Median error, joint | Within 2 m, coop | Within 2 m, joint | p90, coop | p90, joint |
+|---|---|---|---|---|---|---|
+| Full | 1.45 m | 1.63 m | 0.40 | 0.35 | — | — |
+| Half | 2.30 m | 2.65 m | 0.45 | 0.40 | 16.9 m | 12.2 m |
+| Quarter | 8.09 m | 5.32 m | — | — | — | — |
+
+So cooperation helps the typical worker when rescuers cover at least half the surface, but makes the worst cases
+worse. A rigidity check (only lean on neighbours that are themselves anchored; Eren 2004 / Aspnes 2006) is the
+next step.
+
+**B2 bound (`scripts/collapse/crb_depth.py`).** Cramér–Rao bound for a worker 2 m deep, ranging from a grid
+around it:
+- 2.4 GHz (σ 3 m): 0.6–1.8 m.
+- UWB (σ 0.10 m): 2–6 cm.
+- Holding the device low and high (0.3 and 1.5 m) gives with 26 contacts within 5 m (0.88 m) about what one height
+  gives with 49 contacts within 10 m (0.82 m).
+- The estimators' depth errors (median 1.3–2.6 m) are 1.5–3× the bound.
