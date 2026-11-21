@@ -129,6 +129,28 @@ def main():
         fails.append("GEO loss_2m_868 != 2 m x central 868")
     if abs(vals["bias_2m"] - 2 * vals["bias_central"]) > 1e-6:
         fails.append("GEO bias_2m != 2 m x central bias")
+    # DD 37 path fixtures
+    A868 = vals["A_central_868"]
+    # Fresnel at normal incidence (row FRESNEL): n = 1 + central bias per metre; R = ((n-1)/(n+1))^2
+    n_c = 1.0 + vals["bias_central"]
+    fres0 = -10.0 * __import__("math").log10(1.0 - ((n_c - 1.0) / (n_c + 1.0)) ** 2)
+    if vals["path_up_kind"] != 1 or abs(vals["path_up_rubble"] - 2.0) > 1e-6 or \
+            abs(vals["path_up_extra"] - (2.0 * A868 + fres0)) > 1e-6:
+        fails.append(f"PATH straight-up: extra {vals['path_up_extra']:.4f} != 2 m x A + Fresnel {2*A868+fres0:.4f}")
+    if abs(fres0 - 0.3047) > 5e-4:
+        fails.append(f"FRESNEL normal-incidence loss {fres0:.4f} dB != row value 0.3047")
+    if vals["path_far_kind"] != 2 or not (2.0 <= vals["path_far_rubble"] <= 2.5):
+        fails.append(f"PATH far: kind {vals['path_far_kind']}, rubble {vals['path_far_rubble']:.3f} not in [2, 2.5]")
+    if not (vals["path_far_straight_rubble"] > 10.0 and vals["path_far_extra"] < A868 * 2.5 + 3.0):
+        fails.append("PATH far: bent path not cheaper than the straight grazing path")
+    if vals["path_vv_kind"] != 3 or not (4.0 <= vals["path_vv_rubble"] <= 4.6):
+        fails.append(f"PATH vv: kind {vals['path_vv_kind']}, rubble {vals['path_vv_rubble']:.3f} not in [4, 4.6]")
+    if abs(vals["path_far_sym_extra"] - vals["path_far_extra"]) > 0.05:
+        fails.append("PATH not symmetric within 0.05 dB")
+    if not (0.5 <= vals["path_side_rubble"] <= 0.6):
+        fails.append(f"PATH side exit: rubble {vals['path_side_rubble']:.3f} not in [0.5, 0.6]")
+    if vals["path_clear_kind"] != 0:
+        fails.append("PATH clear: a path outside the pile got rubble")
     for key in NEG:
         if vals.get(key, 1) != 0:
             fails.append(f"NEG {key}: not refused")
@@ -140,7 +162,7 @@ def main():
             if re.search(r'#include\s+"(ns3/)?ca-tbl-rubble-world\.h"', open(f, encoding="utf-8").read()):
                 fails.append(f"LEAK {os.path.relpath(f, ROOT)} includes the World header")
 
-    n = len(ROW_CHECKS) + len(EXACT) + 3 + len(GEO) + 2 + len(NEG) + 1
+    n = len(ROW_CHECKS) + len(EXACT) + 3 + len(GEO) + 2 + 8 + len(NEG) + 1
     if fails:
         print("G177 FAIL")
         for f in fails:

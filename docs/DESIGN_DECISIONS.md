@@ -711,3 +711,58 @@ sources) and after the hooks, giving 178 files. All are identical except run_id.
 Gate G177 (`scripts/rubble_gate.sh`): 50 checks covering code values against the log's rows, the A5 targets (the
 868 MHz 2–5 m totals span NIST's 30 and 80 dB bounds; Oestges' detection range is 10.92 m against ~10 m), geometry,
 refusals and the no-leak rule. Selftest: 12 doctored inputs, all caught.
+
+## 37. Collapse extension, World: lowest-loss rubble path and the collapse generator (2026-11-22)
+
+**Physics fix to DD 36.** DD 36 charged a link the rubble on its straight line. For a device 2 m deep and a rescuer
+20 m away on the surface, that line grazes through about 19 m of rubble (230 dB at 868 MHz). A real wave leaves the
+pile by a short route and travels the rest in air. `CaTblRubbleWorld::Path(f, a, b)` now takes the lowest-loss of
+these routes:
+- the straight line;
+- for a buried end, rubble to an exit point on the top or a side face, then air (two-pass line search per face);
+- for two buried ends, out of the top above one, through the air, back in above the other.
+
+Cost = A(f)·(rubble metres) + 20 log10(path length / straight distance) + the Fresnel power loss of each surface
+crossing. That loss is taken at the actual angle, TE/TM averaged (ITU-R P.2040-4 eqs. (30)–(35)). Rays beyond the
+critical angle are totally reflected, and that route is not available. The pile's refractive index is the slowing
+model's n = 1 + η(√ε′ − 1): 1.454 / 1.704 / 2.541, with critical angles 43.45° / 35.94° / 23.17°. So loss and delay
+use one effective medium. Bias = (path length − straight distance) + (n − 1)·(rubble metres). The engines call
+Path(); the straight-line LossDb/BiasM stay for the gate fixtures.
+
+Fixtures (G177, now 58 checks):
+- straight up 2 m: 2·A + 0.3047 dB;
+- 20 m away: one exit, 2.0009 m of rubble, against 11.6 m on the straight line;
+- two buried ends: out-and-in, 4.000 m of rubble;
+- symmetric to 0.05 dB;
+- a device near a side exits sideways (0.5 m);
+- a clear path gets nothing.
+
+**Collapse generator.** `scratch/ca_tbl_collapse_sim.cc`. The main simulator estimates one subject; workers beyond
+it are protocol peers without estimation. Making it estimate 20–30 subjects would rework the code every earlier
+result runs on. So the collapse study has its own program, reusing the same engines, PHY values (SF7/125 kHz/14 dBm,
+SF7/800 kHz/12.5 dBm, UWB 499.2 MHz/−16.47 dBm) and rubble World. The main simulator is untouched.
+- **Layout.** A box pile; N workers placed uniformly in the footprint at depths uniform in [depthMin, depthMax];
+  optional voids. Candidate rescuer points on a surface grid at given hold heights; ground stations on a ring.
+- **No defaults.** Every geometry, time and GPS value is a required argument and is refused if missing. The
+  pre-registration supplies values from rows or sweeps.
+- **Draws.** Each slot draws every (worker, point), (worker, station) and (worker, worker) link on each band through
+  the engines in keyed-RNG mode. G178 shows a link's outcome does not depend on which other links were drawn. A
+  rescuer policy choosing points from this field therefore sees what it would have measured there.
+- **Interference.** The engines' interference registry and external-interferer field (one switch) are off. A link
+  outcome means "scheduled alone"; contention is the MAC stage (B5).
+- **Environment.** ENV_RURAL_OPEN, so all obstruction comes from the rubble model; ENV_INDUSTRIAL is a sensitivity
+  case.
+- **Outputs.** obs_links.csv (received, rx power, SNR, range if received); obs_anchors.csv (GPS fixes of points and
+  stations, σ from rows GPS-SPS-*). Ground truth goes separately to truth_victims.csv, truth_anchors.csv and
+  truth_links.csv. System-side scripts in scripts/collapse/ may not read truth_* (G178 leak check; only score_*.py
+  may).
+
+First look (seed 3; 30 × 30 m pile, 3.66 m high; 20 workers at 0.5–3.5 m; central bracket; not citable):
+- 868 MHz: every worker-to-surface link received, but the RSSI range error has a median of 120 m (the extra loss
+  reads as distance).
+- 2.4 GHz: 38% received; range error median 1.1 m, 90th percentile 5.2 m.
+- UWB at 7.99 GHz: nothing through rubble.
+This is the cross-band picture B1 is built on.
+
+Off: byte-identical (same three reference runs as DD 36; 178 files, only run_id.txt differs). Gates G177 and G178
+(+ selftests: 14 and 5 fixtures).

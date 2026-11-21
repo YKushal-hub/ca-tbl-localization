@@ -250,8 +250,9 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     state.txPos = txPosition;
     state.rxPos = rxPosition;
     if (m_rubble) { // collapse extension (World); rows in docs/SOURCES_COLLAPSE.md
-        state.rubbleLossDb = m_rubble->LossDb(m_config.propagation.frequencyHz, txPosition, rxPosition);
-        state.rubbleBiasM = m_rubble->BiasM(txPosition, rxPosition);
+        const CaTblRubblePath rp = m_rubble->Path(m_config.propagation.frequencyHz, txPosition, rxPosition);
+        state.rubbleLossDb = rp.extraLossDb; // DD 37: lowest-loss path (rubble, then air)
+        state.rubbleBiasM = rp.biasM;
     }
     // P4: Propagate tunnel flag from config so result.isTunnel is correctly set
     state.isTunnel = m_config.tunnel.enabled;

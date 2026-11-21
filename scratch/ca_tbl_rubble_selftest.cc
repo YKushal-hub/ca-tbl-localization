@@ -72,6 +72,36 @@ main(int argc, char** argv)
     P("loss_2m_868", g.LossDb(0.868e9, Vector(1, 1, 2), Vector(1, 1, 5)));
     P("bias_2m", g.BiasM(Vector(1, 1, 2), Vector(1, 1, 5)));
 
+    // DD 37 lowest-loss path fixtures, on a 40 x 40 x 4 m pile, central bracket, 868 MHz.
+    CaTblRubbleWorld q(CA_TBL_RUBBLE_CENTRAL);
+    q.AddRubble(Vector(0, 0, 0), Vector(40, 40, 4));
+    {
+        // straight up: device 2 m deep, receiver 1.5 m above the surface
+        const CaTblRubblePath r = q.Path(0.868e9, Vector(20, 20, 2), Vector(20, 20, 5.5));
+        P("path_up_kind", r.kind);
+        P("path_up_rubble", r.rubbleM);
+        P("path_up_extra", r.extraLossDb);
+        // 20 m away on the surface: one exit, rubble close to the 2 m depth
+        const CaTblRubblePath s2 = q.Path(0.868e9, Vector(10, 20, 2), Vector(30, 20, 5.5));
+        P("path_far_kind", s2.kind);
+        P("path_far_rubble", s2.rubbleM);
+        P("path_far_extra", s2.extraLossDb);
+        P("path_far_straight_rubble", q.PileMetres(Vector(10, 20, 2), Vector(30, 20, 5.5)));
+        // two devices 2 m deep, 20 m apart: out, across, back in -> about 4 m of rubble
+        const CaTblRubblePath s3 = q.Path(0.868e9, Vector(10, 20, 2), Vector(30, 20, 2));
+        P("path_vv_kind", s3.kind);
+        P("path_vv_rubble", s3.rubbleM);
+        // symmetric
+        const CaTblRubblePath s4 = q.Path(0.868e9, Vector(30, 20, 5.5), Vector(10, 20, 2));
+        P("path_far_sym_extra", s4.extraLossDb);
+        // a device near a side face exits sideways to a ground receiver beside the pile
+        const CaTblRubblePath s5 = q.Path(0.868e9, Vector(0.5, 20, 1.0), Vector(-10, 20, 1.5));
+        P("path_side_rubble", s5.rubbleM);
+        // both ends outside the pile, path clear: nothing
+        const CaTblRubblePath s6 = q.Path(0.868e9, Vector(-5, -5, 1), Vector(-5, 50, 1));
+        P("path_clear_kind", s6.kind);
+    }
+
     // Negative fixtures: each must be refused (prints 0).
     P("neg_overlap", g.AddRubble(Vector(9, 9, 0), Vector(12, 12, 4)) ? 1 : 0);
     P("neg_degenerate", g.AddRubble(Vector(20, 20, 0), Vector(20, 25, 4)) ? 1 : 0);

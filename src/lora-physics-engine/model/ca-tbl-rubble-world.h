@@ -39,6 +39,16 @@ struct CaTblRubbleBox
     Vector hi; //!< max corner (m)
 };
 
+//! The lowest-loss path between two points (DD 37).
+struct CaTblRubblePath
+{
+    double extraLossDb = 0.0; //!< rubble loss + extra spreading of the bent path over the straight one
+    double biasM = 0.0;       //!< apparent extra distance: bent-path excess + rubble slowing
+    double rubbleM = 0.0;     //!< metres of rubble (not void) on the chosen path
+    double lengthM = 0.0;     //!< total length of the chosen path
+    int kind = 0;             //!< 0 none, 1 straight, 2 one exit, 3 out-and-back-in
+};
+
 class CaTblRubbleWorld
 {
   public:
@@ -72,9 +82,24 @@ class CaTblRubbleWorld
     //! Extra apparent distance per metre of pile (m/m), row SLOW-BR.
     double BiasPerM() const;
 
-    //! Convenience: loss (dB) and time-of-flight bias (m) for the segment a-b.
+    //! Effective refractive index of the pile, 1 + BiasPerM() (rows SLOW-BR, FRESNEL).
+    double PileIndex() const;
+
+    //! Straight-segment loss (dB) and time-of-flight bias (m) for a-b (DD 36). Kept for the
+    //! gate's fixtures; the engines use Path().
     double LossDb(double frequencyHz, const Vector& a, const Vector& b) const;
     double BiasM(const Vector& a, const Vector& b) const;
+
+    //! DD 37. The lowest-loss path between a and b at f: the straight segment, or for a device
+    //! inside the pile, rubble to an exit point on the pile's surface (top or a side) and air
+    //! from there; for two buried devices also out of the pile above one and back in above the
+    //! other. Cost = rubble loss + 20 log10(path length / straight distance). Rubble refracts
+    //! the ray towards the normal on exit (refractive index sqrt(eps') ~ 2.3-3), which is why
+    //! the low-loss exit is close to the shortest way out (Snell's law,
+    //! row SNELL). Each boundary crossing adds the Fresnel power-transmission loss at its angle
+    //! (ITU-R P.2040-4 eqs. (30)-(35), unpolarised); rays beyond the critical angle are
+    //! totally reflected and that path is not available (row FRESNEL).
+    CaTblRubblePath Path(double frequencyHz, const Vector& a, const Vector& b) const;
 
     //! Static helpers, exposed for the gate's unit fixtures.
     static double ItuConcreteDbPerM(double frequencyHz); // ITU2040-T3-CONC, eq. (27a)

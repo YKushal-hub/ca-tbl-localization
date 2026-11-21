@@ -19,6 +19,8 @@ expect_fail uwb_drift      's/^A_high_8000=.*/A_high_8000=200.000000/'
 expect_fail oes_anchor     's/^A_low_2000=.*/A_low_2000=20.500000/'
 expect_fail nist_span      's/^A_high_868=.*/A_high_868=15.000000/'
 expect_fail geo_void       's/^geo_vert_void=.*/geo_vert_void=4.000000/'
+expect_fail path_grazing   's/^path_far_rubble=.*/path_far_rubble=19.000000/'
+expect_fail path_vv        's/^path_vv_kind=.*/path_vv_kind=1.000000/'
 expect_fail neg_overlap    's/^neg_overlap=.*/neg_overlap=1.000000/'
 expect_fail neg_void       's/^neg_void_outside=.*/neg_void_outside=1.000000/'
 # a doctored source log: the row number no longer matches the code
@@ -31,5 +33,5 @@ L=src/lora-physics-engine/model/ca-tbl-zz-leak-fixture.h
 echo '#include "ns3/ca-tbl-rubble-world.h"' > "$L"
 if python3 scripts/rubble_gate.py "$D/good" > /dev/null; then echo "selftest: leak NOT caught"; bad=1; else echo "selftest: leak caught"; fi
 rm -f "$L"
-git diff --quiet -- docs/SOURCES_COLLAPSE.md || { echo "selftest: log not restored"; exit 1; }
+cmp -s "$D/log.bak" docs/SOURCES_COLLAPSE.md || { echo "selftest: log not restored"; exit 1; }
 [ $bad -eq 0 ] && echo "G177 selftest PASS" || { echo "G177 selftest FAIL"; exit 1; }

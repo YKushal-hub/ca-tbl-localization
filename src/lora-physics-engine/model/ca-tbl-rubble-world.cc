@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace ns3
 {
@@ -273,6 +274,14 @@ CaTblRubbleWorld::SpecificLossDbPerM(double frequencyHz) const
 }
 
 double
+CaTblRubbleWorld::PileIndex() const
+{
+    // Effective refractive index of the pile, the same one the slowing model uses:
+    // n_eff = 1 + eta (sqrt(eps') - 1), so that n_eff - 1 = BiasPerM() (rows SLOW-BR, FRESNEL).
+    return 1.0 + BiasPerM();
+}
+
+double
 CaTblRubbleWorld::BiasPerM() const
 {
     return Eta(m_bracket) * (std::sqrt(kEpsR[m_bracket]) - 1.0);
@@ -290,6 +299,272 @@ CaTblRubbleWorld::BiasM(const Vector& a, const Vector& b) const
 {
     const double m = PileMetres(a, b);
     return (m > 0.0) ? BiasPerM() * m : 0.0;
+}
+
+
+namespace
+{
+double Dist(const Vector& a, const Vector& b)
+{
+    const double dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+bool InBox(const Vector& p, const CaTblRubbleBox& b)
+{
+    return p.x > b.lo.x && p.x < b.hi.x && p.y > b.lo.y && p.y < b.hi.y && p.z > b.lo.z && p.z < b.hi.z;
+}
+
+// A face of a box: a fixed axis/value and the rectangle on the other two axes.
+struct Face
+{
+    int axis;   // 0 x, 1 y, 2 z
+    double val; // plane coordinate
+};
+
+Vector OnFace(const Vector& p, const Face& f, const CaTblRubbleBox& b)
+{
+    double c[3] = {p.x, p.y, p.z};
+    const double lo[3] = {b.lo.x, b.lo.y, b.lo.z};
+    const double hi[3] = {b.hi.x, b.hi.y, b.hi.z};
+    for (int i = 0; i < 3; ++i)
+    {
+        // On the face plane, nudged 1 mm outward so the air leg never grazes the box
+        // (a segment lying on a closed face would count as inside).
+        const double out = (f.val >= hi[i]) ? 1e-3 : -1e-3;
+        c[i] = (i == f.axis) ? f.val + out : std::max(lo[i], std::min(hi[i], c[i]));
+    }
+    return Vector(c[0], c[1], c[2]);
+}
+
+Vector Lerp(const Vector& a, const Vector& b, double t)
+{
+    return Vector(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z));
+}
+
+// Power transmission loss (dB, >= 0) across a plane interface from index n1 to n2, for a ray
+// whose direction makes cos1 with the interface normal, averaged over TE and TM (unpolarised).
+// ITU-R P.2040-4 eqs. (30), (31a), (31b), (33) and, for lossless media, Ts = 1 - |R|^2 (eq. (35)
+// with substitution b), §2.2.1.3). Total internal reflection returns +inf (row FRESNEL).
+double TransLossDb(double n1, double n2, double cos1)
+{
+    cos1 = std::min(1.0, std::max(0.0, std::abs(cos1)));
+    const double sin1 = std::sqrt(std::max(0.0, 1.0 - cos1 * cos1));
+    const double s2 = n1 / n2 * sin1; // Snell, eq. (30)
+    if (s2 >= 1.0)
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+    const double cos2 = std::sqrt(1.0 - s2 * s2); // eq. (33)
+    const double rTe = (n1 * cos1 - n2 * cos2) / (n1 * cos1 + n2 * cos2); // eq. (31a)
+    const double rTm = (n2 * cos1 - n1 * cos2) / (n2 * cos1 + n1 * cos2); // eq. (31b)
+    const double t = 0.5 * ((1.0 - rTe * rTe) + (1.0 - rTm * rTm));
+    return (t > 0.0) ? -10.0 * std::log10(t) : std::numeric_limits<double>::infinity();
+}
+
+// cos of the angle between segment p->q and the axis of a face (the face normal).
+double CosToAxis(const Vector& p, const Vector& q, int axis)
+{
+    const double d[3] = {q.x - p.x, q.y - p.y, q.z - p.z};
+    const double n = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    return (n > 0.0) ? std::abs(d[axis]) / n : 1.0;
+}
+
+// The axis (0/1/2) whose slab bounds the entry (t0) or exit (t1) of segment a->b in a box.
+// Returns -1 if the segment misses the box or that end lies inside the box.
+void CrossAxes(const Vector& a, const Vector& b, const CaTblRubbleBox& box, int& inAxis, int& outAxis)
+{
+    const double d[3] = {b.x - a.x, b.y - a.y, b.z - a.z};
+    const double o[3] = {a.x, a.y, a.z};
+    const double lo[3] = {box.lo.x, box.lo.y, box.lo.z};
+    const double hi[3] = {box.hi.x, box.hi.y, box.hi.z};
+    double t0 = 0.0, t1 = 1.0;
+    inAxis = -1;
+    outAxis = -1;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (d[i] == 0.0)
+        {
+            if (o[i] < lo[i] || o[i] > hi[i])
+            {
+                inAxis = outAxis = -1;
+                return;
+            }
+            continue;
+        }
+        double ta = (lo[i] - o[i]) / d[i], tb = (hi[i] - o[i]) / d[i];
+        if (ta > tb)
+        {
+            std::swap(ta, tb);
+        }
+        if (ta > t0)
+        {
+            t0 = ta;
+            inAxis = i;
+        }
+        if (tb < t1)
+        {
+            t1 = tb;
+            outAxis = i;
+        }
+    }
+    if (t0 >= t1)
+    {
+        inAxis = outAxis = -1;
+    }
+}
+} // namespace
+
+CaTblRubblePath
+CaTblRubbleWorld::Path(double frequencyHz, const Vector& a, const Vector& b) const
+{
+    CaTblRubblePath best;
+    const double d = std::max(Dist(a, b), 1e-3);
+    const double straightM = PileMetres(a, b);
+    if (straightM <= 0.0)
+    {
+        best.lengthM = d;
+        return best;
+    }
+    const double A = SpecificLossDbPerM(frequencyHz);
+    const double k = BiasPerM();
+    const double nP = PileIndex();
+    // Interface loss of every pile-boundary crossing on a polyline, at the actual angles.
+    auto interfaceDb = [&](const std::vector<Vector>& pts) {
+        double db = 0.0;
+        for (size_t i = 0; i + 1 < pts.size(); ++i)
+        {
+            for (const auto& bx : m_rubble)
+            {
+                int inAx, outAx;
+                CrossAxes(pts[i], pts[i + 1], bx, inAx, outAx);
+                const bool startIn = InBox(pts[i], bx);
+                const bool endIn = InBox(pts[i + 1], bx);
+                if (inAx >= 0 && !startIn) // air -> rubble
+                {
+                    db += TransLossDb(1.0, nP, CosToAxis(pts[i], pts[i + 1], inAx));
+                }
+                if (outAx >= 0 && !endIn) // rubble -> air
+                {
+                    db += TransLossDb(nP, 1.0, CosToAxis(pts[i], pts[i + 1], outAx));
+                }
+            }
+        }
+        return db;
+    };
+    auto pathCost = [&](const std::vector<Vector>& pts, double& len, double& rub) {
+        len = 0.0;
+        rub = 0.0;
+        for (size_t i = 0; i + 1 < pts.size(); ++i)
+        {
+            len += Dist(pts[i], pts[i + 1]);
+            rub += PileMetres(pts[i], pts[i + 1]);
+        }
+        return A * rub + 20.0 * std::log10(std::max(len, d) / d) + interfaceDb(pts);
+    };
+    auto consider = [&](const std::vector<Vector>& via, int kind) {
+        std::vector<Vector> pts;
+        pts.push_back(a);
+        pts.insert(pts.end(), via.begin(), via.end());
+        pts.push_back(b);
+        double len, rub;
+        const double cost = pathCost(pts, len, rub);
+        if (!std::isfinite(cost))
+        {
+            return;
+        }
+        if (best.kind == 0 || cost < best.extraLossDb)
+        {
+            best.extraLossDb = cost;
+            best.rubbleM = rub;
+            best.lengthM = len;
+            best.biasM = (len - d) + k * rub;
+            best.kind = kind;
+        }
+    };
+    consider({}, 1);
+
+    // The pile box holding each endpoint (if any).
+    const CaTblRubbleBox* boxA = nullptr;
+    const CaTblRubbleBox* boxB = nullptr;
+    for (const auto& r : m_rubble)
+    {
+        if (InBox(a, r))
+        {
+            boxA = &r;
+        }
+        if (InBox(b, r))
+        {
+            boxB = &r;
+        }
+    }
+    const int kSamples = 48;
+    // One exit: the buried endpoint u leaves its box through a face, then air to the other.
+    auto oneExit = [&](const Vector& u, const Vector& o, const CaTblRubbleBox& bx, bool uIsA) {
+        const Face faces[5] = {{2, bx.hi.z}, {0, bx.lo.x}, {0, bx.hi.x}, {1, bx.lo.y}, {1, bx.hi.y}};
+        for (const Face& f : faces)
+        {
+            const Vector p1 = OnFace(u, f, bx); // nearest way out through this face
+            const Vector p2 = OnFace(o, f, bx); // the face point nearest the other end
+            double bestT = 0.0, bestC = 1e300;
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                const double t0 = (pass == 0) ? 0.0 : std::max(0.0, bestT - 1.0 / kSamples);
+                const double t1 = (pass == 0) ? 1.0 : std::min(1.0, bestT + 1.0 / kSamples);
+                for (int i = 0; i <= kSamples; ++i)
+                {
+                    const double t = t0 + (t1 - t0) * i / kSamples;
+                    const Vector e = Lerp(p1, p2, t);
+                    double len, rub;
+                    const double c = pathCost({u, e, o}, len, rub);
+                    if (c < bestC)
+                    {
+                        bestC = c;
+                        bestT = t;
+                    }
+                }
+            }
+            const Vector e = Lerp(p1, p2, bestT);
+            consider({e}, 2);
+            (void)uIsA;
+        }
+    };
+    if (boxA && !boxB)
+    {
+        oneExit(a, b, *boxA, true);
+    }
+    else if (boxB && !boxA)
+    {
+        oneExit(b, a, *boxB, false);
+    }
+    else if (boxA && boxB)
+    {
+        // Out of the top above a, through the air, back in above b.
+        const Face top{2, boxA->hi.z};
+        const Face topB{2, boxB->hi.z};
+        const Vector p1 = OnFace(a, top, *boxA);
+        const Vector p2 = OnFace(b, topB, *boxB);
+        const int n = 24;
+        double bi = 0, bj = 1, bc = 1e300;
+        for (int i = 0; i <= n; ++i)
+        {
+            for (int j = 0; j <= n; ++j)
+            {
+                const Vector e1 = Lerp(p1, p2, static_cast<double>(i) / n);
+                const Vector e2 = Lerp(p1, p2, static_cast<double>(j) / n);
+                double len, rub;
+                const double c = pathCost({a, e1, e2, b}, len, rub);
+                if (c < bc)
+                {
+                    bc = c;
+                    bi = static_cast<double>(i) / n;
+                    bj = static_cast<double>(j) / n;
+                }
+            }
+        }
+        consider({Lerp(p1, p2, bi), Lerp(p1, p2, bj)}, 3);
+    }
+    return best;
 }
 
 } // namespace ns3
