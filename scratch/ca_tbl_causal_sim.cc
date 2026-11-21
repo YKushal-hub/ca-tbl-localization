@@ -2665,6 +2665,7 @@ struct CaTblCollapseCfg
     double gpsSigmaV = std::nan("");
     double localSigma = std::nan("");   //!< rescuer local-frame error per axis (UWB LOS floor)
     bool rubbleOff = false;             //!< same geometry and keyed draws without the pile (VAL-*)
+    double pointLinksM = 0.0;           //!< DD 44: also draw rescuer point-to-point links within this radius (0 = none)
 };
 static CaTblCollapseCfg g_collapse;
 //! DD 41 --interferenceFrameKey: one physical frame, evaluated once per receiver, is one entry-group in the
@@ -3237,6 +3238,20 @@ RunCollapseField(EnvironmentClass envWide, EnvironmentClass envFacility, uint32_
                     for (size_t j = i + 1; j < vic.size(); ++j)
                     {
                         draw(sl, b, vic[i], vic[j]);
+                    }
+                }
+                if (C.pointLinksM > 0.0) // DD 44: rescuers ranging each other (the rescuer frame, B3)
+                {
+                    for (size_t i = 0; i < pts.size(); ++i)
+                    {
+                        for (size_t j = i + 1; j < pts.size(); ++j)
+                        {
+                            const double dx = pts[i].p.x - pts[j].p.x, dy = pts[i].p.y - pts[j].p.y;
+                            if (std::sqrt(dx * dx + dy * dy) <= C.pointLinksM)
+                            {
+                                draw(sl, b, pts[i], pts[j]);
+                            }
+                        }
                     }
                 }
             }
@@ -20038,6 +20053,8 @@ main(int argc, char* argv[])
                  "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
                  "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
                  g_phase0Timing);
+    cmd.AddValue("collapsePointLinksM", "DD 44. Field: also draw rescuer point-to-point links within this horizontal "
+                 "radius, m (0 = none, the default)", g_collapse.pointLinksM);
     cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "

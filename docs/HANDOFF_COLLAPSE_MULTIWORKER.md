@@ -151,14 +151,14 @@ and opening a PR on 2026-11-22.
 | B1 cross-band self-calibration (joint RSS + ToF via ρ = A/(n − 1)) | DONE (field estimator) | `scripts/collapse/estimate_collapse.py` (DD 38) | first results in DD 38 |
 | B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
 | B2 depth estimator in the main simulator's 2-D filters | NOT DONE | — | the 2-D filters estimate (x, y) only |
-| B3 rescuer frame from UWB + GPS + IMU | PARTIAL | main simulator: finder position model (`--finderPosSigma`, DD 20); field: `--collapseLocalSigma` | a dedicated frame solve is not implemented |
+| B3 rescuer frame from UWB + GPS + IMU | IMPLEMENTED, being evaluated | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (DD 44). With point-to-point UWB: result pending (exploratory run, seed 31) |
 | B4 worker-to-worker cooperation | DONE (field estimator), modest | `coop` (DD 42) | helps the median at ≥ half coverage, hurts the tails |
 | B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
 | B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
 | Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
 | COLLAPSE-1 (localisation, scaling, designs, digging) | RUNNING | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
 | COLLAPSE-3 (72 h on one CR123A) | REGISTERED | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
-| COLLAPSE-2 (sensitivity: stations, teams, t_dig, coverage) | NOT DONE | — | see §6 |
+| COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | REGISTERED; field part RUNNING | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
 | Paper section | NOT DONE | `~/catbl_work/tii_paper/tii/tii_main.tex` | after COLLAPSE-1 |
 
 **Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
@@ -394,9 +394,34 @@ simulator output quantity is compared with a published value, with a tolerance s
   - Battery row (CR123A, 16,740 J) and host CoreMark row added.
   - Null controls hold after every change (178 + 614 files).
 
+**Running campaigns (2026-11-22, UTC evening).** Do not rebuild into their `bin/` folders; they run from frozen
+copies:
+- `~/catbl_work/campaigns/collapse1`: 210 runs, launched 22:12Z, about 6 h at 6 jobs. Progress:
+  `ls ~/catbl_work/campaigns/collapse1/*/seed*/rc | wc -l`.
+- `~/catbl_work/campaigns/collapse2_field`: 30 fields generated; the estimators run inside the runner
+  (`estimates_sp1.0.csv`, `estimates_sp0.5.csv` per seed).
+- Not launched: COLLAPSE-2 stations, `bash scripts/collapse2_run.sh ~/catbl_work/campaigns/collapse2_stations
+  stations`, after COLLAPSE-1 (CPU).
+- If a runner dies, re-running the same command resumes. Finished cells (`rc` = 0) are skipped, and the manifest is
+  checked first.
+
 **To continue when COLLAPSE-1 finishes:**
-1. `python3 scripts/collapse1_analyse.py ~/catbl_work/campaigns/collapse1` (hypotheses H1–H6) and
-   `python3 scripts/collapse3_analyse.py ~/catbl_work/campaigns/collapse1` (H7).
+1. `python3 scripts/collapse1_analyse.py ~/catbl_work/campaigns/collapse1` (H1–H6),
+   `python3 scripts/collapse3_analyse.py ~/catbl_work/campaigns/collapse1` (H7) and
+   `python3 scripts/collapse2_analyse.py dig ~/catbl_work/campaigns/collapse1` (H8).
+   Then `python3 scripts/collapse2_analyse.py field ~/catbl_work/campaigns/collapse2_field` (H10–H12), and, after
+   the stations part, `... stations <collapse1> <collapse2_stations>` (H9).
 2. Record the results in the two PREREG files ("Results" section; do not edit the hypotheses).
 3. Copy the summary CSVs and provenance into `results/collapse1/`. Traces stay untracked, as for REALISTIC.
 4. Write the paper section.
+5. Still open in the plan:
+   - B2 depth estimation inside the main simulator's 2-D filters. Depth is estimated only by the field estimators
+     (joint / coop, 3-D) and bounded by the CRB.
+   - Rigidity-aware B4 (lean only on anchored neighbours).
+   - Rescuer-to-rescuer UWB inside the main simulator (B3 there is the finder GNSS model).
+   - Pending primaries in §6.3.
+   - Owner decisions in §8.
+- 2026-11-22: B3 frame solve with rescuer point-to-point UWB (`--collapsePointLinksM`, field) implemented;
+  exploratory evaluation running (seed 31).
+  - COLLAPSE-2 registered (H8–H12); its field part is running.
+  - Handoff updated and pushed at the owner's request.

@@ -52,39 +52,47 @@ def load_anchors(d, frame):
 
 
 def solve_rescuer_frame(d, A, links):
-    """B3 (DD 44): rescuer point positions from their own ToF ranges to the stations, the stations placed by
-    their GPS fixes. UWB ranges where heard (sigma 0.10 m), 2.4 GHz otherwise (3.0 m). A point with fewer
-    than 3 station ranges keeps its GPS fix. Returns a copy of A with the solved points."""
-    st_ids = [i for i, v in A.items() if v[2] == "station"]
+    """B3 (DD 44): the rescuer frame from the rescuers' own measurements, solved jointly.
+    Unknowns: every rescuer point's position. Residuals:
+      point-to-point ToF ranges (UWB sigma 0.10 m; 2.4 GHz 3.0 m), median over slots;
+      point-to-station ToF ranges (same), the stations at their GPS fixes;
+      each point's own GPS fix as a weak prior (sigma_h, sigma_v from the fix).
+    The relative geometry comes from the ranges; GPS only places the whole frame (averaged over every point).
+    Returns a copy of A with the solved points and the number of points solved."""
+    pts = sorted(i for i, v in A.items() if v[2] == "point")
+    idx = {p: k for k, p in enumerate(pts)}
     rng = {}
     for r in links:
         tx, rx = int(r["tx"]), int(r["rx"])
-        if not (10000 <= tx < 20000 and rx >= 20000) or r["received"] != "1" or not r["range_m"]:
+        if tx < 10000 or r["received"] != "1" or not r["range_m"] or r["band"] not in TOF_BANDS:
             continue
-        if r["band"] not in TOF_BANDS:
+        if not (tx in idx and (rx in idx or A.get(rx, (None, None, ""))[2] == "station")):
             continue
-        rng.setdefault(tx, {}).setdefault(rx, {}).setdefault(r["band"], []).append(float(r["range_m"]))
-    B = dict(A)
-    solved = 0
-    for pid, v in A.items():
-        if v[2] != "point":
-            continue
-        obs = []
-        for sid, bands in rng.get(pid, {}).items():
-            b = "uwb" if "uwb" in bands else "2400"
-            obs.append((A[sid][0], float(np.median(bands[b])), P.TOF_SIGMA_M[b] / math.sqrt(len(bands[b]))))
-        if len(obs) < 3:
-            continue
-        x0 = np.array(v[0], dtype=float)
+        rng.setdefault((tx, rx), {}).setdefault(r["band"], []).append(float(r["range_m"]))
+    obs = []
+    for (tx, rx), bands in rng.items():
+        b = "uwb" if "uwb" in bands else "2400"
+        obs.append((tx, rx, float(np.median(bands[b])), P.TOF_SIGMA_M[b]))
+    x0 = np.concatenate([np.array(A[p][0], dtype=float) for p in pts])
+    gps = {p: (np.array(A[p][0], dtype=float), np.array(A[p][1], dtype=float)) for p in pts}
 
-        def res(x):
-            return np.array([(np.linalg.norm(x - a) - r) / s for (a, r, s) in obs] +
-                            [(x[2] - x0[2]) / 2.0])  # weak height prior from the point's own GPS (sigma_v ~ 6.6 m)
-        sol = least_squares(res, x0, loss="soft_l1", f_scale=2.0)
-        sig = 0.10 if any(s < 0.2 for (_, _, s) in obs) else 1.0
-        B[pid] = (sol.x, np.array([sig] * 3), "point")
-        solved += 1
-    return B, solved
+    def res(x):
+        out = []
+        for (tx, rx, r, s) in obs:
+            a = x[3 * idx[tx]: 3 * idx[tx] + 3]
+            b = x[3 * idx[rx]: 3 * idx[rx] + 3] if rx in idx else A[rx][0]
+            out.append((np.linalg.norm(a - b) - r) / s)
+        for p in pts:
+            g, sg = gps[p]
+            out.extend((x[3 * idx[p]: 3 * idx[p] + 3] - g) / sg)
+        return np.array(out)
+
+    sol = least_squares(res, x0, loss="soft_l1", f_scale=2.0, max_nfev=300)
+    B = dict(A)
+    nuwb = sum(1 for o in obs if o[3] < 0.2 and o[1] in idx)
+    for p in pts:
+        B[p] = (sol.x[3 * idx[p]: 3 * idx[p] + 3], np.array([0.10 if nuwb else 1.0] * 3), "point")
+    return B, (len(pts), len(obs), nuwb)
 
 
 def hold_heights(d):
@@ -261,8 +269,8 @@ def main():
     holds = hold_heights(a.run)
     links = list(csv.DictReader(open(os.path.join(a.run, "obs_links.csv"))))
     if a.frame == "uwb":
-        A, nsolved = solve_rescuer_frame(a.run, A, links)
-        print(f"B3: {nsolved} rescuer points placed from their station ranges")
+        A, info = solve_rescuer_frame(a.run, A, links)
+        print(f"B3: {info[0]} rescuer points solved from {info[1]} range pairs ({info[2]} point-to-point UWB)")
     law = fit_air_law(links, A)
     order = serpentine_spots(A, len(holds))
     order = order[: max(1, int(round(a.spots * len(order))))]
