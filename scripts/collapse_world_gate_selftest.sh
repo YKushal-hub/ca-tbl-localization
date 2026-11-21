@@ -4,7 +4,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 D=$(mktemp -d "${TMPDIR:-/tmp}/g178s.XXXXXX") || exit 2
 trap 'rm -rf "$D"; rm -f scripts/collapse/zz_leak_fixture.py' EXIT
-scripts/collapse_world_gate.sh "$D/good" > "$D/good.out" || { echo "selftest: good run does not pass"; cat "$D/good.out"; exit 1; }
+bash scripts/collapse_world_gate.sh "$D/good" > "$D/good.out" || { echo "selftest: good run does not pass"; cat "$D/good.out"; exit 1; }
 bad=0
 check() { # name
     if python3 scripts/collapse_world_gate.py "$D/$1" > /dev/null; then echo "selftest: $1 NOT caught"; bad=1; else echo "selftest: $1 caught"; fi

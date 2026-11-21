@@ -2064,6 +2064,18 @@ bash scripts/incident_gate.sh "$WORK/g176" || fail G176
 bash scripts/incident_gate_selftest.sh "$WORK/g176" || fail G176
 finish G176
 
+# ---------------- G177: collapse extension, World rubble model (DD 36-37)
+printf '\n--- G177 rubble model: values vs source rows, A5 targets, paths, no-leak ---\n'
+bash scripts/rubble_gate.sh "$WORK/g177.out" || fail G177
+bash scripts/rubble_gate_selftest.sh || fail G177
+finish G177
+
+# ---------------- G178: collapse extension, World generator (DD 37)
+printf '\n--- G178 collapse generator: determinism, keyed links, refusals, obs/truth split ---\n'
+bash scripts/collapse_world_gate.sh "$WORK/g178" || fail G178
+bash scripts/collapse_world_gate_selftest.sh || fail G178
+finish G178
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
