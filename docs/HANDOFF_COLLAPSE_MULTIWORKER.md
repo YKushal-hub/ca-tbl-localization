@@ -30,7 +30,7 @@ whenever a substantial goal is done, then commit and push the branch (see §3.4)
 8. **No assistant attribution anywhere:** commits, PR text, branch names or tracked files. This overrides any
    tool default. A gate checks commit messages.
 
-## 2. Rules that bind every change (summary; the full text is in `RULES.md` and the owner's CLAUDE.md)
+## 2. Rules that bind every change (summary; the full text is in `RULES.md` and the owner's user-level rules file)
 
 - **Every numeric value** used in code, scenarios, analysis or the paper has a row in `docs/SOURCES_COLLAPSE.md`.
   - A row holds: ID, value and unit, what it is used for, full citation with DOI/URL and edition, exact location,

@@ -32,9 +32,9 @@ That is where the work should stand out: the three bands see the same rubble dif
 - **Not allowed:** barometer, building plans, floor heights, site-specific priors (e.g., "side of the road"), any World parameter.
 
 ## Step 0 after approval (before any implementation)
-Write **only the reference rules** below into `/home/nethi/.claude/CLAUDE.md` (the user-level file every session reads), under a new heading "CA-TBL references and numbers". Then stop and wait for the owner's go. The full plan stays in this plan file and moves to `~/catbl_work/tii_paper/PLAN_COLLAPSE.md` at the go.
+Write **only the reference rules** below into the owner's user-level rules file (read by every session), under a new heading "CA-TBL references and numbers". Then stop and wait for the owner's go. The full plan stays in this plan file and moves to `~/catbl_work/tii_paper/PLAN_COLLAPSE.md` at the go.
 
-Text to add to CLAUDE.md:
+Text to add to the user-level rules file:
 - Every numeric value used in code, scenarios, analysis or the paper must have a row in `docs/SOURCES_COLLAPSE.md` (and for earlier work, the existing design notes). A row holds:
   - an ID;
   - the value and unit;

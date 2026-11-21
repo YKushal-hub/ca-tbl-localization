@@ -1,6 +1,6 @@
 # Sources and numbers: collapse extension
 
-Plan: `~/catbl_work/tii_paper/PLAN_COLLAPSE.md`. Rules (user-level CLAUDE.md, "CA-TBL references and numbers"):
+Plan: `~/catbl_work/tii_paper/PLAN_COLLAPSE.md`. Rules (owner's user-level rules file, "CA-TBL references and numbers"):
 
 - every number used in code, scenarios, analysis or the paper has a row here;
 - values come from the primary document;

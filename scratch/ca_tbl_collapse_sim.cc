@@ -14,7 +14,7 @@
  *                points and stations, with GPS noise);
  *   truth_*.csv  ground truth, read only by the analysis that scores the estimates.
  * The system-side estimators (scripts/collapse/) read obs_*.csv only (World/system
- * split, CLAUDE.md; enforced by gate G178).
+ * split, the owner's reference rules; enforced by gate G178).
  *
  * The engines use the keyed random mode (--rngKeyed in the main simulator): every
  * draw is keyed to (link, time), so the outcome of a (worker, point, slot) link does
