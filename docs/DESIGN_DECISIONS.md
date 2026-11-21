@@ -980,3 +980,20 @@ links, so the points are placed by 2.4 GHz ranges, which are worse than GPS here
 UWB quality. Reaching that frame needs rescuer-to-rescuer UWB over a few metres (not modelled), or stations closer
 than the collapse zone. In the main simulator the finders' own position error is the earlier work's GNSS model
 (`--finderPosSigma=2` in the preset, DD 20).
+
+**DD 44 update: rescuers ranging each other (2026-11-22).** The field gets `--collapsePointLinksM=10` (rescuer
+points draw links with every point within 10 m), and `--frame uwb` now solves all 128 rescuer points jointly:
+point-to-point ToF, point-to-station ToF, and each point's GPS fix as a weak prior. On the seed 31 field it used
+1,800 range pairs, 1,273 of them point-to-point UWB. Median horizontal error and fraction within 2 m:
+
+| Frame | Median | Within 2 m |
+|---|---|---|
+| B3 (joint frame solve) | 2.50 m | 0.40 |
+| GPS | 2.82 m | 0.45 |
+| Assumed local frame (σ 0.10 m) | 1.63 m | 0.60 |
+
+The rescuers' own UWB therefore improves on raw GPS, but does not reach the assumed UWB-quality frame. The likely
+reason is that the frame's absolute placement still rests on GPS and 2.4 GHz station ranges; the remaining error is
+mostly a common offset. Results that use the local frame are stated as conditional on that frame quality. Scoring
+relative to the rescuers' own frame (where they dig) rather than in absolute coordinates is the next refinement.
+Exploratory, not citable.

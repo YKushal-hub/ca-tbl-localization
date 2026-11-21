@@ -151,7 +151,7 @@ and opening a PR on 2026-11-22.
 | B1 cross-band self-calibration (joint RSS + ToF via ρ = A/(n − 1)) | DONE (field estimator) | `scripts/collapse/estimate_collapse.py` (DD 38) | first results in DD 38 |
 | B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
 | B2 depth estimator in the main simulator's 2-D filters | NOT DONE | — | the 2-D filters estimate (x, y) only |
-| B3 rescuer frame from UWB + GPS + IMU | IMPLEMENTED, being evaluated | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (DD 44). With point-to-point UWB: result pending (exploratory run, seed 31) |
+| B3 rescuer frame from UWB + GPS + IMU | IMPLEMENTED, being evaluated | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (3.66 m vs 2.82 m median); with point-to-point UWB 2.50 m (better than GPS, short of the assumed 0.10 m frame's 1.63 m); DD 44 |
 | B4 worker-to-worker cooperation | DONE (field estimator), modest | `coop` (DD 42) | helps the median at ≥ half coverage, hurts the tails |
 | B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
 | B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
@@ -425,3 +425,5 @@ copies:
   exploratory evaluation running (seed 31).
   - COLLAPSE-2 registered (H8–H12); its field part is running.
   - Handoff updated and pushed at the owner's request.
+- 2026-11-22: B3 with point-to-point UWB: median 2.50 m, against 2.82 m for GPS and 1.63 m for the assumed local frame
+  (DD 44 update).
