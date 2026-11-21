@@ -9,7 +9,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_collapse_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g178.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-G="--footX=24 --footY=18 --pileH=3.66 --nVictims=8 --depthMin=0.5 --depthMax=3.0 --gridStep=6 --holdHeights=0.3,1.5 --nStations=3 --stationStandoff=8 --stationH=6 --slots=2 --slotS=10 --gpsSigmaH=3.27 --gpsSigmaV=6.63"
+G="--footX=24 --footY=18 --pileH=3.66 --nVictims=8 --depthMin=0.5 --depthMax=3.0 --gridStep=6 --holdHeights=0.3,1.5 --nStations=3 --stationStandoff=8 --stationH=6 --slots=2 --slotS=10 --gpsSigmaH=3.27 --gpsSigmaV=6.63 --localSigma=0.10"
 # shellcheck disable=SC2086
 "$BIN" --seed=5 $G --outdir="$D/det1" > "$D/det1.log" 2>&1; echo $? > "$D/det1.rc"
 # shellcheck disable=SC2086

@@ -766,3 +766,29 @@ This is the cross-band picture B1 is built on.
 
 Off: byte-identical (same three reference runs as DD 36; 178 files, only run_id.txt differs). Gates G177 and G178
 (+ selftests: 14 and 5 fixtures).
+
+## 38. Collapse extension, System: first estimators (tof / rss / joint) and the scorer (2026-11-22)
+
+`scripts/collapse/estimate_collapse.py` is system side. It reads obs_*.csv and the operational plan (hold heights)
+only; G178 fails if a system-side script mentions truth_ files. `score_collapse.py` is the only reader of truth.
+- **Sweep.** Rescuers walk the surface spots in serpentine order, split among --rescuers, one spot per slot,
+  measuring at every hold height.
+- **Air law.** Fitted per band from the system's own point-to-station links (no rubble): loss = L0 + 10 n log10 d.
+- **Estimators.** Per worker after each slot, 3-D:
+  - **tof:** 2.4 GHz / UWB multilateration, σ 3.0 m / 0.10 m (the earlier work's cited floors);
+  - **rss:** received power at every band with one unknown rubble excess C_b per band (calibration-free);
+  - **joint (B1):** both, with the ToF bias tied to that excess, r = |x − a| + C_b/ρ_b. ρ_b is the rubble's
+    loss-to-delay ratio, A_b/(n − 1). It varies little across the published brackets (2.44 GHz: 55.33–65.21 dB/m;
+    7.99 GHz: 130.2–142.4; 868 MHz: 14.6–19.9), so the system uses the midpoint with the range as uncertainty and
+    never knows the World's bracket.
+- **Depth prior.** A buried device lies below the surface (rescuer points minus hold height). It is generic, not
+  site knowledge.
+- **Frames.** Positions are in the rescuers' local frame (σ 0.10 m per axis, the UWB line-of-sight floor) or in
+  GPS (rows GPS-SPS-*).
+
+First look (seed 3; the DD 37 layout; 2 rescuers; 18 slots; local frame; not citable). Located / horizontal median /
+p90 / ≤ 2 m:
+- joint: 1.00 / 1.43 / 5.55 / 0.60;
+- rss: 1.00 / 1.50 / 5.55 / 0.55;
+- tof: 0.45 / 1.33 / 1.83 / 0.40.
+Vertical error medians are 1.4–3.1 m: depth is the weak axis, as planned (B2, Cramér–Rao bound next).

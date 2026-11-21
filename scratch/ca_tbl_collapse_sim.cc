@@ -111,6 +111,8 @@ main(int argc, char** argv)
     double slotS = NaN;
     double gpsSigmaH = NaN, gpsSigmaV = NaN;
     bool victimLinks = true;
+    double localSigma = NaN;
+    bool airLinks = true;
 
     CommandLine cmd;
     cmd.AddValue("seed", "Run seed (engines and World draws)", seed);
@@ -139,6 +141,10 @@ main(int argc, char** argv)
     cmd.AddValue("gpsSigmaH", "GPS error per horizontal axis, m (rows GPS-SPS-*)", gpsSigmaH);
     cmd.AddValue("gpsSigmaV", "GPS vertical error, m (rows GPS-SPS-*)", gpsSigmaV);
     cmd.AddValue("victimLinks", "Also draw worker-to-worker links", victimLinks);
+    cmd.AddValue("localSigma", "Error per axis of a rescuer point / station in the rescuers' local "
+                               "frame (UWB line-of-sight ranging among rescuers), m (required)", localSigma);
+    cmd.AddValue("airLinks", "Also draw point-to-station links (clear air, no rubble), which the "
+                             "system uses to fit its own air path-loss law", airLinks);
     cmd.Parse(argc, argv);
 
     // ---- refusals: every geometry value must be given --------------------------------
@@ -161,12 +167,12 @@ main(int argc, char** argv)
     }
     if (Missing(footX) || Missing(footY) || Missing(pileH) || Missing(depthMin) ||
         Missing(depthMax) || Missing(gridStep) || Missing(slotS) || Missing(gpsSigmaH) ||
-        Missing(gpsSigmaV) || holdArg.empty() || nVictims == 0 || slots == 0)
+        Missing(gpsSigmaV) || Missing(localSigma) || holdArg.empty() || nVictims == 0 || slots == 0)
     {
         return fatal("a required geometry/time/GPS argument is missing (see --PrintHelp)");
     }
     if (footX <= 0 || footY <= 0 || pileH <= 0 || depthMin <= 0 || depthMax < depthMin ||
-        depthMax > pileH || gridStep <= 0 || slotS <= 0 || gpsSigmaH < 0 || gpsSigmaV < 0 ||
+        depthMax > pileH || gridStep <= 0 || slotS <= 0 || gpsSigmaH < 0 || gpsSigmaV < 0 || localSigma < 0 ||
         voidHalf < 0)
     {
         return fatal("geometry out of range (need 0 < depthMin <= depthMax <= pileH, positive sizes)");
@@ -297,14 +303,19 @@ main(int argc, char** argv)
         std::ofstream ta(outdir + "/truth_anchors.csv");
         std::ofstream oa(outdir + "/obs_anchors.csv");
         ta << "id,kind,x,y,z\n" << std::fixed << std::setprecision(4);
-        oa << "id,kind,gps_x,gps_y,gps_z,sigma_h,sigma_v\n" << std::fixed << std::setprecision(4);
+        oa << "id,kind,gps_x,gps_y,gps_z,sigma_h,sigma_v,loc_x,loc_y,loc_z,sigma_loc\n"
+           << std::fixed << std::setprecision(4);
         std::mt19937_64 grng(0xD1B54A32D192ED03ULL ^ static_cast<uint64_t>(seed));
+        std::mt19937_64 lrng(0xA0761D6478BD642FULL ^ static_cast<uint64_t>(seed));
         std::normal_distribution<double> N01(0.0, 1.0);
         auto put = [&](const Pt& q, const char* kind) {
             ta << q.id << "," << kind << "," << q.p.x << "," << q.p.y << "," << q.p.z << "\n";
-            oa << q.id << "," << kind << "," << q.p.x + gpsSigmaH * N01(grng) << ","
-               << q.p.y + gpsSigmaH * N01(grng) << "," << q.p.z + gpsSigmaV * N01(grng) << ","
-               << gpsSigmaH << "," << gpsSigmaV << "\n";
+            const double gx = q.p.x + gpsSigmaH * N01(grng);
+            const double gy = q.p.y + gpsSigmaH * N01(grng);
+            const double gz = q.p.z + gpsSigmaV * N01(grng);
+            oa << q.id << "," << kind << "," << gx << "," << gy << "," << gz << "," << gpsSigmaH << ","
+               << gpsSigmaV << "," << q.p.x + localSigma * N01(lrng) << "," << q.p.y + localSigma * N01(lrng)
+               << "," << q.p.z + localSigma * N01(lrng) << "," << localSigma << "\n";
         };
         for (const auto& q : points)
         {
@@ -390,6 +401,16 @@ main(int argc, char** argv)
                         draw(s, b, v, q);
                     }
                 }
+                if (airLinks)
+                {
+                    for (const auto& q : points)
+                    {
+                        for (const auto& st : stations)
+                        {
+                            draw(s, b, q, st);
+                        }
+                    }
+                }
                 if (victimLinks)
                 {
                     for (size_t i = 0; i < victims.size(); ++i)
@@ -412,7 +433,8 @@ main(int argc, char** argv)
        << " footX=" << footX << " footY=" << footY << " pileH=" << pileH << " nVictims=" << nVictims
        << " depth=[" << depthMin << "," << depthMax << "] voidHalf=" << voidHalf << " gridStep=" << gridStep
        << " holdHeights=" << holdArg << " nStations=" << nStations << " slots=" << slots << " slotS=" << slotS
-       << " gpsSigmaH=" << gpsSigmaH << " gpsSigmaV=" << gpsSigmaV << " victimLinks=" << victimLinks << "\n"
+       << " gpsSigmaH=" << gpsSigmaH << " gpsSigmaV=" << gpsSigmaV << " localSigma=" << localSigma
+       << " victimLinks=" << victimLinks << " airLinks=" << airLinks << "\n"
        << "points=" << points.size() << " stations=" << stations.size() << " draws=" << draws << "\n";
     std::printf("COLLAPSE draws=%llu points=%zu victims=%zu\n", static_cast<unsigned long long>(draws),
                 points.size(), victims.size());

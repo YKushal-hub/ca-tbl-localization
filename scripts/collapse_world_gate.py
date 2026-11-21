@@ -42,11 +42,13 @@ def main():
                 fails.append(f"det: {f} differs between identical runs")
         full = {}
         for r in csv.DictReader(open(os.path.join(d, "det1", "obs_links.csv"))):
-            if int(r["rx"]) >= 10000:
+            if int(r["rx"]) >= 10000 and int(r["tx"]) < 10000:
                 full[(r["slot"], r["band"], r["tx"], r["rx"])] = r
         nk = 0
         for r in csv.DictReader(open(os.path.join(d, "keyed", "obs_links.csv"))):
             k = (r["slot"], r["band"], r["tx"], r["rx"])
+            if int(r["tx"]) >= 10000:
+                continue  # point-station air links
             if int(r["rx"]) < 10000:
                 fails.append("keyed: worker-worker row present with --victimLinks=false")
                 break
