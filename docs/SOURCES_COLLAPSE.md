@@ -152,6 +152,14 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | GPS-SPS-WORST | ≤ 15 m horizontal, ≤ 33 m vertical (95%), worst site | S: stress case | Table 3.8-3, p. 58 | "Worst Site Position Accuracy … ≤ 15 m 95% Horizontal Error … ≤ 33 m 95% Vertical Error" | σ per axis = 15/2.4477 = 6.13 m; σ_v = 33/1.95996 = 16.84 m | VERIFIED 2026-11-21 |
 | GPS-SPS-NOTE | the standard is a bound for representative user conditions; it is not the typical error | S: why the earlier 2 m/axis model (DD 20) stays for earlier work and is not re-tuned | Table 3.8-3 "Conditions and Constraints" | "Defined for a position/time solution meeting the representative user conditions" | collapse runs: low = existing 2 m/axis (DD 20, its own source row), high = 3.27 m/axis + 6.63 m vertical; vertical relative heights come from UWB (B3) | VERIFIED 2026-11-21; typical-performance source (e.g. the 2020 SPS performance analysis report) PENDING |
 
+### 5c. Collapse geometry
+
+| ID | Value | Used for | Source and location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| PILE-ALPHA | pile height = α·Δh, α = 0.15 (Δh = intact height converted to rubble) | X: pile height in --scenario=collapse (one value of a sweep) | Schonberg, Baird, Worsey, Belarbi, LaBoube, Lusk, Flanagan, Burleson, Woodley & Noll, "Rubble pile characterization model", Structures Under Shock and Impact IX, WIT Trans. Built Env. 87, 2006, §3 p. 26 (quoting Yarimer & Brown, Structures Under Shock and Impact IV, 1996, pp. 25–33) | "a "collection of blocks falls, it creates a pile of rubble of height α∆h, where ∆h is the intact structure height converted into rubble." They subsequently use a value of α=0.15 to fit their analyses to their experimental data." | e.g. 4 storeys × h_storey: pile = 0.15·4·h. Storey height still needs a source (PENDING) | VERIFIED 2026-11-21 (secondary for α; Yarimer & Brown 1996 primary PENDING) |
+| PILE-CONE | pile modelled as a cone of base radius 2 × the building's floor half-length; "Empirical data is now needed" | X: pile footprint (spread beyond the walls) | same, §3 p. 26 and Abstract | "we postulate that the radius of the cone is twice that of the building's average floor half-length"; "Empirical data is now needed to verify the predictive capabilities of these models." | cone volume = H·L·D at height 0.15H gives r_c = 2.52 L (their calculation) | VERIFIED 2026-11-21 (model, not measurement: stated) |
+| RANA-WORKERS | 3,122 workers inside; 2,515 saved alive; 1,129 dead; eight storeys; ground floor left intact | X: scale of an industrial collapse (motivation; 20–30 victims per searched sector) | Islam, Azad, Sinha & Lixon, "An Investigation of Recent Building Collapses around the World with Special References to Rana Plaza", 14th Global Engineering and Technology Conference, Dhaka, 2017, DOI 10.5281/zenodo.7349624, §2 p. 2 | "3,122 workers were in the building at the time of the collapse"; "Around 2,515 victims were saved from the building alive."; "an eight-storied commercial building"; "leaving only the ground floor intact" | — | VERIFIED 2026-11-21 (conference paper; quotes the BGMEA president) |
+
 ## 6. Hardware
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -172,7 +180,7 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | Debris bulk density | not found as a pile measurement; replaced by derived η (§2a) | CLOSED → §2a |
 | Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
 | 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238-13 (09/2025) | DONE → §3b |
-| Collapse geometry and void types | FEMA US&R Structural Collapse Technician; USACE Structures Specialist FOG; Rana Plaza reviewed sources | PENDING |
+| Collapse geometry and void types | pile height and spread: §5c; storey height, footprint, void types (FEMA US&R / USACE FOG) still PENDING | PARTIAL |
 | GPS horizontal and vertical accuracy for rescuers | GPS SPS PS 5th ed. (2020) | DONE → §5b |
 | Battery capacity | manufacturer cell datasheet | PENDING |
 | Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |
