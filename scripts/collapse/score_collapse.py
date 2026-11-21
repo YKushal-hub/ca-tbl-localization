@@ -15,12 +15,31 @@ def main():
     ap.add_argument("run")
     ap.add_argument("--frame", default="local")
     ap.add_argument("--curve", action="store_true")
+    ap.add_argument("--relative", action="store_true",
+                    help="remove the rescuer frame's mean horizontal offset (frame_<frame>.csv vs truth_anchors): "
+                         "rescuers dig where their own frame says, so a common offset cancels on the rubble")
     a = ap.parse_args()
     truth = {int(r["id"]): np.array([float(r["x"]), float(r["y"]), float(r["z"])])
              for r in csv.DictReader(open(os.path.join(a.run, "truth_victims.csv")))}
     est = defaultdict(dict)
     for r in csv.DictReader(open(os.path.join(a.run, f"estimates_{a.frame}.csv"))):
         est[(r["method"], int(r["slot"]))][int(r["worker"])] = np.array([float(r["x"]), float(r["y"]), float(r["z"])])
+    if a.relative:
+        fp = os.path.join(a.run, f"frame_{a.frame}.csv")
+        ta = {int(r["id"]): np.array([float(r["x"]), float(r["y"]), float(r["z"])])
+              for r in csv.DictReader(open(os.path.join(a.run, "truth_anchors.csv")))}
+        if os.path.exists(fp):
+            fr = {int(r["id"]): np.array([float(r["x"]), float(r["y"]), float(r["z"])]) for r in csv.DictReader(open(fp))}
+        else:  # local / gps: the anchors file itself is the frame
+            col = ("loc_x", "loc_y", "loc_z") if a.frame == "local" else ("gps_x", "gps_y", "gps_z")
+            fr = {int(r["id"]): np.array([float(r[c]) for c in col])
+                  for r in csv.DictReader(open(os.path.join(a.run, "obs_anchors.csv"))) if r["kind"] == "point"}
+        off = np.mean([fr[i] - ta[i] for i in fr if i in ta], axis=0)
+        off[2] = 0.0
+        print(f"frame offset removed: ({off[0]:+.2f}, {off[1]:+.2f}) m")
+        for k in est:
+            for w in est[k]:
+                est[k][w] = est[k][w] - off
     methods = sorted({m for (m, _) in est})
     slots = sorted({s for (_, s) in est})
     N = len(truth)

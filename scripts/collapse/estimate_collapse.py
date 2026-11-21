@@ -270,6 +270,11 @@ def main():
     links = list(csv.DictReader(open(os.path.join(a.run, "obs_links.csv"))))
     if a.frame == "uwb":
         A, info = solve_rescuer_frame(a.run, A, links)
+        with open(os.path.join(a.run, "frame_uwb.csv"), "w") as ff:  # system output: the solved rescuer frame
+            ff.write("id,x,y,z\n")
+            for i, v in sorted(A.items()):
+                if v[2] == "point":
+                    ff.write(f"{i},{v[0][0]:.4f},{v[0][1]:.4f},{v[0][2]:.4f}\n")
         print(f"B3: {info[0]} rescuer points solved from {info[1]} range pairs ({info[2]} point-to-point UWB)")
     law = fit_air_law(links, A)
     order = serpentine_spots(A, len(holds))
