@@ -120,6 +120,12 @@ class CaTblImuEkf
      *  the cloud says nothing about them, and what the filter has learned of them is kept. */
     void SetPositionCov(double x, double y, double pxx, double pxy, double pyy);
 
+    /** DD 29 --acquireSideOfRoad: reflect the position across the line a x + b y + c = 0, with the position rows and
+     *  columns of P mapped by the reflection R = I - 2 n n' (n the unit normal). Ranges to anchors on the line are
+     *  identical at both points, so this moves no likelihood they carry; the window is cleared (its path was the
+     *  mirror's). Heading, bias and stride are kept. */
+    void ReflectAcross(double a, double b, double c);
+
     /** --relayNisInflate: running mean (EWMA, weight 0.02) of the range updates' NIS, nu^2 / S,
      *  exactly as CaTblEkf's. Observation only: the update's arithmetic is unchanged. */
     void EnableNisTracking() { m_trackNis = true; }
@@ -218,6 +224,12 @@ class CaTblImuEkf
      *  error is not a step estimator's; letting the linear update put the scale there converts a position
      *  inconsistency into a dead-reckoning runaway. k <= 0 (default): no projection. */
     void SetStateBounds(double k, double sigmaB, double sigmaS) { m_bndK = k; m_bndB = sigmaB; m_bndS = sigmaS; }
+    /** DD 33 --ekf5CoarsePosOnly: an 868 MHz range (tier 0) corrects position only. Heading, gyro bias and stride
+     *  scale are consider states for it (Schmidt-Kalman: zero gain, covariance updated in the general-gain form), and
+     *  it is kept out of the sliding window, so a kilometre-scale RSSI error cannot be explained away through the
+     *  walking model. Off (default): every range updates every state, as before. */
+    void SetCoarsePosOnly(bool on) { m_coarsePosOnly = on; }
+    uint64_t CoarsePosOnlyApplied() const { return m_coarseN; }
     uint64_t BoundsApplied() const { return m_bndN; }
     /** --ekf5FinderConsider: each finder's GNSS position offset is a Schmidt consider parameter -- not
      *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
@@ -325,6 +337,8 @@ class CaTblImuEkf
     };
     bool m_consOn = false;
     double m_bndK = 0.0;
+    bool m_coarsePosOnly = false; //!< DD 33
+    uint64_t m_coarseN = 0;       //!< DD 33: tier-0 updates applied position-only
     double m_bndB = 0.0;
     double m_bndS = 0.0;
     uint64_t m_bndN = 0;

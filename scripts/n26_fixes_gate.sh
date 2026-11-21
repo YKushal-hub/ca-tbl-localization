@@ -11,6 +11,9 @@
 # and the 5 km seed whose TDoA went wrong (seed 1, 1 800 s; static_868) with the gate off/on.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+# DD 27 (2026-11-20): this gate was written against DD 26's deployment; pin it back (scripts/preset_pins.sh).
+# shellcheck source=/dev/null
+. scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -25,8 +28,8 @@ fi
 PIN="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1 --uwbSensitivityDbm=-104 --iqOverloadOnly=false --integrityCheck=true --imuFilter=cv --imuMagSigmaDeg=0 --ekf5FinderConsider=false --ekf5RelayGate=false --unknownStart=false --imuGyroBiasSigmaDps=0 --imuStrideSigmaPct=0 --finderPosSigma=0 --fixedVarThreshold=-1 --t2SensitivityRowKHz=0 --publishAfterStep=false --nlosRSource=operative --foliageScaleBounds=false --interferenceDistance=false --rssiRangeFromRxPower=false --pcsByteScale=1 --ekf5Window=0 --nFinders=4 --finderTasking=roundrobin"
 # PIN extended 2026-10-21 (DESIGN_DECISIONS 18-22): the receiver corrections, the realistic world, PRESET-2's set,
 # the integrity check off and eight finders in pairs are restored to the preset this gate was written against.
-E="--specProfile=true --seed=7 --duration=900 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full,static_868 $PIN"
-K="--specProfile=true --seed=1 --duration=1800 --trace=true --arms=static_868 $PIN"
+E="--specProfile=true $PIN_PRE_DD27 --seed=7 --duration=900 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full,static_868 $PIN"
+K="--specProfile=true $PIN_PRE_DD27 --seed=1 --duration=1800 --trace=true --arms=static_868 $PIN"
 # Every run states all four fixes explicitly (TECH_DEBT N.31). Since e308c14f the preset turns
 # them ON, so a run that left them to the preset was no longer an "off" control, and a single-fix
 # run had the other three on too. Each run below starts from all four off at the pre-preset

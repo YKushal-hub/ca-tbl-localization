@@ -9,6 +9,9 @@
 # r_nopf   refusal: the guard without --acquireParticles
 set -u
 cd "$(dirname "$0")/.." || exit 2
+# DD 27 (2026-11-20): this gate was written against DD 26's deployment; pin it back (scripts/preset_pins.sh).
+# shellcheck source=/dev/null
+. scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -17,7 +20,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g98.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true --seed=5 --trace=true --unknownStart=true --arms=ca_tbl_full"
+P="--specProfile=true $PIN_PRE_DD27 --seed=5 --trace=true --unknownStart=true --arms=ca_tbl_full"
 run() {
     local n=$1
     shift

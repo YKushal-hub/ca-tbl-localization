@@ -2014,6 +2014,56 @@ bash scripts/tdoa_timing_gate.sh "$WORK/g168" || fail G168
 bash scripts/tdoa_timing_gate_selftest.sh "$WORK/g168" || fail G168
 finish G168
 
+# ---------------- G169: --benefitLambda / --benefitSkip868, TII-1's mechanism (report/PREREG_PARETO1.md)
+# scripts/benefit_rule_gate.py: lambda 0 is byte-identical to the flags absent; lambda > 0 reaches only fixed_threshold,
+# skips 868 MHz slots, lowers its 868 MHz energy and changes its trace.
+printf '\n--- G169 predicted-benefit hand-off rule ---\n'
+bash scripts/benefit_rule_gate.sh "$WORK/g169" || fail G169
+bash scripts/benefit_rule_gate_selftest.sh "$WORK/g169" || fail G169
+finish G169
+
+# ---------------- G170: TII-3 (--benefitNisInflate, --benefitHeartbeat868N, --benefitSkipNisMax)
+printf '\n--- G170 TII-3 consistency-aware benefit ---\n'
+bash scripts/tii3_gate.sh "$WORK/g170" || fail G170
+bash scripts/tii3_gate_selftest.sh "$WORK/g170" || fail G170
+finish G170
+
+# ---------------- G171: --searchLaunchAtS alone dispatches the party (DD 27's realistic study)
+printf '\n--- G171 overdue alarm ---\n'
+bash scripts/overdue_gate.sh "$WORK/g171" || fail G171
+bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
+finish G171
+
+# ---------------- G172: --rangeHeightCorrect, mast slant ranges projected to the ground (DD 28)
+printf '\n--- G172 range height correction ---\n'
+bash scripts/height_gate.sh "$WORK/g172" || fail G172
+bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
+finish G172
+
+# ---------------- G173: --acquireSideOfRoad, the work area's side of a gateway line (DD 29)
+printf '\n--- G173 side of the gateway line ---\n'
+bash scripts/side_of_road_gate.sh "$WORK/g173" || fail G173
+bash scripts/side_of_road_gate_selftest.sh "$WORK/g173" || fail G173
+finish G173
+
+# ---------------- G174: the search party under a 2.4 GHz-only design (DD 30-32)
+printf '\n--- G174 search party fixes ---\n'
+bash scripts/search_doctrine_gate.sh "$WORK/g174" || fail G174
+bash scripts/search_doctrine_gate_selftest.sh "$WORK/g174" || fail G174
+finish G174
+
+# ---------------- G175: --reacquireSigmaM, a lost filter re-enters particle acquisition (DD 34)
+printf '\n--- G175 re-acquisition ---\n'
+bash scripts/reacquire_gate.sh "$WORK/g175" || fail G175
+bash scripts/reacquire_gate_selftest.sh "$WORK/g175" || fail G175
+finish G175
+
+# ---------------- G176: --incidentRandom, a different incident on every seed (DD 35)
+printf '\n--- G176 randomised incident ---\n'
+bash scripts/incident_gate.sh "$WORK/g176" || fail G176
+bash scripts/incident_gate_selftest.sh "$WORK/g176" || fail G176
+finish G176
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

@@ -161,6 +161,33 @@ enum CaTblPolicyMode
 const char* CaTblPolicyModeName(CaTblPolicyMode mode);
 
 /**
+ * TII-1 (--benefitLambda). An anchor a candidate radio would range: its surveyed or reported
+ * position and the range standard deviation that radio would deliver.
+ */
+struct CaTblBenefitAnchor
+{
+    double x;
+    double y;
+    double sigmaM;
+};
+
+/**
+ * TII-1. The expected reduction in tr(P) of a 2-D position estimate at (ex, ey) with covariance
+ * [pxx pxy; pxy pyy] from fusing scalar ranges to `extra`, given that ranges to `base` are fused
+ * as well. Information form: J = P^-1 + sum_i u_i u_i^T / sigma_i^2 over the anchors, u_i the unit
+ * vector from the anchor to the estimate (the linearised range Jacobian). Returns
+ * tr((J_base)^-1) - tr((J_base + J_extra)^-1), clamped at 0; 0 when P is not positive definite.
+ * Every range is assumed to arrive: the Jensen-optimistic form (MODEL_REGISTER M5.2), stated, not hidden.
+ */
+double CaTblTraceReduction(double pxx,
+                           double pxy,
+                           double pyy,
+                           double ex,
+                           double ey,
+                           const std::vector<CaTblBenefitAnchor>& base,
+                           const std::vector<CaTblBenefitAnchor>& extra);
+
+/**
  * \brief Which functional form the Position Confidence Score uses.
  *
  * See report/PCS_REDESIGN_RESULTS.md §0 for the pre-registration, which was
@@ -554,6 +581,17 @@ struct CaTblPolicyConfig
     int nlosRSource;     //!< S2-C --nlosRSource: 0 operative tag (default), 1 detector verdict, 2 none
     uint32_t acquireMinAnchors; //!< S2-C --acquireMinAnchors: 0 off; else no sparse/Case D before a fix of this many ranges
     bool oracleTrigger; //!< ORACLE-ESC --oracleTrigger: fixed_threshold triggers on the true squared error (SetOracleTruth)
+    //! TII-1 --benefitLambda: 0 (default) off. > 0: fixed_threshold's trigger becomes the predicted-benefit rule --
+    //! escalate when the next tier's expected tr(P) reduction per joule exceeds lambda (m^2/J), demote after
+    //! nDeescalate cycles on which the current tier's falls below lambda/2. Sensor selection (Joshi & Boyd) on tiers.
+    double benefitLambda;
+    double benefitCost2p4J;  //!< TII-1: joules per cycle on 2.4 GHz (OURS, measured from PRESET-5 tag-0 energy)
+    double benefitCostUwbJ;  //!< TII-1: joules per cycle on UWB (OURS, measured as above)
+    double benefitSigma2p4M; //!< TII-1: predicted 2.4 GHz range sigma (the engine's 3.0 m floor, cited)
+    double benefitSigmaUwbM; //!< TII-1: predicted UWB range sigma (the engine's 0.10 m floor, cited)
+    //! TII-3 F1 --benefitNisInflate: before any benefit is computed, P is scaled by max(1, the filter's running mean
+    //! NIS), so an over-confident filter predicts larger gains and keeps ranging. False (default): P as it is.
+    bool benefitNisInflate = false;
     bool acquireNegInfo;          //!< C1 --acquireNegInfo: silent addressed gateways down-weight the acquisition particles
     bool acquireHandoverCurvature; //!< N.58 --acquireHandoverCurvature: hand over only once every range is linearisable
     double negR50M[3];            //!< C1: per tier, the range at which a link works half the time (engine-fitted)
@@ -566,6 +604,10 @@ struct CaTblPolicyConfig
     uint32_t hold24AfterK;        //!< C3 --hold24AfterK: 0 off; K: after K straight 2.4 GHz cycles with >= 3 ranges, no UWB escalation
     bool c2bEscalation;           //!< V5 --c2bEscalation: escalate when the next tier is observed in reach, never on confidence
     bool acquireParticles;        //!< V4 --acquireParticles: particle-filter acquisition before the EKF takes over
+    //! DD 29 --acquireSideOfRoad: the acquisition cloud is confined to the half-plane a x + b y + c >= 0 (the work
+    //! area's side of a line of gateways, whose ranges cannot tell the two sides apart). Off: no constraint.
+    bool acquireHalfPlane;
+    double acquireHpA, acquireHpB, acquireHpC;
     uint32_t acquireParticleCount; //!< V4: particles per node
     uint64_t acquireSeed;         //!< V4: per-run seed; each node mixes in its own salt (SetAcquireSalt)
     double acquireSpeedMps;       //!< V4: random-walk speed scale of the node between cycles
@@ -676,6 +718,8 @@ struct CaTblPolicyConfig
     int ekf5Window = 0;                   //!< --ekf5Window: sliding-window smoother length, cycles (0 = off)
     int ekf5WindowMin = 8;                //!< --ekf5WindowMin: cycles buffered before the first solve
     double ekf5StateBoundsK = 0.0;        //!< --ekf5StateBounds: clamp b, s to +/- k prior sigmas (0 = off)
+    bool ekf5CoarsePosOnly = false;       //!< DD 33 --ekf5CoarsePosOnly: 868 MHz ranges correct position only
+    double reacquireSigmaM = 0.0;         //!< DD 34 --reacquireSigmaM: re-enter particle acquisition when sqrt(tr P) exceeds this (0 = off)
     double ekf5FinderConsiderVar = 4.0;   //!< their variance, m^2
     double ekf5StrideRel = 0.0;           //!< --imuStrideSigmaPct / 100: the filter's per-step stride model
     double ekf5StrideLenM = 0.7;          //!< step length the stride model counts steps with
@@ -1036,6 +1080,12 @@ class CaTblPolicy
      *  Configure, before Initialize). Distinct per node so two nodes never share a particle cloud. */
     void SetAcquireSalt(uint64_t salt) { m_pfSalt = salt; }
     bool AcquiringByParticles() const { return m_pfActive; }
+    /** DD 29: particle-updates zeroed by --acquireSideOfRoad. */
+    uint64_t GetHalfPlaneCuts() const { return m_pfHalfPlaneCut; }
+    /** DD 29: estimates reflected back across the gateway line. */
+    uint64_t GetHalfPlaneReflects() const { return m_hpReflects; }
+    /** DD 34: re-entries into particle acquisition. */
+    uint64_t GetReacquires() const { return m_reacquires; }
     /** C1 --acquireNegInfo: gateways addressed this cycle that returned no range (surveyed positions), per tier. */
     struct SilentAnchor
     {
@@ -1128,6 +1178,11 @@ class CaTblPolicy
     double Pxx() const { return FltPxx(); }
     double Pxy() const { return FltPxy(); }
     double Pyy() const { return FltPyy(); }
+    //! TII-1: expected tr(P) reduction from ranging `tier` this cycle, over the distinct anchors in `meas` that the
+    //! tier's evidence radius reaches (t2PredictRadiusM / uwbPredictRadiusM), at that tier's benefit sigma.
+    double BenefitTierGain(CaTblTier tier, const std::vector<CaTblRangeMeasurement>& meas) const;
+    //! TII-3 F1: the factor P is scaled by before a benefit is computed (1 unless --benefitNisInflate).
+    double BenefitPScale() const { return m_config.benefitNisInflate ? std::max(1.0, GetNisMean()) : 1.0; }
 
     /** Queue one absolute position observation with its full covariance for the NEXT
      *  Step() to fuse -- tier-1 TDoA, which the caller solves from the same broadcast
@@ -1555,6 +1610,11 @@ class CaTblPolicy
         double w;
     };
     std::vector<PfParticle> m_pf;
+    uint64_t m_pfHalfPlaneCut = 0; //!< DD 29: particle-updates zeroed for lying across the gateway line
+    uint64_t m_hpReflects = 0;     //!< DD 29: Kalman estimates reflected back across the gateway line
+    uint64_t m_reacquires = 0;     //!< DD 34: re-entries into particle acquisition
+    double m_pfInitHalf = 0.0;     //!< DD 34: the start-up prior half-width (cap for a re-acquisition cloud)
+    bool m_reacqArmed = false;     //!< DD 34: set once sqrt(tr P) has been within the threshold
     uint32_t m_streak24 = 0;
     std::vector<SilentAnchor> m_silent; //!< C1
     bool m_oracleSet = false;      //!< ORACLE-ESC: SetOracleTruth called

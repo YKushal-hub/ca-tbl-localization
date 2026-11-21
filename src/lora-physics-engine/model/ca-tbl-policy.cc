@@ -11,6 +11,95 @@
 namespace ns3
 {
 
+// TII-1 --------------------------------------------------------------------------------------------
+namespace
+{
+void
+AddRangeInfo(double& a, double& b, double& c, double ex, double ey, const std::vector<CaTblBenefitAnchor>& v)
+{
+    for (const CaTblBenefitAnchor& an : v)
+    {
+        const double dx = ex - an.x;
+        const double dy = ey - an.y;
+        const double d = std::sqrt(dx * dx + dy * dy);
+        if (d < 1e-6 || !(an.sigmaM > 0.0))
+        {
+            continue; // no direction to linearise about, or no usable sigma
+        }
+        const double w = 1.0 / (an.sigmaM * an.sigmaM);
+        const double ux = dx / d;
+        const double uy = dy / d;
+        a += w * ux * ux;
+        b += w * ux * uy;
+        c += w * uy * uy;
+    }
+}
+} // namespace
+
+double
+CaTblTraceReduction(double pxx,
+                    double pxy,
+                    double pyy,
+                    double ex,
+                    double ey,
+                    const std::vector<CaTblBenefitAnchor>& base,
+                    const std::vector<CaTblBenefitAnchor>& extra)
+{
+    const double det = pxx * pyy - pxy * pxy;
+    if (!(det > 0.0))
+    {
+        return 0.0;
+    }
+    double a = pyy / det; // J = P^-1
+    double b = -pxy / det;
+    double c = pxx / det;
+    AddRangeInfo(a, b, c, ex, ey, base);
+    const double d1 = a * c - b * b;
+    if (!(d1 > 0.0))
+    {
+        return 0.0;
+    }
+    const double tr1 = (a + c) / d1;
+    AddRangeInfo(a, b, c, ex, ey, extra);
+    const double d2 = a * c - b * b;
+    if (!(d2 > 0.0))
+    {
+        return 0.0;
+    }
+    return std::max(0.0, tr1 - (a + c) / d2);
+}
+
+double
+CaTblPolicy::BenefitTierGain(CaTblTier tier, const std::vector<CaTblRangeMeasurement>& meas) const
+{
+    const bool uwb = (tier == CA_TBL_TIER_UWB);
+    const double reach = uwb ? m_config.uwbPredictRadiusM : m_config.t2PredictRadiusM;
+    const double sig = uwb ? m_config.benefitSigmaUwbM : m_config.benefitSigma2p4M;
+    std::vector<CaTblBenefitAnchor> cand;
+    for (const CaTblRangeMeasurement& m : meas)
+    {
+        if (!(m.rangeM > 0.0) || m.rangeM > reach)
+        {
+            continue;
+        }
+        bool dup = false; // one anchor heard on two tiers is one anchor
+        for (const CaTblBenefitAnchor& cnd : cand)
+        {
+            if (std::fabs(cnd.x - m.anchorX) < 0.05 && std::fabs(cnd.y - m.anchorY) < 0.05)
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+        {
+            cand.push_back({m.anchorX, m.anchorY, sig});
+        }
+    }
+    const double k = BenefitPScale(); // TII-3 F1 (1 by default, which multiplies exactly)
+    return CaTblTraceReduction(k * FltPxx(), k * FltPxy(), k * FltPyy(), FltX(), FltY(), {}, cand);
+}
+
 const char*
 CaTblPolicyModeName(CaTblPolicyMode mode)
 {
@@ -114,6 +203,11 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     measVarScale = 1.0; // S2-C; 1.0 multiplies exactly, so the default changes nothing
     nlosRSource = 0;    // S2-C; 0 keys R and the LOS count off the operative tag, as before
     oracleTrigger = false; // ORACLE-ESC; false triggers on trace(P), as before
+    benefitLambda = 0.0;    // TII-1; 0: fixed_threshold triggers on trace(P), as before
+    benefitCost2p4J = 0.03; // TII-1 (OURS): ~ tag-0 j_2p4 / cycles_2p4, PRESET-5 (0.026 at 5 km, 0.048 endgame)
+    benefitCostUwbJ = 0.5;  // TII-1 (OURS): ~ tag-0 j_uwb / cycles_uwb, PRESET-5 (0.35-0.64)
+    benefitSigma2p4M = 3.0; // TII-1: the engine's 2.4 GHz LOS floor (Zhou et al. 2025)
+    benefitSigmaUwbM = 0.10; // TII-1: the engine's UWB floor (Benouakta et al. 2023)
     acquireMinAnchors = 0; // S2-C; 0: acquired from the start, as before
     acquireReinit = false; // R1 (N.54); off: the first fix is a range update from the prior, as before
     hold24AfterK = 0; // C3; off: UWB escalation as before
@@ -131,6 +225,10 @@ CaTblPolicyConfig::CaTblPolicyConfig()
     c2bEscalation = false; // V5; off: escalation triggered by PCS / the trace threshold, as before
     acquireParticles = false; // V4; off: the EKF acquires from its prior, as before
     acquireParticleCount = 2000;
+    acquireHalfPlane = false; // DD 29; off: the cloud is the whole prior box, as before
+    acquireHpA = 0.0;
+    acquireHpB = 0.0;
+    acquireHpC = 0.0;
     acquireSeed = 0;
     acquireSpeedMps = 1.5;
     rangeBiasStates = false; // V3; off: every range error treated as independent, as before
@@ -1012,7 +1110,7 @@ CaTblPolicy::Configure(const CaTblPolicyConfig& config)
     {
         m_ekf.EnableConsider(config.rangeBiasCorrM, 0.05);
     }
-    if (config.relayNisInflate)
+    if (config.relayNisInflate || config.benefitNisInflate) // TII-3 F1 reads the same record
     {
         m_ekf.EnableNisTracking();
         m_ekf5.EnableNisTracking(); // read only when ekf5 is the policy filter (GetNisMean)
@@ -1053,6 +1151,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetIterate(m_config.ekf5Iterate, m_config.ekf5IterateTolM);
         m_ekf5.SetWindow(m_config.ekf5Window, m_config.ekf5WindowMin, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5.SetStateBounds(m_config.ekf5StateBoundsK, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
+        m_ekf5.SetCoarsePosOnly(m_config.ekf5CoarsePosOnly); // DD 33
         m_ekf5HaveHeading = false;
     }
     m_deescalateCounter = 0;
@@ -1064,6 +1163,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
     {
         // V4: the prior is the box the filter is told about (uniform, half-width sqrt(3) sigma).
         PfInit(x0, y0, std::sqrt(3.0) * posStdM);
+        m_pfInitHalf = std::sqrt(3.0) * posStdM; // DD 34: the widest a re-acquisition cloud may be
     }
 }
 
@@ -1090,6 +1190,14 @@ CaTblPolicy::PfInit(double cx, double cy, double half)
     {
         p.x = cx + half * u(m_pfRng);
         p.y = cy + half * u(m_pfRng);
+        // DD 29 --acquireSideOfRoad: redraw a particle on the far side of the gateway line (bounded; off: never).
+        for (int tries = 0; m_config.acquireHalfPlane && tries < 1000 &&
+                            m_config.acquireHpA * p.x + m_config.acquireHpB * p.y + m_config.acquireHpC < 0.0;
+             ++tries)
+        {
+            p.x = cx + half * u(m_pfRng);
+            p.y = cy + half * u(m_pfRng);
+        }
     }
     m_pfActive = true;
     m_pfCycles = 0;
@@ -1168,6 +1276,13 @@ CaTblPolicy::PfUpdate(const std::vector<CaTblRangeMeasurement>& meas, const std:
                 const double p = 0.5 * std::erfc(-z / std::sqrt(2.0));
                 l += std::log(std::max(1e-3, 1.0 - std::min(p, 0.999)));
             }
+        }
+        // DD 29 --acquireSideOfRoad: a particle the prediction or roughening moved across the line carries no weight.
+        if (m_config.acquireHalfPlane &&
+            m_config.acquireHpA * m_pf[k].x + m_config.acquireHpB * m_pf[k].y + m_config.acquireHpC < 0.0)
+        {
+            l -= 1000.0;
+            ++m_pfHalfPlaneCut;
         }
         lw[k] = l;
         lmax = std::max(lmax, l);
@@ -2383,6 +2498,7 @@ CaTblPolicy::StepImpl(double dt,
         if (oneMode)
         {
             m_pfActive = false;
+            m_reacqArmed = true; // DD 34: a hand-over arms the re-acquisition (inert unless --reacquireSigmaM)
             ++m_pfHandovers;
             std::cout << "PFACQ_HANDOVER cycles=" << m_pfCycles << " x=" << mx << " y=" << my
                       << " sd=" << std::sqrt(std::max(0.0, cxx + cyy)) << "\n";
@@ -2693,6 +2809,33 @@ CaTblPolicy::StepImpl(double dt,
         }
     }
 
+    // DD 29 --acquireSideOfRoad: after hand-over, an estimate on the far side of the gateway line is the mirror root
+    // (equal ranges to every anchor on the line); reflect it back to the work area's side. Off: nothing.
+    if (m_config.acquireHalfPlane && m_config.imuFilterEkf5 && !m_pfActive &&
+        m_config.acquireHpA * FltX() + m_config.acquireHpB * FltY() + m_config.acquireHpC < 0.0)
+    {
+        m_ekf5.ReflectAcross(m_config.acquireHpA, m_config.acquireHpB, m_config.acquireHpC);
+        ++m_hpReflects;
+    }
+    // DD 34 --reacquireSigmaM: a filter this uncertain is lost, and the next range or two would be linearised into one
+    // root of an ambiguous intersection and believed (REALISTIC-2's quiet shift: +/-23 m at 400 m off). Re-enter the
+    // particle acquisition round the current estimate, whose cloud keeps every root until the ranges resolve them, and
+    // hand over again when it is one mode. Needs --acquireParticles (the cloud) and ekf5. Off: nothing.
+    // Armed only once the filter has been inside the threshold, so a broad but single-mode hand-over is not thrown back
+    // into a fresh cloud every cycle.
+    if (m_config.reacquireSigmaM > 0.0 && !m_pfActive &&
+        std::sqrt(std::max(0.0, FltTracePos())) <= m_config.reacquireSigmaM)
+    {
+        m_reacqArmed = true;
+    }
+    if (m_config.reacquireSigmaM > 0.0 && m_config.acquireParticles && m_config.imuFilterEkf5 && !m_pfActive &&
+        m_reacqArmed && std::sqrt(std::max(0.0, FltTracePos())) > m_config.reacquireSigmaM)
+    {
+        m_reacqArmed = false;
+        const double sAxis = std::sqrt(std::max(0.0, FltTracePos()) / 2.0);
+        PfInit(FltX(), FltY(), std::min(std::sqrt(3.0) * sAxis, m_pfInitHalf)); // never wider than the start-up prior
+        ++m_reacquires;
+    }
     const double traceSigma = FltTracePos();
     double sumVar = 0.0;
     for (size_t i = 0; i < varM2.size(); ++i)
@@ -2745,7 +2888,37 @@ CaTblPolicy::StepImpl(double dt,
     {
         ++m_oracleDecisions;
     }
-    if (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
+    // TII-1 --benefitLambda: fixed_threshold's trigger becomes the predicted-benefit rule. Off (0) by default.
+    const bool benefitRule =
+        m_config.benefitLambda > 0.0 && m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD && !oracle;
+    auto benefitPerJ = [&](CaTblTier tier) -> double {
+        const double cost = (tier == CA_TBL_TIER_UWB) ? m_config.benefitCostUwbJ : m_config.benefitCost2p4J;
+        return cost > 0.0 ? BenefitTierGain(tier, meas) / cost : 0.0;
+    };
+    if (benefitRule)
+    {
+        // 868 -> 2.4: under the dual base 2.4 GHz is ranged every cycle whatever the tier, so its marginal cost is
+        // ~0 and its predicted gain is already in P; the node moves up whenever enough 2.4 GHz anchors are in reach
+        // (the evidence predicate's count), and the costly 868 MHz slot is then priced by --benefitSkip868.
+        // 2.4 -> UWB: escalate when one UWB cycle is predicted to buy more than lambda m^2 of tr(P) per joule.
+        if (m_tier == CA_TBL_TIER_868)
+        {
+            int32_t near2 = 0;
+            for (size_t i = 0; i < meas.size(); ++i)
+            {
+                if (meas[i].rangeM > 0.0 && meas[i].rangeM <= m_config.t2PredictRadiusM)
+                {
+                    ++near2;
+                }
+            }
+            wantEscalate = near2 >= static_cast<int32_t>(std::max<uint32_t>(m_config.t2PredictMinAnchors, 1));
+        }
+        else if (m_tier == CA_TBL_TIER_2P4)
+        {
+            wantEscalate = benefitPerJ(CA_TBL_TIER_UWB) > m_config.benefitLambda;
+        }
+    }
+    else if (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
     {
         // The literature baseline: a flat variance threshold, no confidence
         // model, no integrity check, no geometry term.
@@ -3079,7 +3252,12 @@ CaTblPolicy::StepImpl(double dt,
         // threshold sits above the up threshold. The gap is deliberate: for SAR
         // a missed escalation costs more than a wasted one, so the system is
         // biased toward staying at higher precision.
-        const bool healthy = (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
+        // TII-1: under the benefit rule UWB is "healthy to leave" when staying on it is predicted to buy less than
+        // lambda/2 per joule (the factor 2 is the flat threshold's own hysteresis, OURS); 2.4 GHz is left only on the
+        // blind path above, when it stops delivering.
+        const bool healthy = benefitRule
+                                 ? (m_tier == CA_TBL_TIER_UWB && benefitPerJ(m_tier) < 0.5 * m_config.benefitLambda)
+                             : (m_config.mode == CA_TBL_MODE_FIXED_THRESHOLD)
                                  ? (trigVar < m_config.fixedVarThresholdM2 * 0.5)
                                  : (!suspect && pcs > m_config.pcsThresholdDown[m_tier]);
         if (healthy)

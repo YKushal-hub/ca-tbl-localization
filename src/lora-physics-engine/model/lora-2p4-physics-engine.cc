@@ -249,6 +249,11 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     state.nodeOrientationRadians = nodeOrientationRadians;
     state.txPos = txPosition;
     state.rxPos = rxPosition;
+    if (m_rubble) { // collapse extension (World); rows in docs/SOURCES_COLLAPSE.md
+        const CaTblRubblePath rp = m_rubble->Path(m_config.propagation.frequencyHz, txPosition, rxPosition);
+        state.rubbleLossDb = rp.extraLossDb; // DD 37: lowest-loss path (rubble, then air)
+        state.rubbleBiasM = rp.biasM;
+    }
     // P4: Propagate tunnel flag from config so result.isTunnel is correctly set
     state.isTunnel = m_config.tunnel.enabled;
     
@@ -602,6 +607,9 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
     // Sum Tier 3 losses
     state.soilAttenuationDb = 0.0;
     double tier3LossDb = state.tunnelLossDb + state.soilAttenuationDb;
+    if (m_rubble) {
+        tier3LossDb += state.rubbleLossDb;
+    }
                          
     multipathPenaltyDb = 0.0;
     
@@ -666,6 +674,14 @@ PhysicsResult2p4 LoRa2p4PhysicsEngine::ProcessTransmission(
         ComputeRangingErrorM(state, RANGING_TIER_2P4, m_config.ranging,
                               m_config.propagation, m_config.propagation.frequencyHz,
                               effBw, internalSnrDb, spreadingFactor, m_sampler);
+    }
+    // Collapse extension: time of flight through w m of solid material reads w(sqrt(eps')-1)
+    // longer (row SLOW-1); per metre of pile that is row SLOW-BR. Direct-path loss under
+    // deep rubble is NOT yet modelled (row ALS2009 pending) -- a stated limitation.
+    if (m_rubble && state.rubbleBiasM > 0.0 && m_config.rangingModelMode == RANGING_PHYSICS_DERIVED) {
+        state.estimatedRangeM += state.rubbleBiasM;
+        state.rangeErrorM += state.rubbleBiasM;
+        state.positionErrorM = std::abs(state.rangeErrorM);
     }
 
     // 16. Calibrated receiver sensitivity threshold & Link Hysteresis (Issue #9)

@@ -1776,6 +1776,24 @@ class Tourist
         m_elapsed = 0.0;
     }
 
+    /** DD 35 --incidentRandom: a trail from wherever the walker is placed, on heading \p hdg0 (rad, CCW from east);
+     *  at \p deviateAtS it turns by \p turn (rad) and holds that bearing; \p stopAfterS later it stops. Walking at
+     *  the walker's speed throughout; the box edge reflects the heading instead of pinning the walker to it. */
+    void SetIncident(double hdg0, double deviateAtS, double turn, double stopAfterS)
+    {
+        m_trail = true;
+        m_incident = true;
+        m_incHdg = hdg0;
+        m_incTurn = turn;
+        m_deviateAtS = deviateAtS;
+        m_stopAfterS = stopAfterS;
+        m_elapsed = 0.0;
+    }
+    bool m_incident = false;
+    bool m_incTurned = false;
+    double m_incHdg = 0.0;
+    double m_incTurn = 0.0;
+
     //! Has the walker left the trail? The demo needs the moment, not just the track.
     double m_deviateSide = -1.0;
     bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
@@ -1792,6 +1810,28 @@ class Tourist
             if (HasStopped())
             {
                 return; // sat down, and this is the case that defeats searching
+            }
+            if (m_incident) // DD 35
+            {
+                if (!m_incTurned && m_elapsed >= m_deviateAtS)
+                {
+                    m_incHdg += m_incTurn;
+                    m_incTurned = true;
+                }
+                m_x += m_speed * dt * std::cos(m_incHdg);
+                m_y += m_speed * dt * std::sin(m_incHdg);
+                const double lim = 0.98 * m_boxHalf;
+                if (m_x > lim || m_x < -lim)
+                {
+                    m_x = (m_x > lim) ? 2.0 * lim - m_x : -2.0 * lim - m_x;
+                    m_incHdg = M_PI - m_incHdg;
+                }
+                if (m_y > lim || m_y < -lim)
+                {
+                    m_y = (m_y > lim) ? 2.0 * lim - m_y : -2.0 * lim - m_y;
+                    m_incHdg = -m_incHdg;
+                }
+                return;
             }
             if (m_elapsed < m_deviateAtS)
             {
@@ -2166,6 +2206,32 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+
+// --rangeHeightCorrect (DD 28). The filter estimates horizontal position and reads every range as horizontal,
+// while the engines measure the slant range between a surveyed mast (15 m) and a device carried at 1.5 m. Both
+// heights are known, so the device can project the range onto the ground: sqrt(max(r^2 - dh^2, 0)). Peers and
+// finders carry their device at the same height (dh = 0), so only mast anchors move. Off (the default) returns r
+// unchanged, byte-identical to every earlier result. Written once after cmd.Parse(), read at the three sites
+// that turn an anchor range into a CaTblRangeMeasurement (tag 0, subjects, passive tags).
+static bool g_rangeHeightCorrect = false;
+static uint64_t g_rangeHeightCorrected = 0;
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ)
+{
+    if (!g_rangeHeightCorrect)
+    {
+        return r;
+    }
+    const double dh = anchorZ - nodeZ;
+    if (dh == 0.0)
+    {
+        return r;
+    }
+    ++g_rangeHeightCorrected;
+    const double h2 = r * r - dh * dh;
+    return h2 > 0.0 ? std::sqrt(h2) : 0.0;
+}
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
 //! C4 --foliageP833 (scope 2026-10-17): forest foliage gamma and Am from ITU-R P.833-10 at each band's carrier.
@@ -2526,6 +2592,9 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
+static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
+static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -6727,6 +6796,15 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! DD 32 --finderLkpFirst: searchers go to an informative last known position instead of sweeping from camp.
+    bool finderLkpFirst = false;
+    //! DD 31 --finderSweepFromDispatch: the no-entry sweep's radius grows from the dispatch, not from t = 0.
+    bool finderSweepFromDispatch = false;
+    //! DD 30 --finderDigestOnArmTier: under static_2p4 the searchers poll for entries on 2.4 GHz, not 868 MHz.
+    bool finderDigestOnArmTier = false;
+    //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
+    bool acquireSideOfRoad = false;
+    double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
     //! N.58 --acquireHandoverCurvature: the cloud hands over only once every range is linearisable.
     bool acquireHandoverCurvature = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
@@ -6780,6 +6858,16 @@ struct SpecOptions
     double measVarScale = 1.0;
     //! --oracleTrigger: fixed_threshold triggers on the true squared error. Off: on trace(P).
     bool oracleTrigger = false;
+    //! TII-1 --benefitLambda (m^2 per J): 0 off. > 0: fixed_threshold uses the predicted-benefit rule.
+    double benefitLambda = 0.0;
+    double benefitCost868J = 0.015; //!< TII-1: joules per 868 MHz slot (OURS: ~ tag-0 j_868 / cycles, PRESET-5)
+    double benefitCost2p4J = 0.03;  //!< TII-1: joules per 2.4 GHz cycle (OURS, as above)
+    double benefitCostUwbJ = 0.5;   //!< TII-1: joules per UWB cycle (OURS, as above)
+    bool benefitSkip868 = false;    //!< TII-1: also skip the 868 MHz slot when it is not worth lambda per joule
+    bool benefitSkip868Min3 = false; //!< TII-2: ...but only on a cycle whose active tier delivered >= 3 ranges
+    bool benefitNisInflate = false;  //!< TII-3 F1: benefits computed on P x max(1, mean NIS)
+    uint32_t benefitHeartbeat868N = 0; //!< TII-3 F2: 0 off; N: never more than N-1 consecutive 868 MHz skips per node
+    double benefitSkipNisMax = 0.0;  //!< TII-3 F4: 0 off; > 0: no skip on a cycle whose active ranges' max NIS exceeds it
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7215,6 +7303,24 @@ RunArm(CaTblPolicyMode armMode,
     {
         walker.SetPosition(g_subjectStartX, g_subjectStartY);
     }
+    // DD 35 --incidentRandom: the incident drawn per seed from its own stream (no other stream moves): a trail from the
+    // start toward the site centre +/- 45 deg, leaving it at 15-35 min, turning 45-135 deg either way, stopping 5-15 min
+    // later. The same seed gives the same incident in every arm, so designs stay paired.
+    if (g_incidentRandom && trailDeviateAtS > 0.0)
+    {
+        std::mt19937_64 inc(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0x1AC1DE47ULL);
+        std::uniform_real_distribution<double> u01(0.0, 1.0);
+        const Vector p0 = walker.Position();
+        const double toCentre = std::atan2(-p0.y, -p0.x);
+        const double hdg0 = toCentre + (u01(inc) - 0.5) * (M_PI / 2.0);
+        const double devS = 900.0 + 1200.0 * u01(inc);
+        const double turn = ((u01(inc) < 0.5) ? -1.0 : 1.0) * (M_PI / 4.0 + (M_PI / 2.0) * u01(inc));
+        const double stopS = 300.0 + 600.0 * u01(inc);
+        walker.SetIncident(hdg0, devS, turn, stopS);
+        std::cout << "  DD35 incident: trail heading " << hdg0 * 180.0 / M_PI << " deg from (" << p0.x << ", " << p0.y
+                  << "), leaves it at " << devS << " s, turns " << turn * 180.0 / M_PI << " deg, stops " << stopS
+                  << " s later\n";
+    }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
@@ -7361,12 +7467,20 @@ RunArm(CaTblPolicyMode armMode,
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
     pcfg.oracleTrigger = spec.oracleTrigger; // ORACLE-ESC (false by default)
+    pcfg.benefitLambda = spec.benefitLambda;     // TII-1 (0 by default: off)
+    pcfg.benefitCost2p4J = spec.benefitCost2p4J; // TII-1
+    pcfg.benefitCostUwbJ = spec.benefitCostUwbJ; // TII-1
+    pcfg.benefitNisInflate = spec.benefitNisInflate; // TII-3 F1 (false by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
     pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
+    pcfg.acquireHalfPlane = spec.acquireSideOfRoad;  // --- DD 29 --- (false by default: off)
+    pcfg.acquireHpA = spec.acquireHpA;
+    pcfg.acquireHpB = spec.acquireHpB;
+    pcfg.acquireHpC = spec.acquireHpC;
     pcfg.c2bEscalation = spec.c2bEscalation;         // --- V5 --- (false by default: off)
     pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
@@ -7406,6 +7520,8 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.ekf5Window = g_ekf5Window;
         pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5CoarsePosOnly = g_ekf5CoarsePosOnly;
+        pcfg.reacquireSigmaM = g_reacquireSigmaM;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
@@ -8192,7 +8308,9 @@ RunArm(CaTblPolicyMode armMode,
             fm->SetMergesBeaconEntries(true); // --beaconCarriesEntry: finders steer on entries
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
-            if (ti == 0)
+            // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only party keeps (and steers on) the table of the radio its
+            // entries arrive on. Off, or any other arm: the 868 MHz MAC, as before.
+            if (ti == ((spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4) ? 1 : 0))
             {
                 finderMac.push_back(fm);
             }
@@ -8524,6 +8642,102 @@ RunArm(CaTblPolicyMode armMode,
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
     uint64_t dual868Skipped = 0; // C3 --dualBase868OnNeed
+    // TII-1 --benefitSkip868: per node, the 868 MHz anchors of its last 868 MHz ranging set, and the decisions taken.
+    std::map<uint32_t, std::vector<CaTblBenefitAnchor>> benefit868Cache;
+    std::map<uint32_t, std::pair<uint64_t, bool>> benefit868Memo; // one decision per node per cycle
+    std::map<uint32_t, uint32_t> benefit868Run; // TII-3 F2: consecutive skips per node
+    uint64_t benefitHeartbeatForced = 0;        // TII-3 F2
+    uint64_t benefitNisVetoes = 0;              // TII-3 F4
+    uint64_t finderDigestOnArm = 0;             // DD 30: searcher polls sent on 2.4 GHz
+    uint64_t benefit868Considered = 0;
+    uint64_t benefit868Skipped = 0;
+    const bool benefit868On =
+        spec.benefitLambda > 0.0 && spec.benefitSkip868 && mode == CA_TBL_MODE_FIXED_THRESHOLD;
+    auto benefitSkip868 = [&](uint32_t key,
+                              const CaTblPolicy& pol,
+                              const std::vector<CaTblRangeMeasurement>& act) -> bool {
+        if (!benefit868On)
+        {
+            return false;
+        }
+        if (spec.benefitSkip868Min3 && act.size() < 3)
+        {
+            return false; // TII-2: the active tier cannot fix on its own this cycle, so the 868 MHz slot is kept
+        }
+        auto memo = benefit868Memo.find(key);
+        if (memo != benefit868Memo.end() && memo->second.first == cycleIndex)
+        {
+            return memo->second.second; // already decided this cycle (two call sites can ask)
+        }
+        auto it = benefit868Cache.find(key);
+        if (it == benefit868Cache.end() || it->second.empty())
+        {
+            return false; // nothing known about 868 MHz here yet: range it
+        }
+        std::vector<CaTblBenefitAnchor> base;
+        for (const CaTblRangeMeasurement& m : act)
+        {
+            base.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+        ++benefit868Considered;
+        const double kP = pol.BenefitPScale(); // TII-3 F1 (1 by default)
+        const double g = CaTblTraceReduction(kP * pol.Pxx(), kP * pol.Pxy(), kP * pol.Pyy(), pol.EstX(), pol.EstY(),
+                                             base, it->second);
+        bool skip = spec.benefitCost868J > 0.0 && g / spec.benefitCost868J < spec.benefitLambda;
+        // TII-3 F4: an innovation outlier among this cycle's precise ranges means the precise tier is not to be trusted
+        // alone this cycle: keep the 868 MHz slot. Scalar NIS against the (unscaled) prior P.
+        if (skip && spec.benefitSkipNisMax > 0.0)
+        {
+            double worst = 0.0;
+            for (const CaTblRangeMeasurement& m : act)
+            {
+                const double dx = pol.EstX() - m.anchorX;
+                const double dy = pol.EstY() - m.anchorY;
+                const double d = std::sqrt(dx * dx + dy * dy);
+                if (d < 1e-6 || !(m.sigmaM > 0.0) || !(m.rangeM > 0.0))
+                {
+                    continue;
+                }
+                const double ux = dx / d;
+                const double uy = dy / d;
+                const double s = ux * ux * pol.Pxx() + 2.0 * ux * uy * pol.Pxy() + uy * uy * pol.Pyy() +
+                                 m.sigmaM * m.sigmaM;
+                const double v = m.rangeM - d;
+                worst = std::max(worst, v * v / s);
+            }
+            if (worst > spec.benefitSkipNisMax)
+            {
+                skip = false;
+                ++benefitNisVetoes;
+            }
+        }
+        // TII-3 F2: never more than N-1 consecutive skips per node.
+        if (skip && spec.benefitHeartbeat868N > 0 && benefit868Run[key] + 1 >= spec.benefitHeartbeat868N)
+        {
+            skip = false;
+            ++benefitHeartbeatForced;
+        }
+        benefit868Run[key] = skip ? benefit868Run[key] + 1 : 0;
+        if (skip)
+        {
+            ++benefit868Skipped;
+        }
+        benefit868Memo[key] = std::make_pair(static_cast<uint64_t>(cycleIndex), skip);
+        return skip;
+    };
+    auto cache868 = [&](uint32_t key, const std::vector<CaTblRangeMeasurement>& m868) {
+        if (!benefit868On || m868.empty())
+        {
+            return;
+        }
+        std::vector<CaTblBenefitAnchor>& v = benefit868Cache[key];
+        v.clear();
+        for (const CaTblRangeMeasurement& m : m868)
+        {
+            v.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+    };
+    const uint32_t kBenefitTag0Key = 0xFFFFFFFFu;
     std::unique_ptr<std::ofstream> onDemandLog; // V6 --traceOnDemand
     if (g_traceOnDemand)
     {
@@ -10027,7 +10241,13 @@ RunArm(CaTblPolicyMode armMode,
                 const double b = std::floor((t - phase) / finderDigestPeriodS);
                 if (b > a && t >= phase)
                 {
-                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                    // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only system's searchers ask on 2.4 GHz (off: 868 MHz
+                    // for every arm, as before; the static_2p4 casualty never answers there).
+                    const CaTblTier dTier = (spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4)
+                                                ? CA_TBL_TIER_2P4
+                                                : CA_TBL_TIER_868;
+                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, dTier, 1, 0);
+                    finderDigestOnArm += (dTier != CA_TBL_TIER_868) ? 1 : 0;
                 }
             }
         }
@@ -10292,12 +10512,17 @@ RunArm(CaTblPolicyMode armMode,
             // time, the other is an inference from the network's own confidence.
             // A.10 records that on these deployments the second does not
             // separate, so the first is what the demo uses.
-            if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
-            {
-                partyDeployed = true;
-                deployedAtS = t;
-                deployCause = "reported overdue";
-            }
+            // (2026-11-20: moved below, out of this block -- see there.)
+        }
+        // THE OVERDUE REPORT, now outside the lost-contact block. Inside it, the report fired only when
+        // --searchLaunchOnLoss was also > 0, so --searchLaunchAtS alone silently never dispatched. With both set the
+        // order is unchanged (the triggers above run first and latch partyDeployed), so every earlier run with both,
+        // or with neither, behaves exactly as before; only --searchLaunchAtS without --searchLaunchOnLoss changes.
+        if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
+        {
+            partyDeployed = true;
+            deployedAtS = t;
+            deployCause = "reported overdue";
         }
 
         auto writeTask = [&](size_t fi, uint16_t tid, const char* phase, bool found,
@@ -10573,7 +10798,12 @@ RunArm(CaTblPolicyMode armMode,
                 // coverage for reach, and the trade is real rather than a tuning
                 // choice: four searchers in four hours cannot both sweep an
                 // annulus densely and cross 11.6 km.
-                const double swept = 0.9 * finderSpeedMps * t;
+                // DD 31 --finderSweepFromDispatch: the sweep's clock starts when the party leaves the camp. Off: it
+                // starts at t = 0, so a party held at the camp until an alarm appears at once on a spiral as wide as
+                // it would have walked since the run began (a 3.2 km jump at a 50 min alarm).
+                const double tSweep = (spec.finderSweepFromDispatch && deployedAtS >= 0.0) ? std::max(0.0, t - deployedAtS)
+                                                                                           : t;
+                const double swept = 0.9 * finderSpeedMps * tSweep;
                 const double radius =
                     std::max(1.0, std::min(dep.boxHalfM, swept));
                 // UI --finderGroupSize=G (default 0 = off, the sweep below runs unchanged).
@@ -10599,7 +10829,7 @@ RunArm(CaTblPolicyMode armMode,
                     const double pitch = static_cast<double>(teams) * g_finderGroupTrackM;
                     // arc length walked s = v t; for r = pitch * phi / (2 pi) that is
                     // about pitch * phi^2 / (4 pi), so phi = sqrt(4 pi s / pitch)
-                    const double s = finderSpeedMps * t;
+                    const double s = finderSpeedMps * tSweep; // DD 31 (t when off)
                     const double phi = std::sqrt(4.0 * M_PI * s / pitch);
                     double rSpiral = pitch * phi / (2.0 * M_PI);
                     const double off = (static_cast<double>(m) -
@@ -10660,7 +10890,10 @@ RunArm(CaTblPolicyMode armMode,
                     }
                   } // g_finderGroupSweep
                 }
-                else if (entrySigma > radius)
+                // DD 32 --finderLkpFirst: an entry that says anything (sigma below half the box; the casualty's
+                // start-up prior, uniform over the box, is ~0.8 box) is a last known position to search from, not a
+                // reason to sweep round the camp. Off: sweep whenever the entry is coarser than the sweep so far.
+                else if (spec.finderLkpFirst ? (entrySigma > 0.5 * dep.boxHalfM) : (entrySigma > radius))
                 {
                     searching = true;
                     // Spread over the SEARCHING finders: --finderRelays (default 0) takes the
@@ -10674,7 +10907,7 @@ RunArm(CaTblPolicyMode armMode,
                     // covers the annulus instead of one bearing.
                     const double theta =
                         2.0 * M_PI * static_cast<double>(fi) / n
-                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * t / radius) : 0.0);
+                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * tSweep / radius) : 0.0); // DD 31 (t when off)
                     fp = Vector(dep.baseCampX + radius * std::cos(theta),
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
@@ -11306,7 +11539,7 @@ RunArm(CaTblPolicyMode armMode,
                         CaTblRangeMeasurement m;
                         m.anchorX = anchorPos.x;
                         m.anchorY = anchorPos.y;
-                        m.rangeM = range;
+                        m.rangeM = HorizontalRange(range, anchorPos.z, tags[pt].pos.z);
                         m.nlos = nlosProp || hiddenActive;
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
@@ -11678,7 +11911,7 @@ RunArm(CaTblPolicyMode armMode,
                                     }
                                 }
                             }
-                            m.rangeM = range;
+                            m.rangeM = HorizontalRange(range, ap.z, sb.pos.z);
                             m.nlos = nlosF;
                             m.nlosScore = nlosScoreS; // row 55: -1 unless scored
                             m.nlosPropagation = nlosP;
@@ -11785,7 +12018,7 @@ RunArm(CaTblPolicyMode armMode,
                     actM = rangeS(act);
                 }
                 std::vector<CaTblRangeMeasurement> floorM;
-                if (floorOn)
+                if (floorOn && !benefitSkip868(sb.nodeId, sb.policy, actM)) // TII-1: skip only under --benefitSkip868
                 {
                     if (preempt && pendT == CA_TBL_TIER_868)
                     {
@@ -11795,10 +12028,15 @@ RunArm(CaTblPolicyMode armMode,
                     {
                         floorM = rangeS(CA_TBL_TIER_868);
                         ++ex.floorCycles;
+                        cache868(sb.nodeId, floorM); // TII-1
                     }
                 }
                 // N.26 fix 1, as tag 0's: the other LoRa tier too, every cycle (the floor
                 // already ranges whenever the subject is off 868 MHz).
+                if (act == CA_TBL_TIER_868)
+                {
+                    cache868(sb.nodeId, actM); // TII-1
+                }
                 const bool dualS = spec.loraDualBase && hybridS;
                 std::vector<CaTblRangeMeasurement> otherS;
                 if (dualS)
@@ -13059,7 +13297,7 @@ RunArm(CaTblPolicyMode armMode,
                             }
                         }
                     }
-                    m.rangeM = range;
+                    m.rangeM = HorizontalRange(range, anchorPos.z, pos.z);
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
@@ -13267,7 +13505,8 @@ RunArm(CaTblPolicyMode armMode,
             {
                 energy.AccountCad(active);
             }
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 if (pendingHandshakeTier != CA_TBL_TIER_868)
                 {
@@ -13301,7 +13540,8 @@ RunArm(CaTblPolicyMode armMode,
         {
             pendingHandshake = false;  // consumed or stale
             activeMeas = rangeTier(active);
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
@@ -13318,8 +13558,9 @@ RunArm(CaTblPolicyMode armMode,
         {
             // C3 --dualBase868OnNeed: when the active 2.4 GHz tier already returned enough ranges for a fix on its
             // own (>= 3), the dual base's 868 MHz slot is skipped this cycle -- the energy lever V6/V9 located.
-            const bool skip868 = (spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
-                                 activeMeas.size() >= 3;
+            const bool skip868 = ((spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
+                                  activeMeas.size() >= 3) ||
+                                 (active != CA_TBL_TIER_868 && benefitSkip868(kBenefitTag0Key, policy, activeMeas));
             if (active != CA_TBL_TIER_868 && !floorRanged && !skip868 &&
                 preemptTier != static_cast<int>(CA_TBL_TIER_868))
             {
@@ -13394,6 +13635,14 @@ RunArm(CaTblPolicyMode armMode,
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
+        }
+        if (floorRanged) // TII-1: remember where 868 MHz reached this node
+        {
+            cache868(kBenefitTag0Key, floorMeas);
+        }
+        else if (active == CA_TBL_TIER_868)
+        {
+            cache868(kBenefitTag0Key, activeMeas);
         }
 
         // Fix selection: prefer the escalated tier when it solved, fall back to the
@@ -16039,6 +16288,17 @@ RunArm(CaTblPolicyMode armMode,
              << (mesh->billedAir[0] + mesh->billedAir[1] + mesh->billedAir[2]) << " s\n";
         std::cout << line.str();
     }
+    // DD 34: re-entries into particle acquisition over every tracked node (tag 0 and the subjects).
+    if (g_reacquireSigmaM > 0.0)
+    {
+        uint64_t reacqAll = 0;
+        for (uint32_t pt = 0; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            reacqAll += tags[pt].policy.GetReacquires();
+        }
+        std::cout << "    DD34 reacquireSigmaM (" << CaTblPolicyModeName(mode) << "): re-entries over all tracked nodes "
+                  << reacqAll << "\n";
+    }
     // DC-9. The model witness's counters, split. Printed only under the flag.
     if (witness)
     {
@@ -16103,6 +16363,15 @@ RunArm(CaTblPolicyMode armMode,
             if (g_ekf5StateBoundsK > 0.0)
             {
                 line << "    ekf5 state bounds: projections " << policy.Ekf5().BoundsApplied() << "\n";
+            }
+            if (g_reacquireSigmaM > 0.0)
+            {
+                line << "    DD34 reacquireSigmaM: tag-0 re-entries into particle acquisition " << policy.GetReacquires() << "\n";
+            }
+            if (g_ekf5CoarsePosOnly)
+            {
+                line << "    DD33 ekf5CoarsePosOnly: tag-0 868 MHz ranges applied position-only " << policy.Ekf5().CoarsePosOnlyApplied()
+                     << "\n";
             }
             if (g_ekf5RelayGate)
             {
@@ -16483,12 +16752,17 @@ RunArm(CaTblPolicyMode armMode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
-        if (deployedAtS >= 0.0)
+        if (deployedAtS >= 0.0 && searchLaunchOnLossS > 0.0)
         {
             std::cout << "    ALERT: " << deployCause << " for " << std::fixed
                       << std::setprecision(0) << searchLaunchOnLossS
                       << " s -- party deployed at t=" << std::setprecision(1)
                       << deployedAtS << " s\n";
+        }
+        else if (deployedAtS >= 0.0)
+        {
+            std::cout << "    ALERT: " << deployCause << " -- party deployed at t=" << std::fixed
+                      << std::setprecision(1) << deployedAtS << " s\n";
         }
         else if (searchLaunchOnLossS > 0.0)
         {
@@ -16905,6 +17179,50 @@ RunArm(CaTblPolicyMode armMode,
             std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(armMode) << "): 868 MHz slots skipped "
                       << dual868Skipped << "\n";
         }
+        if (benefit868On)
+        {
+            std::cout << "    TII-1 benefitSkip868 (" << CaTblPolicyModeName(mode) << ", lambda " << spec.benefitLambda
+                      << " m^2/J): 868 MHz slots considered " << benefit868Considered << ", skipped "
+                      << benefit868Skipped << " (all measured nodes)\n";
+            if (spec.benefitSkip868Min3)
+            {
+                std::cout << "    TII-2 benefitSkip868Min3: the 868 MHz slot kept whenever the active tier gave < 3 ranges\n";
+            }
+            if (spec.benefitNisInflate || spec.benefitHeartbeat868N > 0 || spec.benefitSkipNisMax > 0.0)
+            {
+                std::cout << "    TII-3 (" << CaTblPolicyModeName(mode) << "): nisInflate " << spec.benefitNisInflate
+                          << ", heartbeat N " << spec.benefitHeartbeat868N << " forced " << benefitHeartbeatForced
+                          << ", NIS veto threshold " << spec.benefitSkipNisMax << " vetoes " << benefitNisVetoes
+                          << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
+            }
+        }
+        if (spec.finderLkpFirst)
+        {
+            std::cout << "    DD32 finderLkpFirst (" << CaTblPolicyModeName(mode) << "): on\n";
+        }
+        if (spec.finderSweepFromDispatch)
+        {
+            std::cout << "    DD31 finderSweepFromDispatch (" << CaTblPolicyModeName(mode)
+                      << "): sweep clock from the dispatch at t = " << deployedAtS << " s\n";
+        }
+        if (spec.finderDigestOnArmTier)
+        {
+            std::cout << "    DD30 finderDigestOnArmTier (" << CaTblPolicyModeName(mode) << "): searcher polls on 2.4 GHz "
+                      << finderDigestOnArm << "\n";
+        }
+        if (spec.acquireSideOfRoad)
+        {
+            std::cout << "    DD29 acquireSideOfRoad (" << CaTblPolicyModeName(mode) << "): cloud confined to y <= "
+                      << spec.acquireHpC << " m; tag-0 particle-updates zeroed across the line "
+                      << policy.GetHalfPlaneCuts() << ", tag-0 estimates reflected back " << policy.GetHalfPlaneReflects()
+                      << "\n";
+        }
+        if (g_rangeHeightCorrect)
+        {
+            std::cout << "    DD28 rangeHeightCorrect (" << CaTblPolicyModeName(mode)
+                      << "): mast ranges projected to the ground, cumulative in this process "
+                      << g_rangeHeightCorrected << "\n";
+        }
         if (!finderEnergy.empty())
         {
             std::ostringstream ffn;
@@ -17208,9 +17526,17 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // --nGateways=3 --gwLayout=star --nFinders=8 (scripts/preset_pins.sh).
     // DESIGN_DECISIONS 26 (owner, 2026-10-22, after PRESET-4): 8 gateways sat on the line on fresh seeds (0.955, then
     // 0.947), so the ring grows to 12, DEPLOY-REQ's margin (0.970-0.975 at 12 finders and more).
-    {"nGateways", "12", "DD 26 (was 8, DD 25; 3, DD 9): the 12-gateway ring, which meets the 5 km requirement with a margin (DEPLOY-REQ 0.975)"},
-    {"gwLayout", "legacy", "DD 25 (was star): the 8-gateway ring DEPLOY-REQ measured"},
-    {"nFinders", "12", "DD 25 (was 8, DD 22): with 8 gateways, 12 finders meet the five-node requirement at 5 km (DEPLOY-REQ 0.955)"},
+    // DESIGN_DECISIONS 27 (owner, 2026-11-20): the 12-gateway ring with 12 finders in the field from t = 0 (DD 25-26)
+    // is not a deployment an industrial site has. The preset deployment is now the realistic one: three gateways
+    // strung along a line (an access road / ridge, --gwRidge), the base camp at its trailhead end, and two searchers
+    // who wait at the camp and set out only when a node has had no gateway contact for 300 s. DD 26's ring and
+    // finders reproduce with PIN_PRE_DD27 (scripts/preset_pins.sh).
+    {"nGateways", "3", "DD 27 (was 12, DD 26; 8, DD 25; 3 star, DD 9): three gateways, as the brief"},
+    {"gwLayout", "legacy", "DD 27: the legacy builder, which places --gwRidge lines"},
+    {"gwRidge", "true", "DD 27: the gateways follow a line (access road / ridge), not a ring"},
+    {"baseCampFrac", "0.9", "DD 27: a base camp; in ridge mode it is the trailhead at the west end of the line"},
+    {"nFinders", "2", "DD 27 (was 12, DD 25-26): two searchers, starting together from the camp"},
+    {"searchLaunchOnLoss", "300", "DD 27: searchers leave the camp only after 300 s without gateway contact"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
@@ -17436,6 +17762,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool rangeHeightCorrectArg = false;
     bool foliageDepthClampArg = false;
     bool rngKeyedArg = false;
     bool rngKeyedProbeExtraTxArg = false;
@@ -18410,6 +18737,51 @@ main(int argc, char* argv[])
                  "any learned (e.g. ML) replacement for the variance the trigger reads "
                  "(report/PREREG_ORACLE_ESC.md). Other arms are unaffected.",
                  spec.oracleTrigger);
+    cmd.AddValue("benefitLambda",
+                 "TII-1. 0 (default): off, every earlier result unchanged. > 0 (m^2 of tr(P) per joule): the "
+                 "fixed_threshold arm's trigger becomes the PREDICTED-BENEFIT rule -- the sensor-selection criterion of "
+                 "Joshi & Boyd applied to radio tiers. Each cycle the node predicts, from its own posterior P and the "
+                 "anchors this cycle's ranges show within the next tier's evidence radius, how much one cycle of that "
+                 "tier would shrink tr(P), divides by the tier's per-cycle cost, and escalates when the ratio exceeds "
+                 "lambda; it demotes after --nDeescalate cycles on which staying is worth less than lambda/2. "
+                 "--fixedVarThreshold is then unused. The suppress-only checks (evidence gate, witnesses) still apply. "
+                 "Other arms are unaffected.",
+                 spec.benefitLambda);
+    cmd.AddValue("benefitCost868J", "TII-1: joules per 868 MHz ranging slot, the cost --benefitSkip868 weighs (OURS, "
+                 "~ tag-0 j_868 per cycle in PRESET-5)", spec.benefitCost868J);
+    cmd.AddValue("benefitCost2p4J", "TII-1: joules per cycle on 2.4 GHz (OURS, ~ tag-0 j_2p4 / cycles_2p4, PRESET-5)",
+                 spec.benefitCost2p4J);
+    cmd.AddValue("benefitCostUwbJ", "TII-1: joules per cycle on UWB (OURS, ~ tag-0 j_uwb / cycles_uwb, PRESET-5)",
+                 spec.benefitCostUwbJ);
+    cmd.AddValue("benefitSkip868",
+                 "TII-1. False (default). True (needs --benefitLambda > 0; fixed_threshold arm only): a node off "
+                 "868 MHz skips its 868 MHz ranging slot on a cycle where the 868 MHz anchors it last heard are "
+                 "predicted to shrink tr(P), on top of this cycle's ranges, by less than lambda per joule of the slot. "
+                 "The radio stays awake and listening; only the exchange is skipped and not billed.",
+                 spec.benefitSkip868);
+    cmd.AddValue("benefitSkip868Min3",
+                 "TII-2. False (default): --benefitSkip868 as registered in PARETO-1. True: the 868 MHz slot may be "
+                 "skipped only on a cycle whose active tier delivered >= 3 ranges -- a fix on its own -- AND the "
+                 "predicted benefit says skip. Why: in PARETO-1 the rule skipped 868 MHz at 5 km on cycles where 2.4 GHz "
+                 "alone was too sparse to fix, and five-worker A(25 m) fell below 0.95 there. Inert without "
+                 "--benefitSkip868.",
+                 spec.benefitSkip868Min3);
+    cmd.AddValue("benefitNisInflate",
+                 "TII-3 F1. False (default). True (with --benefitLambda > 0): every predicted benefit -- the UWB "
+                 "escalation and the 868 MHz skip -- is computed on P scaled by max(1, the filter's running mean NIS), so "
+                 "a filter whose innovations are larger than it expects (over-confident) predicts larger gains and keeps "
+                 "ranging. Why: in PARETO-1 the rule's skips made the filter over-confident (95 % region coverage "
+                 "0.89 -> 0.69 at 5 km) and it then read that P to decide the next skip.",
+                 spec.benefitNisInflate);
+    cmd.AddValue("benefitHeartbeat868N",
+                 "TII-3 F2. 0 (default): off. N: a node never skips more than N-1 consecutive 868 MHz slots, whatever "
+                 "the benefit says, so a gross error the Gaussian benefit cannot see is caught at least every N cycles.",
+                 spec.benefitHeartbeat868N);
+    cmd.AddValue("benefitSkipNisMax",
+                 "TII-3 F4. 0 (default): off. > 0: no 868 MHz skip on a cycle where any of the active tier's ranges has a "
+                 "normalised innovation (range residual squared over its predicted variance against the prior) above "
+                 "this value (chi^2_1(0.99) = 6.63 is the natural choice).",
+                 spec.benefitSkipNisMax);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
@@ -18452,6 +18824,41 @@ main(int argc, char* argv[])
                  "868 MHz the return the RSSI range itself needs, billed only under --tier1ChargeReplies, in both "
                  "variants alike. The table remains the fallback.",
                  spec.rangeReplyPosition);
+    cmd.AddValue("finderLkpFirst",
+                 "DD 32. MODE 2 searchers sweep an outward spiral round the CAMP whenever the entry they hold is coarser "
+                 "than the spiral so far. A casualty tracked on one precise radio reports a large sigma even when its "
+                 "position is good, so its searchers ignored an accurate last known position and spiralled round the camp. "
+                 "True: they sweep only while the entry is uninformative (sigma above half the box half-width, as the "
+                 "start-up prior is); otherwise they head for the last known position (with --finderStaleSearch, orbiting "
+                 "it once it is stale), which is standard search doctrine. False (default): as before, byte-identical.",
+                 spec.finderLkpFirst);
+    cmd.AddValue("finderSweepFromDispatch",
+                 "DD 31 (bug fix). The searchers' no-entry sweep (an outward spiral from the camp, used while they hold "
+                 "no usable entry for the casualty) grows its radius as 0.9 x speed x t with t from the START of the run. "
+                 "With the party held at the camp until an alarm (--searchLaunchAtS / --searchLaunchOnLoss) the first "
+                 "sweep step after dispatch puts every searcher on a spiral as wide as it would have walked since t = 0: "
+                 "a 3.2 km jump at a 50 min alarm, seen in every static_2p4 run of REALISTIC-1/3 (the only arm whose "
+                 "searchers hold no entry). True: the sweep's clock starts at the dispatch. False (default): as before, "
+                 "byte-identical. One 'DD31' line per arm when on.",
+                 spec.finderSweepFromDispatch);
+    cmd.AddValue("finderDigestOnArmTier",
+                 "DD 30. Under static_2p4, the searchers poll for position entries (DIGEST) on 2.4 GHz instead of 868 "
+                 "MHz, and steer on the table of their 2.4 GHz radio instead of their 868 MHz one. Both were hard-wired "
+                 "to 868 MHz for every arm, so a 2.4 GHz-only party never steered on an entry even when it held one: a "
+                 "2.4 GHz-only system would ask, and listen, on its own radio. Every other arm is unchanged. False (default): 868 MHz for every arm, "
+                 "byte-identical to every earlier result. One 'DD30 finderDigestOnArmTier' line per arm when on.",
+                 spec.finderDigestOnArmTier);
+    cmd.AddValue("acquireSideOfRoad",
+                 "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
+                 "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "
+                 "on one line cannot tell a node from its mirror image across the line, so a range-only cloud keeps both "
+                 "and the filter can lock onto the mirror (about 2 x the node's distance to the line off). The operator "
+                 "knows which side of the road the site is on; this tells the filter. Particles drawn across the line are "
+                 "redrawn and particles that drift across carry no weight; the Kalman filter after hand-over is "
+                 "then kept on that side: an estimate that crosses the line (the mirror root) is reflected back, which moves no "
+                 "likelihood of the anchors on the line. False (default): no constraint, byte-identical to every earlier result. FATAL without "
+                 "--gwRidge or --acquireParticles. One 'DD29 acquireSideOfRoad' line per arm when on.",
+                 spec.acquireSideOfRoad);
     cmd.AddValue("acquireParticles",
                  "V4 (master plan v3; TECH_DEBT N.54). False (default): each filter acquires from its prior with "
                  "range updates, as in every earlier result. True: every node acquires with a particle filter "
@@ -19108,6 +19515,13 @@ main(int argc, char* argv[])
                  "Gate G138 only: one extra 868 MHz engine evaluation on an unused link at arm start, "
                  "the perturbation the keyed draws must absorb. Never part of a measured configuration.",
                  rngKeyedProbeExtraTxArg);
+    cmd.AddValue("rangeHeightCorrect",
+                 "DD 28. Project every range to a mast anchor onto the ground before the filter reads it: "
+                 "sqrt(max(r^2 - dh^2, 0)), dh = the anchor's surveyed height minus the device's carried height "
+                 "(15 m - 1.5 m for a gateway). The filter is 2-D and read slant ranges as horizontal, about "
+                 "0.9 m long at 100 m and 4 m at 20 m. Peers and finders (dh = 0) are untouched. False (default) "
+                 "is every earlier result, byte-identical. One 'DD28 rangeHeightCorrect' line when on.",
+                 rangeHeightCorrectArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -19207,6 +19621,15 @@ main(int argc, char* argv[])
                  "conditioning degrades with distance from access, which is what a "
                  "real deployment does and the direction the scenario needs.",
                  gwArcCentreDegArg);
+    cmd.AddValue("incidentRandom",
+                 "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
+                 "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
+                 "15-35 min (replacing --trailDeviateAtS), turns 45-135 deg left or right and holds that bearing, and stops "
+                 "5-15 min later (replacing --trailStopAfterS), so it is still by 50 min. The box edge reflects the heading. "
+                 "Own random stream; the same seed gives the same incident in every arm. Why: the fixed trail put the "
+                 "casualty at the identical point on every seed (one incident, 20 noise draws), and from a corner camp "
+                 "the due-east trail pinned it to the box edge. False (default): the fixed trail, byte-identical.",
+                 g_incidentRandom);
     cmd.AddValue("trailDeviateSide",
                  "Which way the subject leaves the trail: -1 (DEFAULT) south, away from "
                  "an arc centred north; +1 north, through it. Default reproduces the "
@@ -20301,6 +20724,22 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("reacquireSigmaM",
+                 "DD 34. With --acquireParticles and ekf5: when the filter's sqrt(trace P) exceeds this many metres it is "
+                 "lost, and it re-enters the particle acquisition round its current estimate (cloud as wide as its own "
+                 "uncertainty, never wider than the start-up prior), handing over again once the cloud is one mode. Why: in "
+                 "REALISTIC-2's quiet shift a lost crew filter (+/-34 km) linearised one 6.8 km range and then a two-"
+                 "gateway intersection into the wrong root and claimed +/-23 m at 400 m off. 0 (default): never, "
+                 "byte-identical to every earlier result.",
+                 g_reacquireSigmaM);
+    cmd.AddValue("ekf5CoarsePosOnly",
+                 "DD 33. With --imuFilter=ekf5: an 868 MHz range corrects the POSITION only. Heading offset, gyro bias and "
+                 "stride scale are consider states for it (Schmidt-Kalman gain, covariance in the general-gain form), and it "
+                 "is not put into the --ekf5Window smoother. Why: in REALISTIC-2's 8 h quiet shift at the cluster site the "
+                 "crew's filters, fed kilometre-scale RSSI ranges, learned a stride scale of -50 and a gyro bias of "
+                 "-0.37 rad/s and froze in place at a claimed +/-20 m while 1-3 km off. False (default): every range "
+                 "updates every state, byte-identical to every earlier result. Refused without ekf5.",
+                 g_ekf5CoarsePosOnly);
     cmd.AddValue("ekf5StateBounds",
                  "With --imuFilter=ekf5: after every update the gyro bias and stride scale are clamped to +/- this many of "
                  "their prior sigmas (estimate projection onto the admissible region, Simon & Chia 2002). 0 (default): no "
@@ -20831,6 +21270,7 @@ main(int argc, char* argv[])
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+    g_rangeHeightCorrect = rangeHeightCorrectArg;
     g_foliageDepthClamp = foliageDepthClampArg;
     SetFadingPerBand(g_fadingPerBandArg); // B7
     RadioFrontendSubmodule::SetAgcPerReceiver(g_agcPerReceiverArg); // B6
@@ -22095,6 +22535,11 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
     }
+    if (g_ekf5CoarsePosOnly && !spec.imuFilterEkf5)
+    {
+        std::cerr << "FATAL: --ekf5CoarsePosOnly needs --imuFilter=ekf5\n";
+        return 1;
+    }
     if (g_ekf5StateBoundsK != 0.0 && (!spec.imuFilterEkf5 || !(g_ekf5StateBoundsK > 0.0)))
     {
         std::cerr << "FATAL: --ekf5StateBounds needs --imuFilter=ekf5 and a positive value\n";
@@ -22192,6 +22637,17 @@ main(int argc, char* argv[])
         std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
+    if (spec.acquireSideOfRoad)
+    {
+        if (!gwRidgeArg || !spec.acquireParticles)
+        {
+            std::cerr << "FATAL: --acquireSideOfRoad needs --gwRidge (the line it refers to) and --acquireParticles\n";
+            return 1;
+        }
+        spec.acquireHpA = 0.0; // allowed: -y + ridgeY >= 0, the work sites' side
+        spec.acquireHpB = -1.0;
+        spec.acquireHpC = gwRidgeYArg * boxHalfM;
+    }
     if (spec.acquireHandoverCurvature && !spec.acquireParticles)
     {
         std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";

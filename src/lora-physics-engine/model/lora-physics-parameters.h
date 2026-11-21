@@ -58,6 +58,10 @@ struct LinkPhysicsState {
     double temporalBlockageDb = 0.0;
     double tunnelLossDb       = 0.0;
     double soilAttenuationDb  = 0.0;
+    // Collapse extension (World): rubble loss and time-of-flight bias on this link.
+    // Written only when a CaTblRubbleWorld is set on the engine; 0 otherwise.
+    double rubbleLossDb       = 0.0;
+    double rubbleBiasM        = 0.0;
     
     // Node configuration
     uint32_t txNodeId = 0;
