@@ -110,6 +110,7 @@ extern uint64_t g_foliageDepthClampFirings;
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <deque>
@@ -2669,6 +2670,11 @@ static CaTblCollapseCfg g_collapse;
 //! DD 41 --interferenceFrameKey: one physical frame, evaluated once per receiver, is one entry-group in the
 //! engines' interference registry, so its copies at other receivers do not collide with it. Off: no key is set.
 static bool g_interferenceFrameKey = false;
+//! DD 43 --phase0Timing: host CPU time spent in the workers' own estimation (CaTblPolicy::Step: the filter,
+//! smoother, particle acquisition, escalation logic), for the on-worker compute decision. Off: no clock is read.
+static bool g_phase0Timing = false;
+static double g_phase0StepS = 0.0;
+static uint64_t g_phase0Steps = 0;
 static bool FrameKeyOn()
 {
     return g_interferenceFrameKey;
@@ -12678,6 +12684,7 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     sb.policy.SetOracleTruth(sb.pos.x, sb.pos.y); // ORACLE-ESC
                 }
+                const auto p0a = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -12685,6 +12692,11 @@ RunArm(CaTblPolicyMode armMode,
                                              ? std::max<size_t>(3, actM.size())
                                              : actM.size()), // N.26, as tag 0's
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (g_phase0Timing) // DD 43
+                {
+                    g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0a).count();
+                    ++g_phase0Steps;
+                }
                 if (ex.tdoa)
                 {
                     ex.tdoa->EndCycle(t, cycleIndex, sb.pos, sb.policy.AuxFusedLast(),
@@ -14692,6 +14704,7 @@ RunArm(CaTblPolicyMode armMode,
                 }
             }
         }
+        const auto p0b = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -14699,6 +14712,11 @@ RunArm(CaTblPolicyMode armMode,
                                             static_cast<int32_t>(activeMeasAddressed +
                                                                  crossAddedThisCycle),
                                             tierEvidenceMask);
+        if (g_phase0Timing) // DD 43
+        {
+            g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0b).count();
+            ++g_phase0Steps;
+        }
         // UI --vizFixSet: who this fix was computed from (output only).
         if (vizFixSet.is_open() && static_cast<uint32_t>(nodeId) == 1u && d.hadFix &&
             !d.measurementRejected)
@@ -20016,6 +20034,10 @@ main(int argc, char* argv[])
                  "key and copies never interfere with each other; different frames still do. Default false: "
                  "byte-identical to every earlier result.",
                  g_interferenceFrameKey);
+    cmd.AddValue("phase0Timing",
+                 "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
+                 "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
+                 g_phase0Timing);
     cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
@@ -24025,6 +24047,11 @@ main(int argc, char* argv[])
         // Draws made outside any link evaluation fall back to a per-sampler sequence, which
         // is still coupled to call order. Reported so the residue is visible, not assumed 0.
         std::cout << "RNGKEYED unkeyed_draws=" << LoRaDistributionSampler::UnkeyedDraws() << "\n";
+    }
+    if (g_phase0Timing) // DD 43
+    {
+        std::cout << "PHASE0 steps=" << g_phase0Steps << " step_host_s=" << std::setprecision(9) << g_phase0StepS
+                  << " per_step_us=" << (g_phase0Steps ? 1e6 * g_phase0StepS / g_phase0Steps : 0.0) << "\n";
     }
     return 0;
 }

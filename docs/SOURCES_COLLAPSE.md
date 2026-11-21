@@ -184,6 +184,8 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | NRF-ICPU0 | 3.3 mA at 64 MHz, CoreMark from flash, DC/DC | H: Phase 0 energy | same, table "CPU running", ICPU0 | "CPU running CoreMark @64 MHz from flash, Clock = HFXO, Regulator = DC/DC" | E_cpu = t·3.3 mA·3.0 V | VERIFIED 2026-11-21 |
 | NRF-FPU | single-precision FPU | H: Phase 0 double-precision penalty | same, CPU features | "Single-precision floating-point unit (FPU)" | VERIFIED 2026-11-21 |
 | NRF-SLEEP | 1.5 µA System ON, no RAM retention, wake on RTC, 3 V | H: energy | same, key features | "1.5 µA at 3 V in System ON mode, no RAM retention, wake on RTC" | VERIFIED 2026-11-21 |
+| BATT-CR123A | 3 V, 1,550 mAh (one CR123A primary lithium cell) | H: COLLAPSE-3, the 72 h check | Panasonic, "CR123A CR Cylindrical-type Lithium Battery (Standard type)", datasheet CR123A_Datasheet_EN_240701 (energy.panasonic.cn), p. 1 | "Nominal voltage 3V"; "Nominal capacity 1,550mAh"; "Continuous drain 20mA" | 1.550 Ah · 3 V = **4.65 Wh = 16,740 J**. Nominal: derating at low temperature or high drain is not applied (stated) | VERIFIED 2026-11-22 |
+| CM-HOST | host CoreMark 22,652–25,134 (one core of an i5-12450H, gcc-11 -O2, under the campaign's load) | H: Phase 0 time scaling t_nrf = t_host · CM_host / 212 | EEMBC CoreMark, github.com/eembc/coremark commit 1f483d5 (2025-05-01), run here with `coremark.exe 0x0 0x0 0x66 0 7 1 2000` | "CoreMark 1.0 : 22651.766838 / GCC11.5.0 -O2" (idle-ish); "Iterations/Sec : 25134.048257" (same core, same load as the timing run) | the timing run and its CoreMark were measured back to back on core 0 (taskset), so the ratio carries the same load | MEASURED 2026-11-22 |
 
 ## 8. Output validation (rows VAL-*): simulator outputs against published numbers
 
@@ -215,5 +217,5 @@ footprint 39.74 m (HAZUS-IND-AREA), pile 3.658 m (HAZUS-STOREYS, PILE-ALPHA), de
 | 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238-13 (09/2025) | DONE → §3b |
 | Collapse geometry and void types | pile height and spread §5c; storey height, footprint, workers per floor, station standoff §5d; void types (FEMA US&R / USACE FOG) still PENDING | PARTIAL |
 | GPS horizontal and vertical accuracy for rescuers | GPS SPS PS 5th ed. (2020) | DONE → §5b |
-| Battery capacity | manufacturer cell datasheet | PENDING |
+| Battery capacity | Panasonic CR123A datasheet (BATT-CR123A) | DONE |
 | Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |

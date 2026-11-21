@@ -934,3 +934,23 @@ around it:
 - Holding the device low and high (0.3 and 1.5 m) gives with 26 contacts within 5 m (0.88 m) about what one height
   gives with 49 contacts within 10 m (0.82 m).
 - The estimators' depth errors (median 1.3–2.6 m) are 1.5–3× the bound.
+
+## 43. Phase 0: the workers compute on their own nRF52840 (`--phase0Timing`, output only; 2026-11-22)
+
+`--phase0Timing` times every worker's `CaTblPolicy::Step()` (filter, 60-step smoother, particle acquisition,
+escalation) on the host clock and prints one PHASE0 line. The run's files are unchanged.
+- **Measured** on core 0 (taskset; 20 workers; 8-storey collapse; 600 s): 1077 µs per step for ca_tbl_full, 1019 µs
+  for static_868.
+- **CoreMark** on the same core under the same load: 25,134 (CM-HOST).
+- **Scaled** to the nRF52840 (212 CoreMark, NRF-CM): 128 / 121 ms per 2.5 s step, i.e. 5.1 / 4.8% of the cycle.
+- **Energy** at 3.3 mA · 3.0 V (NRF-ICPU0): 1.26 mJ per step = 1.82 J/h. That is 2.0% of the full system's radio
+  energy (89.4 J/h) and 6.1% of static_868's (28.2 J/h).
+
+**Decision** (plan rule: compute ≤ 10% of radio energy and ≤ 20% of the cycle). On-worker estimation passes as
+long as the double-precision penalty on the single-precision M4F (NRF-FPU) is ≤ 3.9× for ca_tbl_full (≤ 1.6× for
+static_868). No sourced penalty was found, so the result is stated as that bound (`scripts/collapse/phase0.py`). A
+single-precision port of the filter makes it k = 1. Device-side estimation (the REALISTIC studies'
+`--gatewayEdgeServer=false`) therefore stays.
+
+**COLLAPSE-3** (`report/PREREG_COLLAPSE3.md`, registered before COLLAPSE-1's energy is looked at): hours on one
+CR123A (16,740 J, BATT-CR123A) per worker, from COLLAPSE-1's 1800 s energy plus this compute.
