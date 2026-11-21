@@ -997,3 +997,17 @@ reason is that the frame's absolute placement still rests on GPS and 2.4 GHz sta
 mostly a common offset. Results that use the local frame are stated as conditional on that frame quality. Scoring
 relative to the rescuers' own frame (where they dig) rather than in absolute coordinates is the next refinement.
 Exploratory, not citable.
+
+**DD 44 correction (2026-11-22).** The explanation above ("mostly a common offset") is **refuted**. The scorer's
+`--relative` mode removes the rescuer frame's mean horizontal offset, as rescuers digging in their own frame would.
+Results:
+
+| Frame | Offset removed | Median, absolute | Median, relative |
+|---|---|---|---|
+| B3 | (+0.49, −0.20) m | 2.50 m | 2.71 m |
+| GPS | — | 2.82 m | 2.48 m |
+| Local | — | 1.63 m | 1.62 m |
+
+The B3 frame's error is distortion between points, not a shift. The 10 m UWB mesh is tied to the stations by
+2.4 GHz ranges (σ 3 m) and to GPS (σ 3.27 m), and these bend it. A denser or longer-range rescuer UWB mesh, or
+stations within UWB range, is what the frame needs. Exploratory, not citable.
