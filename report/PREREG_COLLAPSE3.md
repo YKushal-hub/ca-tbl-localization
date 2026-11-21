@@ -15,3 +15,8 @@ ca_tbl_full, static_868 and static_2p4.
 
 `scripts/collapse3_analyse.py` reads the campaign directory and prints hours per cell and arm (median, 5th
 percentile) and H7.
+
+**Disclosure.** Before registration, the analyser was dry-run on one exploratory 300 s run (seed 5; 2 storeys,
+central, 20 workers; not a COLLAPSE-1 cell). Its numbers were seen: for ca_tbl_full, median 138 h and 5th
+percentile 33 h, a short run dominated by the first minutes' search. H7 was not changed after seeing them. No
+COLLAPSE-1 cell's energy had been looked at.
