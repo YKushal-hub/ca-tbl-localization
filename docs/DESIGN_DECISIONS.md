@@ -954,3 +954,29 @@ single-precision port of the filter makes it k = 1. Device-side estimation (the 
 
 **COLLAPSE-3** (`report/PREREG_COLLAPSE3.md`, registered before COLLAPSE-1's energy is looked at): hours on one
 CR123A (16,740 J, BATT-CR123A) per worker, from COLLAPSE-1's 1800 s energy plus this compute.
+
+## 44. B3, the rescuers' frame from their own ranges (`--frame uwb`, field estimator; 2026-11-22)
+
+`estimate_collapse.py --frame uwb` places each rescuer point from its time-of-flight ranges to the stations:
+- UWB where heard (σ 0.10 m), 2.4 GHz otherwise (σ 3.0 m), median over slots;
+- the stations placed by their GPS fixes;
+- a point with fewer than 3 station ranges keeps its GPS fix.
+
+The workers are then located against these points.
+
+**Result** (seed 31 field: 8 storeys, central, 20 workers; not citable). Median horizontal error and fraction
+within 2 m:
+
+| Frame | Median | Within 2 m |
+|---|---|---|
+| Assumed local frame, `--collapseLocalSigma` 0.10 m | 1.63 m | 0.60 |
+| GPS fixes | 2.82 m | 0.45 |
+| B3 | 3.66 m | 0.30 |
+
+At the sourced station standoff (NIOSH-CZ, 56.45 m), UWB reaches a station on only 75 of ~16,000 point-station
+links, so the points are placed by 2.4 GHz ranges, which are worse than GPS here.
+
+**Conclusion, stated in the paper.** The localisation results that use the local frame assume a rescuer frame of
+UWB quality. Reaching that frame needs rescuer-to-rescuer UWB over a few metres (not modelled), or stations closer
+than the collapse zone. In the main simulator the finders' own position error is the earlier work's GNSS model
+(`--finderPosSigma=2` in the preset, DD 20).

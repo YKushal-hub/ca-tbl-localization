@@ -39,14 +39,52 @@ TOF_BANDS = ("2400", "uwb")
 def load_anchors(d, frame):
     A = {}
     for r in csv.DictReader(open(os.path.join(d, "obs_anchors.csv"))):
+        if frame == "local" and False:
+            pass
         if frame == "local":
             p = (float(r["loc_x"]), float(r["loc_y"]), float(r["loc_z"]))
             s = (float(r["sigma_loc"]),) * 3
-        else:
+        else:  # gps, and uwb (B3 starts from the GPS fixes and replaces the points' positions)
             p = (float(r["gps_x"]), float(r["gps_y"]), float(r["gps_z"]))
             s = (float(r["sigma_h"]), float(r["sigma_h"]), float(r["sigma_v"]))
         A[int(r["id"])] = (np.array(p), np.array(s), r["kind"])
     return A
+
+
+def solve_rescuer_frame(d, A, links):
+    """B3 (DD 44): rescuer point positions from their own ToF ranges to the stations, the stations placed by
+    their GPS fixes. UWB ranges where heard (sigma 0.10 m), 2.4 GHz otherwise (3.0 m). A point with fewer
+    than 3 station ranges keeps its GPS fix. Returns a copy of A with the solved points."""
+    st_ids = [i for i, v in A.items() if v[2] == "station"]
+    rng = {}
+    for r in links:
+        tx, rx = int(r["tx"]), int(r["rx"])
+        if not (10000 <= tx < 20000 and rx >= 20000) or r["received"] != "1" or not r["range_m"]:
+            continue
+        if r["band"] not in TOF_BANDS:
+            continue
+        rng.setdefault(tx, {}).setdefault(rx, {}).setdefault(r["band"], []).append(float(r["range_m"]))
+    B = dict(A)
+    solved = 0
+    for pid, v in A.items():
+        if v[2] != "point":
+            continue
+        obs = []
+        for sid, bands in rng.get(pid, {}).items():
+            b = "uwb" if "uwb" in bands else "2400"
+            obs.append((A[sid][0], float(np.median(bands[b])), P.TOF_SIGMA_M[b] / math.sqrt(len(bands[b]))))
+        if len(obs) < 3:
+            continue
+        x0 = np.array(v[0], dtype=float)
+
+        def res(x):
+            return np.array([(np.linalg.norm(x - a) - r) / s for (a, r, s) in obs] +
+                            [(x[2] - x0[2]) / 2.0])  # weak height prior from the point's own GPS (sigma_v ~ 6.6 m)
+        sol = least_squares(res, x0, loss="soft_l1", f_scale=2.0)
+        sig = 0.10 if any(s < 0.2 for (_, _, s) in obs) else 1.0
+        B[pid] = (sol.x, np.array([sig] * 3), "point")
+        solved += 1
+    return B, solved
 
 
 def hold_heights(d):
@@ -210,7 +248,9 @@ def solve_coop(meas, vv, law, A, surf_z, init):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
-    ap.add_argument("--frame", choices=("local", "gps"), default="local")
+    ap.add_argument("--frame", choices=("local", "gps", "uwb"), default="local",
+                    help="local: rescuers' frame given (--collapseLocalSigma); gps: GPS fixes; uwb: B3, solved from "
+                         "the points' ToF ranges to GPS-placed stations")
     ap.add_argument("--rescuers", type=int, default=2)
     ap.add_argument("--methods", default="tof,rss,joint,coop")
     ap.add_argument("--spots", type=float, default=1.0,
@@ -220,6 +260,9 @@ def main():
     A = load_anchors(a.run, a.frame)
     holds = hold_heights(a.run)
     links = list(csv.DictReader(open(os.path.join(a.run, "obs_links.csv"))))
+    if a.frame == "uwb":
+        A, nsolved = solve_rescuer_frame(a.run, A, links)
+        print(f"B3: {nsolved} rescuer points placed from their station ranges")
     law = fit_air_law(links, A)
     order = serpentine_spots(A, len(holds))
     order = order[: max(1, int(round(a.spots * len(order))))]
