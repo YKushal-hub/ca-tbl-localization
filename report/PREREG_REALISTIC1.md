@@ -63,3 +63,23 @@ without the long-range network.
 seeds in a cell → incomplete; H1–H3 are not evaluated until complete. No cell dropped or chosen.
 
 **Reporting.** `REALISTIC1.md` by the analyser; a Result section is appended here after the run, whatever it says.
+
+## Result (run 2026-11-20 21:56 – 2026-11-21 06:13 IST with a disk-full stop and resumes, source 01495eac7, 380/380 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/realistic1_2026-11-20/REALISTIC1.md`. Traces are not tracked; their SHA-256 manifest is. One
+cell was killed by the out-of-memory killer (rc 137) and rerun by the runner's resume on the same frozen binary.
+
+- **H1: FAILS.** Non-inferiority fails at ROAD3 with no searchers: ours − 2.4 GHz only +720 s [−451, 1890]; filters of
+  every design locked onto the mirror image across the gateway line on several seeds (DESIGN_DECISIONS 29, tested in
+  REALISTIC-3). Each single-radio design is clearly worse somewhere (868 MHz only never reached 25 m in any realistic
+  cell; 2.4 GHz only −2601 s [−3372, −1770] at ROAD1 and −1233 s [−2282, −180] at ROAD3, with 2 searchers).
+- **H2: HOLDS as computed, but not as evidence.** Ours − 2.4 GHz only, searcher within 10 m: ROAD1 −1379 s, ROAD3
+  −1491 s, CLUS3 −3506 s; no 2.4 GHz-only searcher reached the casualty in any run. Found afterwards on the traces: the
+  2.4 GHz-only search party could not work (DESIGN_DECISIONS 30-32), so this measures a defect, not the radio.
+  REALISTIC-4 repeats these cells with the party fixed.
+- **H3: FAILS** narrowly: ours − better single, A250, ROAD1 with no searchers −0.010 [−0.030, 0.001] and ROAD3 with no
+  searchers 0.017 [−0.040, 0.074]; in the four cells with searchers or at the cluster site the lower bound is ≥ −0.010.
+- **H4 (reported).** TII-2 − ours, J/h: −2.3 to +3.8; energy per worker-hour 36.8–49.8 J for the hybrid designs,
+  15.6–25.4 J single-radio, 798–937 J always-on.
+- **H5 (reported).** Under the field-measured 2.4 GHz error every design slows; ours − 2.4 GHz only, time to 25 m:
+  ROAD1 −1302 s [−1827, −764], ROAD3 −1242 s [−1666, −814], CLUS3 +94 s [0, 207].
