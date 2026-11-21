@@ -1,0 +1,115 @@
+# Sources and numbers: collapse extension
+
+Plan: `~/catbl_work/tii_paper/PLAN_COLLAPSE.md`. Rules (user-level CLAUDE.md, "CA-TBL references and numbers"):
+
+- every number used in code, scenarios, analysis or the paper has a row here;
+- values come from the primary document;
+- where sources disagree, low / central / high values each come from a named source;
+- no value is tuned;
+- World values are never read by system-side code.
+
+**Status:**
+- **VERIFIED** — read in the primary document; the quote is verbatim.
+- **PENDING** — known only from a secondary summary or search result, so not yet usable. The row records where the primary is.
+
+**Layer:**
+- **W** — World (simulator ground truth).
+- **S** — system prior (generic, spanning published ranges).
+- **H** — hardware.
+- **X** — scenario.
+
+---
+
+## 1. Material loss, ITU-R P.2040-4
+
+Source: Recommendation ITU-R P.2040-4 (09/2025), "Effects of building materials and structures on radio-wave
+propagation in the range of 1 MHz to 450 GHz". https://www.itu.int/dms_pubrec/itu-r/rec/p/R-REC-P.2040-4-202509-I!!PDF-E.pdf
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status, checked |
+|---|---|---|---|---|---|---|
+| ITU2040-E57 | ε′ = a·f^b | W/S: real permittivity of a material | p. 25, eq. (57) | "ε′𝑟 = 𝑎𝑓 𝑏 (57)" | — | VERIFIED 2026-11-21 |
+| ITU2040-E58 | σ = c·f^d, f in GHz, σ in S/m | W/S: conductivity | p. 25, eq. (58) | "σ = 𝑐𝑓 𝑑 (58) where f is frequency in GHz and σ is in S/m." | — | VERIFIED 2026-11-21 |
+| ITU2040-E59 | ε″ = 17.98·σ/f | W/S: imaginary permittivity from conductivity | p. 25, eq. (59) | "ε′′ = 17.98σ / 𝑓 (59)" | — | VERIFIED 2026-11-21 |
+| ITU2040-E26 | A = 8.686/Δ dB/m | W/S: attenuation rate | p. 8, eq. (26); p. 9 | "𝐴= 20 log10 𝑒 / ∆ = 8.686⁄∆ (26) … A: attenuation rate in dB/m (with Δ in m)." | — | VERIFIED 2026-11-21 |
+| ITU2040-E27a | A = 1636·σ/√ε′ dB/m (dielectric limit) | W/S: loss per metre of material | p. 9, eq. (27a); validity p. 8 | "𝐴𝑑𝑖𝑒𝑙𝑒𝑐𝑡𝑟𝑖𝑐 = 1 636 σ/√ε′ (27a)"; "accurate to about 3% for tan δ < 0.5 (dielectric)" | With (59): A = 1636·(ε″·f/17.98)/√ε′ = **90.99·ε″·f/√ε′** (1636/17.98 = 90.990) | VERIFIED 2026-11-21 |
+| ITU2040-T3-CONC | concrete a = 5.24, b = 0, c = 0.0462, d = 0.7822, valid 1–100 GHz | W: solid-concrete loss and slowing; S: lower end of the ε′ prior | p. 25, Table 3 | "Concrete 5.24 0 0.0462 0.7822 1-100" | ε′ = 5.24, √ε′ = 2.28910. 2.4 GHz: σ = 0.0462·2.4^0.7822 = 0.0462·1.98336 = 0.091631 → A = 1636·0.091631/2.28910 = **65.49 dB/m**; ε″ = 17.98·0.091631/2.4 = 0.68647, tan δ = 0.1310 (< 0.5 ✓). 1 GHz: σ = 0.0462 → **33.02 dB/m**. 2 GHz: 2^0.7822 = 1.71975 → σ = 0.079453 → **56.78 dB/m**. 6.5 GHz: 6.5^0.7822 = 4.32375 → σ = 0.199757 → **142.76 dB/m**. 8 GHz: 8^0.7822 = 5.08624 → σ = 0.234984 → **167.94 dB/m** | VERIFIED 2026-11-21 |
+| ITU2040-T3-BRICK | brick a = 3.91, b = 0, c = 0.0238, d = 0.16, valid 1–40 GHz | W: optional material class | p. 25, Table 3 | "Brick 3.91 0 0.0238 0.16 1-40" | — | VERIFIED 2026-11-21 |
+| ITU2040-T3-PLASTER | plasterboard a = 2.73, b = 0, c = 0.0085, d = 0.9395, valid 1–100 GHz | W: optional material class | p. 25, Table 3 | "Plasterboard 2.73 0 0.0085 0.9395 1-100" | — | VERIFIED 2026-11-21 |
+| ITU2040-T3-WOOD | wood a = 1.99, b = 0, c = 0.0047, d = 1.0718, valid 0.001–100 GHz | W: optional material class | p. 25, Table 3 | "Wood 1.99 0 0.0047 1.0718 0.001-100" | — | VERIFIED 2026-11-21 |
+| ITU2040-T3-GLASS | glass a = 6.31, b = 0, c = 0.0036, d = 1.3394, valid 0.1–100 GHz | W: optional material class | p. 26, Table 3 (end) | "Glass 6.31 0 0.0036 1.3394 0.1-100" | — | VERIFIED 2026-11-21 |
+| ITU2040-VALID | concrete row not valid at 868 MHz | W: 868 MHz must come from another source (OES-*) | p. 25, Table 3 | frequency range "1-100" | 0.868 < 1 GHz → not used at 868 MHz | VERIFIED 2026-11-21 |
+| SLOW-1 | apparent extra distance through w metres of solid material = w·(√ε′ − 1) | W: ranging bias; S: bias model | from the refractive index n′ = √ε′ in P.2040's plane-wave treatment (eq. (21)) | "𝐸⃗ = 𝐸⃗0 exp{𝑗(ω𝑡 − √ε′ (1 − 𝑗 tan δ)𝑘⃗0 ∙ 𝑟)} (21)" | Phase velocity c/√ε′ (low-loss), so the delay through w m is w·√ε′/c instead of w/c and the extra distance is w(√ε′ − 1). ITU concrete: √5.24 − 1 = **1.2891 m/m**. Low-loss approximation; tan δ ≤ 0.13 at 2.4 GHz | VERIFIED (derivation) 2026-11-21 |
+
+## 2. Rubble loss, Oestges 2013
+
+Source: C. Oestges, "Radio Channel Models for Search-and-Rescue Missions into Collapsed Structures", Proc. 2013 URSI
+International Symposium on Electromagnetic Theory (EMTS), Hiroshima, pp. 1015–1018, ISBN 978-1-4673-4939-0. Open PDF:
+UCLouvain DIAL 2078.5/255172.
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| OES-EPS-CONC | concrete ε = 9 − 0.4j (1 GHz), 9 − 0.5j (2 GHz) | W: concrete; S: upper end of the ε′ prior | §II.B | "we consider a complex permittivity for concrete to of 9 – 0.4j and 9 – 0.5j at 1 and 2 GHz respectively" | With ITU2040-E27a: A = 90.99·0.4·1/3 = **12.13 dB/m** (1 GHz); 90.99·0.5·2/3 = **30.33 dB/m** (2 GHz). Slowing √9 − 1 = **2.000 m/m** | VERIFIED 2026-11-21 |
+| OES-EPS-FERRO | ferro-concrete ε = 8.5 − 1.8j (1 GHz), 8.5 − 2.55j (2 GHz) | W: reinforced concrete; S: ε″ prior upper end | §II.B | "and for ferro-concrete, of 8.5 – 1.8j and 8.5 – 2.55j at 1 and 2 GHz respectively" | √8.5 = 2.91548. A = 90.99·1.8/2.91548 = **56.18 dB/m** (1 GHz); 90.99·2.55·2/2.91548 = **159.17 dB/m** (2 GHz). Slowing **1.9155 m/m** | VERIFIED 2026-11-21 |
+| OES-FERRO-EXTRA | reinforced slabs 8–10 dB more than plain, 2–6 GHz | W: cross-check | §II.B | "the ferro-concrete slabs attenuate from 8 to 10 dB more on the 2-6 GHz" | — | VERIFIED 2026-11-21 |
+| OES-LAYER-PLAIN | layered rubble without ferro-concrete: 8 dB/m (1 GHz), 20 dB/m (2 GHz) | W: **low** bracket | §III.B | "Without ferro-concrete, the mean specific excess attenuations reach 8 and 20 dB/m at 1 and 2 GHz respectively" | k = log2(20/8) = **1.32193**. 868 MHz: 8·0.868^1.32193 = 8·0.82933 = **6.63 dB/m** (extrapolated 13% below 1 GHz). 2.4 GHz: 20·1.2^1.32193 = 20·1.27254 = **25.45 dB/m** (extrapolated 20% above 2 GHz) | VERIFIED 2026-11-21 |
+| OES-LAYER-FERRO | layered rubble with ferro-concrete: 14 dB/m (1 GHz), 31 dB/m (2 GHz) | W: **central** bracket | §III.B | "When ferro-concrete layers are included (in the same proportion as other layers), specific attenuation reach respectively 14 and 31 dB/m" | k = log2(31/14) = **1.14684**. 868 MHz: 14·0.868^1.14684 = 14·0.85014 = **11.90 dB/m**. 2.4 GHz: 31·1.2^1.14684 = 31·1.23256 = **38.21 dB/m** | VERIFIED 2026-11-21 |
+| OES-LAYER-SPREAD | spread of integrated excess loss 2–10 dB (plain), 2–14 dB (with ferro) | W: per-path random spread | §III.B | "with standard deviations on the integrated excess attenuation from 2 to 10 dB"; "with standard deviations from 2 to 14 dB" | used as the standard deviation range of the per-path spread | VERIFIED 2026-11-21 |
+| OES-LAYER-THICK | layer thickness N(50 cm, 20 cm); second set N(20 cm, 5 cm) | W: rubble layer generator | §III.B | "Gaussian distributed, with a mean of 50 cm and a standard deviation of 20 cm … average thickness of 20 cm, with a standard deviation of 5 cm" | — | VERIFIED 2026-11-21 |
+| OES-MEAS-80 | measured 80 dB/m at 2 GHz, ~75% ferro-concrete test structure | W: **high** bracket | §III.B | "the simulated and measured attenuation at 2 GHz are 72 and 80 dB/m respectively … fairly high proportion of ferro-concrete (around 75 %)" | Frequency slope k = 1.14684 (OES-LAYER-FERRO). 868 MHz: 80·(0.868/2)^1.14684 = 80·0.38394 = **30.71 dB/m**. 2.4 GHz: 80·1.23256 = **98.60 dB/m** | VERIFIED 2026-11-21 |
+| OES-SPHERE | loose rubble A = α·η dB/m, α = 35–45 | W: density form, cross-check of density | §IV.B | "the specific attenuation in [dB/m] can be fitted as αη, with α depending on the size distributions. Typical values for α range from 35 to 45." | with η from DENS-* (PENDING) | VERIFIED 2026-11-21 |
+| OES-RANGE | detection range at 130 dB dynamic range: GSM-900 ~10 m (concrete + mixed), < 2 m (ferro) | W: validation target A5.4 | §VI, Table III | "Concrete + mixed ~ 15 m ~ 10 m ~4m"; "Ferro-concrete <3m <2m <1m" (TETRA / GSM-900 / UMTS) | central 868 MHz: 130/11.90 = **10.9 m** ✓; high: 130/30.71 = 4.2 m vs "< 2 m" (limitation recorded) | VERIFIED 2026-11-21 |
+| OES-BIMPAS | 60–100 dB measured at 2.45 GHz in ruins (Bimpas et al., EuMC 2003) | W: validation target A5.3 | §I (secondary) | "Attenuations of 60 to 100 dB were measured at 2.45 GHz (compared to more than 250 dB at 10 GHz)." | — | PENDING (primary: Bimpas et al., "Development and testing of a detector system for trapped humans in building ruins", EuMC 2003, pp. 999–1002) |
+
+## 3. Measured building and rubble loss, NIST
+
+| ID | Value | Used for | Source and location | Verbatim quote | Status |
+|---|---|---|---|---|---|
+| NIST1540-STAND | standing building mean loss 25–50 dB, standard deviation 6–14 dB | W: validation | Holloway et al., NIST Technical Note 1540 (2005), 13-story apartment building, executive summary | "The mean signal attenuation for a wide range of locations throughout the standing building ranged from 25 to 50 dB. The standard deviation ranged from 6 to 14 dB, depending on frequency." | VERIFIED 2026-11-21 (page number to add) |
+| NIST1540-RUBBLE | rubble ≥ 60–80 dB (noise-limited) | W: validation target A5.1 (dense) | TN 1540, executive summary | "Large amounts of building rubble caused at least 60 to 80 dB of signal attenuation. The true attenuation was not established since we measured only noise." | VERIFIED 2026-11-21 (page to add) |
+| NIST1542-RUBBLE | rubble ≥ 30–40 dB (voids remained) | W: validation target A5.1 (void-rich) | Holloway et al., NIST Technical Note 1542 (2006), convention center, executive summary (p. iv) | "Large amounts of building rubble caused at least 30 to 40 dB of signal attenuation. The true attenuation was not established in several cases since we measured only noise." | VERIFIED 2026-11-21 |
+| NIST1542-FREQ | frequencies ~50, 150, 225, 450, 900 MHz, 1.8 GHz | W: applicability to 868 MHz | TN 1542, §1 | "approximately 50 MHz, 150 MHz, 225 MHz, 450 MHz, 900 MHz, and 1.8 GHz" | VERIFIED 2026-11-21 |
+
+## 4. Ranging through obstacles
+
+| ID | Value | Used for | Source and location | Verbatim quote | Status |
+|---|---|---|---|---|---|
+| KOL-2NS | penetrating-path bias usually ≤ 2 ns (0.60 m) | W/S: bias bound | Kolakowski & Modelski, "Detection of direct path component absence in NLOS UWB channel", MIKON 2018, pp. 247–250, DOI 10.23919/MIKON.2018.8405190 (accepted version arXiv:2404.15314), §II | "When the direct path component propagating through the obstacle is available… the introduced bias usually would not exceed 2 ns." | VERIFIED 2026-11-21 (via the accepted-version HTML) |
+| KOL-1NS | two 10 cm concrete walls ≈ 1 ns | W: cross-check of SLOW-1 | same, §II (cites Albaidhani, Morell & Vicario, IPIN 2016) | "propagation through two 10 cm thick concrete walls would result in about 1 ns delay" | SLOW-1: 0.2·1.2891 = 0.2578 m = 0.86 ns (ITU) and 0.2·2.000 = 0.400 m = 1.33 ns (OES) ✓. VERIFIED; primary Albaidhani 2016 PENDING |
+| KOL-NDP | direct path absent → errors of metres | W: no-direct-path error | same, §II | "It introduces a large delay of several nanoseconds, which leads to a ranging error of even a few meters." | VERIFIED 2026-11-21 |
+| ALS2009 | UWB TOA error model, direct path present / absent; blockage probabilities | W: no-direct-path statistics | Alsindi, Alavi & Pahlavan, "Measurement and modeling of ultrawideband TOA-based ranging in indoor multipath environments", IEEE TVT 58(3):1046–1058, 2009, Tables III–VI | tables are images in the PDF | PENDING (read from rendered pages) |
+| NEZ-WALL | 60 cm reinforced wall ≈ 14 dB at 2 GHz | W: extra low case | A. Nezirović, "Trapped-Victim Detection in Post-Disaster Scenarios using Ultra-Wideband Radar", PhD thesis, TU Delft, §4.1.2 | "the attenuation is regressing almost linearly, reaching in average ca 14 dB at 2 GHz" | 14/0.6 = **23.3 dB/m**. VERIFIED 2026-11-21 (thesis year to add) |
+| NEZ-SAND | sandstone rubble ≤ ~10 dB | W: extra low case | same, §4.1.1 | "the attenuation is less for lower frequencies, as expected, but that it rarely exceeds 10 dB" | VERIFIED 2026-11-21 |
+
+## 5. Scenario and rescue
+
+| ID | Value | Used for | Source and location | Verbatim quote | Status |
+|---|---|---|---|---|---|
+| INSARAG-HEAVY | heavy team: 2 sites, 24 h operations, up to 10 days; operational within 48 h | X: dig sites, arrival | INSARAG Guidelines and Methodology (UN OCHA, March 2011), p. 33, §7.3 | "A heavy team must be adequately staffed to allow for 24 hour operations at 2 separate sites for up to 10 days."; "operational in the affected country within 48 hours" | VERIFIED 2026-11-21 |
+| INSARAG-MED | medium team: 1 site, up to 7 days; operational within 32 h | X: dig sites, arrival | same, p. 33, §7.2 | "A medium team must be adequately staffed to allow for 24 hour operations at 1 site for up to 7 days."; "operational in the affected country within 32 hours" | VERIFIED 2026-11-21 |
+| DEBRUY-1983 | 93.6% of live extrications within 24 h; 80% of trapped extricated within 2 days; trapped mortality 35.0% | X: survival weighting | De Bruycker, Greco et al., "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO, 1983 | (from a search summary only) | PENDING (open PDF at iris.unina.it) |
+| RESCUE-TIME | extrication time per victim | X: digging model | Natural Hazards (Springer) 2014, DOI 10.1007/s11069-014-1304-3 | — | PENDING (library access) |
+
+## 6. Hardware
+
+| ID | Value | Used for | Source and location | Verbatim quote | Status |
+|---|---|---|---|---|---|
+| NRF-CLK | 64 MHz | H: Phase 0 | Nordic nRF52840 Product Specification v1.11 (Oct 2024), "CPU performance" | "The CPU clock speed is 64 MHz." | VERIFIED 2026-11-21 (via the HTML PS) |
+| NRF-CM | CoreMark 212 (flash, cache on); 3.3 CoreMark/MHz; 64 CoreMark/mA ("DCDC 3V") | H: Phase 0 time and energy | same, rows CMFLASH, CMFLASH/MHz, CMFLASH/mA | "CoreMark, running CoreMark from flash, cache enabled"; "CoreMark per mA, running CoreMark from flash, cache enabled, DCDC 3V" | VERIFIED 2026-11-21 |
+| NRF-ICPU0 | 3.3 mA at 64 MHz, CoreMark from flash, DC/DC | H: Phase 0 energy | same, table "CPU running", ICPU0 | "CPU running CoreMark @64 MHz from flash, Clock = HFXO, Regulator = DC/DC" | E_cpu = t·3.3 mA·3.0 V | VERIFIED 2026-11-21 |
+| NRF-FPU | single-precision FPU | H: Phase 0 double-precision penalty | same, CPU features | "Single-precision floating-point unit (FPU)" | VERIFIED 2026-11-21 |
+| NRF-SLEEP | 1.5 µA System ON, no RAM retention, wake on RTC, 3 V | H: energy | same, key features | "1.5 µA at 3 V in System ON mode, no RAM retention, wake on RTC" | VERIFIED 2026-11-21 |
+
+## 7. Pending primaries (Phase 1 list)
+
+| Needed for | Source | Status |
+|---|---|---|
+| 868 MHz excess loss and group delay under real earthquake rubble | DiCarlofelice, Di Giampaolo, Feliziani & Tognolatti, IEEE TVT 64(6):2288–2296, 2015, DOI 10.1109/TVT.2014.2346580 | PENDING |
+| Concrete loss 3–8 GHz vs thickness | Stone, NISTIR 6055 (1997), DOI 10.6028/NIST.IR.6055 | PENDING |
+| Solid density of concrete | EN 1991-1-1 Annex A, Table A.1 | PENDING |
+| Debris bulk density | UN-based 1.4 t/m³ estimate (primary document); 1.69–2.25 t/m³ (ScienceDirect S2949750726000088) | PENDING |
+| Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
+| 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238, current edition (P.1238-12 URL returned 404) | PENDING |
+| Collapse geometry and void types | FEMA US&R Structural Collapse Technician; USACE Structures Specialist FOG; Rana Plaza reviewed sources | PENDING |
+| GPS horizontal and vertical accuracy for rescuers | GPS Standard Positioning Service Performance Standard (current edition) | PENDING |
+| Battery capacity | manufacturer cell datasheet | PENDING |
+| Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | PENDING |
