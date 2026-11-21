@@ -37,6 +37,7 @@
 #include "ns3/lora-uwb-physics-engine.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
@@ -100,6 +101,7 @@ main(int argc, char** argv)
     std::string outdir;
     std::string bracketArg = "central";
     std::string envArg = "open";
+    std::string rubbleArg = "on";
     double footX = NaN, footY = NaN, pileH = NaN, depthMin = NaN, depthMax = NaN;
     uint32_t nVictims = 0;
     double voidHalf = 0.0;
@@ -121,6 +123,9 @@ main(int argc, char** argv)
     cmd.AddValue("env", "Engine environment around the pile: open (ENV_RURAL_OPEN, all "
                         "obstruction is the rubble model) or industrial (ENV_INDUSTRIAL, "
                         "the engines' own clutter on top: sensitivity case)", envArg);
+    cmd.AddValue("rubble", "on (default): the engines see the pile; off: the same geometry and the same "
+                           "keyed draws without the pile, the reference for output validation (VAL-* rows)",
+                 rubbleArg);
     cmd.AddValue("footX", "Pile footprint along x, m (required)", footX);
     cmd.AddValue("footY", "Pile footprint along y, m (required)", footY);
     cmd.AddValue("pileH", "Pile height, m (required; row PILE-ALPHA x intact height)", pileH);
@@ -160,6 +165,10 @@ main(int argc, char** argv)
     if (!ParseRubbleBracket(bracketArg, bracket))
     {
         return fatal("--bracket must be low, central or high");
+    }
+    if (rubbleArg != "on" && rubbleArg != "off")
+    {
+        return fatal("--rubble must be on or off");
     }
     if (envArg != "open" && envArg != "industrial")
     {
@@ -267,9 +276,12 @@ main(int argc, char** argv)
     e2p4.Initialize(c2p4);
     LoRaUWBPhysicsEngine eUwb;
     eUwb.Initialize(cUwb);
-    e868.SetRubbleWorld(&world);
-    e2p4.SetRubbleWorld(&world);
-    eUwb.SetRubbleWorld(&world);
+    if (rubbleArg == "on")
+    {
+        e868.SetRubbleWorld(&world);
+        e2p4.SetRubbleWorld(&world);
+        eUwb.SetRubbleWorld(&world);
+    }
     auto reg = [&](const Pt& q) {
         e868.RegisterGateway(q.id, q.p, true);
         e2p4.RegisterGateway(q.id, q.p, true);
@@ -347,6 +359,13 @@ main(int argc, char** argv)
             rxDbm = r.rxPowerDbm;
             snr = r.snr_db;
             rng = r.estimatedRangeM;
+            if (std::getenv("COLLAPSE_DUMP868"))
+            {
+                std::fprintf(stderr, "D868 %u %u %u pl=%.3f sh=%.3f fa=%.3f nl=%.3f at=%.3f fo=%.3f if=%.3f dp=%.3f te=%.3f hw=%.3f ag=%.3f pb=%.3f tl=%.3f rx=%.3f\n",
+                             slot, tx.id, rx.id, r.pathLossDb, r.shadowingDb, r.fadingDb, r.nlosDb, r.atmosphericDb,
+                             r.foliageDb, r.interferencePenaltyDb, r.dopplerPenaltyDb, r.terrainDb, r.hwTxVariationDb,
+                             r.antennaGainDb, r.propagationLossBiasDb, r.totalLossDb, r.rxPowerDbm);
+            }
         }
         else if (b == 1)
         {
@@ -429,7 +448,7 @@ main(int argc, char** argv)
     Simulator::Destroy();
 
     std::ofstream rp(outdir + "/run.txt");
-    rp << "ca_tbl_collapse_sim seed=" << seed << " bracket=" << bracketArg << " env=" << envArg
+    rp << "ca_tbl_collapse_sim seed=" << seed << " bracket=" << bracketArg << " rubble=" << rubbleArg << " env=" << envArg
        << " footX=" << footX << " footY=" << footY << " pileH=" << pileH << " nVictims=" << nVictims
        << " depth=[" << depthMin << "," << depthMax << "] voidHalf=" << voidHalf << " gridStep=" << gridStep
        << " holdHeights=" << holdArg << " nStations=" << nStations << " slots=" << slots << " slotS=" << slotS

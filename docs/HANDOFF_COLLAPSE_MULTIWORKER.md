@@ -211,59 +211,77 @@ Depth error median is 1.3–2.5 m, so depth is the weak axis. In the high bracke
 Order matters: §6.1–6.3 are what the owner asked for most recently (20 workers end to end, 1 worker, validated
 outputs).
 
-### 6.1 The 20-worker end-to-end system (and the 1-worker case)
+### 6.1 The 20-worker end-to-end system (and the 1-worker case) — REVISED 2026-11-22
 
-**Decision taken.** The earlier simulator estimates exactly one subject; the other nodes are protocol peers with no
-filter. Making it estimate 20 subjects would rewrite the code every earlier result runs on. The collapse program is
-therefore the multi-worker system. It must reach the **same level of mechanism** as the earlier simulator for the
-parts that matter, using the same library code:
+**Correction.** The earlier simulator already localises several workers. `--measuredSubjects=N --nTags=N` runs the full
+per-worker cycle for tags 2..N: ranging, the tier-1 floor, fix selection, `Step()` with its own escalation, the
+handshake, battery, IMU and gateway downlink. It writes `subject_summary.csv` and `subjtrace_*_subj<id>.csv`. The
+preset already uses 5.
 
-1. **MAC and contention (B5).** Today the generator draws every link "alone" (engine interference off).
-   Implement a slot schedule for N workers:
-   - 868 MHz beacons, plus 2.4 GHz/UWB ranging exchanges granted by the rescuer.
-   - Draw collisions with Bor et al. 2016 rules: rows BOR-TIMING (5 preamble symbols) and BOR-CAP, capture swept
-     1–6 dB.
-   - Count airtime against the 1% / 10% duty limits. The limits are already sourced in the earlier work; reuse those
-     rows.
-   - Validate: the collision rate for N random Poisson senders must match pure-ALOHA theory, P_s = e^(−2G).
-     Add that as a gate fixture.
-2. **Energy (72 h battery).** Use `CaTblEnergyModel` (`src/lora-physics-engine/model/ca-tbl-energy-model.{h,cc}`),
-   whose currents are already sourced from datasheets.
-   - Per worker: sleep current plus each TX/RX airtime × current.
-   - Validate one cycle by hand against the datasheet table (gate fixture).
-   - Battery capacity row is PENDING.
-3. **Phase 0 (on-worker compute).**
-   - Time `estimate_collapse.py`'s per-worker solve and the earlier EKF.
-   - Scale to nRF52840: t_nrf = t_host × CoreMark_host / 212 (rows NRF-*). Energy = t·3.3 mA·3.0 V.
-   - Decision rule as in `PLAN_COLLAPSE.md` (Phase 0).
-4. **Rescuer behaviour.** Today the rescuers sweep a serpentine split. Add:
-   - information-driven next spot (D-optimal; B4 in the plan), choosing from the pre-drawn field. This is valid
-     because links are keyed; G178 proves independence;
-   - travel time between spots (walking speed on rubble needs a source, or a sweep).
-5. **Worker-to-worker cooperation (B4).** 868 MHz worker–worker links are heard ~95% in the central bracket.
-   - Add a joint solve over all workers: unknowns are every worker's (x, y, z) and per-link excess.
-   - Workers with no rescuer contact are anchored through neighbours.
-   - Gates:
-     - noise-free graphs give an exact solution;
-     - coplanar anchors, a disconnected group, or too few anchors are refused;
-     - the rigidity limit (Eren 2004 / Aspnes 2006) holds.
-6. **Digging order (B6).**
-   - Dig time per worker: extrication-time row PENDING (Natural Hazards 2014).
-   - Search time proportional to the 95% position area.
-   - Order by severity-weighted completion (Wex 2014); survival weighting from De Bruycker 1983, PENDING: the owner
-     must download PMC2536241.
-   - Metrics: workers reached alive vs time, wasted digging.
-7. **One person.** Run the same pipeline with `--nVictims=1`, and cross-check against the earlier simulator.
-   - Use the same engines with the rubble world unset: open-site link statistics must match the earlier
-     simulator's link probe (`ca_tbl_causal_sim` probe mode, same PHY) on the same distances.
-   - Report the 1-worker collapse result alongside the 20-worker one.
-8. **Gate (G179)** for the end-to-end run:
-   - fixed seed, N = 1 and N = 20;
-   - every stage present;
-   - outputs within validated ranges;
-   - selftest with doctored outputs.
+**Tested.** `--specProfile=true --nTags=20 --measuredSubjects=20 --relaySlots=false
+--identityQueryManifests=1,...,20` runs: 300 s simulated in 3.9 s, 20 rows in `subject_summary.csv`. The relay
+schedule (`--relaySlots=auto`) refuses crews above ~7, so it must be off.
+
+**Decision.** The 20-person system **and** the 1-person case run in `scratch/ca_tbl_causal_sim.cc` with the collapse
+World behind a new default-off flag. The preset's engine physics then apply unchanged: `CA_TBL_MAKE_CONFIGS` sets ~20
+engine switches, including `rangeErrorNoLinkLeak`, `rssiRangeFromShadowing`, `nlosRangeBias`, `iqOverloadOnly` and
+`rngKeyed`. So do the MAC, relays, finders, energy and every gate. `scratch/ca_tbl_collapse_sim.cc` stays as a fast
+**link-level** tool for the rubble physics only. It does not apply all preset switches; §6.2 explains what that
+changes.
+
+**How to implement (main simulator):**
+1. **Flags.** `--collapse` (default false), plus the required geometry: `--collapseFootX/Y`, `--collapsePileH`,
+   `--collapseDepthMin/Max`, `--collapseBracket`, `--collapseHoldH`. Refuse if `--collapse` is given without them.
+   Default off means byte-identical: no RNG draw and no engine hook.
+2. **World.** Build one `CaTblRubbleWorld` per run with a box pile centred on the deployment centre. Call
+   `SetRubbleWorld` on the three engines in `RunArm()`, where they are constructed (`engine868`, `engine2p4`,
+   `engineUwb`, around line 7218). Do it in the link probe too, if `--collapse` should size anything (it must not
+   change the probe otherwise).
+3. **Workers.** Tags are static and buried: (x, y) uniform in the footprint, z = pileH − depth.
+   - Find where tag trajectories and positions are generated (`FieldNode::Position()`, z fixed at 1.5 m) and add a
+     collapse branch: no motion, its own keyed stream.
+   - The 2-D estimators are untouched. Depth estimation is a later mechanism (B2).
+4. **Rescuers.** `--nFinders` finders on the pile surface (z = pileH + hold height), dispatched from the base camp at
+   the incident (`--searchLaunchAtS`). Finder mode 2's spiral is the existing search.
+5. **Stations.** `--nGateways` gateways placed around the pile at a standoff. Use the existing `--gwLayout` options,
+   or add a ring at standoff.
+6. **Incident.** All tags stop at t = 0 (collapse). The alarm is immediate.
+7. **Outputs.** Unchanged. `subject_summary.csv` gives, per worker: error, availability, time to first fix, energy.
+   Add `collapse_truth.csv` (positions, depths, path rubble metres per anchor), written only under `--collapse`.
+8. **Gate G179.**
+   - `--collapse` off: byte-identical to before.
+   - On, N = 1 and N = 20: every worker gets a subject row.
+   - The engines' rubble loss on a known geometry equals `CaTblRubbleWorld::Path`.
+   - Refusals for missing geometry.
+   - Selftest with doctored outputs.
+9. **The 1-person case** is the same command with `--nTags=1 --measuredSubjects=1`.
+
+**Then, on that base:** worker cooperation (B4), digging order (B6) and the 72 h energy check use the main
+simulator's existing mesh, energy model and finder tasking.
 
 ### 6.2 Validation of every output against published numbers ("we can say this is accurate")
+
+**Started 2026-11-22:** `scripts/collapse/score_validate.py`. It takes a `--rubble=on` run and the same run with
+`--rubble=off` (keyed links, so pairs differ only by the rubble). First results (seed 21, 20 workers, depth
+0.5–5 m, pile 5.5 m), 7/12 checks pass:
+
+- **PASS** VAL-2: 868 MHz excess for workers 2–5 m deep spans NIST's bounds across brackets (−2.2 to 102.0 dB;
+  central 9.2–66.3, median 45.1).
+- **PASS** VAL-6 low / central: 2.4 GHz ToF excess per rubble metre equals SLOW-BR exactly (0.454, 0.704).
+  - High bracket: 2.175 vs 1.541 on only 27 links. The engines' ToF sigma grows as SNR falls, so paired
+    differences carry extra noise. Replace the 5% criterion with a bootstrap CI applied to every bracket, and record
+    that change.
+- **PASS** VAL-4 2.4 GHz LOS ToF SD 2.988 m, inside Zhou 2025's 1.27–3.2 m.
+- **FAIL (marginal)** VAL-4 UWB LOS SD 0.099 m vs Benouakta 0.10–0.33 m. The engine uses the best-case 0.10 m and
+  truncates at ±3σ (−1.4%), so the simulated UWB sits at the optimistic edge. Record as a finding.
+- **FAIL** VAL-1: output excess vs model, up to 17.6 dB. Cause found:
+  - the receiver's ADC clipping / EVM stage (`lora-physics-engine.cc` ~line 668) degrades strong no-rubble signals
+    by up to 18 dB;
+  - the 868 MHz range-error leak (`pb`) is on in the standalone generator because it does not apply the preset's
+    `rangeErrorNoLinkLeak` / `iqOverloadOnly` switches.
+  The rubble hook itself is exact: air-only links show 0.00 dB difference, and component dumps
+  (`COLLAPSE_DUMP868=1`) show only `tl` changing, by the rubble term. **Fix:** compare total path loss (tl), not
+  receiver-degraded power, or run validation through the main simulator with the preset (§6.1).
 
 Build `scripts/collapse/validate_outputs.py` and a section in `docs/SOURCES_COLLAPSE.md` (rows VAL-*). Each
 simulator output quantity is compared with a published value, with a tolerance stated before running:
@@ -333,4 +351,7 @@ simulator output quantity is compared with a published value, with a tolerance s
   - Merged, with one conflict (generated `docs/SCENARIO_FLAGS.md`, regenerated: 361 flags).
   - G177/G178 added to the suite.
   - Our side byte-identical; `main`'s side byte-identical under `PIN_PRE_DD27` (614 files, §5).
-  - Branch pushed; PR opened.
+  - Branch pushed; PR #35 opened.
+- 2026-11-22: output validation script (VAL-1/2/4/6; 7/12 pass, causes of the failures found).
+  - The main simulator already runs 20 measured workers (`--measuredSubjects=20`).
+  - Plan revised (§6.1): the collapse World goes into the main simulator behind `--collapse`.
