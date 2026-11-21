@@ -2032,16 +2032,25 @@ finish G170
 printf '\n--- G171 overdue alarm ---\n'
 bash scripts/overdue_gate.sh "$WORK/g171" || fail G171
 bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
+finish G171
+
+# ---------------- G172: --rangeHeightCorrect, mast slant ranges projected to the ground (DD 28)
 printf '\n--- G172 range height correction ---\n'
 bash scripts/height_gate.sh "$WORK/g172" || fail G172
 bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
+finish G172
+
+# ---------------- G173: --acquireSideOfRoad, the work area's side of a gateway line (DD 29)
 printf '\n--- G173 side of the gateway line ---\n'
 bash scripts/side_of_road_gate.sh "$WORK/g173" || fail G173
 bash scripts/side_of_road_gate_selftest.sh "$WORK/g173" || fail G173
+finish G173
+
+# ---------------- G174: the search party under a 2.4 GHz-only design (DD 30-32)
 printf '\n--- G174 search party fixes ---\n'
 bash scripts/search_doctrine_gate.sh "$WORK/g174" || fail G174
 bash scripts/search_doctrine_gate_selftest.sh "$WORK/g174" || fail G174
-finish G171
+finish G174
 
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
