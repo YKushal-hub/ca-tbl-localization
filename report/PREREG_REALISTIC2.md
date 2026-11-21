@@ -48,3 +48,24 @@ A long thin corridor site needs a scenario change not yet built; ROAD5 (stations
 (`--acquireSideOfRoad`, default off) and REALISTIC-3, one commit after this file. The flag is not passed by this
 campaign; its off state is byte-identical to the build before it (DESIGN_DECISIONS 29), so nothing registered here
 changes. Order of running: REALISTIC-1, then REALISTIC-3, then this campaign.
+
+## Result (run 2026-11-21 01:32–07:37 IST, alongside REALISTIC-1/3, source eaee45b4b, 240/240 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/realistic2_2026-11-21/REALISTIC2.md`. Traces are not tracked; their SHA-256 manifest is. The
+runner was restarted once to raise its parallelism (three cells in flight were rerun from scratch on the same frozen
+binary); its RUN.md resume line reads `dirty 1` because REALISTIC-3's result text was uncommitted in the checkout at
+the time; every cell's own `run_id.txt` reads `dirty 0`.
+
+**Caveat found after registration, before this result was read.** Every Part-E cell has searchers, and in every
+2.4 GHz-only run the search party could not work (DESIGN_DECISIONS 30-32). Searchers also act as moving anchors, so
+E1-E3's 2.4 GHz-only side is affected, not only E3. REALISTIC-4 repeats RAND3 and ROAD3F4 with the party fixed.
+
+- **E1: HOLDS.** Ours − the better single-radio design, time to 25 m: RAND3 −2761 s [−3526, −1893], RAND5 −3386 s
+  [−3851, −2810], ROAD5 −1057 s [−1837, −367], ROAD3F4 −2169 s [−3192, −1099] (subject to the caveat).
+- **E2: HOLDS.** 250 m availability: +0.138 to +0.323, every lower bound > 0 (subject to the caveat).
+- **E3: HOLDS** as computed: −1910 s [−2124, −1592]; not evidence (the caveat), see REALISTIC-4.
+- **Q1: FAILS.** At the open cluster site, ours' 250 m availability over 8 h is 0.219 against 2.4 GHz only's 0.549
+  (−0.330 [−0.411, −0.246]) at 46.2 against 15.8 J/h. Elsewhere ours is at least level: ROAD1 +0.013 [−0.001, 0.035],
+  ROAD3 +0.033 [0.000, 0.070], RAND3 +0.275 [0.134, 0.420] (against 868 MHz only).
+- **Q2 (reported).** TII-2 − ours, J/h: ROAD1 +1.2, ROAD3 +4.1, CLUS3 −0.5, RAND3 +5.6. Energy per worker-hour over the
+  quiet shift: hybrid designs 43–50 J, 868 MHz only 20–21 J, 2.4 GHz only 16–31 J, always-on 917–941 J.
