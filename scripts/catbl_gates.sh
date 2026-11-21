@@ -2058,6 +2058,12 @@ bash scripts/reacquire_gate.sh "$WORK/g175" || fail G175
 bash scripts/reacquire_gate_selftest.sh "$WORK/g175" || fail G175
 finish G175
 
+# ---------------- G176: --incidentRandom, a different incident on every seed (DD 35)
+printf '\n--- G176 randomised incident ---\n'
+bash scripts/incident_gate.sh "$WORK/g176" || fail G176
+bash scripts/incident_gate_selftest.sh "$WORK/g176" || fail G176
+finish G176
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

@@ -1776,6 +1776,24 @@ class Tourist
         m_elapsed = 0.0;
     }
 
+    /** DD 35 --incidentRandom: a trail from wherever the walker is placed, on heading \p hdg0 (rad, CCW from east);
+     *  at \p deviateAtS it turns by \p turn (rad) and holds that bearing; \p stopAfterS later it stops. Walking at
+     *  the walker's speed throughout; the box edge reflects the heading instead of pinning the walker to it. */
+    void SetIncident(double hdg0, double deviateAtS, double turn, double stopAfterS)
+    {
+        m_trail = true;
+        m_incident = true;
+        m_incHdg = hdg0;
+        m_incTurn = turn;
+        m_deviateAtS = deviateAtS;
+        m_stopAfterS = stopAfterS;
+        m_elapsed = 0.0;
+    }
+    bool m_incident = false;
+    bool m_incTurned = false;
+    double m_incHdg = 0.0;
+    double m_incTurn = 0.0;
+
     //! Has the walker left the trail? The demo needs the moment, not just the track.
     double m_deviateSide = -1.0;
     bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
@@ -1792,6 +1810,28 @@ class Tourist
             if (HasStopped())
             {
                 return; // sat down, and this is the case that defeats searching
+            }
+            if (m_incident) // DD 35
+            {
+                if (!m_incTurned && m_elapsed >= m_deviateAtS)
+                {
+                    m_incHdg += m_incTurn;
+                    m_incTurned = true;
+                }
+                m_x += m_speed * dt * std::cos(m_incHdg);
+                m_y += m_speed * dt * std::sin(m_incHdg);
+                const double lim = 0.98 * m_boxHalf;
+                if (m_x > lim || m_x < -lim)
+                {
+                    m_x = (m_x > lim) ? 2.0 * lim - m_x : -2.0 * lim - m_x;
+                    m_incHdg = M_PI - m_incHdg;
+                }
+                if (m_y > lim || m_y < -lim)
+                {
+                    m_y = (m_y > lim) ? 2.0 * lim - m_y : -2.0 * lim - m_y;
+                    m_incHdg = -m_incHdg;
+                }
+                return;
             }
             if (m_elapsed < m_deviateAtS)
             {
@@ -2552,6 +2592,7 @@ static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
 static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
+static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -7231,6 +7272,24 @@ RunArm(CaTblPolicyMode mode,
     if (std::isfinite(g_subjectStartX) && std::isfinite(g_subjectStartY))
     {
         walker.SetPosition(g_subjectStartX, g_subjectStartY);
+    }
+    // DD 35 --incidentRandom: the incident drawn per seed from its own stream (no other stream moves): a trail from the
+    // start toward the site centre +/- 45 deg, leaving it at 15-35 min, turning 45-135 deg either way, stopping 5-15 min
+    // later. The same seed gives the same incident in every arm, so designs stay paired.
+    if (g_incidentRandom && trailDeviateAtS > 0.0)
+    {
+        std::mt19937_64 inc(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0x1AC1DE47ULL);
+        std::uniform_real_distribution<double> u01(0.0, 1.0);
+        const Vector p0 = walker.Position();
+        const double toCentre = std::atan2(-p0.y, -p0.x);
+        const double hdg0 = toCentre + (u01(inc) - 0.5) * (M_PI / 2.0);
+        const double devS = 900.0 + 1200.0 * u01(inc);
+        const double turn = ((u01(inc) < 0.5) ? -1.0 : 1.0) * (M_PI / 4.0 + (M_PI / 2.0) * u01(inc));
+        const double stopS = 300.0 + 600.0 * u01(inc);
+        walker.SetIncident(hdg0, devS, turn, stopS);
+        std::cout << "  DD35 incident: trail heading " << hdg0 * 180.0 / M_PI << " deg from (" << p0.x << ", " << p0.y
+                  << "), leaves it at " << devS << " s, turns " << turn * 180.0 / M_PI << " deg, stops " << stopS
+                  << " s later\n";
     }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
@@ -19519,6 +19578,15 @@ main(int argc, char* argv[])
                  "conditioning degrades with distance from access, which is what a "
                  "real deployment does and the direction the scenario needs.",
                  gwArcCentreDegArg);
+    cmd.AddValue("incidentRandom",
+                 "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
+                 "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
+                 "15-35 min (replacing --trailDeviateAtS), turns 45-135 deg left or right and holds that bearing, and stops "
+                 "5-15 min later (replacing --trailStopAfterS), so it is still by 50 min. The box edge reflects the heading. "
+                 "Own random stream; the same seed gives the same incident in every arm. Why: the fixed trail put the "
+                 "casualty at the identical point on every seed (one incident, 20 noise draws), and from a corner camp "
+                 "the due-east trail pinned it to the box edge. False (default): the fixed trail, byte-identical.",
+                 g_incidentRandom);
     cmd.AddValue("trailDeviateSide",
                  "Which way the subject leaves the trail: -1 (DEFAULT) south, away from "
                  "an arc centred north; +1 north, through it. Default reproduces the "

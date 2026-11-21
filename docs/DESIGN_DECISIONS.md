@@ -668,3 +668,20 @@ of -0.37 rad/s and circled in place. Over 7200 s, 8124 of 14400 tracked-node cyc
   lowered both designs (ours 0.09/0.09/0.24, 2.4 GHz only 0.37/0.23/0.37); not used.
 Off: byte-identical (seed 505, ROAD3 with every REALISTIC-4 flag, 3300 s, two arms, against REALISTIC-4's frozen binary).
 Gate G175 (+ selftest, five negative fixtures). Tested in REALISTIC-5 on new seeds.
+
+## 35. A different incident on every seed (`--incidentRandom`, default off; 2026-11-21)
+
+Found in a full-system audit after REALISTIC-5: the casualty stood at the identical point at the alarm on every seed of
+every realistic campaign (RMS spread 0 m; ROAD at (-1591, 1673), CLUS and RAND at (5000, 3823)), so each cell's 20 seeds
+were one incident under 20 noise draws. From the corner camp of the CLUS and RAND sites the fixed due-east trail also
+pinned the casualty to the box edge. With the flag the incident is drawn per seed from its own random stream: a trail
+from the start toward the site centre +/- 45 deg, leaving it at 15-35 min, a 45-135 deg turn either way, a stop 5-15 min
+later (still by the 50 min alarm); the box edge reflects. The same seed gives the same incident in every arm.
+Off: byte-identical (seed 566, CLUS3 with every REALISTIC-5 flag, 3300 s, two arms, against REALISTIC-5's frozen
+binary). Gate G176 (+ selftest, five negative fixtures). Tested in REALISTIC-6.
+
+Also found in the audit, not changed in code: (i) the relay schedule (`--relaySlots=auto`) needs ~N^2 50 ms slots and
+refuses crews above ~7 in a 2.5 s cycle; larger crews run with `--relaySlots=false` (REALISTIC-6 crew cells). (ii) The
+gateways' 868 MHz replies under device-side estimation are billed to the node but not simulated as gateway frames
+against the 10 % access-point duty cycle; one batched broadcast per gateway per cycle (~3 % duty for 7 nodes) is the
+protocol the bill corresponds to.
