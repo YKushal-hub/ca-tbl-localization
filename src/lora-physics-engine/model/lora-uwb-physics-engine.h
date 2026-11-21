@@ -367,6 +367,8 @@ public:
     //! Collapse extension (World): rubble on every link; nullptr (default) = no rubble,
     //! and this engine computes exactly what it did before the extension.
     void SetRubbleWorld(const CaTblRubbleWorld* w) { m_rubble = w; }
+    //! DD 41 --interferenceFrameKey: tag the following evaluations with a physical frame key (0 clears).
+    void SetFrameKey(uint64_t k) { if (m_interference) { m_interference->SetFrameKey(k); } }
     void SetInterferenceJournal(bool on) { if (m_interference) { m_interference->SetJournal(on); } }
     //! Put back the journalled transmissions overlapping [from, to); returns how many.
     uint32_t ReplayInterferenceJournal(Time from, Time to)

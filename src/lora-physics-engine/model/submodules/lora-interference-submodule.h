@@ -26,6 +26,9 @@ struct ActiveTransmission {
     double ownLinkDistM = 0.0; //!< T29: the length of the interferer's own link (0: unknown)
     uint32_t rxGatewayId;
     bool isCanceled; // Successive Interference Cancellation (SIC) state
+    //! DD 41 --interferenceFrameKey: the physical frame this evaluation belongs to (0 = unknown, the default).
+    //! Copies of one frame evaluated at several receivers share a key and never interfere with each other.
+    uint64_t frameKey = 0;
 };
 
 /**
@@ -51,6 +54,8 @@ public:
      * registry behaves exactly as before. The journal keeps 10 s of registrations.
      */
     void SetJournal(bool on) { m_journalOn = on; }
+    //! DD 41: the frame key for the evaluations that follow (0 clears it).
+    void SetFrameKey(uint64_t k) { m_frameKey = k; }
     //! Re-registers every journalled transmission overlapping [from, to) that is no longer in the registry;
     //! returns how many. Entries still present are not duplicated.
     uint32_t ReplayJournal(Time from, Time to);
@@ -92,6 +97,7 @@ private:
     std::vector<ExternalInterferer> m_interferers;
     std::list<ActiveTransmission> m_activeRegistry;
     bool m_journalOn = false;                 //!< M.1(b)
+    uint64_t m_frameKey = 0; //!< DD 41
     std::deque<ActiveTransmission> m_journal; //!< M.1(b)
     
     bool m_interfererMapInitialized;

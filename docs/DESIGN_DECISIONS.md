@@ -869,3 +869,37 @@ Selftest: 4 doctored outputs, all caught.
   not tuned.
 
 Off: byte-identical (178 reference files; 614 files against `main`'s binary).
+
+## 41. Copies of one broadcast collided with each other (`--interferenceFrameKey`, default off; 2026-11-22)
+
+**Defect found (earlier simulator, every run with more than one field node on the mesh).** The channel delivers a
+frame to each receiver through `EnginePhyProvider::EvaluateFrame()`, one engine call per receiver. Each call enters
+the engines' interference registry as a transmission of the field node in the engine's node slot. For a gateway
+beacon that is the receiving subject, not the gateway. So the second and later receivers of one broadcast found the
+earlier receivers' entries overlapping in time and lost the frame.
+
+**Measured.**
+- Buried subjects 2..20, 30 m from four stations, heard no anchor in 84% of cycles; subject 1 (evaluated first)
+  heard 4–6 in every cycle.
+- At link level (DD 40, interference off) every one of them is heard about 100% of the time.
+- On the open-site preset with 5 subjects (`main`'s ENV-SWEEP E0 configuration, seed 361, 1800 s), the subjects'
+  median CEP50 is **2126 m without the fix and 3.6 m with it** (ca_tbl_full).
+- Tag 0 changes too: static_868 CEP50 291 → 382 m on that seed. Its receptions also shared the registry with other
+  receivers' copies.
+
+**Fix.** Each registry entry carries a frame key; 0, the default, means none. Under `--interferenceFrameKey` the
+provider sets one key per (sender, tier, time) before evaluating the receivers and clears it afterwards. Copies of
+one frame then never interfere with each other, while different frames still do.
+
+**Status.** Default off: every earlier result is byte-identical (178 reference files; 614 files against `main`'s
+binary). It is **on** in the collapse study and will be pre-registered there.
+
+**Owner decision needed.** Adopt it into the preset and re-run the multi-subject campaigns? Every
+`subject_summary.csv` row for subjects 2..N on `main` and on this branch is affected, and tag 0's rows are affected
+where several field nodes share the mesh.
+
+**Gate G180:**
+- off: subjects 2..5 starve (≥ 30% of cycles with no anchor; 49.5% measured);
+- on: ≤ 5% (1.0%);
+- tag 0 keeps its anchors in both.
+Selftest: 3 doctored outputs, all caught.

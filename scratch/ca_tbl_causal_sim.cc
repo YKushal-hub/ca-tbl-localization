@@ -658,6 +658,8 @@ CaTblNlosFlag(CaTblNlosSource src, double nlosDb, bool propNlos, uint32_t hidden
  *    received 0 from this scenario. Any per-hop degradation the engines model now
  *    actually engages on relayed frames.
  */
+static bool FrameKeyOn(); // DD 41, reads g_interferenceFrameKey
+
 class EnginePhyProvider : public CaTblPhyProvider
 {
   public:
@@ -891,12 +893,34 @@ class EnginePhyProvider : public CaTblPhyProvider
                                    double txPowerDbm,
                                    const CaTblHeader& hdr) override
     {
+        // DD 41 --interferenceFrameKey: every receiver's evaluation of this frame shares one key.
+        const bool keyed = FrameKeyOn();
+        if (keyed)
+        {
+            const uint64_t key = 1u + ((static_cast<uint64_t>(txId) << 48) ^
+                                       (static_cast<uint64_t>(static_cast<int>(tier) + 1) << 44) ^
+                                       static_cast<uint64_t>(Simulator::Now().GetNanoSeconds()));
+            m_e868.SetFrameKey(key);
+            m_e2p4.SetFrameKey(key);
+            m_eUwb.SetFrameKey(key);
+        }
+        CaTblLinkOutcome o;
         if (hdr.GetMsgType() == CA_TBL_MSG_GRANT_GOSSIP && !m_gossipAnchors.empty() &&
             m_gossipAnchors.count(txId) != 0 && m_gossipAnchors.count(rxId) != 0)
         {
-            return EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+            o = EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
         }
-        return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+        else
+        {
+            o = Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+        }
+        if (keyed)
+        {
+            m_e868.SetFrameKey(0);
+            m_e2p4.SetFrameKey(0);
+            m_eUwb.SetFrameKey(0);
+        }
+        return o;
     }
 
     //! L.1.4. Admit a gateway to the anchor-to-anchor gossip link class. Called only
@@ -2642,6 +2666,13 @@ struct CaTblCollapseCfg
     bool rubbleOff = false;             //!< same geometry and keyed draws without the pile (VAL-*)
 };
 static CaTblCollapseCfg g_collapse;
+//! DD 41 --interferenceFrameKey: one physical frame, evaluated once per receiver, is one entry-group in the
+//! engines' interference registry, so its copies at other receivers do not collide with it. Off: no key is set.
+static bool g_interferenceFrameKey = false;
+static bool FrameKeyOn()
+{
+    return g_interferenceFrameKey;
+}
 //! Height of a carried device standing at (x, y): 1.5 m above the ground, or above the pile's top inside its
 //! footprint under --collapse. Off: 1.5 everywhere, the value every earlier result used.
 static double CollapseStandZ(double x, double y)
@@ -19976,6 +20007,15 @@ main(int argc, char* argv[])
     cmd.AddValue("collapseGpsSigmaH", "DD 40. GPS error per horizontal axis, m", g_collapse.gpsSigmaH);
     cmd.AddValue("collapseGpsSigmaV", "DD 40. GPS vertical error, m", g_collapse.gpsSigmaV);
     cmd.AddValue("collapseLocalSigma", "DD 40. Rescuer local-frame error per axis, m", g_collapse.localSigma);
+    cmd.AddValue("interferenceFrameKey",
+                 "DD 41. One physical frame delivered to several receivers is evaluated once per receiver; each "
+                 "evaluation used to enter the engines' interference registry as a transmission of the RECEIVING "
+                 "field node, so the second and later receivers of a broadcast saw earlier copies of the same frame "
+                 "as overlapping interferers and lost it (measured: buried subjects 2..N heard a gateway 30 m away "
+                 "in ~0% of cycles, subject 1 in 100%). True: every receiver's evaluation of one frame shares a "
+                 "key and copies never interfere with each other; different frames still do. Default false: "
+                 "byte-identical to every earlier result.",
+                 g_interferenceFrameKey);
     cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "

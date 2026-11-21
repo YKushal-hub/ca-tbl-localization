@@ -2082,6 +2082,12 @@ bash scripts/collapse_main_gate.sh "$WORK/g179" || fail G179
 bash scripts/collapse_main_gate_selftest.sh || fail G179
 finish G179
 
+# ---------------- G180: --interferenceFrameKey, copies of one broadcast do not collide (DD 41)
+printf '\n--- G180 interference frame key ---\n'
+bash scripts/frame_key_gate.sh "$WORK/g180" || fail G180
+bash scripts/frame_key_gate_selftest.sh || fail G180
+finish G180
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

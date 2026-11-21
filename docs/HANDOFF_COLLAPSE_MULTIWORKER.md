@@ -367,6 +367,11 @@ simulator output quantity is compared with a published value, with a tolerance s
 
 ## 8. Open questions for the owner
 
+- **DD 41 (important).** A defect in the earlier simulator made copies of one broadcast collide with each other.
+  Subjects 2..N starved of gateway beacons: the open-site 5-subject median CEP50 is 2126 m, against 3.6 m once
+  fixed. Tag 0 shifts too. The fix is `--interferenceFrameKey` (default off, so every result is unchanged). Owner to
+  decide whether to adopt it into the preset and re-run the multi-subject campaigns.
+
 - Collapse results will not make a Monday 2026-11-23 submission. Owner to decide: later submission with the
   collapse study, or paper on the earlier results first.
 - De Bruycker 1983 PDF and HAZUS manual need a browser download (automated fetch blocked).
@@ -390,3 +395,12 @@ simulator output quantity is compared with a published value, with a tolerance s
   - `--collapse` in the main simulator; 20 and 1 buried workers through the full pipeline; gate G179.
   - Off byte-identical.
   - Next problems listed in §6.1.
+- 2026-11-22: DD 40 (`--collapseField`: the link field with the preset's engines).
+  - Validation 11/12 pass (VAL-* rows). The 2.4 GHz LOS spread is wider than Zhou's measurement: conservative,
+    reported.
+  - Sourced scenario rows: HAZUS storeys and IND floor areas (28.8 workers per floor), NIOSH collapse zone
+    (stations at 1.5 × height), De Bruycker survival table.
+  - Depth CRB script; digging-order scorer.
+- 2026-11-22: DD 41 (`--interferenceFrameKey`, gate G180).
+  - Explains the starved subjects 2..N found in DD 39.
+  - With it, 20 buried workers have median CEP50 2.7 m (full) and 1.8 m (868 only), against 11.7 / 18.2 m without.
