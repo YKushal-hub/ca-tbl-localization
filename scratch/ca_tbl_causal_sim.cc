@@ -1715,6 +1715,8 @@ struct ArmResult
  * sites -- a perfectly straight approach would give the constant-velocity filter
  * an unrealistically easy prediction and flatter every arm equally.
  */
+static double CollapseStandZ(double x, double y); // DD 39, defined with g_collapse
+
 class Tourist
 {
   public:
@@ -1789,6 +1791,8 @@ class Tourist
         m_stopAfterS = stopAfterS;
         m_elapsed = 0.0;
     }
+    bool m_buried = false;  //!< DD 39
+    double m_buriedZ = 1.5; //!< DD 39
     bool m_incident = false;
     bool m_incTurned = false;
     double m_incHdg = 0.0;
@@ -1804,6 +1808,10 @@ class Tourist
 
     void Step(double dt)
     {
+        if (m_buried) // DD 39: trapped, does not move
+        {
+            return;
+        }
         if (m_trail)
         {
             m_elapsed += dt;
@@ -1932,7 +1940,20 @@ class Tourist
         Clamp();
     }
 
-    Vector Position() const { return Vector(m_x, m_y, 1.5); }
+    //! DD 39 --collapse: a buried worker, still from t = 0 at (x, y, z). Off: never called.
+    void Bury(double x, double y, double z)
+    {
+        m_buried = true;
+        m_x = x;
+        m_y = y;
+        m_buriedZ = z;
+    }
+    bool IsBuried() const { return m_buried; }
+
+    Vector Position() const
+    {
+        return Vector(m_x, m_y, m_buried ? m_buriedZ : CollapseStandZ(m_x, m_y));
+    }
 
   private:
     void PickTarget()
@@ -2595,6 +2616,42 @@ static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
 static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
 static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
 static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
+//! DD 39 --collapse: the collapse World (DD 36-37) inside the full pipeline. Off: nothing below is read.
+struct CaTblCollapseCfg
+{
+    bool on = false;
+    double footX = std::nan("");    //!< pile footprint along x, m, centred on the origin
+    double footY = std::nan("");    //!< pile footprint along y, m
+    double pileH = std::nan("");    //!< pile height, m (row PILE-ALPHA x intact height)
+    double depthMin = std::nan(""); //!< least rubble above a buried device, m
+    double depthMax = std::nan(""); //!< most rubble above a buried device, m
+    std::string bracket = "central"; //!< rubble bracket (DD 36)
+};
+static CaTblCollapseCfg g_collapse;
+//! Height of a carried device standing at (x, y): 1.5 m above the ground, or above the pile's top inside its
+//! footprint under --collapse. Off: 1.5 everywhere, the value every earlier result used.
+static double CollapseStandZ(double x, double y)
+{
+    if (g_collapse.on && std::abs(x) <= 0.5 * g_collapse.footX && std::abs(y) <= 0.5 * g_collapse.footY)
+    {
+        return g_collapse.pileH + 1.5;
+    }
+    return 1.5;
+}
+//! DD 39: where buried worker \p index (0 = the measured tag) lies. Its own stream per seed and index, so worker k
+//! is at the same place whatever --nTags is (the 1-worker run is worker 0 of the 20-worker run), and no other
+//! stream moves. (x, y) uniform in the footprint (0.5 m margin), depth uniform in [depthMin, depthMax].
+static Vector CollapseBuriedPos(uint32_t seed, uint32_t index)
+{
+    std::mt19937_64 g(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0xC011A95EULL + 7919ULL * index);
+    std::uniform_real_distribution<double> u(0.0, 1.0);
+    const double hx = 0.5 * g_collapse.footX - 0.5;
+    const double hy = 0.5 * g_collapse.footY - 0.5;
+    const double x = (2.0 * u(g) - 1.0) * hx;
+    const double y = (2.0 * u(g) - 1.0) * hy;
+    const double d = g_collapse.depthMin + u(g) * (g_collapse.depthMax - g_collapse.depthMin);
+    return Vector(x, y, g_collapse.pileH - d);
+}
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -7174,6 +7231,19 @@ RunArm(CaTblPolicyMode armMode,
     engine2p4.Initialize(cfg2p4);
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
+    // DD 39 --collapse: the rubble World on every link of this arm (DD 36-37). Off: no world, no hook, no draw.
+    std::unique_ptr<CaTblRubbleWorld> collapseWorld;
+    if (g_collapse.on)
+    {
+        CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
+        ParseRubbleBracket(g_collapse.bracket, br);
+        collapseWorld.reset(new CaTblRubbleWorld(br));
+        collapseWorld->AddRubble(Vector(-0.5 * g_collapse.footX, -0.5 * g_collapse.footY, 0.0),
+                                 Vector(0.5 * g_collapse.footX, 0.5 * g_collapse.footY, g_collapse.pileH));
+        engine868.SetRubbleWorld(collapseWorld.get());
+        engine2p4.SetRubbleWorld(collapseWorld.get());
+        engineUwb.SetRubbleWorld(collapseWorld.get());
+    }
 
     // C2. All per-tag state lives here now. tags[0] is the tag this arm has always
     // measured; tags[1..] are additional MEASURED targets, each with its own filter,
@@ -7320,6 +7390,11 @@ RunArm(CaTblPolicyMode armMode,
         std::cout << "  DD35 incident: trail heading " << hdg0 * 180.0 / M_PI << " deg from (" << p0.x << ", " << p0.y
                   << "), leaves it at " << devS << " s, turns " << turn * 180.0 / M_PI << " deg, stops " << stopS
                   << " s later\n";
+    }
+    if (g_collapse.on) // DD 39: the measured worker is buried from t = 0
+    {
+        const Vector b = CollapseBuriedPos(seed, 0);
+        walker.Bury(b.x, b.y, b.z);
     }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
@@ -7891,6 +7966,11 @@ RunArm(CaTblPolicyMode armMode,
         prng->SetStream(static_cast<int64_t>(seed) * 7919 + 500003 + pt);
         peerWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
                                  dep.boxHalfM, dep.dwellRadiusM, prng);
+        if (g_collapse.on) // DD 39
+        {
+            const Vector b = CollapseBuriedPos(seed, pt);
+            peerWalkers.back().Bury(b.x, b.y, b.z);
+        }
         const Vector ppos = peerWalkers.back().Position();
         engine868.RegisterNode(pid, ppos);
         engine2p4.RegisterNode(pid, ppos);
@@ -19621,6 +19701,22 @@ main(int argc, char* argv[])
                  "conditioning degrades with distance from access, which is what a "
                  "real deployment does and the direction the scenario needs.",
                  gwArcCentreDegArg);
+    cmd.AddValue("collapse",
+                 "DD 39. Collapse World (DESIGN_DECISIONS 36-37, docs/HANDOFF_COLLAPSE_MULTIWORKER.md): a box rubble pile "
+                 "centred on the origin; every tag (the measured one and every peer) is buried and still from t = 0; a "
+                 "walker or finder inside the footprint stands on the pile (its device 1.5 m above the top); every link "
+                 "of every engine gets the pile's lowest-loss path loss and ToF delay. Needs --collapseFootX, "
+                 "--collapseFootY, --collapsePileH, --collapseDepthMin, --collapseDepthMax (no defaults: set them from "
+                 "docs/SOURCES_COLLAPSE.md rows or sweep them). Default false: nothing reads any of this.",
+                 g_collapse.on);
+    cmd.AddValue("collapseFootX", "DD 39. Pile footprint along x, m (required with --collapse)", g_collapse.footX);
+    cmd.AddValue("collapseFootY", "DD 39. Pile footprint along y, m (required with --collapse)", g_collapse.footY);
+    cmd.AddValue("collapsePileH", "DD 39. Pile height, m (required with --collapse; row PILE-ALPHA)", g_collapse.pileH);
+    cmd.AddValue("collapseDepthMin", "DD 39. Least rubble above a buried device, m (required with --collapse)",
+                 g_collapse.depthMin);
+    cmd.AddValue("collapseDepthMax", "DD 39. Most rubble above a buried device, m (required with --collapse)",
+                 g_collapse.depthMax);
+    cmd.AddValue("collapseBracket", "DD 39. Rubble bracket low|central|high (DD 36)", g_collapse.bracket);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
                  "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
@@ -21225,6 +21321,30 @@ main(int argc, char* argv[])
         argv2.push_back(argv[i]);
     }
     cmd.Parse(static_cast<int>(argv2.size()), argv2.data());
+    if (g_collapse.on) // DD 39: refuse an incomplete collapse World
+    {
+        CaTblRubbleBracket brChk;
+        const CaTblCollapseCfg& c = g_collapse;
+        if (!std::isfinite(c.footX) || !std::isfinite(c.footY) || !std::isfinite(c.pileH) ||
+            !std::isfinite(c.depthMin) || !std::isfinite(c.depthMax))
+        {
+            std::cerr << "FATAL: --collapse needs --collapseFootX, --collapseFootY, --collapsePileH, "
+                         "--collapseDepthMin and --collapseDepthMax (no defaults)\n";
+            return 1;
+        }
+        if (c.footX <= 1.0 || c.footY <= 1.0 || c.pileH <= 0.0 || c.depthMin <= 0.0 || c.depthMax < c.depthMin ||
+            c.depthMax > c.pileH)
+        {
+            std::cerr << "FATAL: --collapse geometry out of range (footprints > 1 m, 0 < depthMin <= depthMax <= "
+                         "pileH)\n";
+            return 1;
+        }
+        if (!ParseRubbleBracket(c.bracket, brChk))
+        {
+            std::cerr << "FATAL: --collapseBracket must be low, central or high\n";
+            return 1;
+        }
+    }
     if (CaTblTofModelIndex(g_tofErrorModelName) < 0)
     {
         std::cerr << "ERROR: --tofErrorModel must be engine, gottschalk, muller or wolf\n";

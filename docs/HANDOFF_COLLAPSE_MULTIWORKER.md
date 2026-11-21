@@ -229,7 +229,38 @@ engine switches, including `rangeErrorNoLinkLeak`, `rssiRangeFromShadowing`, `nl
 **link-level** tool for the rubble physics only. It does not apply all preset switches; §6.2 explains what that
 changes.
 
-**How to implement (main simulator):**
+**Status 2026-11-22: steps 1–6, 8 and 9 below are DONE (DD 39, gate G179).**
+- `--collapse` and its geometry flags are in.
+- Buried still workers, finders on the pile surface, stations as a ring.
+- N = 20 and N = 1 (`$PIN_ONE_WORKER`) both run; worker 1 is identical in both.
+- Collapse off is byte-identical (178 + 614 files).
+- Step 7 (`collapse_truth.csv`) is not done. The traces carry the true (x, y); depth is reproducible from
+  `CollapseBuriedPos()`.
+
+Working command (placeholders for geometry, to be sourced or swept):
+```bash
+. scripts/preset_pins.sh
+build/scratch/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --collapse=true --collapseFootX=30 \
+  --collapseFootY=30 --collapsePileH=3.66 --collapseDepthMin=0.5 --collapseDepthMax=3.5 --collapseBracket=central \
+  --boxHalf=50 --gwRidge=false --baseCampFrac=0 --nGateways=4 --searchLaunchAtS=1 --relaySlots=false \
+  --arms=ca_tbl_full,static_868,static_2p4 --seed=5 --duration=1800 \
+  --nTags=20 --measuredSubjects=20 --identityQueryManifests=$(seq -s, 1 20) --outdir=/tmp/c20
+# one worker: replace the last line's flags with  $PIN_ONE_WORKER --outdir=/tmp/c1
+```
+
+**Immediate next problems (found in the first runs, DD 39):**
+1. Station geometry must be a sourced or swept scenario choice. The preset's line of gateways fails for a pile.
+   How far from a collapse responders set up, and how many stations: needs a source (INSARAG site layout?) or a
+   sweep over 15–60 m standoff and 3–6 stations.
+2. 1-worker static_868 drifts to 654 m, while with 20 workers it gets 7.3 m. Find which 868 MHz path the
+   `PIN_ONE_WORKER` removal leaves. Likely RSSI-only fixes, which rubble inflates by orders of magnitude.
+3. The 2.4 GHz-only arm never fixes. Check whether that is physics (link budget through rubble to a 30 m ring) using
+   the link-level tool, and report it as a result if so.
+4. Finders: are they reaching the workers? Finder tasking `pairs` sends both finders to subject 1. With 20 workers
+   use `--finderTasking=need` or `roundrobin`, and check the finder traces.
+5. Depth (z) is not estimated by the 2-D filters. That is plan item B2.
+
+**How it was implemented (main simulator), for reference:**
 1. **Flags.** `--collapse` (default false), plus the required geometry: `--collapseFootX/Y`, `--collapsePileH`,
    `--collapseDepthMin/Max`, `--collapseBracket`, `--collapseHoldH`. Refuse if `--collapse` is given without them.
    Default off means byte-identical: no RNG draw and no engine hook.
@@ -355,3 +386,7 @@ simulator output quantity is compared with a published value, with a tolerance s
 - 2026-11-22: output validation script (VAL-1/2/4/6; 7/12 pass, causes of the failures found).
   - The main simulator already runs 20 measured workers (`--measuredSubjects=20`).
   - Plan revised (§6.1): the collapse World goes into the main simulator behind `--collapse`.
+- 2026-11-22: DD 39 done.
+  - `--collapse` in the main simulator; 20 and 1 buried workers through the full pipeline; gate G179.
+  - Off byte-identical.
+  - Next problems listed in §6.1.

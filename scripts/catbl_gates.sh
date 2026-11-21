@@ -2076,6 +2076,12 @@ bash scripts/collapse_world_gate.sh "$WORK/g178" || fail G178
 bash scripts/collapse_world_gate_selftest.sh || fail G178
 finish G178
 
+# ---------------- G179: --collapse in the main simulator, 20 buried workers and 1 (DD 39)
+printf '\n--- G179 collapse through the full pipeline (N = 20 and N = 1) ---\n'
+bash scripts/collapse_main_gate.sh "$WORK/g179" || fail G179
+bash scripts/collapse_main_gate_selftest.sh || fail G179
+finish G179
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

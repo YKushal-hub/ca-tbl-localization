@@ -7,3 +7,6 @@ PIN_PRE_DD19="--integrityCheck=true --imuFilter=cv --imuMagSigmaDeg=0 --ekf5Find
 # t = 0) with three gateways on a line, a trailhead camp and two searchers dispatched on lost contact. A gate written
 # against DD 26 pins it back with this line.
 PIN_PRE_DD27="--nGateways=12 --gwLayout=legacy --gwRidge=false --baseCampFrac=0 --nFinders=12 --searchLaunchOnLoss=0"
+# DD 39: the preset with ONE worker (--nTags=1 --measuredSubjects=1). The preset's relay, fix-routing, case-C and
+# finder-tasking features need >= 3 tags or > 1 subject and refuse otherwise; this turns exactly those off.
+PIN_ONE_WORKER="--nTags=1 --measuredSubjects=1 --identityQueryManifests=1 --relayedRanging=false --relayChain=false --subjectRelayChain=false --fixRouting=false --fixRoutingConfidence=false --caseCRelative=false --fixRoutingSubjects=false --finderTasking=tag0 --hopProvenance=false"

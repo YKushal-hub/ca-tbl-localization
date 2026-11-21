@@ -792,3 +792,57 @@ p90 / ≤ 2 m:
 - rss: 1.00 / 1.50 / 5.55 / 0.55;
 - tof: 0.45 / 1.33 / 1.83 / 0.40.
 Vertical error medians are 1.4–3.1 m: depth is the weak axis, as planned (B2, Cramér–Rao bound next).
+
+## 39. Collapse World in the main simulator: 20 buried workers through the full pipeline (`--collapse`, default off; 2026-11-22)
+
+The main simulator already localises several workers (`--measuredSubjects=N`, MS-1: each subject runs ranging, the
+tier-1 floor, fix selection, `Step()` with its own escalation, the handshake, battery and IMU). So the collapse study
+runs there, with the preset's engine physics, MAC, relays, finders and energy unchanged, instead of in a separate
+program. `scratch/ca_tbl_collapse_sim.cc` stays a link-level tool for the rubble physics.
+
+**Mechanism.**
+- `--collapse` builds one `CaTblRubbleWorld` per arm: a box pile centred on the origin, `--collapseFootX/Y`,
+  `--collapsePileH`, `--collapseBracket`. It sets it on the three engines.
+- Every tag (the measured one and every peer) is buried and still from t = 0.
+  - (x, y) is uniform in the footprint (0.5 m margin); depth is uniform in [`--collapseDepthMin`, `--collapseDepthMax`].
+  - Each position comes from its own stream keyed by seed and worker index. So worker k lies at the same place
+    whatever `--nTags` is: the 1-worker run is worker 1 of the 20-worker run.
+- A walker or finder inside the footprint stands on the pile: its device is 1.5 m above the top. Elsewhere it stays
+  1.5 m above the ground.
+- No geometry value has a default: `--collapse` without all five is refused, as are out-of-range values and a bad
+  bracket.
+- `PIN_ONE_WORKER` in `scripts/preset_pins.sh` is the preset with one worker. The preset's relay, fix-routing,
+  case-C and finder-tasking features need ≥ 3 tags or > 1 subject, and refuse otherwise.
+
+**First runs** (seed 5, 600 s; 30 × 30 m pile 3.66 m high; depths 0.5–3.5 m; central bracket; placeholders, not
+citable).
+- **Station geometry decides everything.**
+  - The preset's line of 3 gateways 55 m from the pile gave mirror-ambiguous tier-1 TDoA and median errors of
+    250–320 m.
+  - 4 gateways on a ring around the camp (90, 90) left the pile outside the ring, and no worker got a fix.
+  - With `--gwRidge=false --baseCampFrac=0 --boxHalf=50 --nGateways=4` (a 30 m ring centred on the pile), tier-1
+    TDoA solved in 211 of 236 cycles.
+- **Worker 1, median error (CEP50):**
+
+| Arm | 1 worker | 20 workers |
+|---|---|---|
+| ca_tbl_full | 5.4 m | 6.1 m |
+| static_868 | 654 m | 7.3 m |
+| static_2p4 | never fixes | never fixes |
+
+- Open: the 1-worker static_868 result (the pin removes the relays it uses with 20). The 2.4 GHz-only arm never fixes
+  because 2.4 GHz through rubble to the 30 m ring is rarely heard.
+- `subject_summary.csv`'s `fixCycles` counts only precise-tier fixes. Use the traces for 868 MHz fixes.
+
+**Off: byte-identical.**
+- Three reference runs (178 files) match.
+- `scripts/merge_identity_check.sh` against `main`'s binary still gives 614 identical files.
+
+**Gate G179** (`scripts/collapse_main_gate.sh`):
+- 20 subjects in every arm;
+- every worker still and inside the footprint;
+- worker 1 at the same spot alone and with 20;
+- the 1-worker ca_tbl_full arm fixes;
+- the stations form the ring;
+- three refusals.
+Selftest: 4 doctored outputs, all caught.
