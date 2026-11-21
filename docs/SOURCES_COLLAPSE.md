@@ -69,6 +69,21 @@ UCLouvain DIAL 2078.5/255172.
 | NIST1542-RUBBLE | rubble ≥ 30–40 dB (voids remained) | W: validation target A5.1 (void-rich) | Holloway et al., NIST Technical Note 1542 (2006), convention center, executive summary (p. iv) | "Large amounts of building rubble caused at least 30 to 40 dB of signal attenuation. The true attenuation was not established in several cases since we measured only noise." | VERIFIED 2026-11-21 |
 | NIST1542-FREQ | frequencies ~50, 150, 225, 450, 900 MHz, 1.8 GHz | W: applicability to 868 MHz | TN 1542, §1 | "approximately 50 MHz, 150 MHz, 225 MHz, 450 MHz, 900 MHz, and 1.8 GHz" | VERIFIED 2026-11-21 |
 
+### 3a. Solid plain concrete, NISTIR 6055
+
+Source: W. C. Stone, "Electromagnetic Signal Attenuation in Construction Materials", NISTIR 6055, NIST Construction Automation Program Report No. 3, October 1997, DOI 10.6028/NIST.IR.6055. Specimens: plain concrete batch 1 (w/c 0.4, 12.7 mm aggregate), nominal thicknesses 101.6 / 203.2 / 304.8 mm (C14 / C18 / C112). Page numbers are the printed page footers.
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| NIST6055-FORM | dB curves are 20·log10 of the decimal (amplitude) coefficient | W: reading the tables right | §4.4 p. 81; Tables 4.4a/4.4b pp. 82–83 | "The ordinate values represent the ratio of the received to transmitted signal. The decimal attenuation values are presented first, followed by the same ordinate set converted to decibels." | at 1 GHz, C14: Table 4.4a fit gives 0.2458 (decimal); 10·log10(0.2458) = −6.09 dB, while Table 4.4b gives −12.19 dB = 20·log10(0.2458) (fit-to-fit check at 0.868/1/1.5/2 GHz, ratio 2.000 at each) | VERIFIED 2026-11-21 |
+| NIST6055-DENS | batch 1 density 2345.9 kg/m³ (2.35 g/cc, theoretical); §4.4 text gives 2.31 g/cc | W: solid density cross-check for DENS-* | §3 batch table p. 25; §4.4 p. 81 | "Density (kg/m^3) 2345.9"; "an average density of 2.31 g/cc" | — | VERIFIED 2026-11-21 |
+| NIST6055-LOW | solid concrete slope **114.2 dB/m at 0.868 GHz, 111.1 at 1.0, 102.3 at 1.5, 103.8 at 2.0** | W: high-side solid loss, sub-GHz and 2 GHz | Table 4.4b p. 83 (regression, 0.5–2.0 GHz, R ≥ 0.9995) | "Received Signal Magnitude (relative to free space) = M0+M1*F+M2*F^2+M3*F^3+M4*F^4+M5*F^5+M6*F^6, where F is the frequency in GHz." | evaluate C14L and C112L polynomials (coefficients as printed); slope = (L102 − L305)/(0.3048 − 0.1016 m). 0.868 GHz: (−11.61 + 34.82)/0.2032 = 114.2. 1 GHz: (−12.19 + 34.77)/0.2032 = 111.1. 2 GHz: (−14.86 + 35.96)/0.2032 = 103.8. Differencing two thicknesses cancels the two air–concrete interface losses (script: scripts/collapse/nist6055_slopes.py) | VERIFIED 2026-11-21 |
+| NIST6055-HIGH | solid concrete slope **246.1 dB/m at 3 GHz, 248.4 at 4 GHz, 242.3 at 6.5 GHz** | W: high-side solid loss, UWB | Table 4.4d p. 85 (regression, 3.0–8.0 GHz, R = 1) | same form, "Data are for the Frequency Range 3.0 to 8.0 GHz." | 6.5 GHz: C14H −25.31 dB, C112H −74.56 dB; (74.56 − 25.31)/0.2032 = 242.3 dB/m | VERIFIED 2026-11-21 |
+| NIST6055-8G | 8 GHz end point NOT used | — | Table 4.4d; §5 p. 183 | "A one milliwatt signal penetrating a 305 mm thick concrete wall will undergo a loss of approximatey 90 dB at 8 GHz." | the C112H polynomial at 8.0 GHz gives −60.5 dB, less loss than C18H (−63.9 dB) and far from the text's ~90 dB: the fit is unreliable at the band edge (noise floor). UWB channel 9 (8 GHz) uses ITU2040-T3 and the 6.5 GHz NIST point only | RECORDED 2026-11-21 |
+| NIST6055-DENSLAW | loss per unit thickness ∝ density (non-conducting materials) | W: supports A = α·η form (OES-SPHERE) | §5 p. 183, Figure 5.2 p. 184 | "Figure 5.2 strongly supports the notion that, at least in non-conducting materials, the signal loss per unit thickness is proportional to the material density." Fits: "y = 0.015451 + 0.046999x" (1 GHz), "y = 0.022399 + 0.056185x" (1.5 GHz), dB/mm vs g/cc | at 2.35 g/cc, 1 GHz: 0.015451 + 0.046999·2.35 = 0.1259 dB/mm = 125.9 dB/m (fit across materials; the concrete-only slope NIST6055-LOW is 111.1) | VERIFIED 2026-11-21 |
+
+**Consistency with the rubble brackets.** NIST solid concrete at 2 GHz × the high η (0.92, DENS-*, PENDING) gives 103.8·0.92 = 95.5 dB/m, within 3% of the high 2.4 GHz bracket 98.6 dB/m that came from Oestges' 80 dB/m measurement (independent sources). At 868 MHz, 114.2·0.92 = 105 dB/m is far above the high bracket 30.7 dB/m. The ITU solid value (33.0 dB/m at 1 GHz) and NIST (111.1) differ by 3.4×; NIST specimens were laboratory-cast concrete (28-day strength tests, Table 3.3.4 p. 46; age and moisture at test not stated in the parts read), and the reason for the gap is not established here. So NIST is kept as an **extra-high solid-material case** ("wet concrete"), reported as a sensitivity case, not as the high bracket; the brackets of §2 stay as derived. No value is changed to fit results.
+
 ## 4. Ranging through obstacles
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -89,6 +104,15 @@ UCLouvain DIAL 2078.5/255172.
 | DEBRUY-1983 | 93.6% of live extrications within 24 h; 80% of trapped extricated within 2 days; trapped mortality 35.0% | X: survival weighting | De Bruycker, Greco et al., "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO, 1983 | (from a search summary only) | PENDING (open PDF at iris.unina.it) |
 | RESCUE-TIME | extrication time per victim | X: digging model | Natural Hazards (Springer) 2014, DOI 10.1007/s11069-014-1304-3 | — | PENDING (library access) |
 
+## 5a. Many devices on air, Bor et al. 2016
+
+Source: M. Bor, U. Roedig, T. Voigt, J. M. Alonso, "Do LoRa Low-Power Wide-Area Networks Scale?", ACM MSWiM 2016, pp. 59–67, DOI 10.1145/2988287.2989163 (Lancaster University repository copy).
+
+| ID | Value | Used for | Location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| BOR-TIMING | overlap tolerated if ≥ 5 preamble symbols stay intact; critical section x_cs = (a_x + T_sym·(N_pp − 5), b_x) | X: collision timing in B5 (new switch only) | §3, "Timing" | "packets can overlap, as long there are at least 5 preamble symbols left intact (in case of a weak packet). In other words, the critical section of a packet reception starts at the last 5 preamble symbols" | with N_pp = 8 (paper's preamble), the first 3 symbols may overlap | VERIFIED 2026-11-21 |
+| BOR-CAP | capture observed with 3 dBm vs 2 dBm transmitters (1 dB transmit difference); the paper gives eq. (9) but no number for P_threshold | X: capture threshold sweep in B5 | §3, "Power", eq. (9), Figure 3 | "One transmitter is set to transmit a 32-byte packet on a regular interval at a weak transmit power (2 dBm), while another transmitter was set to transmit a 32-byte packet at a strong transmit power (3 dBm)." | the existing simulator uses 6 dB (ca-tbl-mac.cc `m_captureThresholdDb`, commented as a model parameter to sweep). Collapse runs keep 6 dB as the default (earlier work unchanged) and sweep 1 dB (Bor experiment) to 6 dB | VERIFIED 2026-11-21; numeric threshold absent in primary (recorded) |
+
 ## 6. Hardware
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -104,7 +128,7 @@ UCLouvain DIAL 2078.5/255172.
 | Needed for | Source | Status |
 |---|---|---|
 | 868 MHz excess loss and group delay under real earthquake rubble | DiCarlofelice, Di Giampaolo, Feliziani & Tognolatti, IEEE TVT 64(6):2288–2296, 2015, DOI 10.1109/TVT.2014.2346580 | PENDING |
-| Concrete loss 3–8 GHz vs thickness | Stone, NISTIR 6055 (1997), DOI 10.6028/NIST.IR.6055 | PENDING |
+| Concrete loss 3–8 GHz vs thickness | Stone, NISTIR 6055 (1997), DOI 10.6028/NIST.IR.6055 | DONE → §3a |
 | Solid density of concrete | EN 1991-1-1 Annex A, Table A.1 | PENDING |
 | Debris bulk density | UN-based 1.4 t/m³ estimate (primary document); 1.69–2.25 t/m³ (ScienceDirect S2949750726000088) | PENDING |
 | Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
@@ -112,4 +136,4 @@ UCLouvain DIAL 2078.5/255172.
 | Collapse geometry and void types | FEMA US&R Structural Collapse Technician; USACE Structures Specialist FOG; Rana Plaza reviewed sources | PENDING |
 | GPS horizontal and vertical accuracy for rescuers | GPS Standard Positioning Service Performance Standard (current edition) | PENDING |
 | Battery capacity | manufacturer cell datasheet | PENDING |
-| Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | PENDING |
+| Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |
