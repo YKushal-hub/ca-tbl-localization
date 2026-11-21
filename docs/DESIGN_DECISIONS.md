@@ -846,3 +846,26 @@ citable).
 - the stations form the ring;
 - three refusals.
 Selftest: 4 doctored outputs, all caught.
+
+## 40. The collapse link field with the preset's engines (`--collapseField`, default off; 2026-11-22)
+
+`--collapse --collapseField` draws the link field (obs_* / truth_* files) inside the main simulator
+(`RunCollapseField`) instead of running arms.
+- **Engines.** Built by `CA_TBL_MAKE_CONFIGS`, exactly as in an arm, so the preset's ~20 engine switches apply. The
+  standalone `scratch/ca_tbl_collapse_sim.cc` did not apply them. That is why its VAL-1 failed: the 868 MHz
+  range-error leak and the receiver's clipping stage were on there.
+- **Positions.** Buried devices are where the full runs put them (`CollapseBuriedPos`).
+- **Isolation.** Interference is off ("link scheduled alone").
+- **Extra output.** `truth_draws.csv` carries each draw's engine total loss for VAL-1.
+
+**Validation on it** (rows VAL-* in `docs/SOURCES_COLLAPSE.md`; sourced 8-storey IND2 geometry, 4 stations at
+56.45 m; seed 21): 11 of 12 checks pass.
+- VAL-1 is exact (≤ 0.0001 dB over 30,078 draws).
+- VAL-2 spans NIST's bounds (1.7–103.6 dB).
+- VAL-6 reproduces SLOW-BR exactly (0.454, 0.704).
+- UWB line-of-sight spread is 0.107 m, inside Benouakta's 0.10–0.33 m.
+- **Fails:** 2.4 GHz line-of-sight spread at Zhou's 28–57 m is 5.11 m against the measured 1.27–3.2 m. At SNR ≥ 30 dB
+  it is 2.9–3.1 m; lower-SNR links widen it through the CRLB term. The model is conservative for 2.4 GHz. Reported,
+  not tuned.
+
+Off: byte-identical (178 reference files; 614 files against `main`'s binary).

@@ -2626,6 +2626,20 @@ struct CaTblCollapseCfg
     double depthMin = std::nan(""); //!< least rubble above a buried device, m
     double depthMax = std::nan(""); //!< most rubble above a buried device, m
     std::string bracket = "central"; //!< rubble bracket (DD 36)
+    // DD 40 --collapseField: the link field (obs/truth files) drawn with the preset's engines instead of a run.
+    bool field = false;
+    uint32_t fieldVictims = 0;          //!< buried devices (worker k at CollapseBuriedPos(seed, k))
+    double gridStep = std::nan("");     //!< spacing of candidate rescuer points on the pile top, m
+    std::string holdHeights;            //!< device heights above the top, m, comma list
+    uint32_t stations = 0;              //!< ground stations on a ring around the pile
+    double stationR = std::nan("");     //!< ring radius, m (row NIOSH-CZ: half footprint + 1.5 x intact height)
+    double stationH = std::nan("");     //!< station antenna height, m
+    uint32_t slots = 0;                 //!< time slots
+    double slotS = std::nan("");        //!< slot length, s
+    double gpsSigmaH = std::nan("");    //!< rows GPS-SPS-*
+    double gpsSigmaV = std::nan("");
+    double localSigma = std::nan("");   //!< rescuer local-frame error per axis (UWB LOS floor)
+    bool rubbleOff = false;             //!< same geometry and keyed draws without the pile (VAL-*)
 };
 static CaTblCollapseCfg g_collapse;
 //! Height of a carried device standing at (x, y): 1.5 m above the ground, or above the pile's top inside its
@@ -2974,6 +2988,236 @@ CaTblGatewayLayout(const std::string& layout, uint32_t n, double boxHalfM, doubl
         why = "unknown --gwLayout '" + layout + "'";
     }
     return pts;
+}
+
+/**
+ * DD 40 --collapseField: the collapse link field with the preset's engines.
+ *
+ * Same output as scratch/ca_tbl_collapse_sim.cc (obs_links.csv, obs_anchors.csv, truth_victims.csv,
+ * truth_anchors.csv, truth_links.csv, run.txt), but every engine is configured by CA_TBL_MAKE_CONFIGS exactly as
+ * in an arm, so the preset's physics switches apply (rangeErrorNoLinkLeak, rssiRangeFromShadowing, nlosRangeBias,
+ * iqOverloadOnly, uwbMode, t2SensitivityRowKHz, terrainPerTierFreq, fadingPerBand, rngKeyed, ...). Buried devices
+ * lie where the full runs put them (CollapseBuriedPos). Link outcomes mean "scheduled alone": the interference
+ * registry is off; contention is the full run's job. Estimation never happens here (World side).
+ */
+static int
+RunCollapseField(EnvironmentClass envWide, EnvironmentClass envFacility, uint32_t seed, VegetationType vegWide,
+                 VegetationType vegFacility, const TierPhy phy[CA_TBL_TIER_COUNT], const std::string& outdir)
+{
+    const CaTblCollapseCfg& C = g_collapse;
+    std::vector<double> holds;
+    {
+        std::stringstream ss(C.holdHeights);
+        std::string tok;
+        while (std::getline(ss, tok, ','))
+        {
+            if (!tok.empty())
+            {
+                holds.push_back(std::stod(tok));
+            }
+        }
+    }
+    if (C.fieldVictims == 0 || !std::isfinite(C.gridStep) || C.gridStep <= 0.0 || holds.empty() || C.slots == 0 ||
+        !std::isfinite(C.slotS) || !std::isfinite(C.gpsSigmaH) || !std::isfinite(C.gpsSigmaV) ||
+        !std::isfinite(C.localSigma) || (C.stations > 0 && (!std::isfinite(C.stationR) || !std::isfinite(C.stationH))))
+    {
+        std::cerr << "FATAL: --collapseField needs --collapseFieldVictims, --collapseGridStep, --collapseHoldHeights, "
+                     "--collapseSlots, --collapseSlotS, --collapseGpsSigmaH/V, --collapseLocalSigma (and with "
+                     "--collapseStations > 0, --collapseStationR and --collapseStationH)\n";
+        return 1;
+    }
+    RngSeedManager::SetSeed(seed);
+    RngSeedManager::SetRun(1);
+    RngSeedManager::ResetNextStreamIndex();
+    LoRaDistributionSampler::SetKeyedMode(true, seed);
+    CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)
+    c868.interference.enabled = false;
+    c2p4.interference.enabled = false;
+    cUwb.interference.enabled = false;
+    LoRaPhysicsEngine e868;
+    e868.Initialize(c868);
+    LoRa2p4PhysicsEngine e2p4;
+    e2p4.Initialize(c2p4);
+    LoRaUWBPhysicsEngine eUwb;
+    eUwb.Initialize(cUwb);
+    CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
+    ParseRubbleBracket(C.bracket, br);
+    CaTblRubbleWorld world(br);
+    world.AddRubble(Vector(-0.5 * C.footX, -0.5 * C.footY, 0.0), Vector(0.5 * C.footX, 0.5 * C.footY, C.pileH));
+    if (!C.rubbleOff)
+    {
+        e868.SetRubbleWorld(&world);
+        e2p4.SetRubbleWorld(&world);
+        eUwb.SetRubbleWorld(&world);
+    }
+    struct FPt
+    {
+        uint32_t id;
+        Vector p;
+    };
+    std::vector<FPt> vic, pts, sts;
+    for (uint32_t k = 0; k < C.fieldVictims; ++k)
+    {
+        vic.push_back({1 + k, CollapseBuriedPos(seed, k)});
+    }
+    uint32_t pid = 10000;
+    for (double x = -0.5 * C.footX + 0.5 * C.gridStep; x < 0.5 * C.footX; x += C.gridStep)
+    {
+        for (double y = -0.5 * C.footY + 0.5 * C.gridStep; y < 0.5 * C.footY; y += C.gridStep)
+        {
+            for (double h : holds)
+            {
+                pts.push_back({pid++, Vector(x, y, C.pileH + h)});
+            }
+        }
+    }
+    for (uint32_t k = 0; k < C.stations; ++k)
+    {
+        const double a = 2.0 * M_PI * k / C.stations;
+        sts.push_back({20000 + k, Vector(C.stationR * std::cos(a), C.stationR * std::sin(a), C.stationH)});
+    }
+    auto reg = [&](const FPt& q) {
+        e868.RegisterGateway(q.id, q.p, true);
+        e2p4.RegisterGateway(q.id, q.p, true);
+        eUwb.RegisterGateway(q.id, q.p, true);
+        e868.RegisterNode(q.id, q.p);
+        e2p4.RegisterNode(q.id, q.p);
+        eUwb.RegisterNode(q.id, q.p);
+    };
+    for (auto* v : {&vic, &pts, &sts})
+    {
+        for (const auto& q : *v)
+        {
+            reg(q);
+        }
+    }
+    {
+        std::ofstream t(outdir + "/truth_victims.csv");
+        t << "id,x,y,z,depth_m,in_void\n" << std::fixed << std::setprecision(4);
+        for (const auto& v : vic)
+        {
+            t << v.id << "," << v.p.x << "," << v.p.y << "," << v.p.z << "," << (C.pileH - v.p.z) << ",0\n";
+        }
+        std::ofstream ta(outdir + "/truth_anchors.csv");
+        std::ofstream oa(outdir + "/obs_anchors.csv");
+        ta << "id,kind,x,y,z\n" << std::fixed << std::setprecision(4);
+        oa << "id,kind,gps_x,gps_y,gps_z,sigma_h,sigma_v,loc_x,loc_y,loc_z,sigma_loc\n" << std::fixed
+           << std::setprecision(4);
+        std::mt19937_64 grng(0xD1B54A32D192ED03ULL ^ static_cast<uint64_t>(seed));
+        std::mt19937_64 lrng(0xA0761D6478BD642FULL ^ static_cast<uint64_t>(seed));
+        std::normal_distribution<double> N01(0.0, 1.0);
+        auto put = [&](const FPt& q, const char* kind) {
+            ta << q.id << "," << kind << "," << q.p.x << "," << q.p.y << "," << q.p.z << "\n";
+            const double gx = q.p.x + C.gpsSigmaH * N01(grng), gy = q.p.y + C.gpsSigmaH * N01(grng),
+                         gz = q.p.z + C.gpsSigmaV * N01(grng);
+            oa << q.id << "," << kind << "," << gx << "," << gy << "," << gz << "," << C.gpsSigmaH << ","
+               << C.gpsSigmaV << "," << q.p.x + C.localSigma * N01(lrng) << "," << q.p.y + C.localSigma * N01(lrng)
+               << "," << q.p.z + C.localSigma * N01(lrng) << "," << C.localSigma << "\n";
+        };
+        for (const auto& q : pts)
+        {
+            put(q, "point");
+        }
+        for (const auto& q : sts)
+        {
+            put(q, "station");
+        }
+    }
+    std::ofstream ol(outdir + "/obs_links.csv");
+    ol << "slot,t_s,band,tx,rx,received,rx_dbm,snr_db,range_m\n" << std::fixed << std::setprecision(4);
+    std::ofstream tl(outdir + "/truth_links.csv");
+    tl << "band,tx,rx,dist_m,path_kind,path_len_m,rubble_m,extra_db,bias_m\n" << std::fixed << std::setprecision(4);
+    std::ofstream td(outdir + "/truth_draws.csv"); // World: engine total loss per draw (VAL-1)
+    td << "slot,band,tx,rx,total_loss_db\n" << std::fixed << std::setprecision(4);
+    const char* kBand[3] = {"868", "2400", "uwb"};
+    const double kF[3] = {c868.propagation.frequencyHz, c2p4.propagation.frequencyHz, cUwb.propagation.frequencyHz};
+    bool truthWritten = false;
+    uint64_t draws = 0;
+    auto draw = [&](uint32_t slot, int b, const FPt& tx, const FPt& rx) {
+        const Time now = Simulator::Now();
+        bool ok = false;
+        double rxDbm = 0, snr = 0, rng = 0, tot = 0;
+        if (b == 0)
+        {
+            PhysicsResult r = e868.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[0].txPowerDbm, phy[0].sf,
+                                                       phy[0].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        else if (b == 1)
+        {
+            PhysicsResult2p4 r = e2p4.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[1].txPowerDbm, phy[1].sf,
+                                                          phy[1].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        else
+        {
+            PhysicsResultUWB r = eUwb.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[2].txPowerDbm, phy[2].sf,
+                                                          phy[2].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        ++draws;
+        ol << slot << "," << now.GetSeconds() << "," << kBand[b] << "," << tx.id << "," << rx.id << "," << (ok ? 1 : 0)
+           << "," << rxDbm << "," << snr << ",";
+        if (ok)
+        {
+            ol << rng;
+        }
+        ol << "\n";
+        td << slot << "," << kBand[b] << "," << tx.id << "," << rx.id << "," << tot << "\n";
+        if (!truthWritten)
+        {
+            const CaTblRubblePath rp = world.Path(kF[b], tx.p, rx.p);
+            const double dx = tx.p.x - rx.p.x, dy = tx.p.y - rx.p.y, dz = tx.p.z - rx.p.z;
+            tl << kBand[b] << "," << tx.id << "," << rx.id << "," << std::sqrt(dx * dx + dy * dy + dz * dz) << ","
+               << rp.kind << "," << rp.lengthM << "," << rp.rubbleM << "," << rp.extraLossDb << "," << rp.biasM << "\n";
+        }
+    };
+    for (uint32_t sl = 0; sl < C.slots; ++sl)
+    {
+        Simulator::Schedule(Seconds(C.slotS * sl), [&, sl]() {
+            for (int b = 0; b < 3; ++b)
+            {
+                for (const auto& v : vic)
+                {
+                    for (const auto& q : pts)
+                    {
+                        draw(sl, b, v, q);
+                    }
+                    for (const auto& q : sts)
+                    {
+                        draw(sl, b, v, q);
+                    }
+                }
+                for (const auto& q : pts)
+                {
+                    for (const auto& st : sts)
+                    {
+                        draw(sl, b, q, st);
+                    }
+                }
+                for (size_t i = 0; i < vic.size(); ++i)
+                {
+                    for (size_t j = i + 1; j < vic.size(); ++j)
+                    {
+                        draw(sl, b, vic[i], vic[j]);
+                    }
+                }
+            }
+            truthWritten = true;
+        });
+    }
+    Simulator::Run();
+    Simulator::Destroy();
+    std::ofstream rp(outdir + "/run.txt");
+    rp << "ca_tbl_causal_sim --collapseField seed=" << seed << " bracket=" << C.bracket
+       << " rubble=" << (C.rubbleOff ? "off" : "on") << " footX=" << C.footX << " footY=" << C.footY
+       << " pileH=" << C.pileH << " nVictims=" << C.fieldVictims << " depth=[" << C.depthMin << "," << C.depthMax
+       << "] gridStep=" << C.gridStep << " holdHeights=" << C.holdHeights << " nStations=" << C.stations
+       << " stationR=" << C.stationR << " slots=" << C.slots << " slotS=" << C.slotS << " gpsSigmaH=" << C.gpsSigmaH
+       << " gpsSigmaV=" << C.gpsSigmaV << " localSigma=" << C.localSigma << "\n"
+       << "points=" << pts.size() << " stations=" << sts.size() << " draws=" << draws << "\n";
+    std::cout << "COLLAPSE-FIELD draws=" << draws << " points=" << pts.size() << " victims=" << vic.size() << "\n";
+    return 0;
 }
 
 /**
@@ -19717,6 +19961,22 @@ main(int argc, char* argv[])
     cmd.AddValue("collapseDepthMax", "DD 39. Most rubble above a buried device, m (required with --collapse)",
                  g_collapse.depthMax);
     cmd.AddValue("collapseBracket", "DD 39. Rubble bracket low|central|high (DD 36)", g_collapse.bracket);
+    cmd.AddValue("collapseField",
+                 "DD 40. Instead of the arms, draw the collapse link field (obs_*/truth_* files, as "
+                 "scratch/ca_tbl_collapse_sim.cc) with the preset's engines; needs --collapse and the field flags",
+                 g_collapse.field);
+    cmd.AddValue("collapseFieldVictims", "DD 40. Buried devices in the field", g_collapse.fieldVictims);
+    cmd.AddValue("collapseGridStep", "DD 40. Rescuer point spacing on the pile top, m", g_collapse.gridStep);
+    cmd.AddValue("collapseHoldHeights", "DD 40. Device heights above the top, m, comma list", g_collapse.holdHeights);
+    cmd.AddValue("collapseStations", "DD 40. Ground stations on a ring around the pile", g_collapse.stations);
+    cmd.AddValue("collapseStationR", "DD 40. Station ring radius, m", g_collapse.stationR);
+    cmd.AddValue("collapseStationH", "DD 40. Station antenna height, m", g_collapse.stationH);
+    cmd.AddValue("collapseSlots", "DD 40. Time slots", g_collapse.slots);
+    cmd.AddValue("collapseSlotS", "DD 40. Slot length, s", g_collapse.slotS);
+    cmd.AddValue("collapseGpsSigmaH", "DD 40. GPS error per horizontal axis, m", g_collapse.gpsSigmaH);
+    cmd.AddValue("collapseGpsSigmaV", "DD 40. GPS vertical error, m", g_collapse.gpsSigmaV);
+    cmd.AddValue("collapseLocalSigma", "DD 40. Rescuer local-frame error per axis, m", g_collapse.localSigma);
+    cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
                  "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
@@ -22850,6 +23110,15 @@ main(int argc, char* argv[])
         }
     }
 
+    if (g_collapse.field) // DD 40
+    {
+        if (!g_collapse.on)
+        {
+            std::cerr << "FATAL: --collapseField needs --collapse and its geometry\n";
+            return 1;
+        }
+        return RunCollapseField(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir);
+    }
     if (probe)
     {
         RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir, traceDiagnostic);

@@ -132,7 +132,7 @@ Source: Recommendation ITU-R P.1238-13 (09/2025), "Propagation data and predicti
 |---|---|---|---|---|---|
 | INSARAG-HEAVY | heavy team: 2 sites, 24 h operations, up to 10 days; operational within 48 h | X: dig sites, arrival | INSARAG Guidelines and Methodology (UN OCHA, March 2011), p. 33, §7.3 | "A heavy team must be adequately staffed to allow for 24 hour operations at 2 separate sites for up to 10 days."; "operational in the affected country within 48 hours" | VERIFIED 2026-11-21 |
 | INSARAG-MED | medium team: 1 site, up to 7 days; operational within 32 h | X: dig sites, arrival | same, p. 33, §7.2 | "A medium team must be adequately staffed to allow for 24 hour operations at 1 site for up to 7 days."; "operational in the affected country within 32 hours" | VERIFIED 2026-11-21 |
-| DEBRUY-1983 | 93.6% of live extrications within 24 h; 80% of trapped extricated within 2 days; trapped mortality 35.0% | X: survival weighting | De Bruycker, Greco et al., "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO, 1983 | (from a search summary only) | PENDING: PMC2536241 (Bull. WHO 61(6):1021–1025) is behind a browser check, iris.unina.it and WHO IRIS return 403 to automated fetch; owner to download the PDF. Until then survival weighting in B6 is swept, not fixed |
+| DEBRUY-1983 | see DEBRUY-T2 / DEBRUY-TIMES (§5d), read from the primary | X: survival weighting | De Bruycker et al., Bull. WHO 1983 | — | SUPERSEDED 2026-11-22 by §5d (owner downloaded the PDF) |
 | RESCUE-TIME | extrication time per victim | X: digging model | Natural Hazards (Springer) 2014, DOI 10.1007/s11069-014-1304-3 | — | PENDING (library access) |
 
 ## 5a. Many devices on air, Bor et al. 2016
@@ -162,6 +162,19 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | PILE-CONE | pile modelled as a cone of base radius 2 × the building's floor half-length; "Empirical data is now needed" | X: pile footprint (spread beyond the walls) | same, §3 p. 26 and Abstract | "we postulate that the radius of the cone is twice that of the building's average floor half-length"; "Empirical data is now needed to verify the predictive capabilities of these models." | cone volume = H·L·D at height 0.15H gives r_c = 2.52 L (their calculation) | VERIFIED 2026-11-21 (model, not measurement: stated) |
 | RANA-WORKERS | 3,122 workers inside; 2,515 saved alive; 1,129 dead; eight storeys; ground floor left intact | X: scale of an industrial collapse (motivation; 20–30 victims per searched sector) | Islam, Azad, Sinha & Lixon, "An Investigation of Recent Building Collapses around the World with Special References to Rana Plaza", 14th Global Engineering and Technology Conference, Dhaka, 2017, DOI 10.5281/zenodo.7349624, §2 p. 2 | "3,122 workers were in the building at the time of the collapse"; "Around 2,515 victims were saved from the building alive."; "an eight-storied commercial building"; "leaving only the ground floor intact" | — | VERIFIED 2026-11-21 (conference paper; quotes the BGMEA president) |
 
+### 5d. Scenario geometry, survival and site layout (primaries read 2026-11-22)
+
+| ID | Value | Used for | Source and location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| HAZUS-STOREY-C | 10 ft per storey, concrete frames | X: intact height of a concrete industrial building | FEMA, Hazus Inventory Technical Manual, Hazus 6.0, November 2022, Table 4-2 "Earthquake and Tsunami Model Specific Building Types", pp. 4-3/4-4 | rows "C1L Concrete Moment Frame Low-Rise 1–3 2 20", "C1M … Mid-Rise 4–7 5 50", "C1H … High-Rise 8+ 12 120" (typical stories, typical height in feet) | 20/2 = 50/5 = 120/12 = 10 ft = **3.048 m** per storey | VERIFIED 2026-11-22 |
+| HAZUS-STOREY-S | 12 ft per storey, steel frames | X: steel-frame sensitivity | same, Table 4-2, p. 4-3 | "S1L Steel Moment Frame Low-Rise 1–3 2 24"; "S1M … 4–7 5 60"; "S1H … 8+ 13 156" | 24/2 = 60/5 = 156/13 = 12 ft = **3.658 m** | VERIFIED 2026-11-22 |
+| HAZUS-STOREY-IND1 | single-storey industrial 15 ft | X: low end of intact height | same, Table 4-2 | "S3 Steel Light Frame N/A All 1 15"; "PC1 Precast Concrete Tilt-Up Walls N/A All 1 15" | 15 ft = **4.572 m** | VERIFIED 2026-11-22 |
+| HAZUS-STOREYS | low-rise 1–3 (typical 2), mid-rise 4–7 (typical 5), high-rise 8+ | X: storey sweep {1, 2, 5, 8} (8 = RANA-WORKERS) | same, Table 4-2 | "Low-Rise 1–3 2", "Mid-Rise 4–7 5", "High-Rise 8+ 12" | pile height (PILE-ALPHA, α = 0.15): 1 storey 0.15·4.572 = **0.686 m**; 2: 0.15·6.096 = **0.914 m**; 5: 0.15·15.24 = **2.286 m**; 8: 0.15·24.384 = **3.658 m** | VERIFIED 2026-11-22 |
+| HAZUS-IND-AREA | light industry IND2: 590 ft² per employee, 17,000 ft² per floor; heavy IND1: 550, 51,000; range 2,300–200,600 ft² | X: footprint and workers per floor | same, Table 5-4 "NSI 2022 Occupancy Type Areas", p. 5-5 (IND1 Heavy, IND2 Light, Table 4-1) | "IND1 550 51,000 2,300 200,600"; "IND2 590 17,000 2,300 200,600" | 1 ft² = 0.09290304 m². IND2 floor 17,000 ft² = **1579.4 m²** → square side **39.74 m**; IND1 51,000 ft² = 4738.1 m² → **68.83 m**; minimum 2,300 ft² = 213.7 m² → **14.62 m**. Workers per IND2 floor: 17,000/590 = **28.8**, which is the owner's 20–30 | VERIFIED 2026-11-22 |
+| NIOSH-CZ | collapse zone = 1½ × structure height from the building | X: station standoff from the footprint edge | NIOSH Fire Fighter Fatality Investigation and Prevention Program, Report F2019-03, "Brick Gable End Collapses at a Residential Fire Killing a Fire Captain and Seriously Injuring Three Other Firefighters – Illinois", 1 November 2023, p. 29 (cites Loflin et al. 2014; Naum 2015; NFPA 1500, 2021) | "This area is often defined by establishing a perimeter at a distance from the building that is equal to 1½ times the height of the structure" | standoff s = 1.5·H_intact: 2 storeys 1.5·6.096 = **9.144 m**; 5: **22.86 m**; 8: **36.58 m** | VERIFIED 2026-11-22 |
+| DEBRUY-T2 | probability of being alive at extrication by day: 0: 87.9% (333/379), 1: 35.3% (20/57), 2–3: 8.5% (3/35), ≥4: 0% (0/77) | X: survival weighting of digging order (B6) | De Bruycker, Greco, Annino, Stazi, de Ruggiero, Triassi, de Kettenis & Lechat, "The 1980 earthquake in southern Italy: rescue of trapped victims and mortality", Bull. WHO 61(6):1021–1025, 1983 (PMC2536241), Table 2, p. 1023 | "Table 2. Probability of being alive, in relation to the number of days trapped, based on 548 casualties rescued after the earthquake"; rows "0 379 333 87.9", "1 57 20 35.3", "2-3 35 3 8.5", ">= 4 77 0 0.0" | 333/379 = 0.8786; 20/57 = 0.3509; 3/35 = 0.0857; used as a step function of days since collapse | VERIFIED 2026-11-22 |
+| DEBRUY-TIMES | 24.4% extricated within ½ h, 44.0% within 3 h, 55.7% within 12 h; Time Lib50 = 8 h; 79.6% within 2 days; 93.6% of live extrications within 24 h; trapped mortality 35.0% | X: extrication-time distribution (B6 sensitivity) | same, p. 1023 (text beside Fig. 1) and p. 1022 | "134 people (24.4%) were extricated within half an hour, 241 (44.0%) within 3 hours, and 305 (55.7%) within 12 hours. The time within which 50% of the trapped victims had been extricated (Time Lib50) was 8 hours."; "Of all the people extricated alive, 93.6% (333) were rescued within the first 24 hours." | — | VERIFIED 2026-11-22 (supersedes the PENDING DEBRUY-1983 row) |
+
 ## 6. Hardware
 
 | ID | Value | Used for | Source and location | Verbatim quote | Status |
@@ -171,6 +184,24 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | NRF-ICPU0 | 3.3 mA at 64 MHz, CoreMark from flash, DC/DC | H: Phase 0 energy | same, table "CPU running", ICPU0 | "CPU running CoreMark @64 MHz from flash, Clock = HFXO, Regulator = DC/DC" | E_cpu = t·3.3 mA·3.0 V | VERIFIED 2026-11-21 |
 | NRF-FPU | single-precision FPU | H: Phase 0 double-precision penalty | same, CPU features | "Single-precision floating-point unit (FPU)" | VERIFIED 2026-11-21 |
 | NRF-SLEEP | 1.5 µA System ON, no RAM retention, wake on RTC, 3 V | H: energy | same, key features | "1.5 µA at 3 V in System ON mode, no RAM retention, wake on RTC" | VERIFIED 2026-11-21 |
+
+## 8. Output validation (rows VAL-*): simulator outputs against published numbers
+
+Run: `ca_tbl_causal_sim --specProfile=true --collapse=true --collapseField=true ...` (DD 40; preset engine
+physics), once per bracket plus `--collapseRubbleOff=true`, then
+`python3 scripts/collapse/score_validate.py RUN_central RUN_off RUN_low RUN_high`. Seed 21; 8-storey IND2 case:
+footprint 39.74 m (HAZUS-IND-AREA), pile 3.658 m (HAZUS-STOREYS, PILE-ALPHA), depth 0.1–3.658 m, 4 stations at
+56.45 m (NIOSH-CZ), 20 workers. 11 of 12 pass (2026-11-22).
+
+| ID | Output | Published reference | Tolerance (fixed before the run) | Result |
+|---|---|---|---|---|
+| VAL-1 | engine total-loss difference, rubble on minus off, every draw | model path loss (DD 37), an implementation check | ≤ 0.01 dB | PASS: max 0.0001 dB over 30,078 draws, each bracket |
+| VAL-2 | 868 MHz excess loss, workers 2–5 m deep, pooled over brackets | NIST TN 1542 "at least 30 to 40 dB"; TN 1540 "at least 60 to 80 dB" (rows NIST1542-RUBBLE, NIST1540-RUBBLE) | span reaches ≤ 30 and ≥ 80 dB | PASS: 1.7–103.6 dB (low 1.7–26.8, central 16.0–46.2, high 66.4–103.6) |
+| VAL-4a | UWB LOS ToF error SD | Benouakta et al. 2023: 10–33 cm (DW3000) | inside 0.10–0.33 m | PASS: 0.107 m (n = 1516), at the optimistic end |
+| VAL-4b | 2.4 GHz LOS ToF error SD at 28–57 m | Zhou et al. 2025 (arXiv:2509.23125), SX1280 outdoors: 1.27 m best point, "the majority of points fall in the 2.5-3.2 m range" (as quoted in lora-physics-parameters.h, tofLosFloorM) | inside 1.27–3.2 m | **FAIL: 5.11 m** (n = 3395). At SNR ≥ 30 dB the SD is 2.9–3.1 m (the engine floor); lower-SNR links widen it through the engine's CRLB term. The model's 2.4 GHz ranging is **wider than measured** (1.6×), i.e. conservative, and that disadvantages the 2.4 GHz-only comparison arm. Reported, not tuned |
+| VAL-6 | 2.4 GHz ToF excess per metre of rubble on the chosen path | SLOW-BR (η(√ε′ − 1), from ITU-R P.2040 and Oestges) | bootstrap 95% CI of the median contains the row value. Changed from "within 5%" after the first run showed SNR-dependent noise; the rule is the same for every bracket | PASS low 0.454 [0.454, 0.454]; central 0.704 [0.704, 0.704]; high not testable (no 2.4 GHz range through high-bracket rubble) |
+| VAL-3 | detection range | Oestges Table III, ~10 m at 130 dB dynamic range (row OES-RANGE) | within 25% | PASS at model level (G177: 10.92 m) |
+| VAL-P | floor penetration, standing structure | ITU-R P.1238-13 Table 5 | — | NOT APPLICABLE to the collapse World (no standing floors); kept for a future standing-building mode |
 
 ## 7. Pending primaries (Phase 1 list)
 
@@ -182,7 +213,7 @@ Source: U.S. DoD, "Global Positioning System Standard Positioning Service Perfor
 | Debris bulk density | not found as a pile measurement; replaced by derived η (§2a) | CLOSED → §2a |
 | Void ratios by collapse pattern | Geomatics, Natural Hazards and Risk 2025, DOI 10.1080/19475705.2025.2555727 | PENDING |
 | 900 MHz floor loss (9/19/24 dB) | ITU-R P.1238-13 (09/2025) | DONE → §3b |
-| Collapse geometry and void types | pile height and spread: §5c; storey height, footprint, void types (FEMA US&R / USACE FOG) still PENDING | PARTIAL |
+| Collapse geometry and void types | pile height and spread §5c; storey height, footprint, workers per floor, station standoff §5d; void types (FEMA US&R / USACE FOG) still PENDING | PARTIAL |
 | GPS horizontal and vertical accuracy for rescuers | GPS SPS PS 5th ed. (2020) | DONE → §5b |
 | Battery capacity | manufacturer cell datasheet | PENDING |
 | Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |
