@@ -2038,6 +2038,9 @@ bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
 printf '\n--- G173 side of the gateway line ---\n'
 bash scripts/side_of_road_gate.sh "$WORK/g173" || fail G173
 bash scripts/side_of_road_gate_selftest.sh "$WORK/g173" || fail G173
+printf '\n--- G174 search party fixes ---\n'
+bash scripts/search_doctrine_gate.sh "$WORK/g174" || fail G174
+bash scripts/search_doctrine_gate_selftest.sh "$WORK/g174" || fail G174
 finish G171
 
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)

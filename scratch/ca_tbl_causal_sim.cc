@@ -6744,6 +6744,12 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! DD 32 --finderLkpFirst: searchers go to an informative last known position instead of sweeping from camp.
+    bool finderLkpFirst = false;
+    //! DD 31 --finderSweepFromDispatch: the no-entry sweep's radius grows from the dispatch, not from t = 0.
+    bool finderSweepFromDispatch = false;
+    //! DD 30 --finderDigestOnArmTier: under static_2p4 the searchers poll for entries on 2.4 GHz, not 868 MHz.
+    bool finderDigestOnArmTier = false;
     //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
     bool acquireSideOfRoad = false;
     double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
@@ -8201,7 +8207,9 @@ RunArm(CaTblPolicyMode mode,
             fm->SetMergesBeaconEntries(true); // --beaconCarriesEntry: finders steer on entries
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
-            if (ti == 0)
+            // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only party keeps (and steers on) the table of the radio its
+            // entries arrive on. Off, or any other arm: the 868 MHz MAC, as before.
+            if (ti == ((spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4) ? 1 : 0))
             {
                 finderMac.push_back(fm);
             }
@@ -8539,6 +8547,7 @@ RunArm(CaTblPolicyMode mode,
     std::map<uint32_t, uint32_t> benefit868Run; // TII-3 F2: consecutive skips per node
     uint64_t benefitHeartbeatForced = 0;        // TII-3 F2
     uint64_t benefitNisVetoes = 0;              // TII-3 F4
+    uint64_t finderDigestOnArm = 0;             // DD 30: searcher polls sent on 2.4 GHz
     uint64_t benefit868Considered = 0;
     uint64_t benefit868Skipped = 0;
     const bool benefit868On =
@@ -10130,7 +10139,13 @@ RunArm(CaTblPolicyMode mode,
                 const double b = std::floor((t - phase) / finderDigestPeriodS);
                 if (b > a && t >= phase)
                 {
-                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                    // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only system's searchers ask on 2.4 GHz (off: 868 MHz
+                    // for every arm, as before; the static_2p4 casualty never answers there).
+                    const CaTblTier dTier = (spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4)
+                                                ? CA_TBL_TIER_2P4
+                                                : CA_TBL_TIER_868;
+                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, dTier, 1, 0);
+                    finderDigestOnArm += (dTier != CA_TBL_TIER_868) ? 1 : 0;
                 }
             }
         }
@@ -10681,7 +10696,12 @@ RunArm(CaTblPolicyMode mode,
                 // coverage for reach, and the trade is real rather than a tuning
                 // choice: four searchers in four hours cannot both sweep an
                 // annulus densely and cross 11.6 km.
-                const double swept = 0.9 * finderSpeedMps * t;
+                // DD 31 --finderSweepFromDispatch: the sweep's clock starts when the party leaves the camp. Off: it
+                // starts at t = 0, so a party held at the camp until an alarm appears at once on a spiral as wide as
+                // it would have walked since the run began (a 3.2 km jump at a 50 min alarm).
+                const double tSweep = (spec.finderSweepFromDispatch && deployedAtS >= 0.0) ? std::max(0.0, t - deployedAtS)
+                                                                                           : t;
+                const double swept = 0.9 * finderSpeedMps * tSweep;
                 const double radius =
                     std::max(1.0, std::min(dep.boxHalfM, swept));
                 // UI --finderGroupSize=G (default 0 = off, the sweep below runs unchanged).
@@ -10707,7 +10727,7 @@ RunArm(CaTblPolicyMode mode,
                     const double pitch = static_cast<double>(teams) * g_finderGroupTrackM;
                     // arc length walked s = v t; for r = pitch * phi / (2 pi) that is
                     // about pitch * phi^2 / (4 pi), so phi = sqrt(4 pi s / pitch)
-                    const double s = finderSpeedMps * t;
+                    const double s = finderSpeedMps * tSweep; // DD 31 (t when off)
                     const double phi = std::sqrt(4.0 * M_PI * s / pitch);
                     double rSpiral = pitch * phi / (2.0 * M_PI);
                     const double off = (static_cast<double>(m) -
@@ -10768,7 +10788,10 @@ RunArm(CaTblPolicyMode mode,
                     }
                   } // g_finderGroupSweep
                 }
-                else if (entrySigma > radius)
+                // DD 32 --finderLkpFirst: an entry that says anything (sigma below half the box; the casualty's
+                // start-up prior, uniform over the box, is ~0.8 box) is a last known position to search from, not a
+                // reason to sweep round the camp. Off: sweep whenever the entry is coarser than the sweep so far.
+                else if (spec.finderLkpFirst ? (entrySigma > 0.5 * dep.boxHalfM) : (entrySigma > radius))
                 {
                     searching = true;
                     // Spread over the SEARCHING finders: --finderRelays (default 0) takes the
@@ -10782,7 +10805,7 @@ RunArm(CaTblPolicyMode mode,
                     // covers the annulus instead of one bearing.
                     const double theta =
                         2.0 * M_PI * static_cast<double>(fi) / n
-                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * t / radius) : 0.0);
+                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * tSweep / radius) : 0.0); // DD 31 (t when off)
                     fp = Vector(dep.baseCampX + radius * std::cos(theta),
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
@@ -17050,6 +17073,20 @@ RunArm(CaTblPolicyMode mode,
                           << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
             }
         }
+        if (spec.finderLkpFirst)
+        {
+            std::cout << "    DD32 finderLkpFirst (" << CaTblPolicyModeName(mode) << "): on\n";
+        }
+        if (spec.finderSweepFromDispatch)
+        {
+            std::cout << "    DD31 finderSweepFromDispatch (" << CaTblPolicyModeName(mode)
+                      << "): sweep clock from the dispatch at t = " << deployedAtS << " s\n";
+        }
+        if (spec.finderDigestOnArmTier)
+        {
+            std::cout << "    DD30 finderDigestOnArmTier (" << CaTblPolicyModeName(mode) << "): searcher polls on 2.4 GHz "
+                      << finderDigestOnArm << "\n";
+        }
         if (spec.acquireSideOfRoad)
         {
             std::cout << "    DD29 acquireSideOfRoad (" << CaTblPolicyModeName(mode) << "): cloud confined to y <= "
@@ -18664,6 +18701,30 @@ main(int argc, char* argv[])
                  "868 MHz the return the RSSI range itself needs, billed only under --tier1ChargeReplies, in both "
                  "variants alike. The table remains the fallback.",
                  spec.rangeReplyPosition);
+    cmd.AddValue("finderLkpFirst",
+                 "DD 32. MODE 2 searchers sweep an outward spiral round the CAMP whenever the entry they hold is coarser "
+                 "than the spiral so far. A casualty tracked on one precise radio reports a large sigma even when its "
+                 "position is good, so its searchers ignored an accurate last known position and spiralled round the camp. "
+                 "True: they sweep only while the entry is uninformative (sigma above half the box half-width, as the "
+                 "start-up prior is); otherwise they head for the last known position (with --finderStaleSearch, orbiting "
+                 "it once it is stale), which is standard search doctrine. False (default): as before, byte-identical.",
+                 spec.finderLkpFirst);
+    cmd.AddValue("finderSweepFromDispatch",
+                 "DD 31 (bug fix). The searchers' no-entry sweep (an outward spiral from the camp, used while they hold "
+                 "no usable entry for the casualty) grows its radius as 0.9 x speed x t with t from the START of the run. "
+                 "With the party held at the camp until an alarm (--searchLaunchAtS / --searchLaunchOnLoss) the first "
+                 "sweep step after dispatch puts every searcher on a spiral as wide as it would have walked since t = 0: "
+                 "a 3.2 km jump at a 50 min alarm, seen in every static_2p4 run of REALISTIC-1/3 (the only arm whose "
+                 "searchers hold no entry). True: the sweep's clock starts at the dispatch. False (default): as before, "
+                 "byte-identical. One 'DD31' line per arm when on.",
+                 spec.finderSweepFromDispatch);
+    cmd.AddValue("finderDigestOnArmTier",
+                 "DD 30. Under static_2p4, the searchers poll for position entries (DIGEST) on 2.4 GHz instead of 868 "
+                 "MHz, and steer on the table of their 2.4 GHz radio instead of their 868 MHz one. Both were hard-wired "
+                 "to 868 MHz for every arm, so a 2.4 GHz-only party never steered on an entry even when it held one: a "
+                 "2.4 GHz-only system would ask, and listen, on its own radio. Every other arm is unchanged. False (default): 868 MHz for every arm, "
+                 "byte-identical to every earlier result. One 'DD30 finderDigestOnArmTier' line per arm when on.",
+                 spec.finderDigestOnArmTier);
     cmd.AddValue("acquireSideOfRoad",
                  "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
                  "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "

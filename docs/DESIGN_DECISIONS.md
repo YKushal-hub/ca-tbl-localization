@@ -626,3 +626,25 @@ lost-worker error at 10-50 min from 300-6600 m to 1-75 m for ca_tbl_full and sta
 (the acquisition constraint was enough). Off: byte-identical to the build before (seed 503, 900 s, two arms, against
 REALISTIC-1's frozen binary; every output except run_id.txt and paths in run.log). Gate G173 (+ selftest, five negative
 fixtures). Tested in REALISTIC-3; REALISTIC-1 and -2 stand as registered (flag off).
+
+## 30-32. The search party under a 2.4 GHz-only design (three defects; flags default off; 2026-11-21)
+
+Found while checking REALISTIC-1's H2 (2.4 GHz-only searchers reached the casualty in 0 of 60 runs, even at the
+cluster site where the casualty is 0.8 km from the camp with five anchors in reach). Three defects, each confined to
+the searchers, each found on traces:
+- **DD 30 `--finderDigestOnArmTier`.** The searchers' entry poll (DIGEST) and the table they steer on were hard-wired
+  to their 868 MHz radio for every arm. Under static_2p4 the casualty's 868 MHz radio is off, so its entries reached
+  the searchers' 2.4 GHz table, which nothing read. With the flag, under static_2p4 the party polls and steers on 2.4 GHz.
+- **DD 31 `--finderSweepFromDispatch` (bug).** The no-entry sweep's radius was 0.9 x speed x t from the start of the
+  run, so a party held at the camp until an alarm at 50 min appeared on a 3.2 km spiral at dispatch (every
+  static_2p4 run of REALISTIC-1/3: a 3.24 km one-step jump; every other arm: 3 m). With the flag the clock starts at
+  the dispatch.
+- **DD 32 `--finderLkpFirst`.** The party swept round the camp whenever the entry it held was coarser than the sweep
+  so far, ignoring a good last known position. With the flag it sweeps only while the entry is uninformative (sigma
+  above half the box half-width, like the start-up prior) and otherwise heads for the last known position; with
+  `--finderStaleSearch` it then orbits a stale one. Standard search doctrine.
+Pilot (not citable; seeds 501-502, cluster and ROAD3): with all four on, 2.4 GHz-only searchers reached the casualty
+at the cluster site as fast as ca_tbl_full (692 vs 720-748 s) and on ROAD3 later or not at all (2543 s vs 2075 s;
+never vs 2208 s). Off: byte-identical (seed 501, CLUS3, 7200 s and seed 503, ROAD3, 3300 s, against REALISTIC-3's
+frozen binary). Gate G174 (+ selftest, five negative fixtures). REALISTIC-1/2/3's searcher results were measured
+without these fixes and are reported as such; REALISTIC-4 repeats the searcher cells with them.
