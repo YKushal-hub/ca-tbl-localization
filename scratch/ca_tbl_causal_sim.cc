@@ -2772,6 +2772,8 @@ static uint32_t g_stillSlowCycle = 0;
 static uint64_t g_stillSkipped = 0;
 static uint32_t g_uwbFutilityCycles = 0;     //!< DD 46
 static double g_uwbFutilityBackoffS = 60.0;  //!< DD 46
+static double g_uwbFutilityLoneMaxBackoffS = 0.0; //!< DD 53 (OURS; 0 = off)
+static bool g_loneStay868 = false; //!< DD 53b (OURS)
 static bool g_phase0Timing = false;
 static double g_phase0StepS = 0.0;
 static uint64_t g_phase0Steps = 0;
@@ -7890,6 +7892,8 @@ RunArm(CaTblPolicyMode armMode,
     pcfg.mahalUseR = mahalUseR;
     pcfg.uwbFutilityCycles = g_uwbFutilityCycles;   // DD 46 (0 = off)
     pcfg.uwbFutilityBackoffS = g_uwbFutilityBackoffS;
+    pcfg.uwbFutilityLoneMaxBackoffS = g_uwbFutilityLoneMaxBackoffS;
+    pcfg.loneStay868 = g_loneStay868;
     pcfg.pcsTerm1Inverse = spec.pcsTerm1Inverse; // row 17
     pcfg.suspectRecovery = suspectRecovery;
     pcfg.suspectInflateFactor = suspectInflateFactor;
@@ -12709,7 +12713,19 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     cache868(sb.nodeId, actM); // TII-1
                 }
-                const bool dualS = spec.loraDualBase && hybridS;
+                bool loneS = false; // DD 53b
+                if (g_loneStay868 && pt - 1 < peerMacs.size() && peerMacs[pt - 1][0] != nullptr)
+                {
+                    loneS = true;
+                    for (const auto& nb : peerMacs[pt - 1][0]->GetNeighbours(CA_TBL_TIER_868, t))
+                    {
+                        for (uint32_t k = 0; k < tags.size() && loneS; ++k)
+                        {
+                            loneS = !(k != pt && nb.id == tags[k].nodeId);
+                        }
+                    }
+                }
+                const bool dualS = spec.loraDualBase && hybridS && !(loneS && act == CA_TBL_TIER_868);
                 std::vector<CaTblRangeMeasurement> otherS;
                 if (dualS)
                 {
@@ -12996,6 +13012,19 @@ RunArm(CaTblPolicyMode armMode,
                     sb.policy.SetOracleTruth(sb.pos.x, sb.pos.y); // ORACLE-ESC
                 }
                 const auto p0a = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+                if ((g_uwbFutilityLoneMaxBackoffS > 0.0 || g_loneStay868) && pt >= 1 && pt - 1 < peerMacs.size() &&
+                    peerMacs[pt - 1][0] != nullptr) // DD 53
+                {
+                    bool heard = false;
+                    for (const auto& nb : peerMacs[pt - 1][0]->GetNeighbours(CA_TBL_TIER_868, t))
+                    {
+                        for (uint32_t k = 0; k < tags.size() && !heard; ++k)
+                        {
+                            heard = (k != pt && nb.id == tags[k].nodeId);
+                        }
+                    }
+                    sb.policy.SetLone(!heard);
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -14247,7 +14276,19 @@ RunArm(CaTblPolicyMode armMode,
         // --floorOnDemand would skip it, and 2.4 GHz whenever it is not the active tier
         // (its radio is kept awake below). A tier whose ranging slot the handshake took is
         // not ranged, as above. The ranges are fused at the fix selection.
-        const bool dualBase = spec.loraDualBase && hybridArm;
+        bool lone0 = false; // DD 53b: tag 0 hears no other worker on 868 MHz (its own neighbour table)
+        if (g_loneStay868 && tags[0].nodeMac[0] != nullptr)
+        {
+            lone0 = true;
+            for (const auto& nb : tags[0].nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t))
+            {
+                for (uint32_t k = 1; k < tags.size() && lone0; ++k)
+                {
+                    lone0 = !(nb.id == tags[k].nodeId);
+                }
+            }
+        }
+        const bool dualBase = spec.loraDualBase && hybridArm && !(lone0 && policy.GetActiveTier() == CA_TBL_TIER_868);
         std::vector<CaTblRangeMeasurement> otherLoraMeas;
         bool ranged2p4Other = false; // --dualBaseRelayTier: the 2.4 GHz radio ranged this cycle
         if (dualBase)
@@ -15036,6 +15077,18 @@ RunArm(CaTblPolicyMode armMode,
             }
         }
         const auto p0b = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+        if ((g_uwbFutilityLoneMaxBackoffS > 0.0 || g_loneStay868) && tags[0].nodeMac[0] != nullptr) // DD 53
+        {
+            bool heard = false;
+            for (const auto& nb : tags[0].nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t))
+            {
+                for (uint32_t k = 1; k < tags.size() && !heard; ++k)
+                {
+                    heard = (nb.id == tags[k].nodeId);
+                }
+            }
+            policy.SetLone(!heard);
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -20404,6 +20457,16 @@ main(int argc, char* argv[])
                  g_uwbFutilityCycles);
     cmd.AddValue("uwbFutilityBackoffS", "DD 46. First UWB veto after a futile stay, s (doubles, capped at 960 s)",
                  g_uwbFutilityBackoffS);
+    cmd.AddValue("uwbFutilityLoneMaxBackoffS",
+                 "DD 53. With --uwbFutilityCycles: while a device hears no other worker on 868 MHz (its own neighbour "
+                 "table, worker ids), its UWB veto backoff is capped at this many seconds instead of 960, so a lone "
+                 "worker probes UWB more often. 0 (default) = off: byte-identical",
+                 g_uwbFutilityLoneMaxBackoffS);
+    cmd.AddValue("loneStay868",
+                 "DD 53b. While a device hears no other worker on 868 MHz (its own neighbour table): on 868 MHz it does not "
+                 "also range and fuse 2.4 GHz (--loraDualBase), and with >= 3 868 MHz ranges it does not escalate. "
+                 "FALSE by default: byte-identical",
+                 g_loneStay868);
     cmd.AddValue("relayChainK",
                  "DD 50 (plan B5). Each relay's relay-to-relay exchanges go to its K nearest fix holders only (by the "
                  "nodes' own estimates), so the --relaySlots round needs (n - 1)(1 + K) slots instead of (n - 1)^2 and "

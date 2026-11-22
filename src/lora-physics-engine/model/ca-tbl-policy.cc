@@ -3072,6 +3072,13 @@ CaTblPolicy::StepImpl(double dt,
         wantEscalate = false;
         m_quietCycle = false;
     }
+    // DD 53b --loneStay868: a device that hears no other worker gains nothing a precise tier's ranges through rubble
+    // add (COLLAPSE-6 H31); while its 868 MHz fix has >= 3 ranges it stays there.
+    if (m_config.loneStay868 && m_lone && m_tier == CA_TBL_TIER_868 && activeTierRanges >= 3 && wantEscalate)
+    {
+        wantEscalate = false;
+        ++m_loneStayVetoes;
+    }
     // DD 46 --uwbFutilityCycles: a tier the radio cannot reach is not worth its joules. On UWB with no UWB
     // range for K consecutive cycles: step down and veto UWB for a backoff that doubles after each futile stay.
     bool uwbFutileExit = false;
@@ -3087,9 +3094,12 @@ CaTblPolicy::StepImpl(double dt,
             }
             if (m_uwbDryCycles >= m_config.uwbFutilityCycles)
             {
+                const double cap = (m_lone && m_config.uwbFutilityLoneMaxBackoffS > 0.0)
+                                       ? m_config.uwbFutilityLoneMaxBackoffS
+                                       : m_config.uwbFutilityMaxBackoffS; // DD 53
                 m_uwbBackoffS = (m_uwbBackoffS <= 0.0)
                                     ? m_config.uwbFutilityBackoffS
-                                    : std::min(2.0 * m_uwbBackoffS, m_config.uwbFutilityMaxBackoffS);
+                                    : std::min(2.0 * m_uwbBackoffS, cap);
                 m_uwbBlockedUntilS = m_gateClockS + m_uwbBackoffS;
                 m_uwbDryCycles = 0;
                 uwbFutileExit = true;
@@ -3099,6 +3109,10 @@ CaTblPolicy::StepImpl(double dt,
         else
         {
             m_uwbDryCycles = 0;
+        }
+        if (m_lone && m_config.uwbFutilityLoneMaxBackoffS > 0.0 && m_uwbBlockedUntilS > m_gateClockS + m_config.uwbFutilityLoneMaxBackoffS)
+        {
+            m_uwbBlockedUntilS = m_gateClockS + m_config.uwbFutilityLoneMaxBackoffS; // DD 53: alone, probe sooner
         }
         if (wantEscalate && m_tier == UwbEntryTier() && m_gateClockS < m_uwbBlockedUntilS)
         {

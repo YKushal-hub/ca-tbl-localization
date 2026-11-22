@@ -569,6 +569,10 @@ struct CaTblPolicyConfig
     uint32_t uwbFutilityCycles = 0;
     double uwbFutilityBackoffS = 60.0;
     double uwbFutilityMaxBackoffS = 960.0;
+    //! DD 53 --uwbFutilityLoneMaxBackoffS: the backoff cap while the device hears no other worker (0 = off).
+    double uwbFutilityLoneMaxBackoffS = 0.0;
+    //! DD 53b --loneStay868: while the device hears no other worker and 868 MHz gives >= 3 ranges, do not escalate.
+    bool loneStay868 = false;
     /**
      * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
      *
@@ -1502,10 +1506,15 @@ class CaTblPolicy
     uint64_t m_uwbFutileExits = 0;
     uint64_t m_uwbVetoed = 0;
     bool m_quietCycle = false; // DD 50
+    bool m_lone = false; //!< DD 53
+    uint64_t m_loneStayVetoes = 0; //!< DD 53b
   public:
     uint64_t GetUwbFutileExits() const { return m_uwbFutileExits; }
     //! DD 50: this cycle's exchange was skipped on purpose (a still device on a slow cycle), so the empty cycle is
     //! not evidence of a failing tier: escalation is vetoed for this Step only. Cleared by Step.
+    //! DD 53: whether the device heard no other worker this cycle (its own 868 MHz neighbour table).
+uint64_t GetLoneStayVetoes() const { return m_loneStayVetoes; }
+        void SetLone(bool lone) { m_lone = lone; }
     void SetQuietCycle(bool q) { m_quietCycle = q; }
     uint64_t GetUwbVetoed() const { return m_uwbVetoed; }
   private:

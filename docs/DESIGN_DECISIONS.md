@@ -1279,3 +1279,13 @@ height from that finder's GNSS height, not its true height. Off, it is unchanged
   - G92: the COLLAPSE-5/6/7 run sidecars were added under `results/collapse5/runs_*`;
   - G158: the estimator options `--frame/--moves/--relative/--rescuers` are now registered as tool options, and the
     stale `--scenario=collapse` prose is corrected.
+
+## 53. Lone-worker rules (`--uwbFutilityLoneMaxBackoffS` DD 53, `--loneStay868` DD 53b; both default off; 2026-11-22)
+
+Follow-up to COLLAPSE-6 H31 (owner decision: design a follow-up). A device is "lone" when its own 868 MHz
+neighbour table holds no other worker's id; this is radio only.
+- **DD 53:** caps the UWB veto backoff while lone. The pilot showed no gain and more energy. It is kept as a flag
+  and is not registered.
+- **DD 53b:** while lone and on 868 MHz, no 2.4 GHz dual-base fusion, and no escalation while 868 MHz gives ≥ 3
+  ranges. Pilot (seeds 931–935): L2 0.60 → 0.80 / 1.00, energy 31 → 18 J and 45 → 20 J. Tested in COLLAPSE-8.
+- **Off:** byte-identical (178 reference files with PIN_PRE_DD41; 614 against `main`).
