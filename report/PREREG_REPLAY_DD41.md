@@ -20,3 +20,18 @@ campaign:
 
 No hypothesis is added or altered. A verdict that changes replaces the recorded one in the paper. The earlier
 recorded results stay in the repository, marked as pre-DD 41.
+
+## Results
+
+### REALISTIC-5 (run 2026-11-22 14:18–15:55 UTC, 280/280 cells rc 0)
+
+The analyser flags "more than one source" (4097e290f, d6a8a2b55). The run-time stamp read HEAD while
+documentation-only commits landed. The binary was frozen by the manifest, and `git diff 4097e290f d6a8a2b55 -- src
+scratch` is empty. Summary: `results/replay41/realistic5_analysis.md`.
+
+| Hypothesis | Recorded (pre-DD 41) | Replay (DD 41 on) | Detail |
+|---|---|---|---|
+| G1 (searcher reaches the worker no later than with 2.4 GHz only) | HOLDS | **FAILS** | CLUS3 +182 s [168, 197] later than 2.4 GHz only; elsewhere 1044–1860 s sooner |
+| G2 (time to 25 m within 2 min of the better single radio) | HOLDS | **FAILS** | ROAD3 −383 s [−1181, +429]: the upper bound exceeds the 120 s margin; elsewhere 0 to −1616 s |
+| G3 (250 m availability within 0.02) | FAILS (CLUS3 −0.005) | **HOLDS** | +0.23 to +0.46 everywhere |
+| G4 (8 h quiet shift) | HOLDS | HOLDS | — |
