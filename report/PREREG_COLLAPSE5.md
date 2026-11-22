@@ -78,3 +78,44 @@ seeds.
   combinations (storeys × bracket × teams × t_dig × radius, mean over seeds).
 
 Analyser: `scripts/collapse5_analyse.py <outdir>` (committed with this file).
+
+## Results (recorded 2026-11-22; hypotheses unchanged)
+
+### (a) Pipeline
+
+60 runs, all exit 0, binary `6bd87e333` (`results/collapse5/collapse5_pipe_analysis.md`).
+
+| Hypothesis | Verdict | Detail (5 storeys / 8 storeys) |
+|---|---|---|
+| H17 (ToF rubble correction) | **holds, 2 of 2** | L2 0.85 vs 0.78; 0.70 vs 0.62. The single exploratory seed (DD 49) did not show this; five seeds do |
+| H18 (always-on) | **holds, 2 of 2** | always-on is 0.04 / 0.05 better in L2, at 13× / 12× the energy (469 / 489 J vs 35 / 42 J) |
+| H19 (each radio alone) | **holds, 2 of 2** | ours 0.78 / 0.62; best single radio (868 MHz) 0.78 / 0.66; 2.4 GHz 0.31 / 0.14; UWB 0.00 / 0.00 |
+| H20 (stations) | **not tested as registered** | registration error: `--nGateways=0` does not remove the stations. It keeps the default 3 × 3 grid of 9, one of them over the pile (documented flag behaviour, missed when registering). The 9-grid gives 0.70 / 0.38. Two stations (opposite on the ring, collinear through the pile) give **0.15 / 0.09**, against 0.78 / 0.62 with four: two stations leave a mirror ambiguity. A finders-only run cannot be expressed with the current flags |
+| H21 (crew of 10) | **1 of 2** | 0.82 vs 0.78 holds; at 8 storeys 0.50 vs 0.62 fails (−0.12) |
+| H22 (Mueller 2.4 GHz error) | **holds** | ours 0.51 vs 2.4 GHz alone 0.09. Under Mueller, ours loses 0.16 / 0.11 against the engine model |
+
+### (b) Link field
+
+30 re-estimated COLLAPSE-2 link fields, plus 20 new 1.5 m-only field runs. All exit 0
+(`results/collapse5/collapse5_field_analysis.md`). Coverage 0.5, local frame.
+
+| Hypothesis | Verdict | Detail (low / central bracket) |
+|---|---|---|
+| H23 (published-type baselines) | **holds, 4 of 4** | joint within 2 m 0.48 / 0.45; LoRaAid-style RSS trilateration 0.06 / 0.03 (median 16 / 43 m); SPAWN-type 0.05 / 0.04 (16 / 42 m). Neither baseline models the rubble's excess loss, so its ranges read long |
+| H24 (coop vs SPAWN-type) | **holds, 2 of 2** | 0.53 / 0.47 vs 0.05 / 0.04 |
+| H25 (D-optimal moves) | **holds, 2 of 2** | coop 0.50 / 0.46 with D-optimal moves vs 0.53 / 0.47 with serpentine moves: no gain, no loss beyond 0.05 |
+| H26 (via others) | descriptive | at half coverage every worker in the low and central brackets has a direct rescuer link, so none is placed only through others. In the high bracket, with D-optimal moves: 1% of workers, median 21.9 m |
+| H27 (height spread) | **1 of 2** | joint median vertical error, with spread vs without: 2.57 vs 2.60 m (low, holds); 2.79 vs 2.42 m (central, fails). A 1.2 m spread in hold height does not measurably improve depth from the link field |
+
+### (c) Dig decision
+
+`results/collapse5/collapse5_dig_analysis.md`.
+
+**H28 fails: 62 of 108 combinations.**
+- **Where it loses:** the rule starts digging at 6–29 min. In the high bracket and at 8 storeys central it loses up
+  to 0.89 expected survivors.
+- **Why:** the workers' true errors keep falling after the windowed fall of the system's own σ stops paying for the
+  teams' time, so the rule stops too early.
+- **Where it holds:** within 0.1 in the low brackets (34 of 36).
+- **Consequence:** ranging for the whole first half hour is the better default. The rule is reported as a negative
+  result.

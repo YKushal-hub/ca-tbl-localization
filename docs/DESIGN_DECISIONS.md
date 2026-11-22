@@ -1197,3 +1197,16 @@ On COLLAPSE-1 seed 801 (20 workers):
 
 The survival function (DEBRUY-T2) is a day-scale step, so a 20–25 min earlier start is free time for the teams
 but changes no expected survivor. That is reported as the result.
+
+**COLLAPSE-5 (2026-11-22; `report/PREREG_COLLAPSE5.md`).**
+- **ToF rubble correction (DD 49):** helps once five seeds are pooled. L2 rises by 0.07 / 0.08 (H17 holds); the
+  single exploratory seed above was misleading.
+- **Always-on vs single radios:** always-on gains 0.04–0.05 L2 at 12–13× the energy. 868 MHz alone is within 0.04
+  of ours; UWB alone locates no one.
+- **Stations:** two stations (collinear through the pile) give L2 0.09–0.15. A zero-station run was mis-registered:
+  `--nGateways=0` keeps the default grid.
+- **Crew size:** a crew of 10 is 0.12 worse at 8 storeys.
+- **Field 2.4 GHz error (Mueller):** costs ours 0.11–0.16.
+- **Link-field baselines:** published-type baselines without a rubble term are 16–43 m off. D-optimal moves gain
+  nothing, and height spread does not improve depth.
+- **Range-or-dig rule:** fails (62 of 108); it stops ranging too early.

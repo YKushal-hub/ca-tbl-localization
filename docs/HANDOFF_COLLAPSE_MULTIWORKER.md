@@ -152,14 +152,16 @@ and opening a PR on 2026-11-22.
 | B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
 | B2 depth estimator in the main simulator | DONE | `--collapseDepthSolve` (DD 47) | COLLAPSE-4 H15: 17–23% resolved, median 0.74 m |
 | B3 rescuer frame from UWB + GPS + IMU | DONE (field `--frame uwb`; main simulator `--finderFrameSolve`, DD 48) | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (3.66 m vs 2.82 m median); with point-to-point UWB 2.50 m (better than GPS, short of the assumed 0.10 m frame's 1.63 m); DD 44 |
-| B4 worker-to-worker cooperation | DONE (field estimator), modest | `coop` (DD 42) | helps the median at ≥ half coverage, hurts the tails |
-| B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
-| B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
+| B4 worker-to-worker cooperation | DONE (field estimator), modest; rigidity check, `coop_via`, D-optimal moves, SPAWN-type and LoRaAid-style baselines (DD 51) | `coop`, `spawn`, `rsstri`, `--moves dopt` in `estimate_collapse.py` | G182 (synthetic truth + 2 refusal fixtures, selftest); COLLAPSE-5 H23–H26 |
+| B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix; still-device slow cycle `--stillSlowCycle` (negative result), K-nearest relaying `--relayChainK` (runs for 20, no gain), station duty table (DD 50) | `scratch/ca_tbl_causal_sim.cc`, `scripts/collapse/station_duty.py` | COLLAPSE-1/3; DD 50 |
+| B6 digging order with survival weighting; range-or-dig rule | DONE | `scripts/collapse/score_dig.py` (DD 51) | H5 in COLLAPSE-1; COLLAPSE-5 H28 (fails: the rule stops early) |
+| B1 inside the main simulator (ToF rubble correction) | DONE, default off | `--tofRubbleCorrect` (DD 49) | COLLAPSE-5 H17 |
 | UWB futility gate (battery fix) | DONE | `--uwbFutilityCycles` (DD 46) | COLLAPSE-4 H13 8/8, H14 4/4 |
 | Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
 | COLLAPSE-1 (localisation, scaling, designs, digging) | DONE (results in the PREREG file, DD 45) | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
 | COLLAPSE-3 (72 h on one CR123A) | DONE: H7 fails for ours (UWB escalation energy), DD 45 | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
 | COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | DONE (H8, H9, H11 hold; H10 7/8; H12 fails) | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
+| COLLAPSE-5 (designs: each radio, always-on, ToF correction; stations 0/2; crew 10; Mueller 2.4 GHz error; field baselines, D-opt, height spread; dig rule) | see §9 log and `report/PREREG_COLLAPSE5.md` | `scripts/collapse5_run.sh`, `scripts/collapse5_analyse.py` → `~/catbl_work/campaigns/collapse5_{pipe,field}` | H17–H28 |
 | Paper section | DONE | `~/catbl_work/tii_paper/tii/collapse_section.tex`, included in `tii_main.tex` | builds to 9+ pages |
 
 **Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
@@ -450,3 +452,22 @@ copies:
   - COLLAPSE-4 registered and run (120 runs). H13 8/8 (battery fixed), H14 4/4, H15 holds (0.74 m), H16 3/4.
   - **All plan items are implemented.** Remaining are owner decisions (DD 41 adoption) and the limitations stated
     in the paper (direct-path loss under deep rubble, the 2.4 GHz LOS spread, depth coverage).
+- 2026-11-22: DD 49–51 built (ToF rubble correction, still-device slow cycle, K-nearest relaying, station duty
+  table, estimator baselines, rigidity check, D-optimal moves, G182, range-or-dig).
+  - Null controls hold: 175 of 178 reference files identical (only the 3 `run_id.txt` stamps differ), and 614 of
+    614 against `main`'s binary. G182 and its selftest pass.
+  - COLLAPSE-5 registered and run: pipeline (60 runs, `~/catbl_work/campaigns/collapse5_pipe`), field (50 field
+    sets, `~/catbl_work/campaigns/collapse5_field`), dig (COLLAPSE-1 post-processing).
+  - Verdicts:
+    - hold: H17, H18, H19, H22, H23, H24, H25;
+    - H21 holds in 1 of 2 cells; H27 holds in 1 of 2;
+    - H20 not tested as registered (`--nGateways=0` = default grid);
+    - H26 descriptive;
+    - H28 fails.
+  - Summaries in `results/collapse5/`; paper section updated.
+  - **Every plan item is now implemented and evaluated.** What cannot be done in simulation:
+    - Phase 4 own SX1262 / SX1280 through-concrete measurements (needs the hardware test);
+    - direct-path-loss statistics under deep rubble (Alsindi 2009 primary not yet read; stated limitation).
+  - Open:
+    - owner decision on DD 41 adoption;
+    - optionally, a finders-only (zero-station) mode, which would need a new flag and a registration.
