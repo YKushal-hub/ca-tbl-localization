@@ -493,3 +493,14 @@ copies:
     - owner decision on DD 41.
   - **Failed hypotheses are results, kept as failures:** H1, H7, H12, H16 (1 cell), H21 (1 cell), H27 (1 cell),
     H28.
+- 2026-11-22: COLLAPSE-6 done (70 runs, `~/catbl_work/campaigns/collapse6`).
+  - The leak moved L2 by at most ±0.04.
+  - H29 fails: H17's gain is +0.04 (short of +0.05), and H18 fails at 5 storeys (always-on +0.08 at 13× the
+    energy).
+  - H31 fails: the lone worker's L2 is 0.60 vs 0.80 for 868 MHz alone, so the UWB gate's cost for a lone worker is
+    a trade-off to report.
+  - Paper updated to COLLAPSE-6 numbers; PDF rebuilt (10 pages).
+  - **Next session's options (not required by the plan):**
+    - an N = 1 rule for the UWB gate, e.g. keep UWB probes when alone, which needs a registration;
+    - DD 48's residual true-height read for neighbouring finders;
+    - the owner's DD 41 decision.

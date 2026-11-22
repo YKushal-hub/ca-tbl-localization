@@ -1241,3 +1241,12 @@ World identifier:
 - the identifiers: `g_collapse.`, `CollapseBuriedPos`, `CollapseStandZ`, `collapseWorld`, `CaTblRubbleWorld`.
 
 Its selftest plants `g_collapse.pileH` in a copy and must fail.
+
+**COLLAPSE-6 (DD 52 evaluation; `report/PREREG_COLLAPSE6.md`).**
+- **The leak:** it moved L2 by at most ±0.04 in any cell. The COLLAPSE-1 to -5 conclusions stand qualitatively,
+  and the paper's pipeline numbers are now COLLAPSE-6's.
+- **Verdicts that change with the fix:**
+  - the ToF rubble correction's gain falls to +0.04, short of the registered +0.05;
+  - at 5 storeys, always-on is 0.08 better, at 13× the energy;
+  - the lone worker is 0.20 worse than 868 MHz alone (H31 fails), so its UWB gate setting is a trade-off to
+    report, not a free fix.

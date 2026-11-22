@@ -28,3 +28,28 @@ Exploratory, one seed (921, 8 storeys, central, N = 20): L2 0.60 → 0.55, media
 
 **Consequence.** The paper's pipeline headline numbers are taken from COLLAPSE-6. COLLAPSE-1 to -5 (a) are kept,
 marked as run with the leak.
+
+## Results (recorded 2026-11-22; hypotheses unchanged)
+
+70 runs, all exit 0, binary `1772009c5` (`results/collapse5/collapse6_analysis.md`).
+
+**Analysis fix after the run (disclosed).** `collapse5_analyse.arm_stats` read only `subject_summary.csv`, which
+N = 1 runs do not write. It now falls back to `arm_summary.csv`, as `collapse4_analyse.py` does. The measure is
+unchanged, and COLLAPSE-5's analysis reproduces exactly with the fix.
+
+- **H30 (effect of the leak, descriptive):** L2 changes by −0.04 to +0.04 in every configuration and arm. The leak
+  was real but small. The single exploratory seed's −0.05 was within this spread.
+- **H29 fails: 2 of the 4 earlier verdicts change.**
+  - H17 (ToF rubble correction): +0.04 at both storey counts (0.81 vs 0.77; 0.67 vs 0.63), short of the
+    registered +0.05.
+  - H18 (always-on): fails at 5 storeys, where always-on is 0.08 better (0.85 vs 0.77) at 13× the energy. It holds
+    at 8 storeys (0.63 vs 0.64).
+  - H19 holds at both: 868 MHz alone 0.81 / 0.62 vs ours 0.77 / 0.63.
+  - H22 holds: 0.55 vs 0.10.
+- **H31 fails at both storey counts:** the lone worker's L2 is 0.60 with ours vs 0.80 with 868 MHz alone (5
+  seeds). This matches COLLAPSE-4's unregistered note that the UWB futility gate costs a lone worker its
+  occasional UWB fixes.
+- **Other values with the fix:**
+  - crew of 10: 0.80 / 0.48 (vs 0.77 / 0.63 for 20);
+  - two stations: 0.17 / 0.12;
+  - Mueller error: ours 0.66 / 0.55.

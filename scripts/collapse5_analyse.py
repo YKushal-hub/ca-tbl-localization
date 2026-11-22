@@ -21,8 +21,10 @@ def arm_stats(cell, arm):
     out = {}
     for d in ok_runs(cell):
         f = os.path.join(d, "subject_summary.csv")
-        if not os.path.exists(f):
-            continue
+        if not os.path.exists(f):  # N = 1: no subject file; the arm row is the worker (as collapse4_analyse.py)
+            f = os.path.join(d, "arm_summary.csv")
+            if not os.path.exists(f):
+                continue
         R = [r for r in csv.DictReader(open(f)) if r["arm"] == arm]
         if R:
             out[os.path.basename(d)] = (sum(float(r["cep50M"]) <= 2.0 for r in R) / len(R), st.median(float(r["totalJ"]) for r in R))
