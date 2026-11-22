@@ -2088,6 +2088,12 @@ bash scripts/frame_key_gate.sh "$WORK/g180" || fail G180
 bash scripts/frame_key_gate_selftest.sh || fail G180
 finish G180
 
+# ---------------- G181: DD 46-48 (UWB futility gate, depth B2, finder frame B3)
+printf '\n--- G181 collapse mechanisms: UWB futility gate, depth, finder frame ---\n'
+bash scripts/collapse_mech_gate.sh "$WORK/g181" || fail G181
+bash scripts/collapse_mech_gate_selftest.sh || fail G181
+finish G181
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

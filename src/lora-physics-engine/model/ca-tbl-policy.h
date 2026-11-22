@@ -563,6 +563,12 @@ struct CaTblPolicyConfig
      * enough to be inside the predicate radius is close enough to have been heard.
      */
     bool uwbEvidenceFromNeighbours;
+    //! DD 46 --uwbFutilityCycles: on UWB with no UWB range for this many consecutive cycles, step down and veto
+    //! UWB for a backoff that doubles after each futile stay (uwbFutilityBackoffS, capped at uwbFutilityMaxBackoffS).
+    //! Uses only the device's own radio outcomes (no World knowledge). 0 (default) = off.
+    uint32_t uwbFutilityCycles = 0;
+    double uwbFutilityBackoffS = 60.0;
+    double uwbFutilityMaxBackoffS = 960.0;
     /**
      * Target radial position accuracy, as a variance: (3.162 m)^2 = 10.0 m^2.
      *
@@ -1488,6 +1494,17 @@ class CaTblPolicy
     uint64_t m_reinitFallbackCount;
     uint64_t m_recoveryFirings;
     uint64_t m_predictBlockedQuality;
+    // DD 46 UWB futility gate state
+    double m_gateClockS = 0.0;
+    uint32_t m_uwbDryCycles = 0;
+    double m_uwbBlockedUntilS = -1.0;
+    double m_uwbBackoffS = 0.0;
+    uint64_t m_uwbFutileExits = 0;
+    uint64_t m_uwbVetoed = 0;
+  public:
+    uint64_t GetUwbFutileExits() const { return m_uwbFutileExits; }
+    uint64_t GetUwbVetoed() const { return m_uwbVetoed; }
+  private:
     uint64_t m_predictBlockedCoverage;
     uint64_t m_evidenceBlockedT2;
     uint64_t m_deescalations;

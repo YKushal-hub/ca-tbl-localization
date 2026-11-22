@@ -2673,6 +2673,73 @@ static CaTblCollapseCfg g_collapse;
 static bool g_interferenceFrameKey = false;
 //! DD 43 --phase0Timing: host CPU time spent in the workers' own estimation (CaTblPolicy::Step: the filter,
 //! smoother, particle acquisition, escalation logic), for the on-worker compute decision. Off: no clock is read.
+//! DD 47 --collapseDepthSolve (B2): each worker's depth below the rescuers' feet from its own ToF ranges to finders.
+static bool g_collapseDepthSolve = false;
+struct CollapseDepthObs
+{
+    double dh;    //!< horizontal distance, filter estimate to the finder's reported position
+    double r;     //!< the ToF range
+    double sigma; //!< its sigma
+};
+//! System side: rescuers hold their device kHold above where they stand on the pile, and a worker lies below them;
+//! the range satisfies r^2 = dh^2 + (kHold + d)^2. Robust (Huber, 2 sigma) 1-D search over d in [0, 10] m, 1 cm steps.
+//! Returns d and a curvature sigma; NaN when fewer than 3 usable ranges.
+static void CollapseSolveDepth(const std::vector<CollapseDepthObs>& obs, double& dOut, double& sdOut)
+{
+    const double kHold = 1.5; // the device's carry height (FieldNode::Position, the earlier work's 1.5 m)
+    dOut = sdOut = std::nan("");
+    // Depth is observable only from near-vertical rays (DD 42's bound: from 5 m away a 3 m-sigma range carries
+    // little depth information). Only ranges taken within 5 m horizontally are used; none is dropped for being
+    // shorter than the horizontal distance, which would bias the solve deep.
+    std::vector<CollapseDepthObs> ok;
+    for (const auto& o : obs)
+    {
+        if (o.dh <= 5.0)
+        {
+            ok.push_back(o);
+        }
+    }
+    if (ok.size() < 3)
+    {
+        return;
+    }
+    // The range through d metres of pile reads long by beta * d (slowing per metre of pile). The system does not
+    // know the rubble, so beta is the midpoint of the published span, rows SLOW-BR: (0.454 + 1.541) / 2 = 0.998 m/m,
+    // and the half-span 0.544 m/m enters each range's sigma as 0.544 * d (generic prior, not a World value).
+    const double kBeta = 0.5 * (0.454039 + 1.541129);
+    const double kBetaHalf = 0.5 * (1.541129 - 0.454039);
+    auto cost = [&](double d) {
+        double c = 0.0;
+        for (const auto& o : ok)
+        {
+            const double sg = std::sqrt(o.sigma * o.sigma + (kBetaHalf * d) * (kBetaHalf * d));
+            const double e = (std::sqrt(o.dh * o.dh + (kHold + d) * (kHold + d)) + kBeta * d - o.r) / sg;
+            c += (std::abs(e) <= 2.0) ? 0.5 * e * e : 2.0 * std::abs(e) - 2.0;
+        }
+        return c;
+    };
+    double best = 0.0, bc = cost(0.0);
+    for (double d = 0.01; d <= 10.0; d += 0.01)
+    {
+        const double c = cost(d);
+        if (c < bc)
+        {
+            bc = c;
+            best = d;
+        }
+    }
+    const double h = 0.05;
+    const double curv = (cost(best + h) - 2.0 * bc + cost(std::max(0.0, best - h))) / (h * h);
+    sdOut = (curv > 0.0) ? 1.0 / std::sqrt(curv) : std::nan("");
+    // Reported only when the system's own uncertainty says the depth is resolved (sd <= 1 m); otherwise
+    // "not observable" (NaN), which is the honest output for a worker no rescuer has stood over.
+    dOut = (std::isfinite(sdOut) && sdOut <= 1.0) ? best : std::nan("");
+}
+//! DD 48 --finderFrameSolve (plan B3): each finder's published position solved from its own ToF ranges to the
+//! surveyed gateways and the other finders, with its GNSS fix as the prior, instead of the GNSS fix alone.
+static bool g_finderFrameSolve = false;
+static uint32_t g_uwbFutilityCycles = 0;     //!< DD 46
+static double g_uwbFutilityBackoffS = 60.0;  //!< DD 46
 static bool g_phase0Timing = false;
 static double g_phase0StepS = 0.0;
 static uint64_t g_phase0Steps = 0;
@@ -7527,6 +7594,17 @@ RunArm(CaTblPolicyMode armMode,
     engine2p4.Initialize(cfg2p4);
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
+    // DD 48 --finderFrameSolve: separate engines for the finders' own ranging, so those draws never enter the arm
+    // engines' interference registry or move any other link. Same configuration (and the same rubble World).
+    std::unique_ptr<LoRa2p4PhysicsEngine> frame2p4;
+    std::unique_ptr<LoRaUWBPhysicsEngine> frameUwb;
+    if (g_finderFrameSolve)
+    {
+        frame2p4.reset(new LoRa2p4PhysicsEngine());
+        frame2p4->Initialize(cfg2p4);
+        frameUwb.reset(new LoRaUWBPhysicsEngine());
+        frameUwb->Initialize(cfgUwb);
+    }
     // DD 39 --collapse: the rubble World on every link of this arm (DD 36-37). Off: no world, no hook, no draw.
     std::unique_ptr<CaTblRubbleWorld> collapseWorld;
     if (g_collapse.on)
@@ -7539,6 +7617,11 @@ RunArm(CaTblPolicyMode armMode,
         engine868.SetRubbleWorld(collapseWorld.get());
         engine2p4.SetRubbleWorld(collapseWorld.get());
         engineUwb.SetRubbleWorld(collapseWorld.get());
+        if (frame2p4)
+        {
+            frame2p4->SetRubbleWorld(collapseWorld.get());
+            frameUwb->SetRubbleWorld(collapseWorld.get());
+        }
     }
 
     // C2. All per-tag state lives here now. tags[0] is the tag this arm has always
@@ -7709,6 +7792,8 @@ RunArm(CaTblPolicyMode armMode,
     pcfg.mode = mode;
     pcfg.skipTier2 = twoTier;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.uwbFutilityCycles = g_uwbFutilityCycles;   // DD 46 (0 = off)
+    pcfg.uwbFutilityBackoffS = g_uwbFutilityBackoffS;
     pcfg.pcsTerm1Inverse = spec.pcsTerm1Inverse; // row 17
     pcfg.suspectRecovery = suspectRecovery;
     pcfg.suspectInflateFactor = suspectInflateFactor;
@@ -9392,6 +9477,20 @@ RunArm(CaTblPolicyMode armMode,
     // interference model -- measured, tag 0's static_868 fixes fell 212 -> 2 at five
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
+    std::map<uint32_t, std::vector<CollapseDepthObs>> depthObs; // DD 47, filled only under --collapseDepthSolve
+    auto noteDepth = [&](uint32_t wid, double ex, double ey, const std::vector<CaTblRangeMeasurement>& ms) {
+        if (!g_collapseDepthSolve)
+        {
+            return;
+        }
+        for (const auto& m : ms)
+        {
+            if ((m.tier == 1 || m.tier == 2) && m.anchorId >= 501 && m.rangeM > 0.0 && m.sigmaM > 0.0)
+            {
+                depthObs[wid].push_back({std::hypot(m.anchorX - ex, m.anchorY - ey), m.rangeM, m.sigmaM});
+            }
+        }
+    };
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
     // NW-1. --hopProvenance: one row per tag-0 cycle with the depth of what it fused.
     std::unique_ptr<std::ofstream> rangeLog; // B1 --traceRanges
@@ -10757,10 +10856,94 @@ RunArm(CaTblPolicyMode armMode,
         // Costs no airtime: PublishSelfEntry writes this node's own table slot and
         // bumps its sequence number. What goes on the air is the ENTRY_PUSH that a
         // digest already asks for, billed by entry count and not by content.
+        // DD 48 --finderFrameSolve: a finder's position from its own ranges (UWB where heard, sigma 0.10 m; else
+        // 2.4 GHz, 3.0 m: the cited floors) to the surveyed gateways and the other finders' published positions, and
+        // its GNSS fix (the DD 20 offset) as a prior with the GNSS variance. The height difference uses the finder's
+        // GNSS height (true + a fixed N(0, 6.63 m) draw, row GPS-SPS-AVG). Gauss-Newton, 8 steps.
+        std::vector<Vector> s_gnss0;   // per arm (DD 48)
+        std::vector<double> s_gnssDz;
+        auto solveFinderFrame = [&](size_t fi, const Vector& truePos, double nowS) {
+            if (s_gnss0.size() != finderGpsOffset.size())
+            {
+                s_gnss0 = finderGpsOffset;
+                s_gnssDz.assign(finderGpsOffset.size(), 0.0);
+                for (size_t k = 0; k < s_gnssDz.size(); ++k)
+                {
+                    std::mt19937_64 g(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0xF1A3E5ULL + k);
+                    std::normal_distribution<double> n01(0.0, 1.0);
+                    s_gnssDz[k] = 6.63 * n01(g);
+                }
+            }
+            struct R
+            {
+                double x, y, z, r, s;
+            };
+            std::vector<R> rs;
+            const Time now = Seconds(nowS);
+            auto range = [&](uint32_t tid, const Vector& tp, const Vector& known) {
+                const uint32_t fid = 501 + static_cast<uint32_t>(fi);
+                PhysicsResultUWB ru = frameUwb->ProcessTransmission(fid, tid, truePos, tp, phy[2].txPowerDbm, phy[2].sf,
+                                                                     phy[2].bandwidthHz, 0, now);
+                if (ru.packetReceived && ru.estimatedRangeM > 0.0)
+                {
+                    rs.push_back({known.x, known.y, known.z, ru.estimatedRangeM, 0.10});
+                    return;
+                }
+                PhysicsResult2p4 r2 = frame2p4->ProcessTransmission(fid, tid, truePos, tp, phy[1].txPowerDbm, phy[1].sf,
+                                                                    phy[1].bandwidthHz, 0, now);
+                if (r2.packetReceived && r2.estimatedRangeM > 0.0)
+                {
+                    rs.push_back({known.x, known.y, known.z, r2.estimatedRangeM, 3.0});
+                }
+            };
+            for (const auto& ad : dep.anchors[CA_TBL_TIER_2P4])
+            {
+                range(ad.id, ad.pos, ad.pos); // surveyed gateways: known positions
+            }
+            for (size_t j = 0; j < finderPos.size(); ++j)
+            {
+                if (j != fi)
+                {
+                    const Vector pub(finderPos[j].x + finderGpsOffset[j].x, finderPos[j].y + finderGpsOffset[j].y,
+                                     finderPos[j].z);
+                    range(501 + static_cast<uint32_t>(j), finderPos[j], pub);
+                }
+            }
+            const double gz = truePos.z + s_gnssDz[fi];
+            double x = truePos.x + s_gnss0[fi].x, y = truePos.y + s_gnss0[fi].y;
+            const double px = x, py = y, pv = finderPosVar;
+            for (int it = 0; it < 8; ++it)
+            {
+                double a11 = 1.0 / pv, a12 = 0.0, a22 = 1.0 / pv, b1 = (px - x) / pv, b2 = (py - y) / pv;
+                for (const auto& q : rs)
+                {
+                    const double dx = x - q.x, dy = y - q.y, dz = gz - q.z;
+                    const double dd = std::max(std::sqrt(dx * dx + dy * dy + dz * dz), 1e-3);
+                    const double ux = dx / dd, uy = dy / dd, w = 1.0 / (q.s * q.s), e = q.r - dd;
+                    a11 += w * ux * ux;
+                    a12 += w * ux * uy;
+                    a22 += w * uy * uy;
+                    b1 += w * ux * e;
+                    b2 += w * uy * e;
+                }
+                const double det = a11 * a22 - a12 * a12;
+                if (!(std::abs(det) > 1e-12))
+                {
+                    break;
+                }
+                x += (a22 * b1 - a12 * b2) / det;
+                y += (a11 * b2 - a12 * b1) / det;
+            }
+            finderGpsOffset[fi] = Vector(x - truePos.x, y - truePos.y, 0.0);
+        };
         auto republishFinder = [&](size_t fi, const Vector& truePos, double nowS) {
             if (fi >= finderMacAll.size())
             {
                 return;
+            }
+            if (g_finderFrameSolve) // DD 48
+            {
+                solveFinderFrame(fi, truePos, nowS);
             }
             const Vector& off = finderGpsOffset[fi];
             // DC-10. The velocity a GNSS receiver reports: displacement over the time
@@ -12712,6 +12895,7 @@ RunArm(CaTblPolicyMode armMode,
                     g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0a).count();
                     ++g_phase0Steps;
                 }
+                noteDepth(sb.nodeId, ds.estX, ds.estY, measS); // DD 47
                 if (ex.tdoa)
                 {
                     ex.tdoa->EndCycle(t, cycleIndex, sb.pos, sb.policy.AuxFusedLast(),
@@ -14732,6 +14916,7 @@ RunArm(CaTblPolicyMode armMode,
             g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0b).count();
             ++g_phase0Steps;
         }
+        noteDepth(nodeId, d.estX, d.estY, meas); // DD 47
         // UI --vizFixSet: who this fix was computed from (output only).
         if (vizFixSet.is_open() && static_cast<uint32_t>(nodeId) == 1u && d.hadFix &&
             !d.measurementRejected)
@@ -16183,6 +16368,24 @@ RunArm(CaTblPolicyMode armMode,
         res.macCaptures += chan[i].GetTotalCaptures();
         res.macDeliveries += chan[i].GetTotalDeliveries();
     }
+    if (g_collapseDepthSolve && g_collapse.on) // DD 47: system-side depth estimates, and the World's truth apart
+    {
+        std::ostringstream fe, ft;
+        fe << traceDir << "/collapse_depth_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        ft << traceDir << "/collapse_truth_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        std::ofstream oe(fe.str()), ot(ft.str());
+        oe << "worker,depth_est_m,depth_sd_m,n_ranges\n" << std::fixed << std::setprecision(4);
+        ot << "worker,x,y,z,depth_true_m\n" << std::fixed << std::setprecision(4);
+        for (size_t k = 0; k < tags.size() && k < std::max<uint32_t>(1u, spec.measuredSubjects); ++k)
+        {
+            const uint32_t wid = tags[k].nodeId;
+            double dd, sd;
+            CollapseSolveDepth(depthObs[wid], dd, sd);
+            oe << wid << "," << dd << "," << sd << "," << depthObs[wid].size() << "\n";
+            const Vector b = CollapseBuriedPos(seed, static_cast<uint32_t>(k));
+            ot << wid << "," << b.x << "," << b.y << "," << b.z << "," << (g_collapse.pileH - b.z) << "\n";
+        }
+    }
     if (subj)
     {
         // MS-1. One subject_summary.csv row per measured subject. Subject 1 is tag 0 and
@@ -16280,6 +16483,16 @@ RunArm(CaTblPolicyMode armMode,
             }
             std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(armMode) << "): tag 0 "
                       << policy.GetCaseAPreFuseCount() << ", all measured nodes " << pf << " cycles\n";
+        }
+        if (g_uwbFutilityCycles > 0)
+        {
+            uint64_t ex = policy.GetUwbFutileExits(), ve = policy.GetUwbVetoed();
+            for (size_t k = 1; k < tags.size(); ++k)
+            {
+                ex += tags[k].policy.GetUwbFutileExits();
+                ve += tags[k].policy.GetUwbVetoed();
+            }
+            std::cout << "    DD46 UWB futility gate: futile exits " << ex << ", vetoed escalations " << ve << "\n";
         }
         line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
         for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
@@ -20049,6 +20262,27 @@ main(int argc, char* argv[])
                  "key and copies never interfere with each other; different frames still do. Default false: "
                  "byte-identical to every earlier result.",
                  g_interferenceFrameKey);
+    cmd.AddValue("uwbFutilityCycles",
+                 "DD 46. On UWB with no UWB range for this many consecutive cycles, step down and veto UWB for a "
+                 "backoff (--uwbFutilityBackoffS, doubling after each futile stay, capped at 960 s). Only the device's own "
+                 "radio outcomes are used. Why: under rubble the geometric UWB-reach predictor (a finder ranged close by) "
+                 "is wrong -- the finder is close but UWB does not get through -- and COLLAPSE-3 found the full design "
+                 "spending most of its energy on UWB attempts (DD 45). 0 (default) = off, byte-identical.",
+                 g_uwbFutilityCycles);
+    cmd.AddValue("uwbFutilityBackoffS", "DD 46. First UWB veto after a futile stay, s (doubles, capped at 960 s)",
+                 g_uwbFutilityBackoffS);
+    cmd.AddValue("finderFrameSolve",
+                 "DD 48 (plan B3). Each finder publishes the position solved from its own ToF ranges (UWB, else 2.4 GHz) to "
+                 "the surveyed gateways and the other finders, with its GNSS fix (--finderPosSigma) as the prior, instead "
+                 "of the GNSS fix alone. Ranges are drawn on separate engines, so no other link moves. Default false.",
+                 g_finderFrameSolve);
+    cmd.AddValue("collapseDepthSolve",
+                 "DD 47 (plan B2). With --collapse: estimate each worker's depth below the rescuers' feet from its own "
+                 "2.4 GHz and UWB ranges to finders taken within 5 m horizontally (r^2 = dh^2 + (1.5 + d)^2, robust 1-D "
+                 "search; NaN = not observable when its sd exceeds 1 m) and write "
+                 "collapse_depth_<arm>_seed<N>.csv; the World's true depths go to collapse_truth_<arm>_seed<N>.csv. "
+                 "Output only. Default false.",
+                 g_collapseDepthSolve);
     cmd.AddValue("phase0Timing",
                  "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
                  "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
@@ -23920,6 +24154,10 @@ main(int argc, char* argv[])
     if (spec.measuredSubjects > 1)
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
+    }
+    if (g_collapseDepthSolve && g_collapse.on) // DD 47
+    {
+        digestPatterns += " collapse_depth_*.csv collapse_truth_*.csv";
     }
     if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need")
     {

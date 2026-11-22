@@ -1034,3 +1034,59 @@ Full tables are in `report/PREREG_COLLAPSE{1,2,3}.md` (Results sections) and und
   Depth stays at 3.0 m median error, above 3× the CRB (H12 fails).
 - **Stations (COLLAPSE-2 b, H9 holds).** At 8 storeys (central), L2 is 0.52 with 3 stations, 0.66 with 4 and 0.80
   with 6, on the same 56.45 m ring.
+
+## 46. UWB futility gate (`--uwbFutilityCycles`, default 0 = off; 2026-11-22)
+
+COLLAPSE-3 found the full design spending most of its energy on UWB under rubble (DD 45). The existing evidence
+gate predicts UWB reach from geometry (a finder ranged within the UWB radius). Under rubble that prediction fails:
+the finder is close, but UWB does not get through.
+
+The new gate uses only the device's own radio outcomes (`CaTblPolicy`, all workers):
+- on UWB with no UWB range for K consecutive cycles, it steps down to the entry tier;
+- it then vetoes UWB escalation for a backoff that starts at `--uwbFutilityBackoffS` (60 s), doubles after each
+  futile stay, is capped at 960 s, and resets when UWB works again.
+
+K and the backoff are modelling choices (OURS), stated as such.
+
+Exploratory (seed 901, 8 storeys, central, 600 s):
+
+| Case | Energy, gate off | Energy, gate on | Other effect |
+|---|---|---|---|
+| Lone worker | 98.1 J | 19.5 J | CEP50 2.12 → 1.22 m |
+| 20 workers, hungriest worker | 52.3 J | 19.1 J | CR123A life 53 → 144 h; L2 unchanged at 0.65 |
+
+Gate G181: the lone worker's UWB energy at least halves (93.5 → 15.0 J).
+
+## 47. Depth inside the main simulator (plan B2; `--collapseDepthSolve`, output only; 2026-11-22)
+
+After each `Step()`, every worker's 2.4 GHz and UWB ranges to finders are recorded with the filter's horizontal
+estimate and the finder's published position. At the end of the run, depth below the rescuers' feet is solved
+(`CollapseSolveDepth`).
+- **Model:** r = √(dh² + (1.5 + d)²) + β·d. The 1.5 m carry height is the earlier work's. β = 0.998 m/m is the
+  midpoint of SLOW-BR's published span, with the half-span 0.544 m/m in each range's σ.
+- **Data used:** ranges taken within 5 m horizontally only. Depth is observable only from near-vertical rays (DD 42).
+- **Reporting:** a depth is reported only when its own σ is ≤ 1 m; otherwise NaN, meaning not observable.
+- **Outputs:** `collapse_depth_<arm>_seed<N>.csv`; the World's true depths go to `collapse_truth_*.csv`. Both are
+  digested.
+
+Exploratory (5 storeys, central, 20 workers, 3 seeds, 30 min): 10 of 60 workers resolved, median depth error
+0.69 m, inside the CRB's 0.6–1.8 m.
+- Without β the same geometry gave 1.85 m (time of flight through rubble reads long).
+- A first version that dropped ranges shorter than dh gave 8.5 m (deep bias).
+
+Depth is limited by coverage: two finders rarely stand within 5 m of most of 20 workers.
+
+## 48. The finders' frame inside the main simulator (plan B3; `--finderFrameSolve`, default off; 2026-11-22)
+
+Each finder publishes the position solved from its own time-of-flight ranges, instead of its GNSS fix alone:
+- ranges to the surveyed gateways and to the other finders' published positions;
+- UWB where received (σ 0.10 m), 2.4 GHz otherwise (3.0 m);
+- its GNSS fix as the prior, with the GNSS variance;
+- height from GNSS vertical noise (6.63 m, GPS-SPS-AVG);
+- 8 Gauss-Newton steps.
+
+The ranges are drawn on separate engine instances with the arm's configuration, so they never enter the arm
+engines' interference registry or move any other link.
+
+Off: byte-identical for DD 46–48 together (178 reference files; 614 files against `main`'s binary). Gate G181
+(+ selftest, 3 fixtures). Evaluated in COLLAPSE-4.

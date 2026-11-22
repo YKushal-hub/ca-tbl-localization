@@ -3066,6 +3066,41 @@ CaTblPolicy::StepImpl(double dt,
         }
     }
 
+    // DD 46 --uwbFutilityCycles: a tier the radio cannot reach is not worth its joules. On UWB with no UWB
+    // range for K consecutive cycles: step down and veto UWB for a backoff that doubles after each futile stay.
+    bool uwbFutileExit = false;
+    if (m_config.uwbFutilityCycles > 0)
+    {
+        m_gateClockS += dt;
+        if (m_tier == CA_TBL_TIER_UWB && !m_uwbPending)
+        {
+            m_uwbDryCycles = (activeTierRanges > 0) ? 0 : m_uwbDryCycles + 1;
+            if (activeTierRanges > 0)
+            {
+                m_uwbBackoffS = 0.0; // UWB works here again: the next failure starts the backoff afresh
+            }
+            if (m_uwbDryCycles >= m_config.uwbFutilityCycles)
+            {
+                m_uwbBackoffS = (m_uwbBackoffS <= 0.0)
+                                    ? m_config.uwbFutilityBackoffS
+                                    : std::min(2.0 * m_uwbBackoffS, m_config.uwbFutilityMaxBackoffS);
+                m_uwbBlockedUntilS = m_gateClockS + m_uwbBackoffS;
+                m_uwbDryCycles = 0;
+                uwbFutileExit = true;
+                ++m_uwbFutileExits;
+            }
+        }
+        else
+        {
+            m_uwbDryCycles = 0;
+        }
+        if (wantEscalate && m_tier == UwbEntryTier() && m_gateClockS < m_uwbBlockedUntilS)
+        {
+            wantEscalate = false;
+            ++m_uwbVetoed;
+        }
+    }
+
     if (m_config.escalationRequiresEvidence && wantEscalate && dynamic)
     {
         const bool haveMap = !m_config.uwbAnchorX.empty();
@@ -3281,6 +3316,15 @@ CaTblPolicy::StepImpl(double dt,
             }
             m_deescalateCounter = 0;
         }
+    }
+
+    if (uwbFutileExit && m_tier == CA_TBL_TIER_UWB) // DD 46: leave the unreachable tier
+    {
+        m_tier = TierBelow(m_tier);
+        m_deescalations++;
+        d.deescalated = true;
+        d.escalated = false;
+        m_deescalateCounter = 0;
     }
 
     if (queryHook)
