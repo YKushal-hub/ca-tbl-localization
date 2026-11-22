@@ -75,6 +75,8 @@ physics_scale_sweep_*.csv
 /results/**
 !/results/**/
 !/results/**/arm_summary.csv
+# DD 45: per-worker summaries of multi-subject runs (one row per worker; small) -- the evidence for N > 1 results
+!/results/**/subject_summary.csv
 !/results/**/run_id.txt
 !/results/**/probe_range_sweep.csv
 !/results/**/imu_summary.csv

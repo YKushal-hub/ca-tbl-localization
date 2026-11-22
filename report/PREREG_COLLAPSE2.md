@@ -45,8 +45,8 @@ Failures are reported as failures.
 
 ## Results (recorded 2026-11-22; hypotheses unchanged)
 
-- **(a) H8 holds:** `spt` ≥ `id` in 108 of 108 combinations (`results/collapse1/collapse2_dig_analysis.txt`).
-- **(c) Field estimators** (`results/collapse2_field/collapse2_field_analysis.txt`, 10 seeds per bracket):
+- **(a) H8 holds:** `spt` ≥ `id` in 108 of 108 combinations (`results/collapse1/collapse2_dig_analysis.md`).
+- **(c) Field estimators** (`results/collapse2_field/collapse2_field_analysis.md`, 10 seeds per bracket):
   - **H10:** 7 of 8 hold. joint ≥ tof everywhere. joint ≥ rss except at low rubble with full coverage
     (0.65 vs 0.66).
   - **H11 holds:** coop's median beats joint's at half coverage (low 2.07 vs 2.41 m; central 2.55 vs 2.69 m).

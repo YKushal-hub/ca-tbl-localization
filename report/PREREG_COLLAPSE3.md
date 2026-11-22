@@ -23,7 +23,7 @@ COLLAPSE-1 cell's energy had been looked at.
 
 ## Results (recorded 2026-11-22; hypothesis unchanged)
 
-`results/collapse1/collapse3_analysis.txt`. **H7 fails for ca_tbl_full in 17 of 21 cells.**
+`results/collapse1/collapse3_analysis.md`. **H7 fails for ca_tbl_full in 17 of 21 cells.**
 - **N = 20 / 30:** the median worker lasts 170–243 h on one CR123A, but the 5th percentile lasts 39–127 h. The
   busiest workers spend the first half hour escalating and ranging, and that rate is extrapolated (as registered,
   conservatively).

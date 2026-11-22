@@ -81,8 +81,8 @@ the first cell is labelled exploratory.
 ## Results (recorded 2026-11-22, after all 210 runs; hypotheses unchanged)
 
 Campaign `~/catbl_work/campaigns/collapse1`, binary `c93ee19f2` (manifest `results/collapse1/build.sha256`), all
-210 runs exit 0. Per-cell table: `results/collapse1/collapse1_analysis.txt`; per-run rows:
-`results/collapse1/collapse1_cells.csv`; run sidecars: `results/collapse1/runs/`. One crash in the analyser (an empty
+210 runs exit 0. Per-cell table: `results/collapse1/collapse1_analysis.md`; per-run rows:
+`results/collapse1/collapse1_cells.md`; run sidecars: `results/collapse1/runs/`. One crash in the analyser (an empty
 mean when no worker in a cell ever came within 2 m) was fixed after the first run; no measure or test changed.
 
 | Hypothesis | Verdict | Detail |
