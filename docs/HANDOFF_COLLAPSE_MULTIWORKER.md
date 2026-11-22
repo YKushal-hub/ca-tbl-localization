@@ -521,3 +521,16 @@ copies:
 - 2026-11-22: DD 41 is the global default. Full suite: only the recorded reds (G11, G24, G93) remain.
   - 18 pre-adoption behaviour gates are pinned with PIN_PRE_DD41 and pass.
   - G92 and G158 are fixed. Details in DD 41's adoption note.
+- 2026-11-22: **owner decisions (second round):** re-run the earlier campaigns under DD 41, and design a follow-up to
+  the failed hypotheses.
+  - Follow-up: DD 53 / 53b lone-worker rules, registered as COLLAPSE-8 (`report/PREREG_COLLAPSE8.md`).
+  - Replication: REPLAY-DD41 (`report/PREREG_REPLAY_DD41.md`).
+  - Both run from `scripts/replay_dd41_queue.sh`, launched 13:33 UTC: COLLAPSE-8 first, then REALISTIC-5, -6,
+    PARETO-1, -2, REALISTIC-4, -3, -2, -1. About 20 h in total; progress in `~/catbl_work/campaigns/replay41/QUEUE.md`.
+  - **To finish:**
+    1. Analyse COLLAPSE-8: `python3 scripts/collapse8_analyse.py ~/catbl_work/campaigns/collapse8`.
+    2. Analyse each replay with its own analyser, e.g.
+       `python3 scripts/realistic5_analyse.py ~/catbl_work/campaigns/replay41/realistic5`.
+    3. Append the Results to the pre-registrations.
+    4. Copy the sidecars to `results/`.
+    5. Update both papers' numbers.
