@@ -156,9 +156,9 @@ and opening a PR on 2026-11-22.
 | B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
 | B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
 | Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
-| COLLAPSE-1 (localisation, scaling, designs, digging) | RUNNING | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
-| COLLAPSE-3 (72 h on one CR123A) | REGISTERED | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
-| COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | REGISTERED; field part RUNNING | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
+| COLLAPSE-1 (localisation, scaling, designs, digging) | DONE (results in the PREREG file, DD 45) | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
+| COLLAPSE-3 (72 h on one CR123A) | DONE: H7 fails for ours (UWB escalation energy), DD 45 | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
+| COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | (a) and (c) DONE; (b) stations RUNNING | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
 | Paper section | NOT DONE | `~/catbl_work/tii_paper/tii/tii_main.tex` | after COLLAPSE-1 |
 
 **Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
@@ -427,3 +427,10 @@ copies:
   - Handoff updated and pushed at the owner's request.
 - 2026-11-22: B3 with point-to-point UWB: median 2.50 m, against 2.82 m for GPS and 1.63 m for the assumed local frame
   (DD 44 update).
+- 2026-11-22: COLLAPSE-1 done (210 runs), COLLAPSE-3 and COLLAPSE-2 (a, c) analysed.
+  - Verdicts: H1 3/6, H2–H6 hold (H3 15/18), H7 fails for ours, H8 holds, H10 7/8, H11 holds, H12 fails (DD 45).
+  - Results recorded; summaries in `results/collapse1/` and `results/collapse2_field/`.
+  - Still running: COLLAPSE-2 (b) stations, `~/catbl_work/campaigns/collapse2_stations`. Analyse with
+    `python3 scripts/collapse2_analyse.py stations ~/catbl_work/campaigns/collapse1
+    ~/catbl_work/campaigns/collapse2_stations` and record H9 in `report/PREREG_COLLAPSE2.md`.
+  - Next mechanism candidate (new registration needed): a UWB escalation gate under rubble (DD 45).

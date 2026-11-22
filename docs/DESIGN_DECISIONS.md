@@ -1011,3 +1011,24 @@ Results:
 The B3 frame's error is distortion between points, not a shift. The 10 m UWB mesh is tied to the stations by
 2.4 GHz ranges (σ 3 m) and to GPS (σ 3.27 m), and these bend it. A denser or longer-range rescuer UWB mesh, or
 stations within UWB range, is what the frame needs. Exploratory, not citable.
+
+## 45. COLLAPSE-1/2/3 results (2026-11-22)
+
+Full tables are in `report/PREREG_COLLAPSE{1,2,3}.md` (Results sections) and under `results/collapse1/` and
+`results/collapse2_field/`.
+- **Localisation.** Through 0.9 m of rubble (2 storeys), 94–99% of 20 workers are within 2 m (median 0.6–0.7 m).
+  At 5–8 storeys it is 66–81% (median 1.0–1.5 m); in the heaviest rubble 27–55%.
+- **Scaling.** 1 → 20 → 30 workers costs nothing measurable (H2, H6).
+- **Designs.** Ours equals static_2p4 through thin rubble and beats it by 0.27–0.49 L2 through thick rubble. It
+  equals static_868 through thick rubble (H3 fails in 3 of 9 cells, by up to −0.13) and beats it by 0.68–0.74
+  through thin rubble.
+- **Digging order.** Uncertainty-aware ordering (`spt`) gains up to +6.3 expected survivors out of 20 and never
+  loses (H5; H8: 108 of 108).
+- **Battery** (H7 fails for ours). The median crew member lasts 170–243 h on one CR123A, but the 5th percentile
+  lasts 39–127 h, and a lone worker 25–34 h.
+  - The energy goes to UWB: the lone worker spent 319 of 336 J on 512 UWB cycles, and crew worker 1 spent 174 J.
+  - Under rubble, the full design keeps escalating to a tier that cannot get through.
+  - Proposed, not built: a UWB escalation gate that requires UWB reach evidence for the buried device. It is a new
+    mechanism and would need its own registration.
+- **Estimators** (field). joint ≥ tof everywhere and ≥ rss in 3 of 4 cases; coop helps at half coverage (H11).
+  Depth stays at 3.0 m median error, above 3× the CRB (H12 fails).

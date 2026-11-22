@@ -20,3 +20,19 @@ percentile) and H7.
 central, 20 workers; not a COLLAPSE-1 cell). Its numbers were seen: for ca_tbl_full, median 138 h and 5th
 percentile 33 h, a short run dominated by the first minutes' search. H7 was not changed after seeing them. No
 COLLAPSE-1 cell's energy had been looked at.
+
+## Results (recorded 2026-11-22; hypothesis unchanged)
+
+`results/collapse1/collapse3_analysis.txt`. **H7 fails for ca_tbl_full in 17 of 21 cells.**
+- **N = 20 / 30:** the median worker lasts 170–243 h on one CR123A, but the 5th percentile lasts 39–127 h. The
+  busiest workers spend the first half hour escalating and ranging, and that rate is extrapolated (as registered,
+  conservatively).
+- **N = 1:** the lone worker's median is only 25–34 h in 6 of 9 cells (181 h in the other three). Alone, the full
+  design spends about 600 J/h, against about 90 J/h per worker in a crew. That is a finding to explain: the
+  1-worker preset (`PIN_ONE_WORKER`) turns off the relay and fix-routing features, and the lone worker's
+  escalation and ranging are not shared with or arbitrated against any peer.
+- **The single-radio designs hold everywhere:** static_868's 5th percentile is ≥ 258 h, static_2p4's ≥ 206 h.
+
+One CR123A therefore covers the rescue window for a typical crew member but not for the hungriest 5% under the full
+design, nor for a lone worker, unless the busy rate falls after the first half hour, which this campaign does not
+test.

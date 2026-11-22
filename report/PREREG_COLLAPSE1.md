@@ -77,3 +77,29 @@ the first cell is labelled exploratory.
 - The 2.4 GHz LOS ranging spread is wider than Zhou 2025's measurement (VAL-4b): conservative for static_2p4.
 - Interference is the engines' model with the DD 41 fix. There is no external interferer at the site.
 - Stations ring the pile evenly: a sourced standoff, an idealised layout.
+
+## Results (recorded 2026-11-22, after all 210 runs; hypotheses unchanged)
+
+Campaign `~/catbl_work/campaigns/collapse1`, binary `c93ee19f2` (manifest `results/collapse1/build.sha256`), all
+210 runs exit 0. Per-cell table: `results/collapse1/collapse1_analysis.txt`; per-run rows:
+`results/collapse1/collapse1_cells.csv`; run sidecars: `results/collapse1/runs/`. One crash in the analyser (an empty
+mean when no worker in a cell ever came within 2 m) was fixed after the first run; no measure or test changed.
+
+| Hypothesis | Verdict | Detail |
+|---|---|---|
+| H1 (L2 ≥ 0.80, N = 20, low/central) | **3 of 6 hold** | s2 low 0.99, s2 central 0.94, s8 low 0.81 hold; s5 low 0.79, s5 central 0.78, s8 central 0.66 fail |
+| H2 (worker 1 with 20 vs alone, ≤ +1 m) | **9 of 9 hold** | median paired differences −0.40 to +0.65 m |
+| H3 (ours ≥ each radio alone) | **15 of 18 hold** | ≥ static_2p4 in all 9 cells (by +0.19 to +0.49 L2 where they differ). ≥ static_868 in 6 of 9; fails at s5 low (+0.01, bound −0.07), s8 low (−0.13) and s8 central (−0.05): under 2.3–3.7 m of rubble, 868 MHz alone is as good or slightly better, because 2.4 GHz escalations rarely get through and cost energy |
+| H4 (high bracket, 5/8 storeys, every arm L2 < 0.5) | **6 of 6 hold** | 0.05–0.34: the predicted physics limit |
+| H5 (`spt` digging ≥ `id`) | **9 of 9 hold** | +0.00 to +6.34 expected survivors out of 20 |
+| H6 (N = 30 within 0.10 of N = 20) | **3 of 3 hold** | −0.01 to +0.01 |
+
+**Reading.**
+- Through a thin pile (2 storeys, 0.9 m) the system places 94–99% of 20 workers within 2 m, with a median error of
+  0.6–0.7 m. That falls to 66–81% at 5–8 storeys (median 1.0–1.5 m) and to 27–55% in the heaviest rubble.
+- Scaling from 1 to 20 to 30 workers costs nothing measurable.
+- The decisive design comparison is depth-dependent. Ours equals static_2p4 through thin rubble and beats it by
+  0.27–0.49 in L2 through thick rubble. Ours equals static_868 through thick rubble and beats it by 0.68–0.74
+  through thin rubble. No single radio does both.
+- Worst-case workers (CEP50 of hundreds of metres to km in deep cells) remain: filter divergence that re-acquisition
+  does not always catch.

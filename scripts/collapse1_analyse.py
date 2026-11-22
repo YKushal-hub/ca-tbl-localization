@@ -95,8 +95,9 @@ def main():
                     rs = sel(storeys=stv, bracket=br, N=N, arm=arm)
                     if not rs:
                         continue
-                    f = lambda k: st.mean(r[k] for r in rs if k in r and not (isinstance(r[k], float) and math.isnan(r[k]))) \
-                        if any(k in r for r in rs) else float("nan")
+                    def f(k):  # mean over seeds; nan when no seed has a value (crash fix after the first run)
+                        v = [r[k] for r in rs if k in r and not (isinstance(r[k], float) and math.isnan(r[k]))]
+                        return st.mean(v) if v else float("nan")
                     print(f"s{stv} {br:7} N={N:2}  {arm:12} {len(rs):5} {f('L2'):5.2f} {f('L5'):5.2f} {f('cep_med'):7.1f} "
                           f"{f('cep_max'):7.1f} {f('first2_med'):7.0f} {f('J_med'):8.1f} {f('dig_spt'):7.2f} {f('dig_id'):6.2f}")
     print("\nHYPOTHESES")
