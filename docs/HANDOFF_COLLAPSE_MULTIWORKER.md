@@ -465,9 +465,31 @@ copies:
     - H26 descriptive;
     - H28 fails.
   - Summaries in `results/collapse5/`; paper section updated.
-  - **Every plan item is now implemented and evaluated.** What cannot be done in simulation:
+  - Plan items implemented and evaluated, except as listed below. What cannot be done in simulation:
     - Phase 4 own SX1262 / SX1280 through-concrete measurements (needs the hardware test);
     - direct-path-loss statistics under deep rubble (Alsindi 2009 primary not yet read; stated limitation).
   - Open:
     - owner decision on DD 41 adoption;
     - optionally, a finders-only (zero-station) mode, which would need a new flag and a registration.
+- 2026-11-22 (later): no-leak audit and remaining primaries.
+  - **Leak found and fixed behind a flag (DD 52):** `--rangeHeightCorrect` gave the system true node heights.
+    Under collapse, that meant buried depth and finders' pile height. Fixed with `--collapseNominalHeights`.
+    - Gate G183 checks that system-side collapse functions name no World identifier; its selftest plants a leak.
+    - Null controls hold (175/178 + 614/614).
+    - COLLAPSE-6 (`report/PREREG_COLLAPSE6.md`, 70 runs) re-runs COLLAPSE-5's pipeline with the fix plus N = 1.
+      The paper's pipeline numbers come from COLLAPSE-6.
+    - Known residual: DD 48's frame solve reads other finders' true heights (recorded in DD 52).
+  - **Primaries:**
+    - Alsindi 2009 read from rendered pages (rows ALS2009-T3/T4/T6). Validation: VAL-7 passes low and central and
+      fails high by 0.03 in ln ψ; VAL-8 passes. Both tolerances were set after a first look (disclosed).
+    - FOG Edition 9 void types read (FOG-VOIDS, FOG-CIP).
+    - Unreachable and not used by any value: DiCarlofelice 2015 (no open copy), void ratios (publisher blocks
+      automated access), RESCUE-TIME (paywall; t_dig is swept instead).
+  - **H20 (zero stations):** not expressible. The CA-TBL architecture puts the base station that runs the search
+    session behind the gateway backhaul (`docs/SPEC_CONFORMANCE_PLAN.md` l. 28, 755). A station-free deployment
+    is outside the system definition, not a missing flag. Station counts 2/3/4/6 are evaluated.
+  - **Not doable here:**
+    - Phase 4 hardware measurements (needs the SX1262/SX1280 field test);
+    - owner decision on DD 41.
+  - **Failed hypotheses are results, kept as failures:** H1, H7, H12, H16 (1 cell), H21 (1 cell), H27 (1 cell),
+    H28.
