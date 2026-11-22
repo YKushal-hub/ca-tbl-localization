@@ -11,3 +11,14 @@ Its H14 lines compare `gate` with `base`, which this campaign does not run, and 
 
 **H32:** `frame` L2 ≥ `gate` L2 − 0.05 (mean over seeds) in every cell. This is H16's rule, re-tested without
 the leaks.
+
+## Results (recorded 2026-11-22)
+
+40 runs, all exit 0, binary `11427fd71` (`results/collapse5/collapse7_analysis.md`).
+
+- **H32 holds, 4 of 4:** frame L2 − gate L2 is +0.01, −0.00, −0.01 and +0.03. COLLAPSE-4 had 3 of 4 with the
+  leaks.
+- **Not hypothesised here, but with no leak:**
+  - battery: the 5th-percentile worker lasts 169–187 h (COLLAPSE-4 H13's rule holds);
+  - depth: resolved for 31% / 20% of workers at 5 / 8 storeys, median absolute error 0.89 / 0.81 m (H15's rule
+    holds).

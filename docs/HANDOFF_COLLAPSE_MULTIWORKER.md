@@ -504,3 +504,11 @@ copies:
     - an N = 1 rule for the UWB gate, e.g. keep UWB probes when alone, which needs a registration;
     - DD 48's residual true-height read for neighbouring finders;
     - the owner's DD 41 decision.
+- 2026-11-22: DD 48 residual fixed under `--collapseNominalHeights` (neighbour finder heights from GNSS).
+  - COLLAPSE-7 (40 runs): H32 holds 4/4. Battery (p5 169–187 h) and depth (20–31% resolved, 0.8–0.9 m) also hold
+    with no leak.
+  - No known World-to-system read remains in no-leak mode (G183; the audit list in DD 52).
+  - Remaining items are not implementation:
+    - Phase 4 hardware measurements;
+    - the owner's DD 41 decision;
+    - registered hypotheses that failed, which are kept as failures and not re-tuned.
