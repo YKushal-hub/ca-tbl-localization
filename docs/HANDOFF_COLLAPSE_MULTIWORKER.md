@@ -150,16 +150,17 @@ and opening a PR on 2026-11-22.
 | Multi-subject reception defect (copies of one broadcast collided) | FIXED behind a flag | `--interferenceFrameKey` (DD 41) | G180; owner decision pending (§8) |
 | B1 cross-band self-calibration (joint RSS + ToF via ρ = A/(n − 1)) | DONE (field estimator) | `scripts/collapse/estimate_collapse.py` (DD 38) | first results in DD 38 |
 | B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
-| B2 depth estimator in the main simulator's 2-D filters | NOT DONE | — | the 2-D filters estimate (x, y) only |
-| B3 rescuer frame from UWB + GPS + IMU | IMPLEMENTED, being evaluated | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (3.66 m vs 2.82 m median); with point-to-point UWB 2.50 m (better than GPS, short of the assumed 0.10 m frame's 1.63 m); DD 44 |
+| B2 depth estimator in the main simulator | DONE | `--collapseDepthSolve` (DD 47) | COLLAPSE-4 H15: 17–23% resolved, median 0.74 m |
+| B3 rescuer frame from UWB + GPS + IMU | DONE (field `--frame uwb`; main simulator `--finderFrameSolve`, DD 48) | field: `--frame uwb` in `estimate_collapse.py` (joint solve of all rescuer points: point-to-point UWB from `--collapsePointLinksM`, point-to-station ToF, GPS priors; DD 44); main simulator: `--finderPosSigma` (DD 20) | station ranges alone: worse than GPS (3.66 m vs 2.82 m median); with point-to-point UWB 2.50 m (better than GPS, short of the assumed 0.10 m frame's 1.63 m); DD 44 |
 | B4 worker-to-worker cooperation | DONE (field estimator), modest | `coop` (DD 42) | helps the median at ≥ half coverage, hurts the tails |
 | B5 many devices on air: MAC, collisions, duty cycle, energy | DONE via the main simulator's MAC and energy model, plus the DD 41 fix | — | COLLAPSE-1/3 |
 | B6 digging order with survival weighting | DONE | `scripts/collapse/score_dig.py` | H5 in COLLAPSE-1 |
+| UWB futility gate (battery fix) | DONE | `--uwbFutilityCycles` (DD 46) | COLLAPSE-4 H13 8/8, H14 4/4 |
 | Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
 | COLLAPSE-1 (localisation, scaling, designs, digging) | DONE (results in the PREREG file, DD 45) | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
 | COLLAPSE-3 (72 h on one CR123A) | DONE: H7 fails for ours (UWB escalation energy), DD 45 | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
 | COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | DONE (H8, H9, H11 hold; H10 7/8; H12 fails) | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
-| Paper section | NOT DONE | `~/catbl_work/tii_paper/tii/tii_main.tex` | after COLLAPSE-1 |
+| Paper section | DONE | `~/catbl_work/tii_paper/tii/collapse_section.tex`, included in `tii_main.tex` | builds to 9+ pages |
 
 **Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
 `--interferenceFrameKey=true --reacquireSigmaM=500` plus the REALISTIC device-side set (see the runner).
@@ -444,3 +445,8 @@ copies:
     - a dedicated rescuer frame in the main simulator;
     - the UWB escalation gate under rubble (new mechanism, needs a registration);
     - owner decision on DD 41.
+- 2026-11-22: DD 46–48 built (UWB futility gate, depth in the main simulator, finder frame), gate G181, null
+  controls hold.
+  - COLLAPSE-4 registered and run (120 runs). H13 8/8 (battery fixed), H14 4/4, H15 holds (0.74 m), H16 3/4.
+  - **All plan items are implemented.** Remaining are owner decisions (DD 41 adoption) and the limitations stated
+    in the paper (direct-path loss under deep rubble, the 2.4 GHz LOS spread, depth coverage).

@@ -1090,3 +1090,10 @@ engines' interference registry or move any other link.
 
 Off: byte-identical for DD 46–48 together (178 reference files; 614 files against `main`'s binary). Gate G181
 (+ selftest, 3 fixtures). Evaluated in COLLAPSE-4.
+
+**COLLAPSE-4 (2026-11-22; `report/PREREG_COLLAPSE4.md`).**
+- **The UWB futility gate fixes the battery:** the 5th-percentile crew member goes from 36–46 h to 169–193 h, and a
+  lone worker from 25–59 h to 275–291 h on one CR123A (H13, 8/8). Crew localisation does not change (H14, 4/4).
+  A lone worker's L2 falls in 2 of 4 cells (5 seeds), which is reported.
+- **Depth (B2):** resolved for 17–23% of 20 workers in 30 min, median error 0.74 m (H15 holds).
+- **Finder frame (B3):** costs nothing in 3 of 4 cells, −0.13 at 5 storeys low (H16, 3/4).
