@@ -2100,6 +2100,12 @@ python3 scripts/collapse/synthetic_gate.py || fail G182
 bash scripts/collapse_synthetic_gate_selftest.sh || fail G182
 finish G182
 
+# ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
+printf '\n--- G183 simulator no-leak ---\n'
+python3 scripts/collapse_sim_leak_check.py || fail G183
+bash scripts/collapse_sim_leak_check_selftest.sh || fail G183
+finish G183
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);

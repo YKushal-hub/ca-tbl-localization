@@ -2262,6 +2262,17 @@ static bool g_terrainPerTierFreq = false;
 static bool g_rangeHeightCorrect = false;
 static uint64_t g_rangeHeightCorrected = 0;
 
+// --collapseNominalHeights (no-leak fix, 2026-11-22). Under --collapse the three HorizontalRange sites passed the
+// nodes' TRUE heights: a buried worker's depth and a finder's height on the pile are World truth, which the system
+// must not see (rule: radio, IMU and GPS only). With this flag the system uses the heights it can know: a gateway's
+// surveyed mast height (ids 101-500), and the nominal 1.5 m carry height (the earlier work's FieldNode convention)
+// for every carried device -- the worker itself and any finder or peer. Default off = byte-identical.
+static bool g_collapseNominalHeights = false;
+static uint64_t g_collapseNominalApplied = 0;
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ, uint32_t anchorId);
+
 static double
 HorizontalRange(double r, double anchorZ, double nodeZ)
 {
@@ -2277,6 +2288,18 @@ HorizontalRange(double r, double anchorZ, double nodeZ)
     ++g_rangeHeightCorrected;
     const double h2 = r * r - dh * dh;
     return h2 > 0.0 ? std::sqrt(h2) : 0.0;
+}
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ, uint32_t anchorId)
+{
+    if (g_collapseNominalHeights && g_rangeHeightCorrect)
+    {
+        ++g_collapseNominalApplied;
+        const bool surveyed = anchorId >= 101 && anchorId <= 500; // gateways: surveyed masts
+        return HorizontalRange(r, surveyed ? anchorZ : 1.5, 1.5);
+    }
+    return HorizontalRange(r, anchorZ, nodeZ);
 }
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
@@ -12173,7 +12196,7 @@ RunArm(CaTblPolicyMode armMode,
                         CaTblRangeMeasurement m;
                         m.anchorX = anchorPos.x;
                         m.anchorY = anchorPos.y;
-                        m.rangeM = HorizontalRange(range, anchorPos.z, tags[pt].pos.z);
+                        m.rangeM = HorizontalRange(range, anchorPos.z, tags[pt].pos.z, anchorId);
                         m.nlos = nlosProp || hiddenActive;
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
@@ -12558,7 +12581,7 @@ RunArm(CaTblPolicyMode armMode,
                                     }
                                 }
                             }
-                            m.rangeM = HorizontalRange(range, ap.z, sb.pos.z);
+                            m.rangeM = HorizontalRange(range, ap.z, sb.pos.z, aid);
                             m.nlos = nlosF;
                             m.nlosScore = nlosScoreS; // row 55: -1 unless scored
                             m.nlosPropagation = nlosP;
@@ -13968,7 +13991,7 @@ RunArm(CaTblPolicyMode armMode,
                             }
                         }
                     }
-                    m.rangeM = HorizontalRange(range, anchorPos.z, pos.z);
+                    m.rangeM = HorizontalRange(range, anchorPos.z, pos.z, anchorId);
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
@@ -20412,6 +20435,11 @@ main(int argc, char* argv[])
     cmd.AddValue("collapsePointLinksM", "DD 44. Field: also draw rescuer point-to-point links within this horizontal "
                  "radius, m (0 = none, the default)", g_collapse.pointLinksM);
     cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
+    cmd.AddValue("collapseNominalHeights",
+                 "No-leak fix (DD 52). Under --rangeHeightCorrect, project ranges with the heights the system can know "
+                 "(surveyed gateway masts; 1.5 m carry height for every carried device) instead of the nodes' true "
+                 "heights (a buried worker's depth is World truth). FALSE by default: byte-identical",
+                 g_collapseNominalHeights);
     cmd.AddValue("incidentRandom",
                  "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
                  "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
@@ -24429,6 +24457,10 @@ main(int argc, char* argv[])
     if (g_stillSlowCycle > 1) // DD 50
     {
         std::cout << "DD50 stillSlowCycle exchanges skipped=" << g_stillSkipped << "\n";
+    }
+    if (g_collapseNominalHeights)
+    {
+        std::cout << "DD52 collapseNominalHeights ranges=" << g_collapseNominalApplied << "\n";
     }
     if (g_tofRubbleCorrect) // DD 49
     {

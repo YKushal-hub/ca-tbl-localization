@@ -1210,3 +1210,34 @@ but changes no expected survivor. That is reported as the result.
 - **Link-field baselines:** published-type baselines without a rubble term are 16–43 m off. D-optimal moves gain
   nothing, and height spread does not improve depth.
 - **Range-or-dig rule:** fails (62 of 108); it stops ranging too early.
+
+## 52. No-leak fix for heights under collapse (`--collapseNominalHeights`, default off; 2026-11-22)
+
+**The leak.** An audit of every World access in `scratch/ca_tbl_causal_sim.cc` found one system-side use of World
+truth: DD 28's `HorizontalRange`. Its three call sites (tag 0, subjects, passive tags) passed the nodes' true
+heights.
+- On the open site those are the known 1.5 m carry height and the surveyed mast, so nothing leaked.
+- Under `--collapse`, a buried worker's z is pile height − depth, and a finder's z is its standing height on the
+  pile. Both are World geometry.
+- Every COLLAPSE pipeline campaign ran with `--rangeHeightCorrect=true`.
+- The DD 47 depth solver also took those already-projected ranges.
+
+**The fix.** With the flag, the system projects with the heights it can know: the surveyed mast for gateways
+(ids 101–500), and 1.5 m for every carried device. Everything else in the World access list is World-side:
+- mobility and burial;
+- engine construction;
+- refusals;
+- the field generator;
+- the truth files, written apart.
+
+DD 48's frame solve uses the true position only to draw its measurements. It does still take other finders' heights
+from the truth, which is a small leak, recorded here; the flag does not change it.
+
+**Exploratory (seed 921):** L2 0.60 → 0.55. Re-evaluated in COLLAPSE-6 (`report/PREREG_COLLAPSE6.md`).
+
+**Gate G183** (`scripts/collapse_sim_leak_check.py`): every system-side function the extension added must name no
+World identifier:
+- the functions: `CollapseSolveDepth`, `RelayChainKNearest`, `tofRubbleFix`, the 4-argument `HorizontalRange`;
+- the identifiers: `g_collapse.`, `CollapseBuriedPos`, `CollapseStandZ`, `collapseWorld`, `CaTblRubbleWorld`.
+
+Its selftest plants `g_collapse.pileH` in a copy and must fail.
