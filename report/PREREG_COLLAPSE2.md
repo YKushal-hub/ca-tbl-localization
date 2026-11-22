@@ -52,4 +52,9 @@ Failures are reported as failures.
   - **H11 holds:** coop's median beats joint's at half coverage (low 2.07 vs 2.41 m; central 2.55 vs 2.69 m).
   - **H12 fails:** joint's median depth error (central, full coverage) is 3.00 m, against 3 × CRB = 2.63 m. Depth
     remains the weak axis; tof has the best depth (1.98 m) but locates only 30%.
-- **(b) Stations:** running at the time of recording; result to follow.
+- **(b) Stations: H9 holds** (`results/collapse2_stations/collapse2_stations_analysis.md`; 20 runs, binary
+  `1448de1d5`, paired by seed with COLLAPSE-1's `s8_central_n20`):
+  - 3 stations: L2 0.52 against 0.66 with 4 (−0.14, within the registered 0.15);
+  - 6 stations: 0.80 (+0.14).
+  Station count is a strong lever through 3.7 m of rubble: two more stations lift the located fraction as much as
+  the full design gains over 2.4 GHz alone.

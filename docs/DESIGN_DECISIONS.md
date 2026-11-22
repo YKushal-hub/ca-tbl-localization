@@ -1032,3 +1032,5 @@ Full tables are in `report/PREREG_COLLAPSE{1,2,3}.md` (Results sections) and und
     mechanism and would need its own registration.
 - **Estimators** (field). joint ≥ tof everywhere and ≥ rss in 3 of 4 cases; coop helps at half coverage (H11).
   Depth stays at 3.0 m median error, above 3× the CRB (H12 fails).
+- **Stations (COLLAPSE-2 b, H9 holds).** At 8 storeys (central), L2 is 0.52 with 3 stations, 0.66 with 4 and 0.80
+  with 6, on the same 56.45 m ring.

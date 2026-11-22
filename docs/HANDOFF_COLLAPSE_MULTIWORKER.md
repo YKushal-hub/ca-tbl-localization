@@ -158,7 +158,7 @@ and opening a PR on 2026-11-22.
 | Phase 0 on-worker compute | DONE | `--phase0Timing`, `phase0.py` (DD 43) | 128 ms / 2.5 s step; passes for a double penalty ≤ 3.9 |
 | COLLAPSE-1 (localisation, scaling, designs, digging) | DONE (results in the PREREG file, DD 45) | `report/PREREG_COLLAPSE1.md`, `scripts/collapse1_run.sh` → `~/catbl_work/campaigns/collapse1` | 210 runs, seeds 801–810 |
 | COLLAPSE-3 (72 h on one CR123A) | DONE: H7 fails for ours (UWB escalation energy), DD 45 | `report/PREREG_COLLAPSE3.md`, `scripts/collapse3_analyse.py` | reads COLLAPSE-1 |
-| COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | (a) and (c) DONE; (b) stations RUNNING | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
+| COLLAPSE-2 (sensitivity: digging, stations 3/6, estimators on the field) | DONE (H8, H9, H11 hold; H10 7/8; H12 fails) | `report/PREREG_COLLAPSE2.md`, `scripts/collapse2_run.sh` → `~/catbl_work/campaigns/collapse2_field`; stations part not launched yet | H8–H12 |
 | Paper section | NOT DONE | `~/catbl_work/tii_paper/tii/tii_main.tex` | after COLLAPSE-1 |
 
 **Collapse runs: always use these flags.** They are the COLLAPSE-1 set:
@@ -434,3 +434,13 @@ copies:
     `python3 scripts/collapse2_analyse.py stations ~/catbl_work/campaigns/collapse1
     ~/catbl_work/campaigns/collapse2_stations` and record H9 in `report/PREREG_COLLAPSE2.md`.
   - Next mechanism candidate (new registration needed): a UWB escalation gate under rubble (DD 45).
+- 2026-11-22: COLLAPSE-2 (b) done. H9 holds: L2 0.52 / 0.66 / 0.80 with 3 / 4 / 6 stations.
+  - Paper section `~/catbl_work/tii_paper/tii/collapse_section.tex` written and included; the paper builds to 9
+    pages with no errors (`Downloads/CA_TBL_TII_v5_collapse.pdf`; build in a Windows folder, since bibtex cannot
+    read the WSL path).
+  - **Every plan item is implemented or recorded as a stated limitation** (§4 table).
+  - Open:
+    - B2 depth inside the main simulator;
+    - a dedicated rescuer frame in the main simulator;
+    - the UWB escalation gate under rubble (new mechanism, needs a registration);
+    - owner decision on DD 41.
