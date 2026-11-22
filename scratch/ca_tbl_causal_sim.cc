@@ -11000,8 +11000,10 @@ RunArm(CaTblPolicyMode armMode,
             {
                 if (j != fi)
                 {
-                    const Vector pub(finderPos[j].x + finderGpsOffset[j].x, finderPos[j].y + finderGpsOffset[j].y,
-                                     finderPos[j].z);
+                    // DD 52: under --collapseNominalHeights the neighbour's height is its GNSS height (true +
+                    // its fixed GPS-SPS-AVG draw), not its true height (World truth on the pile).
+                    const double pz = g_collapseNominalHeights ? finderPos[j].z + s_gnssDz[j] : finderPos[j].z;
+                    const Vector pub(finderPos[j].x + finderGpsOffset[j].x, finderPos[j].y + finderGpsOffset[j].y, pz);
                     range(501 + static_cast<uint32_t>(j), finderPos[j], pub);
                 }
             }

@@ -1250,3 +1250,6 @@ Its selftest plants `g_collapse.pileH` in a copy and must fail.
   - at 5 storeys, always-on is 0.08 better, at 13× the energy;
   - the lone worker is 0.20 worse than 868 MHz alone (H31 fails), so its UWB gate setting is a trade-off to
     report, not a free fix.
+
+**DD 48 residual (2026-11-22).** Under `--collapseNominalHeights`, the frame solve now takes a neighbouring finder's
+height from that finder's GNSS height, not its true height. Off, it is unchanged. Re-tested in COLLAPSE-7.
