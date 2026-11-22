@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G59 runner: every measured subject routes its own position-fix traffic, on its own tier
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # (docs/SPEC_CONFORMANCE_PLAN.md NW-2, --fixRoutingSubjects, --routeAlpha/Beta/Gamma/Slack).
 # What each run is for, and what a firing looks like on disk, is in
 # scripts/subject_routing_gate.py, which reads them.
@@ -30,7 +31,7 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 

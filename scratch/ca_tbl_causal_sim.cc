@@ -2693,7 +2693,7 @@ struct CaTblCollapseCfg
 static CaTblCollapseCfg g_collapse;
 //! DD 41 --interferenceFrameKey: one physical frame, evaluated once per receiver, is one entry-group in the
 //! engines' interference registry, so its copies at other receivers do not collide with it. Off: no key is set.
-static bool g_interferenceFrameKey = false;
+static bool g_interferenceFrameKey = true; // DD 41 adopted as the global default (owner decision 2026-11-22)
 //! DD 43 --phase0Timing: host CPU time spent in the workers' own estimation (CaTblPolicy::Step: the filter,
 //! smoother, particle acquisition, escalation logic), for the on-worker compute decision. Off: no clock is read.
 //! DD 47 --collapseDepthSolve (B2): each worker's depth below the rescuers' feet from its own ToF ranges to finders.
@@ -20391,8 +20391,9 @@ main(int argc, char* argv[])
                  "field node, so the second and later receivers of a broadcast saw earlier copies of the same frame "
                  "as overlapping interferers and lost it (measured: buried subjects 2..N heard a gateway 30 m away "
                  "in ~0% of cycles, subject 1 in 100%). True: every receiver's evaluation of one frame shares a "
-                 "key and copies never interfere with each other; different frames still do. Default false: "
-                 "byte-identical to every earlier result.",
+                 "key and copies never interfere with each other; different frames still do. Default TRUE since "
+                 "2026-11-22 (owner decision, DESIGN_DECISIONS 41). False reproduces every result recorded before "
+                 "that date (scripts/preset_pins.sh PIN_PRE_DD41).",
                  g_interferenceFrameKey);
     cmd.AddValue("uwbFutilityCycles",
                  "DD 46. On UWB with no UWB range for this many consecutive cycles, step down and veto UWB for a "

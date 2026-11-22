@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G110 runner: --dualBaseRelayTier (S2 Part B, F1). What each run is for is in
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # scripts/acc_b_gate.py, which reads them.
 #
 # usage: bash scripts/acc_b_gate.sh [<workdir>]
@@ -22,7 +23,7 @@ run() {
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 run off $B &

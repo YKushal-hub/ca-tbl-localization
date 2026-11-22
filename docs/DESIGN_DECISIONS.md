@@ -703,7 +703,7 @@ on the straight path (slab method, voids subtracted), the loss in dB and the tim
 - **Not modelled yet:** loss of the direct path under deep rubble (Alsindi 2009 tables pending). This is a stated
   limitation until sourced.
 - **Engines.** Each engine has `SetRubbleWorld(const CaTblRubbleWorld*)`; nullptr is the default and every hook is
-  inside `if (m_rubble)`. Nothing in the simulator calls it yet; `--scenario=collapse` (DD 37) will.
+  inside `if (m_rubble)`. Nothing in the simulator calls it yet; `--collapse` (DD 39) does.
 - **World/system split.** System-side files may not include the header; G177 fails if one does.
 Off: byte-identical. The three reference runs were static_868 device-side at seed 7 for 600 s, preset ca_tbl_full at
 seed 7 for 300 s, and ca_tbl_full at seed 11 for 900 s. They were run on the build before the hooks (ec656a27b
@@ -1253,3 +1253,29 @@ Its selftest plants `g_collapse.pileH` in a copy and must fail.
 
 **DD 48 residual (2026-11-22).** Under `--collapseNominalHeights`, the frame solve now takes a neighbouring finder's
 height from that finder's GNSS height, not its true height. Off, it is unchanged. Re-tested in COLLAPSE-7.
+
+**DD 41 adopted as the global default (owner decision, 2026-11-22).**
+- `--interferenceFrameKey` is now on by default everywhere.
+- Every result recorded before that date ran with it off and reproduces with `PIN_PRE_DD41`
+  (`--interferenceFrameKey=false`, `scripts/preset_pins.sh`).
+- `scripts/merge_identity_check.sh` appends the pin.
+- G180 compares pin-off with the default.
+- Verified: 178 reference files and 614 files against `main`'s binary are byte-identical with the pin.
+- The full suite was re-run under the new default (`~/catbl_work/gates_dd41.log`); gates that reproduce recorded
+  digests and changed are pinned, listed in the handoff.
+
+**Phase 4 (own SX1262/SX1280 through-concrete measurements): out of scope for this paper (owner decision,
+2026-11-22).** It is stated as a limitation and future work.
+
+**Suite under the new DD 41 default (2026-11-22, `~/catbl_work/gates_dd41.log`).**
+- Results: 134 pass; the recorded reds G11, G24 and G93 stay red.
+- 18 behaviour gates written against the old default failed, because their scenarios relied on subjects that no
+  longer starve:
+  - G17/G17b, G46, G49, G51, G52, G57, G59, G60, G63, G67, G68, G99, G102, G110, G130, G167 (both).
+  - Each is pinned with `--interferenceFrameKey=false` (PIN_PRE_DD41, a comment in each runner), like the DD 19/27
+    pins.
+  - Re-run pinned, all pass, runners and selftests.
+- Two failures were not caused by DD 41, and both are fixed:
+  - G92: the COLLAPSE-5/6/7 run sidecars were added under `results/collapse5/runs_*`;
+  - G158: the estimator options `--frame/--moves/--relative/--rescuers` are now registered as tool options, and the
+    stale `--scenario=collapse` prose is corrected.

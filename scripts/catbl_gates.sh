@@ -550,7 +550,7 @@ printf '\n--- G17 relay chain wired, A2 and provenance honest (L.1.2) ---\n'
 mkdir -p "$WORK/g17"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
     --duration=600 --trace=false --boxHalf=200 --nTags=4 --relayedRanging=true \
-    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --outdir="$WORK/g17" \
+    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --interferenceFrameKey=false --outdir="$WORK/g17" \
     > "$WORK/g17.log" 2>&1 || gerror G17 "flag-on run exited non-zero"
 python3 scripts/relay_chain_gate.py "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17
 bash scripts/relay_chain_gate_selftest.sh || fail G17

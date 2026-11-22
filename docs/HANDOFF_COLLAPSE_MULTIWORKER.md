@@ -147,7 +147,7 @@ and opening a PR on 2026-11-22.
 | Scenario geometry sourced (HAZUS storeys and floor areas, 28.8 workers/floor, NIOSH collapse zone, De Bruycker survival) | DONE | §5d of the source log | — |
 | Collapse World in the main simulator, N = 1 / 20 / 30 through the full pipeline | DONE | `--collapse` (DD 39) | G179 |
 | Link field with the preset's engines | DONE | `--collapseField` (DD 40) | VAL 11/12 |
-| Multi-subject reception defect (copies of one broadcast collided) | FIXED behind a flag | `--interferenceFrameKey` (DD 41) | G180; owner decision pending (§8) |
+| Multi-subject reception defect (copies of one broadcast collided) | FIXED behind a flag | `--interferenceFrameKey` (DD 41) | G180; ADOPTED as the global default 2026-11-22 (`PIN_PRE_DD41` reproduces earlier results) |
 | B1 cross-band self-calibration (joint RSS + ToF via ρ = A/(n − 1)) | DONE (field estimator) | `scripts/collapse/estimate_collapse.py` (DD 38) | first results in DD 38 |
 | B2 depth: Cramér–Rao bound | DONE | `scripts/collapse/crb_depth.py` (DD 42) | estimator 1.5–3× the bound |
 | B2 depth estimator in the main simulator | DONE | `--collapseDepthSolve` (DD 47) | COLLAPSE-4 H15: 17–23% resolved, median 0.74 m |
@@ -356,8 +356,9 @@ simulator output quantity is compared with a published value, with a tolerance s
 
 - **DD 41 (important).** A defect in the earlier simulator made copies of one broadcast collide with each other.
   Subjects 2..N starved of gateway beacons: the open-site 5-subject median CEP50 is 2126 m, against 3.6 m once
-  fixed. Tag 0 shifts too. The fix is `--interferenceFrameKey` (default off, so every result is unchanged). Owner to
-  decide whether to adopt it into the preset and re-run the multi-subject campaigns.
+  fixed. Tag 0 shifts too. **DECIDED 2026-11-22: adopted as the global default.** Consequence, not yet done: the
+  earlier (open-site) multi-subject campaigns were recorded with the defect. Re-running them under the new default
+  is a separate decision about the earlier paper's results, outside the collapse plan.
 
 - Collapse results will not make a Monday 2026-11-23 submission. Owner to decide: later submission with the
   collapse study, or paper on the earlier results first.
@@ -512,3 +513,11 @@ copies:
     - Phase 4 hardware measurements;
     - the owner's DD 41 decision;
     - registered hypotheses that failed, which are kept as failures and not re-tuned.
+- 2026-11-22: **owner decisions.**
+  - DD 41 is adopted as the global default (`--interferenceFrameKey` on; `PIN_PRE_DD41` reproduces earlier
+    results; null controls byte-identical with the pin).
+  - Phase 4 hardware measurements are out of scope for this paper (stated as a limitation).
+  - No open owner decisions remain for the collapse extension.
+- 2026-11-22: DD 41 is the global default. Full suite: only the recorded reds (G11, G24, G93) remain.
+  - 18 pre-adoption behaviour gates are pinned with PIN_PRE_DD41 and pass.
+  - G92 and G158 are fixed. Details in DD 41's adoption note.

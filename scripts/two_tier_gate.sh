@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G167 runner: the ca_tbl_two_tier arm and the --tier1ExtraLossDb flag. What each run is for is in
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # scripts/two_tier_gate.py, which reads them.
 #
 # usage: bash scripts/two_tier_gate.sh [<workdir>]
@@ -20,7 +21,7 @@ run() {
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 # TWOTIER_GATE_JOBS=1 runs the six sims one after another (a loaded or small machine); default: all at once.

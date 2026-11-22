@@ -1,0 +1,5 @@
+ec8fe505a213b8ef
+build Nov 22 2026 04:04:26 | /home/nethi/catbl_work/campaigns/collapse2_field/bin/ns3.47-ca_tbl_causal_sim-optimized --specProfile=true --collapse=true --collapseFootX=39.74 --collapseFootY=39.74 --collapseDepthMin=0.1 --collapsePileH=3.658 --collapseDepthMax=3.658 --collapseField=true --collapseFieldVictims=20 --collapseGridStep=5 --collapseHoldHeights=0.3,1.5 --collapseStations=4 --collapseStationR=56.45 --collapseStationH=6 --collapseSlots=32 --collapseSlotS=60 --collapseGpsSigmaH=3.27 --collapseGpsSigmaV=6.63 --collapseLocalSigma=0.10 --collapseBracket=central --seed=906 --outdir=/home/nethi/catbl_work/campaigns/collapse2_field/field_central/seed906
+source a5e2d17a9 dirty 1 profile optimized
+binary sha256 d516122195b6555ed15b2cb186012b412dab719c5d288f2b427e8ee65ec17787 /home/nethi/catbl_work/campaigns/collapse2_field/bin/ns3.47-ca_tbl_causal_sim-optimized
+build source 53732d851 dirty 1

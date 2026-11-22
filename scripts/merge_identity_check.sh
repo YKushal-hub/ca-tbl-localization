@@ -24,7 +24,7 @@ for c in "${CASES[@]}"; do
     # shellcheck disable=SC2086
     "$MAINBIN" $a --outdir="$W/$n.main" > "$W/$n.main.log" 2>&1 &
     # shellcheck disable=SC2086
-    "$BIN" $a $PIN_PRE_DD27 --outdir="$W/$n.branch" > "$W/$n.branch.log" 2>&1 &
+    "$BIN" $a $PIN_PRE_DD27 $PIN_PRE_DD41 --outdir="$W/$n.branch" > "$W/$n.branch.log" 2>&1 &
     wait
     sums() { (cd "$1" && find . -type f ! -name run_id.txt ! -name spec_profile.txt | sort | xargs sha256sum); }
     nf=$(sums "$W/$n.main" | wc -l)

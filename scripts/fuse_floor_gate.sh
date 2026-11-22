@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G63 runner: the active tier fused with the floor (TECH_DEBT N.14, --fuseFloorActive).
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # What each run is for, and what a firing looks like on disk, is in
 # scripts/fuse_floor_gate.py, which reads them.
 #
@@ -39,7 +40,7 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 run end $B $END --fuseFloorActive=true &
