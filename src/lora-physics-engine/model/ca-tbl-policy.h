@@ -1501,8 +1501,12 @@ class CaTblPolicy
     double m_uwbBackoffS = 0.0;
     uint64_t m_uwbFutileExits = 0;
     uint64_t m_uwbVetoed = 0;
+    bool m_quietCycle = false; // DD 50
   public:
     uint64_t GetUwbFutileExits() const { return m_uwbFutileExits; }
+    //! DD 50: this cycle's exchange was skipped on purpose (a still device on a slow cycle), so the empty cycle is
+    //! not evidence of a failing tier: escalation is vetoed for this Step only. Cleared by Step.
+    void SetQuietCycle(bool q) { m_quietCycle = q; }
     uint64_t GetUwbVetoed() const { return m_uwbVetoed; }
   private:
     uint64_t m_predictBlockedCoverage;

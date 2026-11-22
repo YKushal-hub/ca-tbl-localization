@@ -205,6 +205,17 @@ footprint 39.74 m (HAZUS-IND-AREA), pile 3.658 m (HAZUS-STOREYS, PILE-ALPHA), de
 | VAL-3 | detection range | Oestges Table III, ~10 m at 130 dB dynamic range (row OES-RANGE) | within 25% | PASS at model level (G177: 10.92 m) |
 | VAL-P | floor penetration, standing structure | ITU-R P.1238-13 Table 5 | — | NOT APPLICABLE to the collapse World (no standing floors); kept for a future standing-building mode |
 
+## 9. System constants of DD 49–51 (derived from the rows above, or modelling choices)
+
+| ID | Value | Used for | Source / location | Quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| RHO-2400 | ρ = 60.27 dB/m, relative SD 0.0473 | S: DD 49 `--tofRubbleCorrect`, 2.4 GHz (scratch/ca_tbl_causal_sim.cc `tofRubbleFix`); `system_priors.RHO_RANGE` | derived: rows OES-LAYER-PLAIN, OES-LAYER-FERRO, OES-MEAS-80 (A at 2.44 GHz) and SLOW-BR (n − 1) | — (derived) | ρ = A/(n−1): low 26.0131/0.454039 = 57.29; central 38.9406/0.703760 = 55.33; high 100.4919/1.541129 = 65.21. Range 55.33–65.21, midpoint 60.27; uniform SD (65.21 − 55.33)/√12 = 2.852, /60.27 = 0.0473 | DERIVED 2026-11-22 |
+| RHO-UWB | ρ = 136.28 dB/m, relative SD 0.0260 | S: DD 49, UWB | derived: rows UWB8-* (A at 7.99 GHz) and SLOW-BR | — (derived) | low 59.0931/0.454039 = 130.15; central 91.5942/0.703760 = 130.15; high 219.4549/1.541129 = 142.40. Midpoint 136.28; SD (142.40 − 130.15)/√12 = 3.536, /136.28 = 0.0260 | DERIVED 2026-11-22 |
+| STILL-K | K = 4 cycles (exploratory) | S: DD 50 `--stillSlowCycle` | OURS (no source); default 0 = off | — | — | OURS |
+| RELAY-K | K = 1 nearest neighbour (exploratory) | S: DD 50 `--relayChainK` | OURS (no source); default 0 = the full chain | — | chain slots (n−1)·min(K, n−2) = 19 at n = 20, K = 1; two legs × 50 ms each = 1.9 s | OURS |
+| DUTY-E | 4 / 6 / 8 bytes per worker in a batched station reply | S: DD 50 `scripts/collapse/station_duty.py` | no source found; swept | — | payload = 13-byte CaTblHeader + E·N; time on air per AN1200.13 (earlier work's semtech2013an120013); cap 10% (WPC G.S.R. 853(E) Table II, as in ca-tbl-mac.cc) | SWEPT |
+| RD-WINDOW | window 300 s, decision step 60 s | S: DD 51 range-or-dig rule (`score_dig.range_or_dig`) | OURS (no source) | — | the rule digs when the window's saving in expected total dig time < teams × 300 s | OURS |
+
 ## 7. Pending primaries (Phase 1 list)
 
 | Needed for | Source | Status |

@@ -3066,6 +3066,12 @@ CaTblPolicy::StepImpl(double dt,
         }
     }
 
+    // DD 50: a deliberately skipped exchange (still device, slow cycle) is not a reason to escalate.
+    if (m_quietCycle)
+    {
+        wantEscalate = false;
+        m_quietCycle = false;
+    }
     // DD 46 --uwbFutilityCycles: a tier the radio cannot reach is not worth its joules. On UWB with no UWB
     // range for K consecutive cycles: step down and veto UWB for a backoff that doubles after each futile stay.
     bool uwbFutileExit = false;

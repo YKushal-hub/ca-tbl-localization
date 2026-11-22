@@ -1097,3 +1097,103 @@ Off: byte-identical for DD 46–48 together (178 reference files; 614 files agai
   A lone worker's L2 falls in 2 of 4 cells (5 seeds), which is reported.
 - **Depth (B2):** resolved for 17–23% of 20 workers in 30 min, median error 0.74 m (H15 holds).
 - **Finder frame (B3):** costs nothing in 3 of 4 cells, −0.13 at 5 storeys low (H16, 3/4).
+
+## 49. Time-of-flight rubble correction in the main simulator (plan B1; `--tofRubbleCorrect`, default off; 2026-11-22)
+
+B1's joint calibration ran only in the link-field estimator (`scripts/collapse/estimate_collapse.py`). This switch
+puts it on the device:
+- **Where:** every 2.4 GHz and UWB range a worker uses. That is 8 call sites: subject polls, subject ranges,
+  tag 0, and both relay legs.
+- **Step 1, excess loss:** the device computes the excess loss of the received power over free space at the
+  measured range (`CaTblTofRssiExcess`, system side: its own Tx power and the arm's propagation law; no World value).
+- **Step 2, rubble delay:** the excess is converted to a rubble delay b = max(0, excess)/ρ, with
+  ρ = A/(n−1) at the SLOW-BR / OES-LAYER midpoints:
+  - 2.44 GHz: 60.27 dB/m, relative half-span 0.0473;
+  - UWB: 136.28 dB/m, relative half-span 0.0260.
+- **Step 3, correction:** the range is shortened by b, with two fixed-point passes and a floor of 0.5 m. The
+  half-span is added to σ in quadrature.
+
+Exploratory (seed 921, 20 workers, central, 1800 s; one seed, not a test):
+
+| Storeys | L2 off | L2 on | Median CEP50 off → on |
+|---|---|---|---|
+| 5 | 0.85 | 0.80 | 1.1 → 1.0 m |
+| 8 | 0.60 | 0.60 | 1.1 → 1.3 m |
+
+The correction does not reproduce the link-field gain inside the full pipeline. The likely cause is that the
+received power at 2.4 GHz and UWB already includes the multipath and shadowing spread, which the field estimator
+averages over 16 points. It is tested in COLLAPSE-5 (H17); no claim is made before then.
+
+## 50. Many devices on air (plan B5; 2026-11-22)
+
+**Still-device slow cycle (`--stillSlowCycle=K`, default 0 = off).**
+- **When it applies:** a buried or stopped worker (the device's own IMU stillness, as in the existing stationary
+  detector) whose current tier is 868 MHz.
+- **What it does:** the worker exchanges only every K-th cycle, staggered by worker id.
+- **On a skipped cycle:** the 868 MHz radio sleeps, the neighbour table is kept, and the policy vetoes escalation
+  for that cycle (`CaTblPolicy::SetQuietCycle`).
+
+Exploratory (5 storeys, central, 20 workers, seed 921, K = 4): 9436 exchanges skipped.
+
+| Measure | Off | K = 4 |
+|---|---|---|
+| L2 | 0.85 | 0.80 |
+| Median energy | 34.8 J | 47.3 J |
+| Cycles with no anchor | 0 | 38% |
+
+**Negative result.** With fewer 868 MHz fixes, the filter's uncertainty grows, and the device escalates on its
+next awake cycle. That costs more than the skipped exchanges save. The switch stays off, and the result is
+reported.
+
+**K-nearest relaying (`--relayChainK=K`, default 0 = the existing full chain).**
+- **What it does:** each holder of a fix relays only to its K nearest neighbours (by its own estimates), so the
+  chain has (n−1)·min(K, n−2) slots instead of refusing crews above about 7.
+- **Exploratory (8 storeys, central, 20 workers, seed 921, futility gate on):** with K = 1 the relay round takes
+  50 ms × 38 = 1.9 s.
+
+| Relaying | L2 | Median CEP50 | Median energy |
+|---|---|---|---|
+| None | 0.60 | 1.1 m | 43.7 J |
+| K = 1 | 0.55 | 1.7 m | 45.5 J |
+
+Relayed ranges add their composed error (RELAYED_RANGING_ERROR_MODEL) and do not beat the workers' own
+868 MHz links at this depth. The schedule now runs for 20 workers; the gain is not shown.
+
+**Station broadcasts against the 10% access-point cap (`scripts/collapse/station_duty.py`).**
+- **Model:** one batched 868 MHz reply per 2.5 s cycle (SF7, 125 kHz, CR 4/5, AN1200.13 time on air), with a
+  13-byte header plus E bytes per worker. E has no source and is swept over 4, 6 and 8 bytes.
+- **Results:**
+  - N = 20: 6.6% / 8.8% / 11.1% duty;
+  - N = 30: 8.8% / 12.3% / 15.8% duty.
+- **Conclusion:** the cap holds for 20 workers at up to 6 bytes each, and for 30 workers only at 4 bytes.
+
+## 51. Estimator baselines, rigidity, planned moves, synthetic gate and the dig decision (plans B4, B6; 2026-11-22)
+
+**`estimate_collapse.py`:**
+- **New baselines:**
+  - `rsstri`: LoRaAid-style 868 MHz RSS trilateration;
+  - `spawn`: SPAWN-type cooperative estimator, Wymeersch 2009, Gaussian message passing on the same links.
+- **Rigidity check in `coop`:** a worker whose links to anchored nodes give a rank-deficient Jacobian (fewer than
+  3 non-collinear neighbours in 3-D with the depth prior) is reported unresolved (NaN), not placed (Eren 2004;
+  Aspnes 2006).
+- **`coop_via`:** marks a worker placed only through other workers.
+- **`--moves dopt`:** the rescuer goes next to the unvisited survey spot, among the 8 nearest, that maximises
+  log det of the information matrix (Joshi & Boyd 2009). This uses the system's current estimates and received
+  links only.
+
+**Gate G182** (`scripts/collapse/synthetic_gate.py`, selftest `scripts/collapse_synthetic_gate_selftest.sh`):
+- noise-free synthetic links from the system's own model;
+- joint B1 recovers position within 0.05 m and C within 0.5 dB; ToF alone is biased by ≥ 0.5 m;
+- coop places a worker heard only through 4 others within 0.10 m;
+- coplanar (2 neighbours) and disconnected workers are refused;
+- the selftest's two faults (rho off by 20%, rank check removed) are both caught.
+
+**Range or dig (`score_dig.py`, B6).** Each minute, the system compares the expected total dig time, from its own
+σ, with its value 5 min earlier. It starts digging when the saving is below the team-time those 5 min cost.
+
+On COLLAPSE-1 seed 801 (20 workers):
+- digging starts at 5–9 min (2 and 5 storeys, and 8 storeys high), or at 30 min (8 storeys central);
+- expected survivors are equal to digging at 30 min in every case.
+
+The survival function (DEBRUY-T2) is a day-scale step, so a 20–25 min earlier start is free time for the teams
+but changes no expected survivor. That is reported as the result.

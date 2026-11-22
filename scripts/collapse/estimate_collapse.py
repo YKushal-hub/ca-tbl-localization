@@ -148,6 +148,8 @@ def solve(meas, law, A, method, surf_z):
     """meas: list of (band, anchor_id, rx_dbm or None, range or None)."""
     rss = [(b, a, p) for (b, a, p, r) in meas if p is not None]
     tof = [(b, a, r) for (b, a, p, r) in meas if r is not None and b in TOF_BANDS]
+    if method == "rsstri":
+        return solve_rsstri(meas, law, A, surf_z)
     if method == "tof":
         rss = []
     if method == "rss":
@@ -210,6 +212,55 @@ def solve(meas, law, A, method, surf_z):
     return sol.x[:3], sd_h, sd_v, len(rss) + len(tof)
 
 
+def rss_distance(b, p, law):
+    """Air-law inversion of a received power: the distance a receiver infers with no rubble term."""
+    L0, n, s, _ = law[b]
+    return 10 ** ((P.TX_DBM[b] - p - L0) / (10 * n))
+
+
+def solve_rsstri(meas, law, A, surf_z):
+    """Baseline (LoRaAid-style): 868 MHz RSS distances from the fitted air law, trilaterated in 3-D. No rubble term."""
+    obs = [(A[a][0], rss_distance(b, p, law)) for (b, a, p, r) in meas if p is not None and b == "868"]
+    if len(obs) < 4:
+        return None
+    x0 = np.mean([o[0] for o in sorted(obs, key=lambda o: o[1])[:4]], axis=0)
+    x0[2] = surf_z - 1.5
+
+    def res(x):
+        return np.array([(np.linalg.norm(x - a) - d) / max(0.3 * d, 1.0) for (a, d) in obs] + [max(0.0, x[2] - surf_z) / 0.1])
+
+    sol = least_squares(res, x0, loss="soft_l1", f_scale=2.0)
+    return sol.x, float("nan"), float("nan"), len(obs)
+
+
+def solve_spawn(meas, vv, law, A, surf_z, init):
+    """Baseline (SPAWN-type cooperative localisation, Gaussian messages): RSS distances to rescuers and between
+    workers from the air law, no rubble coupling; all workers solved jointly (the fixed point of Gaussian belief
+    propagation on a range graph)."""
+    W = sorted(init)
+    idx = {w: k for k, w in enumerate(W)}
+    th0 = np.concatenate([init[w][0] for w in W])
+
+    def res(th):
+        out = []
+        for w in W:
+            x = th[3 * idx[w]: 3 * idx[w] + 3]
+            for (b, a, p, r) in meas[w]:
+                if p is None or b != "868":
+                    continue
+                d = rss_distance(b, p, law)
+                out.append((np.linalg.norm(x - A[a][0]) - d) / max(0.3 * d, 1.0))
+            out.append(max(0.0, x[2] - surf_z) / 0.1)
+        for (i, j, b, p) in vv:
+            if i in idx and j in idx:
+                d = rss_distance(b, p, law)
+                out.append((np.linalg.norm(th[3 * idx[i]: 3 * idx[i] + 3] - th[3 * idx[j]: 3 * idx[j] + 3]) - d) / max(0.3 * d, 1.0))
+        return np.array(out)
+
+    sol = least_squares(res, th0, loss="soft_l1", f_scale=2.0, max_nfev=200)
+    return {w: sol.x[3 * idx[w]: 3 * idx[w] + 3] for w in W}
+
+
 def solve_coop(meas, vv, law, A, surf_z, init):
     """meas[w]: worker w's list as in solve(); vv: list of (i, j, band, rx_dbm); init[w]: (x, c868, c24, cuwb)."""
     W = sorted(init)
@@ -250,7 +301,18 @@ def solve_coop(meas, vv, law, A, surf_z, init):
         return np.array(out)
 
     sol = least_squares(resid, th0, loss="soft_l1", f_scale=2.0, max_nfev=200)
-    return {w: sol.x[idx[w] * nper: idx[w] * nper + 3] for w in W}
+    # Rigidity (Eren 2004 / Aspnes 2006): a worker is resolved only if its own unknowns (x, y, z and the excess of
+    # every band it was heard on) have full-rank constraints. A rank-deficient block (too few or coplanar
+    # constraints, or a disconnected group) is reported unresolved: NaN, never a guess.
+    J = sol.jac
+    out = {}
+    for w in W:
+        base = idx[w] * nper
+        used = [base, base + 1, base + 2] + [base + 3 + k for k in range(len(bands)) if np.any(np.abs(J[:, base + 3 + k]) > 1e-9)]
+        blk = J[:, used]
+        rank = np.linalg.matrix_rank(blk, tol=1e-6 * max(1.0, np.abs(blk).max()))
+        out[w] = sol.x[base: base + 3] if rank == len(used) else np.array([np.nan, np.nan, np.nan])
+    return out
 
 
 def main():
@@ -261,6 +323,9 @@ def main():
                          "the points' ToF ranges to GPS-placed stations")
     ap.add_argument("--rescuers", type=int, default=2)
     ap.add_argument("--methods", default="tof,rss,joint,coop")
+    ap.add_argument("--moves", choices=("serpentine", "dopt"), default="serpentine",
+                    help="dopt (B4): each slot every rescuer takes, among its 8 nearest unvisited spots, the one that most "
+                         "raises sum_w log det of the workers' Fisher information (greedy D-optimal, Joshi & Boyd 2009)")
     ap.add_argument("--spots", type=float, default=1.0,
                     help="fraction of the surface spots the rescuers reach (coverage); 1 = all")
     ap.add_argument("--every", type=int, default=1, help="estimate every k slots")
@@ -281,8 +346,10 @@ def main():
     order = order[: max(1, int(round(a.spots * len(order))))]
     chunks = np.array_split(np.arange(len(order)), a.rescuers)
     nslots = max(len(c) for c in chunks)
-    # which spot each rescuer stands at in each slot
+    # which spot each rescuer stands at in each slot (serpentine); dopt replaces it slot by slot below
     at_slot = {t: [order[c[t]] for c in chunks if t < len(c)] for t in range(nslots)}
+    cur = [order[c[0]] for c in chunks]  # each rescuer's first spot (the same start for both policies)
+    visited = set()
     by_slot = {}
     workers = set()
     for r in links:
@@ -301,7 +368,50 @@ def main():
     out = open(os.path.join(a.run, f"estimates_{a.frame}.csv"), "w")
     out.write("method,slot,worker,x,y,z,sd_h,sd_v,n_meas\n")
     methods = a.methods.split(",")
+    spot_xy = {tuple(sp): np.mean([A[p_][0][:2] for p_ in sp], axis=0) for sp in order}
+    est_now = {}
+    rx_hist = {}  # band-agnostic reception rate by 5 m distance bin (system's own experience)
+
+    def p_rx(dd):
+        k = int(dd // 5)
+        h = rx_hist.get(k, [1, 2])
+        return h[0] / h[1]
+
+    def dopt_pick(rescuer_spot, taken):
+        cand = [sp for sp in order if tuple(sp) not in visited and tuple(sp) not in taken]
+        cand.sort(key=lambda sp: np.linalg.norm(spot_xy[tuple(sp)] - spot_xy[tuple(rescuer_spot)]))
+        cand = cand[:8]
+        if not cand:
+            return None
+        best, bv = None, -1e18
+        for sp in cand:
+            gain = 0.0
+            for w in workers:
+                xw, Jw = est_now.get(w, (np.array([*spot_xy[tuple(sp)], surf_z_est - 1.5]), np.eye(3) * 1e-2))
+                dJ = np.zeros((3, 3))
+                for pid in sp:
+                    u = xw - A[pid][0]
+                    dd = max(np.linalg.norm(u), 0.5)
+                    u = u / dd
+                    dJ += p_rx(dd) * np.outer(u, u) / P.TOF_SIGMA_M["2400"] ** 2
+                gain += np.linalg.slogdet(Jw + dJ)[1] - np.linalg.slogdet(Jw)[1]
+            if gain > bv:
+                bv, best = gain, sp
+        return best
+
     for t in range(nslots):
+        if a.moves == "dopt" and t > 0:
+            taken = set()
+            nxt = []
+            for k in range(len(cur)):
+                sp = dopt_pick(cur[k], taken)
+                if sp is not None:
+                    cur[k] = sp
+                    taken.add(tuple(sp))
+                    nxt.append(sp)
+            at_slot[t] = nxt
+        for sp in at_slot[t]:
+            visited.add(tuple(sp))
         here = {pid for spot in at_slot[t] for pid in spot}
         for r in by_slot.get(t, []):
             rx = int(r["rx"])
@@ -310,23 +420,43 @@ def main():
                 continue
             if rx not in here:
                 continue
+            if r["band"] == "2400":
+                w_ = int(r["tx"])
+                xw_ = est_now.get(w_, (np.array([*A[rx][0][:2], surf_z_est - 1.5]), None))[0]
+                kb = int(np.linalg.norm(xw_ - A[rx][0]) // 5)
+                h = rx_hist.setdefault(kb, [1, 2])
+                h[0] += int(r["received"])
+                h[1] += 1
             if r["received"] != "1":
                 continue
             rng = float(r["range_m"]) if r["range_m"] else None
             meas[int(r["tx"])].append((r["band"], rx, float(r["rx_dbm"]), rng))
+        if a.moves == "dopt":  # refresh the system's estimates and information for the next pick
+            for w in workers:
+                res = solve(meas[w], law, A, "joint", surf_z_est)
+                if res is None:
+                    continue
+                xw = res[0]
+                Jw = np.eye(3) * 1e-2
+                for (b, aid, p_, r_) in meas[w]:
+                    if r_ is not None and b in TOF_BANDS:
+                        u = xw - A[aid][0]
+                        u = u / max(np.linalg.norm(u), 0.5)
+                        Jw += np.outer(u, u) / P.TOF_SIGMA_M[b] ** 2
+                est_now[w] = (xw, Jw)
         if (t + 1) % a.every and t != nslots - 1:
             continue
         init = {}
         for w in sorted(workers):
             for m in methods:
-                if m == "coop":
+                if m in ("coop", "spawn"):
                     continue
                 res = solve(meas[w], law, A, m, surf_z_est)
                 if res is None:
                     continue
                 x, sh, sv, n = res
                 out.write(f"{m},{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},{sh:.3f},{sv:.3f},{n}\n")
-        if "coop" in methods:
+        if "coop" in methods or "spawn" in methods:
             # B4: start each worker at its joint solution, or, if it has too few rescuer links, at the
             # centroid of the rescuer points that heard it (or the surface centre)
             for w in sorted(workers):
@@ -347,7 +477,13 @@ def main():
             vv_seen = [(i, j, b, float(np.median(ps))) for (i, j, b), ps in agg.items()]
             X = solve_coop(meas, vv_seen, law, A, surf_z_est, init)
             for w, x in X.items():
-                out.write(f"coop,{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},nan,nan,{len(meas[w])}\n")
+                direct = solve(meas[w], law, A, "joint", surf_z_est) is not None
+                tag = "coop" if direct else "coop_via"  # coop_via: located only through other workers
+                out.write(f"{tag},{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},nan,nan,{len(meas[w])}\n")
+            if "spawn" in methods:
+                Xs = solve_spawn(meas, vv_seen, law, A, surf_z_est, init)
+                for w, x in Xs.items():
+                    out.write(f"spawn,{t},{w},{x[0]:.3f},{x[1]:.3f},{x[2]:.3f},nan,nan,{len(meas[w])}\n")
     out.close()
     lawtxt = "; ".join(f"{b}: L0={v[0]:.1f} n={v[1]:.2f} sd={v[2]:.1f} (n={v[3]})" for b, v in law.items())
     print(f"air law {lawtxt}; slots {nslots}")

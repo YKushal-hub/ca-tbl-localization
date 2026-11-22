@@ -2738,6 +2738,15 @@ static void CollapseSolveDepth(const std::vector<CollapseDepthObs>& obs, double&
 //! DD 48 --finderFrameSolve (plan B3): each finder's published position solved from its own ToF ranges to the
 //! surveyed gateways and the other finders, with its GNSS fix as the prior, instead of the GNSS fix alone.
 static bool g_finderFrameSolve = false;
+//! DD 49 --tofRubbleCorrect (plan B1 inside the filter): a ToF range's rubble delay is removed using the link's
+//! own excess loss over the deployment's nominal path loss (CaTblTofRssiExcess, the NLOS classifier's residual):
+//! r' = r - E / rho, rho the rubble's loss-to-delay ratio at the published-span midpoint, its spread in sigma.
+static bool g_tofRubbleCorrect = false;
+static uint64_t g_tofRubbleCorrected = 0;
+//! DD 50 --stillSlowCycle=K (plan B5): a worker whose own motion sensor reports it still (buried, or stopped) and whose
+//! policy is on 868 MHz makes its ranging exchange only every K-th cycle; the filter coasts in between. 0/1 = off.
+static uint32_t g_stillSlowCycle = 0;
+static uint64_t g_stillSkipped = 0;
 static uint32_t g_uwbFutilityCycles = 0;     //!< DD 46
 static double g_uwbFutilityBackoffS = 60.0;  //!< DD 46
 static bool g_phase0Timing = false;
@@ -4301,6 +4310,36 @@ struct CaTblTagState
  * Off -- --relaySlots=false, or any run without a relay to schedule -- this is never
  * constructed: every instant is `now` and every charge time `t`.
  */
+//! DD 50 --relayChainK=K (plan B5): each relay exchanges with only its K nearest fix holders (by the two nodes' own
+//! estimates), so the round reserves (n - 1) K chain slots instead of (n - 1)(n - 2). 0 (default) = all.
+static uint32_t g_relayChainK = 0;
+//! The K nearest fix holders to relay b by the nodes' own position estimates (system side). Empty = no limit.
+template <typename Tags, typename Fix>
+static std::set<size_t> RelayChainKNearest(const Tags& tags, const Fix& fixThisCycle, size_t b, size_t n)
+{
+    std::set<size_t> keep;
+    if (g_relayChainK == 0)
+    {
+        return keep;
+    }
+    std::vector<std::pair<double, size_t>> d;
+    for (size_t c = 1; c < n; ++c)
+    {
+        if (c != b && fixThisCycle[c])
+        {
+            d.push_back({std::hypot(tags[b].policy.EstX() - tags[c].policy.EstX(),
+                                    tags[b].policy.EstY() - tags[c].policy.EstY()), c});
+        }
+    }
+    std::sort(d.begin(), d.end());
+    for (size_t k = 0; k < d.size() && k < g_relayChainK; ++k)
+    {
+        keep.insert(d[k].second);
+    }
+    keep.insert(static_cast<size_t>(-1)); // marks "a limit is in force"
+    return keep;
+}
+
 struct RelayRound
 {
     RelayRound(uint32_t nTags, bool chain, double slotS);
@@ -4331,7 +4370,9 @@ RelayRound::RelayRound(uint32_t nTags, bool chain, double s)
     : slotS(s),
       slotNs(static_cast<uint64_t>(std::llround(s * 1e9))),
       relays(nTags > 1 ? nTags - 1 : 0),
-      chainSlots((chain && nTags > 2) ? (nTags - 1) * (nTags - 2) : 0)
+      chainSlots((chain && nTags > 2)
+                     ? (nTags - 1) * ((g_relayChainK > 0) ? std::min<uint32_t>(g_relayChainK, nTags - 2) : (nTags - 2))
+                     : 0)
 {
 }
 
@@ -4996,9 +5037,10 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
         {
             ++shortNoExchange;
         }
+        const std::set<size_t> kNear = RelayChainKNearest(tags, fixThisCycle, b, n); // DD 50
         for (size_t c = 1; c < n && canFix; ++c)
         {
-            if (c == b || !fixThisCycle[c])
+            if (c == b || !fixThisCycle[c] || (!kNear.empty() && kNear.count(c) == 0))
             {
                 continue;
             }
@@ -5231,9 +5273,10 @@ RelayChain::RangeForSubject(size_t b,
         return pk;
     }
     std::set<uint16_t> used;
+    const std::set<size_t> kNear = RelayChainKNearest(tags, fixThisCycle, b, n); // DD 50
     for (size_t c = 1; c < n; ++c)
     {
-        if (c == b || !fixThisCycle[c] || !(awake[c] & bit))
+        if (c == b || !fixThisCycle[c] || !(awake[c] & bit) || (!kNear.empty() && kNear.count(c) == 0))
         {
             continue;
         }
@@ -7594,6 +7637,36 @@ RunArm(CaTblPolicyMode armMode,
     engine2p4.Initialize(cfg2p4);
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
+    // DD 49 --tofRubbleCorrect. rho (dB of excess loss per metre of excess range), rows RHO-2400 / RHO-UWB (OES-*, UWB8-*, SLOW-BR) via
+    // scripts/collapse/system_priors.py: 2.44 GHz 55.33-65.21 -> 60.27 (relative sd 0.0473); 7.99 GHz
+    // 130.15-142.40 -> 136.28 (relative sd 0.0260). Only positive excess is corrected (rubble only removes power).
+    auto tofRubbleFix = [&](int tier, double rxDbm, double& range, double& sigma) {
+        if (!g_tofRubbleCorrect || !(range > 0.0) || (tier != 1 && tier != 2))
+        {
+            return;
+        }
+        const double rho = (tier == 1) ? 60.27 : 136.28;
+        const double rel = (tier == 1) ? 0.0473 : 0.0260;
+        const PropagationParams& pp = (tier == 1) ? cfg2p4.propagation : cfgUwb.propagation;
+        const double tx = phy[tier].txPowerDbm;
+        double rr = range;
+        for (int it = 0; it < 2; ++it) // the excess is evaluated at the corrected distance (one fixed-point step)
+        {
+            const CaTblTofRssiResidual e = CaTblTofRssiExcess(std::max(rr, 1.0), rxDbm, tx, pp);
+            if (!e.valid)
+            {
+                return;
+            }
+            const double b = std::max(0.0, e.excessDb) / rho;
+            rr = std::max(0.5, range - b);
+            if (it == 1)
+            {
+                sigma = std::sqrt(sigma * sigma + (b * rel) * (b * rel));
+            }
+        }
+        range = rr;
+        ++g_tofRubbleCorrected;
+    };
     // DD 48 --finderFrameSolve: separate engines for the finders' own ranging, so those draws never enter the arm
     // engines' interference registry or move any other link. Same configuration (and the same rubble World).
     std::unique_ptr<LoRa2p4PhysicsEngine> frame2p4;
@@ -12078,6 +12151,7 @@ RunArm(CaTblPolicyMode armMode,
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
+                        tofRubbleFix(1, r.measuredRssiDbm, range, sigmaM); // DD 49
                         nlosProp = r.isNLOS;
                         hiddenActive = (r.hiddenChannelState > 0);
                     }
@@ -12090,6 +12164,7 @@ RunArm(CaTblPolicyMode armMode,
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
+                        tofRubbleFix(2, r.measuredRssiDbm, range, sigmaM); // DD 49
                         nlosProp = r.isNLOS;
                         hiddenActive = (r.hiddenChannelState > 0);
                     }
@@ -12211,12 +12286,23 @@ RunArm(CaTblPolicyMode armMode,
                         ++pseudoDigests;
                     }
                 }
+                // DD 50: a still worker on its slow cycle. Its 868 MHz receiver sleeps through the skipped cycles.
+                const bool stillS = g_stillSlowCycle > 1 && sb.walker &&
+                                    (sb.walker->IsBuried() || sb.walker->HasStopped()) && act == CA_TBL_TIER_868;
+                const bool stillQuietS = stillS && ((cycleIndex + pt) % g_stillSlowCycle) != 0;
+                const bool stillQuietNextS = stillS && ((cycleIndex + 1 + pt) % g_stillSlowCycle) != 0;
                 auto rangeS = [&](CaTblTier tier) {
                     std::vector<CaTblRangeMeasurement> out;
                     size_t droppedS = 0; // N.21: finder replies whose position the subject lacks
                     if (spec.subjectBatteryDeplete && sb.batteryDead)
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
+                    }
+                    if (tier == CA_TBL_TIER_868 && stillQuietS) // DD 50, staggered by worker (the run's cycle count)
+                    {
+                        ++g_stillSkipped;
+                        sb.policy.SetQuietCycle(true); // DD 50
+                        return out;
                     }
                     if (ex.wit)
                     {
@@ -12326,6 +12412,7 @@ RunArm(CaTblPolicyMode armMode,
                             rcv = r.packetReceived;
                             range = r.estimatedRangeM;
                             sigma = r.rangingSigmaM;
+                            tofRubbleFix(1, r.measuredRssiDbm, range, sigma); // DD 49
                             nlosP = r.isNLOS;
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
@@ -12352,6 +12439,7 @@ RunArm(CaTblPolicyMode armMode,
                             rcv = r.packetReceived;
                             range = r.estimatedRangeM;
                             sigma = r.rangingSigmaM;
+                            tofRubbleFix(2, r.measuredRssiDbm, range, sigma); // DD 49
                             nlosP = r.isNLOS;
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
@@ -13131,9 +13219,10 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     const CaTblTier tr = static_cast<CaTblTier>(k);
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
-                    const bool awake = FuseTierOn(mode, k) || (tr == act) ||
-                                       (floorOn && tr == CA_TBL_TIER_868) ||
-                                       (dualS && tr != CA_TBL_TIER_UWB && !(twoTier && tr == CA_TBL_TIER_2P4));
+                    const bool awake = (FuseTierOn(mode, k) || (tr == act) ||
+                                        (floorOn && tr == CA_TBL_TIER_868) ||
+                                        (dualS && tr != CA_TBL_TIER_UWB && !(twoTier && tr == CA_TBL_TIER_2P4))) &&
+                                       !(stillQuietS && tr == CA_TBL_TIER_868); // DD 50: asleep on a skipped cycle
                     if (mesh)
                     {
                         const double air = mm->GetRebroadcastAirtimeS();
@@ -13177,7 +13266,10 @@ RunArm(CaTblPolicyMode armMode,
                     else
                     {
                         sb.energy.AccountSleep(tr, dt);
-                        mm->ClearNeighbours();
+                        if (!(stillQuietS && tr == CA_TBL_TIER_868))
+                        {
+                            mm->ClearNeighbours(); // DD 50: a slow-cycle nap keeps its neighbour table
+                        }
                     }
                     sb.lastRx[k] = rxNow;
                     if (mesh)
@@ -13187,7 +13279,8 @@ RunArm(CaTblPolicyMode armMode,
                                         k == static_cast<int>(ds.nextTier) ||
                                         (floorNext && k == CA_TBL_TIER_868) ||
                                         (dualS && k != static_cast<int>(CA_TBL_TIER_UWB) &&
-                                         !(twoTier && k == static_cast<int>(CA_TBL_TIER_2P4)))));
+                                         !(twoTier && k == static_cast<int>(CA_TBL_TIER_2P4)))) ||
+                                      (stillQuietNextS && ds.nextTier == CA_TBL_TIER_868 && k == CA_TBL_TIER_868)); // DD 50
                     }
                 }
                 *ex.trace << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId << ','
@@ -13439,6 +13532,16 @@ RunArm(CaTblPolicyMode armMode,
             {
                 return out;
             }
+            // DD 50 --stillSlowCycle: still (the device's own IMU; modelled as a perfect stillness detector) and on
+            // 868 MHz: range only every K-th cycle. Not on a higher tier, and not while a UWB request is pending.
+            if (g_stillSlowCycle > 1 && tier == CA_TBL_TIER_868 && policy.GetActiveTier() == CA_TBL_TIER_868 &&
+                tags[0].walker && (tags[0].walker->IsBuried() || tags[0].walker->HasStopped()) &&
+                (cycleIndex % g_stillSlowCycle) != 0)
+            {
+                ++g_stillSkipped;
+                policy.SetQuietCycle(true); // DD 50
+                return out;
+            }
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -13628,6 +13731,7 @@ RunArm(CaTblPolicyMode armMode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    tofRubbleFix(1, r.measuredRssiDbm, range, sigmaM); // DD 49
 
                     // S7-lite: COMMON-MODE RANGE BIAS on tier 2, the minimal viable
                     // test of the integrity gate's actual claim.
@@ -13702,6 +13806,7 @@ RunArm(CaTblPolicyMode armMode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    tofRubbleFix(2, r.measuredRssiDbm, range, sigmaM); // DD 49
                     if (nlosScorer)
                     {
                         if (received && std::isfinite(range) && range > 0.0)
@@ -14433,6 +14538,7 @@ RunArm(CaTblPolicyMode armMode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        tofRubbleFix(1, r.measuredRssiDbm, rAB, sigRaw); // DD 49
                         obs.rssiDbm = r.measuredRssiDbm;
                         obs.snrDb = r.snr_db;
                     }
@@ -14445,6 +14551,7 @@ RunArm(CaTblPolicyMode armMode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        tofRubbleFix(2, r.measuredRssiDbm, rAB, sigRaw); // DD 49
                         obs.rssiDbm = r.measuredRssiDbm;
                         obs.snrDb = r.snr_db;
                         obs.truthNlos = r.isNLOS;
@@ -20271,6 +20378,21 @@ main(int argc, char* argv[])
                  g_uwbFutilityCycles);
     cmd.AddValue("uwbFutilityBackoffS", "DD 46. First UWB veto after a futile stay, s (doubles, capped at 960 s)",
                  g_uwbFutilityBackoffS);
+    cmd.AddValue("relayChainK",
+                 "DD 50 (plan B5). Each relay's relay-to-relay exchanges go to its K nearest fix holders only (by the "
+                 "nodes' own estimates), so the --relaySlots round needs (n - 1)(1 + K) slots instead of (n - 1)^2 and "
+                 "a crew larger than ~7 fits a 2.5 s cycle. 0 (default) = every holder, as before.",
+                 g_relayChainK);
+    cmd.AddValue("stillSlowCycle",
+                 "DD 50 (plan B5). A worker whose own motion sensor reports it still (buried, or stopped) and whose policy "
+                 "is on 868 MHz ranges only every K-th cycle (staggered by worker); the filter coasts in between. 0 or 1 "
+                 "(default) = off.",
+                 g_stillSlowCycle);
+    cmd.AddValue("tofRubbleCorrect",
+                 "DD 49 (plan B1 inside the filter). Each 2.4 GHz / UWB ToF range is shortened by its link's own excess "
+                 "loss over the nominal path loss divided by the rubble's loss-to-delay ratio (published-span midpoint), "
+                 "and its sigma widened by that ratio's spread. Default false.",
+                 g_tofRubbleCorrect);
     cmd.AddValue("finderFrameSolve",
                  "DD 48 (plan B3). Each finder publishes the position solved from its own ToF ranges (UWB, else 2.4 GHz) to "
                  "the surveyed gateways and the other finders, with its GNSS fix (--finderPosSigma) as the prior, instead "
@@ -22238,7 +22360,8 @@ main(int argc, char* argv[])
     if (relaySlotsArg)
     {
         const double nr = static_cast<double>(nTagsArg - 1);
-        const double k = nr + (relayChainArg ? nr * (nr - 1.0) : 0.0);
+        const double kc = (g_relayChainK > 0) ? std::min<double>(g_relayChainK, nr - 1.0) : (nr - 1.0); // DD 50
+        const double k = nr + (relayChainArg ? nr * kc : 0.0);
         if (!(k * FixRouter::kSlotS < dt))
         {
             std::cerr << "FATAL: --relaySlots needs " << k << " slots of "
@@ -24302,6 +24425,14 @@ main(int argc, char* argv[])
         // Draws made outside any link evaluation fall back to a per-sampler sequence, which
         // is still coupled to call order. Reported so the residue is visible, not assumed 0.
         std::cout << "RNGKEYED unkeyed_draws=" << LoRaDistributionSampler::UnkeyedDraws() << "\n";
+    }
+    if (g_stillSlowCycle > 1) // DD 50
+    {
+        std::cout << "DD50 stillSlowCycle exchanges skipped=" << g_stillSkipped << "\n";
+    }
+    if (g_tofRubbleCorrect) // DD 49
+    {
+        std::cout << "DD49 tofRubbleCorrect ranges corrected=" << g_tofRubbleCorrected << "\n";
     }
     if (g_phase0Timing) // DD 43
     {
