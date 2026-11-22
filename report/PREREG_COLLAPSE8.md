@@ -25,3 +25,19 @@ Runner `scripts/collapse8_run.sh`, analyser `scripts/collapse8_analyse.py`.
 - **H34:** N = 1, `lone` L2 ≥ `base` L2 in every cell.
 - **H35:** N = 20, |`lone` − `base`| ≤ 0.05 in every cell. A crew hears its members, so the rule should not fire.
 - **H36:** N = 1, `lone` median battery ≥ 72 h in every cell.
+
+## Results (recorded 2026-11-22; hypotheses unchanged)
+
+160 runs, all exit 0, binary `2665cdcdf` (`results/collapse5/collapse8_analysis.md`).
+
+| Cell | N = 1 lone | N = 1 base | 868 MHz alone | N = 20 lone / base | lone battery |
+|---|---|---|---|---|---|
+| 5 storeys, low | 0.70 | 0.80 | 0.60 | 0.72 / 0.72 | 433 h |
+| 5 storeys, central | 0.90 | 0.90 | 0.90 | 0.81 / 0.81 | 375 h |
+| 8 storeys, low | 0.90 | 0.70 | 0.80 | 0.83 / 0.83 | 510 h |
+| 8 storeys, central | 0.70 | 0.60 | 0.70 | 0.74 / 0.73 | 261 h |
+
+- **H33 holds, 4 of 4:** the lone worker is at or above 868 MHz alone in every cell. COLLAPSE-6's H31 gap is closed.
+- **H34 holds in 3 of 4:** it fails at 5 storeys, low bracket (0.70 vs 0.80).
+- **H35 holds, 4 of 4:** the crew is unchanged (within 0.01). The rule does not fire for a crew, as designed.
+- **H36 holds, 4 of 4:** 261–510 h, against 225–280 h for base.

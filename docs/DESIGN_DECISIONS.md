@@ -1289,3 +1289,11 @@ neighbour table holds no other worker's id; this is radio only.
 - **DD 53b:** while lone and on 868 MHz, no 2.4 GHz dual-base fusion, and no escalation while 868 MHz gives ≥ 3
   ranges. Pilot (seeds 931–935): L2 0.60 → 0.80 / 1.00, energy 31 → 18 J and 45 → 20 J. Tested in COLLAPSE-8.
 - **Off:** byte-identical (178 reference files with PIN_PRE_DD41; 614 against `main`).
+
+**COLLAPSE-8 (DD 53b).**
+- H33 4/4: a lone worker is now at or above 868 MHz alone.
+- H34 3/4: the rule is 0.10 below without it at 5 storeys, low bracket.
+- H35 4/4: the crew is unchanged.
+- H36 4/4: the lone worker lasts 261–510 h.
+- `--loneStay868` is recommended for the collapse configuration. Its default stays off, so earlier results are
+  unchanged.
