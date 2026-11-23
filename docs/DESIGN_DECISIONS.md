@@ -1268,7 +1268,8 @@ height from that finder's GNSS height, not its true height. Off, it is unchanged
 2026-11-22).** It is stated as a limitation and future work.
 
 **Suite under the new DD 41 default (2026-11-22, `~/catbl_work/gates_dd41.log`).**
-- Results: 134 pass; the recorded reds G11, G24 and G93 stay red.
+- Results: 134 pass; the recorded reds G11, G24 and G93 stay red. **The suite was not re-run after the pins**
+  (correction 2026-11-23); the pinned gates were re-run one by one, and G17b was not.
 - 18 behaviour gates written against the old default failed, because their scenarios relied on subjects that no
   longer starve:
   - G17/G17b, G46, G49, G51, G52, G57, G59, G60, G63, G67, G68, G99, G102, G110, G130, G167 (both).
@@ -1291,9 +1292,9 @@ neighbour table holds no other worker's id; this is radio only.
 - **Off:** byte-identical (178 reference files with PIN_PRE_DD41; 614 against `main`).
 
 **COLLAPSE-8 (DD 53b).**
-- H33 4/4: a lone worker is now at or above 868 MHz alone.
+- H33 4/4, but not discriminating: the configuration without the rule also meets the bound in 4/4 (correction
+  2026-11-23). The L2 effect is mixed (-0.10 to +0.20, steps of 0.10); the battery gain is the measured benefit.
 - H34 3/4: the rule is 0.10 below without it at 5 storeys, low bracket.
 - H35 4/4: the crew is unchanged.
 - H36 4/4: the lone worker lasts 261–510 h.
-- `--loneStay868` is recommended for the collapse configuration. Its default stays off, so earlier results are
-  unchanged.
+- `--loneStay868` is not adopted: a battery option. Its default stays off, so earlier results are unchanged.

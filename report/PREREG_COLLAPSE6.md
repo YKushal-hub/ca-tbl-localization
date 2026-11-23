@@ -47,7 +47,8 @@ unchanged, and COLLAPSE-5's analysis reproduces exactly with the fix.
   - H19 holds at both: 868 MHz alone 0.81 / 0.62 vs ours 0.77 / 0.63.
   - H22 holds: 0.55 vs 0.10.
 - **H31 fails at both storey counts:** the lone worker's L2 is 0.60 with ours vs 0.80 with 868 MHz alone (5
-  seeds). This matches COLLAPSE-4's unregistered note that the UWB futility gate costs a lone worker its
+  seeds). **Correction (2026-11-23):** the cause was not tested. An earlier version attributed it to
+  COLLAPSE-4's unregistered note that the UWB futility gate costs a lone worker its
   occasional UWB fixes.
 - **Other values with the fix:**
   - crew of 10: 0.80 / 0.48 (vs 0.77 / 0.63 for 20);

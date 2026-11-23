@@ -498,8 +498,8 @@ copies:
   - The leak moved L2 by at most ±0.04.
   - H29 fails: H17's gain is +0.04 (short of +0.05), and H18 fails at 5 storeys (always-on +0.08 at 13× the
     energy).
-  - H31 fails: the lone worker's L2 is 0.60 vs 0.80 for 868 MHz alone, so the UWB gate's cost for a lone worker is
-    a trade-off to report.
+  - H31 fails: the lone worker's L2 is 0.60 vs 0.80 for 868 MHz alone, cause not tested
+    (correction 2026-11-23: an earlier version blamed the UWB gate).
   - Paper updated to COLLAPSE-6 numbers; PDF rebuilt (10 pages).
   - **Next session's options (not required by the plan):**
     - an N = 1 rule for the UWB gate, e.g. keep UWB probes when alone, which needs a registration;
@@ -518,7 +518,7 @@ copies:
     results; null controls byte-identical with the pin).
   - Phase 4 hardware measurements are out of scope for this paper (stated as a limitation).
   - No open owner decisions remain for the collapse extension.
-- 2026-11-22: DD 41 is the global default. Full suite: only the recorded reds (G11, G24, G93) remain.
+- 2026-11-22: DD 41 is the global default. Full suite before the pins: the recorded reds (G11, G24, G93) plus 18 others. Not re-run as a whole since.
   - 18 pre-adoption behaviour gates are pinned with PIN_PRE_DD41 and pass.
   - G92 and G158 are fixed. Details in DD 41's adoption note.
 - 2026-11-22: **owner decisions (second round):** re-run the earlier campaigns under DD 41, and design a follow-up to

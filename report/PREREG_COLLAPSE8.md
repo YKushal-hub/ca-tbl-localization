@@ -37,7 +37,13 @@ Runner `scripts/collapse8_run.sh`, analyser `scripts/collapse8_analyse.py`.
 | 8 storeys, low | 0.90 | 0.70 | 0.80 | 0.83 / 0.83 | 510 h |
 | 8 storeys, central | 0.70 | 0.60 | 0.70 | 0.74 / 0.73 | 261 h |
 
-- **H33 holds, 4 of 4:** the lone worker is at or above 868 MHz alone in every cell. COLLAPSE-6's H31 gap is closed.
+- **H33 holds, 4 of 4:** the lone worker is at or above 868 MHz alone in every cell.
+  **Correction (2026-11-23):** an earlier version said this closes COLLAPSE-6's H31 gap. It does not show that.
+  `base`, without the rule, also satisfies H33's bound in all four cells (0.80 / 0.90 / 0.70 / 0.60 against 0.60 /
+  0.90 / 0.80 / 0.70), so H33 does not discriminate. One worker and ten seeds move L2 in steps of 0.10, and H31's
+  gap came from five seeds. The measured benefit of the rule is battery; its effect on L2 is mixed
+  (-0.10 / 0.00 / +0.20 / +0.10).
 - **H34 holds in 3 of 4:** it fails at 5 storeys, low bracket (0.70 vs 0.80).
-- **H35 holds, 4 of 4:** the crew is unchanged (within 0.01). The rule does not fire for a crew, as designed.
+- **H35 holds, 4 of 4:** the crew is unchanged (within 0.01). One cell differs (0.74 vs 0.73), so the rule does
+  fire for a crew sometimes; an earlier version said it did not.
 - **H36 holds, 4 of 4:** 261–510 h, against 225–280 h for base.

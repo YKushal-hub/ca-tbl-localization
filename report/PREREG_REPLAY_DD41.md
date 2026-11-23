@@ -35,3 +35,13 @@ scratch` is empty. Summary: `results/replay41/realistic5_analysis.md`.
 | G2 (time to 25 m within 2 min of the better single radio) | HOLDS | **FAILS** | ROAD3 −383 s [−1181, +429]: the upper bound exceeds the 120 s margin; elsewhere 0 to −1616 s |
 | G3 (250 m availability within 0.02) | FAILS (CLUS3 −0.005) | **HOLDS** | +0.23 to +0.46 everywhere |
 | G4 (8 h quiet shift) | HOLDS | HOLDS | — |
+
+**Controls and corrections (2026-11-23).**
+- **Control for "the binary is the only difference":** the registration asserted it without a test. The frozen replay
+  binary with `--interferenceFrameKey=false` reproduces the originals' `arm_summary.csv` and `subject_summary.csv`
+  byte for byte in REALISTIC-5 E_ROAD3_ARMS/s561 and E_CLUS3_ARMS/s562 (2 cells). The replay with it on differs.
+- **Interruption:** the first queue ran without `prune_runs.sh` and exhausted the disk during REALISTIC-6 (73 cells
+  complete). Completed cells are kept; partial cells are re-run by the frozen runner. REALISTIC-5 was then pruned
+  (47 to 4.1 GB, every file hashed in RAW_MANIFEST.sha256 first); its analysis is byte-identical after pruning.
+- **`QUEUE.md`'s first `rc=0` line** reported the exit status of `date`, not of the runner (fixed). REALISTIC-5's
+  completeness rests on its 280 `rc` files and RUN.md's `done` line.
