@@ -58,6 +58,23 @@ binary frozen). Control: with `--interferenceFrameKey=false` the replay binary r
 | H2 | HOLDS | HOLDS | t25: -958 to -1677 s; CLUS3 0 |
 | H3 | FAILS (CLUS3 -0.017) | **HOLDS** | A250 +0.24 to +0.44 |
 
+### Coverage and UWB share (not registered; `scripts/realistic_coverage.py`, 2026-11-23)
+
+Share of crew cycles whose error is inside 1.73 x sqrt(traceSigma) (95 % circle, isotropic), ca_tbl_full. The same script
+on the original runs returns the paper's recorded 83-97 % (REALISTIC-5 emergency) and 0.53 (quiet, office).
+
+| Cell | R5 original | R5 replay | R6 original | R6 replay |
+|---|---|---|---|---|
+| E_ROAD1 | 0.931 | 0.833 | 0.908 | 0.852 |
+| E_ROAD3 | 0.915 | 0.839 | 0.920 | 0.848 |
+| E_ROAD3F4 | 0.898 | 0.806 | 0.899 | 0.786 |
+| E_RAND3 | 0.827 | 0.715 | 0.876 | 0.720 |
+| E_CLUS3 | 0.967 | 0.459 | 0.961 | 0.445 |
+| Q_ROAD1 / Q_ROAD3 / Q_RAND3 / Q_CLUS3 | 0.998 / 0.934 / 0.822 / 0.527 | 0.998 / 0.836 / 0.657 / 0.181 | - | - |
+
+**DD 41 on lowers coverage in almost every cell, sharply at the office site.** Position availability rises, reported uncertainty
+becomes more over-confident. Cause not isolated. UWB active on 0.9-2.6 % of crew cycles in REALISTIC-6 (Mueller, crew-10/15: 0.6-1.6 %).
+
 ### Registration error: PARETO-1/2 (2026-11-23)
 
 The registration says the frozen runners are used unchanged. For PARETO-1/2 that is wrong: they take the deployment from
