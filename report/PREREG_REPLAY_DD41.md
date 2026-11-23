@@ -83,3 +83,9 @@ the preset, and DD 27 (279fa49c8, 2026-11-20 13:35) changed it from 12 gateways 
 uses `scripts/pareto{1,2}_dd41_run.sh`, which add only `$PIN_PRE_DD27`. Checked before launch: with the pin and DD 41
 off, `arm_summary.csv` is byte-identical to the recorded PARETO-1 A_BASE/s401, B_BEN1000/s402 and PARETO-2
 A_BEN1000/s421. REALISTIC-1 to -6 postdate DD 27.
+
+### DD 41-off controls for REALISTIC-4, -3, -2, -1 (2026-11-23)
+
+Same build, `--interferenceFrameKey=false`, the frozen runners' own commands, two cells per campaign, against the original outputs:
+`arm_summary.csv` and `subject_summary.csv` byte-identical in all 8 cells (`results/replay41/control/RESULT.txt`). With
+REALISTIC-5/6 (2 each) and PARETO (3), 15 of 15 control cells reproduce.
