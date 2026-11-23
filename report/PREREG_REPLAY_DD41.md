@@ -45,3 +45,24 @@ scratch` is empty. Summary: `results/replay41/realistic5_analysis.md`.
   (47 to 4.1 GB, every file hashed in RAW_MANIFEST.sha256 first); its analysis is byte-identical after pruning.
 - **`QUEUE.md`'s first `rc=0` line** reported the exit status of `date`, not of the runner (fixed). REALISTIC-5's
   completeness rests on its 280 `rc` files and RUN.md's `done` line.
+
+### REALISTIC-6 (done 2026-11-23 07:41 UTC, 280/280 cells rc 0; interrupted and resumed once)
+
+`results/replay41/realistic6_analysis.md`. Three source stamps (documentation-only commits; no src/scratch difference;
+binary frozen). Control: with `--interferenceFrameKey=false` the replay binary reproduces the original
+`arm_summary.csv` byte for byte in E_ROAD3_ARMS/s601 and E_CLUS3_ARMS/s602.
+
+| Hypothesis | Recorded (pre-DD 41) | Replay (DD 41 on) | Detail |
+|---|---|---|---|
+| H1 | HOLDS | HOLDS | searcher, ours - 2.4 only: ROAD1 -826 s, ROAD3 -1640, RAND3 -986, ROAD3F4 -1655, CLUS3 -118 [-329, 28] |
+| H2 | HOLDS | HOLDS | t25: -958 to -1677 s; CLUS3 0 |
+| H3 | FAILS (CLUS3 -0.017) | **HOLDS** | A250 +0.24 to +0.44 |
+
+### Registration error: PARETO-1/2 (2026-11-23)
+
+The registration says the frozen runners are used unchanged. For PARETO-1/2 that is wrong: they take the deployment from
+the preset, and DD 27 (279fa49c8, 2026-11-20 13:35) changed it from 12 gateways / 12 searchers to 3 / 2 after they ran.
+272 PARETO-1 runs on the wrong site were stopped, never analysed, and kept as `INVALID_pareto1_wrong_deployment`. The replay
+uses `scripts/pareto{1,2}_dd41_run.sh`, which add only `$PIN_PRE_DD27`. Checked before launch: with the pin and DD 41
+off, `arm_summary.csv` is byte-identical to the recorded PARETO-1 A_BASE/s401, B_BEN1000/s402 and PARETO-2
+A_BEN1000/s421. REALISTIC-1 to -6 postdate DD 27.
