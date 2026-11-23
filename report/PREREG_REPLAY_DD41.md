@@ -98,7 +98,7 @@ REALISTIC-5/6 (2 each) and PARETO (3), 15 of 15 control cells reproduce.
 |---|---|---|---|
 | P1 (go/no-go) | NO-GO: no BEN feasible at 5 km (0.874-0.942) | **NO-GO, different reason**: every BEN is feasible (0.980-0.986), but 2.4 GHz only is feasible too (0.984) at 7.87 J, and BEN spends 1.54-1.65x that | E* was lora_fusion (12.67 J) |
 | P2 (BEN cheaper than FT12 in A) | HOLDS | HOLDS | BEN1000 -4.80 J [-5.19, -4.45], 16.89 -> 12.09; five-worker A -0.003 [-0.005, -0.001] |
-| P3 (the skip carries the saving) | HOLDS | HOLDS | BNS100 +1.00 J [0.63, 1.37] against FT12 |
+| P3 (the skip carries the saving) | HOLDS | HOLDS | lost worker's 868 MHz energy (arm_summary j_868) BNS100 9.50 vs BEN100 3.45 J (A), 11.12 vs 5.11 (B); same column originally 9.19/3.29, 9.98/3.91; BNS100 spends +1.00 J [0.63, 1.37] against FT12 |
 
 Lost-worker CEP95 at 5 km 5.8-7.4 m under BEN against 3.6-4.6 m (was 7.3-10.3 against 4.0-4.3). The accuracy loss that
 motivated TB-2 is much smaller with the defect fixed.
