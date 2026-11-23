@@ -102,3 +102,15 @@ REALISTIC-5/6 (2 each) and PARETO (3), 15 of 15 control cells reproduce.
 
 Lost-worker CEP95 at 5 km 5.8-7.4 m under BEN against 3.6-4.6 m (was 7.3-10.3 against 4.0-4.3). The accuracy loss that
 motivated TB-2 is much smaller with the defect fixed.
+
+### PARETO-2 (done 2026-11-23 13:49 UTC, 400/400 cells rc 0, pinned to its original deployment)
+
+`results/replay41/pareto2_analysis.md`; P2 and CEP95 contrasts by `scripts/pareto2_replay_contrasts.py`. Two source stamps (documentation only).
+
+| Hypothesis | Recorded (pre-DD 41) | Replay (DD 41 on) | Detail |
+|---|---|---|---|
+| P1 | NO-GO (2.4 GHz only feasible, 6.14 J) | NO-GO, same reason | E* = 2.4 GHz only, 8.04 J; TB-2 1.79-1.89x |
+| P2 (TB-2 more accurate than the first form, five-worker A25 in A) | HOLDS +0.024 [0.007, 0.046] | **FAILS** -0.005 [-0.027, 0.009] | 0.978 vs 0.984; one seed (432, -0.181) dominates |
+| P3 (BEN1000 cheaper than FT12) | HOLDS -1.16 J (-9 %) | HOLDS -2.93 J [-3.37, -2.49] (17.32 -> 14.39, -17 %) | five-worker A -0.010 [-0.031, 0.002] |
+
+Not registered: lost-worker CEP95 at 5 km TB-2 3.3 m, first form 8.5 m (-5.18 m [-9.39, -1.85]), flat threshold 3.3 m.
