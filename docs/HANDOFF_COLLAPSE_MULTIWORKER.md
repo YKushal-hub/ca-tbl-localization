@@ -534,3 +534,10 @@ copies:
     3. Append the Results to the pre-registrations.
     4. Copy the sidecars to `results/`.
     5. Update both papers' numbers.
+
+### Status 2026-11-24
+- REPLAY-DD41 complete: all 8 campaigns, 2,520 runs, rc 0; verdicts in `report/PREREG_REPLAY_DD41.md`, evidence in `results/replay41/`.
+- Full gate suite at 227bf7e9f: recorded reds G11, G24, G93; G10, G158, G167 were red, fixed, re-run individually (the suite was not re-run).
+- Full paper draft: `~/catbl_work/tii_paper/draft_2026-11-23/CA_TBL_TII_full_draft_2026-11-24.pdf`; source merged into `~/catbl_work/tii_paper/tii/`.
+- Open: the filter's 95 % region covers 45-85 % of emergency cycles (18 % on the office quiet shift). Diagnosis so far: the crew's error is cross-range at the
+  office site; no existing switch restores coverage; a matched synthetic filter is consistent. Development seeds 701-703 only. Next: log crew range errors.
