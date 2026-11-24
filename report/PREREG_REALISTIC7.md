@@ -29,3 +29,21 @@ registered seeds in a cell: incomplete, nothing is evaluated. No cell dropped or
 campaign; a verdict either way is reported.
 
 **Reporting.** `REALISTIC7.md` by the analyser; a Result section is appended here after the run, whatever it says.
+
+## Result (run 2026-11-24 08:44-13:00 IST, interrupted once by a WSL restart at 444 runs and resumed; source e3d69780d; 500/500 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/realistic7_2026-11-24/REALISTIC7.md`. Off-flag arrival contrasts: `scripts/realistic7_off_contrast.py`.
+
+- **H1: FAILS.** Ours minus 2.4 GHz only, searcher within 10 m: ROAD1 -910 s [-1321, -538], RAND3 -986 [-1480, -527], ROAD3F4 -394 [-853, -5], ROAD3
+  -275 [-828, 256] (upper bound above 120 s), CLUS3 +6 [-10, 24].
+- **H2: FAILS** at ROAD3 (-90 s [-904, 728]) and ROAD3F4 (-459 [-1260, 303]); elsewhere holds.
+- **H3: HOLDS.** A250 +0.273 to +0.506, every lower bound above 0.
+- **K1: HOLDS.** CLUS3 coverage 0.452 -> 0.769 (+0.317 [0.255, 0.377]).
+- **K2: FAILS.** RAND3 +0.005 [-0.097, 0.082] and ROAD3 -0.027 [-0.058, 0.004] have lower bounds below -0.05.
+- **K3: FAILS.** Crew A25: ROAD3 -0.061 [-0.117, -0.007], RAND3 +0.037 [-0.048, 0.115]; CLUS3 +0.308.
+- **K4: HOLDS.**
+- **The baseline gained more than ours.** On the same seeds with the flag off, ours minus 2.4 GHz only: ROAD3 -1593 s, ROAD3F4 -1821, ROAD1 -1058,
+  RAND3 -1159, CLUS3 -10. The correction moved 2.4 GHz only by -1483 s [-2030, -916] at ROAD3 (ours -165 [-460, 7]). **Most of the earlier road advantage was the defect.**
+- **T1 (reported):** the flat threshold equals ours except ROAD3 (A25 -0.063, A250 -0.052 for ours) and ROAD3F4 (A250 +0.046 for ours).
+- **Q1 (reported):** quiet-shift coverage CLUS3 0.243 -> 0.596, RAND3 0.712 -> 0.648; A250 gains of ours over the better single radio +0.111 to +0.598 with
+  three gateways.
