@@ -541,3 +541,17 @@ copies:
 - Full paper draft: `~/catbl_work/tii_paper/draft_2026-11-23/CA_TBL_TII_full_draft_2026-11-24.pdf`; source merged into `~/catbl_work/tii_paper/tii/`.
 - Open: the filter's 95 % region covers 45-85 % of emergency cycles (18 % on the office quiet shift). Diagnosis so far: the crew's error is cross-range at the
   office site; no existing switch restores coverage; a matched synthetic filter is consistent. Development seeds 701-703 only. Next: log crew range errors.
+
+### Status 2026-11-24, afternoon (branch `work/2026-11-24-calibration`; supersedes the "Open" line above)
+- Cause found for the over-confident filter: an accepted two-range fix entered as an isotropic position. DD 54 (`--sparseRangeGeometry`, default off)
+  fuses its two ranges instead. Gate G184.
+- REALISTIC-7 (500 runs; `report/PREREG_REALISTIC7.md`): H1, H2, K2, K3 FAIL; H3, K1, K4 HOLD. Office coverage 0.452 -> 0.769. Most of the earlier
+  arrival-time advantage over 2.4 GHz only came from the defect (ROAD3 -1593 s -> -275 s [-828, 256]). Do not quote the earlier advantage.
+- DD 55: no tested 868 MHz-skip trigger beats the flat threshold (development seeds 711-716).
+- Full gate suite at bc68c8924: 156 PASS; G11, G24, G93 recorded reds; G137 red, gate extended to the subject range log and re-run alone.
+- Running: REPLAY-DD54-PARETO (960 runs, from `~/catbl_dd54`, launcher `~/catbl_work/campaigns/p54.sh`; registered in
+  `report/PREREG_REPLAY_DD54_PARETO.md`). When done: analyse, append the Result, update the paper's decision-rule table (earlier filter today).
+- Paper: `~/catbl_work/tii_paper/draft_2026-11-23/TriLoc_TII_v18.pdf` (10 pages).
+- Open: in 27 of the 100 runs checked the 868 MHz duty cycle exceeds 2.5 % (median 2.46 %, max 3.6 %; cause not traced); emergency coverage is
+  77-87 % and the quiet office shift about 60 % against 95 %; the collapse study is not checked for the two-range defect; 16 of 52 references
+  unconfirmed and four author lists differ from Crossref.
