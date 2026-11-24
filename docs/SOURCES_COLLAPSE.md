@@ -237,3 +237,9 @@ footprint 39.74 m (HAZUS-IND-AREA), pile 3.658 m (HAZUS-STOREYS, PILE-ALPHA), de
 | GPS horizontal and vertical accuracy for rescuers | GPS SPS PS 5th ed. (2020) | DONE → §5b |
 | Battery capacity | Panasonic CR123A datasheet (BATT-CR123A) | DONE |
 | Collision and capture rules | Bor et al., MSWiM 2016 (corrected Lancaster version) | DONE → §5a |
+
+## 10. Paper comparison values (not used in code)
+
+| ID | Value | Used for | Source and location | Verbatim quote | Calculation | Status |
+|---|---|---|---|---|---|---|
+| FER-FOREST | 250 m maximum reach in forest | P: limitation sentence on simulated 868 MHz reach (no code use) | Ferreira et al., "A study of the LoRa signal propagation in forest, urban, and suburban environments", Ann. Telecommun. 75 (2020) 333-351, DOI 10.1007/s12243-020-00789-w; author manuscript hal-02907283, PDF p. 9 (also p. 14); settings Table 2, PDF p. 11 (915 MHz, 14 dBm, SF 7/9/12, 500 kHz) | "it was the maximum range of LoRa in the forest environment, as observed in the short-term static scenario" (p. 9, of 250 m); "Range is significantly reduced in the forest environment, reaching 250 m with RSSI of -124 dBm" (p. 14) | none; 2338 m simulated / 250 m = 9.4, different bandwidth, frequency and node placement, 80 % delivery against maximum reach | VERIFIED 2026-11-25 |
