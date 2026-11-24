@@ -1298,3 +1298,11 @@ neighbour table holds no other worker's id; this is radio only.
 - H35 4/4: the crew is unchanged.
 - H36 4/4: the lone worker lasts 261–510 h.
 - `--loneStay868` is not adopted: a battery option. Its default stays off, so earlier results are unchanged.
+
+## 54. A two-range fix keeps its geometry (`--sparseRangeGeometry`, default off; 2026-11-24)
+
+Case A/B fused the crossing of two range circles as an isotropic position of variance 2(s0^2 + s1^2). With clustered gateways the
+two lines of sight are nearly parallel, so the crossing is loose by an order of magnitude across them, and the round covariance hid it
+(trace events on development seeds 701-703: 100-360 m jumps at a claimed 10 m; peer ranges anchored on such filters had mean z2 up to 550).
+With the flag on the two ranges enter as ranges. Off is byte-identical (the new code is out of line so the code round it compiles as before).
+Tested in REALISTIC-7 on new seeds.

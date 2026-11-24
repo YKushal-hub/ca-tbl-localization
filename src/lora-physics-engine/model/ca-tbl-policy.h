@@ -670,6 +670,11 @@ struct CaTblPolicyConfig
     //! rest go down the full path WITHOUT them (no double count). A refused Case A leaves the set untouched.
     //! Requires sparseInStep. False reproduces every prior result.
     bool caseAPreFuse = false;
+    //! DD 54 (--sparseRangeGeometry). An accepted two-range fix (Case A/B) enters the filter as its two RANGES, each with
+    //! its own sigma, instead of as an isotropic position with variance 2 (s0^2 + s1^2): two nearly parallel lines of
+    //! sight fix the point well along them and hardly at all across, which a round covariance hides. False reproduces
+    //! every prior result.
+    bool sparseRangeGeometry = false;
     //! DC-4. Case D (Physical 2.4D): a set of exactly ONE range is applied as a scalar
     //! measurement on the propagated state, when its innovation passes NIS <= 6.63 (chi^2,
     //! 1 dof, 0.99 -- a distributional constant). The cycle is not a position fix (hadFix
@@ -1450,6 +1455,11 @@ class CaTblPolicy
     {
         if (E5()) { m_ekf5.Update(m, v); } else { m_ekf.Update(m, v); }
     }
+    //! DD 54: the pair as two range updates. Out of line so the code round the call compiles as it did without it.
+    __attribute__((noinline)) void FltFusePair(const CaTblRangeMeasurement& a, const CaTblRangeMeasurement& b);
+    //! DD 54: the accepted pair enters as a position (default) or, under --sparseRangeGeometry, as its two ranges.
+    __attribute__((noinline)) void FltFuseSparse(double x, double y, double v, const CaTblRangeMeasurement& a,
+                                                 const CaTblRangeMeasurement& b);
     void FltFusePosition(double x, double y, double v)
     {
         if (E5()) { m_ekf5.FusePosition(x, y, v); } else { m_ekf.FusePosition(x, y, v); }

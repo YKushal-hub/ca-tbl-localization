@@ -662,6 +662,24 @@ CaTblPolicy::FuseAux()
 }
 
 void
+CaTblPolicy::FltFusePair(const CaTblRangeMeasurement& a, const CaTblRangeMeasurement& b)
+{
+    FltUpdate({a, b}, {a.sigmaM * a.sigmaM, b.sigmaM * b.sigmaM});
+}
+
+void
+CaTblPolicy::FltFuseSparse(double x, double y, double v, const CaTblRangeMeasurement& a,
+                           const CaTblRangeMeasurement& b)
+{
+    if (m_config.sparseRangeGeometry)
+    {
+        FltFusePair(a, b);
+        return;
+    }
+    FltFusePosition(x, y, v);
+}
+
+void
 CaTblPolicy::FuseAuxInflated(double rScale)
 {
     if (!AuxPassesGate(rScale))
@@ -2133,7 +2151,7 @@ CaTblPolicy::StepImpl(double dt,
             const double var = 2.0 * (a.sigmaM * a.sigmaM + b.sigmaM * b.sigmaM);
             if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
             {
-                FltFusePosition(sr.x, sr.y, var);
+                FltFuseSparse(sr.x, sr.y, var, a, b); // DD 54
                 ++m_caseAPreFuses;
                 preFused = true;
                 d.positionFuses = 1;
@@ -2211,7 +2229,7 @@ CaTblPolicy::StepImpl(double dt,
                                   meas[1].sigmaM * meas[1].sigmaM);
         if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
         {
-            FltFusePosition(sr.x, sr.y, var);
+            FltFuseSparse(sr.x, sr.y, var, meas[0], meas[1]); // DD 54
             d.positionFuses = 1;
             d.sparseX = sr.x;
             d.sparseY = sr.y;

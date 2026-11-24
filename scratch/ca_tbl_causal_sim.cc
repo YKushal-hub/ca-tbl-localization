@@ -7229,6 +7229,7 @@ struct SpecOptions
     bool sparseInStep = false;
     //! Plan item 27. --caseAPreFuse: a fused set's gateway pair resolved as Case A first.
     bool caseAPreFuse = false;
+    bool sparseRangeGeometry = false; //!< DD 54
     //! Plan item 9 / N.3. --subjectMobilityFromRange: subjects' mobility state and escalation handshake.
     bool subjectMobilityFromRange = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
@@ -7912,6 +7913,7 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.sparseInStep = true;
         pcfg.sparseMarginM = sparseCaseAMarginM;
         pcfg.caseAPreFuse = spec.caseAPreFuse; // plan item 27
+        pcfg.sparseRangeGeometry = spec.sparseRangeGeometry; // DD 54
     }
     if (spec.caseD)
     {
@@ -13024,6 +13026,38 @@ RunArm(CaTblPolicyMode armMode,
                         }
                     }
                     sb.policy.SetLone(!heard);
+                }
+                if (rangeLog)
+                {
+                    // --traceRanges, measured subjects: evaluation only, read by nothing here.
+                    static std::map<std::string, std::unique_ptr<std::ofstream>> subjRangeLogs;
+                    std::ostringstream fn;
+                    fn << traceDir << "/subjranges_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+                    auto& lg = subjRangeLogs[fn.str()];
+                    if (!lg)
+                    {
+                        lg.reset(new std::ofstream(fn.str().c_str()));
+                        *lg << "t,subj,activeTier,tier,anchorId,sourceKind,rangeM,sigmaM,trueRangeM,ax,ay,axTrue,ayTrue,"
+                               "estX,estY,pxx,pxy,pyy,trueX,trueY\n";
+                    }
+                    for (const auto& m : measS)
+                    {
+                        double atx = m.anchorX, aty = m.anchorY;
+                        for (const auto& tg : tags)
+                        {
+                            if (m.sourceKind == CA_TBL_SRC_RELAY && tg.nodeId == m.anchorId)
+                            {
+                                atx = tg.pos.x;
+                                aty = tg.pos.y;
+                            }
+                        }
+                        *lg << std::fixed << std::setprecision(3) << t << "," << sb.nodeId << "," << CaTblTierName(act)
+                            << "," << static_cast<int>(m.tier) << "," << m.anchorId << "," << static_cast<int>(m.sourceKind)
+                            << "," << m.rangeM << "," << m.sigmaM << "," << std::hypot(sb.pos.x - atx, sb.pos.y - aty)
+                            << "," << m.anchorX << "," << m.anchorY << "," << atx << "," << aty << ","
+                            << sb.policy.EstX() << "," << sb.policy.EstY() << "," << sb.policy.Pxx() << ","
+                            << sb.policy.Pxy() << "," << sb.policy.Pyy() << "," << sb.pos.x << "," << sb.pos.y << "\n";
+                    }
                 }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
@@ -21521,6 +21555,12 @@ main(int argc, char* argv[])
                  "active tier, whose RECEDING branch is the one-shot push. Handshake frames are MAC frames, unbilled "
                  "in joules as tag 0's are. Needs --measuredSubjects > 1.",
                  spec.subjectMobilityFromRange);
+    cmd.AddValue("sparseRangeGeometry",
+                 "DD 54. An accepted two-range fix (Case A/B) enters the filter as its two ranges with their own "
+                 "geometry. FALSE by default: it enters as an isotropic position of variance 2(s0^2 + s1^2), which with "
+                 "two nearly parallel lines of sight claims metres across a direction known to hundreds of metres. "
+                 "Needs --sparseInStep.",
+                 spec.sparseRangeGeometry);
     cmd.AddValue("caseAPreFuse",
                  "Case A inside a fused set (plan item 27). FALSE by default: every result so far; Case A runs only "
                  "when the set holds EXACTLY two ranges, and in a larger set the gateway pair goes in as ranges. TRUE: "
@@ -23027,6 +23067,15 @@ main(int argc, char* argv[])
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    if (spec.sparseRangeGeometry && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --sparseRangeGeometry needs --sparseInStep\n";
+        return 1;
+    }
+    if (spec.sparseRangeGeometry)
+    {
+        std::cout << "  DD54 sparseRangeGeometry: a two-range fix enters as its two ranges\n";
+    }
     if (spec.caseAPreFuse && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --caseAPreFuse needs --sparseInStep (Case A is solved inside Step)\n";
