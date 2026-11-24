@@ -11,8 +11,3 @@ Binary frozen at launch; source = the commit adding this file; `dirty 0` on ever
 **Hypotheses.** PARETO-1's P1-P3 and PARETO-2's P1-P3 re-evaluated by their own rules; each verdict reported beside the DD 41 replay's. None added.
 
 **Abort / completeness.** As PARETO-1/2. A Result section is appended whatever it says.
-
-## Run record (2026-11-24; not a Result)
-Stopped before completion at about 15:53 IST: 235 of 960 cells finished, all rc 0, all in PARETO-1; PARETO-2 not started.
-The analysis is registered for the complete set, so no hypothesis is evaluated and no interim contrast was computed. REALISTIC-8 with
-DD 56/57 was registered and launched after the stop, on `work/2026-11-24-duty`. The paper keeps the DD 41 replay's numbers, labelled as the earlier filter.
