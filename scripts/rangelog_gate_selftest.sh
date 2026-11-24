@@ -22,5 +22,13 @@ p = sys.argv[1]; L = open(p).read().splitlines(); t = L[1].split(",")[0]
 open(p, "w").write("\n".join([L[0]] + [l for l in L[1:] if l.split(",")[0] != t]) + "\n")
 PY
 check "N4 one cycle's ranges are dropped from the log" 1 LOG
+fresh; rm "$T/f/on/subjranges_ca_tbl_full_seed7.csv"; check "N5 the subject ranges file is missing" 1 SUBJLOG
+fresh; touch "$T/f/on/unexpected.csv"; check "N6 the flag writes an unexpected file" 1 INERT
+fresh; python3 - "$T/f/on/subjranges_ca_tbl_full_seed7.csv" <<'PY'
+import sys
+p = sys.argv[1]; L = open(p).read().splitlines(); k = L[1].split(",")[:2]
+open(p, "w").write("\n".join([L[0]] + [l for l in L[1:] if l.split(",")[:2] != k]) + "\n")
+PY
+check "N7 one subject cycle's ranges are dropped from the log" 1 SUBJLOG
 printf '  G137 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
