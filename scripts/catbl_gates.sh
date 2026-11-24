@@ -2106,6 +2106,12 @@ bash scripts/sparse_geometry_gate.sh "$WORK/g184" || fail G184
 bash scripts/sparse_geometry_gate_selftest.sh "$WORK/g184" || fail G184
 finish G184
 
+# ---------------- G185/G186: one 868 MHz ledger per device (DD 56) and peer fusion by split covariance intersection (DD 57)
+printf '\n--- G185 / G186 shared duty cycle and peer fusion ---\n'
+bash scripts/duty_sci_gate.sh "$WORK/g185" || fail G185
+bash scripts/duty_sci_gate_selftest.sh "$WORK/g185" || fail G185
+finish G185
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183

@@ -544,14 +544,19 @@ CaTblMac::WouldViolateDutyCycle(CaTblTier tier, Time toa) const
     {
         return false;
     }
+    if (m_otherAir868) // DD 56
+    {
+        sum += std::max(m_otherAir868(), m_reserve868S);
+    }
     const double budgetS = GetDutyCycleLimit() * m_cfg.dutyWindowS;
-    return sum > budgetS;
+    return sum > (m_otherAir868 ? 0.995 * budgetS : budgetS); // DD 56: 0.5 % margin (OURS)
 }
 
 void
 CaTblMac::RecordAirtime(CaTblTier tier, Time toa)
 {
     m_airtime[tier].push_back(std::make_pair(Simulator::Now(), toa.GetSeconds()));
+    m_airTotalS[tier] += toa.GetSeconds(); // DD 56
     const double cutoff = Simulator::Now().GetSeconds() - m_cfg.dutyWindowS;
     while (!m_airtime[tier].empty() && m_airtime[tier].front().first.GetSeconds() < cutoff)
     {
@@ -1818,6 +1823,16 @@ CaTblMac::DoTransmit(PendingFrame f)
                                                        payload,
                                                        m_cfg.codingRate));
 
+    if (m_otherAir868 && WouldViolateDutyCycle(f.tier, toa)) // DD 56: frames that passed the gate together wait out their backoff
+    {
+        ++m_dutyViolationAttempts;
+        ++Counters(f.hdr.GetMsgType()).droppedDutyCycle;
+        if (!m_dropCb.IsNull())
+        {
+            m_dropCb(m_cfg.nodeId, f.hdr.GetMsgType(), "duty");
+        }
+        return;
+    }
     RecordAirtime(f.tier, toa);
     CaTblMsgCounters& c = Counters(f.hdr.GetMsgType());
     ++c.sent;

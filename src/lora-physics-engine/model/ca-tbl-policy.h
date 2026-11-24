@@ -128,6 +128,8 @@ struct CaTblRangeMeasurement
     //! the consider-state update, which treats tier-1 (868 MHz RSSI) errors as correlated along the motion.
     uint8_t tier = 255;
     bool fromFloor = false;
+    //! DD 57 --peerSplitCi: the part of sigmaM^2 that is the peer's own position variance along the line of sight, m^2.
+    float relayVarM2 = 0.0f;
 
     CaTblRangeMeasurement();
 };
@@ -675,6 +677,7 @@ struct CaTblPolicyConfig
     //! sight fix the point well along them and hardly at all across, which a round covariance hides. False reproduces
     //! every prior result.
     bool sparseRangeGeometry = false;
+    bool peerSplitCi = false; //!< DD 57 --peerSplitCi: a peer range is fused by split covariance intersection
     //! DC-4. Case D (Physical 2.4D): a set of exactly ONE range is applied as a scalar
     //! measurement on the propagated state, when its innovation passes NIS <= 6.63 (chi^2,
     //! 1 dof, 0.99 -- a distributional constant). The cycle is not a position fix (hadFix

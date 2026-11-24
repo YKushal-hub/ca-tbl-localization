@@ -4194,6 +4194,38 @@ RunProbe(EnvironmentClass envWide,
  * Every such object in this file sets its stream explicitly, before first use, for
  * exactly that reason. Do not add one that does not.
  */
+static bool g_traceSubjectRanges = false; //!< --traceSubjectRanges
+static bool g_sharedDuty868 = false;   //!< DD 56 --sharedDuty868
+static bool g_dutyReport868 = false;   //!< DD 56 --dutyReport868: count true on-air time, enforce nothing
+static double g_dutyRangeShare = 0.5;  //!< DD 56 --dutyRangeShare (OURS): half for ranging, half for messages
+static uint64_t g_sharedDutySkips = 0; //!< DD 56: ranging exchanges not made because the device's ledger was full
+
+//! DD 56. Out of line so the code round the calls compiles as it did without it.
+__attribute__((noinline)) static bool
+SharedDutySkip(CaTblEnergyModel& e, double nowS)
+{
+    if (!g_sharedDuty868 || !(e.SharedDutyBlocks(nowS) || e.RangePaceBlocks(nowS)))
+    {
+        return false;
+    }
+    e.NoteDeferred(CA_TBL_TIER_868);
+    ++g_sharedDutySkips;
+    return true;
+}
+
+//! DD 56. One ledger for a device: its ranging account and its 868 MHz MAC each count the other's airtime.
+__attribute__((noinline)) static void
+AttachSharedDuty(CaTblEnergyModel* e, CaTblMac* m)
+{
+    e->EnableSharedDuty([m]() { return m->GetDutyCycle(CA_TBL_TIER_868) * CaTblEnergyModel::kDutyWindowS; },
+                        g_sharedDuty868, g_dutyRangeShare);
+    if (g_sharedDuty868)
+    {
+        m->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
+                         g_dutyRangeShare * 0.025 * CaTblEnergyModel::kDutyWindowS);
+    }
+}
+
 /**
  * \brief Everything belonging to ONE target.
  *
@@ -5410,6 +5442,7 @@ RelayChain::RangeForSubject(size_t b,
         m.sigmaM = sigEff;
         m.tier = static_cast<uint8_t>(tier); // V3 --rangeBiasStates
         m.hopDepth = rr.hopDepth;
+        m.relayVarM2 = static_cast<float>(std::max(0.0, sigEff * sigEff - rr.sigmaRangeM * rr.sigmaRangeM)); // DD 57
         m.anchorId = static_cast<uint16_t>(C.nodeId);
         m.sourceKind = CaTblSourceKindOf(static_cast<uint16_t>(C.nodeId));
         meas.push_back(m);
@@ -7230,6 +7263,7 @@ struct SpecOptions
     //! Plan item 27. --caseAPreFuse: a fused set's gateway pair resolved as Case A first.
     bool caseAPreFuse = false;
     bool sparseRangeGeometry = false; //!< DD 54
+    bool peerSplitCi = false;         //!< DD 57
     //! Plan item 9 / N.3. --subjectMobilityFromRange: subjects' mobility state and escalation handshake.
     bool subjectMobilityFromRange = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
@@ -7914,6 +7948,7 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.sparseMarginM = sparseCaseAMarginM;
         pcfg.caseAPreFuse = spec.caseAPreFuse; // plan item 27
         pcfg.sparseRangeGeometry = spec.sparseRangeGeometry; // DD 54
+        pcfg.peerSplitCi = spec.peerSplitCi;                 // DD 57
     }
     if (spec.caseD)
     {
@@ -8511,6 +8546,14 @@ RunArm(CaTblPolicyMode armMode,
         }
     }
 
+    if (g_sharedDuty868 || g_dutyReport868)
+    {
+        AttachSharedDuty(&energy, nodeMac[0]);
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        {
+            AttachSharedDuty(&tags[pi + 1].energy, peerMacs[pi][0]);
+        }
+    }
     // ---- C3: identity-scoped queries from the anchors ----------------------
     //
     // Off unless identityQueryPeriodS > 0, and then ONE driver per tier on the first
@@ -9487,6 +9530,10 @@ RunArm(CaTblPolicyMode armMode,
     }
     auto caseCPeers = [&](size_t self, const Vector& selfPos, CaTblEnergyModel& en, CaTblMac* mac,
                           CaTblTier tier, double tNow, Time at, double atSec) {
+        if (tier == CA_TBL_TIER_868 && SharedDutySkip(en, atSec)) // DD 56
+        {
+            return;
+        }
         ++caseCCycles;
         const uint32_t selfId = tags[self].nodeId;
         std::vector<size_t> peers;
@@ -9570,7 +9617,7 @@ RunArm(CaTblPolicyMode armMode,
                 ? CaTblEnergyModel::UwbFrameTimeS(more) - CaTblEnergyModel::UwbFrameTimeS(base)
                 : CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, more, 1) -
                       CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, base, 1);
-        en.AccountFrameTx(tier, atSec, extra);
+        en.AccountMacFrameTx(tier, atSec, extra);
         caseCCarryS += extra;
         caseCPending.push_back(p);
     };
@@ -12329,6 +12376,10 @@ RunArm(CaTblPolicyMode armMode,
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
                     }
+                    if (tier == CA_TBL_TIER_868 && SharedDutySkip(sb.energy, atSec)) // DD 56
+                    {
+                        return out;
+                    }
                     if (tier == CA_TBL_TIER_868 && stillQuietS) // DD 50, staggered by worker (the run's cycle count)
                     {
                         ++g_stillSkipped;
@@ -13027,9 +13078,9 @@ RunArm(CaTblPolicyMode armMode,
                     }
                     sb.policy.SetLone(!heard);
                 }
-                if (rangeLog)
+                if (g_traceSubjectRanges)
                 {
-                    // --traceRanges, measured subjects: evaluation only, read by nothing here.
+                    // --traceSubjectRanges: evaluation only, read by nothing here.
                     static std::map<std::string, std::unique_ptr<std::ofstream>> subjRangeLogs;
                     std::ostringstream fn;
                     fn << traceDir << "/subjranges_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
@@ -13254,7 +13305,7 @@ RunArm(CaTblPolicyMode armMode,
                         CaTblMac* tm = peerMacs[pi][static_cast<size_t>(act)];
                         tm->SendTriggeredUpdate(act, 1);
                         const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
-                        sb.energy.AccountFrameTx(
+                        sb.energy.AccountMacFrameTx(
                             act, t, frames * tm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
                         ++trigSLarge;
                         trigSBilled += frames;
@@ -13278,7 +13329,7 @@ RunArm(CaTblPolicyMode armMode,
                     if (trigS && gm != nullptr)
                     {
                         gm->SendTriggeredUpdate(act, 2);
-                        sb.energy.AccountFrameTx(act, t,
+                        sb.energy.AccountMacFrameTx(act, t,
                                                  gm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
                         ++trigSGasp;
                         *trigS << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId
@@ -13628,6 +13679,10 @@ RunArm(CaTblPolicyMode armMode,
             {
                 ++g_stillSkipped;
                 policy.SetQuietCycle(true); // DD 50
+                return out;
+            }
+            if (tier == CA_TBL_TIER_868 && SharedDutySkip(energy, t)) // DD 56
+            {
                 return out;
             }
             rangedThisCycle.clear();
@@ -14771,6 +14826,7 @@ RunArm(CaTblPolicyMode armMode,
                     m.nlosPropagation = false;
                     m.hiddenChannelActive = false;
                     m.sigmaM = sigmaEff;
+                    m.relayVarM2 = static_cast<float>(std::max(0.0, sigmaEff * sigmaEff - rr.sigmaRangeM * rr.sigmaRangeM)); // DD 57
                     m.tier = static_cast<uint8_t>(active); // V3 --rangeBiasStates
                     m.anchorId = rr.relayId; // DC-11
                     m.sourceKind = CA_TBL_SRC_RELAY;
@@ -15486,7 +15542,7 @@ RunArm(CaTblPolicyMode armMode,
                 // attempted. A repeat the duty governor then refuses is still billed;
                 // the MC-2 line prints frames billed against frames transmitted.
                 const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
-                energy.AccountFrameTx(active, t,
+                energy.AccountMacFrameTx(active, t,
                                       frames * nodeMac[active]->FrameAirtimeS(
                                                    CA_TBL_MSG_TRIGGERED_UPDATE, active, 1));
                 ++trig->nLarge;
@@ -15512,7 +15568,7 @@ RunArm(CaTblPolicyMode armMode,
                 // Billed like any frame on the tier that transmitted this cycle; the
                 // battery overshoots its budget by this one frame, which is stated.
                 nodeMac[active]->SendTriggeredUpdate(active, 2);
-                energy.AccountFrameTx(
+                energy.AccountMacFrameTx(
                     active, t, nodeMac[active]->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE,
                                                               active, 1));
                 ++trig->nGasp;
@@ -17988,6 +18044,22 @@ RunArm(CaTblPolicyMode armMode,
         {
             std::cout << "    B2 rssiCorrInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 868 MHz ranges inflated "
                       << policy.GetRssiCorrApplied() << ", mean variance factor " << policy.GetRssiCorrMeanFactor() << "\n";
+        }
+        if (g_sharedDuty868 || g_dutyReport868)
+        {
+            auto line = [&](uint32_t id, const CaTblEnergyModel& e, const CaTblMac* m) {
+                double mac = 0.0;
+                mac = m->GetTotalAirtimeS(CA_TBL_TIER_868);
+                std::cout << "    DD56 device " << id << " " << CaTblPolicyModeName(armMode) << ": ranging " << e.DutyTotalS()
+                          << " s, MAC " << mac << " s, of " << durationS << " s: " << (e.DutyTotalS() + mac) / durationS
+                          << ", trailing-hour peak " << e.SharedDutyPeakS() / 3600.0 << ", ranging skips so far "
+                          << g_sharedDutySkips << "\n";
+            };
+            line(nodeId, energy, nodeMac[0]);
+            for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+            {
+                line(tags[pi + 1].nodeId, tags[pi + 1].energy, peerMacs[pi][0]);
+            }
         }
         if (spec.relayNisInflate)
         {
@@ -21555,6 +21627,22 @@ main(int argc, char* argv[])
                  "active tier, whose RECEDING branch is the one-shot push. Handshake frames are MAC frames, unbilled "
                  "in joules as tag 0's are. Needs --measuredSubjects > 1.",
                  spec.subjectMobilityFromRange);
+    cmd.AddValue("peerSplitCi",
+                 "DD 57. With --imuFilter=ekf5 and --ekf5FinderConsider: a range to a peer whose position is itself an "
+                 "estimate is fused by split covariance intersection, which is consistent whatever the correlation between "
+                 "the two filters. FALSE by default: the peer's covariance is added to the range's variance as if independent.",
+                 spec.peerSplitCi);
+    cmd.AddValue("dutyReport868", "DD 56. Print each worker device's true 868 MHz on-air time (ranging plus sent MAC frames) and "
+                 "its trailing-hour peak. False by default; enforces nothing.", g_dutyReport868);
+    cmd.AddValue("dutyRangeShare", "DD 56. With --sharedDuty868: the share of the 2.5 % the ranging broadcast may pace at (0.5, OURS)",
+                 g_dutyRangeShare);
+    cmd.AddValue("traceSubjectRanges", "Crew ranges with their true values to subjranges_<arm>_seed<s>.csv (evaluation only). False: no file.", g_traceSubjectRanges);
+    cmd.AddValue("sharedDuty868",
+                 "DD 56. One 868 MHz duty-cycle ledger per worker device. FALSE by default: the ranging governor and the "
+                 "MAC governor each allow the full 2.5 %, so together a device can pass it. TRUE: each counts the other's "
+                 "airtime over the trailing hour; a frame is refused, and a ranging exchange not made, when the sum would "
+                 "pass the cap. The MAC always leaves the ranging broadcast's own share.",
+                 g_sharedDuty868);
     cmd.AddValue("sparseRangeGeometry",
                  "DD 54. An accepted two-range fix (Case A/B) enters the filter as its two ranges with their own "
                  "geometry. FALSE by default: it enters as an isotropic position of variance 2(s0^2 + s1^2), which with "
@@ -23072,6 +23160,15 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --sparseRangeGeometry needs --sparseInStep\n";
         return 1;
     }
+    if (g_sharedDuty868)
+    {
+        std::cout << "  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share " << g_dutyRangeShare << "\n";
+    }
+    if (!(g_dutyRangeShare > 0.0 && g_dutyRangeShare < 1.0))
+    {
+        std::cerr << "FATAL: --dutyRangeShare must be in (0, 1)\n";
+        return 1;
+    }
     if (spec.sparseRangeGeometry)
     {
         std::cout << "  DD54 sparseRangeGeometry: a two-range fix enters as its two ranges\n";
@@ -23572,6 +23669,15 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --ekf5Iterate needs --imuFilter=ekf5, no --ekf5Robust, a pass count in 1..50 and a "
                      "positive --ekf5IterateTolM\n";
         return 1;
+    }
+    if (spec.peerSplitCi)
+    {
+        if (!spec.imuFilterEkf5 || !ekf5FinderConsiderArg)
+        {
+            std::cerr << "FATAL: --peerSplitCi needs --imuFilter=ekf5 and --ekf5FinderConsider\n";
+            return 1;
+        }
+        std::cout << "  DD57 peerSplitCi: peer ranges fused by split covariance intersection\n";
     }
     if (ekf5FinderConsiderArg)
     {
