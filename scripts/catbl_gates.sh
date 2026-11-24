@@ -2380,8 +2380,8 @@ finish G111
 # same run shows ca_tbl_full using tier 2 and the arm reaching UWB, so the zero is not vacuous; the flag at 0 changes no byte;
 # at +30 dB the probe's 868 MHz r80 falls and tiers 2/3 do not move. Negative fixtures in scripts/two_tier_gate_selftest.sh.
 printf '\n--- G167 two-tier arm and tier-1 extra loss ---\n'
-bash scripts/two_tier_gate.sh "$WORK/g167" || fail G167
-bash scripts/two_tier_gate_selftest.sh "$WORK/g167" || fail G167
+bash scripts/two_tier_gate.sh "$WORK/g167b" || fail G167
+bash scripts/two_tier_gate_selftest.sh "$WORK/g167b" || fail G167
 finish G167
 
 # ------------------------------------------------------------------ summary

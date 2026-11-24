@@ -1279,7 +1279,7 @@ height from that finder's GNSS height, not its true height. Off, it is unchanged
 - Two failures were not caused by DD 41, and both are fixed:
   - G92: the COLLAPSE-5/6/7 run sidecars were added under `results/collapse5/runs_*`;
   - G158: the estimator options `--frame/--moves/--relative/--rescuers` are now registered as tool options, and the
-    stale `--scenario=collapse` prose is corrected.
+    stale scenario-flag prose is corrected.
 
 ## 53. Lone-worker rules (`--uwbFutilityLoneMaxBackoffS` DD 53, `--loneStay868` DD 53b; both default off; 2026-11-22)
 
