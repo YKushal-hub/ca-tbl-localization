@@ -553,7 +553,8 @@ copies:
 - REALISTIC-8 (360 runs) done: H1, H2 FAIL; H3, C1 HOLD; L1 holds as registered but the audit puts 218 of 1200 devices above 2.5 % in some hour, so it
   is not legal (`report/PREREG_REALISTIC8.md`). REALISTIC-9 repeats it with the corrected ledger after COLLAPSE-9; both run from `~/catbl_duty`.
 - Branch `work/2026-11-24-merge` (`~/catbl_merge`) joins calibration and duty (cd4b69b48). G137 now tests `--traceRanges` and `--traceSubjectRanges`
-  separately (11 fixtures pass, run on COLLAPSE-9's frozen binary). The merged tree is not built and the full suite is not run.
+  separately (11 fixtures pass, run on COLLAPSE-9's frozen binary). Full gate suite at 516cd5acd (2026-11-25): 158 PASS; G11, G24, G93 recorded reds; no new red. The later duty merge adds
+  only report/, results/ and the PARETO-3/4 scripts, so it was not re-run.
 - Paper: `~/catbl_work/tii_paper/draft_2026-11-23/TriLoc_TII_v19.pdf`.
 - Open: true 868 MHz airtime is 2.6-4.8 % on all 80 development device-runs (DD 56); `duty_868` and "27 of 100" understate it. Before DD 57, emergency coverage is
   77-87 % and the quiet office shift about 60 % against 95 %; the collapse study is not checked for the two-range defect; 16 of 52 references
