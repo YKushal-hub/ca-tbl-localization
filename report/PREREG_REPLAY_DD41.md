@@ -141,3 +141,7 @@ parallel (`queue2.sh`); a memory guard deadlocked all runs 22:04-01:30 IST (no f
 were finished by memory-budgeted copies of the frozen runners (`mkrunner.py`, `admit.sh`, `queue3.sh`) that change only the
 start condition (a memory budget replaces the job count), skip a run that survived the restart, and (REALISTIC-1) run RING12 last.
 Commands, seeds and frozen binaries are unchanged; every cell's own `run_id.txt` reads `dirty 0`.
+
+**Full gate suite (2026-11-24 06:50-08:05, commit 227bf7e9f):** red G10, G11, G24, G93, G158, G167. G11, G24, G93 are the recorded findings.
+G10 (citations of untracked run tools), G158 (a stale flag name in prose) and G167 (two gate blocks sharing one working
+directory; each passes alone) were fixed and re-run individually; the whole suite was not re-run after.
