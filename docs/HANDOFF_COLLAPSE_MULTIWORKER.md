@@ -549,9 +549,10 @@ copies:
   arrival-time advantage over 2.4 GHz only came from the defect (ROAD3 -1593 s -> -275 s [-828, 256]). Do not quote the earlier advantage.
 - DD 55: no tested 868 MHz-skip trigger beats the flat threshold (development seeds 711-716).
 - Full gate suite at bc68c8924: 156 PASS; G11, G24, G93 recorded reds; G137 red, gate extended to the subject range log and re-run alone.
-- Running: REPLAY-DD54-PARETO (960 runs, from `~/catbl_dd54`, launcher `~/catbl_work/campaigns/p54.sh`; registered in
-  `report/PREREG_REPLAY_DD54_PARETO.md`). When done: analyse, append the Result, update the paper's decision-rule table (earlier filter today).
-- Paper: `~/catbl_work/tii_paper/draft_2026-11-23/TriLoc_TII_v18.pdf` (10 pages).
-- Open: in 27 of the 100 runs checked the 868 MHz duty cycle exceeds 2.5 % (median 2.46 %, max 3.6 %; cause not traced); emergency coverage is
+- REPLAY-DD54-PARETO was stopped at 235 of 960 cells, not analysed, not to be resumed (note on `work/2026-11-24-duty`). Its design breaks the duty cap.
+- REALISTIC-8 (DD 54, 56, 57; 400 runs) runs from `~/catbl_duty`; do not edit that tree until it ends. G137 is fixed differently there
+  (`--traceSubjectRanges`); on merge keep that flag and move SUBJLOG and fixtures N5-N7 to it.
+- Paper: `~/catbl_work/tii_paper/draft_2026-11-23/TriLoc_TII_v19.pdf`.
+- Open: true 868 MHz airtime is 2.6-4.8 % on all 80 development device-runs (DD 56); `duty_868` and "27 of 100" understate it. Before DD 57, emergency coverage is
   77-87 % and the quiet office shift about 60 % against 95 %; the collapse study is not checked for the two-range defect; 16 of 52 references
-  unconfirmed and four author lists differ from Crossref.
+  unconfirmed (NIST TN 1540 and 1542 authors confirmed on the report covers; ILO and NIOSH 2023 open).
