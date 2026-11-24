@@ -1,0 +1,26 @@
+  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share 0.5
+    DD56 device 1 ca_tbl_full: ranging 90.232832 s, MAC 88.812032 s, of 7200.000000 s: 0.024867, trailing-hour peak 0.024873, ranging skips so far 8607, carried 0.000000 s, audited peak 0.024873
+    DD56 device 2 ca_tbl_full: ranging 88.957184 s, MAC 89.093888 s, of 7200.000000 s: 0.024729, trailing-hour peak 0.024873, ranging skips so far 8607, carried 0.040960 s, audited peak 0.024873
+    DD56 device 3 ca_tbl_full: ranging 89.265152 s, MAC 89.052928 s, of 7200.000000 s: 0.024766, trailing-hour peak 0.024868, ranging skips so far 8607, carried 0.035840 s, audited peak 0.024871
+    DD56 device 4 ca_tbl_full: ranging 87.871232 s, MAC 73.467648 s, of 7200.000000 s: 0.022408, trailing-hour peak 0.023210, ranging skips so far 8607, carried 0.348160 s, audited peak 0.023210
+    DD56 device 5 ca_tbl_full: ranging 90.742016 s, MAC 85.527808 s, of 7200.000000 s: 0.024482, trailing-hour peak 0.024874, ranging skips so far 8607, carried 0.112640 s, audited peak 0.024874
+    DD56 device 1 fixed_threshold: ranging 88.982016 s, MAC 89.078528 s, of 7200.000000 s: 0.024731, trailing-hour peak 0.024874, ranging skips so far 16895, carried 0.000000 s, audited peak 0.024874
+    DD56 device 2 fixed_threshold: ranging 88.832768 s, MAC 89.049856 s, of 7200.000000 s: 0.024706, trailing-hour peak 0.024875, ranging skips so far 16895, carried 0.025600 s, audited peak 0.024875
+    DD56 device 3 fixed_threshold: ranging 89.290496 s, MAC 89.028352 s, of 7200.000000 s: 0.024767, trailing-hour peak 0.024860, ranging skips so far 16895, carried 0.056320 s, audited peak 0.024860
+    DD56 device 4 fixed_threshold: ranging 84.516096 s, MAC 78.836224 s, of 7200.000000 s: 0.022688, trailing-hour peak 0.023058, ranging skips so far 16895, carried 0.199680 s, audited peak 0.023081
+    DD56 device 5 fixed_threshold: ranging 88.519168 s, MAC 84.173056 s, of 7200.000000 s: 0.023985, trailing-hour peak 0.024445, ranging skips so far 16895, carried 0.076800 s, audited peak 0.024445
+    DD56 device 1 static_868: ranging 89.954560 s, MAC 89.074944 s, of 7200.000000 s: 0.024865, trailing-hour peak 0.024870, ranging skips so far 37153, carried 0.000000 s, audited peak 0.024875
+    DD56 device 2 static_868: ranging 96.862976 s, MAC 82.110720 s, of 7200.000000 s: 0.024857, trailing-hour peak 0.024874, ranging skips so far 37153, carried 0.092160 s, audited peak 0.024877
+    DD56 device 3 static_868: ranging 89.850624 s, MAC 89.081344 s, of 7200.000000 s: 0.024852, trailing-hour peak 0.024873, ranging skips so far 37153, carried 0.117760 s, audited peak 0.024873
+    DD56 device 4 static_868: ranging 105.483008 s, MAC 73.228032 s, of 7200.000000 s: 0.024821, trailing-hour peak 0.024880, ranging skips so far 37153, carried 0.353280 s, audited peak 0.024880
+    DD56 device 5 static_868: ranging 98.909696 s, MAC 79.998720 s, of 7200.000000 s: 0.024848, trailing-hour peak 0.024882, ranging skips so far 37153, carried 0.153600 s, audited peak 0.024882
+    DD56 device 1 static_2p4: ranging 0.000000 s, MAC 0.000000 s, of 7200.000000 s: 0.000000, trailing-hour peak 0.000000, ranging skips so far 37153, carried 0.000000 s, audited peak 0.000000
+    DD56 device 2 static_2p4: ranging 0.000000 s, MAC 29.701376 s, of 7200.000000 s: 0.004125, trailing-hour peak 0.000000, ranging skips so far 37153, carried 0.000000 s, audited peak 0.004144
+    DD56 device 3 static_2p4: ranging 0.000000 s, MAC 29.794048 s, of 7200.000000 s: 0.004138, trailing-hour peak 0.000000, ranging skips so far 37153, carried 0.000000 s, audited peak 0.004157
+    DD56 device 4 static_2p4: ranging 0.000000 s, MAC 29.562368 s, of 7200.000000 s: 0.004106, trailing-hour peak 0.000000, ranging skips so far 37153, carried 0.000000 s, audited peak 0.004132
+    DD56 device 5 static_2p4: ranging 0.000000 s, MAC 29.608704 s, of 7200.000000 s: 0.004112, trailing-hour peak 0.000000, ranging skips so far 37153, carried 0.000000 s, audited peak 0.004119
+    DD56 device 1 poucet_fusion: ranging 90.382848 s, MAC 88.689152 s, of 7200.000000 s: 0.024871, trailing-hour peak 0.024874, ranging skips so far 55605, carried 0.000000 s, audited peak 0.024874
+    DD56 device 2 poucet_fusion: ranging 90.267904 s, MAC 88.746752 s, of 7200.000000 s: 0.024863, trailing-hour peak 0.024877, ranging skips so far 55605, carried 0.051200 s, audited peak 0.024877
+    DD56 device 3 poucet_fusion: ranging 89.871360 s, MAC 89.035776 s, of 7200.000000 s: 0.024848, trailing-hour peak 0.024871, ranging skips so far 55605, carried 0.138240 s, audited peak 0.024871
+    DD56 device 4 poucet_fusion: ranging 106.921728 s, MAC 71.902976 s, of 7200.000000 s: 0.024837, trailing-hour peak 0.024880, ranging skips so far 55605, carried 0.220160 s, audited peak 0.024880
+    DD56 device 5 poucet_fusion: ranging 104.012800 s, MAC 74.799616 s, of 7200.000000 s: 0.024835, trailing-hour peak 0.024873, ranging skips so far 55605, carried 0.209920 s, audited peak 0.024874
