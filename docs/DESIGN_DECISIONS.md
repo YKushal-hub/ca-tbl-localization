@@ -1306,3 +1306,15 @@ two lines of sight are nearly parallel, so the crossing is loose by an order of 
 (trace events on development seeds 701-703: 100-360 m jumps at a claimed 10 m; peer ranges anchored on such filters had mean z2 up to 550).
 With the flag on the two ranges enter as ranges. Off is byte-identical (the new code is out of line so the code round it compiles as before).
 Gate G184 (off and on runs, ten failing fixtures). Tested in REALISTIC-7 on new seeds.
+
+## 55. No trigger beats the flat threshold (development study; nothing adopted; 2026-11-24)
+
+Development seeds 711-716 (6, not evidence), DD 54 on, three sites, six-seed means: fixed_threshold with `--benefitSkip868` (and with
+`--benefitSkip868Min3`, `--benefitHeartbeat868N=12`, `--benefitSkipNisMax=6.63`, each with `--benefitLambda=1000`) against ca_tbl_full and the flat threshold.
+- The 868 MHz slot is about half of the hybrid's energy (18-19 of 30-39 J/h), so it is the only lever on energy.
+- Skipping it saves 2.8-3.3 J/h (7-10 %) but costs crew availability at the office (A250 0.85 to 0.57-0.58) and at random gateways (0.65 to
+  0.59-0.64, flat threshold); on the road it does not lose (A250 0.48 to 0.52, A25 0.43 to 0.48). Min3 does not lose but saves nothing (34.8 against 32.0 J/h at the office).
+- None arrives sooner than the flat threshold by a margin that six seeds can separate.
+So no trigger is proposed. The paper states that the flat threshold performs as well.
+
+DD 54 stays default off (standing rule: extension switches default off); campaigns that use it pass the flag.
