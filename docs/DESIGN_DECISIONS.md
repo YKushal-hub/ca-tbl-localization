@@ -1318,3 +1318,26 @@ Development seeds 711-716 (6, not evidence), DD 54 on, three sites, six-seed mea
 So no trigger is proposed. The paper states that the flat threshold performs as well.
 
 DD 54 stays default off (standing rule: extension switches default off); campaigns that use it pass the flag.
+
+## 56. One 868 MHz duty-cycle ledger per device (`--sharedDuty868`, `--dutyRangeShare`, `--dutyReport868`; all default off; 2026-11-24)
+
+The ranging side (energy model, off-time rule) and the MAC (trailing hour) each allowed the full 2.5 %, and neither counted the other. Counting
+true on-air time (ranging plus every sent MAC frame), the development runs put every worker device at 2.59-4.77 % (80 device-runs, all above 2.5 %; `--dutyReport868`; an earlier
+version said 3.6-4.8 %, read from one run); the
+`duty_868` column and the "27 of 100 runs" quoted from it leave out most MAC frames and count some refused ones. With the flag, each side counts the
+other's airtime over the trailing hour with a 0.5 % margin, and the ranging broadcast is paced at `--dutyRangeShare` (0.5, OURS) of the cap so
+messages keep the rest; 868 MHz relative ranging past the cap is refused. Development seeds 721-724: no device above 2.5 %, at a price in crew accuracy
+and arrival time. Gate G185. Searchers' devices are not covered.
+
+**Correction, 2026-11-24, after REALISTIC-8.** Two omissions. (a) The reported peak was sampled after ranging exchanges only. (b) The bytes of relative
+ranges carried on an entry (3 per range) were billed for energy but were in neither airtime total. A measure-only audit (sampled after every exchange,
+carried byte and MAC frame) replayed all 220 of our REALISTIC-8 cells, CSVs byte-identical: 218 of 1200 emergency and 69 of 200 quiet-shift
+devices peaked above 2.5 %, largest 2.64 %. `--dutyCountCarry` (default true) puts the carried bytes in the ledger; false reproduces REALISTIC-8.
+Development seeds 721-722 with the fix: largest audited peak 2.488 % (crews of 5, 10, 15 and the quiet shift). G185 gains AUDIT and fixtures N12, N13.
+
+## 57. Peer ranges fused by split covariance intersection (`--peerSplitCi`, default off; 2026-11-24)
+
+A peer's position error was added to a range's variance as if independent of this filter's. Two devices that ranged the same peers, or each other,
+share error, so the filter counted it twice. Split covariance intersection (Julier and Uhlmann) fuses the peer part consistently whatever the correlation;
+omega minimises the posterior position trace over a grid. Development seeds 721-724: office coverage 0.77 to 0.89, no loss elsewhere. Gate G186. Needs
+the ekf5 filter with `--ekf5FinderConsider`.

@@ -11,3 +11,6 @@ Binary frozen at launch; source = the commit adding this file; `dirty 0` on ever
 **Hypotheses.** PARETO-1's P1-P3 and PARETO-2's P1-P3 re-evaluated by their own rules; each verdict reported beside the DD 41 replay's. None added.
 
 **Abort / completeness.** As PARETO-1/2. A Result section is appended whatever it says.
+
+**Stopped (2026-11-24 ~15:56 IST).** 235 of 960 cells had run. The design under test is not legal (DD 56: every device passes 2.5 %), so these numbers would be
+outdated before use. The runs are kept, not analysed, and not resumed; the comparison is to be repeated with DD 54, 56 and 57 on.

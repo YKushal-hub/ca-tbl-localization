@@ -235,6 +235,13 @@ class CaTblImuEkf
      *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
      *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
     void SetFinderConsider(bool on, double var) { m_consOn = on; m_consVar = var; }
+    void SetPeerSplitCi(bool on) { m_peerSci = on; } //!< DD 57
+    bool m_peerSci = false;
+    double m_sciW = 1.0;       //!< the last omega
+    uint64_t m_sciN = 0;       //!< peer ranges fused by split covariance intersection
+    uint64_t m_sciSkipped = 0; //!< peer ranges that could not shrink tr(P) and were not fused
+    //! DD 57: choose omega and scale P by 1/omega; returns the variance to fuse with, or < 0 when the range adds nothing.
+    __attribute__((noinline)) double SplitCiScale(double H0, double H1, double varM2, double relayVar);
     uint64_t ConsiderUpdates() const { return m_consN; }
     /** --ekf5RelayGate: a RELAYED range (anchored on another node's estimate) whose NIS against this filter's
      *  prior exceeds chi^2_1(0.999) = 10.83 is not fused. Only that class: the filter's own ranges are never

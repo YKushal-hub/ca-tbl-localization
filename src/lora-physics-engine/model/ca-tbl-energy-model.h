@@ -34,7 +34,10 @@
  */
 
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <string>
+#include <utility>
 
 namespace ns3
 {
@@ -315,6 +318,25 @@ class CaTblEnergyModel
     bool CanTransmit(CaTblTier tier, double nowS) const;
     double GetNextAllowedTxS(CaTblTier tier) const;
 
+    /** DD 56 (--sharedDuty868): one 868 MHz airtime ledger per device, over the trailing hour. \p otherAirS returns the
+     *  device's MAC airtime in that window; this account's exchanges are added to it. */
+    void EnableSharedDuty(std::function<double()> otherAirS, bool enforce, double rangeShare);
+    double DutyTotalS() const { return m_air868TotalS; } //!< DD 56: every second of own 868 MHz airtime counted
+    double OwnAirS868(double nowS) const;             //!< DD 56: this account's 868 MHz airtime in the trailing window
+    bool SharedDutyBlocks(double nowS) const;         //!< DD 56: one more ranging broadcast would pass the cap
+    /** DD 56: AccountFrameTx for a frame the MAC transmits (the MAC's own ledger holds its airtime). */
+    void AccountMacFrameTx(CaTblTier tier, double txStartS, double airtimeS);
+    bool RangePaceBlocks(double nowS) const; //!< DD 56
+    double SharedDutyPeakS() const { return m_dutyPeakS; }
+    /** DD 56 audit, measures only: bytes carried on an entry that neither the ranging nor the MAC total holds. */
+    void NoteCarry868(double nowS, double airtimeS);
+    /** DD 56 audit, measures only: sample the trailing-hour total (after a ranging exchange, a carry or a MAC frame). */
+    void NoteDutyAudit(double nowS);
+    void SetCountCarry(bool on) { m_countCarry = on; } //!< DD 56: carried bytes enter the ledger
+    double DutyAuditPeakS() const { return m_auditPeakS; }
+    double DutyCarryTotalS() const { return m_carryTotalS; }
+    static constexpr double kDutyWindowS = 3600.0;    //!< the MAC governor's window (CaTblMac::GetDutyCycle)
+
     /** Record that a transmission was suppressed by the governor. */
     void NoteDeferred(CaTblTier tier);
     uint64_t GetDeferredCount(CaTblTier tier) const;
@@ -395,6 +417,20 @@ class CaTblEnergyModel
 
     double m_dutyLimit[CA_TBL_TIER_COUNT];
     double m_nextAllowedTxS[CA_TBL_TIER_COUNT];
+
+    bool m_sharedDuty = false;                        //!< DD 56 --sharedDuty868
+    std::function<double()> m_otherAirS;              //!< DD 56: the device's 868 MHz MAC airtime in the trailing window, s
+    std::deque<std::pair<double, double>> m_air868;   //!< DD 56: (start, airtime) of this account's own 868 MHz exchanges
+    bool m_dutyEnforce = false;                       //!< DD 56: refuse past the cap (false: count only)
+    bool m_macFrame = false;                          //!< DD 56: the frame being billed is the MAC's, which counts it
+    double m_rangeShare = 1.0;                        //!< DD 56: the share of the cap the ranging broadcast may pace at
+    double m_lastRangeS = -1e9;
+    double m_air868TotalS = 0.0;
+    std::deque<std::pair<double, double>> m_carry868; //!< DD 56 audit: (time, s) of carried bytes
+    bool m_countCarry = true;                        //!< DD 56 --dutyCountCarry
+    double m_carryTotalS = 0.0;                      //!< DD 56 audit
+    double m_auditPeakS = 0.0;                       //!< DD 56 audit: largest trailing-hour airtime with carried bytes, s
+    double m_dutyPeakS = 0.0;                         //!< DD 56: largest combined trailing airtime after an exchange, s
     uint64_t m_deferred[CA_TBL_TIER_COUNT];
 
     /** Arm the off-time governor after occupying the channel for \p airtimeS. */
