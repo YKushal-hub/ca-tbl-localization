@@ -114,3 +114,30 @@ motivated TB-2 is much smaller with the defect fixed.
 | P3 (BEN1000 cheaper than FT12) | HOLDS -1.16 J (-9 %) | HOLDS -2.93 J [-3.37, -2.49] (17.32 -> 14.39, -17 %) | five-worker A -0.010 [-0.031, 0.002] |
 
 Not registered: lost-worker CEP95 at 5 km TB-2 3.3 m, first form 8.5 m (-5.18 m [-9.39, -1.85]), flat threshold 3.3 m.
+
+### REALISTIC-1 to -4 (done 2026-11-24 01:17 UTC; 380/380, 240/240, 180/180, 200/200 cells rc 0, every cell dirty 0)
+
+`results/replay41/realistic{1,2,3,4}_analysis.md`. REALISTIC-4 carries two source stamps (documentation-only commit; binary frozen). Mirror of the
+registered rules; verdicts by each campaign's own analyser.
+
+| Hypothesis | Recorded (pre-DD 41) | Replay (DD 41 on) | Detail |
+|---|---|---|---|
+| R1 H1 | FAILS | FAILS | ROAD3 no searchers +295 s [-1175, 1680] |
+| R1 H2 | HOLDS (not evidence: 2.4 GHz-only party could not work) | HOLDS, same caveat | ROAD1 -1288, ROAD3 -1566, CLUS3 -3386 s |
+| R1 H3 | FAILS narrowly | **HOLDS** | lowest lower bound -0.009 |
+| R2 E1, E2, E3 | HOLD (E3 not evidence) | HOLD, same caveat | E3 -2012 s [-2124, -1798] |
+| R2 Q1 | FAILS | FAILS | office -0.002 [-0.124, 0.130] (was -0.330) |
+| R3 S1 | FAILS | **HOLDS** | ROAD3 no searchers -2067 s [-3032, -1109]; 2.4 GHz only -1952 [-2792, -1050] |
+| R3 S2 | FAILS | FAILS | ROAD3 no searchers +179 s [-599, 984] |
+| R3 S3, S4 | HOLD | HOLD | |
+| R4 F1 | FAILS (CLUS3 +119 s) | FAILS | CLUS3 +319 s [171, 564] |
+| R4 F2 | HOLDS | **FAILS** | ROAD3 -480 s [-1169, 251], upper bound above 120 s |
+| R4 F3 | FAILS (CLUS3 -0.030) | FAILS, other site | ROAD3F4 lower bound -0.021 against -0.02 |
+
+Reference site RING12 (reported, in no hypothesis): ours reached 25 m in 965 s (20 % never) with searchers, 1595 s (20 %) without; 2.4 GHz only 0 s.
+
+**Deviations in how the last three campaigns were run (2026-11-23/24).** To use idle CPUs, REALISTIC-2 and -1 were run in
+parallel (`queue2.sh`); a memory guard deadlocked all runs 22:04-01:30 IST (no finished cell lost, partial cells redone). They
+were finished by memory-budgeted copies of the frozen runners (`mkrunner.py`, `admit.sh`, `queue3.sh`) that change only the
+start condition (a memory budget replaces the job count), skip a run that survived the restart, and (REALISTIC-1) run RING12 last.
+Commands, seeds and frozen binaries are unchanged; every cell's own `run_id.txt` reads `dirty 0`.
