@@ -22,13 +22,16 @@ p = sys.argv[1]; L = open(p).read().splitlines(); t = L[1].split(",")[0]
 open(p, "w").write("\n".join([L[0]] + [l for l in L[1:] if l.split(",")[0] != t]) + "\n")
 PY
 check "N4 one cycle's ranges are dropped from the log" 1 LOG
-fresh; rm "$T/f/on/subjranges_ca_tbl_full_seed7.csv"; check "N5 the subject ranges file is missing" 1 SUBJLOG
+fresh; rm "$T/f/subj/subjranges_ca_tbl_full_seed7.csv"; check "N5 the subject ranges file is missing" 1 SUBJLOG
 fresh; touch "$T/f/on/unexpected.csv"; check "N6 the flag writes an unexpected file" 1 INERT
-fresh; python3 - "$T/f/on/subjranges_ca_tbl_full_seed7.csv" <<'PY'
+fresh; python3 - "$T/f/subj/subjranges_ca_tbl_full_seed7.csv" <<'PY'
 import sys
 p = sys.argv[1]; L = open(p).read().splitlines(); k = L[1].split(",")[:2]
 open(p, "w").write("\n".join([L[0]] + [l for l in L[1:] if l.split(",")[:2] != k]) + "\n")
 PY
 check "N7 one subject cycle's ranges are dropped from the log" 1 SUBJLOG
+fresh; echo x >> "$T/f/subj/arm_summary.csv"; check "N8 the subject flag changes another output" 1 SUBJINERT
+fresh; cp "$T/f/subj/subjranges_ca_tbl_full_seed7.csv" "$T/f/on/"; check "N9 --traceRanges writes the subject log too" 1 INERT
+fresh; rm "$T/f/on/arm_summary.csv"; check "N10 the flag drops an output" 1 INERT
 printf '  G137 selftest: %d as expected, %d not\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
