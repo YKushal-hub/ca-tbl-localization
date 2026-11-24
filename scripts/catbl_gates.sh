@@ -2100,6 +2100,12 @@ python3 scripts/collapse/synthetic_gate.py || fail G182
 bash scripts/collapse_synthetic_gate_selftest.sh || fail G182
 finish G182
 
+# ---------------- G184: --sparseRangeGeometry, a two-range fix keeps its geometry (DD 54)
+printf '\n--- G184 two-range fix geometry ---\n'
+bash scripts/sparse_geometry_gate.sh "$WORK/g184" || fail G184
+bash scripts/sparse_geometry_gate_selftest.sh "$WORK/g184" || fail G184
+finish G184
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183

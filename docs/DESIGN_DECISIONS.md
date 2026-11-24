@@ -1305,4 +1305,4 @@ Case A/B fused the crossing of two range circles as an isotropic position of var
 two lines of sight are nearly parallel, so the crossing is loose by an order of magnitude across them, and the round covariance hid it
 (trace events on development seeds 701-703: 100-360 m jumps at a claimed 10 m; peer ranges anchored on such filters had mean z2 up to 550).
 With the flag on the two ranges enter as ranges. Off is byte-identical (the new code is out of line so the code round it compiles as before).
-Tested in REALISTIC-7 on new seeds.
+Gate G184 (off and on runs, ten failing fixtures). Tested in REALISTIC-7 on new seeds.
