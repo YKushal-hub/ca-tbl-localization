@@ -4196,6 +4196,7 @@ RunProbe(EnvironmentClass envWide,
  */
 static bool g_traceSubjectRanges = false; //!< --traceSubjectRanges
 static bool g_sharedDuty868 = false;   //!< DD 56 --sharedDuty868
+static bool g_dutyCountCarry = true;  //!< DD 56 --dutyCountCarry: carried range bytes enter the ledger; false reproduces REALISTIC-8
 static bool g_dutyReport868 = false;   //!< DD 56 --dutyReport868: count true on-air time, enforce nothing
 static double g_dutyRangeShare = 0.5;  //!< DD 56 --dutyRangeShare (OURS): half for ranging, half for messages
 static uint64_t g_sharedDutySkips = 0; //!< DD 56: ranging exchanges not made because the device's ledger was full
@@ -4219,6 +4220,8 @@ AttachSharedDuty(CaTblEnergyModel* e, CaTblMac* m)
 {
     e->EnableSharedDuty([m]() { return m->GetDutyCycle(CA_TBL_TIER_868) * CaTblEnergyModel::kDutyWindowS; },
                         g_sharedDuty868, g_dutyRangeShare);
+    e->SetCountCarry(g_dutyCountCarry);
+    m->SetDutyAudit([e]() { e->NoteDutyAudit(Simulator::Now().GetSeconds()); });
     if (g_sharedDuty868)
     {
         m->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
@@ -9618,6 +9621,10 @@ RunArm(CaTblPolicyMode armMode,
                 : CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, more, 1) -
                       CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, base, 1);
         en.AccountMacFrameTx(tier, atSec, extra);
+        if (tier == CA_TBL_TIER_868)
+        {
+            en.NoteCarry868(atSec, extra); // DD 56 audit
+        }
         caseCCarryS += extra;
         caseCPending.push_back(p);
     };
@@ -18050,10 +18057,15 @@ RunArm(CaTblPolicyMode armMode,
             auto line = [&](uint32_t id, const CaTblEnergyModel& e, const CaTblMac* m) {
                 double mac = 0.0;
                 mac = m->GetTotalAirtimeS(CA_TBL_TIER_868);
-                std::cout << "    DD56 device " << id << " " << CaTblPolicyModeName(armMode) << ": ranging " << e.DutyTotalS()
+                const std::ios_base::fmtflags fl = std::cout.flags();
+                const std::streamsize pr = std::cout.precision();
+                std::cout << std::fixed << std::setprecision(6) << "    DD56 device " << id << " " << CaTblPolicyModeName(armMode) << ": ranging " << e.DutyTotalS()
                           << " s, MAC " << mac << " s, of " << durationS << " s: " << (e.DutyTotalS() + mac) / durationS
                           << ", trailing-hour peak " << e.SharedDutyPeakS() / 3600.0 << ", ranging skips so far "
-                          << g_sharedDutySkips << "\n";
+                          << g_sharedDutySkips << ", carried " << e.DutyCarryTotalS() << " s, audited peak "
+                          << e.DutyAuditPeakS() / 3600.0 << "\n";
+                std::cout.flags(fl);
+                std::cout.precision(pr);
             };
             line(nodeId, energy, nodeMac[0]);
             for (size_t pi = 0; pi < peerMacs.size(); ++pi)
@@ -21634,6 +21646,8 @@ main(int argc, char* argv[])
                  spec.peerSplitCi);
     cmd.AddValue("dutyReport868", "DD 56. Print each worker device's true 868 MHz on-air time (ranging plus sent MAC frames) and "
                  "its trailing-hour peak. False by default; enforces nothing.", g_dutyReport868);
+    cmd.AddValue("dutyCountCarry", "DD 56. With --sharedDuty868: the range bytes carried on an entry count in the ledger too (default "
+                 "true). False reproduces REALISTIC-8, which left them out.", g_dutyCountCarry);
     cmd.AddValue("dutyRangeShare", "DD 56. With --sharedDuty868: the share of the 2.5 % the ranging broadcast may pace at (0.5, OURS)",
                  g_dutyRangeShare);
     cmd.AddValue("traceSubjectRanges", "Crew ranges with their true values to subjranges_<arm>_seed<s>.csv (evaluation only). False: no file.", g_traceSubjectRanges);

@@ -328,6 +328,13 @@ class CaTblEnergyModel
     void AccountMacFrameTx(CaTblTier tier, double txStartS, double airtimeS);
     bool RangePaceBlocks(double nowS) const; //!< DD 56
     double SharedDutyPeakS() const { return m_dutyPeakS; }
+    /** DD 56 audit, measures only: bytes carried on an entry that neither the ranging nor the MAC total holds. */
+    void NoteCarry868(double nowS, double airtimeS);
+    /** DD 56 audit, measures only: sample the trailing-hour total (after a ranging exchange, a carry or a MAC frame). */
+    void NoteDutyAudit(double nowS);
+    void SetCountCarry(bool on) { m_countCarry = on; } //!< DD 56: carried bytes enter the ledger
+    double DutyAuditPeakS() const { return m_auditPeakS; }
+    double DutyCarryTotalS() const { return m_carryTotalS; }
     static constexpr double kDutyWindowS = 3600.0;    //!< the MAC governor's window (CaTblMac::GetDutyCycle)
 
     /** Record that a transmission was suppressed by the governor. */
@@ -419,6 +426,10 @@ class CaTblEnergyModel
     double m_rangeShare = 1.0;                        //!< DD 56: the share of the cap the ranging broadcast may pace at
     double m_lastRangeS = -1e9;
     double m_air868TotalS = 0.0;
+    std::deque<std::pair<double, double>> m_carry868; //!< DD 56 audit: (time, s) of carried bytes
+    bool m_countCarry = true;                        //!< DD 56 --dutyCountCarry
+    double m_carryTotalS = 0.0;                      //!< DD 56 audit
+    double m_auditPeakS = 0.0;                       //!< DD 56 audit: largest trailing-hour airtime with carried bytes, s
     double m_dutyPeakS = 0.0;                         //!< DD 56: largest combined trailing airtime after an exchange, s
     uint64_t m_deferred[CA_TBL_TIER_COUNT];
 

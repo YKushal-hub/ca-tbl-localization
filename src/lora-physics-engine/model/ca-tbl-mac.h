@@ -909,6 +909,9 @@ class CaTblMac
     }
     double GetDutyCycleLimit() const { return m_cfg.isAccessPoint ? 0.10 : 0.025; }
     bool WouldViolateDutyCycle(CaTblTier tier, Time toa) const;
+    /** DD 56 audit: called after an 868 MHz frame is recorded; measures only. */
+    void SetDutyAudit(std::function<void()> f) { m_dutyAudit = std::move(f); }
+    std::function<void()> m_dutyAudit;     //!< DD 56 audit
     std::function<double()> m_otherAir868; //!< DD 56: the device's ranging airtime in the trailing window, s
     double m_airTotalS[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0}; //!< DD 56: all airtime sent
     double m_reserve868S = 0.0;            //!< DD 56: airtime kept for ranging, s per window

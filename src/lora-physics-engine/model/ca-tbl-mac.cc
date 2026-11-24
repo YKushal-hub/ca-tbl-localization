@@ -557,6 +557,10 @@ CaTblMac::RecordAirtime(CaTblTier tier, Time toa)
 {
     m_airtime[tier].push_back(std::make_pair(Simulator::Now(), toa.GetSeconds()));
     m_airTotalS[tier] += toa.GetSeconds(); // DD 56
+    if (m_dutyAudit && tier == CA_TBL_TIER_868) // DD 56 audit
+    {
+        m_dutyAudit();
+    }
     const double cutoff = Simulator::Now().GetSeconds() - m_cfg.dutyWindowS;
     while (!m_airtime[tier].empty() && m_airtime[tier].front().first.GetSeconds() < cutoff)
     {

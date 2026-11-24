@@ -24,6 +24,8 @@ fresh; sed -i '0,/DD56 device/{/DD56 device/d}' "$T/f/base.log"; check "N4 a dev
 fresh; sed -i 's/trailing-hour peak [0-9.e+-]*/trailing-hour peak 0.02/' "$T/f/base.log"; check "N5 no breach to remove" 1 OVER
 fresh; sed -i '0,/trailing-hour peak [0-9.e+-]*/s//trailing-hour peak 0.0251/' "$T/f/duty.log"; check "N6 one device over the cap in one hour" 1 LEGAL
 fresh; sed -i 's/ s: [0-9.e+-]*, trailing/ s: 0.026, trailing/' "$T/f/duty.log"; check "N7 mean over the cap" 1 LEGAL
+fresh; sed -i '0,/audited peak [0-9.e+-]*/s//audited peak 0.0251/' "$T/f/duty.log"; check "N12 one audited device over the cap" 1 AUDIT
+fresh; sed -i 's/audited peak [0-9.e+-]*/audited peak 0.0/' "$T/f/duty.log"; check "N13 an audit that measured nothing" 1 AUDIT
 fresh; sed -i '/DD57 peerSplitCi/d' "$T/f/sci.log"; check "N8 the fusion not announced" 1 LINES
 fresh; echo 0 > "$T/f/fatal.rc"; check "N9 the fusion accepted without its filter" 1 FATAL
 fresh; cp "$T"/f/off/subjtrace_* "$T/f/sci/"; check "N10 coverage does not rise" 1 SCI

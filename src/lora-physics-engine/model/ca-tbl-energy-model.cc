@@ -287,6 +287,7 @@ CaTblEnergyModel::ArmDutyCycle(CaTblTier tier, double nowS, double airtimeS)
         }
         m_air868.emplace_back(nowS, airtimeS);
         m_dutyPeakS = std::max(m_dutyPeakS, OwnAirS868(nowS) + m_otherAirS());
+        NoteDutyAudit(nowS);
     }
 }
 
@@ -297,6 +298,43 @@ CaTblEnergyModel::EnableSharedDuty(std::function<double()> otherAirS, bool enfor
     m_dutyEnforce = enforce;
     m_rangeShare = rangeShare;
     m_otherAirS = std::move(otherAirS);
+}
+
+void
+CaTblEnergyModel::NoteCarry868(double nowS, double airtimeS)
+{
+    if (m_sharedDuty)
+    {
+        m_carryTotalS += airtimeS;
+        if (m_countCarry && m_dutyEnforce)
+        {
+            m_air868.emplace_back(nowS, airtimeS); // in the ledger: both checks see it
+        }
+        else
+        {
+            m_carry868.emplace_back(nowS, airtimeS);
+        }
+        NoteDutyAudit(nowS);
+    }
+}
+
+void
+CaTblEnergyModel::NoteDutyAudit(double nowS)
+{
+    if (!m_sharedDuty)
+    {
+        return;
+    }
+    while (!m_carry868.empty() && m_carry868.front().first <= nowS - kDutyWindowS)
+    {
+        m_carry868.pop_front();
+    }
+    double sum = OwnAirS868(nowS) + m_otherAirS();
+    for (const auto& e : m_carry868)
+    {
+        sum += e.second;
+    }
+    m_auditPeakS = std::max(m_auditPeakS, sum);
 }
 
 double
