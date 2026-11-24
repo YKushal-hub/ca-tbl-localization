@@ -1,0 +1,21 @@
+  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share 0.5
+    DD56 device 1 ca_tbl_full: ranging 26.181888 s, MAC 44.510464 s, of 1800.000000 s: 0.039274, trailing-hour peak 0.019637, ranging skips so far 7698, carried 0.000000 s, audited peak 0.019637
+    DD56 device 2 ca_tbl_full: ranging 22.374144 s, MAC 44.549120 s, of 1800.000000 s: 0.037180, trailing-hour peak 0.018590, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018590
+    DD56 device 3 ca_tbl_full: ranging 22.322688 s, MAC 44.530176 s, of 1800.000000 s: 0.037140, trailing-hour peak 0.018570, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018570
+    DD56 device 4 ca_tbl_full: ranging 22.425600 s, MAC 44.540160 s, of 1800.000000 s: 0.037203, trailing-hour peak 0.018602, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018602
+    DD56 device 5 ca_tbl_full: ranging 22.631424 s, MAC 44.529408 s, of 1800.000000 s: 0.037312, trailing-hour peak 0.018656, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018656
+    DD56 device 6 ca_tbl_full: ranging 28.754688 s, MAC 44.522240 s, of 1800.000000 s: 0.040709, trailing-hour peak 0.020355, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020355
+    DD56 device 7 ca_tbl_full: ranging 22.271232 s, MAC 44.538880 s, of 1800.000000 s: 0.037117, trailing-hour peak 0.018558, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018558
+    DD56 device 8 ca_tbl_full: ranging 28.548864 s, MAC 44.531200 s, of 1800.000000 s: 0.040600, trailing-hour peak 0.020300, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020300
+    DD56 device 9 ca_tbl_full: ranging 30.041088 s, MAC 44.510720 s, of 1800.000000 s: 0.041418, trailing-hour peak 0.020709, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020709
+    DD56 device 10 ca_tbl_full: ranging 29.011968 s, MAC 44.520192 s, of 1800.000000 s: 0.040851, trailing-hour peak 0.020426, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020426
+    DD56 device 11 ca_tbl_full: ranging 29.475072 s, MAC 44.529408 s, of 1800.000000 s: 0.041114, trailing-hour peak 0.020557, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020557
+    DD56 device 12 ca_tbl_full: ranging 22.374144 s, MAC 44.529664 s, of 1800.000000 s: 0.037169, trailing-hour peak 0.018584, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018584
+    DD56 device 13 ca_tbl_full: ranging 29.217792 s, MAC 44.549120 s, of 1800.000000 s: 0.040982, trailing-hour peak 0.020491, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020491
+    DD56 device 14 ca_tbl_full: ranging 28.291584 s, MAC 44.532992 s, of 1800.000000 s: 0.040458, trailing-hour peak 0.020229, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020229
+    DD56 device 15 ca_tbl_full: ranging 22.271232 s, MAC 44.530176 s, of 1800.000000 s: 0.037112, trailing-hour peak 0.018556, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018556
+    DD56 device 16 ca_tbl_full: ranging 28.754688 s, MAC 44.523264 s, of 1800.000000 s: 0.040710, trailing-hour peak 0.020355, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020355
+    DD56 device 17 ca_tbl_full: ranging 21.293568 s, MAC 44.542976 s, of 1800.000000 s: 0.036576, trailing-hour peak 0.018288, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018288
+    DD56 device 18 ca_tbl_full: ranging 28.960512 s, MAC 44.519424 s, of 1800.000000 s: 0.040822, trailing-hour peak 0.020411, ranging skips so far 7698, carried 0.000000 s, audited peak 0.020411
+    DD56 device 19 ca_tbl_full: ranging 21.242112 s, MAC 44.547840 s, of 1800.000000 s: 0.036550, trailing-hour peak 0.018275, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018275
+    DD56 device 20 ca_tbl_full: ranging 22.219776 s, MAC 44.528896 s, of 1800.000000 s: 0.037083, trailing-hour peak 0.018541, ranging skips so far 7698, carried 0.000000 s, audited peak 0.018541
