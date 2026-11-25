@@ -1341,3 +1341,54 @@ A peer's position error was added to a range's variance as if independent of thi
 share error, so the filter counted it twice. Split covariance intersection (Julier and Uhlmann) fuses the peer part consistently whatever the correlation;
 omega minimises the posterior position trace over a grid. Development seeds 721-724: office coverage 0.77 to 0.89, no loss elsewhere. Gate G186. Needs
 the ekf5 filter with `--ekf5FinderConsider`.
+
+## 59. The smoother's heading random walk (`--ekf5WindowThetaWalk`, default off; 2026-11-25)
+
+The sliding-window smoother (DD 21) kept heading as theta0 + b t over the window and over the prior it marginalises into, with no process
+noise, while the filter and DC-1 both have an angle random walk (the filter's `ekf5NoiseDensity`). Over a shift the prior's confidence in heading and
+bias grew without limit. With the switch, heading is one state per cycle and consecutive cycles are tied by theta_k = theta_{k-1} + b dt with variance
+qTheta2, the value the filter already used; no new number. The old solver is untouched: the new one is `ca-tbl-imu-ekf-walk.cc`, because adding branches to the old functions
+changed its compiled arithmetic in the last digit. Off state byte-identical (15 files, seed 731).
+
+Development seeds (never evidence), quiet shift: coverage, old to new, CLUS3 731-734 .851/.966 .580/.909 .696/.908 .661/.951; RAND3 .804/.938 .898/.976 .957/.994
+.713/.836; within 25 m not lower in any. ROAD3F4 731-738: crew coverage .818 to .872, arrival ours minus 2.4 GHz only +805 to +499 s [102, 1020]. Cause test (a throwaway
+binary with the world's heading walk set to zero, CLUS3): the OLD smoother's coverage is .958 (732) and .872 (734) against .580 and .661 with the walk. Two seeds.
+
+Not fixed: RAND3 position loss (three of four seeds within 25 m 20-38 % of the time). In a filter-level walk with a gateway cluster 3 km off, over 1500 cycles,
+both smoothers are over-confident (NEES about 8). Four other synthetic set-ups did not reproduce the over-confidence at all. Gate G187. `ca_tbl_imu_test` holds a sanity check only.
+
+## 60. One 868 MHz duty-cycle ledger per searcher's device (`--sharedDuty868Finders`, `--dutyReport868Finders`; default off; 2026-11-25)
+
+DD 56 covered workers' devices only. Counted the same way (ranging replies plus every sent MAC frame), every searcher of ours was above 2.5 % on the development
+seeds: ROAD3F4 731-738, 32 searcher-runs, median audited peak 4.59 %, largest 5.94 %; collapse, one 20-worker run, about 13 %. With the switch a MAC frame is held back and a
+ranging reply is not sent when the trailing hour would pass the cap (DD 56's 0.5 % margin; nothing reserved, since a searcher paces no broadcast). Largest audited peak then 2.488 %.
+Cost on 731-738, ours: arrival -116 s [-569, 229], crew coverage .818 to .822, within 250 m .521 to .513; the 2.4 GHz-only design is unchanged (its searchers peak near 1 %). A reply
+is charged as one exchange, B11's symmetric approximation. Off state byte-identical (15 files). Gateways are not covered. Earlier results with
+searchers therefore ran those devices above the cap; they are not re-judged here. Gate G188.
+
+## 61. A constant bias per time-of-flight link in collapse: tried and rejected (2026-11-25; no code kept)
+
+Trapped devices keep constant offsets, so repeated ranges over one link were suspected of sharing a rubble bias that the filter counts as independent. The tried switch gave every
+2.4 GHz and UWB link a constant offset state with zero-mean prior variance 4.877 m^2 (from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA), on top of DD 59. Development seeds 731-733, 20 workers, second half of
+the run, means over 60 crew devices (coverage, share within 2 m), without it (DD 59 only) and with it: 5 storeys .702/.820 to .653/.623; 8 storeys .856/.776 to .783/.648; two stations
+.429/.297 to .579/.187. Adding DD 49's rubble correction: .694/.675, .770/.633, .619/.266. It lowers coverage and accuracy with four stations and raises coverage only with two. Not tuned; rejected. DD 59 alone does not change collapse
+coverage (.702, .856, .429 against .702, .842, .405). The collapse over-confidence stands.
+
+## 62. The mast height in the 868 MHz time-difference solve (`--tdoaHeightCorrect`, default off; 2026-11-25)
+
+Arrival stamps hold the slant distance to a 15 m mast; the solver is 2-D and DD 28's correction never reached it (the code's note puts the error under a metre beyond 100 m). In
+collapse the stations are 43 m from the centre, and the constant error was fused up to about 350 times per device as independent. With the switch each stamp is moved by the slant minus the
+ground distance at the last solution (dh = 15 - 1.5 = 13.5 m, DD 28's heights) and the solve repeated to 0.01 m, at most ten passes. System side only: surveyed mast and
+nominal carry heights. Development seeds 731-733, 20 workers, second half of the run (mean over 60 crew devices: coverage, share within 2 m; median error): 5 storeys .702, .821, 0.97 m to .781, .849,
+0.79 m; 8 storeys .842, .784, 0.92 to .844, .751, 0.83. Two stations: no time-difference fix, unchanged (.405). Size of the effect: with noiseless stamps the
+2-D solve is off by a median 0.79 m at 5 storeys' station distance (largest 1.44) and 0.45 m at 8 (independent Python solve, 400 positions); one fix's noise is about 6 m, and on the same devices the measured
+offsets hardly separate (0.34 to 0.29 m). The first hand estimate, about 2 m, was wrong. Per seed, coverage change with the correction: 5 storeys +.152, +.074, +.022 (with DD 63 -.020, +.037,
++.114); 8 storeys -.017, -.002, +.010 (with DD 63 +.022, +.028, -.017). So the correction removes a real, sub-metre bias; a coverage gain is not established, and it does not explain the collapse
+over-confidence (0.95 is not reached). Gate G189 first judged coverage on one seed and failed by 0.001; it now judges the solve with near-noiseless stamps, and COLLAPSE-10 judges coverage.
+
+## 63. World: the rubble delay in the 868 MHz arrival stamps (`--tdoaRubbleDelay`, default off; 2026-11-25)
+
+Under `--collapse` the ranges carry the rubble path's excess delay (DD 36-37) but the arrival stamps did not, so every earlier collapse result gives the 868 MHz time-difference fix an optimistic
+world. The switch adds the same path's bias (SLOW-BR) to each stamp; no draw is made. Same seeds and measures: alone, 5 storeys .734, .870, 0.96; 8 storeys .858, .771, 0.84. With DD 62: 5 storeys .787,
+.851, 0.67; 8 storeys .868, .805, 0.67. The delay did not hurt on these seeds, which was not expected; three seeds. Off state of DD 59, 60, 62, 63 together: 40 of 40 files byte-identical (an open,
+an emergency and a collapse run, seed 731).

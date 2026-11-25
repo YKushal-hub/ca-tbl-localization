@@ -2661,6 +2661,7 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static bool g_ekf5WindowThetaWalk = false; //!< DD 59 --ekf5WindowThetaWalk
 static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
 static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
 static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
@@ -4226,6 +4227,79 @@ AttachSharedDuty(CaTblEnergyModel* e, CaTblMac* m)
     {
         m->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
                          g_dutyRangeShare * 0.025 * CaTblEnergyModel::kDutyWindowS);
+    }
+}
+
+//! DD 60 --sharedDuty868Finders / --dutyReport868Finders: one 868 MHz ledger per searcher's device (ids 501+), over its
+//! ranging replies and its MAC's frames. Out of line, and reached only through these two, as DD 56's helpers are.
+static bool g_dutyFinders = false;        //!< --sharedDuty868Finders: enforce
+static bool g_dutyReportFinders = false;  //!< --dutyReport868Finders: count only
+static std::deque<CaTblEnergyModel> g_finderDuty; //!< per finder; rebuilt for every arm
+static uint64_t g_finderReplyRefusals = 0;
+
+__attribute__((noinline)) static bool
+FinderReplyBlocked(uint16_t id, CaTblTier tier, double nowS)
+{
+    if (!g_dutyFinders || tier != CA_TBL_TIER_868 || id < 501 || id >= 501 + g_finderDuty.size())
+    {
+        return false;
+    }
+    if (!g_finderDuty[id - 501].SharedDutyBlocks(nowS))
+    {
+        return false;
+    }
+    ++g_finderReplyRefusals;
+    return true;
+}
+
+__attribute__((noinline)) static void
+NoteFinderReply868(uint16_t id, CaTblTier tier, double nowS)
+{
+    if (tier == CA_TBL_TIER_868 && id >= 501 && id < 501 + g_finderDuty.size())
+    {
+        g_finderDuty[id - 501].AccountRangingExchange(tier, 1, 1, nowS);
+    }
+}
+
+__attribute__((noinline)) static void
+AttachFinderDuty(const std::vector<std::vector<CaTblMac*>>& macs, uint8_t sf, double bwHz)
+{
+    g_finderDuty.clear();
+    g_finderReplyRefusals = 0;
+    if (!g_dutyFinders && !g_dutyReportFinders)
+    {
+        return;
+    }
+    for (const auto& m : macs)
+    {
+        g_finderDuty.emplace_back();
+        CaTblEnergyModel* e = &g_finderDuty.back();
+        CaTblMac* mac = m[CA_TBL_TIER_868];
+        e->SetLoRaPhy(CA_TBL_TIER_868, sf, bwHz, 1);
+        e->EnableSharedDuty([mac]() { return mac->GetDutyCycle(CA_TBL_TIER_868) * CaTblEnergyModel::kDutyWindowS; },
+                            g_dutyFinders, g_dutyRangeShare);
+        mac->SetDutyAudit([e]() { e->NoteDutyAudit(Simulator::Now().GetSeconds()); });
+        if (g_dutyFinders)
+        {
+            mac->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
+                               0.0); // a searcher answers ranging; it paces no broadcast, so nothing is reserved
+        }
+    }
+}
+
+__attribute__((noinline)) static void
+ReportFinderDuty(const char* arm, const std::vector<std::vector<CaTblMac*>>& macs, double durationS)
+{
+    for (size_t i = 0; i < g_finderDuty.size(); ++i)
+    {
+        const CaTblEnergyModel& e = g_finderDuty[i];
+        const double mac = macs[i][CA_TBL_TIER_868]->GetTotalAirtimeS(CA_TBL_TIER_868);
+        std::ostringstream o;
+        o << std::fixed << std::setprecision(6) << "    DD60 finder " << (501 + i) << " " << arm << ": replies "
+          << e.DutyTotalS() << " s, MAC " << mac << " s, of " << durationS << " s: " << (e.DutyTotalS() + mac) / durationS
+          << ", audited peak " << e.DutyAuditPeakS() / 3600.0 << ", replies refused (all finders) " << g_finderReplyRefusals
+          << "\n";
+        std::cout << o.str();
     }
 }
 
@@ -6369,6 +6443,52 @@ struct ShsDriver
     }
 };
 
+//! DD 62 --tdoaHeightCorrect (system side): the stamps are slant times to 15 m masts, the solver is 2-D. Each pass moves every
+//! stamp by the slant minus the ground distance at the last solution (dh = 15 - 1.5 m, DD 28's surveyed mast and carry heights) and re-solves.
+static bool g_tdoaHeightCorrect = false;
+static uint64_t g_tdoaHeightPasses = 0;
+
+__attribute__((noinline)) static void
+TdoaHeightSolve(const std::vector<CaTblTdoaObs>& raw, const std::vector<CaTblTdoaRangeHint>& hints, CaTblTdoaResult& res)
+{
+    constexpr double dh = 13.5; // DD 28: 15 m mast, 1.5 m carry height
+    if (!g_tdoaHeightCorrect)
+    {
+        return;
+    }
+    for (int it = 0; it < 10 && res.verdict == CA_TBL_TDOA_OK; ++it)
+    {
+        std::vector<CaTblTdoaObs> c = raw;
+        for (auto& o : c)
+        {
+            const double g = std::hypot(res.x - o.x, res.y - o.y);
+            o.tArrS -= (std::sqrt(g * g + dh * dh) - g) / 299792458.0;
+        }
+        const double px = res.x, py = res.y;
+        const CaTblTdoaResult r2 = CaTblSolveTdoa(c, px, py, CaTblTdoaConfig(), hints);
+        if (r2.verdict != CA_TBL_TDOA_OK)
+        {
+            return; // the last accepted solution stands
+        }
+        res = r2;
+        ++g_tdoaHeightPasses;
+        if (std::hypot(res.x - px, res.y - py) < 0.01)
+        {
+            return;
+        }
+    }
+}
+
+//! DD 63 --tdoaRubbleDelay (World): an 868 MHz arrival stamp is late by the rubble path's excess delay, as the ranges are. Off: no delay.
+static bool g_tdoaRubbleDelay = false;
+static const CaTblRubbleWorld* g_stampRubble = nullptr;
+
+__attribute__((noinline)) static double
+TdoaRubbleDelayS(const Vector& a, const Vector& b)
+{
+    return (g_tdoaRubbleDelay && g_stampRubble != nullptr) ? g_stampRubble->Path(868e6, a, b).biasM / 299792458.0 : 0.0;
+}
+
 /**
  * \brief --tier1Tdoa: the gateways timestamp the node's tier-1 broadcast, the time
  *        differences are solved as hyperbolae, and the fix is fused beside the RSSI
@@ -6525,7 +6645,7 @@ struct Tier1Tdoa
         o.anchorId = anchorId;
         o.x = anchorPos.x;
         o.y = anchorPos.y;
-        o.tArrS = t + d / kLightMps + ePps + eToa + excess;
+        o.tArrS = t + d / kLightMps + ePps + eToa + excess + TdoaRubbleDelayS(nodePos, anchorPos); // DD 63
         const double nlosVar = nlosFlag ? 2.0 * spreadS * spreadS : 0.0;
         o.sigmaS = std::sqrt(ppsSigmaS * ppsSigmaS + sigToaS * sigToaS + nlosVar);
         stamps.push_back(o);
@@ -6581,6 +6701,7 @@ struct Tier1Tdoa
             hints.push_back(h);
         }
         res = CaTblSolveTdoa(stamps, sx, sy, CaTblTdoaConfig(), hints);
+        TdoaHeightSolve(stamps, hints, res); // DD 62
         ++verdicts[static_cast<int>(res.verdict)];
         if (res.verdict != CA_TBL_TDOA_OK)
         {
@@ -7743,6 +7864,7 @@ RunArm(CaTblPolicyMode armMode,
     }
     // DD 39 --collapse: the rubble World on every link of this arm (DD 36-37). Off: no world, no hook, no draw.
     std::unique_ptr<CaTblRubbleWorld> collapseWorld;
+    g_stampRubble = nullptr; // DD 63
     if (g_collapse.on)
     {
         CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
@@ -7750,6 +7872,7 @@ RunArm(CaTblPolicyMode armMode,
         collapseWorld.reset(new CaTblRubbleWorld(br));
         collapseWorld->AddRubble(Vector(-0.5 * g_collapse.footX, -0.5 * g_collapse.footY, 0.0),
                                  Vector(0.5 * g_collapse.footX, 0.5 * g_collapse.footY, g_collapse.pileH));
+        g_stampRubble = collapseWorld.get(); // DD 63
         engine868.SetRubbleWorld(collapseWorld.get());
         engine2p4.SetRubbleWorld(collapseWorld.get());
         engineUwb.SetRubbleWorld(collapseWorld.get());
@@ -8116,6 +8239,7 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.ekf5Window = g_ekf5Window;
         pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5WindowThetaWalk = g_ekf5WindowThetaWalk;
         pcfg.ekf5CoarsePosOnly = g_ekf5CoarsePosOnly;
         pcfg.reacquireSigmaM = g_reacquireSigmaM;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
@@ -8950,7 +9074,9 @@ RunArm(CaTblPolicyMode armMode,
             fe.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz, 1);
         }
     }
+    AttachFinderDuty(finderMacAll, phy[CA_TBL_TIER_868].sf, phy[CA_TBL_TIER_868].bandwidthHz); // DD 60
     auto billFinder = [&](uint16_t id, CaTblTier tier, double nowS) {
+        NoteFinderReply868(id, tier, nowS); // DD 60
         if (!finderEnergy.empty() && id >= 501 && id < 501 + finderEnergy.size())
         {
             finderEnergy[id - 501].AccountRangingExchange(tier, 1, 1, nowS);
@@ -12456,6 +12582,10 @@ RunArm(CaTblPolicyMode armMode,
                     for (size_t a = 0; a < keep.size(); ++a)
                     {
                         const uint16_t aid = keep[a].id;
+                        if (FinderReplyBlocked(aid, tier, t)) // DD 60: the searcher may not answer
+                        {
+                            continue;
+                        }
                         const Vector& ap = anchorPosById.find(aid)->second;
                         bool rcv = false;
                         double range = 0.0, sigma = 0.0;
@@ -13791,6 +13921,10 @@ RunArm(CaTblPolicyMode armMode,
             for (size_t a = 0; a < nb.size(); ++a)
             {
                 const uint16_t anchorId = nb[a].id;
+                if (FinderReplyBlocked(anchorId, tier, t)) // DD 60: the searcher may not answer
+                {
+                    continue;
+                }
                 const Vector& anchorPos = anchorPosById[anchorId];
                 ++directEngineCalls;
 
@@ -18073,6 +18207,7 @@ RunArm(CaTblPolicyMode armMode,
                 line(tags[pi + 1].nodeId, tags[pi + 1].energy, peerMacs[pi][0]);
             }
         }
+        ReportFinderDuty(CaTblPolicyModeName(armMode), finderMacAll, durationS); // DD 60
         if (spec.relayNisInflate)
         {
             std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 running NIS "
@@ -21644,6 +21779,12 @@ main(int argc, char* argv[])
                  "estimate is fused by split covariance intersection, which is consistent whatever the correlation between "
                  "the two filters. FALSE by default: the peer's covariance is added to the range's variance as if independent.",
                  spec.peerSplitCi);
+    cmd.AddValue("tdoaHeightCorrect", "DD 62. Correct 868 MHz arrival stamps for the mast height before the 2-D TDoA solve (default off).", g_tdoaHeightCorrect);
+    cmd.AddValue("tdoaRubbleDelay", "DD 63. World: under --collapse, 868 MHz arrival stamps carry the rubble's excess delay (default off).", g_tdoaRubbleDelay);
+    cmd.AddValue("dutyReport868Finders", "DD 60. Print each searcher's device's 868 MHz on-air time (ranging replies plus sent "
+                 "MAC frames) and its audited trailing-hour peak. False by default; enforces nothing.", g_dutyReportFinders);
+    cmd.AddValue("sharedDuty868Finders", "DD 60. One 868 MHz duty-cycle ledger per searcher's device: a MAC frame is held back, and a "
+                 "ranging reply not sent, when the trailing hour would pass the cap. False by default.", g_dutyFinders);
     cmd.AddValue("dutyReport868", "DD 56. Print each worker device's true 868 MHz on-air time (ranging plus sent MAC frames) and "
                  "its trailing-hour peak. False by default; enforces nothing.", g_dutyReport868);
     cmd.AddValue("dutyCountCarry", "DD 56. With --sharedDuty868: the range bytes carried on an entry count in the ledger too (default "
@@ -21759,6 +21900,9 @@ main(int argc, char* argv[])
                  "gateway intersection into the wrong root and claimed +/-23 m at 400 m off. 0 (default): never, "
                  "byte-identical to every earlier result.",
                  g_reacquireSigmaM);
+    cmd.AddValue("ekf5WindowThetaWalk",
+                 "DD 59. With --ekf5Window: heading is a state per cycle, with the angle random walk between cycles (default off).",
+                 g_ekf5WindowThetaWalk);
     cmd.AddValue("ekf5CoarsePosOnly",
                  "DD 33. With --imuFilter=ekf5: an 868 MHz range corrects the POSITION only. Heading offset, gyro bias and "
                  "stride scale are consider states for it (Schmidt-Kalman gain, covariance in the general-gain form), and it "
@@ -23174,6 +23318,18 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --sparseRangeGeometry needs --sparseInStep\n";
         return 1;
     }
+    if (g_tdoaHeightCorrect)
+    {
+        std::cout << "  DD62 tdoaHeightCorrect: arrival stamps projected to the ground\n";
+    }
+    if (g_tdoaRubbleDelay)
+    {
+        std::cout << "  DD63 tdoaRubbleDelay: arrival stamps carry the rubble delay\n";
+    }
+    if (g_dutyFinders)
+    {
+        std::cout << "  DD60 sharedDuty868Finders: one 868 MHz ledger per searcher's device\n";
+    }
     if (g_sharedDuty868)
     {
         std::cout << "  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share " << g_dutyRangeShare << "\n";
@@ -23604,6 +23760,15 @@ main(int argc, char* argv[])
         // V3's consider biases are states of CaTblEkf only; under ekf5 they would be silently absent.
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
+    }
+    if (g_ekf5WindowThetaWalk && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
+    {
+        std::cerr << "FATAL: --ekf5WindowThetaWalk needs --imuFilter=ekf5 and --ekf5Window > 0\n";
+        return 1;
+    }
+    if (g_ekf5WindowThetaWalk)
+    {
+        std::cout << "  DD59 ekf5WindowThetaWalk: heading per cycle, angle random walk\n";
     }
     if (g_ekf5CoarsePosOnly && !spec.imuFilterEkf5)
     {

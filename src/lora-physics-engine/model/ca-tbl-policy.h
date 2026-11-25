@@ -736,6 +736,7 @@ struct CaTblPolicyConfig
     int ekf5Window = 0;                   //!< --ekf5Window: sliding-window smoother length, cycles (0 = off)
     int ekf5WindowMin = 8;                //!< --ekf5WindowMin: cycles buffered before the first solve
     double ekf5StateBoundsK = 0.0;        //!< --ekf5StateBounds: clamp b, s to +/- k prior sigmas (0 = off)
+    bool ekf5WindowThetaWalk = false;     //!< DD 59 --ekf5WindowThetaWalk
     bool ekf5CoarsePosOnly = false;       //!< DD 33 --ekf5CoarsePosOnly: 868 MHz ranges correct position only
     double reacquireSigmaM = 0.0;         //!< DD 34 --reacquireSigmaM: re-enter particle acquisition when sqrt(tr P) exceeds this (0 = off)
     double ekf5FinderConsiderVar = 4.0;   //!< their variance, m^2

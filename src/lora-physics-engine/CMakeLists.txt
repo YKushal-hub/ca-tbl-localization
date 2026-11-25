@@ -71,6 +71,7 @@ set(source_files
     model/ca-tbl-imu-model.cc      # CA-TBL DC-1 synthetic IMU dead-reckoning error model
     model/ca-tbl-imu-sensor-model.cc  # local-line IMU sensor model (G91)
     model/ca-tbl-imu-ekf.cc        # local-line 5-state inertial filter (G91, G94)
+    model/ca-tbl-imu-ekf-walk.cc   # DD 59 smoother with a heading random walk
     model/ca-tbl-rubble-world.cc   # collapse extension, World only (rubble gate)
 )
 

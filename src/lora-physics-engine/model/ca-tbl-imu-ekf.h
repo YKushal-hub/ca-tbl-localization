@@ -276,6 +276,9 @@ class CaTblImuEkf
         m_winBiasSigma = biasSigma;
         m_winScaleSigma = scaleSigma;
     }
+    /** DD 59 --ekf5WindowThetaWalk: the window carries heading per cycle, with the angle random walk the filter's own
+     *  prediction has. Off: heading is a straight line over the window and its prior, unchanged. */
+    void SetWindowThetaWalk(bool on) { m_winWalk = on; }
     uint64_t WindowSolves() const { return m_winSolves; }
     uint64_t WindowFailures() const { return m_winFails; }
     double WindowLastRms() const { return m_winLastRms; }
@@ -362,6 +365,7 @@ class CaTblImuEkf
     };
     struct WinCycle
     {
+        double th = 0.0; //!< DD 59: heading offset at this cycle (--ekf5WindowThetaWalk)
         double dt = 0.0, dist = 0.0, raw = 0.0, qStep2 = 0.0, qTheta2 = 0.0, dwellVar = 0.0;
         bool dwell = false;
         bool hasMag = false;
@@ -383,6 +387,9 @@ class CaTblImuEkf
     // Marginalisation prior on the window's first cycle: 0.5 d'L d + beta'd, d = (p0x, p0y, theta0, b, s, offsets of
     // m_winPriorF in order) - mu. Built by Schur complement when a cycle leaves the window, so its factors are kept
     // exactly once (linearised at the solution it was dropped at).
+    bool m_winWalk = false; //!< DD 59
+    void WinMarginaliseFrontWalk();
+    void WinSolveWalk();
     bool m_winPriorOn = false;
     std::vector<int> m_winPriorF;
     std::vector<double> m_winPriorMu, m_winPriorL, m_winPriorBeta;

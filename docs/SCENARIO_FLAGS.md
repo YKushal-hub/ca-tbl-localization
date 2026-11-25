@@ -164,6 +164,8 @@ Added 2026-10-20 and 2026-10-21, each default off (its §3 help text gives the w
 - `--sparseRangeGeometry` (row 348 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 54, G184).
 - `--sharedDuty868` (row 347 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 56, G185).
 - `--peerSplitCi` (row 343 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 57, G186).
+- `--ekf5WindowThetaWalk`, `--dutyReport868Finders`, `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` (rows 349-353, appended out of help order): added
+  2026-11-25, all `false` (DD 59, 60, 62, 63).
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
 110 names. Three flags changed meaning without changing their printed default, and §1
@@ -313,6 +315,10 @@ precondition missing.
 | `--sparseRangeGeometry` | bool | `false` | added 2026-11-24 | DD 54: an accepted two-range fix (Case A/B) enters as its two ranges instead of as an isotropic position of variance 2(s0^2 + s1^2). Needs `--sparseInStep`. G184. |
 | `--sharedDuty868` | bool | `false` | added 2026-11-24 | DD 56: one 868 MHz duty-cycle ledger per worker device. G185. |
 | `--peerSplitCi` | bool | `false` | added 2026-11-24 | DD 57: peer ranges by split covariance intersection. G186. |
+| `--ekf5WindowThetaWalk` | bool | `false` | added 2026-11-25 | DD 59: heading random walk in the smoother. G187. |
+| `--sharedDuty868Finders` (+ `--dutyReport868Finders`) | bool (bool) | `false` (`false`) | added 2026-11-25 | DD 60: one 868 MHz ledger per searcher's device. G188. |
+| `--tdoaHeightCorrect` | bool | `false` | added 2026-11-25 | DD 62: arrival stamps corrected for the mast height before the 2-D solve. G189. |
+| `--tdoaRubbleDelay` | bool | `false` | added 2026-11-25 | DD 63 (World): arrival stamps carry the rubble delay under `--collapse`. G189. |
 
 ## 2. Help text corrected, default unchanged
 
@@ -688,6 +694,11 @@ prints it.
 | 346 | `--traceSubjectRanges` | `false` |
 | 347 | `--sharedDuty868` | `false` |
 | 348 | `--sparseRangeGeometry` | `false` |
+| 349 | `--ekf5WindowThetaWalk` | `false` |
+| 350 | `--dutyReport868Finders` | `false` |
+| 351 | `--sharedDuty868Finders` | `false` |
+| 352 | `--tdoaHeightCorrect` | `false` |
+| 353 | `--tdoaRubbleDelay` | `false` |
 | 349 | `--caseAPreFuse` | `false` |
 | 350 | `--caseD` | `false` |
 | 351 | `--imuPredict` | `false` |
