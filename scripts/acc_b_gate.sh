@@ -9,6 +9,7 @@
 # non-hybrid arms: the flag absent, given at its default, and on.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -17,7 +18,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g110.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--specProfile=true --arms=ca_tbl_full,static_2p4,lora_fusion --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
+B="--specProfile=true $PIN_PRE_DD65 --arms=ca_tbl_full,static_2p4,lora_fusion --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
 run() {
     local n=$1
     shift

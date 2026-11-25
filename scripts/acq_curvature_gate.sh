@@ -20,7 +20,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g98.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true $PIN_PRE_DD27 --seed=5 --trace=true --unknownStart=true --arms=ca_tbl_full"
+P="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD27 --seed=5 --trace=true --unknownStart=true --arms=ca_tbl_full"
 run() {
     local n=$1
     shift

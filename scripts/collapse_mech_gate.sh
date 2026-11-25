@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.." || exit 2
 . scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g181.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true --trace=true --gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false --rangeHeightCorrect=true --finderSweepFromDispatch=true --finderDigestOnArmTier=true --finderLkpFirst=true --finderStaleSearch=true --reacquireSigmaM=500 --interferenceFrameKey=true --collapse=true --gwRidge=false --baseCampFrac=0 --nGateways=4 --searchLaunchAtS=1 --relaySlots=false --arms=ca_tbl_full --collapseFootX=39.74 --collapseFootY=39.74 --collapseDepthMin=0.1 --collapseBracket=central"
+B="--specProfile=true $PIN_PRE_DD65 --trace=true --gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false --rangeHeightCorrect=true --finderSweepFromDispatch=true --finderDigestOnArmTier=true --finderLkpFirst=true --finderStaleSearch=true --reacquireSigmaM=500 --interferenceFrameKey=true --collapse=true --gwRidge=false --baseCampFrac=0 --nGateways=4 --searchLaunchAtS=1 --relaySlots=false --arms=ca_tbl_full --collapseFootX=39.74 --collapseFootY=39.74 --collapseDepthMin=0.1 --collapseBracket=central"
 S8="--collapsePileH=3.658 --collapseDepthMax=3.658 --boxHalf=94.08"
 S5="--collapsePileH=2.286 --collapseDepthMax=2.286 --boxHalf=71.22"
 N20="--nTags=20 --measuredSubjects=20 --identityQueryManifests=$(seq -s, 1 20) --finderTasking=need"

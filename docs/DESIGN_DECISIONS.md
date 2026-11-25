@@ -1392,3 +1392,12 @@ Under `--collapse` the ranges carry the rubble path's excess delay (DD 36-37) bu
 world. The switch adds the same path's bias (SLOW-BR) to each stamp; no draw is made. Same seeds and measures: alone, 5 storeys .734, .870, 0.96; 8 storeys .858, .771, 0.84. With DD 62: 5 storeys .787,
 .851, 0.67; 8 storeys .868, .805, 0.67. The delay did not hurt on these seeds, which was not expected; three seeds. Off state of DD 59, 60, 62, 63 together: 40 of 40 files byte-identical (an open,
 an emergency and a collapse run, seed 731).
+
+## 65. DD 54, 56, 57 and 59 enter the preset (owner decision 2026-11-25)
+
+`--specProfile` now sets `--sparseRangeGeometry`, `--sharedDuty868`, `--peerSplitCi` and `--ekf5WindowThetaWalk` to true. The program's own defaults stay false. DD 59's condition was its registered test: REALISTIC-11 C1 and C3
+hold. An explicit flag wins; a preset-set switch whose prerequisite the user turned off is unused, not refused. DD 60, 62, 63 and 49 are NOT in the preset: not decided.
+Every result recorded before this date ran with these off unless its flags say otherwise: to reproduce one, append `PIN_PRE_DD65` (`scripts/preset_pins.sh`). Campaign runners are not edited; they
+name their flags and run a frozen binary. Gates written against the earlier preset carry the pin (`spec_profile_gate.sh` and `preset_efficacy_gate.sh`, which test the preset itself, do not).
+Checked (seed 731, 1200 s, 56 CSVs): the preset equals the four flags given explicitly on the previous build, and the preset with the pin equals the previous preset, byte for byte. The first version of the
+prerequisite guards ran before the filter choice was resolved and silently left DD 57 and 59 off; this comparison caught it.

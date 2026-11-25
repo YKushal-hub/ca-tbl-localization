@@ -12,6 +12,7 @@
 # the preset, and a refusal.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -38,7 +39,7 @@ run sub_lr $SUB --radioBasis=lr1121 &
 wait
 run gos_sx $GOS &
 run gos_lr $GOS --radioBasis=lr1121 &
-run pre --arms=ca_tbl_full --seed=7 --duration=300 --trace=false --specProfile=true &
+run pre --arms=ca_tbl_full --seed=7 --duration=300 --trace=false --specProfile=true $PIN_PRE_DD65 &
 wait
 run r_bad --arms=ca_tbl_full --seed=1 --duration=30 --trace=false --radioBasis=lr1110
 

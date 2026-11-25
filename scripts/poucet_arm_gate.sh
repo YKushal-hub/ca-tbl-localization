@@ -11,6 +11,7 @@
 # beside them, and a short --arms=all run.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -28,7 +29,7 @@ fi
 # adoption (2026-10-17). PIN restores that preset, so the gate tests what it was written to test; the flags it
 # exercises come after PIN and override it.
 PIN="--loraDualBase=false --uwbCrossTierPoll=false --tdoaInnovationGate=false --mahalUseR=false --integrityChi2=9.21 --rngKeyed=false --rangeErrorNoLinkLeak=false --rssiRangeFromShadowing=false --nlosRangeBias=false --rangeReplyPosition=false --acquireParticles=false --foliageDepthClamp=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"
-B="--seed=7 --duration=900 --trace=true --specProfile=true --boxHalf=750 --finderMode=1 $PIN"
+B="--seed=7 --duration=900 --trace=true --specProfile=true $PIN_PRE_DD65 --boxHalf=750 --finderMode=1 $PIN"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

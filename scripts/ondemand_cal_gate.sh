@@ -6,9 +6,10 @@
 #  NEG      without --onDemandCalibrate no V6 line is printed and pCal is -1 throughout
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g143.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true"
+B="--specProfile=true $PIN_PRE_DD65 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --rngKeyed=true"
 for n in base off raw cal; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --traceOnDemand=false --onDemandCalibrate=false --outdir="$D/off" > "$D/off.log" 2>&1 &

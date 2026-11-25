@@ -22,7 +22,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g96.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-P="--specProfile=true $PIN_PRE_DD19 --seed=19 --trace=true --reportAirtime=true --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.15 --imuFilter=ekf5"
+P="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD19 --seed=19 --trace=true --reportAirtime=true --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.15 --imuFilter=ekf5"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

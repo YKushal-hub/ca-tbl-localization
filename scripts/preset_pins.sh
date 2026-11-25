@@ -13,3 +13,6 @@ PIN_ONE_WORKER="--nTags=1 --measuredSubjects=1 --identityQueryManifests=1 --rela
 # DD 41 (owner decision 2026-11-22): --interferenceFrameKey is on by default. Every result recorded before that date
 # ran with it off; a gate or check that reproduces one appends this pin.
 PIN_PRE_DD41="--interferenceFrameKey=false"
+# DD 65 (owner 2026-11-25): DD 54, 56, 57 and 59 entered the preset. A gate written against the earlier preset, or a
+# campaign re-run, pins them off with this line.
+PIN_PRE_DD65="--sparseRangeGeometry=false --peerSplitCi=false --sharedDuty868=false --ekf5WindowThetaWalk=false"

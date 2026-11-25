@@ -11,7 +11,7 @@ if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDI
 bad=0
 "$UNIT" || bad=1
 if "$UNIT" --break=ignore > "$D/fix.txt" 2>&1; then echo "G153 FAIL FIXTURE  --break=ignore did not turn ON red"; bad=1; else echo "G153 PASS FIXTURE  --break=ignore is red"; fi
-B="--specProfile=true $PIN_PRE_DD19 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
+B="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD19 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --interferenceDistance=false --outdir="$D/off" > "$D/off.log" 2>&1 &

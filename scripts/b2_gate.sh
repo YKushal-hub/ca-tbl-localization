@@ -8,7 +8,7 @@ if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDI
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
 # PIN (DESIGN_DECISIONS 18, 2026-10-20): this gate's thresholds were set before the preset adopted the receiver
 # corrections; the two flags restore the receiver it was written against, as G63/G87/G89 pin theirs.
-B="--specProfile=true $PIN_PRE_DD19 --arms=ca_tbl_full --seed=7 --duration=900 --trace=true --imuQuScale=1 --uwbSensitivityDbm=-104 --iqOverloadOnly=false"  # pinned: ENERGY was set before DESIGN_DECISIONS 15 (under DD 15 on-demand costs +0.38 J; TECH_DEBT O.11)
+B="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD19 --arms=ca_tbl_full --seed=7 --duration=900 --trace=true --imuQuScale=1 --uwbSensitivityDbm=-104 --iqOverloadOnly=false"  # pinned: ENERGY was set before DESIGN_DECISIONS 15 (under DD 15 on-demand costs +0.38 J; TECH_DEBT O.11)
 run base $B &
 run off $B --dualBaseOnDemand=false &
 run on $B --dualBaseOnDemand=true &

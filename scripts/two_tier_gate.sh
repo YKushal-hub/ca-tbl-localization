@@ -6,6 +6,7 @@
 # usage: bash scripts/two_tier_gate.sh [<workdir>]
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -15,7 +16,7 @@ else
     trap 'rm -rf "$D"' EXIT
 fi
 S=${TWOTIER_GATE_SEED:-361}
-B="--specProfile=true --seed=$S --duration=${TWOTIER_GATE_DUR:-600} --trace=true --env=1 --boxHalf=750 --finderMode=1"
+B="--specProfile=true $PIN_PRE_DD65 --seed=$S --duration=${TWOTIER_GATE_DUR:-600} --trace=true --env=1 --boxHalf=750 --finderMode=1"
 run() {
     local n=$1
     shift
@@ -30,7 +31,7 @@ bg run all $B
 bg run pair $B --arms=ca_tbl_full,ca_tbl_two_tier
 bg run off $B --arms=ca_tbl_two_tier
 bg run zero $B --arms=ca_tbl_two_tier --tier1ExtraLossDb=0
-P="--specProfile=true --probe=true --seed=$S --env=1"
+P="--specProfile=true $PIN_PRE_DD65 --probe=true --seed=$S --env=1"
 bg run probe0 $P
 bg run probe30 $P --tier1ExtraLossDb=30
 wait

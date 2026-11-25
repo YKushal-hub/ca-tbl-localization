@@ -18643,6 +18643,11 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
     {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
     {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
+    // DESIGN_DECISIONS 65 (owner 2026-11-25): DD 54, 56, 57 and 59 enter the preset.
+    {"sparseRangeGeometry", "true", "DD 54: a two-range fix keeps its two ranges' geometry"},
+    {"sharedDuty868", "true", "DD 56: one 868 MHz duty-cycle ledger per worker device"},
+    {"peerSplitCi", "true", "DD 57: peer ranges fused by split covariance intersection"},
+    {"ekf5WindowThetaWalk", "true", "DD 59: the smoother's heading random walk"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
     // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
@@ -23313,6 +23318,11 @@ main(int argc, char* argv[])
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    // DD 65: set by the preset while the user turned a prerequisite off explicitly: unused, not refused.
+    if (specProfileOn && !explicitFlags.count("sparseRangeGeometry") && !spec.sparseInStep)
+    {
+        spec.sparseRangeGeometry = false;
+    }
     if (spec.sparseRangeGeometry && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --sparseRangeGeometry needs --sparseInStep\n";
@@ -23761,6 +23771,10 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
     }
+    if (specProfileOn && !explicitFlags.count("ekf5WindowThetaWalk") && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
+    {
+        g_ekf5WindowThetaWalk = false;
+    }
     if (g_ekf5WindowThetaWalk && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
     {
         std::cerr << "FATAL: --ekf5WindowThetaWalk needs --imuFilter=ekf5 and --ekf5Window > 0\n";
@@ -23848,6 +23862,10 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --ekf5Iterate needs --imuFilter=ekf5, no --ekf5Robust, a pass count in 1..50 and a "
                      "positive --ekf5IterateTolM\n";
         return 1;
+    }
+    if (specProfileOn && !explicitFlags.count("peerSplitCi") && (!spec.imuFilterEkf5 || !ekf5FinderConsiderArg))
+    {
+        spec.peerSplitCi = false;
     }
     if (spec.peerSplitCi)
     {
