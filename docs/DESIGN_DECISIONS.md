@@ -1415,4 +1415,6 @@ is reported as a limitation.
 Two-station collapse: `--acquireHandoverCurvature` was tried on seeds 741-743 under a rule written beforehand and lowered coverage (.819 to .678 in the second half of the run, share within 2 m .432 to .366): rejected.
 
 **Suite, 2026-11-26 (f90cb0699, with DD 65):** every registered gate ran; G11, G93 and G24 fail, the recorded reds. G24's content changed with the preset: "relayed ranges admitted" is now zero in the main run (it
-was not before), and "Case C shapes at the base" and "fixes at hop depth 2" are no longer zero; its selftest fixture N14 fails as a consequence. The new zero is a finding of DD 65, not yet explained.
+was not before), and "Case C shapes at the base" and "fixes at hop depth 2" are no longer zero; its selftest fixture N14 fails as a consequence. Checked after the suite (main-run shape,
+seeds 7, 8, 9, admitted relayed ranges): with DD 65 0+0+0, with the pin 0+0+1, DD 65 without DD 54 0+0+0, without DD 56 0+1+0, without DD 57 0+0+0, without DD 59 0+0+1. The population is
+0 or 1 in 2700 s either way, so the zero is not attributed to any one switch; relayed ranges are practically unused in this run with or without DD 65.
