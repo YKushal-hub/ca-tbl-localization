@@ -1,0 +1,6 @@
+  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share 0.5
+    DD56 device 1 fixed_threshold: ranging 23.814912 s, MAC 44.524288 s, of 1800.000000 s: 0.037966, trailing-hour peak 0.018983, ranging skips so far 1945, carried 0.000000 s, audited peak 0.018983
+    DD56 device 2 fixed_threshold: ranging 21.396480 s, MAC 44.508160 s, of 1800.000000 s: 0.036614, trailing-hour peak 0.018307, ranging skips so far 1945, carried 0.000000 s, audited peak 0.018307
+    DD56 device 3 fixed_threshold: ranging 25.307136 s, MAC 44.523264 s, of 1800.000000 s: 0.038795, trailing-hour peak 0.019397, ranging skips so far 1945, carried 0.000000 s, audited peak 0.019397
+    DD56 device 4 fixed_threshold: ranging 24.998400 s, MAC 44.544512 s, of 1800.000000 s: 0.038635, trailing-hour peak 0.019317, ranging skips so far 1945, carried 0.000000 s, audited peak 0.019317
+    DD56 device 5 fixed_threshold: ranging 24.175104 s, MAC 44.540160 s, of 1800.000000 s: 0.038175, trailing-hour peak 0.019088, ranging skips so far 1945, carried 0.000000 s, audited peak 0.019088
