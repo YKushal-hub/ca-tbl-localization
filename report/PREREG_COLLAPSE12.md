@@ -17,3 +17,17 @@
 - **H53:** on, four stations, 20 workers: mean coverage at least 0.85 at both storey counts. (0.853 at 8 storeys in COLLAPSE-11: close to the limit, so it may fail.)
 
 **Abort / completeness.** As COLLAPSE-11 with the corrected check. No cell dropped. Nothing is adopted as a default by this campaign. A Result section is appended after the run.
+
+## Result (run 2026-11-25 23:50 to 2026-11-26 02:52 IST; source 9b668bc46; 200/200 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/collapse12_2026-11-26/COLLAPSE12.md`. "Ours" = `ca_tbl_full`; `on` adds `--tofRubbleCorrect` (DD 49). Intervals are paired 95 % bootstrap over seeds.
+
+- **H49: FAILS.** Ours' L2, on minus off: 8 storeys two stations -0.015 [-0.075, 0.055] and crew of 10 -0.030 [-0.100, 0.030]: no loss is detected, non-inferiority by 0.05 is not shown. Gains at 5 storeys: crew of 20
+  +0.040 [0.005, 0.085], crew of 10 +0.070 [0.010, 0.120], two stations +0.150 [0.100, 0.195]; 8 storeys field-measured error +0.050 [0.005, 0.105].
+- **H50: HOLDS.** No worker's or searcher's device above 2.5 %; largest 2.488 %.
+- **H51: FAILS.** Ours minus 868 MHz alone, L2: 5 storeys -0.030 [-0.080, 0.020], 8 storeys +0.005 [-0.040, 0.050]. At 8 storeys the interval lies within 0.05; at 5 storeys it does not.
+- **H52: FAILS.** Coverage on minus off: above 0 at 5 storeys with four (+0.084 [0.058, 0.114]) and two stations (+0.117 [0.075, 0.157]) as predicted, but the lower end is below -0.02 at 8 storeys with two stations
+  (+0.019 [-0.029, 0.072]) and a crew of 10 (-0.010 [-0.060, 0.036]).
+- **H53: HOLDS.** Four stations, 20 workers, coverage 0.874 (5 storeys) and 0.858 (8); 0.95 is not reached.
+- **Coverage (reported), on:** 0.575 to 0.876 in crew cells; two stations 0.696 and 0.575.
+- The correction helps clearly at 5 storeys and not detectably at 8. Central bracket only; development runs showed no help in the high bracket.

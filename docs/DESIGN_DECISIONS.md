@@ -1401,3 +1401,18 @@ Every result recorded before this date ran with these off unless its flags say o
 name their flags and run a frozen binary. Gates written against the earlier preset carry the pin (`spec_profile_gate.sh` and `preset_efficacy_gate.sh`, which test the preset itself, do not).
 Checked (seed 731, 1200 s, 56 CSVs): the preset equals the four flags given explicitly on the previous build, and the preset with the pin equals the previous preset, byte for byte. The first version of the
 prerequisite guards ran before the filter choice was resolved and silently left DD 57 and 59 off; this comparison caught it.
+
+## 64, 66. The quiet-shift position loss: two repairs tried and rejected (2026-11-25/26; no code kept)
+
+At RAND3 a worker is either located or lost for most of the shift. Two runs traced (732, 733) were identical with and without the smoother until acquisition handed over; then the smoother's empty window dropped the filter's prior,
+uncertainty passed 500 m and acquisition restarted (62 times in one run). DD 64 seeded the window from the filter; DD 66 refused to hand over a cloud wider than `--reacquireSigmaM` (the guard's median range is set by noisy
+868 MHz ranges, so clouds over a kilometre wide pass). On seeds 731-738 DD 64 was mixed, and DD 64 with `--acquireHandoverCurvature` also. The choice rule for new seeds 741-748 was written before any run
+(RAND3 share within 25 m up by 0.05; ROAD3F4 and quiet coverage at least 0.85 and not down by more than 0.03). Means, DD 59 and 60 on in the emergency cells:
+baseline RAND3 .901 coverage, .600 within 25 m, CLUS3 .942, .715, ROAD3F4 coverage .897; DD 66 .970, .597, .922, .635, .918; DD 64 .899, .602, .943, .724, .815; both .864, .635, .910, .674, .833.
+None passes: DD 66 and DD 64 do not raise RAND3's share, and both together miss 0.05 and the ROAD3F4 coverage rule. DD 64 raises ROAD3F4's share within 250 m (.599 to .731) at a price in coverage. Off state byte-identical (15 files). The position loss
+is reported as a limitation.
+
+Two-station collapse: `--acquireHandoverCurvature` was tried on seeds 741-743 under a rule written beforehand and lowered coverage (.819 to .678 in the second half of the run, share within 2 m .432 to .366): rejected.
+
+**Suite, 2026-11-26 (f90cb0699, with DD 65):** every registered gate ran; G11, G93 and G24 fail, the recorded reds. G24's content changed with the preset: "relayed ranges admitted" is now zero in the main run (it
+was not before), and "Case C shapes at the base" and "fixes at hop depth 2" are no longer zero; its selftest fixture N14 fails as a consequence. The new zero is a finding of DD 65, not yet explained.
