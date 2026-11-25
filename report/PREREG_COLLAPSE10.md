@@ -18,3 +18,15 @@ on seed 731 alone at 5 storeys it fell, 0.778 to 0.757. Two stations: no time-di
 - Coverage against 0.95: reported, no prediction. It is not expected to reach 0.95.
 
 **Abort / completeness.** As COLLAPSE-9, with the announcement lines of this design. No cell dropped. Nothing is adopted as a default by this campaign. A Result section is appended after the run.
+
+## Result (run 2026-11-25 15:55-20:00 IST; source d9a75c3f5; 200/200 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/collapse10_2026-11-25/COLLAPSE10.md`. "Ours" = `ca_tbl_full`; `off`/`on` differ in `--tdoaHeightCorrect` (DD 62) only.
+
+- **H40: HOLDS.** Ours' L2, on minus off, per crew cell: lower ends from -0.050 (8 storeys, crew of 10, at the limit to rounding: 0.000 [-0.050, 0.050]) to 0.020; 5 storeys field-measured error +0.055 [0.020, 0.100].
+- **H41: HOLDS.** 0 of 3240 device records (off and on, workers and searchers) above 2.5 %; largest 2.488 %.
+- **H42: FAILS.** On, four stations, 20 workers, ours minus 868 MHz alone, L2: 5 storeys -0.055 [-0.120, 0.005], 8 storeys -0.010 [-0.050, 0.030]. No difference is detected; non-inferiority by 0.05 is not
+  shown, as in COLLAPSE-9. At 5 storeys the correction raised 868 MHz alone (+0.090 [0.050, 0.130]) more than ours (+0.010 [-0.025, 0.045]).
+- **H43: HOLDS.** Coverage, four stations, 20 workers: 5 storeys 0.773 to 0.836 (+0.062 [0.041, 0.086]), 8 storeys 0.848 to 0.857 (+0.009 [-0.005, 0.024]).
+- **Coverage (reported).** Still below 0.95 everywhere: on, 0.544 to 0.861. Two stations 0.562 and 0.544, unchanged (no time-difference fix). DD 62 does not cure the over-confidence.
+- **Not a comparison with COLLAPSE-9:** other seeds, and the DD 63 world and the searchers' ledger are on here.
