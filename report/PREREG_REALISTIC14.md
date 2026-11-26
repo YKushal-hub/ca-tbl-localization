@@ -25,3 +25,21 @@ this file. Each run keeps the files the analysis reads (traces, node positions, 
 
 **Abort / completeness.** As REALISTIC-11, plus the DD78 line for every design in every log. No cell dropped or chosen. DD 78 enters the preset only if the owner
 decides after this result. A Result section is appended here after the run, whatever it says.
+
+## Result (run 2026-11-26 20:46-23:33 UTC; source 7967f93ca; 180/180 cells rc 0, dirty 0, problems 0)
+
+Full tables: `results/realistic14_2026-11-27/REALISTIC14.md` (raw traces outside the repository, hashed in `RAW_MANIFEST.sha256`). "Ours" = `ca_tbl_full`.
+Intervals are paired 95 % bootstrap over seeds.
+
+- **H1: FAILS.** Ours minus 2.4 GHz only, searcher within 10 m: ROAD1 -1083 s [-1597, -595], ROAD3 +220 [-300, 790], CLUS3 -1 [-5, 3], RAND3 -1008 [-1514, -549],
+  ROAD3F4 -110 [-505, 252]. No cell is clearly later (REALISTIC-11: CLUS3 +121 [56, 201], ROAD3F4 +542 [189, 973]); non-inferiority by 120 s is not shown at
+  ROAD3 and ROAD3F4, whose intervals are wide. Clearly better at ROAD1 and RAND3.
+- **H2: FAILS** (ROAD3 t25 +236 s [-464, 963], ROAD3F4 0 [-630, 630]: intervals too wide). Holds elsewhere.
+- **H3: HOLDS.** A250 +0.211 to +0.406 over the better single radio, every lower bound at least 0.132.
+- **L1, L2: HOLD.** No worker's or searcher's device above 2.5 % (mean or audited trailing-hour peak).
+- **C1: HOLDS.** Coverage 0.898 (RAND3) to 0.941 (ROAD1).
+- **T1 (reported):** against the flat threshold, ours is clearly later at ROAD3, +145 s [2, 416], and within 25 m 0.026 less often [0.001, 0.052]; elsewhere no
+  clear difference. No benefit over the flat threshold.
+- **H4 (reported):** crew of 10 and 15 and the field error law: arrival against 2.4 GHz only not clear in any (CREW10 +87, CREW15 +189, ROAD3MUL -62,
+  CLUS3MUL +162 [-1, 486]); A250 +0.044 to +0.277.
+- Not a paired comparison with REALISTIC-11 (other seeds, and the DD 67 preset adds the mast-height correction). DD 78 enters the preset only on the owner's decision.
