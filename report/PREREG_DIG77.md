@@ -26,3 +26,16 @@ published bound. If either fails, that is reported and the paper restates the di
 sentence. Nothing else changes a default.
 
 **Abort.** Any rc not 0, not `dirty 0`, a manifest mismatch, a trace without pxx/pyy, fewer than 20 workers in a run: incomplete, nothing evaluated.
+
+## Result (run 2026-11-27 02:03-02:36 IST; source efcbab0a0; 50/50 cells rc 0, dirty 0, problems 0; DD 75 set by the preset in every run, no explicit flag)
+
+Full table: `results/dig77_2026-11-27/DIG77.md`. Per-run hashes of every output file (before pruning) in `runs/*/*/files.sha256`.
+
+- **E1: FAILS.** `sptf` - `spt` mean over the 60 combinations +0.368 survivors (meets >= 0), but the worst combination is -0.94 (H8, 2 teams, t_dig 0.5 h,
+  r 2 m; need >= -0.10). By cell: K5 +0.79 and K8 +1.10 (no combination below 0), H5 +0.00, K2 +0.08, H8 -0.13 (8 of 12 below 0).
+- **E2: HOLDS.** `sptf` >= `id` in 60 of 60; at teams 2, t_dig 2 h, r 2 m: K5 +1.02, K8 +4.31, H5 +6.78, H8 +4.81, K2 +5.28.
+- **E3: HOLDS.** Coverage of the published bound (DD 75 by the preset): K5 0.895, K8 0.959, H5 0.978, H8 0.988 (K2 0.634): COLLAPSE-13's H63 repeats on fresh seeds.
+- **Reading, as registered.** E1 failed, so the dig order does not move to `sptf`; the paper restates the digging claim from DIG-75 (spt on DD 75's
+  bound >= id in 54 of 60, up to +10.2). Together with DIG-75 D3 the two keys trade places with the rubble: the filter's covariance ranks better in
+  central rubble (DIG-75: -0.76 / -1.36 for the bound; here +0.79 / +1.10 for the filter), DD 75's bound slightly better in high rubble (H8). Neither key
+  is never-worse in every cell. Choosing the key by cell would use the World's bracket, which the system does not know; no further key is tried here.
