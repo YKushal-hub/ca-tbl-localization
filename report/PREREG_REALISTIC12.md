@@ -19,3 +19,13 @@ seeds 1901-1910, never used. 60 runs. Frozen binary, SHA-256 before every cell, 
 
 **Abort / completeness.** Any rc not 0, not `dirty 0`, a manifest mismatch, a command line or DD70 line that does not match the cell, a missing crew trace: incomplete, nothing evaluated. Nothing is adopted as a default by
 this campaign. A Result section is appended after the run, whatever it says.
+
+## Result (run 2026-11-26 14:20-15:01 IST; source 407d6f368; 60/60 cells rc 0, dirty 0, problems 0)
+
+Full table: `results/realistic12_2026-11-26/REALISTIC12.md`. "Ours" = `ca_tbl_full`.
+
+- **S1: FAILS.** RAND3, within 25 m, 20000 minus 2000 particles: +0.071 [-0.070, 0.228] (0.511 to 0.583). The cause test's gain is not confirmed on new seeds.
+- **S2: HOLDS.** Coverage with 20000: RAND3 0.920, CLUS3 0.909, ROAD3 0.975.
+- **S3: FAILS** at CLUS3 (-0.006 [-0.037, 0.034]); ROAD3 -0.002 [-0.069, 0.064]. No detectable change at either.
+- **Reported.** 2.4 GHz only, within 25 m: RAND3 0.020 / 0.077, CLUS3 0.695 / 0.708, ROAD3 0.098 / 0.098. Ours stays ahead of it at every site with either count.
+- The particle count is not the main cause of the quiet-shift position loss. It stays a limitation. Nothing is adopted.
