@@ -1,6 +1,6 @@
 # Handoff: collapse extension and the 20-worker end-to-end system
 
-**Branch:** `work/2026-11-22-multiworker`. Status as of **2026-11-22**. This file is the single entry point for a new
+**Branch:** `work/2026-11-22-multiworker`. Status as of **2026-11-24** (latest status: the end of this file). This file is the single entry point for a new
 session. Read it fully, then `RULES.md`, then `docs/PLAN_COLLAPSE.md`. Update §9 (status log) and the tables below
 whenever a substantial goal is done, then commit and push the branch (see §3.4).
 
@@ -541,6 +541,47 @@ copies:
 - Full paper draft: `~/catbl_work/tii_paper/draft_2026-11-23/CA_TBL_TII_full_draft_2026-11-24.pdf`; source merged into `~/catbl_work/tii_paper/tii/`.
 - Open: the filter's 95 % region covers 45-85 % of emergency cycles (18 % on the office quiet shift). Diagnosis so far: the crew's error is cross-range at the
   office site; no existing switch restores coverage; a matched synthetic filter is consistent. Development seeds 701-703 only. Next: log crew range errors.
+
+### Status 2026-11-24, 12:15 IST (session handoff)
+
+**Branches**
+- `work/2026-11-22-multiworker` (PR 35, worktree `~/catbl_multi`): this file, the replays, the gates.
+- `work/2026-11-24-calibration` (worktree `~/catbl_calib`, e3d69780d): DD 54 and REALISTIC-7's registration. **Commit nothing there until
+  REALISTIC-7 is done**: every cell stamps the commit and must read `dirty 0`.
+
+**Paper**
+- Submission draft: `~/catbl_work/tii_paper/draft_2026-11-23/CA_TBL_TII_submission_2026-11-24.pdf` (10 pages, 250-word abstract) and
+  `CA_TBL_TII_submission_overleaf.zip`, both also in Windows Downloads. Source: that folder and `~/catbl_work/tii_paper/tii/`. Not tracked here.
+- Order of edits: `edit2.py` (with `edit2_rest.py`), then `edit3.py`, then direct fixes in `tii_main.tex`, `collapse_section.tex` and
+  `refs_tii.bib`. Do not re-run the edit scripts: they would undo the direct fixes. Build: `build.sh`. Figures:
+  `~/catbl_work/tii_paper/figsrc/make_arch.py`, `make_sites.py`, `make_emergency.py`.
+- Its numbers are the DD 41 replays **without** DD 54; the limitations paragraph says so.
+- Not verified: TII's own page-limit text (its site refused automated access; 10 pages is from a secondary guide and our plan); the SX1262
+  data-sheet revision in the references.
+
+**Calibration (DD 54, `--sparseRangeGeometry`, default off)**
+- Cause found on development seeds 701-704: a two-range fix was fused as an isotropic position of variance 2(s0^2 + s1^2); with clustered gateways
+  it jumps 100-360 m across the line of sight at a claimed 10 m. With the flag the pair enters as ranges.
+- Off is byte-identical on seeds 701-703. Development only (4 seeds, not evidence), office site, ours: coverage 0.35 -> 0.77, crew A25 0.37 -> 0.74,
+  same energy; elsewhere coverage changes by -0.02 to +0.07. Every design shares the filter, so the baselines improve too.
+- **REALISTIC-7** (registered before its first cell, 500 runs, seeds 621-650, `~/catbl_work/campaigns/realistic7`): 444 runs done, all rc 0, when WSL
+  restarted at 12:14. Nothing analysed yet. Resume with `bash ~/catbl_work/campaigns/r7.sh` (finished cells are skipped, partial ones redone; it also
+  prunes live). Then, from `~/catbl_calib`: `python3 scripts/realistic7_analyse.py ~/catbl_work/campaigns/realistic7`, append the Result section to
+  `report/PREREG_REALISTIC7.md` whatever it says, archive the summaries, commit, push.
+- Still missing for DD 54: its own gate with failing fixtures, a row in `docs/SCENARIO_FLAGS.md`, the full gate suite on that branch, a default decision.
+
+**Trigger.** On four development seeds it is no better than the flat threshold, with or without DD 54 (office arrival 2008 against 2009 s). REALISTIC-7
+reports the comparison (T1) without a prediction. The owner wants it to win everywhere; no design for that exists yet, and it cannot be promised.
+
+**Machine.** 8 GB laptop: RING12 five-arm runs take about 1.7 GB each, so use a memory budget (`scripts/replay41_tools/admit.sh`). Do not pause
+runs on low memory: that deadlocked the queue on 2026-11-23. Keep C: above 4 GB.
+
+**Next steps, in order**
+1. Finish and analyse REALISTIC-7.
+2. Gate and flag documentation for DD 54; full gate suite on the calibration branch.
+3. Owner decision: adopt DD 54 as a default? If so, re-run the campaigns behind the paper's numbers.
+4. Trigger study on fresh development seeds, then its own registration.
+5. Hardware ranging calibration (SX1280, SX1262), out of scope so far.
 
 ### Status 2026-11-24, afternoon (branch `work/2026-11-24-calibration`; supersedes the "Open" line above)
 - Cause found for the over-confident filter: an accepted two-range fix entered as an isotropic position. DD 54 (`--sparseRangeGeometry`, default off)
