@@ -1434,3 +1434,7 @@ DD 69 (`--ekf5LinkConsider`, repeated ranges over one link share an error of var
 written anyway. With DD 49 added (reported only): central .952, .882; high .580, .706; two stations .677.
 
 **Suite, 2026-11-26 14:11 (819e984f6, with DD 67):** every registered gate ran; 158 verdicts pass; G11, G93 and G24 fail, the recorded reds, with the same verdicts as the run on f90cb0699 and the same G24 content.
+
+## 70. The particle count as a flag (`--acquireParticleCount`, default 2000; 2026-11-26)
+
+V4's 2000 particles per node were OURS and fixed in code. The flag exposes them so the count can be swept (REALISTIC-12). Default 2000; off state byte-identical (56 files, seed 731), and an explicit 2000 too.

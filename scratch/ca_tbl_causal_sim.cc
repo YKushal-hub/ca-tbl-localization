@@ -2661,6 +2661,7 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static uint32_t g_acquireParticleCount = 2000; //!< DD 70 --acquireParticleCount (OURS, V4's 2000)
 static bool g_ekf5WindowThetaWalk = false; //!< DD 59 --ekf5WindowThetaWalk
 static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
 static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
@@ -8207,6 +8208,7 @@ RunArm(CaTblPolicyMode armMode,
     pcfg.acquireHandoverCurvature = spec.acquireHandoverCurvature; // N.58 (false by default: off)
     pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
     pcfg.rssiCorrInflate = spec.rssiCorrInflate;     // --- B2 --- (false by default: off)
+    pcfg.acquireParticleCount = g_acquireParticleCount; // DD 70
     pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
@@ -19916,6 +19918,9 @@ main(int argc, char* argv[])
                  "(principal-axis split: a half under 2 % or Ashman's D < 3). One PFACQ_HANDOVER line per node. "
                  "Why: R1 showed a single Gaussian started at any one root stays there.",
                  spec.acquireParticles);
+    cmd.AddValue("acquireParticleCount",
+                 "DD 70. With --acquireParticles: particles per node (2000, V4's value, OURS; a sensitivity sweep, not a tuned value).",
+                 g_acquireParticleCount);
     cmd.AddValue("rangeBiasStates",
                  "V3 (master plan v3; TECH_DEBT N.51). False (default): every filter treats each range error as "
                  "independent, as in every earlier result. True: each 868 MHz range carries a per-anchor CONSIDER "
@@ -23778,6 +23783,15 @@ main(int argc, char* argv[])
     if (specProfileOn && !explicitFlags.count("ekf5WindowThetaWalk") && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
     {
         g_ekf5WindowThetaWalk = false;
+    }
+    if (g_acquireParticleCount != 2000)
+    {
+        if (g_acquireParticleCount < 100 || g_acquireParticleCount > 200000)
+        {
+            std::cerr << "FATAL: --acquireParticleCount must be 100-200000\n";
+            return 1;
+        }
+        std::cout << "  DD70 acquireParticleCount: " << g_acquireParticleCount << " particles per node\n";
     }
     if (g_ekf5WindowThetaWalk && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
     {
