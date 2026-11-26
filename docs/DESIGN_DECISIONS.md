@@ -1426,10 +1426,10 @@ failed and the development runs showed no help in the high bracket. `PIN_PRE_DD6
 Checked: preset equals the three flags given on the previous build, and the preset with PIN_PRE_DD67 equals the previous preset, byte for byte (open site 56 CSVs, collapse 58 CSVs, seed 731).
 ## 68, 69. Two more collapse over-confidence repairs, tried and rejected (2026-11-26; no code kept)
 
-DD 68 (`--ekf5NisAdapt`, covariance matching: range variances times the running NIS mean when above 1). Seeds 751-758 under a rule written before any run (four-station coverage up by 0.03 on average). Second half
+DD 68 (`ekf5NisAdapt`, never built into the tree, covariance matching: range variances times the running NIS mean when above 1). Seeds 751-758 under a rule written before any run (four-station coverage up by 0.03 on average). Second half
 of the run, B -> NA: central 5 / 8 storeys .839/.823, .865/.852; high .678/.664, .846/.815; two stations .484/.471. Fails. Single ranges are about consistent (scatter 1.06-1.14 times the claimed sigma), so the running NIS
 does not see the over-confidence.
-DD 69 (`--ekf5LinkConsider`, repeated ranges over one link share an error of variance 4.877 m^2, from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA, considered not estimated). Seeds 761-763, same rule. B -> LC: central
+DD 69 (`ekf5LinkConsider`, never built into the tree, repeated ranges over one link share an error of variance 4.877 m^2, from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA, considered not estimated). Seeds 761-763, same rule. B -> LC: central
 .862/.888, .814/.813; high .517/.518, .706/.710 (mean +0.007); two stations .493/.583. Fails. Its off state was NOT byte-identical (24 of 133 files against the committed build), so it could not have been kept as
 written anyway. With DD 49 added (reported only): central .952, .882; high .580, .706; two stations .677.
 
@@ -1456,7 +1456,7 @@ twice the stations, and with central rubble coverage stays near 0.85 while accur
 
 Diagnosis (seed 761, traced, development): the four-station workers outside their bound are located precisely (scatter 0.2-0.5 m) with a constant offset of 1-8 m. Two sources: finder 2.4 GHz / UWB ranges are read
 as horizontal while the worker lies 1.5 m plus its depth below the finder's device (ranges 2.6 and 4.7 m long at 15-22 m), and 868 MHz-only workers fuse about 700 RSSI ranges and 170 TDoA fixes per half-run as
-independent although a still worker's link errors repeat. DD 73 (`--collapseDepthProject`: finder ranges projected with the worker's running DD 47 depth and the rubble slowing over the ray's part inside the pile) and
+independent although a still worker's link errors repeat. DD 73 (`collapseDepthProject`, not kept in the tree (patch ~/catbl_work/dd73_rejected.patch): finder ranges projected with the worker's running DD 47 depth and the rubble slowing over the ray's part inside the pile) and
 the existing `--rssiCorrInflate` were tried on seeds 771-773 under the DD 68 rule written before the runs. Coverage B / DD 73 / RC / both: central 5 storeys .885/.862/.886/.903, 8 storeys .731/.758/.761/.798;
 high .633/.606/.646/.670, .762/.769/.738/.748. Mean gain -0.004, +0.005, +0.027 against 0.03 required: none passes, nothing kept (DD 73 off state was byte-identical, 23 files). `--rangeBiasStates` is refused
 under ekf5 and was not tested. The over-confidence stays a limitation, now with its cause stated.
@@ -1466,7 +1466,7 @@ Quiet shift: at RAND3 a crew device averages about one anchor per cycle and a fi
 
 ## 74. TDoA fixes of still workers as correlated, tried and rejected (2026-11-26; no code kept)
 
-`--tdoaCorrInflate` scaled each tier-1 TDoA fix's covariance by B2's AR(1) factor (same d_corr and cap; mean factor 96 on still workers), the one repeated-error path DD 61, 68, 69 and 73 left alone. Seeds 791-793,
+`tdoaCorrInflate` (not kept; patch ~/catbl_work/dd74_rejected.patch) scaled each tier-1 TDoA fix's covariance by B2's AR(1) factor (same d_corr and cap; mean factor 96 on still workers), the one repeated-error path DD 61, 68, 69 and 73 left alone. Seeds 791-793,
 the DD 73 rule written before the runs. Coverage / share within 2 m, B -> DD 74 + `--rssiCorrInflate` + DD 73: central 5 storeys .851/.903 -> .851/.730, 8 storeys .852/.806 -> .898/.491; high .650/.477 -> .810/.430,
 .738/.313 -> .822/.228. Coverage rises (mean +0.073) but the share within 2 m falls by up to 0.32 (DD 74 alone up to 0.45): fails. Off state byte-identical (23 files). The repeated TDoA fixes carry most of the accuracy;
 weighting them honestly for a still worker costs that accuracy. Collapse coverage near 0.85 with four stations is therefore an accuracy-versus-honesty trade-off of the radio data, stated as such.
