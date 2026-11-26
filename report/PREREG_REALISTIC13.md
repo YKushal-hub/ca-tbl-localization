@@ -25,3 +25,12 @@ fails, the loss stays a limitation without a remedy.
 
 **Abort / completeness.** Any rc not 0, not `dirty 0`, a manifest mismatch, a command line that does not match the cell, a missing crew trace: incomplete, nothing evaluated. Nothing is adopted
 as a code default by this campaign. A Result section is appended after the run, whatever it says.
+
+## Result (run 2026-11-26 17:57-18:12 IST; source 77f991e86; 40/40 cells rc 0, dirty 0, problems 0)
+
+Full table: `results/realistic13_2026-11-26/REALISTIC13.md` (raw traces outside the repository, hashed in `RAW_MANIFEST.sha256`).
+
+- **T1: HOLDS.** Within 25 m, RAND5 minus RAND3: +0.282 [0.133, 0.432] (0.545 to 0.827). 16 of 20 seeds up; three down (2002, 2014, 2003 by 0.01), so five stations is not a guarantee for every site.
+- **T2: HOLDS.** Coverage RAND3 0.941, RAND5 0.948.
+- The quiet-shift loss at RAND3 is mainly coverage: the paper states the deployment rule "five stations rather than three on a random site" with this campaign as evidence, and keeps the
+  three-station loss as a stated limitation. No code default changes.
