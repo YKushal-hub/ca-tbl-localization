@@ -30,7 +30,7 @@ as a code default by this campaign. A Result section is appended after the run, 
 
 Full table: `results/realistic13_2026-11-26/REALISTIC13.md` (raw traces outside the repository, hashed in `RAW_MANIFEST.sha256`).
 
-- **T1: HOLDS.** Within 25 m, RAND5 minus RAND3: +0.282 [0.133, 0.432] (0.545 to 0.827). 16 of 20 seeds up; three down (2002, 2014, 2003 by 0.01), so five stations is not a guarantee for every site.
+- **T1: HOLDS.** Within 25 m, RAND5 minus RAND3: +0.282 [0.133, 0.432] (0.545 to 0.827). 17 of 20 seeds up; three down (2002, 2014, 2003 by 0.01), so five stations is not a guarantee for every site.
 - **T2: HOLDS.** Coverage RAND3 0.941, RAND5 0.948.
 - The quiet-shift loss at RAND3 is mainly coverage: the paper states the deployment rule "five stations rather than three on a random site" with this campaign as evidence, and keeps the
   three-station loss as a stated limitation. No code default changes.
