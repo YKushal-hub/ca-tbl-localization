@@ -2129,6 +2129,11 @@ printf '\n--- G189 arrival stamps: height and rubble ---\n'
 bash scripts/tdoa_height_gate.sh "$WORK/g189" || fail G189
 bash scripts/tdoa_height_gate_selftest.sh "$WORK/g189" || fail G189
 finish G189
+# ---------------- G190: published uncertainty from the correlated-error shadow (DD 75)
+printf '\n--- G190 sigma shadow ---\n'
+bash scripts/sigma_shadow_gate.sh "$WORK/g190" || fail G190
+bash scripts/sigma_shadow_gate_selftest.sh "$WORK/g190" || fail G190
+finish G190
 
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'

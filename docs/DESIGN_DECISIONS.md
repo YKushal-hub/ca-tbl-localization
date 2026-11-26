@@ -1470,3 +1470,11 @@ Quiet shift: at RAND3 a crew device averages about one anchor per cycle and a fi
 the DD 73 rule written before the runs. Coverage / share within 2 m, B -> DD 74 + `--rssiCorrInflate` + DD 73: central 5 storeys .851/.903 -> .851/.730, 8 storeys .852/.806 -> .898/.491; high .650/.477 -> .810/.430,
 .738/.313 -> .822/.228. Coverage rises (mean +0.073) but the share within 2 m falls by up to 0.32 (DD 74 alone up to 0.45): fails. Off state byte-identical (23 files). The repeated TDoA fixes carry most of the accuracy;
 weighting them honestly for a still worker costs that accuracy. Collapse coverage near 0.85 with four stations is therefore an accuracy-versus-honesty trade-off of the radio data, stated as such.
+
+## 75. `--sigmaShadow`: the published uncertainty from a correlated-error shadow (2026-11-26; default false)
+
+DD 74 showed that weighting a still worker's repeated 868 MHz ranges and TDoA fixes as correlated inside the filter makes the bound honest but loses accuracy. DD 75 keeps the filter and its estimate unchanged and publishes
+max(traceSigma of the filter, trace of a shadow): a 2-D information sum of the cycle's own measurements linearised at the filter's estimate, 868 MHz RSSI ranges and tier-1 TDoA fixes with variance times B2's AR(1) factor
+(rho = exp(-moved / d_corr), moved by the ESTIMATE, B2's d_corr 30 m and cap 100 from CaTblPolicyConfig), 2.4 GHz / UWB ranges at their own sigma, forgetting by the estimate's displacement squared. System side only.
+Off: not called; byte-identical (23 files against the committed build, seed 761). Development seeds 801-803 under a rule written beforehand: mean four-station coverage gain +0.238, every cell up, share within 2 m identical;
+the bound is wider (central median 1.4-1.7 m -> 5.2-8.6 m against 0.8 m median error). Gate G190 with selftest (11 fixtures). Registered as COLLAPSE-13.
