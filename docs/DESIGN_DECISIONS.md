@@ -574,3 +574,727 @@ the adopted preset against the brief's deployment on fresh seeds.
 
 **Reproducing earlier preset results:** give `--nGateways=8` for DD 25's preset, and `--nGateways=3 --gwLayout=star
 --nFinders=8` for the brief's. `scripts/preset_pins.sh` pins the latter.
+
+## 27. A realistic deployment: three gateways on a line, searchers dispatched from one camp (owner decision, 2026-11-20)
+**What.** In `kSpecProfile`: `--nGateways=3 --gwRidge=true --baseCampFrac=0.9 --nFinders=2 --searchLaunchOnLoss=300`
+(`--gwLayout` stays `legacy`, the builder that places ridge lines). Replaces DD 25–26 (12 gateways on a ring, 12 finders
+in the field from t = 0).
+
+**Why.** An industrial site does not ring its work area with twelve powered, GPS-timed masts, and its responders do not
+stand beside every worker from the first second. Gateways follow a line (an access road, a pipeline, a ridge) or a few
+convenient spots, and a small team sets out from one place after an alarm. The ring and the finders in the field
+manufactured the coverage: PARETO-2 found the 2.4 GHz-only arm meeting A(25 m) there only because a searcher was always
+in reach. On one exploratory seed (7, 1800 s, not citable) the line deployment gave the lost node A(25 m) 0.989 for
+ca_tbl_full against 0.519 for static_2p4 and 0.010 for static_868, and every arm's five-node pool fell below 0.2, which
+is why the realistic study (`~/catbl_work/tii_paper/PLAN_REALISTIC.md`) measures time to find rather than A(25 m) alone.
+
+**Reproducing earlier preset results:** `PIN_PRE_DD27` in `scripts/preset_pins.sh` restores DD 26's deployment (verified
+2026-11-20: preset + pin against the pre-change build, seed 7, 600 s, six arms, 5 km and endgame: every output file
+byte-identical except `spec_profile.txt`, the preset's own description). `PIN_PRE_DD19` gains `--gwRidge=false
+--baseCampFrac=0 --searchLaunchOnLoss=0` and reproduces exactly as before (same check).
+
+## 28. Estimation on the worker's device, and mast-height correction of ranges (owner decision, 2026-11-20)
+
+**Where the filter runs.** For the realistic study (REALISTIC-1) and the paper, every worker's device runs its own filter
+(`--gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false`); stations measure the 868 MHz broadcast
+and reply, and each reply is billed to the device (`--tier1ChargeReplies`, default true). Reason: with station-side
+estimation a worker no station hears gets no update, yet the simulator runs every node's filter each cycle, so
+station-side results described a system that would not behave that way out of station contact. On the device the
+filter keeps going on the motion sensor and on searcher/peer ranges. Exploratory check (seed 7, one station): positions
+byte-identical to station-side estimation, battery +7 % (ca_tbl_full) and +20 % (static_868). Processor energy is not
+modelled (stated limitation). The preset is unchanged (station-side), so earlier results and gates replay as they are;
+the study passes the three flags on every run.
+
+**Height (`--rangeHeightCorrect`, default off).** Ground is flat; gateways are on 15 m masts and devices are carried at
+1.5 m. The engines measure slant ranges, while the filter is 2-D and read every range as horizontal: about 0.9 m long at
+100 m and 4 m at 20 m. With the flag the device projects each mast range onto the ground, sqrt(max(r^2 - dh^2, 0)),
+using the surveyed mast height and its own carried height; peer and searcher ranges (dh = 0) are untouched. Terrain
+elevation still enters only as signal loss; slopes, multi-level sites and estimating height are out of scope.
+Off: byte-identical to the build before the flag (seed 7, 7200 s, one station, three arms: every output except
+`run_id.txt`). Gate G172 (+ selftest, five negative fixtures).
+
+## 29. The work area's side of a gateway line (`--acquireSideOfRoad`, default off; 2026-11-20)
+
+Found in REALISTIC-1 (ROAD3 with no searchers, before its result): with every gateway on one line, a range-only position
+and its mirror image across the line are equally likely, and filters locked onto the mirror (estimates at y ~ 3150 m for
+a worker at 2350 m, the ridge at 2750 m; ~800 m off for every design). A real deployment knows which side of its access
+road the work area lies on. With the flag (needs `--gwRidge` and `--acquireParticles`) the acquisition particles are
+drawn only on the work sites' side (y <= gwRidgeY x boxHalf) and particles that drift across carry no weight; after
+hand-over, a Kalman estimate that crosses the line is reflected back (ranges to anchors on the line are unchanged by the
+reflection; position rows of P mapped by the reflection). Pilot (not citable; seeds 501 and 504, 3600 s, no searchers):
+lost-worker error at 10-50 min from 300-6600 m to 1-75 m for ca_tbl_full and static_2p4; no reflections were needed
+(the acquisition constraint was enough). Off: byte-identical to the build before (seed 503, 900 s, two arms, against
+REALISTIC-1's frozen binary; every output except run_id.txt and paths in run.log). Gate G173 (+ selftest, five negative
+fixtures). Tested in REALISTIC-3; REALISTIC-1 and -2 stand as registered (flag off).
+
+## 30-32. The search party under a 2.4 GHz-only design (three defects; flags default off; 2026-11-21)
+
+Found while checking REALISTIC-1's H2 (2.4 GHz-only searchers reached the casualty in 0 of 60 runs, even at the
+cluster site where the casualty is 0.8 km from the camp with five anchors in reach). Three defects, each confined to
+the searchers, each found on traces:
+- **DD 30 `--finderDigestOnArmTier`.** The searchers' entry poll (DIGEST) and the table they steer on were hard-wired
+  to their 868 MHz radio for every arm. Under static_2p4 the casualty's 868 MHz radio is off, so its entries reached
+  the searchers' 2.4 GHz table, which nothing read. With the flag, under static_2p4 the party polls and steers on 2.4 GHz.
+- **DD 31 `--finderSweepFromDispatch` (bug).** The no-entry sweep's radius was 0.9 x speed x t from the start of the
+  run, so a party held at the camp until an alarm at 50 min appeared on a 3.2 km spiral at dispatch (every
+  static_2p4 run of REALISTIC-1/3: a 3.24 km one-step jump; every other arm: 3 m). With the flag the clock starts at
+  the dispatch.
+- **DD 32 `--finderLkpFirst`.** The party swept round the camp whenever the entry it held was coarser than the sweep
+  so far, ignoring a good last known position. With the flag it sweeps only while the entry is uninformative (sigma
+  above half the box half-width, like the start-up prior) and otherwise heads for the last known position; with
+  `--finderStaleSearch` it then orbits a stale one. Standard search doctrine.
+Pilot (not citable; seeds 501-502, cluster and ROAD3): with all four on, 2.4 GHz-only searchers reached the casualty
+at the cluster site as fast as ca_tbl_full (692 vs 720-748 s) and on ROAD3 later or not at all (2543 s vs 2075 s;
+never vs 2208 s). Off: byte-identical (seed 501, CLUS3, 7200 s and seed 503, ROAD3, 3300 s, against REALISTIC-3's
+frozen binary). Gate G174 (+ selftest, five negative fixtures). REALISTIC-1/2/3's searcher results were measured
+without these fixes and are reported as such; REALISTIC-4 repeats the searcher cells with them.
+
+## 33-34. Crew filters that are lost and confident (flags default off; 2026-11-21)
+
+Found while asking why REALISTIC-2's 8 h quiet shift at the cluster site (Q1 failed: ours 0.22 against 2.4 GHz only's
+0.55 rough-position availability) went wrong. On traces (seed 541, subject 2) the crew's filters, lost after start-up
+(sqrt(tr P) of kilometres), were pulled onto a wrong root by the first long 2.4 GHz range (6.8 km in open terrain) or a
+two-gateway intersection, then claimed +/-20-30 m while 0.4-5 km off; one learned a stride scale of -50 and a gyro bias
+of -0.37 rad/s and circled in place. Over 7200 s, 8124 of 14400 tracked-node cycles were "confidently wrong" (error >
+500 m at sqrt(tr P) < 50 m).
+- **DD 33 `--ekf5CoarsePosOnly`.** An 868 MHz range corrects position only (heading, bias, scale are Schmidt consider
+  states for it; kept out of the window smoother). Pilot (8 h, seeds 541-543, not citable): ours' A250 0.09/0.29/0.42
+  against 0.09/0.39/0.24 off. **Not adopted** (no consistent gain); kept, documented, default off.
+- **DD 34 `--reacquireSigmaM`.** A filter whose sqrt(tr P) exceeds the threshold (after a hand-over has armed it)
+  re-enters the particle acquisition round its estimate, the cloud as wide as its uncertainty and never wider than the
+  start-up prior, and hands over again when the cloud is one mode. Pilot (8 h, seeds 541-543, threshold 500 m, not
+  citable): ours' A250 0.54/0.61/0.69 (from 0.09/0.39/0.24) at 32-40 J/h (from ~45); 2.4 GHz only 0.56/0.53/0.37 (from
+  0.63/0.65/0.67). Confidently wrong cycles 8124 -> 13 (G175). `--acquireHandoverCurvature` was tried alongside and
+  lowered both designs (ours 0.09/0.09/0.24, 2.4 GHz only 0.37/0.23/0.37); not used.
+Off: byte-identical (seed 505, ROAD3 with every REALISTIC-4 flag, 3300 s, two arms, against REALISTIC-4's frozen binary).
+Gate G175 (+ selftest, five negative fixtures). Tested in REALISTIC-5 on new seeds.
+
+## 35. A different incident on every seed (`--incidentRandom`, default off; 2026-11-21)
+
+Found in a full-system audit after REALISTIC-5: the casualty stood at the identical point at the alarm on every seed of
+every realistic campaign (RMS spread 0 m; ROAD at (-1591, 1673), CLUS and RAND at (5000, 3823)), so each cell's 20 seeds
+were one incident under 20 noise draws. From the corner camp of the CLUS and RAND sites the fixed due-east trail also
+pinned the casualty to the box edge. With the flag the incident is drawn per seed from its own random stream: a trail
+from the start toward the site centre +/- 45 deg, leaving it at 15-35 min, a 45-135 deg turn either way, a stop 5-15 min
+later (still by the 50 min alarm); the box edge reflects. The same seed gives the same incident in every arm.
+Off: byte-identical (seed 566, CLUS3 with every REALISTIC-5 flag, 3300 s, two arms, against REALISTIC-5's frozen
+binary). Gate G176 (+ selftest, five negative fixtures). Tested in REALISTIC-6.
+
+Also found in the audit, not changed in code: (i) the relay schedule (`--relaySlots=auto`) needs ~N^2 50 ms slots and
+refuses crews above ~7 in a 2.5 s cycle; larger crews run with `--relaySlots=false` (REALISTIC-6 crew cells). (ii) The
+gateways' 868 MHz replies under device-side estimation are billed to the node but not simulated as gateway frames
+against the 10 % access-point duty cycle; one batched broadcast per gateway per cycle (~3 % duty for 7 nodes) is the
+protocol the bill corresponds to.
+
+## 36. Collapse extension, World side: the rubble model (no flag yet; nothing sets it; 2026-11-21)
+
+First module of the collapse extension (plan: ~/catbl_work/tii_paper/PLAN_COLLAPSE.md; numbers: docs/SOURCES_COLLAPSE.md).
+`CaTblRubbleWorld` (ca-tbl-rubble-world.{h,cc}) holds the ground truth of a collapsed structure: non-overlapping rubble
+boxes and survivable voids inside them, plus one bracket (low / central / high). For a link it gives the metres of pile
+on the straight path (slab method, voids subtracted), the loss in dB and the time-of-flight bias in m.
+- **Loss.** Below 2.5 GHz: A(f) = A2·(f/2 GHz)^k, with A2 = 20 / 31 / 80 dB/m and k = log2(20/8) / log2(31/14) /
+  log2(31/14) (Oestges 2013 layered and measured rubble). 868 MHz gives 6.63 / 11.90 / 30.71 dB/m, 2.44 GHz gives
+  26.01 / 38.94 / 100.49. Above 3 GHz: η·A_solid(f). η = 0.3522 / 0.5459 / 0.7706 is derived as A_rubble(2 GHz) /
+  A_solid(2 GHz) (no pile density measurement was found). A_solid is ITU-R P.2040-4 concrete (low, central) or
+  NISTIR 6055 plain concrete (high). 7.99 GHz gives 59.09 / 91.59 / 219.45 dB/m.
+- **Bias.** η·(√ε′ − 1) = 0.454 / 0.704 / 1.541 m per metre of pile, added to 2.4 GHz and UWB ranges after the
+  engines' own error draw. 868 MHz RSSI-inversion ranging sees the loss as distance: d·10^(L/10n). Both are applied
+  after the engines' link-leak handling, so the loss enters the budget once (tier 3).
+- **Not modelled yet:** loss of the direct path under deep rubble (Alsindi 2009 tables pending). This is a stated
+  limitation until sourced.
+- **Engines.** Each engine has `SetRubbleWorld(const CaTblRubbleWorld*)`; nullptr is the default and every hook is
+  inside `if (m_rubble)`. Nothing in the simulator calls it yet; `--collapse` (DD 39) does.
+- **World/system split.** System-side files may not include the header; G177 fails if one does.
+Off: byte-identical. The three reference runs were static_868 device-side at seed 7 for 600 s, preset ca_tbl_full at
+seed 7 for 300 s, and ca_tbl_full at seed 11 for 900 s. They were run on the build before the hooks (ec656a27b
+sources) and after the hooks, giving 178 files. All are identical except run_id.txt, which holds the build stamp.
+Gate G177 (`scripts/rubble_gate.sh`): 50 checks covering code values against the log's rows, the A5 targets (the
+868 MHz 2–5 m totals span NIST's 30 and 80 dB bounds; Oestges' detection range is 10.92 m against ~10 m), geometry,
+refusals and the no-leak rule. Selftest: 12 doctored inputs, all caught.
+
+## 37. Collapse extension, World: lowest-loss rubble path and the collapse generator (2026-11-22)
+
+**Physics fix to DD 36.** DD 36 charged a link the rubble on its straight line. For a device 2 m deep and a rescuer
+20 m away on the surface, that line grazes through about 19 m of rubble (230 dB at 868 MHz). A real wave leaves the
+pile by a short route and travels the rest in air. `CaTblRubbleWorld::Path(f, a, b)` now takes the lowest-loss of
+these routes:
+- the straight line;
+- for a buried end, rubble to an exit point on the top or a side face, then air (two-pass line search per face);
+- for two buried ends, out of the top above one, through the air, back in above the other.
+
+Cost = A(f)·(rubble metres) + 20 log10(path length / straight distance) + the Fresnel power loss of each surface
+crossing. That loss is taken at the actual angle, TE/TM averaged (ITU-R P.2040-4 eqs. (30)–(35)). Rays beyond the
+critical angle are totally reflected, and that route is not available. The pile's refractive index is the slowing
+model's n = 1 + η(√ε′ − 1): 1.454 / 1.704 / 2.541, with critical angles 43.45° / 35.94° / 23.17°. So loss and delay
+use one effective medium. Bias = (path length − straight distance) + (n − 1)·(rubble metres). The engines call
+Path(); the straight-line LossDb/BiasM stay for the gate fixtures.
+
+Fixtures (G177, now 58 checks):
+- straight up 2 m: 2·A + 0.3047 dB;
+- 20 m away: one exit, 2.0009 m of rubble, against 11.6 m on the straight line;
+- two buried ends: out-and-in, 4.000 m of rubble;
+- symmetric to 0.05 dB;
+- a device near a side exits sideways (0.5 m);
+- a clear path gets nothing.
+
+**Collapse generator.** `scratch/ca_tbl_collapse_sim.cc`. The main simulator estimates one subject; workers beyond
+it are protocol peers without estimation. Making it estimate 20–30 subjects would rework the code every earlier
+result runs on. So the collapse study has its own program, reusing the same engines, PHY values (SF7/125 kHz/14 dBm,
+SF7/800 kHz/12.5 dBm, UWB 499.2 MHz/−16.47 dBm) and rubble World. The main simulator is untouched.
+- **Layout.** A box pile; N workers placed uniformly in the footprint at depths uniform in [depthMin, depthMax];
+  optional voids. Candidate rescuer points on a surface grid at given hold heights; ground stations on a ring.
+- **No defaults.** Every geometry, time and GPS value is a required argument and is refused if missing. The
+  pre-registration supplies values from rows or sweeps.
+- **Draws.** Each slot draws every (worker, point), (worker, station) and (worker, worker) link on each band through
+  the engines in keyed-RNG mode. G178 shows a link's outcome does not depend on which other links were drawn. A
+  rescuer policy choosing points from this field therefore sees what it would have measured there.
+- **Interference.** The engines' interference registry and external-interferer field (one switch) are off. A link
+  outcome means "scheduled alone"; contention is the MAC stage (B5).
+- **Environment.** ENV_RURAL_OPEN, so all obstruction comes from the rubble model; ENV_INDUSTRIAL is a sensitivity
+  case.
+- **Outputs.** obs_links.csv (received, rx power, SNR, range if received); obs_anchors.csv (GPS fixes of points and
+  stations, σ from rows GPS-SPS-*). Ground truth goes separately to truth_victims.csv, truth_anchors.csv and
+  truth_links.csv. System-side scripts in scripts/collapse/ may not read truth_* (G178 leak check; only score_*.py
+  may).
+
+First look (seed 3; 30 × 30 m pile, 3.66 m high; 20 workers at 0.5–3.5 m; central bracket; not citable):
+- 868 MHz: every worker-to-surface link received, but the RSSI range error has a median of 120 m (the extra loss
+  reads as distance).
+- 2.4 GHz: 38% received; range error median 1.1 m, 90th percentile 5.2 m.
+- UWB at 7.99 GHz: nothing through rubble.
+This is the cross-band picture B1 is built on.
+
+Off: byte-identical (same three reference runs as DD 36; 178 files, only run_id.txt differs). Gates G177 and G178
+(+ selftests: 14 and 5 fixtures).
+
+## 38. Collapse extension, System: first estimators (tof / rss / joint) and the scorer (2026-11-22)
+
+`scripts/collapse/estimate_collapse.py` is system side. It reads obs_*.csv and the operational plan (hold heights)
+only; G178 fails if a system-side script mentions truth_ files. `score_collapse.py` is the only reader of truth.
+- **Sweep.** Rescuers walk the surface spots in serpentine order, split among --rescuers, one spot per slot,
+  measuring at every hold height.
+- **Air law.** Fitted per band from the system's own point-to-station links (no rubble): loss = L0 + 10 n log10 d.
+- **Estimators.** Per worker after each slot, 3-D:
+  - **tof:** 2.4 GHz / UWB multilateration, σ 3.0 m / 0.10 m (the earlier work's cited floors);
+  - **rss:** received power at every band with one unknown rubble excess C_b per band (calibration-free);
+  - **joint (B1):** both, with the ToF bias tied to that excess, r = |x − a| + C_b/ρ_b. ρ_b is the rubble's
+    loss-to-delay ratio, A_b/(n − 1). It varies little across the published brackets (2.44 GHz: 55.33–65.21 dB/m;
+    7.99 GHz: 130.2–142.4; 868 MHz: 14.6–19.9), so the system uses the midpoint with the range as uncertainty and
+    never knows the World's bracket.
+- **Depth prior.** A buried device lies below the surface (rescuer points minus hold height). It is generic, not
+  site knowledge.
+- **Frames.** Positions are in the rescuers' local frame (σ 0.10 m per axis, the UWB line-of-sight floor) or in
+  GPS (rows GPS-SPS-*).
+
+First look (seed 3; the DD 37 layout; 2 rescuers; 18 slots; local frame; not citable). Located / horizontal median /
+p90 / ≤ 2 m:
+- joint: 1.00 / 1.43 / 5.55 / 0.60;
+- rss: 1.00 / 1.50 / 5.55 / 0.55;
+- tof: 0.45 / 1.33 / 1.83 / 0.40.
+Vertical error medians are 1.4–3.1 m: depth is the weak axis, as planned (B2, Cramér–Rao bound next).
+
+## 39. Collapse World in the main simulator: 20 buried workers through the full pipeline (`--collapse`, default off; 2026-11-22)
+
+The main simulator already localises several workers (`--measuredSubjects=N`, MS-1: each subject runs ranging, the
+tier-1 floor, fix selection, `Step()` with its own escalation, the handshake, battery and IMU). So the collapse study
+runs there, with the preset's engine physics, MAC, relays, finders and energy unchanged, instead of in a separate
+program. `scratch/ca_tbl_collapse_sim.cc` stays a link-level tool for the rubble physics.
+
+**Mechanism.**
+- `--collapse` builds one `CaTblRubbleWorld` per arm: a box pile centred on the origin, `--collapseFootX/Y`,
+  `--collapsePileH`, `--collapseBracket`. It sets it on the three engines.
+- Every tag (the measured one and every peer) is buried and still from t = 0.
+  - (x, y) is uniform in the footprint (0.5 m margin); depth is uniform in [`--collapseDepthMin`, `--collapseDepthMax`].
+  - Each position comes from its own stream keyed by seed and worker index. So worker k lies at the same place
+    whatever `--nTags` is: the 1-worker run is worker 1 of the 20-worker run.
+- A walker or finder inside the footprint stands on the pile: its device is 1.5 m above the top. Elsewhere it stays
+  1.5 m above the ground.
+- No geometry value has a default: `--collapse` without all five is refused, as are out-of-range values and a bad
+  bracket.
+- `PIN_ONE_WORKER` in `scripts/preset_pins.sh` is the preset with one worker. The preset's relay, fix-routing,
+  case-C and finder-tasking features need ≥ 3 tags or > 1 subject, and refuse otherwise.
+
+**First runs** (seed 5, 600 s; 30 × 30 m pile 3.66 m high; depths 0.5–3.5 m; central bracket; placeholders, not
+citable).
+- **Station geometry decides everything.**
+  - The preset's line of 3 gateways 55 m from the pile gave mirror-ambiguous tier-1 TDoA and median errors of
+    250–320 m.
+  - 4 gateways on a ring around the camp (90, 90) left the pile outside the ring, and no worker got a fix.
+  - With `--gwRidge=false --baseCampFrac=0 --boxHalf=50 --nGateways=4` (a 30 m ring centred on the pile), tier-1
+    TDoA solved in 211 of 236 cycles.
+- **Worker 1, median error (CEP50):**
+
+| Arm | 1 worker | 20 workers |
+|---|---|---|
+| ca_tbl_full | 5.4 m | 6.1 m |
+| static_868 | 654 m | 7.3 m |
+| static_2p4 | never fixes | never fixes |
+
+- Open: the 1-worker static_868 result (the pin removes the relays it uses with 20). The 2.4 GHz-only arm never fixes
+  because 2.4 GHz through rubble to the 30 m ring is rarely heard.
+- `subject_summary.csv`'s `fixCycles` counts only precise-tier fixes. Use the traces for 868 MHz fixes.
+
+**Off: byte-identical.**
+- Three reference runs (178 files) match.
+- `scripts/merge_identity_check.sh` against `main`'s binary still gives 614 identical files.
+
+**Gate G179** (`scripts/collapse_main_gate.sh`):
+- 20 subjects in every arm;
+- every worker still and inside the footprint;
+- worker 1 at the same spot alone and with 20;
+- the 1-worker ca_tbl_full arm fixes;
+- the stations form the ring;
+- three refusals.
+Selftest: 4 doctored outputs, all caught.
+
+## 40. The collapse link field with the preset's engines (`--collapseField`, default off; 2026-11-22)
+
+`--collapse --collapseField` draws the link field (obs_* / truth_* files) inside the main simulator
+(`RunCollapseField`) instead of running arms.
+- **Engines.** Built by `CA_TBL_MAKE_CONFIGS`, exactly as in an arm, so the preset's ~20 engine switches apply. The
+  standalone `scratch/ca_tbl_collapse_sim.cc` did not apply them. That is why its VAL-1 failed: the 868 MHz
+  range-error leak and the receiver's clipping stage were on there.
+- **Positions.** Buried devices are where the full runs put them (`CollapseBuriedPos`).
+- **Isolation.** Interference is off ("link scheduled alone").
+- **Extra output.** `truth_draws.csv` carries each draw's engine total loss for VAL-1.
+
+**Validation on it** (rows VAL-* in `docs/SOURCES_COLLAPSE.md`; sourced 8-storey IND2 geometry, 4 stations at
+56.45 m; seed 21): 11 of 12 checks pass.
+- VAL-1 is exact (≤ 0.0001 dB over 30,078 draws).
+- VAL-2 spans NIST's bounds (1.7–103.6 dB).
+- VAL-6 reproduces SLOW-BR exactly (0.454, 0.704).
+- UWB line-of-sight spread is 0.107 m, inside Benouakta's 0.10–0.33 m.
+- **Fails:** 2.4 GHz line-of-sight spread at Zhou's 28–57 m is 5.11 m against the measured 1.27–3.2 m. At SNR ≥ 30 dB
+  it is 2.9–3.1 m; lower-SNR links widen it through the CRLB term. The model is conservative for 2.4 GHz. Reported,
+  not tuned.
+
+Off: byte-identical (178 reference files; 614 files against `main`'s binary).
+
+## 41. Copies of one broadcast collided with each other (`--interferenceFrameKey`, default off; 2026-11-22)
+
+**Defect found (earlier simulator, every run with more than one field node on the mesh).** The channel delivers a
+frame to each receiver through `EnginePhyProvider::EvaluateFrame()`, one engine call per receiver. Each call enters
+the engines' interference registry as a transmission of the field node in the engine's node slot. For a gateway
+beacon that is the receiving subject, not the gateway. So the second and later receivers of one broadcast found the
+earlier receivers' entries overlapping in time and lost the frame.
+
+**Measured.**
+- Buried subjects 2..20, 30 m from four stations, heard no anchor in 84% of cycles; subject 1 (evaluated first)
+  heard 4–6 in every cycle.
+- At link level (DD 40, interference off) every one of them is heard about 100% of the time.
+- On the open-site preset with 5 subjects (`main`'s ENV-SWEEP E0 configuration, seed 361, 1800 s), the subjects'
+  median CEP50 is **2126 m without the fix and 3.6 m with it** (ca_tbl_full).
+- Tag 0 changes too: static_868 CEP50 291 → 382 m on that seed. Its receptions also shared the registry with other
+  receivers' copies.
+
+**Fix.** Each registry entry carries a frame key; 0, the default, means none. Under `--interferenceFrameKey` the
+provider sets one key per (sender, tier, time) before evaluating the receivers and clears it afterwards. Copies of
+one frame then never interfere with each other, while different frames still do.
+
+**Status.** Default off: every earlier result is byte-identical (178 reference files; 614 files against `main`'s
+binary). It is **on** in the collapse study and will be pre-registered there.
+
+**Owner decision needed.** Adopt it into the preset and re-run the multi-subject campaigns? Every
+`subject_summary.csv` row for subjects 2..N on `main` and on this branch is affected, and tag 0's rows are affected
+where several field nodes share the mesh.
+
+**Gate G180:**
+- off: subjects 2..5 starve (≥ 30% of cycles with no anchor; 49.5% measured);
+- on: ≤ 5% (1.0%);
+- tag 0 keeps its anchors in both.
+Selftest: 3 doctored outputs, all caught.
+
+## 42. Worker-to-worker cooperation (B4) and the depth bound (B2 theory) (2026-11-22)
+
+**B4 (`coop` in `scripts/collapse/estimate_collapse.py`).** All workers are solved together: joint's residuals plus
+the 868 MHz worker-to-worker links.
+- **Coupling.** A worker-to-worker path leaves the pile above one worker and re-enters above the other (DD 37), so
+  its excess is the two workers' own: P_ij = Ptx − L(|x_i − x_j|) − C_i − C_j, with no new unknowns.
+- **Checked against the World.** C_ij − (C_i + C_j) has median 0.78 dB, 10th–90th percentile 0.28–2.35 dB (190
+  pairs; 8-storey IND2; central).
+- **One residual per pair** (median power over the slots heard). Repeated slots of a link whose shadowing is fixed
+  only overweight it. With every slot used, coop was worse than joint (median 3.36 m against 1.63 m).
+
+**Result** (preset-physics field, seed 31, 20 workers; not citable):
+
+| Rescuer coverage | Median error, coop | Median error, joint | Within 2 m, coop | Within 2 m, joint | p90, coop | p90, joint |
+|---|---|---|---|---|---|---|
+| Full | 1.45 m | 1.63 m | 0.40 | 0.35 | — | — |
+| Half | 2.30 m | 2.65 m | 0.45 | 0.40 | 16.9 m | 12.2 m |
+| Quarter | 8.09 m | 5.32 m | — | — | — | — |
+
+So cooperation helps the typical worker when rescuers cover at least half the surface, but makes the worst cases
+worse. A rigidity check (only lean on neighbours that are themselves anchored; Eren 2004 / Aspnes 2006) is the
+next step.
+
+**B2 bound (`scripts/collapse/crb_depth.py`).** Cramér–Rao bound for a worker 2 m deep, ranging from a grid
+around it:
+- 2.4 GHz (σ 3 m): 0.6–1.8 m.
+- UWB (σ 0.10 m): 2–6 cm.
+- Holding the device low and high (0.3 and 1.5 m) gives with 26 contacts within 5 m (0.88 m) about what one height
+  gives with 49 contacts within 10 m (0.82 m).
+- The estimators' depth errors (median 1.3–2.6 m) are 1.5–3× the bound.
+
+## 43. Phase 0: the workers compute on their own nRF52840 (`--phase0Timing`, output only; 2026-11-22)
+
+`--phase0Timing` times every worker's `CaTblPolicy::Step()` (filter, 60-step smoother, particle acquisition,
+escalation) on the host clock and prints one PHASE0 line. The run's files are unchanged.
+- **Measured** on core 0 (taskset; 20 workers; 8-storey collapse; 600 s): 1077 µs per step for ca_tbl_full, 1019 µs
+  for static_868.
+- **CoreMark** on the same core under the same load: 25,134 (CM-HOST).
+- **Scaled** to the nRF52840 (212 CoreMark, NRF-CM): 128 / 121 ms per 2.5 s step, i.e. 5.1 / 4.8% of the cycle.
+- **Energy** at 3.3 mA · 3.0 V (NRF-ICPU0): 1.26 mJ per step = 1.82 J/h. That is 2.0% of the full system's radio
+  energy (89.4 J/h) and 6.1% of static_868's (28.2 J/h).
+
+**Decision** (plan rule: compute ≤ 10% of radio energy and ≤ 20% of the cycle). On-worker estimation passes as
+long as the double-precision penalty on the single-precision M4F (NRF-FPU) is ≤ 3.9× for ca_tbl_full (≤ 1.6× for
+static_868). No sourced penalty was found, so the result is stated as that bound (`scripts/collapse/phase0.py`). A
+single-precision port of the filter makes it k = 1. Device-side estimation (the REALISTIC studies'
+`--gatewayEdgeServer=false`) therefore stays.
+
+**COLLAPSE-3** (`report/PREREG_COLLAPSE3.md`, registered before COLLAPSE-1's energy is looked at): hours on one
+CR123A (16,740 J, BATT-CR123A) per worker, from COLLAPSE-1's 1800 s energy plus this compute.
+
+## 44. B3, the rescuers' frame from their own ranges (`--frame uwb`, field estimator; 2026-11-22)
+
+`estimate_collapse.py --frame uwb` places each rescuer point from its time-of-flight ranges to the stations:
+- UWB where heard (σ 0.10 m), 2.4 GHz otherwise (σ 3.0 m), median over slots;
+- the stations placed by their GPS fixes;
+- a point with fewer than 3 station ranges keeps its GPS fix.
+
+The workers are then located against these points.
+
+**Result** (seed 31 field: 8 storeys, central, 20 workers; not citable). Median horizontal error and fraction
+within 2 m:
+
+| Frame | Median | Within 2 m |
+|---|---|---|
+| Assumed local frame, `--collapseLocalSigma` 0.10 m | 1.63 m | 0.60 |
+| GPS fixes | 2.82 m | 0.45 |
+| B3 | 3.66 m | 0.30 |
+
+At the sourced station standoff (NIOSH-CZ, 56.45 m), UWB reaches a station on only 75 of ~16,000 point-station
+links, so the points are placed by 2.4 GHz ranges, which are worse than GPS here.
+
+**Conclusion, stated in the paper.** The localisation results that use the local frame assume a rescuer frame of
+UWB quality. Reaching that frame needs rescuer-to-rescuer UWB over a few metres (not modelled), or stations closer
+than the collapse zone. In the main simulator the finders' own position error is the earlier work's GNSS model
+(`--finderPosSigma=2` in the preset, DD 20).
+
+**DD 44 update: rescuers ranging each other (2026-11-22).** The field gets `--collapsePointLinksM=10` (rescuer
+points draw links with every point within 10 m), and `--frame uwb` now solves all 128 rescuer points jointly:
+point-to-point ToF, point-to-station ToF, and each point's GPS fix as a weak prior. On the seed 31 field it used
+1,800 range pairs, 1,273 of them point-to-point UWB. Median horizontal error and fraction within 2 m:
+
+| Frame | Median | Within 2 m |
+|---|---|---|
+| B3 (joint frame solve) | 2.50 m | 0.40 |
+| GPS | 2.82 m | 0.45 |
+| Assumed local frame (σ 0.10 m) | 1.63 m | 0.60 |
+
+The rescuers' own UWB therefore improves on raw GPS, but does not reach the assumed UWB-quality frame. The likely
+reason is that the frame's absolute placement still rests on GPS and 2.4 GHz station ranges; the remaining error is
+mostly a common offset. Results that use the local frame are stated as conditional on that frame quality. Scoring
+relative to the rescuers' own frame (where they dig) rather than in absolute coordinates is the next refinement.
+Exploratory, not citable.
+
+**DD 44 correction (2026-11-22).** The explanation above ("mostly a common offset") is **refuted**. The scorer's
+`--relative` mode removes the rescuer frame's mean horizontal offset, as rescuers digging in their own frame would.
+Results:
+
+| Frame | Offset removed | Median, absolute | Median, relative |
+|---|---|---|---|
+| B3 | (+0.49, −0.20) m | 2.50 m | 2.71 m |
+| GPS | — | 2.82 m | 2.48 m |
+| Local | — | 1.63 m | 1.62 m |
+
+The B3 frame's error is distortion between points, not a shift. The 10 m UWB mesh is tied to the stations by
+2.4 GHz ranges (σ 3 m) and to GPS (σ 3.27 m), and these bend it. A denser or longer-range rescuer UWB mesh, or
+stations within UWB range, is what the frame needs. Exploratory, not citable.
+
+## 45. COLLAPSE-1/2/3 results (2026-11-22)
+
+Full tables are in `report/PREREG_COLLAPSE{1,2,3}.md` (Results sections) and under `results/collapse1/` and
+`results/collapse2_field/`.
+- **Localisation.** Through 0.9 m of rubble (2 storeys), 94–99% of 20 workers are within 2 m (median 0.6–0.7 m).
+  At 5–8 storeys it is 66–81% (median 1.0–1.5 m); in the heaviest rubble 27–55%.
+- **Scaling.** 1 → 20 → 30 workers costs nothing measurable (H2, H6).
+- **Designs.** Ours equals static_2p4 through thin rubble and beats it by 0.27–0.49 L2 through thick rubble. It
+  equals static_868 through thick rubble (H3 fails in 3 of 9 cells, by up to −0.13) and beats it by 0.68–0.74
+  through thin rubble.
+- **Digging order.** Uncertainty-aware ordering (`spt`) gains up to +6.3 expected survivors out of 20 and never
+  loses (H5; H8: 108 of 108).
+- **Battery** (H7 fails for ours). The median crew member lasts 170–243 h on one CR123A, but the 5th percentile
+  lasts 39–127 h, and a lone worker 25–34 h.
+  - The energy goes to UWB: the lone worker spent 319 of 336 J on 512 UWB cycles, and crew worker 1 spent 174 J.
+  - Under rubble, the full design keeps escalating to a tier that cannot get through.
+  - Proposed, not built: a UWB escalation gate that requires UWB reach evidence for the buried device. It is a new
+    mechanism and would need its own registration.
+- **Estimators** (field). joint ≥ tof everywhere and ≥ rss in 3 of 4 cases; coop helps at half coverage (H11).
+  Depth stays at 3.0 m median error, above 3× the CRB (H12 fails).
+- **Stations (COLLAPSE-2 b, H9 holds).** At 8 storeys (central), L2 is 0.52 with 3 stations, 0.66 with 4 and 0.80
+  with 6, on the same 56.45 m ring.
+
+## 46. UWB futility gate (`--uwbFutilityCycles`, default 0 = off; 2026-11-22)
+
+COLLAPSE-3 found the full design spending most of its energy on UWB under rubble (DD 45). The existing evidence
+gate predicts UWB reach from geometry (a finder ranged within the UWB radius). Under rubble that prediction fails:
+the finder is close, but UWB does not get through.
+
+The new gate uses only the device's own radio outcomes (`CaTblPolicy`, all workers):
+- on UWB with no UWB range for K consecutive cycles, it steps down to the entry tier;
+- it then vetoes UWB escalation for a backoff that starts at `--uwbFutilityBackoffS` (60 s), doubles after each
+  futile stay, is capped at 960 s, and resets when UWB works again.
+
+K and the backoff are modelling choices (OURS), stated as such.
+
+Exploratory (seed 901, 8 storeys, central, 600 s):
+
+| Case | Energy, gate off | Energy, gate on | Other effect |
+|---|---|---|---|
+| Lone worker | 98.1 J | 19.5 J | CEP50 2.12 → 1.22 m |
+| 20 workers, hungriest worker | 52.3 J | 19.1 J | CR123A life 53 → 144 h; L2 unchanged at 0.65 |
+
+Gate G181: the lone worker's UWB energy at least halves (93.5 → 15.0 J).
+
+## 47. Depth inside the main simulator (plan B2; `--collapseDepthSolve`, output only; 2026-11-22)
+
+After each `Step()`, every worker's 2.4 GHz and UWB ranges to finders are recorded with the filter's horizontal
+estimate and the finder's published position. At the end of the run, depth below the rescuers' feet is solved
+(`CollapseSolveDepth`).
+- **Model:** r = √(dh² + (1.5 + d)²) + β·d. The 1.5 m carry height is the earlier work's. β = 0.998 m/m is the
+  midpoint of SLOW-BR's published span, with the half-span 0.544 m/m in each range's σ.
+- **Data used:** ranges taken within 5 m horizontally only. Depth is observable only from near-vertical rays (DD 42).
+- **Reporting:** a depth is reported only when its own σ is ≤ 1 m; otherwise NaN, meaning not observable.
+- **Outputs:** `collapse_depth_<arm>_seed<N>.csv`; the World's true depths go to `collapse_truth_*.csv`. Both are
+  digested.
+
+Exploratory (5 storeys, central, 20 workers, 3 seeds, 30 min): 10 of 60 workers resolved, median depth error
+0.69 m, inside the CRB's 0.6–1.8 m.
+- Without β the same geometry gave 1.85 m (time of flight through rubble reads long).
+- A first version that dropped ranges shorter than dh gave 8.5 m (deep bias).
+
+Depth is limited by coverage: two finders rarely stand within 5 m of most of 20 workers.
+
+## 48. The finders' frame inside the main simulator (plan B3; `--finderFrameSolve`, default off; 2026-11-22)
+
+Each finder publishes the position solved from its own time-of-flight ranges, instead of its GNSS fix alone:
+- ranges to the surveyed gateways and to the other finders' published positions;
+- UWB where received (σ 0.10 m), 2.4 GHz otherwise (3.0 m);
+- its GNSS fix as the prior, with the GNSS variance;
+- height from GNSS vertical noise (6.63 m, GPS-SPS-AVG);
+- 8 Gauss-Newton steps.
+
+The ranges are drawn on separate engine instances with the arm's configuration, so they never enter the arm
+engines' interference registry or move any other link.
+
+Off: byte-identical for DD 46–48 together (178 reference files; 614 files against `main`'s binary). Gate G181
+(+ selftest, 3 fixtures). Evaluated in COLLAPSE-4.
+
+**COLLAPSE-4 (2026-11-22; `report/PREREG_COLLAPSE4.md`).**
+- **The UWB futility gate fixes the battery:** the 5th-percentile crew member goes from 36–46 h to 169–193 h, and a
+  lone worker from 25–59 h to 275–291 h on one CR123A (H13, 8/8). Crew localisation does not change (H14, 4/4).
+  A lone worker's L2 falls in 2 of 4 cells (5 seeds), which is reported.
+- **Depth (B2):** resolved for 17–23% of 20 workers in 30 min, median error 0.74 m (H15 holds).
+- **Finder frame (B3):** costs nothing in 3 of 4 cells, −0.13 at 5 storeys low (H16, 3/4).
+
+## 49. Time-of-flight rubble correction in the main simulator (plan B1; `--tofRubbleCorrect`, default off; 2026-11-22)
+
+B1's joint calibration ran only in the link-field estimator (`scripts/collapse/estimate_collapse.py`). This switch
+puts it on the device:
+- **Where:** every 2.4 GHz and UWB range a worker uses. That is 8 call sites: subject polls, subject ranges,
+  tag 0, and both relay legs.
+- **Step 1, excess loss:** the device computes the excess loss of the received power over free space at the
+  measured range (`CaTblTofRssiExcess`, system side: its own Tx power and the arm's propagation law; no World value).
+- **Step 2, rubble delay:** the excess is converted to a rubble delay b = max(0, excess)/ρ, with
+  ρ = A/(n−1) at the SLOW-BR / OES-LAYER midpoints:
+  - 2.44 GHz: 60.27 dB/m, relative half-span 0.0473;
+  - UWB: 136.28 dB/m, relative half-span 0.0260.
+- **Step 3, correction:** the range is shortened by b, with two fixed-point passes and a floor of 0.5 m. The
+  half-span is added to σ in quadrature.
+
+Exploratory (seed 921, 20 workers, central, 1800 s; one seed, not a test):
+
+| Storeys | L2 off | L2 on | Median CEP50 off → on |
+|---|---|---|---|
+| 5 | 0.85 | 0.80 | 1.1 → 1.0 m |
+| 8 | 0.60 | 0.60 | 1.1 → 1.3 m |
+
+The correction does not reproduce the link-field gain inside the full pipeline. The likely cause is that the
+received power at 2.4 GHz and UWB already includes the multipath and shadowing spread, which the field estimator
+averages over 16 points. It is tested in COLLAPSE-5 (H17); no claim is made before then.
+
+## 50. Many devices on air (plan B5; 2026-11-22)
+
+**Still-device slow cycle (`--stillSlowCycle=K`, default 0 = off).**
+- **When it applies:** a buried or stopped worker (the device's own IMU stillness, as in the existing stationary
+  detector) whose current tier is 868 MHz.
+- **What it does:** the worker exchanges only every K-th cycle, staggered by worker id.
+- **On a skipped cycle:** the 868 MHz radio sleeps, the neighbour table is kept, and the policy vetoes escalation
+  for that cycle (`CaTblPolicy::SetQuietCycle`).
+
+Exploratory (5 storeys, central, 20 workers, seed 921, K = 4): 9436 exchanges skipped.
+
+| Measure | Off | K = 4 |
+|---|---|---|
+| L2 | 0.85 | 0.80 |
+| Median energy | 34.8 J | 47.3 J |
+| Cycles with no anchor | 0 | 38% |
+
+**Negative result.** With fewer 868 MHz fixes, the filter's uncertainty grows, and the device escalates on its
+next awake cycle. That costs more than the skipped exchanges save. The switch stays off, and the result is
+reported.
+
+**K-nearest relaying (`--relayChainK=K`, default 0 = the existing full chain).**
+- **What it does:** each holder of a fix relays only to its K nearest neighbours (by its own estimates), so the
+  chain has (n−1)·min(K, n−2) slots instead of refusing crews above about 7.
+- **Exploratory (8 storeys, central, 20 workers, seed 921, futility gate on):** with K = 1 the relay round takes
+  50 ms × 38 = 1.9 s.
+
+| Relaying | L2 | Median CEP50 | Median energy |
+|---|---|---|---|
+| None | 0.60 | 1.1 m | 43.7 J |
+| K = 1 | 0.55 | 1.7 m | 45.5 J |
+
+Relayed ranges add their composed error (RELAYED_RANGING_ERROR_MODEL) and do not beat the workers' own
+868 MHz links at this depth. The schedule now runs for 20 workers; the gain is not shown.
+
+**Station broadcasts against the 10% access-point cap (`scripts/collapse/station_duty.py`).**
+- **Model:** one batched 868 MHz reply per 2.5 s cycle (SF7, 125 kHz, CR 4/5, AN1200.13 time on air), with a
+  13-byte header plus E bytes per worker. E has no source and is swept over 4, 6 and 8 bytes.
+- **Results:**
+  - N = 20: 6.6% / 8.8% / 11.1% duty;
+  - N = 30: 8.8% / 12.3% / 15.8% duty.
+- **Conclusion:** the cap holds for 20 workers at up to 6 bytes each, and for 30 workers only at 4 bytes.
+
+## 51. Estimator baselines, rigidity, planned moves, synthetic gate and the dig decision (plans B4, B6; 2026-11-22)
+
+**`estimate_collapse.py`:**
+- **New baselines:**
+  - `rsstri`: LoRaAid-style 868 MHz RSS trilateration;
+  - `spawn`: SPAWN-type cooperative estimator, Wymeersch 2009, Gaussian message passing on the same links.
+- **Rigidity check in `coop`:** a worker whose links to anchored nodes give a rank-deficient Jacobian (fewer than
+  3 non-collinear neighbours in 3-D with the depth prior) is reported unresolved (NaN), not placed (Eren 2004;
+  Aspnes 2006).
+- **`coop_via`:** marks a worker placed only through other workers.
+- **`--moves dopt`:** the rescuer goes next to the unvisited survey spot, among the 8 nearest, that maximises
+  log det of the information matrix (Joshi & Boyd 2009). This uses the system's current estimates and received
+  links only.
+
+**Gate G182** (`scripts/collapse/synthetic_gate.py`, selftest `scripts/collapse_synthetic_gate_selftest.sh`):
+- noise-free synthetic links from the system's own model;
+- joint B1 recovers position within 0.05 m and C within 0.5 dB; ToF alone is biased by ≥ 0.5 m;
+- coop places a worker heard only through 4 others within 0.10 m;
+- coplanar (2 neighbours) and disconnected workers are refused;
+- the selftest's two faults (rho off by 20%, rank check removed) are both caught.
+
+**Range or dig (`score_dig.py`, B6).** Each minute, the system compares the expected total dig time, from its own
+σ, with its value 5 min earlier. It starts digging when the saving is below the team-time those 5 min cost.
+
+On COLLAPSE-1 seed 801 (20 workers):
+- digging starts at 5–9 min (2 and 5 storeys, and 8 storeys high), or at 30 min (8 storeys central);
+- expected survivors are equal to digging at 30 min in every case.
+
+The survival function (DEBRUY-T2) is a day-scale step, so a 20–25 min earlier start is free time for the teams
+but changes no expected survivor. That is reported as the result.
+
+**COLLAPSE-5 (2026-11-22; `report/PREREG_COLLAPSE5.md`).**
+- **ToF rubble correction (DD 49):** helps once five seeds are pooled. L2 rises by 0.07 / 0.08 (H17 holds); the
+  single exploratory seed above was misleading.
+- **Always-on vs single radios:** always-on gains 0.04–0.05 L2 at 12–13× the energy. 868 MHz alone is within 0.04
+  of ours; UWB alone locates no one.
+- **Stations:** two stations (collinear through the pile) give L2 0.09–0.15. A zero-station run was mis-registered:
+  `--nGateways=0` keeps the default grid.
+- **Crew size:** a crew of 10 is 0.12 worse at 8 storeys.
+- **Field 2.4 GHz error (Mueller):** costs ours 0.11–0.16.
+- **Link-field baselines:** published-type baselines without a rubble term are 16–43 m off. D-optimal moves gain
+  nothing, and height spread does not improve depth.
+- **Range-or-dig rule:** fails (62 of 108); it stops ranging too early.
+
+## 52. No-leak fix for heights under collapse (`--collapseNominalHeights`, default off; 2026-11-22)
+
+**The leak.** An audit of every World access in `scratch/ca_tbl_causal_sim.cc` found one system-side use of World
+truth: DD 28's `HorizontalRange`. Its three call sites (tag 0, subjects, passive tags) passed the nodes' true
+heights.
+- On the open site those are the known 1.5 m carry height and the surveyed mast, so nothing leaked.
+- Under `--collapse`, a buried worker's z is pile height − depth, and a finder's z is its standing height on the
+  pile. Both are World geometry.
+- Every COLLAPSE pipeline campaign ran with `--rangeHeightCorrect=true`.
+- The DD 47 depth solver also took those already-projected ranges.
+
+**The fix.** With the flag, the system projects with the heights it can know: the surveyed mast for gateways
+(ids 101–500), and 1.5 m for every carried device. Everything else in the World access list is World-side:
+- mobility and burial;
+- engine construction;
+- refusals;
+- the field generator;
+- the truth files, written apart.
+
+DD 48's frame solve uses the true position only to draw its measurements. It does still take other finders' heights
+from the truth, which is a small leak, recorded here; the flag does not change it.
+
+**Exploratory (seed 921):** L2 0.60 → 0.55. Re-evaluated in COLLAPSE-6 (`report/PREREG_COLLAPSE6.md`).
+
+**Gate G183** (`scripts/collapse_sim_leak_check.py`): every system-side function the extension added must name no
+World identifier:
+- the functions: `CollapseSolveDepth`, `RelayChainKNearest`, `tofRubbleFix`, the 4-argument `HorizontalRange`;
+- the identifiers: `g_collapse.`, `CollapseBuriedPos`, `CollapseStandZ`, `collapseWorld`, `CaTblRubbleWorld`.
+
+Its selftest plants `g_collapse.pileH` in a copy and must fail.
+
+**COLLAPSE-6 (DD 52 evaluation; `report/PREREG_COLLAPSE6.md`).**
+- **The leak:** it moved L2 by at most ±0.04 in any cell. The COLLAPSE-1 to -5 conclusions stand qualitatively,
+  and the paper's pipeline numbers are now COLLAPSE-6's.
+- **Verdicts that change with the fix:**
+  - the ToF rubble correction's gain falls to +0.04, short of the registered +0.05;
+  - at 5 storeys, always-on is 0.08 better, at 13× the energy;
+  - the lone worker is 0.20 worse than 868 MHz alone (H31 fails), so its UWB gate setting is a trade-off to
+    report, not a free fix.
+
+**DD 48 residual (2026-11-22).** Under `--collapseNominalHeights`, the frame solve now takes a neighbouring finder's
+height from that finder's GNSS height, not its true height. Off, it is unchanged. Re-tested in COLLAPSE-7.
+
+**DD 41 adopted as the global default (owner decision, 2026-11-22).**
+- `--interferenceFrameKey` is now on by default everywhere.
+- Every result recorded before that date ran with it off and reproduces with `PIN_PRE_DD41`
+  (`--interferenceFrameKey=false`, `scripts/preset_pins.sh`).
+- `scripts/merge_identity_check.sh` appends the pin.
+- G180 compares pin-off with the default.
+- Verified: 178 reference files and 614 files against `main`'s binary are byte-identical with the pin.
+- The full suite was re-run under the new default (`~/catbl_work/gates_dd41.log`); gates that reproduce recorded
+  digests and changed are pinned, listed in the handoff.
+
+**Phase 4 (own SX1262/SX1280 through-concrete measurements): out of scope for this paper (owner decision,
+2026-11-22).** It is stated as a limitation and future work.
+
+**Suite under the new DD 41 default (2026-11-22, `~/catbl_work/gates_dd41.log`).**
+- Results: 134 pass; the recorded reds G11, G24 and G93 stay red. **The suite was not re-run after the pins**
+  (correction 2026-11-23); the pinned gates were re-run one by one, and G17b was not.
+- 18 behaviour gates written against the old default failed, because their scenarios relied on subjects that no
+  longer starve:
+  - G17/G17b, G46, G49, G51, G52, G57, G59, G60, G63, G67, G68, G99, G102, G110, G130, G167 (both).
+  - Each is pinned with `--interferenceFrameKey=false` (PIN_PRE_DD41, a comment in each runner), like the DD 19/27
+    pins.
+  - Re-run pinned, all pass, runners and selftests.
+- Two failures were not caused by DD 41, and both are fixed:
+  - G92: the COLLAPSE-5/6/7 run sidecars were added under `results/collapse5/runs_*`;
+  - G158: the estimator options `--frame/--moves/--relative/--rescuers` are now registered as tool options, and the
+    stale scenario-flag prose is corrected.
+
+## 53. Lone-worker rules (`--uwbFutilityLoneMaxBackoffS` DD 53, `--loneStay868` DD 53b; both default off; 2026-11-22)
+
+Follow-up to COLLAPSE-6 H31 (owner decision: design a follow-up). A device is "lone" when its own 868 MHz
+neighbour table holds no other worker's id; this is radio only.
+- **DD 53:** caps the UWB veto backoff while lone. The pilot showed no gain and more energy. It is kept as a flag
+  and is not registered.
+- **DD 53b:** while lone and on 868 MHz, no 2.4 GHz dual-base fusion, and no escalation while 868 MHz gives ≥ 3
+  ranges. Pilot (seeds 931–935): L2 0.60 → 0.80 / 1.00, energy 31 → 18 J and 45 → 20 J. Tested in COLLAPSE-8.
+- **Off:** byte-identical (178 reference files with PIN_PRE_DD41; 614 against `main`).
+
+**COLLAPSE-8 (DD 53b).**
+- H33 4/4, but not discriminating: the configuration without the rule also meets the bound in 4/4 (correction
+  2026-11-23). The L2 effect is mixed (-0.10 to +0.20, steps of 0.10); the battery gain is the measured benefit.
+- H34 3/4: the rule is 0.10 below without it at 5 storeys, low bracket.
+- H35 4/4: the crew is unchanged.
+- H36 4/4: the lone worker lasts 261–510 h.
+- `--loneStay868` is not adopted: a battery option. Its default stays off, so earlier results are unchanged.

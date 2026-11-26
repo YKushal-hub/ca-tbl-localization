@@ -10,7 +10,8 @@ happened (TECH_DEBT 5.3, M.11).
 usage: doc_flags_gate.py [--docs F ...]   (--docs replaces the documents; the fixture uses it)
 """
 import re, sys, glob
-TOOL_OPTIONS = {"analyse", "build", "enable", "strict", "root", "docs", "resume", "require"}
+TOOL_OPTIONS = {"analyse", "build", "enable", "strict", "root", "docs", "resume", "require",
+                "frame", "moves", "relative", "rescuers"}  # the last four: scripts/collapse/estimate_collapse.py, score_collapse.py
 argv = sys.argv[1:]
 docs = argv[argv.index("--docs") + 1:] if "--docs" in argv else ["RULES.md", "docs/DESIGN_DECISIONS.md", "docs/TECH_DEBT_STATUS.md"]
 flags = set()

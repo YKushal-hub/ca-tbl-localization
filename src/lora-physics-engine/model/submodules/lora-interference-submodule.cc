@@ -64,6 +64,7 @@ void InterferenceSubmodule::RegisterActiveTransmission(
     t.txPosition = txPosition;
     t.rxGatewayId = rxGatewayId;
     t.isCanceled = false;
+    t.frameKey = m_frameKey; // DD 41 (0 unless --interferenceFrameKey)
     m_activeRegistry.push_back(t);
     if (m_journalOn)
     {
@@ -160,6 +161,7 @@ double InterferenceSubmodule::ComputeInterferencePenaltyDb(
     // 2. Evaluate active packet-level interference registry
     for (const auto& node : m_activeRegistry) {
         if (node.txNodeId == txNodeId) continue; // Do not self-collide
+        if (m_frameKey != 0 && node.frameKey == m_frameKey) continue; // DD 41: the same physical frame
 
         Time overlapStart = std::max(desiredStartTime, node.startTime);
         Time overlapEnd = std::min(desiredStartTime + desiredAirtime, node.endTime);

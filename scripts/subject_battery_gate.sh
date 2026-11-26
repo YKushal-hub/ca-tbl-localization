@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G67 runner: subjects run the battery fault and its last gasp (--subjectBatteryDeplete;
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # TECH_DEBT N.3, register row 55). What each run is for, and what a firing looks like on
 # disk, is in scripts/subject_battery_gate.py, which reads them.
 #
@@ -23,7 +24,7 @@ run() {
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 run on $B --subjectBatteryDeplete=true &

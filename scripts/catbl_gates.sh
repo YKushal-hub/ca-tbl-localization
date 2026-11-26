@@ -550,7 +550,7 @@ printf '\n--- G17 relay chain wired, A2 and provenance honest (L.1.2) ---\n'
 mkdir -p "$WORK/g17"
 ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized --arms=static_2p4 --seed=7 \
     --duration=600 --trace=false --boxHalf=200 --nTags=4 --relayedRanging=true \
-    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --outdir="$WORK/g17" \
+    --relayChain=true --maxRelayDepth=2 --relayVarBudget=24336 --interferenceFrameKey=false --outdir="$WORK/g17" \
     > "$WORK/g17.log" 2>&1 || gerror G17 "flag-on run exited non-zero"
 python3 scripts/relay_chain_gate.py "$WORK/g17/relay_chain_static_2p4_seed7.csv" || fail G17
 bash scripts/relay_chain_gate_selftest.sh || fail G17
@@ -2014,6 +2014,98 @@ bash scripts/tdoa_timing_gate.sh "$WORK/g168" || fail G168
 bash scripts/tdoa_timing_gate_selftest.sh "$WORK/g168" || fail G168
 finish G168
 
+# ---------------- G169: --benefitLambda / --benefitSkip868, TII-1's mechanism (report/PREREG_PARETO1.md)
+# scripts/benefit_rule_gate.py: lambda 0 is byte-identical to the flags absent; lambda > 0 reaches only fixed_threshold,
+# skips 868 MHz slots, lowers its 868 MHz energy and changes its trace.
+printf '\n--- G169 predicted-benefit hand-off rule ---\n'
+bash scripts/benefit_rule_gate.sh "$WORK/g169" || fail G169
+bash scripts/benefit_rule_gate_selftest.sh "$WORK/g169" || fail G169
+finish G169
+
+# ---------------- G170: TII-3 (--benefitNisInflate, --benefitHeartbeat868N, --benefitSkipNisMax)
+printf '\n--- G170 TII-3 consistency-aware benefit ---\n'
+bash scripts/tii3_gate.sh "$WORK/g170" || fail G170
+bash scripts/tii3_gate_selftest.sh "$WORK/g170" || fail G170
+finish G170
+
+# ---------------- G171: --searchLaunchAtS alone dispatches the party (DD 27's realistic study)
+printf '\n--- G171 overdue alarm ---\n'
+bash scripts/overdue_gate.sh "$WORK/g171" || fail G171
+bash scripts/overdue_gate_selftest.sh "$WORK/g171" || fail G171
+finish G171
+
+# ---------------- G172: --rangeHeightCorrect, mast slant ranges projected to the ground (DD 28)
+printf '\n--- G172 range height correction ---\n'
+bash scripts/height_gate.sh "$WORK/g172" || fail G172
+bash scripts/height_gate_selftest.sh "$WORK/g172" || fail G172
+finish G172
+
+# ---------------- G173: --acquireSideOfRoad, the work area's side of a gateway line (DD 29)
+printf '\n--- G173 side of the gateway line ---\n'
+bash scripts/side_of_road_gate.sh "$WORK/g173" || fail G173
+bash scripts/side_of_road_gate_selftest.sh "$WORK/g173" || fail G173
+finish G173
+
+# ---------------- G174: the search party under a 2.4 GHz-only design (DD 30-32)
+printf '\n--- G174 search party fixes ---\n'
+bash scripts/search_doctrine_gate.sh "$WORK/g174" || fail G174
+bash scripts/search_doctrine_gate_selftest.sh "$WORK/g174" || fail G174
+finish G174
+
+# ---------------- G175: --reacquireSigmaM, a lost filter re-enters particle acquisition (DD 34)
+printf '\n--- G175 re-acquisition ---\n'
+bash scripts/reacquire_gate.sh "$WORK/g175" || fail G175
+bash scripts/reacquire_gate_selftest.sh "$WORK/g175" || fail G175
+finish G175
+
+# ---------------- G176: --incidentRandom, a different incident on every seed (DD 35)
+printf '\n--- G176 randomised incident ---\n'
+bash scripts/incident_gate.sh "$WORK/g176" || fail G176
+bash scripts/incident_gate_selftest.sh "$WORK/g176" || fail G176
+finish G176
+
+# ---------------- G177: collapse extension, World rubble model (DD 36-37)
+printf '\n--- G177 rubble model: values vs source rows, A5 targets, paths, no-leak ---\n'
+bash scripts/rubble_gate.sh "$WORK/g177.out" || fail G177
+bash scripts/rubble_gate_selftest.sh || fail G177
+finish G177
+
+# ---------------- G178: collapse extension, World generator (DD 37)
+printf '\n--- G178 collapse generator: determinism, keyed links, refusals, obs/truth split ---\n'
+bash scripts/collapse_world_gate.sh "$WORK/g178" || fail G178
+bash scripts/collapse_world_gate_selftest.sh || fail G178
+finish G178
+
+# ---------------- G179: --collapse in the main simulator, 20 buried workers and 1 (DD 39)
+printf '\n--- G179 collapse through the full pipeline (N = 20 and N = 1) ---\n'
+bash scripts/collapse_main_gate.sh "$WORK/g179" || fail G179
+bash scripts/collapse_main_gate_selftest.sh || fail G179
+finish G179
+
+# ---------------- G180: --interferenceFrameKey, copies of one broadcast do not collide (DD 41)
+printf '\n--- G180 interference frame key ---\n'
+bash scripts/frame_key_gate.sh "$WORK/g180" || fail G180
+bash scripts/frame_key_gate_selftest.sh || fail G180
+finish G180
+
+# ---------------- G181: DD 46-48 (UWB futility gate, depth B2, finder frame B3)
+printf '\n--- G181 collapse mechanisms: UWB futility gate, depth, finder frame ---\n'
+bash scripts/collapse_mech_gate.sh "$WORK/g181" || fail G181
+bash scripts/collapse_mech_gate_selftest.sh || fail G181
+finish G181
+
+# ---------------- G182: estimators on synthetic truth (B1 exact, B4 exact via neighbours, rigidity refusals)
+printf '\n--- G182 B1 / B4 estimators on synthetic truth ---\n'
+python3 scripts/collapse/synthetic_gate.py || fail G182
+bash scripts/collapse_synthetic_gate_selftest.sh || fail G182
+finish G182
+
+# ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
+printf '\n--- G183 simulator no-leak ---\n'
+python3 scripts/collapse_sim_leak_check.py || fail G183
+bash scripts/collapse_sim_leak_check_selftest.sh || fail G183
+finish G183
+
 # ---------------- G152: --ekf5Window, the sliding-window smoother of the 5-state filter (TECH_DEBT N.62)
 # scripts/window_gate.py reads the 5 km preset, seed 5, the realistic stack, 600 s, the cell N.62 diagnosed: the
 # window solved (> 0) without a failure and took tag 0's median error below the EKF's (measured 10.1 against 215.0 m);
@@ -2288,8 +2380,8 @@ finish G111
 # same run shows ca_tbl_full using tier 2 and the arm reaching UWB, so the zero is not vacuous; the flag at 0 changes no byte;
 # at +30 dB the probe's 868 MHz r80 falls and tiers 2/3 do not move. Negative fixtures in scripts/two_tier_gate_selftest.sh.
 printf '\n--- G167 two-tier arm and tier-1 extra loss ---\n'
-bash scripts/two_tier_gate.sh "$WORK/g167" || fail G167
-bash scripts/two_tier_gate_selftest.sh "$WORK/g167" || fail G167
+bash scripts/two_tier_gate.sh "$WORK/g167b" || fail G167
+bash scripts/two_tier_gate_selftest.sh "$WORK/g167b" || fail G167
 finish G167
 
 # ------------------------------------------------------------------ summary

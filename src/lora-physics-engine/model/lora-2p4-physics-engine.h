@@ -1,6 +1,7 @@
 #ifndef LORA_2P4_PHYSICS_ENGINE_H
 #define LORA_2P4_PHYSICS_ENGINE_H
 
+#include "ns3/ca-tbl-rubble-world.h"
 #include "ns3/object.h"
 #include "ns3/vector.h"
 #include "ns3/nstime.h"
@@ -363,6 +364,11 @@ public:
     // Updates node position dynamically for correct distance and velocity tracking
     void UpdateNodePosition(uint32_t nodeId, Vector newPosition);
     //! TECH_DEBT M.1(b), --relayRoundInSlice: journal the interference registry (see InterferenceSubmodule).
+    //! Collapse extension (World): rubble on every link; nullptr (default) = no rubble,
+    //! and this engine computes exactly what it did before the extension.
+    void SetRubbleWorld(const CaTblRubbleWorld* w) { m_rubble = w; }
+    //! DD 41 --interferenceFrameKey: tag the following evaluations with a physical frame key (0 clears).
+    void SetFrameKey(uint64_t k) { if (m_interference) { m_interference->SetFrameKey(k); } }
     void SetInterferenceJournal(bool on) { if (m_interference) { m_interference->SetJournal(on); } }
     //! Put back the journalled transmissions overlapping [from, to); returns how many.
     uint32_t ReplayInterferenceJournal(Time from, Time to)
@@ -403,6 +409,8 @@ public:
     const LoRa2p4PhysicsConfig& GetConfig() const { return m_config; }
 
 private:
+    const CaTblRubbleWorld* m_rubble = nullptr; //!< collapse extension, World only
+
     LoRa2p4PhysicsConfig m_config;
     LoRaDistributionSampler m_sampler;
     LoRaDistributionSampler m_fadingSampler;

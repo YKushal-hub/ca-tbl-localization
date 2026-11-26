@@ -242,6 +242,11 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     state.nodeOrientationRadians = nodeOrientationRadians;
     state.txPos = txPosition;
     state.rxPos = rxPosition;
+    if (m_rubble) { // collapse extension (World); rows in docs/SOURCES_COLLAPSE.md
+        const CaTblRubblePath rp = m_rubble->Path(m_config.propagation.frequencyHz, txPosition, rxPosition);
+        state.rubbleLossDb = rp.extraLossDb; // DD 37: lowest-loss path (rubble, then air)
+        state.rubbleBiasM = rp.biasM;
+    }
     // P4: Propagate tunnel flag from config so result.isTunnel is correctly set
     state.isTunnel = m_config.tunnel.enabled;
     
@@ -488,6 +493,15 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     if (m_config.ranging.rangeErrorNoLinkLeak) {
         state.propagationLossBiasDb = 0.0;
     }
+    // Collapse extension: RSSI-inversion ranging sees the rubble loss as extra distance,
+    // d' = d * 10^(L / (10 n)). Applied after the link-leak handling, so it changes the
+    // reported range only and does not re-enter the link budget (rubble loss is in tier 3).
+    if (m_rubble && state.rubbleLossDb > 0.0 && m_config.rangingModelMode == RANGING_PHYSICS_DERIVED) {
+        const double n = m_config.propagation.pathLossExponent.mean;
+        state.estimatedRangeM *= std::pow(10.0, state.rubbleLossDb / (10.0 * n));
+        state.rangeErrorM = state.estimatedRangeM - state.trueRangeM;
+        state.positionErrorM = std::abs(state.rangeErrorM);
+    }
 
     // 5. Tapped Delay Line Multipath (Coupling 3: Delay Spread scaled by NLOS)
     double effBw = (bandwidthHz > 0.0 ? bandwidthHz : 125000.0);
@@ -606,6 +620,9 @@ PhysicsResult LoRaPhysicsEngine::ProcessTransmission(
     // Sum Tier 3 losses
     state.soilAttenuationDb = 0.0;
     double tier3LossDb = state.tunnelLossDb + state.soilAttenuationDb;
+    if (m_rubble) {
+        tier3LossDb += state.rubbleLossDb;
+    }
                          
     multipathPenaltyDb = 0.0;
     

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G57 runner: the requester drives escalation (docs/SPEC_CONFORMANCE_PLAN.md TA-2,
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # --requesterEscalation). What each run is for, and what a firing looks like on disk, is in
 # scripts/reqesc_gate.py, which reads them.
 #
@@ -28,7 +29,7 @@ run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit 
     shift
     mkdir -p "$D/$n"
     # shellcheck disable=SC2068
-    "$BIN" $@ --outdir="$D/$n" > "$D/$n.log" 2>&1
+    "$BIN" $@ --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1
     echo $? > "$D/$n.rc"
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # G102 runner: --ekf5StateBounds, estimate projection of the gyro bias and stride scale onto +/- k prior sigmas.
+# PIN_PRE_DD41 (2026-11-22): written against --interferenceFrameKey off (the default until DD 41 was adopted); pinned so it tests what it was written to test.
 # What each run is for, and what a firing looks like on disk, is in scripts/state_bounds_gate.py.
 #
 # on/base  5 km, seed 12, unknown start, the realistic world (0.15 deg/s, 5 % stride, 2 m finder GNSS), ekf5,
@@ -15,7 +16,7 @@ if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDI
 # PIN (DESIGN_DECISIONS 18, 2026-10-20): this gate's thresholds were set before the preset adopted the receiver
 # corrections; the two flags restore the receiver it was written against, as G63/G87/G89 pin theirs.
 P="--specProfile=true $PIN_PRE_DD19 --seed=12 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --finderPosSigma=2 --imuFilter=ekf5 --imuMagSigmaDeg=3 --ekf5FinderConsider=true --ekf5RelayGate=true --reportAirtime=true --arms=ca_tbl_full --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
-run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
+run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --interferenceFrameKey=false --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
 # shellcheck disable=SC2086
 run on $P --duration=1800 --ekf5StateBounds=4 &
 # shellcheck disable=SC2086

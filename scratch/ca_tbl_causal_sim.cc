@@ -110,6 +110,7 @@ extern uint64_t g_foliageDepthClampFirings;
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <deque>
@@ -658,6 +659,8 @@ CaTblNlosFlag(CaTblNlosSource src, double nlosDb, bool propNlos, uint32_t hidden
  *    received 0 from this scenario. Any per-hop degradation the engines model now
  *    actually engages on relayed frames.
  */
+static bool FrameKeyOn(); // DD 41, reads g_interferenceFrameKey
+
 class EnginePhyProvider : public CaTblPhyProvider
 {
   public:
@@ -891,12 +894,34 @@ class EnginePhyProvider : public CaTblPhyProvider
                                    double txPowerDbm,
                                    const CaTblHeader& hdr) override
     {
+        // DD 41 --interferenceFrameKey: every receiver's evaluation of this frame shares one key.
+        const bool keyed = FrameKeyOn();
+        if (keyed)
+        {
+            const uint64_t key = 1u + ((static_cast<uint64_t>(txId) << 48) ^
+                                       (static_cast<uint64_t>(static_cast<int>(tier) + 1) << 44) ^
+                                       static_cast<uint64_t>(Simulator::Now().GetNanoSeconds()));
+            m_e868.SetFrameKey(key);
+            m_e2p4.SetFrameKey(key);
+            m_eUwb.SetFrameKey(key);
+        }
+        CaTblLinkOutcome o;
         if (hdr.GetMsgType() == CA_TBL_MSG_GRANT_GOSSIP && !m_gossipAnchors.empty() &&
             m_gossipAnchors.count(txId) != 0 && m_gossipAnchors.count(rxId) != 0)
         {
-            return EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+            o = EvaluateAnchorPair(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
         }
-        return Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+        else
+        {
+            o = Evaluate(txId, rxId, tier, txPowerDbm, hdr.GetHopsTraversed());
+        }
+        if (keyed)
+        {
+            m_e868.SetFrameKey(0);
+            m_e2p4.SetFrameKey(0);
+            m_eUwb.SetFrameKey(0);
+        }
+        return o;
     }
 
     //! L.1.4. Admit a gateway to the anchor-to-anchor gossip link class. Called only
@@ -1715,6 +1740,8 @@ struct ArmResult
  * sites -- a perfectly straight approach would give the constant-velocity filter
  * an unrealistically easy prediction and flatter every arm equally.
  */
+static double CollapseStandZ(double x, double y); // DD 39, defined with g_collapse
+
 class Tourist
 {
   public:
@@ -1776,6 +1803,26 @@ class Tourist
         m_elapsed = 0.0;
     }
 
+    /** DD 35 --incidentRandom: a trail from wherever the walker is placed, on heading \p hdg0 (rad, CCW from east);
+     *  at \p deviateAtS it turns by \p turn (rad) and holds that bearing; \p stopAfterS later it stops. Walking at
+     *  the walker's speed throughout; the box edge reflects the heading instead of pinning the walker to it. */
+    void SetIncident(double hdg0, double deviateAtS, double turn, double stopAfterS)
+    {
+        m_trail = true;
+        m_incident = true;
+        m_incHdg = hdg0;
+        m_incTurn = turn;
+        m_deviateAtS = deviateAtS;
+        m_stopAfterS = stopAfterS;
+        m_elapsed = 0.0;
+    }
+    bool m_buried = false;  //!< DD 39
+    double m_buriedZ = 1.5; //!< DD 39
+    bool m_incident = false;
+    bool m_incTurned = false;
+    double m_incHdg = 0.0;
+    double m_incTurn = 0.0;
+
     //! Has the walker left the trail? The demo needs the moment, not just the track.
     double m_deviateSide = -1.0;
     bool HasDeviated() const { return m_trail && m_elapsed >= m_deviateAtS; }
@@ -1786,12 +1833,38 @@ class Tourist
 
     void Step(double dt)
     {
+        if (m_buried) // DD 39: trapped, does not move
+        {
+            return;
+        }
         if (m_trail)
         {
             m_elapsed += dt;
             if (HasStopped())
             {
                 return; // sat down, and this is the case that defeats searching
+            }
+            if (m_incident) // DD 35
+            {
+                if (!m_incTurned && m_elapsed >= m_deviateAtS)
+                {
+                    m_incHdg += m_incTurn;
+                    m_incTurned = true;
+                }
+                m_x += m_speed * dt * std::cos(m_incHdg);
+                m_y += m_speed * dt * std::sin(m_incHdg);
+                const double lim = 0.98 * m_boxHalf;
+                if (m_x > lim || m_x < -lim)
+                {
+                    m_x = (m_x > lim) ? 2.0 * lim - m_x : -2.0 * lim - m_x;
+                    m_incHdg = M_PI - m_incHdg;
+                }
+                if (m_y > lim || m_y < -lim)
+                {
+                    m_y = (m_y > lim) ? 2.0 * lim - m_y : -2.0 * lim - m_y;
+                    m_incHdg = -m_incHdg;
+                }
+                return;
             }
             if (m_elapsed < m_deviateAtS)
             {
@@ -1892,7 +1965,20 @@ class Tourist
         Clamp();
     }
 
-    Vector Position() const { return Vector(m_x, m_y, 1.5); }
+    //! DD 39 --collapse: a buried worker, still from t = 0 at (x, y, z). Off: never called.
+    void Bury(double x, double y, double z)
+    {
+        m_buried = true;
+        m_x = x;
+        m_y = y;
+        m_buriedZ = z;
+    }
+    bool IsBuried() const { return m_buried; }
+
+    Vector Position() const
+    {
+        return Vector(m_x, m_y, m_buried ? m_buriedZ : CollapseStandZ(m_x, m_y));
+    }
 
   private:
     void PickTarget()
@@ -2166,6 +2252,55 @@ CoherentGainDb(CaTblTier tier, uint8_t sf, double uwbPreambleSymbols)
 // built by a macro expanded at several call sites and a macro cannot see a
 // local; it is written once, after cmd.Parse(), and read-only thereafter.
 static bool g_terrainPerTierFreq = false;
+
+// --rangeHeightCorrect (DD 28). The filter estimates horizontal position and reads every range as horizontal,
+// while the engines measure the slant range between a surveyed mast (15 m) and a device carried at 1.5 m. Both
+// heights are known, so the device can project the range onto the ground: sqrt(max(r^2 - dh^2, 0)). Peers and
+// finders carry their device at the same height (dh = 0), so only mast anchors move. Off (the default) returns r
+// unchanged, byte-identical to every earlier result. Written once after cmd.Parse(), read at the three sites
+// that turn an anchor range into a CaTblRangeMeasurement (tag 0, subjects, passive tags).
+static bool g_rangeHeightCorrect = false;
+static uint64_t g_rangeHeightCorrected = 0;
+
+// --collapseNominalHeights (no-leak fix, 2026-11-22). Under --collapse the three HorizontalRange sites passed the
+// nodes' TRUE heights: a buried worker's depth and a finder's height on the pile are World truth, which the system
+// must not see (rule: radio, IMU and GPS only). With this flag the system uses the heights it can know: a gateway's
+// surveyed mast height (ids 101-500), and the nominal 1.5 m carry height (the earlier work's FieldNode convention)
+// for every carried device -- the worker itself and any finder or peer. Default off = byte-identical.
+static bool g_collapseNominalHeights = false;
+static uint64_t g_collapseNominalApplied = 0;
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ, uint32_t anchorId);
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ)
+{
+    if (!g_rangeHeightCorrect)
+    {
+        return r;
+    }
+    const double dh = anchorZ - nodeZ;
+    if (dh == 0.0)
+    {
+        return r;
+    }
+    ++g_rangeHeightCorrected;
+    const double h2 = r * r - dh * dh;
+    return h2 > 0.0 ? std::sqrt(h2) : 0.0;
+}
+
+static double
+HorizontalRange(double r, double anchorZ, double nodeZ, uint32_t anchorId)
+{
+    if (g_collapseNominalHeights && g_rangeHeightCorrect)
+    {
+        ++g_collapseNominalApplied;
+        const bool surveyed = anchorId >= 101 && anchorId <= 500; // gateways: surveyed masts
+        return HorizontalRange(r, surveyed ? anchorZ : 1.5, 1.5);
+    }
+    return HorizontalRange(r, anchorZ, nodeZ);
+}
 //! B3f --foliageDepthClamp (report/FOLIAGE_DEPTH_DEFECT.md): false (default) keeps the drawn depth.
 static bool g_foliageDepthClamp = false;
 //! C4 --foliageP833 (scope 2026-10-17): forest foliage gamma and Am from ITU-R P.833-10 at each band's carrier.
@@ -2526,6 +2661,150 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
+static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
+static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
+//! DD 39 --collapse: the collapse World (DD 36-37) inside the full pipeline. Off: nothing below is read.
+struct CaTblCollapseCfg
+{
+    bool on = false;
+    double footX = std::nan("");    //!< pile footprint along x, m, centred on the origin
+    double footY = std::nan("");    //!< pile footprint along y, m
+    double pileH = std::nan("");    //!< pile height, m (row PILE-ALPHA x intact height)
+    double depthMin = std::nan(""); //!< least rubble above a buried device, m
+    double depthMax = std::nan(""); //!< most rubble above a buried device, m
+    std::string bracket = "central"; //!< rubble bracket (DD 36)
+    // DD 40 --collapseField: the link field (obs/truth files) drawn with the preset's engines instead of a run.
+    bool field = false;
+    uint32_t fieldVictims = 0;          //!< buried devices (worker k at CollapseBuriedPos(seed, k))
+    double gridStep = std::nan("");     //!< spacing of candidate rescuer points on the pile top, m
+    std::string holdHeights;            //!< device heights above the top, m, comma list
+    uint32_t stations = 0;              //!< ground stations on a ring around the pile
+    double stationR = std::nan("");     //!< ring radius, m (row NIOSH-CZ: half footprint + 1.5 x intact height)
+    double stationH = std::nan("");     //!< station antenna height, m
+    uint32_t slots = 0;                 //!< time slots
+    double slotS = std::nan("");        //!< slot length, s
+    double gpsSigmaH = std::nan("");    //!< rows GPS-SPS-*
+    double gpsSigmaV = std::nan("");
+    double localSigma = std::nan("");   //!< rescuer local-frame error per axis (UWB LOS floor)
+    bool rubbleOff = false;             //!< same geometry and keyed draws without the pile (VAL-*)
+    double pointLinksM = 0.0;           //!< DD 44: also draw rescuer point-to-point links within this radius (0 = none)
+};
+static CaTblCollapseCfg g_collapse;
+//! DD 41 --interferenceFrameKey: one physical frame, evaluated once per receiver, is one entry-group in the
+//! engines' interference registry, so its copies at other receivers do not collide with it. Off: no key is set.
+static bool g_interferenceFrameKey = true; // DD 41 adopted as the global default (owner decision 2026-11-22)
+//! DD 43 --phase0Timing: host CPU time spent in the workers' own estimation (CaTblPolicy::Step: the filter,
+//! smoother, particle acquisition, escalation logic), for the on-worker compute decision. Off: no clock is read.
+//! DD 47 --collapseDepthSolve (B2): each worker's depth below the rescuers' feet from its own ToF ranges to finders.
+static bool g_collapseDepthSolve = false;
+struct CollapseDepthObs
+{
+    double dh;    //!< horizontal distance, filter estimate to the finder's reported position
+    double r;     //!< the ToF range
+    double sigma; //!< its sigma
+};
+//! System side: rescuers hold their device kHold above where they stand on the pile, and a worker lies below them;
+//! the range satisfies r^2 = dh^2 + (kHold + d)^2. Robust (Huber, 2 sigma) 1-D search over d in [0, 10] m, 1 cm steps.
+//! Returns d and a curvature sigma; NaN when fewer than 3 usable ranges.
+static void CollapseSolveDepth(const std::vector<CollapseDepthObs>& obs, double& dOut, double& sdOut)
+{
+    const double kHold = 1.5; // the device's carry height (FieldNode::Position, the earlier work's 1.5 m)
+    dOut = sdOut = std::nan("");
+    // Depth is observable only from near-vertical rays (DD 42's bound: from 5 m away a 3 m-sigma range carries
+    // little depth information). Only ranges taken within 5 m horizontally are used; none is dropped for being
+    // shorter than the horizontal distance, which would bias the solve deep.
+    std::vector<CollapseDepthObs> ok;
+    for (const auto& o : obs)
+    {
+        if (o.dh <= 5.0)
+        {
+            ok.push_back(o);
+        }
+    }
+    if (ok.size() < 3)
+    {
+        return;
+    }
+    // The range through d metres of pile reads long by beta * d (slowing per metre of pile). The system does not
+    // know the rubble, so beta is the midpoint of the published span, rows SLOW-BR: (0.454 + 1.541) / 2 = 0.998 m/m,
+    // and the half-span 0.544 m/m enters each range's sigma as 0.544 * d (generic prior, not a World value).
+    const double kBeta = 0.5 * (0.454039 + 1.541129);
+    const double kBetaHalf = 0.5 * (1.541129 - 0.454039);
+    auto cost = [&](double d) {
+        double c = 0.0;
+        for (const auto& o : ok)
+        {
+            const double sg = std::sqrt(o.sigma * o.sigma + (kBetaHalf * d) * (kBetaHalf * d));
+            const double e = (std::sqrt(o.dh * o.dh + (kHold + d) * (kHold + d)) + kBeta * d - o.r) / sg;
+            c += (std::abs(e) <= 2.0) ? 0.5 * e * e : 2.0 * std::abs(e) - 2.0;
+        }
+        return c;
+    };
+    double best = 0.0, bc = cost(0.0);
+    for (double d = 0.01; d <= 10.0; d += 0.01)
+    {
+        const double c = cost(d);
+        if (c < bc)
+        {
+            bc = c;
+            best = d;
+        }
+    }
+    const double h = 0.05;
+    const double curv = (cost(best + h) - 2.0 * bc + cost(std::max(0.0, best - h))) / (h * h);
+    sdOut = (curv > 0.0) ? 1.0 / std::sqrt(curv) : std::nan("");
+    // Reported only when the system's own uncertainty says the depth is resolved (sd <= 1 m); otherwise
+    // "not observable" (NaN), which is the honest output for a worker no rescuer has stood over.
+    dOut = (std::isfinite(sdOut) && sdOut <= 1.0) ? best : std::nan("");
+}
+//! DD 48 --finderFrameSolve (plan B3): each finder's published position solved from its own ToF ranges to the
+//! surveyed gateways and the other finders, with its GNSS fix as the prior, instead of the GNSS fix alone.
+static bool g_finderFrameSolve = false;
+//! DD 49 --tofRubbleCorrect (plan B1 inside the filter): a ToF range's rubble delay is removed using the link's
+//! own excess loss over the deployment's nominal path loss (CaTblTofRssiExcess, the NLOS classifier's residual):
+//! r' = r - E / rho, rho the rubble's loss-to-delay ratio at the published-span midpoint, its spread in sigma.
+static bool g_tofRubbleCorrect = false;
+static uint64_t g_tofRubbleCorrected = 0;
+//! DD 50 --stillSlowCycle=K (plan B5): a worker whose own motion sensor reports it still (buried, or stopped) and whose
+//! policy is on 868 MHz makes its ranging exchange only every K-th cycle; the filter coasts in between. 0/1 = off.
+static uint32_t g_stillSlowCycle = 0;
+static uint64_t g_stillSkipped = 0;
+static uint32_t g_uwbFutilityCycles = 0;     //!< DD 46
+static double g_uwbFutilityBackoffS = 60.0;  //!< DD 46
+static double g_uwbFutilityLoneMaxBackoffS = 0.0; //!< DD 53 (OURS; 0 = off)
+static bool g_loneStay868 = false; //!< DD 53b (OURS)
+static bool g_phase0Timing = false;
+static double g_phase0StepS = 0.0;
+static uint64_t g_phase0Steps = 0;
+static bool FrameKeyOn()
+{
+    return g_interferenceFrameKey;
+}
+//! Height of a carried device standing at (x, y): 1.5 m above the ground, or above the pile's top inside its
+//! footprint under --collapse. Off: 1.5 everywhere, the value every earlier result used.
+static double CollapseStandZ(double x, double y)
+{
+    if (g_collapse.on && std::abs(x) <= 0.5 * g_collapse.footX && std::abs(y) <= 0.5 * g_collapse.footY)
+    {
+        return g_collapse.pileH + 1.5;
+    }
+    return 1.5;
+}
+//! DD 39: where buried worker \p index (0 = the measured tag) lies. Its own stream per seed and index, so worker k
+//! is at the same place whatever --nTags is (the 1-worker run is worker 0 of the 20-worker run), and no other
+//! stream moves. (x, y) uniform in the footprint (0.5 m margin), depth uniform in [depthMin, depthMax].
+static Vector CollapseBuriedPos(uint32_t seed, uint32_t index)
+{
+    std::mt19937_64 g(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0xC011A95EULL + 7919ULL * index);
+    std::uniform_real_distribution<double> u(0.0, 1.0);
+    const double hx = 0.5 * g_collapse.footX - 0.5;
+    const double hy = 0.5 * g_collapse.footY - 0.5;
+    const double x = (2.0 * u(g) - 1.0) * hx;
+    const double y = (2.0 * u(g) - 1.0) * hy;
+    const double d = g_collapse.depthMin + u(g) * (g_collapse.depthMax - g_collapse.depthMin);
+    return Vector(x, y, g_collapse.pileH - d);
+}
 static double g_ekf5FinderConsiderVar = 4.0; //!< the finder offset variance it carries
 
 //! DC-1's parameters, with the --imuGyroBiasSigmaDps override applied when given.
@@ -2848,6 +3127,250 @@ CaTblGatewayLayout(const std::string& layout, uint32_t n, double boxHalfM, doubl
         why = "unknown --gwLayout '" + layout + "'";
     }
     return pts;
+}
+
+/**
+ * DD 40 --collapseField: the collapse link field with the preset's engines.
+ *
+ * Same output as scratch/ca_tbl_collapse_sim.cc (obs_links.csv, obs_anchors.csv, truth_victims.csv,
+ * truth_anchors.csv, truth_links.csv, run.txt), but every engine is configured by CA_TBL_MAKE_CONFIGS exactly as
+ * in an arm, so the preset's physics switches apply (rangeErrorNoLinkLeak, rssiRangeFromShadowing, nlosRangeBias,
+ * iqOverloadOnly, uwbMode, t2SensitivityRowKHz, terrainPerTierFreq, fadingPerBand, rngKeyed, ...). Buried devices
+ * lie where the full runs put them (CollapseBuriedPos). Link outcomes mean "scheduled alone": the interference
+ * registry is off; contention is the full run's job. Estimation never happens here (World side).
+ */
+static int
+RunCollapseField(EnvironmentClass envWide, EnvironmentClass envFacility, uint32_t seed, VegetationType vegWide,
+                 VegetationType vegFacility, const TierPhy phy[CA_TBL_TIER_COUNT], const std::string& outdir)
+{
+    const CaTblCollapseCfg& C = g_collapse;
+    std::vector<double> holds;
+    {
+        std::stringstream ss(C.holdHeights);
+        std::string tok;
+        while (std::getline(ss, tok, ','))
+        {
+            if (!tok.empty())
+            {
+                holds.push_back(std::stod(tok));
+            }
+        }
+    }
+    if (C.fieldVictims == 0 || !std::isfinite(C.gridStep) || C.gridStep <= 0.0 || holds.empty() || C.slots == 0 ||
+        !std::isfinite(C.slotS) || !std::isfinite(C.gpsSigmaH) || !std::isfinite(C.gpsSigmaV) ||
+        !std::isfinite(C.localSigma) || (C.stations > 0 && (!std::isfinite(C.stationR) || !std::isfinite(C.stationH))))
+    {
+        std::cerr << "FATAL: --collapseField needs --collapseFieldVictims, --collapseGridStep, --collapseHoldHeights, "
+                     "--collapseSlots, --collapseSlotS, --collapseGpsSigmaH/V, --collapseLocalSigma (and with "
+                     "--collapseStations > 0, --collapseStationR and --collapseStationH)\n";
+        return 1;
+    }
+    RngSeedManager::SetSeed(seed);
+    RngSeedManager::SetRun(1);
+    RngSeedManager::ResetNextStreamIndex();
+    LoRaDistributionSampler::SetKeyedMode(true, seed);
+    CA_TBL_MAKE_CONFIGS(envWide, envFacility, seed, vegWide, vegFacility, c868, c2p4, cUwb)
+    c868.interference.enabled = false;
+    c2p4.interference.enabled = false;
+    cUwb.interference.enabled = false;
+    LoRaPhysicsEngine e868;
+    e868.Initialize(c868);
+    LoRa2p4PhysicsEngine e2p4;
+    e2p4.Initialize(c2p4);
+    LoRaUWBPhysicsEngine eUwb;
+    eUwb.Initialize(cUwb);
+    CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
+    ParseRubbleBracket(C.bracket, br);
+    CaTblRubbleWorld world(br);
+    world.AddRubble(Vector(-0.5 * C.footX, -0.5 * C.footY, 0.0), Vector(0.5 * C.footX, 0.5 * C.footY, C.pileH));
+    if (!C.rubbleOff)
+    {
+        e868.SetRubbleWorld(&world);
+        e2p4.SetRubbleWorld(&world);
+        eUwb.SetRubbleWorld(&world);
+    }
+    struct FPt
+    {
+        uint32_t id;
+        Vector p;
+    };
+    std::vector<FPt> vic, pts, sts;
+    for (uint32_t k = 0; k < C.fieldVictims; ++k)
+    {
+        vic.push_back({1 + k, CollapseBuriedPos(seed, k)});
+    }
+    uint32_t pid = 10000;
+    for (double x = -0.5 * C.footX + 0.5 * C.gridStep; x < 0.5 * C.footX; x += C.gridStep)
+    {
+        for (double y = -0.5 * C.footY + 0.5 * C.gridStep; y < 0.5 * C.footY; y += C.gridStep)
+        {
+            for (double h : holds)
+            {
+                pts.push_back({pid++, Vector(x, y, C.pileH + h)});
+            }
+        }
+    }
+    for (uint32_t k = 0; k < C.stations; ++k)
+    {
+        const double a = 2.0 * M_PI * k / C.stations;
+        sts.push_back({20000 + k, Vector(C.stationR * std::cos(a), C.stationR * std::sin(a), C.stationH)});
+    }
+    auto reg = [&](const FPt& q) {
+        e868.RegisterGateway(q.id, q.p, true);
+        e2p4.RegisterGateway(q.id, q.p, true);
+        eUwb.RegisterGateway(q.id, q.p, true);
+        e868.RegisterNode(q.id, q.p);
+        e2p4.RegisterNode(q.id, q.p);
+        eUwb.RegisterNode(q.id, q.p);
+    };
+    for (auto* v : {&vic, &pts, &sts})
+    {
+        for (const auto& q : *v)
+        {
+            reg(q);
+        }
+    }
+    {
+        std::ofstream t(outdir + "/truth_victims.csv");
+        t << "id,x,y,z,depth_m,in_void\n" << std::fixed << std::setprecision(4);
+        for (const auto& v : vic)
+        {
+            t << v.id << "," << v.p.x << "," << v.p.y << "," << v.p.z << "," << (C.pileH - v.p.z) << ",0\n";
+        }
+        std::ofstream ta(outdir + "/truth_anchors.csv");
+        std::ofstream oa(outdir + "/obs_anchors.csv");
+        ta << "id,kind,x,y,z\n" << std::fixed << std::setprecision(4);
+        oa << "id,kind,gps_x,gps_y,gps_z,sigma_h,sigma_v,loc_x,loc_y,loc_z,sigma_loc\n" << std::fixed
+           << std::setprecision(4);
+        std::mt19937_64 grng(0xD1B54A32D192ED03ULL ^ static_cast<uint64_t>(seed));
+        std::mt19937_64 lrng(0xA0761D6478BD642FULL ^ static_cast<uint64_t>(seed));
+        std::normal_distribution<double> N01(0.0, 1.0);
+        auto put = [&](const FPt& q, const char* kind) {
+            ta << q.id << "," << kind << "," << q.p.x << "," << q.p.y << "," << q.p.z << "\n";
+            const double gx = q.p.x + C.gpsSigmaH * N01(grng), gy = q.p.y + C.gpsSigmaH * N01(grng),
+                         gz = q.p.z + C.gpsSigmaV * N01(grng);
+            oa << q.id << "," << kind << "," << gx << "," << gy << "," << gz << "," << C.gpsSigmaH << ","
+               << C.gpsSigmaV << "," << q.p.x + C.localSigma * N01(lrng) << "," << q.p.y + C.localSigma * N01(lrng)
+               << "," << q.p.z + C.localSigma * N01(lrng) << "," << C.localSigma << "\n";
+        };
+        for (const auto& q : pts)
+        {
+            put(q, "point");
+        }
+        for (const auto& q : sts)
+        {
+            put(q, "station");
+        }
+    }
+    std::ofstream ol(outdir + "/obs_links.csv");
+    ol << "slot,t_s,band,tx,rx,received,rx_dbm,snr_db,range_m\n" << std::fixed << std::setprecision(4);
+    std::ofstream tl(outdir + "/truth_links.csv");
+    tl << "band,tx,rx,dist_m,path_kind,path_len_m,rubble_m,extra_db,bias_m\n" << std::fixed << std::setprecision(4);
+    std::ofstream td(outdir + "/truth_draws.csv"); // World: engine total loss per draw (VAL-1)
+    td << "slot,band,tx,rx,total_loss_db\n" << std::fixed << std::setprecision(4);
+    const char* kBand[3] = {"868", "2400", "uwb"};
+    const double kF[3] = {c868.propagation.frequencyHz, c2p4.propagation.frequencyHz, cUwb.propagation.frequencyHz};
+    bool truthWritten = false;
+    uint64_t draws = 0;
+    auto draw = [&](uint32_t slot, int b, const FPt& tx, const FPt& rx) {
+        const Time now = Simulator::Now();
+        bool ok = false;
+        double rxDbm = 0, snr = 0, rng = 0, tot = 0;
+        if (b == 0)
+        {
+            PhysicsResult r = e868.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[0].txPowerDbm, phy[0].sf,
+                                                       phy[0].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        else if (b == 1)
+        {
+            PhysicsResult2p4 r = e2p4.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[1].txPowerDbm, phy[1].sf,
+                                                          phy[1].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        else
+        {
+            PhysicsResultUWB r = eUwb.ProcessTransmission(tx.id, rx.id, tx.p, rx.p, phy[2].txPowerDbm, phy[2].sf,
+                                                          phy[2].bandwidthHz, 0, now);
+            ok = r.packetReceived; rxDbm = r.rxPowerDbm; snr = r.snr_db; rng = r.estimatedRangeM; tot = r.totalLossDb;
+        }
+        ++draws;
+        ol << slot << "," << now.GetSeconds() << "," << kBand[b] << "," << tx.id << "," << rx.id << "," << (ok ? 1 : 0)
+           << "," << rxDbm << "," << snr << ",";
+        if (ok)
+        {
+            ol << rng;
+        }
+        ol << "\n";
+        td << slot << "," << kBand[b] << "," << tx.id << "," << rx.id << "," << tot << "\n";
+        if (!truthWritten)
+        {
+            const CaTblRubblePath rp = world.Path(kF[b], tx.p, rx.p);
+            const double dx = tx.p.x - rx.p.x, dy = tx.p.y - rx.p.y, dz = tx.p.z - rx.p.z;
+            tl << kBand[b] << "," << tx.id << "," << rx.id << "," << std::sqrt(dx * dx + dy * dy + dz * dz) << ","
+               << rp.kind << "," << rp.lengthM << "," << rp.rubbleM << "," << rp.extraLossDb << "," << rp.biasM << "\n";
+        }
+    };
+    for (uint32_t sl = 0; sl < C.slots; ++sl)
+    {
+        Simulator::Schedule(Seconds(C.slotS * sl), [&, sl]() {
+            for (int b = 0; b < 3; ++b)
+            {
+                for (const auto& v : vic)
+                {
+                    for (const auto& q : pts)
+                    {
+                        draw(sl, b, v, q);
+                    }
+                    for (const auto& q : sts)
+                    {
+                        draw(sl, b, v, q);
+                    }
+                }
+                for (const auto& q : pts)
+                {
+                    for (const auto& st : sts)
+                    {
+                        draw(sl, b, q, st);
+                    }
+                }
+                for (size_t i = 0; i < vic.size(); ++i)
+                {
+                    for (size_t j = i + 1; j < vic.size(); ++j)
+                    {
+                        draw(sl, b, vic[i], vic[j]);
+                    }
+                }
+                if (C.pointLinksM > 0.0) // DD 44: rescuers ranging each other (the rescuer frame, B3)
+                {
+                    for (size_t i = 0; i < pts.size(); ++i)
+                    {
+                        for (size_t j = i + 1; j < pts.size(); ++j)
+                        {
+                            const double dx = pts[i].p.x - pts[j].p.x, dy = pts[i].p.y - pts[j].p.y;
+                            if (std::sqrt(dx * dx + dy * dy) <= C.pointLinksM)
+                            {
+                                draw(sl, b, pts[i], pts[j]);
+                            }
+                        }
+                    }
+                }
+            }
+            truthWritten = true;
+        });
+    }
+    Simulator::Run();
+    Simulator::Destroy();
+    std::ofstream rp(outdir + "/run.txt");
+    rp << "ca_tbl_causal_sim --collapseField seed=" << seed << " bracket=" << C.bracket
+       << " rubble=" << (C.rubbleOff ? "off" : "on") << " footX=" << C.footX << " footY=" << C.footY
+       << " pileH=" << C.pileH << " nVictims=" << C.fieldVictims << " depth=[" << C.depthMin << "," << C.depthMax
+       << "] gridStep=" << C.gridStep << " holdHeights=" << C.holdHeights << " nStations=" << C.stations
+       << " stationR=" << C.stationR << " slots=" << C.slots << " slotS=" << C.slotS << " gpsSigmaH=" << C.gpsSigmaH
+       << " gpsSigmaV=" << C.gpsSigmaV << " localSigma=" << C.localSigma << "\n"
+       << "points=" << pts.size() << " stations=" << sts.size() << " draws=" << draws << "\n";
+    std::cout << "COLLAPSE-FIELD draws=" << draws << " points=" << pts.size() << " victims=" << vic.size() << "\n";
+    return 0;
 }
 
 /**
@@ -3812,6 +4335,36 @@ struct CaTblTagState
  * Off -- --relaySlots=false, or any run without a relay to schedule -- this is never
  * constructed: every instant is `now` and every charge time `t`.
  */
+//! DD 50 --relayChainK=K (plan B5): each relay exchanges with only its K nearest fix holders (by the two nodes' own
+//! estimates), so the round reserves (n - 1) K chain slots instead of (n - 1)(n - 2). 0 (default) = all.
+static uint32_t g_relayChainK = 0;
+//! The K nearest fix holders to relay b by the nodes' own position estimates (system side). Empty = no limit.
+template <typename Tags, typename Fix>
+static std::set<size_t> RelayChainKNearest(const Tags& tags, const Fix& fixThisCycle, size_t b, size_t n)
+{
+    std::set<size_t> keep;
+    if (g_relayChainK == 0)
+    {
+        return keep;
+    }
+    std::vector<std::pair<double, size_t>> d;
+    for (size_t c = 1; c < n; ++c)
+    {
+        if (c != b && fixThisCycle[c])
+        {
+            d.push_back({std::hypot(tags[b].policy.EstX() - tags[c].policy.EstX(),
+                                    tags[b].policy.EstY() - tags[c].policy.EstY()), c});
+        }
+    }
+    std::sort(d.begin(), d.end());
+    for (size_t k = 0; k < d.size() && k < g_relayChainK; ++k)
+    {
+        keep.insert(d[k].second);
+    }
+    keep.insert(static_cast<size_t>(-1)); // marks "a limit is in force"
+    return keep;
+}
+
 struct RelayRound
 {
     RelayRound(uint32_t nTags, bool chain, double slotS);
@@ -3842,7 +4395,9 @@ RelayRound::RelayRound(uint32_t nTags, bool chain, double s)
     : slotS(s),
       slotNs(static_cast<uint64_t>(std::llround(s * 1e9))),
       relays(nTags > 1 ? nTags - 1 : 0),
-      chainSlots((chain && nTags > 2) ? (nTags - 1) * (nTags - 2) : 0)
+      chainSlots((chain && nTags > 2)
+                     ? (nTags - 1) * ((g_relayChainK > 0) ? std::min<uint32_t>(g_relayChainK, nTags - 2) : (nTags - 2))
+                     : 0)
 {
 }
 
@@ -4507,9 +5062,10 @@ RelayChain::RangeShortRelays(std::vector<CaTblTagState>& tags,
         {
             ++shortNoExchange;
         }
+        const std::set<size_t> kNear = RelayChainKNearest(tags, fixThisCycle, b, n); // DD 50
         for (size_t c = 1; c < n && canFix; ++c)
         {
-            if (c == b || !fixThisCycle[c])
+            if (c == b || !fixThisCycle[c] || (!kNear.empty() && kNear.count(c) == 0))
             {
                 continue;
             }
@@ -4742,9 +5298,10 @@ RelayChain::RangeForSubject(size_t b,
         return pk;
     }
     std::set<uint16_t> used;
+    const std::set<size_t> kNear = RelayChainKNearest(tags, fixThisCycle, b, n); // DD 50
     for (size_t c = 1; c < n; ++c)
     {
-        if (c == b || !fixThisCycle[c] || !(awake[c] & bit))
+        if (c == b || !fixThisCycle[c] || !(awake[c] & bit) || (!kNear.empty() && kNear.count(c) == 0))
         {
             continue;
         }
@@ -6727,6 +7284,15 @@ struct SpecOptions
     bool tofRecal = false;
     //! C1 --acquireNegInfo (scope 2026-10-17): silent addressed gateways inform the acquisition particle filter.
     bool acquireNegInfo = false;
+    //! DD 32 --finderLkpFirst: searchers go to an informative last known position instead of sweeping from camp.
+    bool finderLkpFirst = false;
+    //! DD 31 --finderSweepFromDispatch: the no-entry sweep's radius grows from the dispatch, not from t = 0.
+    bool finderSweepFromDispatch = false;
+    //! DD 30 --finderDigestOnArmTier: under static_2p4 the searchers poll for entries on 2.4 GHz, not 868 MHz.
+    bool finderDigestOnArmTier = false;
+    //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
+    bool acquireSideOfRoad = false;
+    double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
     //! N.58 --acquireHandoverCurvature: the cloud hands over only once every range is linearisable.
     bool acquireHandoverCurvature = false;
     //! B1 --relayNisInflate (scope 2026-10-17): relays scale P_B by their own running NIS before it widens a range.
@@ -6780,6 +7346,16 @@ struct SpecOptions
     double measVarScale = 1.0;
     //! --oracleTrigger: fixed_threshold triggers on the true squared error. Off: on trace(P).
     bool oracleTrigger = false;
+    //! TII-1 --benefitLambda (m^2 per J): 0 off. > 0: fixed_threshold uses the predicted-benefit rule.
+    double benefitLambda = 0.0;
+    double benefitCost868J = 0.015; //!< TII-1: joules per 868 MHz slot (OURS: ~ tag-0 j_868 / cycles, PRESET-5)
+    double benefitCost2p4J = 0.03;  //!< TII-1: joules per 2.4 GHz cycle (OURS, as above)
+    double benefitCostUwbJ = 0.5;   //!< TII-1: joules per UWB cycle (OURS, as above)
+    bool benefitSkip868 = false;    //!< TII-1: also skip the 868 MHz slot when it is not worth lambda per joule
+    bool benefitSkip868Min3 = false; //!< TII-2: ...but only on a cycle whose active tier delivered >= 3 ranges
+    bool benefitNisInflate = false;  //!< TII-3 F1: benefits computed on P x max(1, mean NIS)
+    uint32_t benefitHeartbeat868N = 0; //!< TII-3 F2: 0 off; N: never more than N-1 consecutive 868 MHz skips per node
+    double benefitSkipNisMax = 0.0;  //!< TII-3 F4: 0 off; > 0: no skip on a cycle whose active ranges' max NIS exceeds it
     //! --nlosRSource: which NLOS tag keys R and the LOS count in Step(): operative (default),
     //! detector or none. Mapped to CaTblPolicyConfig::nlosRSource 0/1/2.
     std::string nlosRSource = "operative";
@@ -7086,6 +7662,65 @@ RunArm(CaTblPolicyMode armMode,
     engine2p4.Initialize(cfg2p4);
     LoRaUWBPhysicsEngine engineUwb;
     engineUwb.Initialize(cfgUwb);
+    // DD 49 --tofRubbleCorrect. rho (dB of excess loss per metre of excess range), rows RHO-2400 / RHO-UWB (OES-*, UWB8-*, SLOW-BR) via
+    // scripts/collapse/system_priors.py: 2.44 GHz 55.33-65.21 -> 60.27 (relative sd 0.0473); 7.99 GHz
+    // 130.15-142.40 -> 136.28 (relative sd 0.0260). Only positive excess is corrected (rubble only removes power).
+    auto tofRubbleFix = [&](int tier, double rxDbm, double& range, double& sigma) {
+        if (!g_tofRubbleCorrect || !(range > 0.0) || (tier != 1 && tier != 2))
+        {
+            return;
+        }
+        const double rho = (tier == 1) ? 60.27 : 136.28;
+        const double rel = (tier == 1) ? 0.0473 : 0.0260;
+        const PropagationParams& pp = (tier == 1) ? cfg2p4.propagation : cfgUwb.propagation;
+        const double tx = phy[tier].txPowerDbm;
+        double rr = range;
+        for (int it = 0; it < 2; ++it) // the excess is evaluated at the corrected distance (one fixed-point step)
+        {
+            const CaTblTofRssiResidual e = CaTblTofRssiExcess(std::max(rr, 1.0), rxDbm, tx, pp);
+            if (!e.valid)
+            {
+                return;
+            }
+            const double b = std::max(0.0, e.excessDb) / rho;
+            rr = std::max(0.5, range - b);
+            if (it == 1)
+            {
+                sigma = std::sqrt(sigma * sigma + (b * rel) * (b * rel));
+            }
+        }
+        range = rr;
+        ++g_tofRubbleCorrected;
+    };
+    // DD 48 --finderFrameSolve: separate engines for the finders' own ranging, so those draws never enter the arm
+    // engines' interference registry or move any other link. Same configuration (and the same rubble World).
+    std::unique_ptr<LoRa2p4PhysicsEngine> frame2p4;
+    std::unique_ptr<LoRaUWBPhysicsEngine> frameUwb;
+    if (g_finderFrameSolve)
+    {
+        frame2p4.reset(new LoRa2p4PhysicsEngine());
+        frame2p4->Initialize(cfg2p4);
+        frameUwb.reset(new LoRaUWBPhysicsEngine());
+        frameUwb->Initialize(cfgUwb);
+    }
+    // DD 39 --collapse: the rubble World on every link of this arm (DD 36-37). Off: no world, no hook, no draw.
+    std::unique_ptr<CaTblRubbleWorld> collapseWorld;
+    if (g_collapse.on)
+    {
+        CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
+        ParseRubbleBracket(g_collapse.bracket, br);
+        collapseWorld.reset(new CaTblRubbleWorld(br));
+        collapseWorld->AddRubble(Vector(-0.5 * g_collapse.footX, -0.5 * g_collapse.footY, 0.0),
+                                 Vector(0.5 * g_collapse.footX, 0.5 * g_collapse.footY, g_collapse.pileH));
+        engine868.SetRubbleWorld(collapseWorld.get());
+        engine2p4.SetRubbleWorld(collapseWorld.get());
+        engineUwb.SetRubbleWorld(collapseWorld.get());
+        if (frame2p4)
+        {
+            frame2p4->SetRubbleWorld(collapseWorld.get());
+            frameUwb->SetRubbleWorld(collapseWorld.get());
+        }
+    }
 
     // C2. All per-tag state lives here now. tags[0] is the tag this arm has always
     // measured; tags[1..] are additional MEASURED targets, each with its own filter,
@@ -7215,6 +7850,29 @@ RunArm(CaTblPolicyMode armMode,
     {
         walker.SetPosition(g_subjectStartX, g_subjectStartY);
     }
+    // DD 35 --incidentRandom: the incident drawn per seed from its own stream (no other stream moves): a trail from the
+    // start toward the site centre +/- 45 deg, leaving it at 15-35 min, turning 45-135 deg either way, stopping 5-15 min
+    // later. The same seed gives the same incident in every arm, so designs stay paired.
+    if (g_incidentRandom && trailDeviateAtS > 0.0)
+    {
+        std::mt19937_64 inc(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0x1AC1DE47ULL);
+        std::uniform_real_distribution<double> u01(0.0, 1.0);
+        const Vector p0 = walker.Position();
+        const double toCentre = std::atan2(-p0.y, -p0.x);
+        const double hdg0 = toCentre + (u01(inc) - 0.5) * (M_PI / 2.0);
+        const double devS = 900.0 + 1200.0 * u01(inc);
+        const double turn = ((u01(inc) < 0.5) ? -1.0 : 1.0) * (M_PI / 4.0 + (M_PI / 2.0) * u01(inc));
+        const double stopS = 300.0 + 600.0 * u01(inc);
+        walker.SetIncident(hdg0, devS, turn, stopS);
+        std::cout << "  DD35 incident: trail heading " << hdg0 * 180.0 / M_PI << " deg from (" << p0.x << ", " << p0.y
+                  << "), leaves it at " << devS << " s, turns " << turn * 180.0 / M_PI << " deg, stops " << stopS
+                  << " s later\n";
+    }
+    if (g_collapse.on) // DD 39: the measured worker is buried from t = 0
+    {
+        const Vector b = CollapseBuriedPos(seed, 0);
+        walker.Bury(b.x, b.y, b.z);
+    }
     tags[0].walker = &walker;
     Vector pos = walker.Position();
     engine868.RegisterNode(nodeId, pos);
@@ -7232,6 +7890,10 @@ RunArm(CaTblPolicyMode armMode,
     pcfg.mode = mode;
     pcfg.skipTier2 = twoTier;
     pcfg.mahalUseR = mahalUseR;
+    pcfg.uwbFutilityCycles = g_uwbFutilityCycles;   // DD 46 (0 = off)
+    pcfg.uwbFutilityBackoffS = g_uwbFutilityBackoffS;
+    pcfg.uwbFutilityLoneMaxBackoffS = g_uwbFutilityLoneMaxBackoffS;
+    pcfg.loneStay868 = g_loneStay868;
     pcfg.pcsTerm1Inverse = spec.pcsTerm1Inverse; // row 17
     pcfg.suspectRecovery = suspectRecovery;
     pcfg.suspectInflateFactor = suspectInflateFactor;
@@ -7361,12 +8023,20 @@ RunArm(CaTblPolicyMode armMode,
     ResolvePcsThresholds(pcfg, pcsHysteresisBand, spec);
     pcfg.measVarScale = spec.measVarScale; // --- S2-C --- (1 by default)
     pcfg.oracleTrigger = spec.oracleTrigger; // ORACLE-ESC (false by default)
+    pcfg.benefitLambda = spec.benefitLambda;     // TII-1 (0 by default: off)
+    pcfg.benefitCost2p4J = spec.benefitCost2p4J; // TII-1
+    pcfg.benefitCostUwbJ = spec.benefitCostUwbJ; // TII-1
+    pcfg.benefitNisInflate = spec.benefitNisInflate; // TII-3 F1 (false by default)
     // --- S2-C --- --nlosRSource (operative by default, which is 0 and changes nothing)
     pcfg.nlosRSource = (spec.nlosRSource == "detector") ? 1 : (spec.nlosRSource == "none") ? 2 : 0;
     pcfg.acquireMinAnchors = spec.acquireMinAnchors; // --- S2-C --- (0 by default: off)
     pcfg.acquireReinit = spec.acquireReinit;         // --- R1 --- (false by default: off)
     pcfg.rangeBiasStates = spec.rangeBiasStates;     // --- V3 --- (false by default: off)
     pcfg.acquireParticles = spec.acquireParticles;   // --- V4 --- (false by default: off)
+    pcfg.acquireHalfPlane = spec.acquireSideOfRoad;  // --- DD 29 --- (false by default: off)
+    pcfg.acquireHpA = spec.acquireHpA;
+    pcfg.acquireHpB = spec.acquireHpB;
+    pcfg.acquireHpC = spec.acquireHpC;
     pcfg.c2bEscalation = spec.c2bEscalation;         // --- V5 --- (false by default: off)
     pcfg.hold24AfterK = spec.hold24AfterK;           // --- C3 --- (0 by default: off)
     pcfg.tofRecal = spec.tofRecal;                   // --- C2 --- (false by default: off)
@@ -7406,6 +8076,8 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.ekf5Window = g_ekf5Window;
         pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5CoarsePosOnly = g_ekf5CoarsePosOnly;
+        pcfg.reacquireSigmaM = g_reacquireSigmaM;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
     }
     policy.Configure(pcfg);
@@ -7775,6 +8447,11 @@ RunArm(CaTblPolicyMode armMode,
         prng->SetStream(static_cast<int64_t>(seed) * 7919 + 500003 + pt);
         peerWalkers.emplace_back(dep.facilities, walkSpeedMps, dwellS,
                                  dep.boxHalfM, dep.dwellRadiusM, prng);
+        if (g_collapse.on) // DD 39
+        {
+            const Vector b = CollapseBuriedPos(seed, pt);
+            peerWalkers.back().Bury(b.x, b.y, b.z);
+        }
         const Vector ppos = peerWalkers.back().Position();
         engine868.RegisterNode(pid, ppos);
         engine2p4.RegisterNode(pid, ppos);
@@ -8192,7 +8869,9 @@ RunArm(CaTblPolicyMode armMode,
             fm->SetMergesBeaconEntries(true); // --beaconCarriesEntry: finders steer on entries
             chan[ti].Register(fm);
             finderMacAll.back()[ti] = fm;
-            if (ti == 0)
+            // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only party keeps (and steers on) the table of the radio its
+            // entries arrive on. Off, or any other arm: the 868 MHz MAC, as before.
+            if (ti == ((spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4) ? 1 : 0))
             {
                 finderMac.push_back(fm);
             }
@@ -8524,6 +9203,102 @@ RunArm(CaTblPolicyMode armMode,
     uint64_t dualCycles = 0;     // N.26 fix 1: node-cycles ranged on both LoRa tiers
     uint64_t dualRanges = 0;     // N.26 fix 1: ranges in those cycles' fused sets
     uint64_t dual868Skipped = 0; // C3 --dualBase868OnNeed
+    // TII-1 --benefitSkip868: per node, the 868 MHz anchors of its last 868 MHz ranging set, and the decisions taken.
+    std::map<uint32_t, std::vector<CaTblBenefitAnchor>> benefit868Cache;
+    std::map<uint32_t, std::pair<uint64_t, bool>> benefit868Memo; // one decision per node per cycle
+    std::map<uint32_t, uint32_t> benefit868Run; // TII-3 F2: consecutive skips per node
+    uint64_t benefitHeartbeatForced = 0;        // TII-3 F2
+    uint64_t benefitNisVetoes = 0;              // TII-3 F4
+    uint64_t finderDigestOnArm = 0;             // DD 30: searcher polls sent on 2.4 GHz
+    uint64_t benefit868Considered = 0;
+    uint64_t benefit868Skipped = 0;
+    const bool benefit868On =
+        spec.benefitLambda > 0.0 && spec.benefitSkip868 && mode == CA_TBL_MODE_FIXED_THRESHOLD;
+    auto benefitSkip868 = [&](uint32_t key,
+                              const CaTblPolicy& pol,
+                              const std::vector<CaTblRangeMeasurement>& act) -> bool {
+        if (!benefit868On)
+        {
+            return false;
+        }
+        if (spec.benefitSkip868Min3 && act.size() < 3)
+        {
+            return false; // TII-2: the active tier cannot fix on its own this cycle, so the 868 MHz slot is kept
+        }
+        auto memo = benefit868Memo.find(key);
+        if (memo != benefit868Memo.end() && memo->second.first == cycleIndex)
+        {
+            return memo->second.second; // already decided this cycle (two call sites can ask)
+        }
+        auto it = benefit868Cache.find(key);
+        if (it == benefit868Cache.end() || it->second.empty())
+        {
+            return false; // nothing known about 868 MHz here yet: range it
+        }
+        std::vector<CaTblBenefitAnchor> base;
+        for (const CaTblRangeMeasurement& m : act)
+        {
+            base.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+        ++benefit868Considered;
+        const double kP = pol.BenefitPScale(); // TII-3 F1 (1 by default)
+        const double g = CaTblTraceReduction(kP * pol.Pxx(), kP * pol.Pxy(), kP * pol.Pyy(), pol.EstX(), pol.EstY(),
+                                             base, it->second);
+        bool skip = spec.benefitCost868J > 0.0 && g / spec.benefitCost868J < spec.benefitLambda;
+        // TII-3 F4: an innovation outlier among this cycle's precise ranges means the precise tier is not to be trusted
+        // alone this cycle: keep the 868 MHz slot. Scalar NIS against the (unscaled) prior P.
+        if (skip && spec.benefitSkipNisMax > 0.0)
+        {
+            double worst = 0.0;
+            for (const CaTblRangeMeasurement& m : act)
+            {
+                const double dx = pol.EstX() - m.anchorX;
+                const double dy = pol.EstY() - m.anchorY;
+                const double d = std::sqrt(dx * dx + dy * dy);
+                if (d < 1e-6 || !(m.sigmaM > 0.0) || !(m.rangeM > 0.0))
+                {
+                    continue;
+                }
+                const double ux = dx / d;
+                const double uy = dy / d;
+                const double s = ux * ux * pol.Pxx() + 2.0 * ux * uy * pol.Pxy() + uy * uy * pol.Pyy() +
+                                 m.sigmaM * m.sigmaM;
+                const double v = m.rangeM - d;
+                worst = std::max(worst, v * v / s);
+            }
+            if (worst > spec.benefitSkipNisMax)
+            {
+                skip = false;
+                ++benefitNisVetoes;
+            }
+        }
+        // TII-3 F2: never more than N-1 consecutive skips per node.
+        if (skip && spec.benefitHeartbeat868N > 0 && benefit868Run[key] + 1 >= spec.benefitHeartbeat868N)
+        {
+            skip = false;
+            ++benefitHeartbeatForced;
+        }
+        benefit868Run[key] = skip ? benefit868Run[key] + 1 : 0;
+        if (skip)
+        {
+            ++benefit868Skipped;
+        }
+        benefit868Memo[key] = std::make_pair(static_cast<uint64_t>(cycleIndex), skip);
+        return skip;
+    };
+    auto cache868 = [&](uint32_t key, const std::vector<CaTblRangeMeasurement>& m868) {
+        if (!benefit868On || m868.empty())
+        {
+            return;
+        }
+        std::vector<CaTblBenefitAnchor>& v = benefit868Cache[key];
+        v.clear();
+        for (const CaTblRangeMeasurement& m : m868)
+        {
+            v.push_back({m.anchorX, m.anchorY, m.sigmaM});
+        }
+    };
+    const uint32_t kBenefitTag0Key = 0xFFFFFFFFu;
     std::unique_ptr<std::ofstream> onDemandLog; // V6 --traceOnDemand
     if (g_traceOnDemand)
     {
@@ -8802,6 +9577,20 @@ RunArm(CaTblPolicyMode armMode,
     // interference model -- measured, tag 0's static_868 fixes fell 212 -> 2 at five
     // subjects. The relay round is reused when it exists.
     std::unique_ptr<RelayRound> subjRoundOwn;
+    std::map<uint32_t, std::vector<CollapseDepthObs>> depthObs; // DD 47, filled only under --collapseDepthSolve
+    auto noteDepth = [&](uint32_t wid, double ex, double ey, const std::vector<CaTblRangeMeasurement>& ms) {
+        if (!g_collapseDepthSolve)
+        {
+            return;
+        }
+        for (const auto& m : ms)
+        {
+            if ((m.tier == 1 || m.tier == 2) && m.anchorId >= 501 && m.rangeM > 0.0 && m.sigmaM > 0.0)
+            {
+                depthObs[wid].push_back({std::hypot(m.anchorX - ex, m.anchorY - ey), m.rangeM, m.sigmaM});
+            }
+        }
+    };
     uint64_t tag0RequestFrames = 0; // MS-1. ESC_REQUEST frames tag 0 sent, for its row
     // NW-1. --hopProvenance: one row per tag-0 cycle with the depth of what it fused.
     std::unique_ptr<std::ofstream> rangeLog; // B1 --traceRanges
@@ -10027,7 +10816,13 @@ RunArm(CaTblPolicyMode armMode,
                 const double b = std::floor((t - phase) / finderDigestPeriodS);
                 if (b > a && t >= phase)
                 {
-                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_868, 1, 0);
+                    // DD 30 --finderDigestOnArmTier: a 2.4 GHz-only system's searchers ask on 2.4 GHz (off: 868 MHz
+                    // for every arm, as before; the static_2p4 casualty never answers there).
+                    const CaTblTier dTier = (spec.finderDigestOnArmTier && mode == CA_TBL_MODE_STATIC_2P4)
+                                                ? CA_TBL_TIER_2P4
+                                                : CA_TBL_TIER_868;
+                    finderMac[fi]->Send(CA_TBL_MSG_DIGEST, dTier, 1, 0);
+                    finderDigestOnArm += (dTier != CA_TBL_TIER_868) ? 1 : 0;
                 }
             }
         }
@@ -10161,10 +10956,96 @@ RunArm(CaTblPolicyMode armMode,
         // Costs no airtime: PublishSelfEntry writes this node's own table slot and
         // bumps its sequence number. What goes on the air is the ENTRY_PUSH that a
         // digest already asks for, billed by entry count and not by content.
+        // DD 48 --finderFrameSolve: a finder's position from its own ranges (UWB where heard, sigma 0.10 m; else
+        // 2.4 GHz, 3.0 m: the cited floors) to the surveyed gateways and the other finders' published positions, and
+        // its GNSS fix (the DD 20 offset) as a prior with the GNSS variance. The height difference uses the finder's
+        // GNSS height (true + a fixed N(0, 6.63 m) draw, row GPS-SPS-AVG). Gauss-Newton, 8 steps.
+        std::vector<Vector> s_gnss0;   // per arm (DD 48)
+        std::vector<double> s_gnssDz;
+        auto solveFinderFrame = [&](size_t fi, const Vector& truePos, double nowS) {
+            if (s_gnss0.size() != finderGpsOffset.size())
+            {
+                s_gnss0 = finderGpsOffset;
+                s_gnssDz.assign(finderGpsOffset.size(), 0.0);
+                for (size_t k = 0; k < s_gnssDz.size(); ++k)
+                {
+                    std::mt19937_64 g(static_cast<uint64_t>(seed) * 0x9E3779B97F4A7C15ULL + 0xF1A3E5ULL + k);
+                    std::normal_distribution<double> n01(0.0, 1.0);
+                    s_gnssDz[k] = 6.63 * n01(g);
+                }
+            }
+            struct R
+            {
+                double x, y, z, r, s;
+            };
+            std::vector<R> rs;
+            const Time now = Seconds(nowS);
+            auto range = [&](uint32_t tid, const Vector& tp, const Vector& known) {
+                const uint32_t fid = 501 + static_cast<uint32_t>(fi);
+                PhysicsResultUWB ru = frameUwb->ProcessTransmission(fid, tid, truePos, tp, phy[2].txPowerDbm, phy[2].sf,
+                                                                     phy[2].bandwidthHz, 0, now);
+                if (ru.packetReceived && ru.estimatedRangeM > 0.0)
+                {
+                    rs.push_back({known.x, known.y, known.z, ru.estimatedRangeM, 0.10});
+                    return;
+                }
+                PhysicsResult2p4 r2 = frame2p4->ProcessTransmission(fid, tid, truePos, tp, phy[1].txPowerDbm, phy[1].sf,
+                                                                    phy[1].bandwidthHz, 0, now);
+                if (r2.packetReceived && r2.estimatedRangeM > 0.0)
+                {
+                    rs.push_back({known.x, known.y, known.z, r2.estimatedRangeM, 3.0});
+                }
+            };
+            for (const auto& ad : dep.anchors[CA_TBL_TIER_2P4])
+            {
+                range(ad.id, ad.pos, ad.pos); // surveyed gateways: known positions
+            }
+            for (size_t j = 0; j < finderPos.size(); ++j)
+            {
+                if (j != fi)
+                {
+                    // DD 52: under --collapseNominalHeights the neighbour's height is its GNSS height (true +
+                    // its fixed GPS-SPS-AVG draw), not its true height (World truth on the pile).
+                    const double pz = g_collapseNominalHeights ? finderPos[j].z + s_gnssDz[j] : finderPos[j].z;
+                    const Vector pub(finderPos[j].x + finderGpsOffset[j].x, finderPos[j].y + finderGpsOffset[j].y, pz);
+                    range(501 + static_cast<uint32_t>(j), finderPos[j], pub);
+                }
+            }
+            const double gz = truePos.z + s_gnssDz[fi];
+            double x = truePos.x + s_gnss0[fi].x, y = truePos.y + s_gnss0[fi].y;
+            const double px = x, py = y, pv = finderPosVar;
+            for (int it = 0; it < 8; ++it)
+            {
+                double a11 = 1.0 / pv, a12 = 0.0, a22 = 1.0 / pv, b1 = (px - x) / pv, b2 = (py - y) / pv;
+                for (const auto& q : rs)
+                {
+                    const double dx = x - q.x, dy = y - q.y, dz = gz - q.z;
+                    const double dd = std::max(std::sqrt(dx * dx + dy * dy + dz * dz), 1e-3);
+                    const double ux = dx / dd, uy = dy / dd, w = 1.0 / (q.s * q.s), e = q.r - dd;
+                    a11 += w * ux * ux;
+                    a12 += w * ux * uy;
+                    a22 += w * uy * uy;
+                    b1 += w * ux * e;
+                    b2 += w * uy * e;
+                }
+                const double det = a11 * a22 - a12 * a12;
+                if (!(std::abs(det) > 1e-12))
+                {
+                    break;
+                }
+                x += (a22 * b1 - a12 * b2) / det;
+                y += (a11 * b2 - a12 * b1) / det;
+            }
+            finderGpsOffset[fi] = Vector(x - truePos.x, y - truePos.y, 0.0);
+        };
         auto republishFinder = [&](size_t fi, const Vector& truePos, double nowS) {
             if (fi >= finderMacAll.size())
             {
                 return;
+            }
+            if (g_finderFrameSolve) // DD 48
+            {
+                solveFinderFrame(fi, truePos, nowS);
             }
             const Vector& off = finderGpsOffset[fi];
             // DC-10. The velocity a GNSS receiver reports: displacement over the time
@@ -10292,12 +11173,17 @@ RunArm(CaTblPolicyMode armMode,
             // time, the other is an inference from the network's own confidence.
             // A.10 records that on these deployments the second does not
             // separate, so the first is what the demo uses.
-            if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
-            {
-                partyDeployed = true;
-                deployedAtS = t;
-                deployCause = "reported overdue";
-            }
+            // (2026-11-20: moved below, out of this block -- see there.)
+        }
+        // THE OVERDUE REPORT, now outside the lost-contact block. Inside it, the report fired only when
+        // --searchLaunchOnLoss was also > 0, so --searchLaunchAtS alone silently never dispatched. With both set the
+        // order is unchanged (the triggers above run first and latch partyDeployed), so every earlier run with both,
+        // or with neither, behaves exactly as before; only --searchLaunchAtS without --searchLaunchOnLoss changes.
+        if (!partyDeployed && searchLaunchAtS > 0.0 && t >= searchLaunchAtS)
+        {
+            partyDeployed = true;
+            deployedAtS = t;
+            deployCause = "reported overdue";
         }
 
         auto writeTask = [&](size_t fi, uint16_t tid, const char* phase, bool found,
@@ -10573,7 +11459,12 @@ RunArm(CaTblPolicyMode armMode,
                 // coverage for reach, and the trade is real rather than a tuning
                 // choice: four searchers in four hours cannot both sweep an
                 // annulus densely and cross 11.6 km.
-                const double swept = 0.9 * finderSpeedMps * t;
+                // DD 31 --finderSweepFromDispatch: the sweep's clock starts when the party leaves the camp. Off: it
+                // starts at t = 0, so a party held at the camp until an alarm appears at once on a spiral as wide as
+                // it would have walked since the run began (a 3.2 km jump at a 50 min alarm).
+                const double tSweep = (spec.finderSweepFromDispatch && deployedAtS >= 0.0) ? std::max(0.0, t - deployedAtS)
+                                                                                           : t;
+                const double swept = 0.9 * finderSpeedMps * tSweep;
                 const double radius =
                     std::max(1.0, std::min(dep.boxHalfM, swept));
                 // UI --finderGroupSize=G (default 0 = off, the sweep below runs unchanged).
@@ -10599,7 +11490,7 @@ RunArm(CaTblPolicyMode armMode,
                     const double pitch = static_cast<double>(teams) * g_finderGroupTrackM;
                     // arc length walked s = v t; for r = pitch * phi / (2 pi) that is
                     // about pitch * phi^2 / (4 pi), so phi = sqrt(4 pi s / pitch)
-                    const double s = finderSpeedMps * t;
+                    const double s = finderSpeedMps * tSweep; // DD 31 (t when off)
                     const double phi = std::sqrt(4.0 * M_PI * s / pitch);
                     double rSpiral = pitch * phi / (2.0 * M_PI);
                     const double off = (static_cast<double>(m) -
@@ -10660,7 +11551,10 @@ RunArm(CaTblPolicyMode armMode,
                     }
                   } // g_finderGroupSweep
                 }
-                else if (entrySigma > radius)
+                // DD 32 --finderLkpFirst: an entry that says anything (sigma below half the box; the casualty's
+                // start-up prior, uniform over the box, is ~0.8 box) is a last known position to search from, not a
+                // reason to sweep round the camp. Off: sweep whenever the entry is coarser than the sweep so far.
+                else if (spec.finderLkpFirst ? (entrySigma > 0.5 * dep.boxHalfM) : (entrySigma > radius))
                 {
                     searching = true;
                     // Spread over the SEARCHING finders: --finderRelays (default 0) takes the
@@ -10674,7 +11568,7 @@ RunArm(CaTblPolicyMode armMode,
                     // covers the annulus instead of one bearing.
                     const double theta =
                         2.0 * M_PI * static_cast<double>(fi) / n
-                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * t / radius) : 0.0);
+                        + ((radius > 1.0) ? (0.4 * finderSpeedMps * tSweep / radius) : 0.0); // DD 31 (t when off)
                     fp = Vector(dep.baseCampX + radius * std::cos(theta),
                                 dep.baseCampY + radius * std::sin(theta),
                                 0.0);
@@ -11286,6 +12180,7 @@ RunArm(CaTblPolicyMode armMode,
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
+                        tofRubbleFix(1, r.measuredRssiDbm, range, sigmaM); // DD 49
                         nlosProp = r.isNLOS;
                         hiddenActive = (r.hiddenChannelState > 0);
                     }
@@ -11298,6 +12193,7 @@ RunArm(CaTblPolicyMode armMode,
                         received = r.packetReceived;
                         range = r.estimatedRangeM;
                         sigmaM = r.rangingSigmaM;
+                        tofRubbleFix(2, r.measuredRssiDbm, range, sigmaM); // DD 49
                         nlosProp = r.isNLOS;
                         hiddenActive = (r.hiddenChannelState > 0);
                     }
@@ -11306,7 +12202,7 @@ RunArm(CaTblPolicyMode armMode,
                         CaTblRangeMeasurement m;
                         m.anchorX = anchorPos.x;
                         m.anchorY = anchorPos.y;
-                        m.rangeM = range;
+                        m.rangeM = HorizontalRange(range, anchorPos.z, tags[pt].pos.z, anchorId);
                         m.nlos = nlosProp || hiddenActive;
                         m.nlosPropagation = nlosProp;
                         m.hiddenChannelActive = hiddenActive;
@@ -11419,12 +12315,23 @@ RunArm(CaTblPolicyMode armMode,
                         ++pseudoDigests;
                     }
                 }
+                // DD 50: a still worker on its slow cycle. Its 868 MHz receiver sleeps through the skipped cycles.
+                const bool stillS = g_stillSlowCycle > 1 && sb.walker &&
+                                    (sb.walker->IsBuried() || sb.walker->HasStopped()) && act == CA_TBL_TIER_868;
+                const bool stillQuietS = stillS && ((cycleIndex + pt) % g_stillSlowCycle) != 0;
+                const bool stillQuietNextS = stillS && ((cycleIndex + 1 + pt) % g_stillSlowCycle) != 0;
                 auto rangeS = [&](CaTblTier tier) {
                     std::vector<CaTblRangeMeasurement> out;
                     size_t droppedS = 0; // N.21: finder replies whose position the subject lacks
                     if (spec.subjectBatteryDeplete && sb.batteryDead)
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
+                    }
+                    if (tier == CA_TBL_TIER_868 && stillQuietS) // DD 50, staggered by worker (the run's cycle count)
+                    {
+                        ++g_stillSkipped;
+                        sb.policy.SetQuietCycle(true); // DD 50
+                        return out;
                     }
                     if (ex.wit)
                     {
@@ -11534,6 +12441,7 @@ RunArm(CaTblPolicyMode armMode,
                             rcv = r.packetReceived;
                             range = r.estimatedRangeM;
                             sigma = r.rangingSigmaM;
+                            tofRubbleFix(1, r.measuredRssiDbm, range, sigma); // DD 49
                             nlosP = r.isNLOS;
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
@@ -11560,6 +12468,7 @@ RunArm(CaTblPolicyMode armMode,
                             rcv = r.packetReceived;
                             range = r.estimatedRangeM;
                             sigma = r.rangingSigmaM;
+                            tofRubbleFix(2, r.measuredRssiDbm, range, sigma); // DD 49
                             nlosP = r.isNLOS;
                             hid = (r.hiddenChannelState > 0);
                             nlosF = CaTblNlosFlag(nlosSource, r.nlosDb, r.isNLOS,
@@ -11678,7 +12587,7 @@ RunArm(CaTblPolicyMode armMode,
                                     }
                                 }
                             }
-                            m.rangeM = range;
+                            m.rangeM = HorizontalRange(range, ap.z, sb.pos.z, aid);
                             m.nlos = nlosF;
                             m.nlosScore = nlosScoreS; // row 55: -1 unless scored
                             m.nlosPropagation = nlosP;
@@ -11785,7 +12694,7 @@ RunArm(CaTblPolicyMode armMode,
                     actM = rangeS(act);
                 }
                 std::vector<CaTblRangeMeasurement> floorM;
-                if (floorOn)
+                if (floorOn && !benefitSkip868(sb.nodeId, sb.policy, actM)) // TII-1: skip only under --benefitSkip868
                 {
                     if (preempt && pendT == CA_TBL_TIER_868)
                     {
@@ -11795,11 +12704,28 @@ RunArm(CaTblPolicyMode armMode,
                     {
                         floorM = rangeS(CA_TBL_TIER_868);
                         ++ex.floorCycles;
+                        cache868(sb.nodeId, floorM); // TII-1
                     }
                 }
                 // N.26 fix 1, as tag 0's: the other LoRa tier too, every cycle (the floor
                 // already ranges whenever the subject is off 868 MHz).
-                const bool dualS = spec.loraDualBase && hybridS;
+                if (act == CA_TBL_TIER_868)
+                {
+                    cache868(sb.nodeId, actM); // TII-1
+                }
+                bool loneS = false; // DD 53b
+                if (g_loneStay868 && pt - 1 < peerMacs.size() && peerMacs[pt - 1][0] != nullptr)
+                {
+                    loneS = true;
+                    for (const auto& nb : peerMacs[pt - 1][0]->GetNeighbours(CA_TBL_TIER_868, t))
+                    {
+                        for (uint32_t k = 0; k < tags.size() && loneS; ++k)
+                        {
+                            loneS = !(k != pt && nb.id == tags[k].nodeId);
+                        }
+                    }
+                }
+                const bool dualS = spec.loraDualBase && hybridS && !(loneS && act == CA_TBL_TIER_868);
                 std::vector<CaTblRangeMeasurement> otherS;
                 if (dualS)
                 {
@@ -12085,6 +13011,20 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     sb.policy.SetOracleTruth(sb.pos.x, sb.pos.y); // ORACLE-ESC
                 }
+                const auto p0a = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+                if ((g_uwbFutilityLoneMaxBackoffS > 0.0 || g_loneStay868) && pt >= 1 && pt - 1 < peerMacs.size() &&
+                    peerMacs[pt - 1][0] != nullptr) // DD 53
+                {
+                    bool heard = false;
+                    for (const auto& nb : peerMacs[pt - 1][0]->GetNeighbours(CA_TBL_TIER_868, t))
+                    {
+                        for (uint32_t k = 0; k < tags.size() && !heard; ++k)
+                        {
+                            heard = (k != pt && nb.id == tags[k].nodeId);
+                        }
+                    }
+                    sb.policy.SetLone(!heard);
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -12092,6 +13032,12 @@ RunArm(CaTblPolicyMode armMode,
                                              ? std::max<size_t>(3, actM.size())
                                              : actM.size()), // N.26, as tag 0's
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (g_phase0Timing) // DD 43
+                {
+                    g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0a).count();
+                    ++g_phase0Steps;
+                }
+                noteDepth(sb.nodeId, ds.estX, ds.estY, measS); // DD 47
                 if (ex.tdoa)
                 {
                     ex.tdoa->EndCycle(t, cycleIndex, sb.pos, sb.policy.AuxFusedLast(),
@@ -12327,9 +13273,10 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     const CaTblTier tr = static_cast<CaTblTier>(k);
                     CaTblMac* mm = peerMacs[pi][static_cast<size_t>(k)];
-                    const bool awake = FuseTierOn(mode, k) || (tr == act) ||
-                                       (floorOn && tr == CA_TBL_TIER_868) ||
-                                       (dualS && tr != CA_TBL_TIER_UWB && !(twoTier && tr == CA_TBL_TIER_2P4));
+                    const bool awake = (FuseTierOn(mode, k) || (tr == act) ||
+                                        (floorOn && tr == CA_TBL_TIER_868) ||
+                                        (dualS && tr != CA_TBL_TIER_UWB && !(twoTier && tr == CA_TBL_TIER_2P4))) &&
+                                       !(stillQuietS && tr == CA_TBL_TIER_868); // DD 50: asleep on a skipped cycle
                     if (mesh)
                     {
                         const double air = mm->GetRebroadcastAirtimeS();
@@ -12373,7 +13320,10 @@ RunArm(CaTblPolicyMode armMode,
                     else
                     {
                         sb.energy.AccountSleep(tr, dt);
-                        mm->ClearNeighbours();
+                        if (!(stillQuietS && tr == CA_TBL_TIER_868))
+                        {
+                            mm->ClearNeighbours(); // DD 50: a slow-cycle nap keeps its neighbour table
+                        }
                     }
                     sb.lastRx[k] = rxNow;
                     if (mesh)
@@ -12383,7 +13333,8 @@ RunArm(CaTblPolicyMode armMode,
                                         k == static_cast<int>(ds.nextTier) ||
                                         (floorNext && k == CA_TBL_TIER_868) ||
                                         (dualS && k != static_cast<int>(CA_TBL_TIER_UWB) &&
-                                         !(twoTier && k == static_cast<int>(CA_TBL_TIER_2P4)))));
+                                         !(twoTier && k == static_cast<int>(CA_TBL_TIER_2P4)))) ||
+                                      (stillQuietNextS && ds.nextTier == CA_TBL_TIER_868 && k == CA_TBL_TIER_868)); // DD 50
                     }
                 }
                 *ex.trace << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId << ','
@@ -12635,6 +13586,16 @@ RunArm(CaTblPolicyMode armMode,
             {
                 return out;
             }
+            // DD 50 --stillSlowCycle: still (the device's own IMU; modelled as a perfect stillness detector) and on
+            // 868 MHz: range only every K-th cycle. Not on a higher tier, and not while a UWB request is pending.
+            if (g_stillSlowCycle > 1 && tier == CA_TBL_TIER_868 && policy.GetActiveTier() == CA_TBL_TIER_868 &&
+                tags[0].walker && (tags[0].walker->IsBuried() || tags[0].walker->HasStopped()) &&
+                (cycleIndex % g_stillSlowCycle) != 0)
+            {
+                ++g_stillSkipped;
+                policy.SetQuietCycle(true); // DD 50
+                return out;
+            }
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -12824,6 +13785,7 @@ RunArm(CaTblPolicyMode armMode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    tofRubbleFix(1, r.measuredRssiDbm, range, sigmaM); // DD 49
 
                     // S7-lite: COMMON-MODE RANGE BIAS on tier 2, the minimal viable
                     // test of the integrity gate's actual claim.
@@ -12898,6 +13860,7 @@ RunArm(CaTblPolicyMode armMode,
                     nlosProp = r.isNLOS;
                     hiddenActive = (r.hiddenChannelState > 0);
                     sigmaM = r.rangingSigmaM;
+                    tofRubbleFix(2, r.measuredRssiDbm, range, sigmaM); // DD 49
                     if (nlosScorer)
                     {
                         if (received && std::isfinite(range) && range > 0.0)
@@ -13059,7 +14022,7 @@ RunArm(CaTblPolicyMode armMode,
                             }
                         }
                     }
-                    m.rangeM = range;
+                    m.rangeM = HorizontalRange(range, anchorPos.z, pos.z, anchorId);
                     m.nlos = nlos;
                     m.nlosPropagation = nlosProp;
                     m.hiddenChannelActive = hiddenActive;
@@ -13267,7 +14230,8 @@ RunArm(CaTblPolicyMode armMode,
             {
                 energy.AccountCad(active);
             }
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 if (pendingHandshakeTier != CA_TBL_TIER_868)
                 {
@@ -13301,7 +14265,8 @@ RunArm(CaTblPolicyMode armMode,
         {
             pendingHandshake = false;  // consumed or stale
             activeMeas = rangeTier(active);
-            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()))
+            if (runFloor && FloorRangingWanted(activeMeas.size()) && !skip868Now(active, activeMeas.size()) &&
+                !benefitSkip868(kBenefitTag0Key, policy, activeMeas)) // TII-1
             {
                 floorMeas = rangeTier(CA_TBL_TIER_868);
                 floorRanged = true;
@@ -13311,15 +14276,28 @@ RunArm(CaTblPolicyMode armMode,
         // --floorOnDemand would skip it, and 2.4 GHz whenever it is not the active tier
         // (its radio is kept awake below). A tier whose ranging slot the handshake took is
         // not ranged, as above. The ranges are fused at the fix selection.
-        const bool dualBase = spec.loraDualBase && hybridArm;
+        bool lone0 = false; // DD 53b: tag 0 hears no other worker on 868 MHz (its own neighbour table)
+        if (g_loneStay868 && tags[0].nodeMac[0] != nullptr)
+        {
+            lone0 = true;
+            for (const auto& nb : tags[0].nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t))
+            {
+                for (uint32_t k = 1; k < tags.size() && lone0; ++k)
+                {
+                    lone0 = !(nb.id == tags[k].nodeId);
+                }
+            }
+        }
+        const bool dualBase = spec.loraDualBase && hybridArm && !(lone0 && policy.GetActiveTier() == CA_TBL_TIER_868);
         std::vector<CaTblRangeMeasurement> otherLoraMeas;
         bool ranged2p4Other = false; // --dualBaseRelayTier: the 2.4 GHz radio ranged this cycle
         if (dualBase)
         {
             // C3 --dualBase868OnNeed: when the active 2.4 GHz tier already returned enough ranges for a fix on its
             // own (>= 3), the dual base's 868 MHz slot is skipped this cycle -- the energy lever V6/V9 located.
-            const bool skip868 = (spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
-                                 activeMeas.size() >= 3;
+            const bool skip868 = ((spec.dualBase868OnNeed || spec.hold24AfterK > 0) && active == CA_TBL_TIER_2P4 &&
+                                  activeMeas.size() >= 3) ||
+                                 (active != CA_TBL_TIER_868 && benefitSkip868(kBenefitTag0Key, policy, activeMeas));
             if (active != CA_TBL_TIER_868 && !floorRanged && !skip868 &&
                 preemptTier != static_cast<int>(CA_TBL_TIER_868))
             {
@@ -13394,6 +14372,14 @@ RunArm(CaTblPolicyMode armMode,
             }
             ++dualCycles;
             dualRanges += activeMeas.size() + floorMeas.size() + otherLoraMeas.size();
+        }
+        if (floorRanged) // TII-1: remember where 868 MHz reached this node
+        {
+            cache868(kBenefitTag0Key, floorMeas);
+        }
+        else if (active == CA_TBL_TIER_868)
+        {
+            cache868(kBenefitTag0Key, activeMeas);
         }
 
         // Fix selection: prefer the escalated tier when it solved, fall back to the
@@ -13618,6 +14604,7 @@ RunArm(CaTblPolicyMode armMode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        tofRubbleFix(1, r.measuredRssiDbm, rAB, sigRaw); // DD 49
                         obs.rssiDbm = r.measuredRssiDbm;
                         obs.snrDb = r.snr_db;
                     }
@@ -13630,6 +14617,7 @@ RunArm(CaTblPolicyMode armMode,
                         got = r.packetReceived;
                         rAB = r.estimatedRangeM;
                         sigRaw = r.rangingSigmaM;
+                        tofRubbleFix(2, r.measuredRssiDbm, rAB, sigRaw); // DD 49
                         obs.rssiDbm = r.measuredRssiDbm;
                         obs.snrDb = r.snr_db;
                         obs.truthNlos = r.isNLOS;
@@ -14088,6 +15076,19 @@ RunArm(CaTblPolicyMode armMode,
                 }
             }
         }
+        const auto p0b = g_phase0Timing ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
+        if ((g_uwbFutilityLoneMaxBackoffS > 0.0 || g_loneStay868) && tags[0].nodeMac[0] != nullptr) // DD 53
+        {
+            bool heard = false;
+            for (const auto& nb : tags[0].nodeMac[0]->GetNeighbours(CA_TBL_TIER_868, t))
+            {
+                for (uint32_t k = 1; k < tags.size() && !heard; ++k)
+                {
+                    heard = (nb.id == tags[k].nodeId);
+                }
+            }
+            policy.SetLone(!heard);
+        }
         CaTblDecision d = policy.Step(dt,
                                             meas,
                                             hopArg,
@@ -14095,6 +15096,12 @@ RunArm(CaTblPolicyMode armMode,
                                             static_cast<int32_t>(activeMeasAddressed +
                                                                  crossAddedThisCycle),
                                             tierEvidenceMask);
+        if (g_phase0Timing) // DD 43
+        {
+            g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0b).count();
+            ++g_phase0Steps;
+        }
+        noteDepth(nodeId, d.estX, d.estY, meas); // DD 47
         // UI --vizFixSet: who this fix was computed from (output only).
         if (vizFixSet.is_open() && static_cast<uint32_t>(nodeId) == 1u && d.hadFix &&
             !d.measurementRejected)
@@ -15546,6 +16553,24 @@ RunArm(CaTblPolicyMode armMode,
         res.macCaptures += chan[i].GetTotalCaptures();
         res.macDeliveries += chan[i].GetTotalDeliveries();
     }
+    if (g_collapseDepthSolve && g_collapse.on) // DD 47: system-side depth estimates, and the World's truth apart
+    {
+        std::ostringstream fe, ft;
+        fe << traceDir << "/collapse_depth_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        ft << traceDir << "/collapse_truth_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+        std::ofstream oe(fe.str()), ot(ft.str());
+        oe << "worker,depth_est_m,depth_sd_m,n_ranges\n" << std::fixed << std::setprecision(4);
+        ot << "worker,x,y,z,depth_true_m\n" << std::fixed << std::setprecision(4);
+        for (size_t k = 0; k < tags.size() && k < std::max<uint32_t>(1u, spec.measuredSubjects); ++k)
+        {
+            const uint32_t wid = tags[k].nodeId;
+            double dd, sd;
+            CollapseSolveDepth(depthObs[wid], dd, sd);
+            oe << wid << "," << dd << "," << sd << "," << depthObs[wid].size() << "\n";
+            const Vector b = CollapseBuriedPos(seed, static_cast<uint32_t>(k));
+            ot << wid << "," << b.x << "," << b.y << "," << b.z << "," << (g_collapse.pileH - b.z) << "\n";
+        }
+    }
     if (subj)
     {
         // MS-1. One subject_summary.csv row per measured subject. Subject 1 is tag 0 and
@@ -15643,6 +16668,16 @@ RunArm(CaTblPolicyMode armMode,
             }
             std::cout << "    Case A pre-fuse (" << CaTblPolicyModeName(armMode) << "): tag 0 "
                       << policy.GetCaseAPreFuseCount() << ", all measured nodes " << pf << " cycles\n";
+        }
+        if (g_uwbFutilityCycles > 0)
+        {
+            uint64_t ex = policy.GetUwbFutileExits(), ve = policy.GetUwbVetoed();
+            for (size_t k = 1; k < tags.size(); ++k)
+            {
+                ex += tags[k].policy.GetUwbFutileExits();
+                ve += tags[k].policy.GetUwbVetoed();
+            }
+            std::cout << "    DD46 UWB futility gate: futile exits " << ex << ", vetoed escalations " << ve << "\n";
         }
         line << "    MS-1 subjects: " << spec.measuredSubjects << ";";
         for (uint32_t pt = 1; pt < spec.measuredSubjects; ++pt)
@@ -16039,6 +17074,17 @@ RunArm(CaTblPolicyMode armMode,
              << (mesh->billedAir[0] + mesh->billedAir[1] + mesh->billedAir[2]) << " s\n";
         std::cout << line.str();
     }
+    // DD 34: re-entries into particle acquisition over every tracked node (tag 0 and the subjects).
+    if (g_reacquireSigmaM > 0.0)
+    {
+        uint64_t reacqAll = 0;
+        for (uint32_t pt = 0; pt < spec.measuredSubjects && pt < tags.size(); ++pt)
+        {
+            reacqAll += tags[pt].policy.GetReacquires();
+        }
+        std::cout << "    DD34 reacquireSigmaM (" << CaTblPolicyModeName(mode) << "): re-entries over all tracked nodes "
+                  << reacqAll << "\n";
+    }
     // DC-9. The model witness's counters, split. Printed only under the flag.
     if (witness)
     {
@@ -16103,6 +17149,15 @@ RunArm(CaTblPolicyMode armMode,
             if (g_ekf5StateBoundsK > 0.0)
             {
                 line << "    ekf5 state bounds: projections " << policy.Ekf5().BoundsApplied() << "\n";
+            }
+            if (g_reacquireSigmaM > 0.0)
+            {
+                line << "    DD34 reacquireSigmaM: tag-0 re-entries into particle acquisition " << policy.GetReacquires() << "\n";
+            }
+            if (g_ekf5CoarsePosOnly)
+            {
+                line << "    DD33 ekf5CoarsePosOnly: tag-0 868 MHz ranges applied position-only " << policy.Ekf5().CoarsePosOnlyApplied()
+                     << "\n";
             }
             if (g_ekf5RelayGate)
             {
@@ -16483,12 +17538,17 @@ RunArm(CaTblPolicyMode armMode,
                       << batteryDepleteJ << " J); radio silent for the remaining "
                       << (durationS - batteryDeadAtS) << " s\n";
         }
-        if (deployedAtS >= 0.0)
+        if (deployedAtS >= 0.0 && searchLaunchOnLossS > 0.0)
         {
             std::cout << "    ALERT: " << deployCause << " for " << std::fixed
                       << std::setprecision(0) << searchLaunchOnLossS
                       << " s -- party deployed at t=" << std::setprecision(1)
                       << deployedAtS << " s\n";
+        }
+        else if (deployedAtS >= 0.0)
+        {
+            std::cout << "    ALERT: " << deployCause << " -- party deployed at t=" << std::fixed
+                      << std::setprecision(1) << deployedAtS << " s\n";
         }
         else if (searchLaunchOnLossS > 0.0)
         {
@@ -16905,6 +17965,50 @@ RunArm(CaTblPolicyMode armMode,
             std::cout << "    C3 dualBase868OnNeed (" << CaTblPolicyModeName(armMode) << "): 868 MHz slots skipped "
                       << dual868Skipped << "\n";
         }
+        if (benefit868On)
+        {
+            std::cout << "    TII-1 benefitSkip868 (" << CaTblPolicyModeName(mode) << ", lambda " << spec.benefitLambda
+                      << " m^2/J): 868 MHz slots considered " << benefit868Considered << ", skipped "
+                      << benefit868Skipped << " (all measured nodes)\n";
+            if (spec.benefitSkip868Min3)
+            {
+                std::cout << "    TII-2 benefitSkip868Min3: the 868 MHz slot kept whenever the active tier gave < 3 ranges\n";
+            }
+            if (spec.benefitNisInflate || spec.benefitHeartbeat868N > 0 || spec.benefitSkipNisMax > 0.0)
+            {
+                std::cout << "    TII-3 (" << CaTblPolicyModeName(mode) << "): nisInflate " << spec.benefitNisInflate
+                          << ", heartbeat N " << spec.benefitHeartbeat868N << " forced " << benefitHeartbeatForced
+                          << ", NIS veto threshold " << spec.benefitSkipNisMax << " vetoes " << benefitNisVetoes
+                          << ", tag-0 mean NIS " << policy.GetNisMean() << "\n";
+            }
+        }
+        if (spec.finderLkpFirst)
+        {
+            std::cout << "    DD32 finderLkpFirst (" << CaTblPolicyModeName(mode) << "): on\n";
+        }
+        if (spec.finderSweepFromDispatch)
+        {
+            std::cout << "    DD31 finderSweepFromDispatch (" << CaTblPolicyModeName(mode)
+                      << "): sweep clock from the dispatch at t = " << deployedAtS << " s\n";
+        }
+        if (spec.finderDigestOnArmTier)
+        {
+            std::cout << "    DD30 finderDigestOnArmTier (" << CaTblPolicyModeName(mode) << "): searcher polls on 2.4 GHz "
+                      << finderDigestOnArm << "\n";
+        }
+        if (spec.acquireSideOfRoad)
+        {
+            std::cout << "    DD29 acquireSideOfRoad (" << CaTblPolicyModeName(mode) << "): cloud confined to y <= "
+                      << spec.acquireHpC << " m; tag-0 particle-updates zeroed across the line "
+                      << policy.GetHalfPlaneCuts() << ", tag-0 estimates reflected back " << policy.GetHalfPlaneReflects()
+                      << "\n";
+        }
+        if (g_rangeHeightCorrect)
+        {
+            std::cout << "    DD28 rangeHeightCorrect (" << CaTblPolicyModeName(mode)
+                      << "): mast ranges projected to the ground, cumulative in this process "
+                      << g_rangeHeightCorrected << "\n";
+        }
         if (!finderEnergy.empty())
         {
             std::ostringstream ffn;
@@ -17208,9 +18312,17 @@ static const CaTblSpecSetting kSpecProfile[] = {
     // --nGateways=3 --gwLayout=star --nFinders=8 (scripts/preset_pins.sh).
     // DESIGN_DECISIONS 26 (owner, 2026-10-22, after PRESET-4): 8 gateways sat on the line on fresh seeds (0.955, then
     // 0.947), so the ring grows to 12, DEPLOY-REQ's margin (0.970-0.975 at 12 finders and more).
-    {"nGateways", "12", "DD 26 (was 8, DD 25; 3, DD 9): the 12-gateway ring, which meets the 5 km requirement with a margin (DEPLOY-REQ 0.975)"},
-    {"gwLayout", "legacy", "DD 25 (was star): the 8-gateway ring DEPLOY-REQ measured"},
-    {"nFinders", "12", "DD 25 (was 8, DD 22): with 8 gateways, 12 finders meet the five-node requirement at 5 km (DEPLOY-REQ 0.955)"},
+    // DESIGN_DECISIONS 27 (owner, 2026-11-20): the 12-gateway ring with 12 finders in the field from t = 0 (DD 25-26)
+    // is not a deployment an industrial site has. The preset deployment is now the realistic one: three gateways
+    // strung along a line (an access road / ridge, --gwRidge), the base camp at its trailhead end, and two searchers
+    // who wait at the camp and set out only when a node has had no gateway contact for 300 s. DD 26's ring and
+    // finders reproduce with PIN_PRE_DD27 (scripts/preset_pins.sh).
+    {"nGateways", "3", "DD 27 (was 12, DD 26; 8, DD 25; 3 star, DD 9): three gateways, as the brief"},
+    {"gwLayout", "legacy", "DD 27: the legacy builder, which places --gwRidge lines"},
+    {"gwRidge", "true", "DD 27: the gateways follow a line (access road / ridge), not a ring"},
+    {"baseCampFrac", "0.9", "DD 27: a base camp; in ridge mode it is the trailhead at the west end of the line"},
+    {"nFinders", "2", "DD 27 (was 12, DD 25-26): two searchers, starting together from the camp"},
+    {"searchLaunchOnLoss", "300", "DD 27: searchers leave the camp only after 300 s without gateway contact"},
     {"finderMode", "2", "decision 6: the two-phase search"},
     {"finderDispersal", "1.0", "MS-1: finders spread over the subjects"},
     {"finderPseudoAnchor", "true", "MS-1: finders as pseudo-anchors"},
@@ -17436,6 +18548,7 @@ main(int argc, char* argv[])
     uint32_t nDeescalateArg = 0;
     bool sendHandshakeFramesArg = false;
     bool terrainPerTierFreqArg = false;
+    bool rangeHeightCorrectArg = false;
     bool foliageDepthClampArg = false;
     bool rngKeyedArg = false;
     bool rngKeyedProbeExtraTxArg = false;
@@ -18410,6 +19523,51 @@ main(int argc, char* argv[])
                  "any learned (e.g. ML) replacement for the variance the trigger reads "
                  "(report/PREREG_ORACLE_ESC.md). Other arms are unaffected.",
                  spec.oracleTrigger);
+    cmd.AddValue("benefitLambda",
+                 "TII-1. 0 (default): off, every earlier result unchanged. > 0 (m^2 of tr(P) per joule): the "
+                 "fixed_threshold arm's trigger becomes the PREDICTED-BENEFIT rule -- the sensor-selection criterion of "
+                 "Joshi & Boyd applied to radio tiers. Each cycle the node predicts, from its own posterior P and the "
+                 "anchors this cycle's ranges show within the next tier's evidence radius, how much one cycle of that "
+                 "tier would shrink tr(P), divides by the tier's per-cycle cost, and escalates when the ratio exceeds "
+                 "lambda; it demotes after --nDeescalate cycles on which staying is worth less than lambda/2. "
+                 "--fixedVarThreshold is then unused. The suppress-only checks (evidence gate, witnesses) still apply. "
+                 "Other arms are unaffected.",
+                 spec.benefitLambda);
+    cmd.AddValue("benefitCost868J", "TII-1: joules per 868 MHz ranging slot, the cost --benefitSkip868 weighs (OURS, "
+                 "~ tag-0 j_868 per cycle in PRESET-5)", spec.benefitCost868J);
+    cmd.AddValue("benefitCost2p4J", "TII-1: joules per cycle on 2.4 GHz (OURS, ~ tag-0 j_2p4 / cycles_2p4, PRESET-5)",
+                 spec.benefitCost2p4J);
+    cmd.AddValue("benefitCostUwbJ", "TII-1: joules per cycle on UWB (OURS, ~ tag-0 j_uwb / cycles_uwb, PRESET-5)",
+                 spec.benefitCostUwbJ);
+    cmd.AddValue("benefitSkip868",
+                 "TII-1. False (default). True (needs --benefitLambda > 0; fixed_threshold arm only): a node off "
+                 "868 MHz skips its 868 MHz ranging slot on a cycle where the 868 MHz anchors it last heard are "
+                 "predicted to shrink tr(P), on top of this cycle's ranges, by less than lambda per joule of the slot. "
+                 "The radio stays awake and listening; only the exchange is skipped and not billed.",
+                 spec.benefitSkip868);
+    cmd.AddValue("benefitSkip868Min3",
+                 "TII-2. False (default): --benefitSkip868 as registered in PARETO-1. True: the 868 MHz slot may be "
+                 "skipped only on a cycle whose active tier delivered >= 3 ranges -- a fix on its own -- AND the "
+                 "predicted benefit says skip. Why: in PARETO-1 the rule skipped 868 MHz at 5 km on cycles where 2.4 GHz "
+                 "alone was too sparse to fix, and five-worker A(25 m) fell below 0.95 there. Inert without "
+                 "--benefitSkip868.",
+                 spec.benefitSkip868Min3);
+    cmd.AddValue("benefitNisInflate",
+                 "TII-3 F1. False (default). True (with --benefitLambda > 0): every predicted benefit -- the UWB "
+                 "escalation and the 868 MHz skip -- is computed on P scaled by max(1, the filter's running mean NIS), so "
+                 "a filter whose innovations are larger than it expects (over-confident) predicts larger gains and keeps "
+                 "ranging. Why: in PARETO-1 the rule's skips made the filter over-confident (95 % region coverage "
+                 "0.89 -> 0.69 at 5 km) and it then read that P to decide the next skip.",
+                 spec.benefitNisInflate);
+    cmd.AddValue("benefitHeartbeat868N",
+                 "TII-3 F2. 0 (default): off. N: a node never skips more than N-1 consecutive 868 MHz slots, whatever "
+                 "the benefit says, so a gross error the Gaussian benefit cannot see is caught at least every N cycles.",
+                 spec.benefitHeartbeat868N);
+    cmd.AddValue("benefitSkipNisMax",
+                 "TII-3 F4. 0 (default): off. > 0: no 868 MHz skip on a cycle where any of the active tier's ranges has a "
+                 "normalised innovation (range residual squared over its predicted variance against the prior) above "
+                 "this value (chi^2_1(0.99) = 6.63 is the natural choice).",
+                 spec.benefitSkipNisMax);
     cmd.AddValue("nlosRSource",
                  "Which NLOS tag the filter's Step() keys the range variance inflation "
                  "(--nlosSigmaInflation's x3 on the engine sigma) and its LOS count on: "
@@ -18452,6 +19610,41 @@ main(int argc, char* argv[])
                  "868 MHz the return the RSSI range itself needs, billed only under --tier1ChargeReplies, in both "
                  "variants alike. The table remains the fallback.",
                  spec.rangeReplyPosition);
+    cmd.AddValue("finderLkpFirst",
+                 "DD 32. MODE 2 searchers sweep an outward spiral round the CAMP whenever the entry they hold is coarser "
+                 "than the spiral so far. A casualty tracked on one precise radio reports a large sigma even when its "
+                 "position is good, so its searchers ignored an accurate last known position and spiralled round the camp. "
+                 "True: they sweep only while the entry is uninformative (sigma above half the box half-width, as the "
+                 "start-up prior is); otherwise they head for the last known position (with --finderStaleSearch, orbiting "
+                 "it once it is stale), which is standard search doctrine. False (default): as before, byte-identical.",
+                 spec.finderLkpFirst);
+    cmd.AddValue("finderSweepFromDispatch",
+                 "DD 31 (bug fix). The searchers' no-entry sweep (an outward spiral from the camp, used while they hold "
+                 "no usable entry for the casualty) grows its radius as 0.9 x speed x t with t from the START of the run. "
+                 "With the party held at the camp until an alarm (--searchLaunchAtS / --searchLaunchOnLoss) the first "
+                 "sweep step after dispatch puts every searcher on a spiral as wide as it would have walked since t = 0: "
+                 "a 3.2 km jump at a 50 min alarm, seen in every static_2p4 run of REALISTIC-1/3 (the only arm whose "
+                 "searchers hold no entry). True: the sweep's clock starts at the dispatch. False (default): as before, "
+                 "byte-identical. One 'DD31' line per arm when on.",
+                 spec.finderSweepFromDispatch);
+    cmd.AddValue("finderDigestOnArmTier",
+                 "DD 30. Under static_2p4, the searchers poll for position entries (DIGEST) on 2.4 GHz instead of 868 "
+                 "MHz, and steer on the table of their 2.4 GHz radio instead of their 868 MHz one. Both were hard-wired "
+                 "to 868 MHz for every arm, so a 2.4 GHz-only party never steered on an entry even when it held one: a "
+                 "2.4 GHz-only system would ask, and listen, on its own radio. Every other arm is unchanged. False (default): 868 MHz for every arm, "
+                 "byte-identical to every earlier result. One 'DD30 finderDigestOnArmTier' line per arm when on.",
+                 spec.finderDigestOnArmTier);
+    cmd.AddValue("acquireSideOfRoad",
+                 "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
+                 "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "
+                 "on one line cannot tell a node from its mirror image across the line, so a range-only cloud keeps both "
+                 "and the filter can lock onto the mirror (about 2 x the node's distance to the line off). The operator "
+                 "knows which side of the road the site is on; this tells the filter. Particles drawn across the line are "
+                 "redrawn and particles that drift across carry no weight; the Kalman filter after hand-over is "
+                 "then kept on that side: an estimate that crosses the line (the mirror root) is reflected back, which moves no "
+                 "likelihood of the anchors on the line. False (default): no constraint, byte-identical to every earlier result. FATAL without "
+                 "--gwRidge or --acquireParticles. One 'DD29 acquireSideOfRoad' line per arm when on.",
+                 spec.acquireSideOfRoad);
     cmd.AddValue("acquireParticles",
                  "V4 (master plan v3; TECH_DEBT N.54). False (default): each filter acquires from its prior with "
                  "range updates, as in every earlier result. True: every node acquires with a particle filter "
@@ -19108,6 +20301,13 @@ main(int argc, char* argv[])
                  "Gate G138 only: one extra 868 MHz engine evaluation on an unused link at arm start, "
                  "the perturbation the keyed draws must absorb. Never part of a measured configuration.",
                  rngKeyedProbeExtraTxArg);
+    cmd.AddValue("rangeHeightCorrect",
+                 "DD 28. Project every range to a mast anchor onto the ground before the filter reads it: "
+                 "sqrt(max(r^2 - dh^2, 0)), dh = the anchor's surveyed height minus the device's carried height "
+                 "(15 m - 1.5 m for a gateway). The filter is 2-D and read slant ranges as horizontal, about "
+                 "0.9 m long at 100 m and 4 m at 20 m. Peers and finders (dh = 0) are untouched. False (default) "
+                 "is every earlier result, byte-identical. One 'DD28 rangeHeightCorrect' line when on.",
+                 rangeHeightCorrectArg);
     cmd.AddValue("terrainPerTierFreq",
                  "Whether the terrain submodule uses each tier OWN carrier for "
                  "its Fresnel and diffraction geometry. False (default) keeps "
@@ -19207,6 +20407,114 @@ main(int argc, char* argv[])
                  "conditioning degrades with distance from access, which is what a "
                  "real deployment does and the direction the scenario needs.",
                  gwArcCentreDegArg);
+    cmd.AddValue("collapse",
+                 "DD 39. Collapse World (DESIGN_DECISIONS 36-37, docs/HANDOFF_COLLAPSE_MULTIWORKER.md): a box rubble pile "
+                 "centred on the origin; every tag (the measured one and every peer) is buried and still from t = 0; a "
+                 "walker or finder inside the footprint stands on the pile (its device 1.5 m above the top); every link "
+                 "of every engine gets the pile's lowest-loss path loss and ToF delay. Needs --collapseFootX, "
+                 "--collapseFootY, --collapsePileH, --collapseDepthMin, --collapseDepthMax (no defaults: set them from "
+                 "docs/SOURCES_COLLAPSE.md rows or sweep them). Default false: nothing reads any of this.",
+                 g_collapse.on);
+    cmd.AddValue("collapseFootX", "DD 39. Pile footprint along x, m (required with --collapse)", g_collapse.footX);
+    cmd.AddValue("collapseFootY", "DD 39. Pile footprint along y, m (required with --collapse)", g_collapse.footY);
+    cmd.AddValue("collapsePileH", "DD 39. Pile height, m (required with --collapse; row PILE-ALPHA)", g_collapse.pileH);
+    cmd.AddValue("collapseDepthMin", "DD 39. Least rubble above a buried device, m (required with --collapse)",
+                 g_collapse.depthMin);
+    cmd.AddValue("collapseDepthMax", "DD 39. Most rubble above a buried device, m (required with --collapse)",
+                 g_collapse.depthMax);
+    cmd.AddValue("collapseBracket", "DD 39. Rubble bracket low|central|high (DD 36)", g_collapse.bracket);
+    cmd.AddValue("collapseField",
+                 "DD 40. Instead of the arms, draw the collapse link field (obs_*/truth_* files, as "
+                 "scratch/ca_tbl_collapse_sim.cc) with the preset's engines; needs --collapse and the field flags",
+                 g_collapse.field);
+    cmd.AddValue("collapseFieldVictims", "DD 40. Buried devices in the field", g_collapse.fieldVictims);
+    cmd.AddValue("collapseGridStep", "DD 40. Rescuer point spacing on the pile top, m", g_collapse.gridStep);
+    cmd.AddValue("collapseHoldHeights", "DD 40. Device heights above the top, m, comma list", g_collapse.holdHeights);
+    cmd.AddValue("collapseStations", "DD 40. Ground stations on a ring around the pile", g_collapse.stations);
+    cmd.AddValue("collapseStationR", "DD 40. Station ring radius, m", g_collapse.stationR);
+    cmd.AddValue("collapseStationH", "DD 40. Station antenna height, m", g_collapse.stationH);
+    cmd.AddValue("collapseSlots", "DD 40. Time slots", g_collapse.slots);
+    cmd.AddValue("collapseSlotS", "DD 40. Slot length, s", g_collapse.slotS);
+    cmd.AddValue("collapseGpsSigmaH", "DD 40. GPS error per horizontal axis, m", g_collapse.gpsSigmaH);
+    cmd.AddValue("collapseGpsSigmaV", "DD 40. GPS vertical error, m", g_collapse.gpsSigmaV);
+    cmd.AddValue("collapseLocalSigma", "DD 40. Rescuer local-frame error per axis, m", g_collapse.localSigma);
+    cmd.AddValue("interferenceFrameKey",
+                 "DD 41. One physical frame delivered to several receivers is evaluated once per receiver; each "
+                 "evaluation used to enter the engines' interference registry as a transmission of the RECEIVING "
+                 "field node, so the second and later receivers of a broadcast saw earlier copies of the same frame "
+                 "as overlapping interferers and lost it (measured: buried subjects 2..N heard a gateway 30 m away "
+                 "in ~0% of cycles, subject 1 in 100%). True: every receiver's evaluation of one frame shares a "
+                 "key and copies never interfere with each other; different frames still do. Default TRUE since "
+                 "2026-11-22 (owner decision, DESIGN_DECISIONS 41). False reproduces every result recorded before "
+                 "that date (scripts/preset_pins.sh PIN_PRE_DD41).",
+                 g_interferenceFrameKey);
+    cmd.AddValue("uwbFutilityCycles",
+                 "DD 46. On UWB with no UWB range for this many consecutive cycles, step down and veto UWB for a "
+                 "backoff (--uwbFutilityBackoffS, doubling after each futile stay, capped at 960 s). Only the device's own "
+                 "radio outcomes are used. Why: under rubble the geometric UWB-reach predictor (a finder ranged close by) "
+                 "is wrong -- the finder is close but UWB does not get through -- and COLLAPSE-3 found the full design "
+                 "spending most of its energy on UWB attempts (DD 45). 0 (default) = off, byte-identical.",
+                 g_uwbFutilityCycles);
+    cmd.AddValue("uwbFutilityBackoffS", "DD 46. First UWB veto after a futile stay, s (doubles, capped at 960 s)",
+                 g_uwbFutilityBackoffS);
+    cmd.AddValue("uwbFutilityLoneMaxBackoffS",
+                 "DD 53. With --uwbFutilityCycles: while a device hears no other worker on 868 MHz (its own neighbour "
+                 "table, worker ids), its UWB veto backoff is capped at this many seconds instead of 960, so a lone "
+                 "worker probes UWB more often. 0 (default) = off: byte-identical",
+                 g_uwbFutilityLoneMaxBackoffS);
+    cmd.AddValue("loneStay868",
+                 "DD 53b. While a device hears no other worker on 868 MHz (its own neighbour table): on 868 MHz it does not "
+                 "also range and fuse 2.4 GHz (--loraDualBase), and with >= 3 868 MHz ranges it does not escalate. "
+                 "FALSE by default: byte-identical",
+                 g_loneStay868);
+    cmd.AddValue("relayChainK",
+                 "DD 50 (plan B5). Each relay's relay-to-relay exchanges go to its K nearest fix holders only (by the "
+                 "nodes' own estimates), so the --relaySlots round needs (n - 1)(1 + K) slots instead of (n - 1)^2 and "
+                 "a crew larger than ~7 fits a 2.5 s cycle. 0 (default) = every holder, as before.",
+                 g_relayChainK);
+    cmd.AddValue("stillSlowCycle",
+                 "DD 50 (plan B5). A worker whose own motion sensor reports it still (buried, or stopped) and whose policy "
+                 "is on 868 MHz ranges only every K-th cycle (staggered by worker); the filter coasts in between. 0 or 1 "
+                 "(default) = off.",
+                 g_stillSlowCycle);
+    cmd.AddValue("tofRubbleCorrect",
+                 "DD 49 (plan B1 inside the filter). Each 2.4 GHz / UWB ToF range is shortened by its link's own excess "
+                 "loss over the nominal path loss divided by the rubble's loss-to-delay ratio (published-span midpoint), "
+                 "and its sigma widened by that ratio's spread. Default false.",
+                 g_tofRubbleCorrect);
+    cmd.AddValue("finderFrameSolve",
+                 "DD 48 (plan B3). Each finder publishes the position solved from its own ToF ranges (UWB, else 2.4 GHz) to "
+                 "the surveyed gateways and the other finders, with its GNSS fix (--finderPosSigma) as the prior, instead "
+                 "of the GNSS fix alone. Ranges are drawn on separate engines, so no other link moves. Default false.",
+                 g_finderFrameSolve);
+    cmd.AddValue("collapseDepthSolve",
+                 "DD 47 (plan B2). With --collapse: estimate each worker's depth below the rescuers' feet from its own "
+                 "2.4 GHz and UWB ranges to finders taken within 5 m horizontally (r^2 = dh^2 + (1.5 + d)^2, robust 1-D "
+                 "search; NaN = not observable when its sd exceeds 1 m) and write "
+                 "collapse_depth_<arm>_seed<N>.csv; the World's true depths go to collapse_truth_<arm>_seed<N>.csv. "
+                 "Output only. Default false.",
+                 g_collapseDepthSolve);
+    cmd.AddValue("phase0Timing",
+                 "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
+                 "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
+                 g_phase0Timing);
+    cmd.AddValue("collapsePointLinksM", "DD 44. Field: also draw rescuer point-to-point links within this horizontal "
+                 "radius, m (0 = none, the default)", g_collapse.pointLinksM);
+    cmd.AddValue("collapseRubbleOff", "DD 40. Field without the pile (validation reference)", g_collapse.rubbleOff);
+    cmd.AddValue("collapseNominalHeights",
+                 "No-leak fix (DD 52). Under --rangeHeightCorrect, project ranges with the heights the system can know "
+                 "(surveyed gateway masts; 1.5 m carry height for every carried device) instead of the nodes' true "
+                 "heights (a buried worker's depth is World truth). FALSE by default: byte-identical",
+                 g_collapseNominalHeights);
+    cmd.AddValue("incidentRandom",
+                 "DD 35. With --trailDeviateAtS > 0: the incident is drawn per seed instead of fixed. The trail starts where "
+                 "the subject starts (the camp) and heads toward the site centre +/- 45 deg; the subject leaves it at "
+                 "15-35 min (replacing --trailDeviateAtS), turns 45-135 deg left or right and holds that bearing, and stops "
+                 "5-15 min later (replacing --trailStopAfterS), so it is still by 50 min. The box edge reflects the heading. "
+                 "Own random stream; the same seed gives the same incident in every arm. Why: the fixed trail put the "
+                 "casualty at the identical point on every seed (one incident, 20 noise draws), and from a corner camp "
+                 "the due-east trail pinned it to the box edge. False (default): the fixed trail, byte-identical.",
+                 g_incidentRandom);
     cmd.AddValue("trailDeviateSide",
                  "Which way the subject leaves the trail: -1 (DEFAULT) south, away from "
                  "an arc centred north; +1 north, through it. Default reproduces the "
@@ -20301,6 +21609,22 @@ main(int argc, char* argv[])
                  "(Afzal, Renaudin, Lachapelle 2011). Fused as a direct reading of ekf5's heading offset each cycle; "
                  "the CV filter has no heading state and does not use it.",
                  imuMagSigmaDegArg);
+    cmd.AddValue("reacquireSigmaM",
+                 "DD 34. With --acquireParticles and ekf5: when the filter's sqrt(trace P) exceeds this many metres it is "
+                 "lost, and it re-enters the particle acquisition round its current estimate (cloud as wide as its own "
+                 "uncertainty, never wider than the start-up prior), handing over again once the cloud is one mode. Why: in "
+                 "REALISTIC-2's quiet shift a lost crew filter (+/-34 km) linearised one 6.8 km range and then a two-"
+                 "gateway intersection into the wrong root and claimed +/-23 m at 400 m off. 0 (default): never, "
+                 "byte-identical to every earlier result.",
+                 g_reacquireSigmaM);
+    cmd.AddValue("ekf5CoarsePosOnly",
+                 "DD 33. With --imuFilter=ekf5: an 868 MHz range corrects the POSITION only. Heading offset, gyro bias and "
+                 "stride scale are consider states for it (Schmidt-Kalman gain, covariance in the general-gain form), and it "
+                 "is not put into the --ekf5Window smoother. Why: in REALISTIC-2's 8 h quiet shift at the cluster site the "
+                 "crew's filters, fed kilometre-scale RSSI ranges, learned a stride scale of -50 and a gyro bias of "
+                 "-0.37 rad/s and froze in place at a claimed +/-20 m while 1-3 km off. False (default): every range "
+                 "updates every state, byte-identical to every earlier result. Refused without ekf5.",
+                 g_ekf5CoarsePosOnly);
     cmd.AddValue("ekf5StateBounds",
                  "With --imuFilter=ekf5: after every update the gyro bias and stride scale are clamped to +/- this many of "
                  "their prior sigmas (estimate projection onto the admissible region, Simon & Chia 2002). 0 (default): no "
@@ -20786,6 +22110,30 @@ main(int argc, char* argv[])
         argv2.push_back(argv[i]);
     }
     cmd.Parse(static_cast<int>(argv2.size()), argv2.data());
+    if (g_collapse.on) // DD 39: refuse an incomplete collapse World
+    {
+        CaTblRubbleBracket brChk;
+        const CaTblCollapseCfg& c = g_collapse;
+        if (!std::isfinite(c.footX) || !std::isfinite(c.footY) || !std::isfinite(c.pileH) ||
+            !std::isfinite(c.depthMin) || !std::isfinite(c.depthMax))
+        {
+            std::cerr << "FATAL: --collapse needs --collapseFootX, --collapseFootY, --collapsePileH, "
+                         "--collapseDepthMin and --collapseDepthMax (no defaults)\n";
+            return 1;
+        }
+        if (c.footX <= 1.0 || c.footY <= 1.0 || c.pileH <= 0.0 || c.depthMin <= 0.0 || c.depthMax < c.depthMin ||
+            c.depthMax > c.pileH)
+        {
+            std::cerr << "FATAL: --collapse geometry out of range (footprints > 1 m, 0 < depthMin <= depthMax <= "
+                         "pileH)\n";
+            return 1;
+        }
+        if (!ParseRubbleBracket(c.bracket, brChk))
+        {
+            std::cerr << "FATAL: --collapseBracket must be low, central or high\n";
+            return 1;
+        }
+    }
     if (CaTblTofModelIndex(g_tofErrorModelName) < 0)
     {
         std::cerr << "ERROR: --tofErrorModel must be engine, gottschalk, muller or wolf\n";
@@ -20831,6 +22179,7 @@ main(int argc, char* argv[])
     }
 
     g_terrainPerTierFreq = terrainPerTierFreqArg;
+    g_rangeHeightCorrect = rangeHeightCorrectArg;
     g_foliageDepthClamp = foliageDepthClampArg;
     SetFadingPerBand(g_fadingPerBandArg); // B7
     RadioFrontendSubmodule::SetAgcPerReceiver(g_agcPerReceiverArg); // B6
@@ -21105,7 +22454,8 @@ main(int argc, char* argv[])
     if (relaySlotsArg)
     {
         const double nr = static_cast<double>(nTagsArg - 1);
-        const double k = nr + (relayChainArg ? nr * (nr - 1.0) : 0.0);
+        const double kc = (g_relayChainK > 0) ? std::min<double>(g_relayChainK, nr - 1.0) : (nr - 1.0); // DD 50
+        const double k = nr + (relayChainArg ? nr * kc : 0.0);
         if (!(k * FixRouter::kSlotS < dt))
         {
             std::cerr << "FATAL: --relaySlots needs " << k << " slots of "
@@ -22095,6 +23445,11 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
     }
+    if (g_ekf5CoarsePosOnly && !spec.imuFilterEkf5)
+    {
+        std::cerr << "FATAL: --ekf5CoarsePosOnly needs --imuFilter=ekf5\n";
+        return 1;
+    }
     if (g_ekf5StateBoundsK != 0.0 && (!spec.imuFilterEkf5 || !(g_ekf5StateBoundsK > 0.0)))
     {
         std::cerr << "FATAL: --ekf5StateBounds needs --imuFilter=ekf5 and a positive value\n";
@@ -22192,6 +23547,17 @@ main(int argc, char* argv[])
         std::cout << "  N.33: ekf5 update mode " << ekf5RobustArg << "\n";
     }
     // DC-1 bias override.
+    if (spec.acquireSideOfRoad)
+    {
+        if (!gwRidgeArg || !spec.acquireParticles)
+        {
+            std::cerr << "FATAL: --acquireSideOfRoad needs --gwRidge (the line it refers to) and --acquireParticles\n";
+            return 1;
+        }
+        spec.acquireHpA = 0.0; // allowed: -y + ridgeY >= 0, the work sites' side
+        spec.acquireHpB = -1.0;
+        spec.acquireHpC = gwRidgeYArg * boxHalfM;
+    }
     if (spec.acquireHandoverCurvature && !spec.acquireParticles)
     {
         std::cerr << "FATAL: --acquireHandoverCurvature needs --acquireParticles (it guards that cloud's handover)\n";
@@ -22274,6 +23640,15 @@ main(int argc, char* argv[])
         }
     }
 
+    if (g_collapse.field) // DD 40
+    {
+        if (!g_collapse.on)
+        {
+            std::cerr << "FATAL: --collapseField needs --collapse and its geometry\n";
+            return 1;
+        }
+        return RunCollapseField(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir);
+    }
     if (probe)
     {
         RunProbe(env, envFacility, seedStart, vegWide, vegFacility, phy, outdir, traceDiagnostic);
@@ -22997,6 +24372,10 @@ main(int argc, char* argv[])
     {
         digestPatterns += " subject_summary.csv subjtrace_*.csv";
     }
+    if (g_collapseDepthSolve && g_collapse.on) // DD 47
+    {
+        digestPatterns += " collapse_depth_*.csv collapse_truth_*.csv";
+    }
     if (spec.finderTasking == "roundrobin" || spec.finderTasking == "pairs" || spec.finderTasking == "need")
     {
         digestPatterns += " tasking_*.csv";
@@ -23140,6 +24519,23 @@ main(int argc, char* argv[])
         // Draws made outside any link evaluation fall back to a per-sampler sequence, which
         // is still coupled to call order. Reported so the residue is visible, not assumed 0.
         std::cout << "RNGKEYED unkeyed_draws=" << LoRaDistributionSampler::UnkeyedDraws() << "\n";
+    }
+    if (g_stillSlowCycle > 1) // DD 50
+    {
+        std::cout << "DD50 stillSlowCycle exchanges skipped=" << g_stillSkipped << "\n";
+    }
+    if (g_collapseNominalHeights)
+    {
+        std::cout << "DD52 collapseNominalHeights ranges=" << g_collapseNominalApplied << "\n";
+    }
+    if (g_tofRubbleCorrect) // DD 49
+    {
+        std::cout << "DD49 tofRubbleCorrect ranges corrected=" << g_tofRubbleCorrected << "\n";
+    }
+    if (g_phase0Timing) // DD 43
+    {
+        std::cout << "PHASE0 steps=" << g_phase0Steps << " step_host_s=" << std::setprecision(9) << g_phase0StepS
+                  << " per_step_us=" << (g_phase0Steps ? 1e6 * g_phase0StepS / g_phase0Steps : 0.0) << "\n";
     }
     return 0;
 }
