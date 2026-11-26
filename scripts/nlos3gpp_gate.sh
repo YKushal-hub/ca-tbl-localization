@@ -5,13 +5,14 @@
 #     of tag 0's 868 MHz gateway ranges that are NLOS (RMa: P_NLOS 0.63 at 1 km against the old 0.12).
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 UNIT="$(pwd)/build/scratch/ns3.47-v2a2_nlos_unit-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g146.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 bad=0
 "$UNIT" || bad=1
 if "$UNIT" --break=far > "$D/fix.txt" 2>&1; then echo "G146 FAIL FIXTURE  --break=far did not turn the unit checks red"; bad=1; else echo "G146 PASS FIXTURE  --break=far is red"; fi
-B="--specProfile=true --arms=static_868 --seed=7 --duration=600 --trace=true --traceRanges=true"
+B="--specProfile=true $PIN_PRE_DD65 --arms=static_868 --seed=7 --duration=600 --trace=true --traceRanges=true"
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --nlos3gppRMa=false --outdir="$D/off" > "$D/off.log" 2>&1 &

@@ -1170,6 +1170,7 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetIterate(m_config.ekf5Iterate, m_config.ekf5IterateTolM);
         m_ekf5.SetWindow(m_config.ekf5Window, m_config.ekf5WindowMin, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5.SetStateBounds(m_config.ekf5StateBoundsK, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
+        m_ekf5.SetWindowThetaWalk(m_config.ekf5WindowThetaWalk); // DD 59
         m_ekf5.SetCoarsePosOnly(m_config.ekf5CoarsePosOnly); // DD 33
         m_ekf5HaveHeading = false;
     }

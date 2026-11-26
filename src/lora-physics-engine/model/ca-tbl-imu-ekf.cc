@@ -536,7 +536,14 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
             m_win.back().x = m_x[0];
             m_win.back().y = m_x[1];
         }
-        WinSolve(); // --ekf5Window
+        if (m_winWalk)
+        {
+            WinSolveWalk(); // DD 59
+        }
+        else
+        {
+            WinSolve(); // --ekf5Window
+        }
     }
 }
 
@@ -1493,12 +1500,20 @@ CaTblImuEkf::WinOpen(double dt, double dist, double raw, double qStep2, double q
     c.dwellVar = dwellVar;
     c.x = m_x[0];
     c.y = m_x[1];
+    c.th = m_x[2] + m_x[3] * dt; // DD 59
     m_win.push_back(c);
     while (static_cast<int>(m_win.size()) > m_winW)
     {
         if (m_winHaveSol && m_win.size() >= 2)
         {
-            WinMarginaliseFront();
+            if (m_winWalk)
+            {
+                WinMarginaliseFrontWalk(); // DD 59
+            }
+            else
+            {
+                WinMarginaliseFront();
+            }
         }
         m_win.pop_front();
         if (m_winHaveSol && !m_win.empty())

@@ -5,9 +5,10 @@
 #  SCOPE    static_2p4 (no escalation) is untouched
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g145.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true --arms=static_2p4,ca_tbl_full --seed=7 --duration=900 --trace=true --rngKeyed=true --boxHalf=750 --finderMode=1"
+B="--specProfile=true $PIN_PRE_DD65 --arms=static_2p4,ca_tbl_full --seed=7 --duration=900 --trace=true --rngKeyed=true --boxHalf=750 --finderMode=1"
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --c2bEscalation=false --outdir="$D/off" > "$D/off.log" 2>&1 &

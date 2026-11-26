@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.." || exit 2
 . scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g144.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true $PIN_PRE_DD27 --arms=ca_tbl_full --seed=7 --duration=900 --trace=true --traceRanges=true --rngKeyed=true --boxHalf=750 --finderMode=1 --rangeReplyPosition=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"  # pinned: the preset turns it on (DD 10); SHARPER was set before DD 11, 13, 14 and 15, which widen finder ranges in both runs (TECH_DEBT O.11); later arguments win
+B="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD27 --arms=ca_tbl_full --seed=7 --duration=900 --trace=true --traceRanges=true --rngKeyed=true --boxHalf=750 --finderMode=1 --rangeReplyPosition=false --radioBasis=lr1121 --halfDuplexChip=true --fadingPerBand=false --relayNisInflate=false --rssiSigmaLogNormal=false --imuQuScale=1"  # pinned: the preset turns it on (DD 10); SHARPER was set before DD 11, 13, 14 and 15, which widen finder ranges in both runs (TECH_DEBT O.11); later arguments win
 for n in base off on; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --rangeReplyPosition=false --outdir="$D/off" > "$D/off.log" 2>&1 &

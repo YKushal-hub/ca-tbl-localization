@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.." || exit 2
 . scripts/preset_pins.sh
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g149.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-B="--specProfile=true $PIN_PRE_DD27 --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true"
+B="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD27 --arms=static_868,static_2p4 --seed=7 --duration=600 --trace=true"
 for n in base off on still; do mkdir -p "$D/$n"; done
 "$BIN" $B --outdir="$D/base" > "$D/base.log" 2>&1 &
 "$BIN" $B --rssiCorrInflate=false --outdir="$D/off" > "$D/off.log" 2>&1 &

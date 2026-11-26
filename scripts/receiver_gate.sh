@@ -9,6 +9,7 @@
 # r_*              refusals: a UWB sensitivity outside [-130, -60]
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g161.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 P="--seed=7 --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --duration=300"
@@ -23,7 +24,7 @@ run def $P &
 # shellcheck disable=SC2086
 run zero $P --uwbSensitivityDbm=-104 --iqOverloadOnly=false &
 # shellcheck disable=SC2086
-run pre --specProfile=true $P --duration=10 &
+run pre --specProfile=true $PIN_PRE_DD65 $P --duration=10 &
 wait
 run r_low --arms=ca_tbl_full --seed=1 --duration=10 --uwbSensitivityDbm=-140
 run r_high --arms=ca_tbl_full --seed=1 --duration=10 --uwbSensitivityDbm=-50

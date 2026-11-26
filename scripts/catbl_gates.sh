@@ -2112,6 +2112,24 @@ bash scripts/duty_sci_gate.sh "$WORK/g185" || fail G185
 bash scripts/duty_sci_gate_selftest.sh "$WORK/g185" || fail G185
 finish G185
 
+# ---------------- G187: the smoother's heading random walk (DD 59)
+printf '\n--- G187 heading random walk in the smoother ---\n'
+bash scripts/theta_walk_gate.sh "$WORK/g187" || fail G187
+bash scripts/theta_walk_gate_selftest.sh "$WORK/g187" || fail G187
+finish G187
+
+# ---------------- G188: one 868 MHz ledger per searcher's device (DD 60)
+printf '\n--- G188 searchers 868 MHz ledger ---\n'
+bash scripts/finder_duty_gate.sh "$WORK/g188" || fail G188
+bash scripts/finder_duty_gate_selftest.sh "$WORK/g188" || fail G188
+finish G188
+
+# ---------------- G189: mast height and rubble delay in the 868 MHz arrival stamps (DD 62, DD 63)
+printf '\n--- G189 arrival stamps: height and rubble ---\n'
+bash scripts/tdoa_height_gate.sh "$WORK/g189" || fail G189
+bash scripts/tdoa_height_gate_selftest.sh "$WORK/g189" || fail G189
+finish G189
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183

@@ -2,10 +2,11 @@
 # G137 runner: B1 --traceRanges and --traceSubjectRanges. usage: bash scripts/rangelog_gate.sh [<workdir>]; checks in scripts/rangelog_gate.py
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g137.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
-B="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
+B="--specProfile=true $PIN_PRE_DD65 --arms=ca_tbl_full --seed=7 --duration=600 --trace=true --boxHalf=750 --finderMode=1"
 run base $B &
 run off $B --traceRanges=false --traceSubjectRanges=false &
 run on $B --traceRanges=true &

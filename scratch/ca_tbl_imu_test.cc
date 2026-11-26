@@ -642,6 +642,85 @@ main(int argc, char* argv[])
         Check(wth / 50 < 0.1, "window: one anchor and a corrupted heading state -- the heading recovers to < 0.1 rad");
         Check(w1 < 0.5 * e1, "window: one anchor -- position error less than half the EKF's (N.62)");
     }
+    // --- --ekf5WindowThetaWalk (DD 59): heading random-walks (the filter's own angle random walk); a long walk ------
+    {
+        auto longWalk = [](bool on, int every, double walkScale, uint64_t seed, double& nees, double& err) {
+            uint64_t z = seed;
+            auto u01 = [&z]() {
+                z ^= z << 13;
+                z ^= z >> 7;
+                z ^= z << 17;
+                return ((z >> 11) + 0.5) / 9007199254740992.0;
+            };
+            auto gauss = [&u01]() { return std::sqrt(-2.0 * std::log(u01())) * std::cos(2.0 * M_PI * u01()); };
+            // The scenario's own settings (DC-1's per-run bias and walk density, CaTblPolicyConfig), one range per cycle.
+            const double dt = 2.5, step = 3.0, deg = M_PI / 180.0, qT = 1.6682e-4 * 1.6682e-4 * dt;
+            const double gm = 3.0 * deg, rho = std::exp(-dt / 120.0), bs = 0.15 * deg;
+            const double b = bs * gauss(), s = 0.0266 * gauss();
+            const double ax[2] = {900.0, -700.0}, ay[2] = {300.0, 800.0}; // well-crossed (a sanity check; see the note below)
+            CaTblImuEkf f;
+            f.Init(0.0, 0.0, 4.0, 1e-4, bs * bs, std::pow(0.0266, 2));
+            f.SetWindow(60, 8, bs, 0.0266);
+            f.SetWindowThetaWalk(on);
+            double px = 0.0, py = 0.0, th = 0.0, dist = gm * gauss();
+            for (int i = 0; i < 20; ++i)
+            {
+                u01();
+            }
+            nees = err = 0.0;
+            int n = 0;
+            for (int c = 1; c <= 1500; ++c)
+            {
+                const double head = 2.0 * M_PI * c / 400.0; // a loop of 1.2 km
+                px += step * std::cos(head);
+                py += step * std::sin(head);
+                th += b * dt + walkScale * std::sqrt(qT) * gauss();
+                dist = rho * dist + gm * std::sqrt(1.0 - rho * rho) * gauss();
+                f.Predict(dt, step * (1.0 + s) + 0.05 * step * gauss(), head + th, std::pow(0.05 * step, 2), qT, 0.0);
+                f.FuseHeading(th + dist + 3.0 * deg * gauss(), gm * gm + gm * gm * (1.0 + rho) / (1.0 - rho)); // MagFuseVar
+                if (c % every)
+                {
+                    continue;
+                }
+                std::vector<CaTblRangeMeasurement> m(1);
+                const int a = (c / every) % 2;
+                m[0].anchorX = ax[a];
+                m[0].anchorY = ay[a];
+                m[0].anchorId = 101 + a;
+                m[0].sourceKind = CA_TBL_SRC_SURVEYED_GATEWAY;
+                m[0].rangeM = std::hypot(px - ax[a], py - ay[a]) + 10.0 * gauss();
+                f.Update(m, std::vector<double>(1, 100.0));
+                if (c > 750)
+                {
+                    const double ex = f.X() - px, ey = f.Y() - py;
+                    const double det = f.Pxx() * f.Pyy() - f.Pxy() * f.Pxy();
+                    nees += (f.Pyy() * ex * ex - 2.0 * f.Pxy() * ex * ey + f.Pxx() * ey * ey) / det;
+                    err += std::hypot(ex, ey);
+                    ++n;
+                }
+            }
+            nees /= n;
+            err /= n;
+        };
+        double nOff = 0.0, nOn = 0.0, eOff = 0.0, eOn = 0.0;
+        const int R = 4;
+        for (int k = 0; k < R; ++k)
+        {
+            double a, e;
+            longWalk(false, 1, 1.0, 7000 + 13 * k, a, e);
+            nOff += a / R;
+            eOff += e / R;
+            longWalk(true, 1, 1.0, 7000 + 13 * k, a, e);
+            nOn += a / R;
+            eOn += e / R;
+        }
+        std::cout << "    heading random walk, two well-crossed anchors: mean NEES " << nOff << " (straight line), " << nOn
+                  << " (walk); mean error " << eOff << ", " << eOn << " m\n";
+        Check(nOn > 0.5 && nOn < 4.0, "theta walk: position NEES within [0.5, 4] (chi^2_2 mean 2)");
+        Check(eOn < 1.1 * eOff, "theta walk: the error is no worse than 1.1x the straight line's");
+        // The over-confidence itself (an 8 h shift in the full stack) is gate G187's; this walk does not show it. With a
+        // gateway cluster 3 km off and 1500 cycles BOTH smoothers are over-confident (NEES about 8, 4 seeds): DD 59.
+    }
     // Off: no buffering, bit-identical to a filter never configured.
     {
         auto one = [](bool touch, double* out) {

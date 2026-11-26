@@ -6,14 +6,15 @@
 #     (0.434 -> 0.388 dB/m but 25 -> 36.3 dB Am), and leaves UWB's foliage unchanged.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 UNIT="$(pwd)/build/scratch/ns3.47-c4_p833_unit-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g148.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 bad=0
 "$UNIT" || bad=1
 if "$UNIT" --break=table > "$D/fix.txt" 2>&1; then echo "G148 FAIL FIXTURE  --break=table did not turn the unit checks red"; bad=1; else echo "G148 PASS FIXTURE  --break=table is red"; fi
-P="--specProfile=true --probe=true --probeTerms=true --seed=7"
-R="--specProfile=true --arms=ca_tbl_full --seed=7 --duration=600"
+P="--specProfile=true $PIN_PRE_DD65 --probe=true --probeTerms=true --seed=7"
+R="--specProfile=true $PIN_PRE_DD65 --arms=ca_tbl_full --seed=7 --duration=600"
 for n in pbase poff pon rbase roff; do mkdir -p "$D/$n"; done
 "$BIN" $P --outdir="$D/pbase" > "$D/pbase.log" 2>&1 &
 "$BIN" $P --foliageP833=false --outdir="$D/poff" > "$D/poff.log" 2>&1 &

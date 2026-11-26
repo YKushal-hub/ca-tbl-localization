@@ -8,9 +8,10 @@
 # r_*      refusals: without ekf5, with --ekf5Robust, and a negative pass count
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g151.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
-P="--specProfile=true --seed=5 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --arms=ca_tbl_full"
+P="--specProfile=true $PIN_PRE_DD65 --seed=5 --trace=true --unknownStart=true --fixedVarThreshold=12 --imuGyroBiasSigmaDps=0.15 --imuStrideSigmaPct=5 --imuFilter=ekf5 --arms=ca_tbl_full"
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
 # shellcheck disable=SC2086
 run on $P --duration=600 --ekf5Iterate=10 &
