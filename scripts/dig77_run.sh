@@ -20,7 +20,7 @@ else
 fi
 BIN="$OUT/bin/ns3.47-ca_tbl_causal_sim-optimized"
 export LD_LIBRARY_PATH="$OUT/bin/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-J=${COLLAPSE13_JOBS:-8}
+J=${DIG77_JOBS:-8}
 cell() {
     local d=$1; shift
     [ -f "$d/rc" ] && [ "$(cat "$d/rc")" = 0 ] && return
@@ -28,7 +28,12 @@ cell() {
     ( cd "$OUT/bin" && sha256sum -c --quiet ../build.sha256 ) || { echo "manifest mismatch before $d" >> "$OUT/RUN.md"; exit 3; }
     rm -rf "$d"; mkdir -p "$d"
     # shellcheck disable=SC2068
-    ( "$BIN" $@ --outdir="$d" > "$d/run.log" 2>&1; echo $? > "$d/rc" ) &
+    # Disk (C: ~1.3 GB free at registration): every file is hashed into files.sha256, then the run is pruned to what the
+    # analyser reads (traces, summaries, logs, run_id, spec_profile). The hashes stay; the pruned files are gone.
+    ( "$BIN" $@ --outdir="$d" > "$d/run.log" 2>&1; r=$?
+      ( cd "$d" && sha256sum -- * > files.sha256 && find . -maxdepth 1 -type f ! -name 'trace_*' ! -name 'subjtrace_*' \
+        ! -name '*summary.csv' ! -name run.log ! -name run_id.txt ! -name spec_profile.txt ! -name files.sha256 -delete )
+      echo $r > "$d/rc" ) &
 }
 D="--specProfile=true --trace=true --gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false --rangeHeightCorrect=true"
 D="$D --finderSweepFromDispatch=true --finderDigestOnArmTier=true --finderLkpFirst=true --finderStaleSearch=true --reacquireSigmaM=500"

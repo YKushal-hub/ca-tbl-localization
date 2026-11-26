@@ -12,7 +12,7 @@ rather than assuming it, and repeats COLLAPSE-13's coverage claim (H63) on them.
 **Design.** The DD 77 preset (DD 75 on under `--collapse`), COLLAPSE-13's collapse flags and cells (K5, K8, H5, H8 four stations; K2 two
 stations), 20 workers, arm ca_tbl_full, 1800 s, with `--traceCovariance=true --traceSubjectConsistency=true` (output only; checked
 byte-identical in the common columns). Seeds 2201-2210, never used. 50 runs. Frozen binary, SHA-256 before every cell, `dirty 0`.
-`scripts/dig77_run.sh` and `scripts/dig77_analyse.py`, committed before the first cell. Scoring: `scripts/collapse/score_dig.py` (G191),
+`scripts/dig77_run.sh` and `scripts/dig77_analyse.py`, committed before the first cell. Disk (amended before the first cell): each finished run's files are hashed into its `files.sha256` and the run is pruned to the traces, summaries, logs, `run_id.txt` and `spec_profile.txt`; `rc` is written after the prune. Scoring: `scripts/collapse/score_dig.py` (G191),
 decision at the run's end, base 0,0; grid teams 1 / 2 x t_dig 0.5 / 2 / 8 h x radius 1 / 2 m (DIG-75's 60 combinations).
 Policies: `id`; `spt` (ranks by the published traceSigma = DD 75's bound); `sptf` (ranks by the filter's pxx + pyy); `oracle` (bound).
 
