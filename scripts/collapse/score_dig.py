@@ -67,7 +67,8 @@ def load(run, arm, decide):
                 pick = cand[-1]
         workers[sid] = dict(est=(float(pick["estX"]), float(pick["estY"])),
                             true=(float(pick["trueX"]), float(pick["trueY"])),
-                            sigma=float(pick["traceSigma"]), t=float(pick["t"]))
+                            sigma=float(pick["traceSigma"]), t=float(pick["t"]),
+                            sigmaf=(float(pick["pxx"]) + float(pick["pyy"])) if pick.get("pxx") not in (None, "") else None)
     return workers
 
 
@@ -127,13 +128,19 @@ def policies(W, tdig, r, base):
     s2 = lambda s: max(s, 1e-6)
     exp_t = {k: tdig * (1 + (s2(w["sigma"]) ** 2 / r ** 2) * math.exp(-r ** 2 / s2(w["sigma"]) ** 2)) for k, w in W.items()}
     true_t = {k: dig_time(math.dist(w["est"], w["true"]), tdig, r) for k, w in W.items()}
-    return {
+    out = {
         "id": sorted(W),
         "nearest": sorted(W, key=lambda k: math.dist(W[k]["est"], base)),
         "confident": sorted(W, key=lambda k: W[k]["sigma"]),
         "spt": sorted(W, key=lambda k: exp_t[k]),
         "oracle": sorted(W, key=lambda k: true_t[k]),
     }
+    if W and all(w.get("sigmaf") is not None for w in W.values()):
+        # DIG-77: spt keyed by the filter's own covariance trace (pxx + pyy, traced by --traceCovariance /
+        # --traceSubjectConsistency) instead of the published traceSigma (DD 75's bound under the DD 77 preset).
+        exp_f = {k: tdig * (1 + (s2(w["sigmaf"]) ** 2 / r ** 2) * math.exp(-r ** 2 / s2(w["sigmaf"]) ** 2)) for k, w in W.items()}
+        out["sptf"] = sorted(W, key=lambda k: exp_f[k])
+    return out
 
 
 def main():

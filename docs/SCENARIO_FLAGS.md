@@ -166,6 +166,7 @@ Added 2026-10-20 and 2026-10-21, each default off (its §3 help text gives the w
 - `--peerSplitCi` (row 343 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 57, G186).
 - DD 67 (2026-11-26): `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` are set to true by `--specProfile` (their own defaults stay false).
 - `--acquireParticleCount` (uint32, default 2000): added 2026-11-26 (DD 70).
+- `--sigmaShadow` (bool, default `false`): added 2026-11-26 (DD 75, G190). DD 77 (2026-11-27): set to true by `--specProfile` under `--collapse` only; without `--collapse` the preset leaves it off, and an explicit value always wins.
 - `--ekf5WindowThetaWalk`, `--dutyReport868Finders`, `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` (rows 349-353, appended out of help order): added
   2026-11-25, all `false` (DD 59, 60, 62, 63).
 

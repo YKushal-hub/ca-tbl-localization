@@ -1491,3 +1491,20 @@ fractions; the dig-time formula; the four system policies unchanged when the tru
 rule on synthetic sigmas. Five mutated copies (a policy reading the truth, a survival step, the dig-time formula, the CoreMark and
 current defaults) each fail the check they break. score_dig.py's orderings moved into `policies()`, a pure refactor: output identical
 on seven COLLAPSE-13 runs and option sets.
+
+## 77. DD 75 enters the preset, collapse only (owner decision 2026-11-27, option (b))
+
+COLLAPSE-13 (H60-H63 hold) made DD 75 the candidate for the collapse preset's published uncertainty. The owner approved it on the
+condition of a digging-order re-run. DIG-75 (`report/PREREG_DIG75.md`) found that D1 and D2 hold but D3 fails: ranking by DD 75's wider bound loses 0.38
+expected survivors on average (worst -2.92, K8). The owner chose option (b): adopt DD 75 for collapse, and register the study that ranks the dig order
+by the filter's own covariance (DIG-77, `report/PREREG_DIG77.md`).
+- `kSpecProfile` sets `--sigmaShadow=true`. After parsing, a preset-set value is turned off when `--collapse` is not given, so the open site is unchanged. An
+  explicit `--sigmaShadow` always wins, both on and off the pile (DD 75's open-site development check used it).
+- `PIN_PRE_DD65` and `PIN_PRE_DD67` now also carry `--sigmaShadow=false`, so every gate pinned to an earlier preset is unchanged. The new `PIN_PRE_DD77`
+  pins only DD 75. G190 uses it: that gate tests DD 75 as a switch on DD 67's preset.
+- `score_dig.py` gains the `sptf` policy (spt keyed by pxx + pyy). It is present only when the traces carry the covariance (`--traceCovariance`,
+  `--traceSubjectConsistency`). G191's no-leak check covers it, with a sixth fixture (sptf reading the truth).
+- Checked (seed 731, 600 s; the new build against d8c364a4c's): open-site preset 56 CSVs identical (no DD75 line). Collapse preset with
+  `--sigmaShadow=false` against the old preset: 133 CSVs identical. Collapse preset against the old preset with `--sigmaShadow=true`: 133 CSVs identical (DD75
+  line present). `spec_profile.txt` lists `sigmaShadow=true` in both, as DD 67's `tdoaRubbleDelay`. G191 passes (6 fixtures); score_dig.py's output on
+  COLLAPSE-13's traces (no covariance columns) is unchanged.
