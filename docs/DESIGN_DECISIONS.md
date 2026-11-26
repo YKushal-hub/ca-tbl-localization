@@ -1481,3 +1481,13 @@ the bound is wider (central median 1.4-1.7 m -> 5.2-8.6 m against 0.8 m median e
 COLLAPSE-13 (seeds 2101-2110, 100/100 rc 0): H60-H63 all hold. Mean four-station coverage gain +0.207 [0.179, 0.235]; with DD 75 coverage K5 0.904, K8 0.942, H5 0.989, H8 0.982 (K2, two
 stations, 0.697); share within 2 m unchanged in every cell. Price: the median published bound grows K5 1.45 -> 4.72 m, K8 1.75 -> 9.03 m, H5 3.09 -> 21.4 m (median errors 0.72, 1.01, 3.52 m).
 Still default false; adopting it as the collapse preset's uncertainty is an owner decision. Open site untested.
+
+## 76. Gate G191: Phase 0 and the digging order (2026-11-27; no simulator change)
+
+Phase 0 (DD 43) and the B6 digging order (DD 41, 51) had no gate. G191 (`scripts/phase0_dig_gate.py`) checks: phase0.py's defaults
+against NRF-CM and NRF-ICPU0; DD 43's numbers from its measured inputs (127.7 ms, printed 128 in DD 43; 5.1 %; 1.82 J/h; 2.0 %;
+k_dp <= 3.9, static_868 <= 1.6); `--phase0Timing` output-only (56 CSVs identical, one PHASE0 line); survival() against DEBRUY-T2's
+fractions; the dig-time formula; the four system policies unchanged when the truth moves (the oracle changes); range_or_dig's start
+rule on synthetic sigmas. Five mutated copies (a policy reading the truth, a survival step, the dig-time formula, the CoreMark and
+current defaults) each fail the check they break. score_dig.py's orderings moved into `policies()`, a pure refactor: output identical
+on seven COLLAPSE-13 runs and option sets.

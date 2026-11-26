@@ -2135,6 +2135,13 @@ bash scripts/sigma_shadow_gate.sh "$WORK/g190" || fail G190
 bash scripts/sigma_shadow_gate_selftest.sh "$WORK/g190" || fail G190
 finish G190
 
+# ---------------- G191: Phase 0 (DD 43) and the digging order (plan B6, DD 41/51): constants against their source rows,
+# DD 43's numbers, --phase0Timing output-only, survival and dig-time against DEBRUY-T2 and the formula, policies blind to
+# the truth, the range-or-dig start rule; five mutated copies must fail.
+printf '\n--- G191 Phase 0 and digging order ---\n'
+python3 scripts/phase0_dig_gate.py --fixtures --sim ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized || fail G191
+finish G191
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183
