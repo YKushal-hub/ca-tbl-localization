@@ -129,4 +129,5 @@ tracegw9 tracked per-seed arm_summary.csv from the pre-sidecar era (77dd45ee); n
 camp_final2_2026-10-08 the planned output path of the unregistered CAMP-FINAL-2 draft (report/DRAFT_CAMP_FINAL2_LORAFUSION.md); never run, so nothing exists to hold
 ml_pathloss_2026-10-21 a Python ML result on the public lora-bonn dataset, not a simulator run, so no run_id.txt exists; provenance (dataset commit, input SHA-256, script commit 72d6c780, library versions) is in its tracked INPUTS.md; cited by report/PREREG_ML_PATHLOSS.md
 ml_pathloss_pos_2026-10-21 a Python ML result on the public lora-bonn dataset, not a simulator run, so no run_id.txt exists; provenance (script commit 78a22557, same inputs as ml_pathloss_2026-10-21) is in its tracked INPUTS.md; cited by report/PREREG_ML_PATHLOSS_POS.md
+dig75_2026-11-27 an analysis-only result (scripts/dig75_analyse.py) over COLLAPSE-13's runs, not a simulator run, so no run_id.txt of its own; the runs' sidecars and raw-trace hashes are in results/collapse13_2026-11-26 (100 run_id.txt, RAW_MANIFEST.sha256, checked by the analyser); cited by report/PREREG_DIG75.md
 ```
