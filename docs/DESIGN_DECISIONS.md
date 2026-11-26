@@ -1445,3 +1445,9 @@ With two stations the pile's centre lies on the line between them. Every filter 
 20 workers, 5 storeys, central bracket, second half of the run (coverage, share within 2 m, median error): two stations with 2 searchers (the preset) .493, .146, 7.3 m; with 4 .467, .219, 5.4 m; with 8 .531, .241,
 4.1 m; with 12 .426, .238, 4.0 m; three stations with 2 searchers .740, .773, 1.05 m. More searchers improve accuracy but not coverage; a third station fixes most of both. The paper states it as a deployment rule:
 at least three stations not on one line. Three seeds; registered evidence for the rule is COLLAPSE-12's four-station cells against its two-station cells.
+
+## 72. High rubble and the four-station gap: more stations help little (2026-11-26; development seeds 761-763, not evidence)
+
+8 storeys, 20 workers, second half of the run (coverage, share within 2 m, median error). High bracket: 4 stations .706, .250, 17.2 m; 6 stations .699, .233, 14.5 m; 8 stations .770, .283, 11.3 m; 4 stations with 8 searchers
+.690, .212, 15.1 m. Central bracket: 4 stations .814, .738, 0.84 m; 6 .853, .816, 0.70 m; 8 .848, .846, 0.55 m. Unlike two stations (DD 71), neither limit is mainly geometric: in the high bracket the error stays above 10 m with
+twice the stations, and with central rubble coverage stays near 0.85 while accuracy improves. Both are stated as limitations of the radio physics and of the filter's over-confidence.
