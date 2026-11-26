@@ -1438,3 +1438,10 @@ written anyway. With DD 49 added (reported only): central .952, .882; high .580,
 ## 70. The particle count as a flag (`--acquireParticleCount`, default 2000; 2026-11-26)
 
 V4's 2000 particles per node were OURS and fixed in code. The flag exposes them so the count can be swept (REALISTIC-12). Default 2000; off state byte-identical (56 files, seed 731), and an explicit 2000 too.
+
+## 71. Two stations in collapse: a deployment limit, not a filter defect (2026-11-26; development seeds 761-763, not evidence)
+
+With two stations the pile's centre lies on the line between them. Every filter repair tried left two-station coverage near 0.5 (DD 61, 64, 66, 68, 69 and `--acquireHandoverCurvature`). A sweep of what the site could deploy,
+20 workers, 5 storeys, central bracket, second half of the run (coverage, share within 2 m, median error): two stations with 2 searchers (the preset) .493, .146, 7.3 m; with 4 .467, .219, 5.4 m; with 8 .531, .241,
+4.1 m; with 12 .426, .238, 4.0 m; three stations with 2 searchers .740, .773, 1.05 m. More searchers improve accuracy but not coverage; a third station fixes most of both. The paper states it as a deployment rule:
+at least three stations not on one line. Three seeds; registered evidence for the rule is COLLAPSE-12's four-station cells against its two-station cells.
