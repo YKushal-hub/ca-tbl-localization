@@ -1451,3 +1451,15 @@ at least three stations not on one line. Three seeds; registered evidence for th
 8 storeys, 20 workers, second half of the run (coverage, share within 2 m, median error). High bracket: 4 stations .706, .250, 17.2 m; 6 stations .699, .233, 14.5 m; 8 stations .770, .283, 11.3 m; 4 stations with 8 searchers
 .690, .212, 15.1 m. Central bracket: 4 stations .814, .738, 0.84 m; 6 .853, .816, 0.70 m; 8 .848, .846, 0.55 m. Unlike two stations (DD 71), neither limit is mainly geometric: in the high bracket the error stays above 10 m with
 twice the stations, and with central rubble coverage stays near 0.85 while accuracy improves. Both are stated as limitations of the radio physics and of the filter's over-confidence.
+
+## 73. Collapse over-confidence: depth-aware finder ranges and 868 MHz correlation, tried and rejected; the quiet-shift loss is coverage (2026-11-26)
+
+Diagnosis (seed 761, traced, development): the four-station workers outside their bound are located precisely (scatter 0.2-0.5 m) with a constant offset of 1-8 m. Two sources: finder 2.4 GHz / UWB ranges are read
+as horizontal while the worker lies 1.5 m plus its depth below the finder's device (ranges 2.6 and 4.7 m long at 15-22 m), and 868 MHz-only workers fuse about 700 RSSI ranges and 170 TDoA fixes per half-run as
+independent although a still worker's link errors repeat. DD 73 (`--collapseDepthProject`: finder ranges projected with the worker's running DD 47 depth and the rubble slowing over the ray's part inside the pile) and
+the existing `--rssiCorrInflate` were tried on seeds 771-773 under the DD 68 rule written before the runs. Coverage B / DD 73 / RC / both: central 5 storeys .885/.862/.886/.903, 8 storeys .731/.758/.761/.798;
+high .633/.606/.646/.670, .762/.769/.738/.748. Mean gain -0.004, +0.005, +0.027 against 0.03 required: none passes, nothing kept (DD 73 off state was byte-identical, 23 files). `--rangeBiasStates` is refused
+under ekf5 and was not tested. The over-confidence stays a limitation, now with its cause stated.
+
+Quiet shift: at RAND3 a crew device averages about one anchor per cycle and a fix in 4-29 % of cycles (REALISTIC-12 archives), so one anchor rarely fixes it. Five stations from the same generator (development
+781-788: within 25 m .581 to .883) was registered as REALISTIC-13 (seeds 2001-2020): +0.282 [0.133, 0.432], coverage 0.948. Both predictions hold: a deployment rule, no code change.
