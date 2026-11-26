@@ -24,3 +24,19 @@ If D1-D3 hold, the paper's digging claim stands with DD 75 and is re-stated with
 and the paper's claim is restated or withdrawn; nothing is rescued by a new cell or setting.
 
 **Abort.** A missing run, rc not 0, or a manifest hash mismatch on any trace read: incomplete, nothing evaluated.
+
+## Result (computed 2026-11-27 after registration adb0250dd; 100/100 runs, every trace's hash matches COLLAPSE-13's manifest; problems 0)
+
+Full table: `results/dig75_2026-11-27/DIG75.md`.
+
+- **D1: HOLDS.** With DD 75 on, at teams 2, t_dig 2 h, r 2 m, `spt` - `id`: K5 +0.26, K8 +3.01, H5 +8.59, H8 +4.87, K2 +6.16 survivors of 20.
+- **D2: HOLDS.** `spt` >= `id` in 54 of 60 combinations (0.90); largest gain +10.20. The six losses are all K5 (-0.01 to -0.49), where
+  "never worse" no longer holds with DD 75.
+- **D3: FAILS.** `spt` with DD 75 on minus off: mean -0.380 survivors over the 60 combinations (need >= -0.10); worst -2.92 (K8, 1 team,
+  t_dig 0.5 h, r 2 m); best +1.22. By cell: K8 -1.36, K5 -0.76, H5 -0.01, H8 +0.16, K2 +0.07.
+- **Reading.** In central rubble the filter's own sigma ranks the workers close to the oracle (K8, teams 1, 0.5 h: off 15.06, oracle 15.56);
+  DD 75's wider bound ranks them worse (12.23). DD 75 is the honest published bound but a worse ranking key there. With DD 75 on, the paper
+  cannot say "never worse; up to 6.3": it can say spt >= id in 54 of 60, by up to +10.2, losing up to 0.49 at K5.
+- **Candidate, not tested here.** Publish DD 75's bound but rank `spt` by the filter's own covariance (system-side, unchanged by DD 75 by
+  construction, so the D3 difference would be zero and the off-state ranking returns). COLLAPSE-13's traces lack the covariance columns
+  (`--traceCovariance` was off), so this needs new runs and its own registration. It is an owner decision whether to pursue it.
