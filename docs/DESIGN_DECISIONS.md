@@ -1463,3 +1463,10 @@ under ekf5 and was not tested. The over-confidence stays a limitation, now with 
 
 Quiet shift: at RAND3 a crew device averages about one anchor per cycle and a fix in 4-29 % of cycles (REALISTIC-12 archives), so one anchor rarely fixes it. Five stations from the same generator (development
 781-788: within 25 m .581 to .883) was registered as REALISTIC-13 (seeds 2001-2020): +0.282 [0.133, 0.432], coverage 0.948. Both predictions hold: a deployment rule, no code change.
+
+## 74. TDoA fixes of still workers as correlated, tried and rejected (2026-11-26; no code kept)
+
+`--tdoaCorrInflate` scaled each tier-1 TDoA fix's covariance by B2's AR(1) factor (same d_corr and cap; mean factor 96 on still workers), the one repeated-error path DD 61, 68, 69 and 73 left alone. Seeds 791-793,
+the DD 73 rule written before the runs. Coverage / share within 2 m, B -> DD 74 + `--rssiCorrInflate` + DD 73: central 5 storeys .851/.903 -> .851/.730, 8 storeys .852/.806 -> .898/.491; high .650/.477 -> .810/.430,
+.738/.313 -> .822/.228. Coverage rises (mean +0.073) but the share within 2 m falls by up to 0.32 (DD 74 alone up to 0.45): fails. Off state byte-identical (23 files). The repeated TDoA fixes carry most of the accuracy;
+weighting them honestly for a still worker costs that accuracy. Collapse coverage near 0.85 with four stations is therefore an accuracy-versus-honesty trade-off of the radio data, stated as such.
