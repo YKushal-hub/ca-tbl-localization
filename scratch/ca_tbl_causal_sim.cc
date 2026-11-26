@@ -18811,6 +18811,8 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"sharedDuty868Finders", "true", "DD 60: one 868 MHz duty-cycle ledger per searcher's device"},
     {"tdoaHeightCorrect", "true", "DD 62: arrival stamps corrected for the mast height before the 2-D solve"},
     {"tdoaRubbleDelay", "true", "DD 63 (World): under --collapse the 868 MHz arrival stamps carry the rubble delay"},
+    // DESIGN_DECISIONS 77 (owner 2026-11-27, COLLAPSE-13 H60-H63): DD 75 enters the preset, collapse only.
+    {"sigmaShadow", "true", "DD 77: under --collapse the published traceSigma is DD 75's correlated-error shadow (acts only under --collapse)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
     // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
@@ -20928,7 +20930,7 @@ main(int argc, char* argv[])
                  "DD 75. Each node publishes the larger of its filter's traceSigma and a shadow's: a 2-D information sum of the "
                  "same measurements at the filter's estimate, with 868 MHz RSSI ranges and TDoA fixes weighted by B2's AR(1) "
                  "factor (repeated errors of a still node are not independent), forgetting by the estimate's displacement. "
-                 "The estimate is unchanged. Default false.",
+                 "The estimate is unchanged. Acts only under --collapse (DD 77). Default false.",
                  g_sigmaShadow);
     cmd.AddValue("phase0Timing",
                  "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
@@ -23130,6 +23132,12 @@ main(int argc, char* argv[])
         {
             spec.subjectTriggeredUpdates = false;
         }
+    }
+    // DD 77: DD 75 acts only under --collapse, preset or explicit (as DD 63's --tdoaRubbleDelay), so the preset equals its own
+    // settings given as flags on the open site (G24 EQUIV).
+    if (g_sigmaShadow && !g_collapse.on)
+    {
+        g_sigmaShadow = false;
     }
     // Row 55.
     if (spec.subjectIntegrityWitness &&

@@ -9,10 +9,10 @@ Phase 0
 Digging order
   D-SURV   survival() equals DEBRUY-T2 (333/379 day 0, 20/57 day 1, 3/35 days 2-3, 0 from day 4), read from SOURCES_COLLAPSE.md
   D-TIME   dig_time: t_dig within the radius, t_dig (1 + (e^2 - r^2) / r^2) outside it (e = 2r -> 4 t_dig)
-  D-LEAK   the system policies (id, nearest, confident, spt) give the same order when the truth is moved; the oracle does not
+  D-LEAK   the system policies (id, nearest, confident, spt, sptf) give the same order when the truth is moved; the oracle does not
   D-RD     range_or_dig: constant sigmas start at the first epoch; steeply falling sigmas wait; never before every worker has
            a window of history
-Fixtures (--fixtures): a mutated copy of each script must fail the check it breaks (a policy reading the truth, a survival
+Fixtures (--fixtures): a mutated copy of each script must fail the check it breaks (a policy reading the truth, sptf reading it, a survival
 step changed, a default constant changed, the dig-time formula changed); the clean copies pass.
 usage: phase0_dig_gate.py [--fixtures] [--sim BIN]
 """
@@ -83,13 +83,14 @@ def checks(p0, p0src, dig):
           and abs(dig.dig_time(3.0, 1.0, 1.0) - 9.0) < 1e-12)
     out.append(("D-TIME", ok, f"e=0,2,4 at r=2 t=2: {dig.dig_time(0, 2, 2)}, {dig.dig_time(2, 2, 2)}, {dig.dig_time(4, 2, 2)}"))
     # D-LEAK
-    W = {k: dict(est=(10.0 * k, 5.0 - k), true=(10.0 * k + (k % 3), 5.0 - k), sigma=0.5 + 0.37 * ((7 * k) % 5), t=1800.0)
+    W = {k: dict(est=(10.0 * k, 5.0 - k), true=(10.0 * k + (k % 3), 5.0 - k), sigma=0.5 + 0.37 * ((7 * k) % 5), sigmaf=0.3 + 0.21 * ((3 * k) % 7), t=1800.0)
          for k in range(1, 9)}
     W2 = {k: dict(w, true=(w["true"][0] + 40.0 * ((k * 5) % 7), w["true"][1] - 9.0 * k)) for k, w in W.items()}
     p1, p2 = dig.policies(W, 2.0, 2.0, (0.0, 0.0)), dig.policies(W2, 2.0, 2.0, (0.0, 0.0))
-    same = [n for n in ("id", "nearest", "confident", "spt") if p1[n] == p2[n]]
-    ok = len(same) == 4 and p1["oracle"] != p2["oracle"]
-    out.append(("D-LEAK", ok, f"system policies unchanged by the truth {same} (need 4); oracle changed {p1['oracle'] != p2['oracle']}"))
+    sysp = ("id", "nearest", "confident", "spt", "sptf")
+    same = [n for n in sysp if n in p1 and n in p2 and p1[n] == p2[n]]
+    ok = len(same) == len(sysp) and p1["oracle"] != p2["oracle"]
+    out.append(("D-LEAK", ok, f"system policies unchanged by the truth {same} (need {len(sysp)}); oracle changed {p1['oracle'] != p2['oracle']}"))
     # D-RD
     ts = [60.0 * i for i in range(0, 31)]
     const = {k: [(t, (0, 0), (0, 0), 1.0) for t in ts] for k in (1, 2, 3)}
@@ -139,6 +140,8 @@ def main():
         fx = [
             ("policy reads truth", "D-LEAK", None, ('"confident": sorted(W, key=lambda k: W[k]["sigma"])',
                                                     '"confident": sorted(W, key=lambda k: math.dist(W[k]["est"], W[k]["true"]))')),
+            ("sptf reads truth", "D-LEAK", None, ('out["sptf"] = sorted(W, key=lambda k: exp_f[k])',
+                                                  'out["sptf"] = sorted(W, key=lambda k: true_t[k])')),
             ("survival step changed", "D-SURV", None, ("(2.0, 20 / 57)", "(2.0, 20 / 50)")),
             ("dig-time formula changed", "D-TIME", None, ("(err * err - r * r) / (r * r)", "(err - r) / r")),
             ("CoreMark default changed", "P-ROWS", ('"--coremark_nrf", type=float, default=212.0', '"--coremark_nrf", type=float, default=250.0'), None),
