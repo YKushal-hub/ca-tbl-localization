@@ -1491,3 +1491,18 @@ fractions; the dig-time formula; the four system policies unchanged when the tru
 rule on synthetic sigmas. Five mutated copies (a policy reading the truth, a survival step, the dig-time formula, the CoreMark and
 current defaults) each fail the check they break. score_dig.py's orderings moved into `policies()`, a pure refactor: output identical
 on seven COLLAPSE-13 runs and option sets.
+
+## 78. `--finderDigestBothLora`: a searcher with both LoRa radios asks on both (2026-11-27; default false)
+
+REALISTIC-11 H1 failed at CLUS3 (ours +121 s against 2.4 GHz only) and ROAD3F4 (+542 s). Cause, from its run logs: DD 30 let a 2.4 GHz-only party poll
+for position entries (DIGEST) and steer on its 2.4 GHz table; every other arm's searchers, though they carry a 2.4 GHz radio, still polled and steered on 868 MHz
+only. At the end of CLUS3 s1501 the searchers' casualty entry was 2128.8 s old under ours and 27.5 s under 2.4 GHz only (polls on 2.4 GHz 0 against 720), and
+over seeds 1501-1520 they circled a stale last known position 2019 finder-cycles against 586 (ROAD3F4 3981 against 1444; RAND3, where ours wins, 1201 against 1116).
+The searchers' 868 MHz cap (DD 60) is not the cause: with it off (dev seeds 771-778; 771-773 were also DD 73's, collapse cells) the circling was unchanged
+(1998 -> 2041, 4066 -> 4025). A cap on replies alone (half the budget) was dropped before any arrival run: replies never exceeded 1.21 %.
+With the switch, under every arm with both LoRa radios (not static_868, static_2p4, static_uwb) each searcher also sends its DIGEST on 2.4 GHz and every read of
+its table returns the fresher of its 868 MHz and 2.4 GHz entries. 2.4 GHz has no duty cap; the frames are charged as any other. System side only.
+Off: byte-identical (218 CSVs against 7c2700c3d's simulator, seed 779); with it on, static_2p4 and static_868 are byte-identical too.
+Dev seeds 794-799 (ours - 2.4 GHz only, arrival): CLUS3 +150 [-3, 405] -> -4 [-13, 3]; ROAD3F4 +449 [-10, 1275] -> +375 [-77, 1224] (one scenario, 796, where
+the worker's own estimate is 58 m off, carries it); ROAD1 and RAND3 not clearly changed (+90 [-217, 542], +30 [-25, 97]). Casualty-entry age 2047 -> 15 s at CLUS3.
+Gate G192 with selftest (8 fixtures). Registered as REALISTIC-14. Evidence: ~/catbl_work/diag_h1/keep/DEV_DD78.md.

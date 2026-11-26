@@ -2142,6 +2142,12 @@ printf '\n--- G191 Phase 0 and digging order ---\n'
 python3 scripts/phase0_dig_gate.py --fixtures --sim ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized || fail G191
 finish G191
 
+# ---------------- G192: searchers with both LoRa radios poll and steer on both (DD 78)
+printf '\n--- G192 searcher polls on both LoRa radios ---\n'
+bash scripts/finder_both_lora_gate.sh "$WORK/g192" || fail G192
+bash scripts/finder_both_lora_gate_selftest.sh "$WORK/g192" || fail G192
+finish G192
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183

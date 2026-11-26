@@ -7563,6 +7563,9 @@ struct SpecOptions
     bool finderSweepFromDispatch = false;
     //! DD 30 --finderDigestOnArmTier: under static_2p4 the searchers poll for entries on 2.4 GHz, not 868 MHz.
     bool finderDigestOnArmTier = false;
+    //! DD 78 --finderDigestBothLora: under every arm with both LoRa radios, the searchers also poll on 2.4 GHz and
+    //! steer on the fresher of their two tables' entries.
+    bool finderDigestBothLora = false;
     //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
     bool acquireSideOfRoad = false;
     double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
@@ -9190,6 +9193,28 @@ RunArm(CaTblPolicyMode armMode,
         }
     }
     AttachFinderDuty(finderMacAll, phy[CA_TBL_TIER_868].sf, phy[CA_TBL_TIER_868].bandwidthHz); // DD 60
+    // DD 78 --finderDigestBothLora: a searcher whose arm has both LoRa radios asks on both and steers on the fresher entry.
+    // Off, or an arm with one LoRa radio: the steering table alone, as before.
+    const bool finderBothLora = spec.finderDigestBothLora && mode != CA_TBL_MODE_STATIC_868 &&
+                                mode != CA_TBL_MODE_STATIC_2P4 && mode != CA_TBL_MODE_STATIC_UWB;
+    uint64_t finderDigestBoth = 0;   // DD 78: searcher polls sent on 2.4 GHz
+    uint64_t finderEntryFrom2p4 = 0; // DD 78: table reads answered by the 2.4 GHz entry
+    auto finderEntry = [&](size_t fi, uint16_t id, CaTblTableEntry& out) -> bool {
+        const bool got = finderMac[fi]->GetTableEntry(id, out);
+        if (!finderBothLora || fi >= finderMacAll.size() || finderMacAll[fi][CA_TBL_TIER_2P4] == nullptr)
+        {
+            return got;
+        }
+        CaTblTableEntry b;
+        if (finderMacAll[fi][CA_TBL_TIER_2P4]->GetTableEntry(id, b) && b.valid &&
+            !(got && out.valid && out.timestampS >= b.timestampS))
+        {
+            out = b;
+            ++finderEntryFrom2p4;
+            return true;
+        }
+        return got;
+    };
     auto billFinder = [&](uint16_t id, CaTblTier tier, double nowS) {
         NoteFinderReply868(id, tier, nowS); // DD 60
         if (!finderEnergy.empty() && id >= 501 && id < 501 + finderEnergy.size())
@@ -11120,6 +11145,11 @@ RunArm(CaTblPolicyMode armMode,
                                                 : CA_TBL_TIER_868;
                     finderMac[fi]->Send(CA_TBL_MSG_DIGEST, dTier, 1, 0);
                     finderDigestOnArm += (dTier != CA_TBL_TIER_868) ? 1 : 0;
+                    if (finderBothLora && fi < finderMacAll.size() && finderMacAll[fi][CA_TBL_TIER_2P4] != nullptr) // DD 78
+                    {
+                        finderMacAll[fi][CA_TBL_TIER_2P4]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_2P4, 1, 0);
+                        ++finderDigestBoth;
+                    }
                 }
             }
         }
@@ -11535,7 +11565,7 @@ RunArm(CaTblPolicyMode armMode,
                 }
                 CaTblTableEntry cur;
                 const bool heard =
-                    finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
+                    finderEntry(me, static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
                 if (heard)
                 {
                     needBlindSince[me] = -1.0;
@@ -11556,7 +11586,7 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     CaTblTableEntry te;
                     if (k == needTaskK[me] ||
-                        !(finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
+                        !(finderEntry(me, static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
                     {
                         continue;
                     }
@@ -11617,7 +11647,7 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     CaTblTableEntry tj;
                     if (j < finderMac.size() && finderMac[j] != nullptr &&
-                        finderMac[j]->GetTableEntry(taskId, tj) && tj.valid &&
+                        finderEntry(j, taskId, tj) && tj.valid &&
                         (!have || tj.timestampS > out.timestampS))
                     {
                         out = tj;
@@ -11728,7 +11758,7 @@ RunArm(CaTblPolicyMode armMode,
                 else if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    if (finderMac[fi]->GetTableEntry(taskId, te) && te.valid)
+                    if (finderEntry(fi, taskId, te) && te.valid)
                     {
                         entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
                         if (taskLog)
@@ -11933,7 +11963,7 @@ RunArm(CaTblPolicyMode armMode,
                         {
                             CaTblTableEntry tj;
                             if (j < finderMac.size() && finderMac[j] != nullptr &&
-                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                finderEntry(j, taskId, tj) &&
                                 (!havePe || tj.timestampS > pe.timestampS))
                             {
                                 pe = tj;
@@ -12030,7 +12060,7 @@ RunArm(CaTblPolicyMode armMode,
                 if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    bool haveEntry = finderMac[fi]->GetTableEntry(taskId, te);
+                    bool haveEntry = finderEntry(fi, taskId, te);
                     // TEAM SHARING: team-mates walk side by side and tell each other what they
                     // hold, so a finder steers on the freshest entry any member of its team has.
                     if (teamShare)
@@ -12052,7 +12082,7 @@ RunArm(CaTblPolicyMode armMode,
                         {
                             CaTblTableEntry tj;
                             if (j != fi && j < finderMac.size() && finderMac[j] != nullptr &&
-                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                finderEntry(j, taskId, tj) &&
                                 (!haveEntry || tj.timestampS > te.timestampS))
                             {
                                 te = tj;
@@ -18080,7 +18110,7 @@ RunArm(CaTblPolicyMode armMode,
         {
             CaTblTableEntry te;
             if (finderMac[fi] != nullptr &&
-                finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+                finderEntry(fi, static_cast<uint16_t>(nodeId), te))
             {
                 ++knowing;
                 sumAge += (durationS - te.timestampS);
@@ -18371,6 +18401,12 @@ RunArm(CaTblPolicyMode armMode,
         {
             std::cout << "    DD30 finderDigestOnArmTier (" << CaTblPolicyModeName(mode) << "): searcher polls on 2.4 GHz "
                       << finderDigestOnArm << "\n";
+        }
+        if (spec.finderDigestBothLora)
+        {
+            std::cout << "    DD78 finderDigestBothLora (" << CaTblPolicyModeName(mode) << "): " << (finderBothLora ? "on" : "one LoRa radio, unused")
+                      << ", searcher polls on 2.4 GHz " << finderDigestBoth << ", entries read from the 2.4 GHz table "
+                      << finderEntryFrom2p4 << "\n";
         }
         if (spec.acquireSideOfRoad)
         {
@@ -20019,6 +20055,12 @@ main(int argc, char* argv[])
                  "2.4 GHz-only system would ask, and listen, on its own radio. Every other arm is unchanged. False (default): 868 MHz for every arm, "
                  "byte-identical to every earlier result. One 'DD30 finderDigestOnArmTier' line per arm when on.",
                  spec.finderDigestOnArmTier);
+    cmd.AddValue("finderDigestBothLora",
+                 "DD 78. Under every arm with both LoRa radios (not static_868, static_2p4 or static_uwb), the searchers also poll "
+                 "for position entries (DIGEST) on 2.4 GHz and steer on the fresher of their 868 MHz and 2.4 GHz tables' entries. "
+                 "DD 30 gave the 2.4 GHz-only party its own radio; a searcher carrying both radios asked on 868 MHz only. False "
+                 "(default): byte-identical to every earlier result. One 'DD78 finderDigestBothLora' line per arm when on.",
+                 spec.finderDigestBothLora);
     cmd.AddValue("acquireSideOfRoad",
                  "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
                  "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "
