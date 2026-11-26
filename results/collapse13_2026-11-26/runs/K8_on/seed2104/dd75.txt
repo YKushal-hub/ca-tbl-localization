@@ -1,0 +1,1 @@
+DD75 sigmaShadow cycles=14400 raised=13868

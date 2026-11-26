@@ -6567,6 +6567,115 @@ TdoaRubbleDelayS(const Vector& a, const Vector& b)
  * is one row of tdoa_<arm>_seed<N>.csv, refused solves included. Only the measured tag
  * does this; relays and peers stay RSSI-only.
  */
+//! DD 75 --sigmaShadow: the published uncertainty of a node is the larger of its filter's and a shadow's. The shadow is a
+//! 2-D information accumulator fed the cycle's own measurements, linearised at the filter's estimate, with each repeated
+//! error treated as B2 treats it (--rssiCorrInflate): an 868 MHz RSSI range's and a tier-1 TDoA fix's variance times the
+//! AR(1) long-run factor (1 + rho) / (1 - rho), rho = exp(-moved / d_corr), B2's d_corr and cap (CaTblPolicyConfig);
+//! 2.4 GHz / UWB ranges at their own sigma. Between cycles the shadow forgets by the estimate's own displacement
+//! (its square added to each axis variance). The filter and its estimate are untouched: only traceSigma, as published
+//! after Step, changes. Default false: not called.
+static bool g_sigmaShadow = false;
+static uint64_t g_sigmaShadowRaised = 0;
+static uint64_t g_sigmaShadowCycles = 0;
+struct SigmaShadowState
+{
+    double ixx = 0.0, ixy = 0.0, iyy = 0.0; //!< information
+    double lx = std::nan(""), ly = std::nan(""); //!< estimate at the previous cycle
+    std::map<uint16_t, std::pair<double, double>> lastAt; //!< estimate at each anchor's previous 868 MHz range
+    double tlx = std::nan(""), tly = std::nan(""); //!< estimate at the previous TDoA fix
+};
+struct SigmaShadowAux
+{
+    bool set = false;
+    double rxx = 0.0, rxy = 0.0, ryy = 0.0;
+};
+static std::map<const void*, SigmaShadowState> g_sigmaShadowState;
+static std::map<const void*, SigmaShadowAux> g_sigmaShadowAux; //!< the TDoA fix covariance handed to a policy this cycle
+static double SigmaShadowK(double moved, const CaTblPolicyConfig& c)
+{
+    const double rho = std::exp(-moved / std::max(1e-6, c.rssiCorrDistM));
+    return (rho >= 1.0) ? c.rssiCorrMaxFactor : std::min(c.rssiCorrMaxFactor, (1.0 + rho) / (1.0 - rho));
+}
+static __attribute__((noinline)) void
+SigmaShadowApply(CaTblDecision& d, const CaTblPolicy& policy, const std::vector<CaTblRangeMeasurement>& meas)
+{
+    SigmaShadowState& st = g_sigmaShadowState[&policy];
+    const CaTblPolicyConfig& c = policy.GetConfig();
+    const double ex = policy.EstX();
+    const double ey = policy.EstY();
+    // forget: P += moved^2 I
+    if (std::isfinite(st.lx))
+    {
+        const double m2 = (ex - st.lx) * (ex - st.lx) + (ey - st.ly) * (ey - st.ly);
+        const double det = st.ixx * st.iyy - st.ixy * st.ixy;
+        if (m2 > 0.0 && det > 0.0)
+        {
+            double pxx = st.iyy / det + m2, pyy = st.ixx / det + m2, pxy = -st.ixy / det;
+            const double dp = pxx * pyy - pxy * pxy;
+            st.ixx = pyy / dp;
+            st.iyy = pxx / dp;
+            st.ixy = -pxy / dp;
+        }
+    }
+    st.lx = ex;
+    st.ly = ey;
+    for (const auto& m : meas)
+    {
+        if (!(m.rangeM > 0.0) || !(m.sigmaM > 0.0))
+        {
+            continue;
+        }
+        const double dx = ex - m.anchorX, dy = ey - m.anchorY, r = std::hypot(dx, dy);
+        if (r < 1e-3)
+        {
+            continue;
+        }
+        double var = m.sigmaM * m.sigmaM;
+        if (m.tier == 0)
+        {
+            auto it = st.lastAt.find(m.anchorId);
+            if (it != st.lastAt.end())
+            {
+                var *= SigmaShadowK(std::hypot(ex - it->second.first, ey - it->second.second), c);
+            }
+            st.lastAt[m.anchorId] = {ex, ey};
+        }
+        const double hx = dx / r, hy = dy / r;
+        st.ixx += hx * hx / var;
+        st.ixy += hx * hy / var;
+        st.iyy += hy * hy / var;
+    }
+    SigmaShadowAux& ax = g_sigmaShadowAux[&policy];
+    if (ax.set && policy.AuxFusedLast())
+    {
+        double k = 1.0;
+        if (std::isfinite(st.tlx))
+        {
+            k = SigmaShadowK(std::hypot(ex - st.tlx, ey - st.tly), c);
+        }
+        st.tlx = ex;
+        st.tly = ey;
+        const double det = k * k * (ax.rxx * ax.ryy - ax.rxy * ax.rxy);
+        if (det > 0.0)
+        {
+            st.ixx += k * ax.ryy / det;
+            st.iyy += k * ax.rxx / det;
+            st.ixy -= k * ax.rxy / det;
+        }
+    }
+    ax.set = false;
+    ++g_sigmaShadowCycles;
+    const double det = st.ixx * st.iyy - st.ixy * st.ixy;
+    if (det > 0.0 && d.traceSigma >= 0.0)
+    {
+        const double tr = (st.ixx + st.iyy) / det;
+        if (tr > d.traceSigma)
+        {
+            d.traceSigma = tr;
+            ++g_sigmaShadowRaised;
+        }
+    }
+}
 struct Tier1Tdoa
 {
     Tier1Tdoa(uint32_t seed,
@@ -6712,6 +6821,10 @@ struct Tier1Tdoa
         stampsUsed += stamps.size();
         repliesOnOk += billReplies ? repliesThisCycle : 0;
         downlinksOnOk += billDownlink ? 1 : 0;
+        if (g_sigmaShadow) // DD 75
+        {
+            g_sigmaShadowAux[&policy] = SigmaShadowAux{true, res.rxx, res.rxy, res.ryy};
+        }
         policy.SetAuxPositionFix(res.x, res.y, res.rxx, res.rxy, res.ryy);
     }
 
@@ -13256,6 +13369,10 @@ RunArm(CaTblPolicyMode armMode,
                                              ? std::max<size_t>(3, actM.size())
                                              : actM.size()), // N.26, as tag 0's
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (g_sigmaShadow) // DD 75
+                {
+                    SigmaShadowApply(ds, sb.policy, measS);
+                }
                 if (g_phase0Timing) // DD 43
                 {
                     g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0a).count();
@@ -15329,6 +15446,10 @@ RunArm(CaTblPolicyMode armMode,
                                             static_cast<int32_t>(activeMeasAddressed +
                                                                  crossAddedThisCycle),
                                             tierEvidenceMask);
+        if (g_sigmaShadow) // DD 75
+        {
+            SigmaShadowApply(d, policy, meas);
+        }
         if (g_phase0Timing) // DD 43
         {
             g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0b).count();
@@ -20761,6 +20882,12 @@ main(int argc, char* argv[])
                  "collapse_depth_<arm>_seed<N>.csv; the World's true depths go to collapse_truth_<arm>_seed<N>.csv. "
                  "Output only. Default false.",
                  g_collapseDepthSolve);
+    cmd.AddValue("sigmaShadow",
+                 "DD 75. Each node publishes the larger of its filter's traceSigma and a shadow's: a 2-D information sum of the "
+                 "same measurements at the filter's estimate, with 868 MHz RSSI ranges and TDoA fixes weighted by B2's AR(1) "
+                 "factor (repeated errors of a still node are not independent), forgetting by the estimate's displacement. "
+                 "The estimate is unchanged. Default false.",
+                 g_sigmaShadow);
     cmd.AddValue("phase0Timing",
                  "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
                  "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
@@ -24897,6 +25024,10 @@ main(int argc, char* argv[])
     if (g_collapseNominalHeights)
     {
         std::cout << "DD52 collapseNominalHeights ranges=" << g_collapseNominalApplied << "\n";
+    }
+    if (g_sigmaShadow) // DD 75
+    {
+        std::cout << "DD75 sigmaShadow cycles=" << g_sigmaShadowCycles << " raised=" << g_sigmaShadowRaised << "\n";
     }
     if (g_tofRubbleCorrect) // DD 49
     {
