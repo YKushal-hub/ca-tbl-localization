@@ -26,3 +26,16 @@ preset's uncertainty; H63 decides whether the paper may say the four-station bou
 
 **Abort / completeness.** Any rc not 0, not `dirty 0`, a manifest mismatch, a DD75 line that does not match the cell, fewer than 20 crew traces: incomplete, nothing evaluated. Nothing is adopted as a default by
 this campaign. A Result section is appended after the run, whatever it says.
+
+## Result (run 2026-11-26 13:32-18:03 UTC, paused 71/100 for disk space, resumed with the same frozen binary after the manifest check; source 256dd2fe1; 100/100 cells rc 0, dirty 0, problems 0)
+
+Full table: `results/collapse13_2026-11-26/COLLAPSE13.md` (raw traces outside the repository, hashed in `RAW_MANIFEST.sha256`).
+
+- **H60: HOLDS.** Mean four-station coverage gain +0.207 [0.179, 0.235]. Per cell: K5 0.817 -> 0.904, K8 0.790 -> 0.942, H5 0.629 -> 0.989, H8 0.753 -> 0.982.
+- **H61: HOLDS.** No four-station cell falls; the smallest gain is K5 +0.087 [0.059, 0.115].
+- **H62: HOLDS.** Share within 2 m identical in every cell (K5 0.900, K8 0.737, H5 0.444, H8 0.283), as designed: the estimate is unchanged.
+- **H63: HOLDS.** Every four-station cell reaches at least 0.85 with DD 75 (lowest K5 0.904).
+- K2 (two stations, reported): 0.525 -> 0.697, below 0.85; two stations stay a stated limitation.
+- **Price.** The median published bound grows: K5 1.45 -> 4.72 m, K8 1.75 -> 9.03 m, H5 3.09 -> 21.43 m, K2 5.98 -> 8.04 m (median errors 0.72, 1.01, 3.52, 5.51 m). At H8 the median
+  bound is already 133 m without DD 75 (median error 14.0 m); the gain there comes from the upper tail.
+- DD 75 may now be proposed to the owner as the collapse preset's uncertainty; no default changes without that decision. The paper may say the four-station bound reaches 0.85 in the collapse cells.

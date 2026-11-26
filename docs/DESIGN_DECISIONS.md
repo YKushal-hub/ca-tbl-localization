@@ -1478,3 +1478,6 @@ max(traceSigma of the filter, trace of a shadow): a 2-D information sum of the c
 (rho = exp(-moved / d_corr), moved by the ESTIMATE, B2's d_corr 30 m and cap 100 from CaTblPolicyConfig), 2.4 GHz / UWB ranges at their own sigma, forgetting by the estimate's displacement squared. System side only.
 Off: not called; byte-identical (23 files against the committed build, seed 761). Development seeds 801-803 under a rule written beforehand: mean four-station coverage gain +0.238, every cell up, share within 2 m identical;
 the bound is wider (central median 1.4-1.7 m -> 5.2-8.6 m against 0.8 m median error). Gate G190 with selftest (11 fixtures). Registered as COLLAPSE-13.
+COLLAPSE-13 (seeds 2101-2110, 100/100 rc 0): H60-H63 all hold. Mean four-station coverage gain +0.207 [0.179, 0.235]; with DD 75 coverage K5 0.904, K8 0.942, H5 0.989, H8 0.982 (K2, two
+stations, 0.697); share within 2 m unchanged in every cell. Price: the median published bound grows K5 1.45 -> 4.72 m, K8 1.75 -> 9.03 m, H5 3.09 -> 21.4 m (median errors 0.72, 1.01, 3.52 m).
+Still default false; adopting it as the collapse preset's uncertainty is an owner decision. Open site untested.
