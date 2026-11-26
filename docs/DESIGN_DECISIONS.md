@@ -1424,3 +1424,13 @@ seeds 7, 8, 9, admitted relayed ranges): with DD 65 0+0+0, with the pin 0+0+1, D
 `--specProfile` now also sets `--sharedDuty868Finders`, `--tdoaHeightCorrect` and `--tdoaRubbleDelay` (the last acts only under `--collapse`). `--tofRubbleCorrect` (DD 49) stays off: COLLAPSE-12 H49, H51 and H52
 failed and the development runs showed no help in the high bracket. `PIN_PRE_DD65` now pins all seven off, so every gate pinned by DD 65 still tests what it was written for; `PIN_PRE_DD67` pins only the three.
 Checked: preset equals the three flags given on the previous build, and the preset with PIN_PRE_DD67 equals the previous preset, byte for byte (open site 56 CSVs, collapse 58 CSVs, seed 731).
+## 68, 69. Two more collapse over-confidence repairs, tried and rejected (2026-11-26; no code kept)
+
+DD 68 (`--ekf5NisAdapt`, covariance matching: range variances times the running NIS mean when above 1). Seeds 751-758 under a rule written before any run (four-station coverage up by 0.03 on average). Second half
+of the run, B -> NA: central 5 / 8 storeys .839/.823, .865/.852; high .678/.664, .846/.815; two stations .484/.471. Fails. Single ranges are about consistent (scatter 1.06-1.14 times the claimed sigma), so the running NIS
+does not see the over-confidence.
+DD 69 (`--ekf5LinkConsider`, repeated ranges over one link share an error of variance 4.877 m^2, from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA, considered not estimated). Seeds 761-763, same rule. B -> LC: central
+.862/.888, .814/.813; high .517/.518, .706/.710 (mean +0.007); two stations .493/.583. Fails. Its off state was NOT byte-identical (24 of 133 files against the committed build), so it could not have been kept as
+written anyway. With DD 49 added (reported only): central .952, .882; high .580, .706; two stations .677.
+
+**Suite, 2026-11-26 14:11 (819e984f6, with DD 67):** every registered gate ran; 158 verdicts pass; G11, G93 and G24 fail, the recorded reds, with the same verdicts as the run on f90cb0699 and the same G24 content.
