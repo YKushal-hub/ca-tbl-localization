@@ -1424,3 +1424,30 @@ seeds 7, 8, 9, admitted relayed ranges): with DD 65 0+0+0, with the pin 0+0+1, D
 `--specProfile` now also sets `--sharedDuty868Finders`, `--tdoaHeightCorrect` and `--tdoaRubbleDelay` (the last acts only under `--collapse`). `--tofRubbleCorrect` (DD 49) stays off: COLLAPSE-12 H49, H51 and H52
 failed and the development runs showed no help in the high bracket. `PIN_PRE_DD65` now pins all seven off, so every gate pinned by DD 65 still tests what it was written for; `PIN_PRE_DD67` pins only the three.
 Checked: preset equals the three flags given on the previous build, and the preset with PIN_PRE_DD67 equals the previous preset, byte for byte (open site 56 CSVs, collapse 58 CSVs, seed 731).
+## 68, 69. Two more collapse over-confidence repairs, tried and rejected (2026-11-26; no code kept)
+
+DD 68 (`--ekf5NisAdapt`, covariance matching: range variances times the running NIS mean when above 1). Seeds 751-758 under a rule written before any run (four-station coverage up by 0.03 on average). Second half
+of the run, B -> NA: central 5 / 8 storeys .839/.823, .865/.852; high .678/.664, .846/.815; two stations .484/.471. Fails. Single ranges are about consistent (scatter 1.06-1.14 times the claimed sigma), so the running NIS
+does not see the over-confidence.
+DD 69 (`--ekf5LinkConsider`, repeated ranges over one link share an error of variance 4.877 m^2, from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA, considered not estimated). Seeds 761-763, same rule. B -> LC: central
+.862/.888, .814/.813; high .517/.518, .706/.710 (mean +0.007); two stations .493/.583. Fails. Its off state was NOT byte-identical (24 of 133 files against the committed build), so it could not have been kept as
+written anyway. With DD 49 added (reported only): central .952, .882; high .580, .706; two stations .677.
+
+**Suite, 2026-11-26 14:11 (819e984f6, with DD 67):** every registered gate ran; 158 verdicts pass; G11, G93 and G24 fail, the recorded reds, with the same verdicts as the run on f90cb0699 and the same G24 content.
+
+## 70. The particle count as a flag (`--acquireParticleCount`, default 2000; 2026-11-26)
+
+V4's 2000 particles per node were OURS and fixed in code. The flag exposes them so the count can be swept (REALISTIC-12). Default 2000; off state byte-identical (56 files, seed 731), and an explicit 2000 too.
+
+## 71. Two stations in collapse: a deployment limit, not a filter defect (2026-11-26; development seeds 761-763, not evidence)
+
+With two stations the pile's centre lies on the line between them. Every filter repair tried left two-station coverage near 0.5 (DD 61, 64, 66, 68, 69 and `--acquireHandoverCurvature`). A sweep of what the site could deploy,
+20 workers, 5 storeys, central bracket, second half of the run (coverage, share within 2 m, median error): two stations with 2 searchers (the preset) .493, .146, 7.3 m; with 4 .467, .219, 5.4 m; with 8 .531, .241,
+4.1 m; with 12 .426, .238, 4.0 m; three stations with 2 searchers .740, .773, 1.05 m. More searchers improve accuracy but not coverage; a third station fixes most of both. The paper states it as a deployment rule:
+at least three stations not on one line. Three seeds; registered evidence for the rule is COLLAPSE-12's four-station cells against its two-station cells.
+
+## 72. High rubble and the four-station gap: more stations help little (2026-11-26; development seeds 761-763, not evidence)
+
+8 storeys, 20 workers, second half of the run (coverage, share within 2 m, median error). High bracket: 4 stations .706, .250, 17.2 m; 6 stations .699, .233, 14.5 m; 8 stations .770, .283, 11.3 m; 4 stations with 8 searchers
+.690, .212, 15.1 m. Central bracket: 4 stations .814, .738, 0.84 m; 6 .853, .816, 0.70 m; 8 .848, .846, 0.55 m. Unlike two stations (DD 71), neither limit is mainly geometric: in the high bracket the error stays above 10 m with
+twice the stations, and with central rubble coverage stays near 0.85 while accuracy improves. Both are stated as limitations of the radio physics and of the filter's over-confidence.
