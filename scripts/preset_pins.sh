@@ -15,4 +15,7 @@ PIN_ONE_WORKER="--nTags=1 --measuredSubjects=1 --identityQueryManifests=1 --rela
 PIN_PRE_DD41="--interferenceFrameKey=false"
 # DD 65 (owner 2026-11-25): DD 54, 56, 57 and 59 entered the preset. A gate written against the earlier preset, or a
 # campaign re-run, pins them off with this line.
-PIN_PRE_DD65="--sparseRangeGeometry=false --peerSplitCi=false --sharedDuty868=false --ekf5WindowThetaWalk=false"
+PIN_PRE_DD65="--sparseRangeGeometry=false --peerSplitCi=false --sharedDuty868=false --ekf5WindowThetaWalk=false --sharedDuty868Finders=false --tdoaHeightCorrect=false --tdoaRubbleDelay=false"
+# DD 67 (owner 2026-11-26): DD 60, 62 and 63 joined the preset; PIN_PRE_DD65 above pins them off too, so a gate pinned to the earlier preset is unchanged.
+# A gate written against DD 65's preset (DD 54/56/57/59 on, 60/62/63 off) uses this one.
+PIN_PRE_DD67="--sharedDuty868Finders=false --tdoaHeightCorrect=false --tdoaRubbleDelay=false"

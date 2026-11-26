@@ -164,6 +164,7 @@ Added 2026-10-20 and 2026-10-21, each default off (its §3 help text gives the w
 - `--sparseRangeGeometry` (row 348 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 54, G184).
 - `--sharedDuty868` (row 347 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 56, G185).
 - `--peerSplitCi` (row 343 of §3, and its §1 row): added 2026-11-24 with its default, `false` (DD 57, G186).
+- DD 67 (2026-11-26): `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` are set to true by `--specProfile` (their own defaults stay false).
 - `--ekf5WindowThetaWalk`, `--dutyReport868Finders`, `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` (rows 349-353, appended out of help order): added
   2026-11-25, all `false` (DD 59, 60, 62, 63).
 

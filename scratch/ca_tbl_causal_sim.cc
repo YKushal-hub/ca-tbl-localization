@@ -18648,6 +18648,10 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"sharedDuty868", "true", "DD 56: one 868 MHz duty-cycle ledger per worker device"},
     {"peerSplitCi", "true", "DD 57: peer ranges fused by split covariance intersection"},
     {"ekf5WindowThetaWalk", "true", "DD 59: the smoother's heading random walk"},
+    // DESIGN_DECISIONS 67 (owner 2026-11-26): DD 60, 62 and 63 enter the preset; DD 49 stays off.
+    {"sharedDuty868Finders", "true", "DD 60: one 868 MHz duty-cycle ledger per searcher's device"},
+    {"tdoaHeightCorrect", "true", "DD 62: arrival stamps corrected for the mast height before the 2-D solve"},
+    {"tdoaRubbleDelay", "true", "DD 63 (World): under --collapse the 868 MHz arrival stamps carry the rubble delay"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
     // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced

@@ -1418,3 +1418,9 @@ Two-station collapse: `--acquireHandoverCurvature` was tried on seeds 741-743 un
 was not before), and "Case C shapes at the base" and "fixes at hop depth 2" are no longer zero; its selftest fixture N14 fails as a consequence. Checked after the suite (main-run shape,
 seeds 7, 8, 9, admitted relayed ranges): with DD 65 0+0+0, with the pin 0+0+1, DD 65 without DD 54 0+0+0, without DD 56 0+1+0, without DD 57 0+0+0, without DD 59 0+0+1. The population is
 0 or 1 in 2700 s either way, so the zero is not attributed to any one switch; relayed ranges are practically unused in this run with or without DD 65.
+
+## 67. DD 60, 62 and 63 enter the preset; DD 49 does not (owner decision 2026-11-26)
+
+`--specProfile` now also sets `--sharedDuty868Finders`, `--tdoaHeightCorrect` and `--tdoaRubbleDelay` (the last acts only under `--collapse`). `--tofRubbleCorrect` (DD 49) stays off: COLLAPSE-12 H49, H51 and H52
+failed and the development runs showed no help in the high bracket. `PIN_PRE_DD65` now pins all seven off, so every gate pinned by DD 65 still tests what it was written for; `PIN_PRE_DD67` pins only the three.
+Checked: preset equals the three flags given on the previous build, and the preset with PIN_PRE_DD67 equals the previous preset, byte for byte (open site 56 CSVs, collapse 58 CSVs, seed 731).
