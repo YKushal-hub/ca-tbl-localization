@@ -1,0 +1,11 @@
+  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share 0.5
+    DD56 device 1 ca_tbl_full: ranging 28.394496 s, MAC 44.516608 s, of 1800.000000 s: 0.040506, trailing-hour peak 0.020253, ranging skips so far 5195, carried 0.000000 s, audited peak 0.020253
+    DD56 device 2 ca_tbl_full: ranging 26.696448 s, MAC 44.541952 s, of 1800.000000 s: 0.039577, trailing-hour peak 0.019788, ranging skips so far 5195, carried 0.000000 s, audited peak 0.019788
+    DD56 device 3 ca_tbl_full: ranging 29.783808 s, MAC 44.533504 s, of 1800.000000 s: 0.041287, trailing-hour peak 0.020644, ranging skips so far 5195, carried 0.000000 s, audited peak 0.020644
+    DD56 device 4 ca_tbl_full: ranging 29.423616 s, MAC 44.547840 s, of 1800.000000 s: 0.041095, trailing-hour peak 0.020548, ranging skips so far 5195, carried 0.000000 s, audited peak 0.020548
+    DD56 device 5 ca_tbl_full: ranging 31.790592 s, MAC 44.514304 s, of 1800.000000 s: 0.042392, trailing-hour peak 0.021196, ranging skips so far 5195, carried 0.000000 s, audited peak 0.021196
+    DD56 device 6 ca_tbl_full: ranging 31.121664 s, MAC 44.520704 s, of 1800.000000 s: 0.042024, trailing-hour peak 0.021012, ranging skips so far 5195, carried 0.000000 s, audited peak 0.021012
+    DD56 device 7 ca_tbl_full: ranging 28.497408 s, MAC 44.513024 s, of 1800.000000 s: 0.040561, trailing-hour peak 0.020281, ranging skips so far 5195, carried 0.000000 s, audited peak 0.020281
+    DD56 device 8 ca_tbl_full: ranging 27.519744 s, MAC 23.609088 s, of 1800.000000 s: 0.028405, trailing-hour peak 0.014202, ranging skips so far 5195, carried 0.000000 s, audited peak 0.014202
+    DD56 device 9 ca_tbl_full: ranging 30.452736 s, MAC 44.545024 s, of 1800.000000 s: 0.041665, trailing-hour peak 0.020833, ranging skips so far 5195, carried 0.000000 s, audited peak 0.020833
+    DD56 device 10 ca_tbl_full: ranging 31.944960 s, MAC 44.505088 s, of 1800.000000 s: 0.042472, trailing-hour peak 0.021236, ranging skips so far 5195, carried 0.000000 s, audited peak 0.021236

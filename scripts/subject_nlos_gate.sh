@@ -9,6 +9,7 @@
 # on and explicitly off, and a refusal.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then
     D=$1
@@ -17,7 +18,7 @@ else
     D=$(mktemp -d "${TMPDIR:-/tmp}/g78.XXXXXX") || exit 2
     trap 'rm -rf "$D"' EXIT
 fi
-B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true"
+B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true $PIN_PRE_DD65"
 run() {
     local n=$1
     shift

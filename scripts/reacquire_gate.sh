@@ -5,10 +5,11 @@
 # on   --reacquireSigmaM=500
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g175.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
-E="--specProfile=true --seed=541 --duration=7200 --trace=true --arms=ca_tbl_full --gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false --rangeHeightCorrect=true --searchLaunchOnLoss=0 --nFinders=0 --finderTasking=tag0 --finderSessions=false --gwRidge=false --gwLayout=cluster --nGateways=3 --env=0 --vegWide=0"
+E="--specProfile=true $PIN_PRE_DD65 --seed=541 --duration=7200 --trace=true --arms=ca_tbl_full --gatewayEdgeServer=false --edgeUplinkRanges=false --subjectEdgeUplink=false --rangeHeightCorrect=true --searchLaunchOnLoss=0 --nFinders=0 --finderTasking=tag0 --finderSessions=false --gwRidge=false --gwLayout=cluster --nGateways=3 --env=0 --vegWide=0"
 # shellcheck disable=SC2086
 run off $E &
 # shellcheck disable=SC2086

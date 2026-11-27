@@ -22,7 +22,7 @@ else
 fi
 # PIN (DESIGN_DECISIONS 18, 2026-10-20): this gate's thresholds were set before the preset adopted the receiver
 # corrections; the two flags restore the receiver it was written against, as G63/G87/G89 pin theirs.
-P="--specProfile=true $PIN_PRE_DD19 --seed=7 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.5 --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
+P="--specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD19 --seed=7 --trace=true --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --imuGyroBiasSigmaDps=0.5 --uwbSensitivityDbm=-104 --iqOverloadOnly=false"
 run() {  # run <name> <args...>: outputs in $D/<name>/, log in <name>.log, exit code in <name>.rc
     local n=$1
     shift

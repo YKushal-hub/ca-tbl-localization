@@ -145,3 +145,9 @@ Commands, seeds and frozen binaries are unchanged; every cell's own `run_id.txt`
 **Full gate suite (2026-11-24 06:50-08:05, commit 227bf7e9f):** red G10, G11, G24, G93, G158, G167. G11, G24, G93 are the recorded findings.
 G10 (citations of untracked run tools), G158 (a stale flag name in prose) and G167 (two gate blocks sharing one working
 directory; each passes alone) were fixed and re-run individually; the whole suite was not re-run after.
+
+**Full gate suite (2026-11-24, finished before 15:42, commit bc68c8924, with DD 54 and G184):** 156 gates PASS; red G11, G24, G93
+(the recorded findings, failing lines identical to the previous run) and G137. G10, G158 and G167 pass inside the suite.
+G137 failed because `--traceRanges` also writes the measured subjects' log (`subjranges_*`, added in e3d69780d) and the gate
+accepted one new file. No other output differs, so the log is inert. The gate now requires exactly the two logs and checks the
+subject log's cycles (SUBJLOG; three added failing fixtures); it was re-run alone and passes. The whole suite was not re-run after.

@@ -1,0 +1,6 @@
+  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share 0.5
+    DD56 device 1 ca_tbl_full: ranging 22.271232 s, MAC 44.512256 s, of 1800.000000 s: 0.037102, trailing-hour peak 0.018551, ranging skips so far 1862, carried 0.000000 s, audited peak 0.018551
+    DD56 device 2 ca_tbl_full: ranging 23.094528 s, MAC 44.523520 s, of 1800.000000 s: 0.037566, trailing-hour peak 0.018783, ranging skips so far 1862, carried 0.000000 s, audited peak 0.018783
+    DD56 device 3 ca_tbl_full: ranging 21.756672 s, MAC 44.545536 s, of 1800.000000 s: 0.036835, trailing-hour peak 0.018417, ranging skips so far 1862, carried 0.000000 s, audited peak 0.018417
+    DD56 device 4 ca_tbl_full: ranging 22.528512 s, MAC 44.547584 s, of 1800.000000 s: 0.037264, trailing-hour peak 0.018632, ranging skips so far 1862, carried 0.000000 s, audited peak 0.018632
+    DD56 device 5 ca_tbl_full: ranging 20.984832 s, MAC 44.521472 s, of 1800.000000 s: 0.036392, trailing-hour peak 0.018196, ranging skips so far 1862, carried 0.000000 s, audited peak 0.018196

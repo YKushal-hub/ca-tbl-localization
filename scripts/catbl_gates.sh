@@ -2100,6 +2100,54 @@ python3 scripts/collapse/synthetic_gate.py || fail G182
 bash scripts/collapse_synthetic_gate_selftest.sh || fail G182
 finish G182
 
+# ---------------- G184: --sparseRangeGeometry, a two-range fix keeps its geometry (DD 54)
+printf '\n--- G184 two-range fix geometry ---\n'
+bash scripts/sparse_geometry_gate.sh "$WORK/g184" || fail G184
+bash scripts/sparse_geometry_gate_selftest.sh "$WORK/g184" || fail G184
+finish G184
+
+# ---------------- G185/G186: one 868 MHz ledger per device (DD 56) and peer fusion by split covariance intersection (DD 57)
+printf '\n--- G185 / G186 shared duty cycle and peer fusion ---\n'
+bash scripts/duty_sci_gate.sh "$WORK/g185" || fail G185
+bash scripts/duty_sci_gate_selftest.sh "$WORK/g185" || fail G185
+finish G185
+
+# ---------------- G187: the smoother's heading random walk (DD 59)
+printf '\n--- G187 heading random walk in the smoother ---\n'
+bash scripts/theta_walk_gate.sh "$WORK/g187" || fail G187
+bash scripts/theta_walk_gate_selftest.sh "$WORK/g187" || fail G187
+finish G187
+
+# ---------------- G188: one 868 MHz ledger per searcher's device (DD 60)
+printf '\n--- G188 searchers 868 MHz ledger ---\n'
+bash scripts/finder_duty_gate.sh "$WORK/g188" || fail G188
+bash scripts/finder_duty_gate_selftest.sh "$WORK/g188" || fail G188
+finish G188
+
+# ---------------- G189: mast height and rubble delay in the 868 MHz arrival stamps (DD 62, DD 63)
+printf '\n--- G189 arrival stamps: height and rubble ---\n'
+bash scripts/tdoa_height_gate.sh "$WORK/g189" || fail G189
+bash scripts/tdoa_height_gate_selftest.sh "$WORK/g189" || fail G189
+finish G189
+# ---------------- G190: published uncertainty from the correlated-error shadow (DD 75)
+printf '\n--- G190 sigma shadow ---\n'
+bash scripts/sigma_shadow_gate.sh "$WORK/g190" || fail G190
+bash scripts/sigma_shadow_gate_selftest.sh "$WORK/g190" || fail G190
+finish G190
+
+# ---------------- G191: Phase 0 (DD 43) and the digging order (plan B6, DD 41/51): constants against their source rows,
+# DD 43's numbers, --phase0Timing output-only, survival and dig-time against DEBRUY-T2 and the formula, policies blind to
+# the truth, the range-or-dig start rule; five mutated copies must fail.
+printf '\n--- G191 Phase 0 and digging order ---\n'
+python3 scripts/phase0_dig_gate.py --fixtures --sim ./build/scratch/ns3.47-ca_tbl_causal_sim-optimized || fail G191
+finish G191
+
+# ---------------- G192: searchers with both LoRa radios poll and steer on both (DD 78)
+printf '\n--- G192 searcher polls on both LoRa radios ---\n'
+bash scripts/finder_both_lora_gate.sh "$WORK/g192" || fail G192
+bash scripts/finder_both_lora_gate_selftest.sh "$WORK/g192" || fail G192
+finish G192
+
 # ---------------- G183: no-leak, simulator side (DD 52): system-side collapse functions name no World identifier
 printf '\n--- G183 simulator no-leak ---\n'
 python3 scripts/collapse_sim_leak_check.py || fail G183

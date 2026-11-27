@@ -1298,3 +1298,232 @@ neighbour table holds no other worker's id; this is radio only.
 - H35 4/4: the crew is unchanged.
 - H36 4/4: the lone worker lasts 261–510 h.
 - `--loneStay868` is not adopted: a battery option. Its default stays off, so earlier results are unchanged.
+
+## 54. A two-range fix keeps its geometry (`--sparseRangeGeometry`, default off; 2026-11-24)
+
+Case A/B fused the crossing of two range circles as an isotropic position of variance 2(s0^2 + s1^2). With clustered gateways the
+two lines of sight are nearly parallel, so the crossing is loose by an order of magnitude across them, and the round covariance hid it
+(trace events on development seeds 701-703: 100-360 m jumps at a claimed 10 m; peer ranges anchored on such filters had mean z2 up to 550).
+With the flag on the two ranges enter as ranges. Off is byte-identical (the new code is out of line so the code round it compiles as before).
+Gate G184 (off and on runs, ten failing fixtures). Tested in REALISTIC-7 on new seeds.
+
+## 55. No trigger beats the flat threshold (development study; nothing adopted; 2026-11-24)
+
+Development seeds 711-716 (6, not evidence), DD 54 on, three sites, six-seed means: fixed_threshold with `--benefitSkip868` (and with
+`--benefitSkip868Min3`, `--benefitHeartbeat868N=12`, `--benefitSkipNisMax=6.63`, each with `--benefitLambda=1000`) against ca_tbl_full and the flat threshold.
+- The 868 MHz slot is about half of the hybrid's energy (18-19 of 30-39 J/h), so it is the only lever on energy.
+- Skipping it saves 2.8-3.3 J/h (7-10 %) but costs crew availability at the office (A250 0.85 to 0.57-0.58) and at random gateways (0.65 to
+  0.59-0.64, flat threshold); on the road it does not lose (A250 0.48 to 0.52, A25 0.43 to 0.48). Min3 does not lose but saves nothing (34.8 against 32.0 J/h at the office).
+- None arrives sooner than the flat threshold by a margin that six seeds can separate.
+So no trigger is proposed. The paper states that the flat threshold performs as well.
+
+DD 54 stays default off (standing rule: extension switches default off); campaigns that use it pass the flag.
+
+## 56. One 868 MHz duty-cycle ledger per device (`--sharedDuty868`, `--dutyRangeShare`, `--dutyReport868`; all default off; 2026-11-24)
+
+The ranging side (energy model, off-time rule) and the MAC (trailing hour) each allowed the full 2.5 %, and neither counted the other. Counting
+true on-air time (ranging plus every sent MAC frame), the development runs put every worker device at 2.59-4.77 % (80 device-runs, all above 2.5 %; `--dutyReport868`; an earlier
+version said 3.6-4.8 %, read from one run); the
+`duty_868` column and the "27 of 100 runs" quoted from it leave out most MAC frames and count some refused ones. With the flag, each side counts the
+other's airtime over the trailing hour with a 0.5 % margin, and the ranging broadcast is paced at `--dutyRangeShare` (0.5, OURS) of the cap so
+messages keep the rest; 868 MHz relative ranging past the cap is refused. Development seeds 721-724: no device above 2.5 %, at a price in crew accuracy
+and arrival time. Gate G185. Searchers' devices are not covered.
+
+**Correction, 2026-11-24, after REALISTIC-8.** Two omissions. (a) The reported peak was sampled after ranging exchanges only. (b) The bytes of relative
+ranges carried on an entry (3 per range) were billed for energy but were in neither airtime total. A measure-only audit (sampled after every exchange,
+carried byte and MAC frame) replayed all 220 of our REALISTIC-8 cells, CSVs byte-identical: 218 of 1200 emergency and 69 of 200 quiet-shift
+devices peaked above 2.5 %, largest 2.64 %. `--dutyCountCarry` (default true) puts the carried bytes in the ledger; false reproduces REALISTIC-8.
+Development seeds 721-722 with the fix: largest audited peak 2.488 % (crews of 5, 10, 15 and the quiet shift). G185 gains AUDIT and fixtures N12, N13.
+
+## 57. Peer ranges fused by split covariance intersection (`--peerSplitCi`, default off; 2026-11-24)
+
+A peer's position error was added to a range's variance as if independent of this filter's. Two devices that ranged the same peers, or each other,
+share error, so the filter counted it twice. Split covariance intersection (Julier and Uhlmann) fuses the peer part consistently whatever the correlation;
+omega minimises the posterior position trace over a grid. Development seeds 721-724: office coverage 0.77 to 0.89, no loss elsewhere. Gate G186. Needs
+the ekf5 filter with `--ekf5FinderConsider`.
+
+## 59. The smoother's heading random walk (`--ekf5WindowThetaWalk`, default off; 2026-11-25)
+
+The sliding-window smoother (DD 21) kept heading as theta0 + b t over the window and over the prior it marginalises into, with no process
+noise, while the filter and DC-1 both have an angle random walk (the filter's `ekf5NoiseDensity`). Over a shift the prior's confidence in heading and
+bias grew without limit. With the switch, heading is one state per cycle and consecutive cycles are tied by theta_k = theta_{k-1} + b dt with variance
+qTheta2, the value the filter already used; no new number. The old solver is untouched: the new one is `ca-tbl-imu-ekf-walk.cc`, because adding branches to the old functions
+changed its compiled arithmetic in the last digit. Off state byte-identical (15 files, seed 731).
+
+Development seeds (never evidence), quiet shift: coverage, old to new, CLUS3 731-734 .851/.966 .580/.909 .696/.908 .661/.951; RAND3 .804/.938 .898/.976 .957/.994
+.713/.836; within 25 m not lower in any. ROAD3F4 731-738: crew coverage .818 to .872, arrival ours minus 2.4 GHz only +805 to +499 s [102, 1020]. Cause test (a throwaway
+binary with the world's heading walk set to zero, CLUS3): the OLD smoother's coverage is .958 (732) and .872 (734) against .580 and .661 with the walk. Two seeds.
+
+Not fixed: RAND3 position loss (three of four seeds within 25 m 20-38 % of the time). In a filter-level walk with a gateway cluster 3 km off, over 1500 cycles,
+both smoothers are over-confident (NEES about 8). Four other synthetic set-ups did not reproduce the over-confidence at all. Gate G187. `ca_tbl_imu_test` holds a sanity check only.
+
+## 60. One 868 MHz duty-cycle ledger per searcher's device (`--sharedDuty868Finders`, `--dutyReport868Finders`; default off; 2026-11-25)
+
+DD 56 covered workers' devices only. Counted the same way (ranging replies plus every sent MAC frame), every searcher of ours was above 2.5 % on the development
+seeds: ROAD3F4 731-738, 32 searcher-runs, median audited peak 4.59 %, largest 5.94 %; collapse, one 20-worker run, about 13 %. With the switch a MAC frame is held back and a
+ranging reply is not sent when the trailing hour would pass the cap (DD 56's 0.5 % margin; nothing reserved, since a searcher paces no broadcast). Largest audited peak then 2.488 %.
+Cost on 731-738, ours: arrival -116 s [-569, 229], crew coverage .818 to .822, within 250 m .521 to .513; the 2.4 GHz-only design is unchanged (its searchers peak near 1 %). A reply
+is charged as one exchange, B11's symmetric approximation. Off state byte-identical (15 files). Gateways are not covered. Earlier results with
+searchers therefore ran those devices above the cap; they are not re-judged here. Gate G188.
+
+## 61. A constant bias per time-of-flight link in collapse: tried and rejected (2026-11-25; no code kept)
+
+Trapped devices keep constant offsets, so repeated ranges over one link were suspected of sharing a rubble bias that the filter counts as independent. The tried switch gave every
+2.4 GHz and UWB link a constant offset state with zero-mean prior variance 4.877 m^2 (from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA), on top of DD 59. Development seeds 731-733, 20 workers, second half of
+the run, means over 60 crew devices (coverage, share within 2 m), without it (DD 59 only) and with it: 5 storeys .702/.820 to .653/.623; 8 storeys .856/.776 to .783/.648; two stations
+.429/.297 to .579/.187. Adding DD 49's rubble correction: .694/.675, .770/.633, .619/.266. It lowers coverage and accuracy with four stations and raises coverage only with two. Not tuned; rejected. DD 59 alone does not change collapse
+coverage (.702, .856, .429 against .702, .842, .405). The collapse over-confidence stands.
+
+## 62. The mast height in the 868 MHz time-difference solve (`--tdoaHeightCorrect`, default off; 2026-11-25)
+
+Arrival stamps hold the slant distance to a 15 m mast; the solver is 2-D and DD 28's correction never reached it (the code's note puts the error under a metre beyond 100 m). In
+collapse the stations are 43 m from the centre, and the constant error was fused up to about 350 times per device as independent. With the switch each stamp is moved by the slant minus the
+ground distance at the last solution (dh = 15 - 1.5 = 13.5 m, DD 28's heights) and the solve repeated to 0.01 m, at most ten passes. System side only: surveyed mast and
+nominal carry heights. Development seeds 731-733, 20 workers, second half of the run (mean over 60 crew devices: coverage, share within 2 m; median error): 5 storeys .702, .821, 0.97 m to .781, .849,
+0.79 m; 8 storeys .842, .784, 0.92 to .844, .751, 0.83. Two stations: no time-difference fix, unchanged (.405). Size of the effect: with noiseless stamps the
+2-D solve is off by a median 0.79 m at 5 storeys' station distance (largest 1.44) and 0.45 m at 8 (independent Python solve, 400 positions); one fix's noise is about 6 m, and on the same devices the measured
+offsets hardly separate (0.34 to 0.29 m). The first hand estimate, about 2 m, was wrong. Per seed, coverage change with the correction: 5 storeys +.152, +.074, +.022 (with DD 63 -.020, +.037,
++.114); 8 storeys -.017, -.002, +.010 (with DD 63 +.022, +.028, -.017). So the correction removes a real, sub-metre bias; a coverage gain is not established, and it does not explain the collapse
+over-confidence (0.95 is not reached). Gate G189 first judged coverage on one seed and failed by 0.001; it now judges the solve with near-noiseless stamps, and COLLAPSE-10 judges coverage.
+
+## 63. World: the rubble delay in the 868 MHz arrival stamps (`--tdoaRubbleDelay`, default off; 2026-11-25)
+
+Under `--collapse` the ranges carry the rubble path's excess delay (DD 36-37) but the arrival stamps did not, so every earlier collapse result gives the 868 MHz time-difference fix an optimistic
+world. The switch adds the same path's bias (SLOW-BR) to each stamp; no draw is made. Same seeds and measures: alone, 5 storeys .734, .870, 0.96; 8 storeys .858, .771, 0.84. With DD 62: 5 storeys .787,
+.851, 0.67; 8 storeys .868, .805, 0.67. The delay did not hurt on these seeds, which was not expected; three seeds. Off state of DD 59, 60, 62, 63 together: 40 of 40 files byte-identical (an open,
+an emergency and a collapse run, seed 731).
+
+## 65. DD 54, 56, 57 and 59 enter the preset (owner decision 2026-11-25)
+
+`--specProfile` now sets `--sparseRangeGeometry`, `--sharedDuty868`, `--peerSplitCi` and `--ekf5WindowThetaWalk` to true. The program's own defaults stay false. DD 59's condition was its registered test: REALISTIC-11 C1 and C3
+hold. An explicit flag wins; a preset-set switch whose prerequisite the user turned off is unused, not refused. DD 60, 62, 63 and 49 are NOT in the preset: not decided.
+Every result recorded before this date ran with these off unless its flags say otherwise: to reproduce one, append `PIN_PRE_DD65` (`scripts/preset_pins.sh`). Campaign runners are not edited; they
+name their flags and run a frozen binary. Gates written against the earlier preset carry the pin (`spec_profile_gate.sh` and `preset_efficacy_gate.sh`, which test the preset itself, do not).
+Checked (seed 731, 1200 s, 56 CSVs): the preset equals the four flags given explicitly on the previous build, and the preset with the pin equals the previous preset, byte for byte. The first version of the
+prerequisite guards ran before the filter choice was resolved and silently left DD 57 and 59 off; this comparison caught it.
+
+## 64, 66. The quiet-shift position loss: two repairs tried and rejected (2026-11-25/26; no code kept)
+
+At RAND3 a worker is either located or lost for most of the shift. Two runs traced (732, 733) were identical with and without the smoother until acquisition handed over; then the smoother's empty window dropped the filter's prior,
+uncertainty passed 500 m and acquisition restarted (62 times in one run). DD 64 seeded the window from the filter; DD 66 refused to hand over a cloud wider than `--reacquireSigmaM` (the guard's median range is set by noisy
+868 MHz ranges, so clouds over a kilometre wide pass). On seeds 731-738 DD 64 was mixed, and DD 64 with `--acquireHandoverCurvature` also. The choice rule for new seeds 741-748 was written before any run
+(RAND3 share within 25 m up by 0.05; ROAD3F4 and quiet coverage at least 0.85 and not down by more than 0.03). Means, DD 59 and 60 on in the emergency cells:
+baseline RAND3 .901 coverage, .600 within 25 m, CLUS3 .942, .715, ROAD3F4 coverage .897; DD 66 .970, .597, .922, .635, .918; DD 64 .899, .602, .943, .724, .815; both .864, .635, .910, .674, .833.
+None passes: DD 66 and DD 64 do not raise RAND3's share, and both together miss 0.05 and the ROAD3F4 coverage rule. DD 64 raises ROAD3F4's share within 250 m (.599 to .731) at a price in coverage. Off state byte-identical (15 files). The position loss
+is reported as a limitation.
+
+Two-station collapse: `--acquireHandoverCurvature` was tried on seeds 741-743 under a rule written beforehand and lowered coverage (.819 to .678 in the second half of the run, share within 2 m .432 to .366): rejected.
+
+**Suite, 2026-11-26 (f90cb0699, with DD 65):** every registered gate ran; G11, G93 and G24 fail, the recorded reds. G24's content changed with the preset: "relayed ranges admitted" is now zero in the main run (it
+was not before), and "Case C shapes at the base" and "fixes at hop depth 2" are no longer zero; its selftest fixture N14 fails as a consequence. Checked after the suite (main-run shape,
+seeds 7, 8, 9, admitted relayed ranges): with DD 65 0+0+0, with the pin 0+0+1, DD 65 without DD 54 0+0+0, without DD 56 0+1+0, without DD 57 0+0+0, without DD 59 0+0+1. The population is
+0 or 1 in 2700 s either way, so the zero is not attributed to any one switch; relayed ranges are practically unused in this run with or without DD 65.
+
+## 67. DD 60, 62 and 63 enter the preset; DD 49 does not (owner decision 2026-11-26)
+
+`--specProfile` now also sets `--sharedDuty868Finders`, `--tdoaHeightCorrect` and `--tdoaRubbleDelay` (the last acts only under `--collapse`). `--tofRubbleCorrect` (DD 49) stays off: COLLAPSE-12 H49, H51 and H52
+failed and the development runs showed no help in the high bracket. `PIN_PRE_DD65` now pins all seven off, so every gate pinned by DD 65 still tests what it was written for; `PIN_PRE_DD67` pins only the three.
+Checked: preset equals the three flags given on the previous build, and the preset with PIN_PRE_DD67 equals the previous preset, byte for byte (open site 56 CSVs, collapse 58 CSVs, seed 731).
+## 68, 69. Two more collapse over-confidence repairs, tried and rejected (2026-11-26; no code kept)
+
+DD 68 (`ekf5NisAdapt`, never built into the tree, covariance matching: range variances times the running NIS mean when above 1). Seeds 751-758 under a rule written before any run (four-station coverage up by 0.03 on average). Second half
+of the run, B -> NA: central 5 / 8 storeys .839/.823, .865/.852; high .678/.664, .846/.815; two stations .484/.471. Fails. Single ranges are about consistent (scatter 1.06-1.14 times the claimed sigma), so the running NIS
+does not see the over-confidence.
+DD 69 (`ekf5LinkConsider`, never built into the tree, repeated ranges over one link share an error of variance 4.877 m^2, from SLOW-BR, HAZUS-STOREYS and PILE-ALPHA, considered not estimated). Seeds 761-763, same rule. B -> LC: central
+.862/.888, .814/.813; high .517/.518, .706/.710 (mean +0.007); two stations .493/.583. Fails. Its off state was NOT byte-identical (24 of 133 files against the committed build), so it could not have been kept as
+written anyway. With DD 49 added (reported only): central .952, .882; high .580, .706; two stations .677.
+
+**Suite, 2026-11-26 14:11 (819e984f6, with DD 67):** every registered gate ran; 158 verdicts pass; G11, G93 and G24 fail, the recorded reds, with the same verdicts as the run on f90cb0699 and the same G24 content.
+
+## 70. The particle count as a flag (`--acquireParticleCount`, default 2000; 2026-11-26)
+
+V4's 2000 particles per node were OURS and fixed in code. The flag exposes them so the count can be swept (REALISTIC-12). Default 2000; off state byte-identical (56 files, seed 731), and an explicit 2000 too.
+
+## 71. Two stations in collapse: a deployment limit, not a filter defect (2026-11-26; development seeds 761-763, not evidence)
+
+With two stations the pile's centre lies on the line between them. Every filter repair tried left two-station coverage near 0.5 (DD 61, 64, 66, 68, 69 and `--acquireHandoverCurvature`). A sweep of what the site could deploy,
+20 workers, 5 storeys, central bracket, second half of the run (coverage, share within 2 m, median error): two stations with 2 searchers (the preset) .493, .146, 7.3 m; with 4 .467, .219, 5.4 m; with 8 .531, .241,
+4.1 m; with 12 .426, .238, 4.0 m; three stations with 2 searchers .740, .773, 1.05 m. More searchers improve accuracy but not coverage; a third station fixes most of both. The paper states it as a deployment rule:
+at least three stations not on one line. Three seeds; registered evidence for the rule is COLLAPSE-12's four-station cells against its two-station cells.
+
+## 72. High rubble and the four-station gap: more stations help little (2026-11-26; development seeds 761-763, not evidence)
+
+8 storeys, 20 workers, second half of the run (coverage, share within 2 m, median error). High bracket: 4 stations .706, .250, 17.2 m; 6 stations .699, .233, 14.5 m; 8 stations .770, .283, 11.3 m; 4 stations with 8 searchers
+.690, .212, 15.1 m. Central bracket: 4 stations .814, .738, 0.84 m; 6 .853, .816, 0.70 m; 8 .848, .846, 0.55 m. Unlike two stations (DD 71), neither limit is mainly geometric: in the high bracket the error stays above 10 m with
+twice the stations, and with central rubble coverage stays near 0.85 while accuracy improves. Both are stated as limitations of the radio physics and of the filter's over-confidence.
+
+## 73. Collapse over-confidence: depth-aware finder ranges and 868 MHz correlation, tried and rejected; the quiet-shift loss is coverage (2026-11-26)
+
+Diagnosis (seed 761, traced, development): the four-station workers outside their bound are located precisely (scatter 0.2-0.5 m) with a constant offset of 1-8 m. Two sources: finder 2.4 GHz / UWB ranges are read
+as horizontal while the worker lies 1.5 m plus its depth below the finder's device (ranges 2.6 and 4.7 m long at 15-22 m), and 868 MHz-only workers fuse about 700 RSSI ranges and 170 TDoA fixes per half-run as
+independent although a still worker's link errors repeat. DD 73 (`collapseDepthProject`, not kept in the tree (patch ~/catbl_work/dd73_rejected.patch): finder ranges projected with the worker's running DD 47 depth and the rubble slowing over the ray's part inside the pile) and
+the existing `--rssiCorrInflate` were tried on seeds 771-773 under the DD 68 rule written before the runs. Coverage B / DD 73 / RC / both: central 5 storeys .885/.862/.886/.903, 8 storeys .731/.758/.761/.798;
+high .633/.606/.646/.670, .762/.769/.738/.748. Mean gain -0.004, +0.005, +0.027 against 0.03 required: none passes, nothing kept (DD 73 off state was byte-identical, 23 files). `--rangeBiasStates` is refused
+under ekf5 and was not tested. The over-confidence stays a limitation, now with its cause stated.
+
+Quiet shift: at RAND3 a crew device averages about one anchor per cycle and a fix in 4-29 % of cycles (REALISTIC-12 archives), so one anchor rarely fixes it. Five stations from the same generator (development
+781-788: within 25 m .581 to .883) was registered as REALISTIC-13 (seeds 2001-2020): +0.282 [0.133, 0.432], coverage 0.948. Both predictions hold: a deployment rule, no code change.
+
+## 74. TDoA fixes of still workers as correlated, tried and rejected (2026-11-26; no code kept)
+
+`tdoaCorrInflate` (not kept; patch ~/catbl_work/dd74_rejected.patch) scaled each tier-1 TDoA fix's covariance by B2's AR(1) factor (same d_corr and cap; mean factor 96 on still workers), the one repeated-error path DD 61, 68, 69 and 73 left alone. Seeds 791-793,
+the DD 73 rule written before the runs. Coverage / share within 2 m, B -> DD 74 + `--rssiCorrInflate` + DD 73: central 5 storeys .851/.903 -> .851/.730, 8 storeys .852/.806 -> .898/.491; high .650/.477 -> .810/.430,
+.738/.313 -> .822/.228. Coverage rises (mean +0.073) but the share within 2 m falls by up to 0.32 (DD 74 alone up to 0.45): fails. Off state byte-identical (23 files). The repeated TDoA fixes carry most of the accuracy;
+weighting them honestly for a still worker costs that accuracy. Collapse coverage near 0.85 with four stations is therefore an accuracy-versus-honesty trade-off of the radio data, stated as such.
+
+## 75. `--sigmaShadow`: the published uncertainty from a correlated-error shadow (2026-11-26; default false)
+
+DD 74 showed that weighting a still worker's repeated 868 MHz ranges and TDoA fixes as correlated inside the filter makes the bound honest but loses accuracy. DD 75 keeps the filter and its estimate unchanged and publishes
+max(traceSigma of the filter, trace of a shadow): a 2-D information sum of the cycle's own measurements linearised at the filter's estimate, 868 MHz RSSI ranges and tier-1 TDoA fixes with variance times B2's AR(1) factor
+(rho = exp(-moved / d_corr), moved by the ESTIMATE, B2's d_corr 30 m and cap 100 from CaTblPolicyConfig), 2.4 GHz / UWB ranges at their own sigma, forgetting by the estimate's displacement squared. System side only.
+Off: not called; byte-identical (23 files against the committed build, seed 761). Development seeds 801-803 under a rule written beforehand: mean four-station coverage gain +0.238, every cell up, share within 2 m identical;
+the bound is wider (central median 1.4-1.7 m -> 5.2-8.6 m against 0.8 m median error). Gate G190 with selftest (11 fixtures). Registered as COLLAPSE-13.
+COLLAPSE-13 (seeds 2101-2110, 100/100 rc 0): H60-H63 all hold. Mean four-station coverage gain +0.207 [0.179, 0.235]; with DD 75 coverage K5 0.904, K8 0.942, H5 0.989, H8 0.982 (K2, two
+stations, 0.697); share within 2 m unchanged in every cell. Price: the median published bound grows K5 1.45 -> 4.72 m, K8 1.75 -> 9.03 m, H5 3.09 -> 21.4 m (median errors 0.72, 1.01, 3.52 m).
+Still default false; adopting it as the collapse preset's uncertainty is an owner decision. Open site untested.
+
+## 76. Gate G191: Phase 0 and the digging order (2026-11-27; no simulator change)
+
+Phase 0 (DD 43) and the B6 digging order (DD 41, 51) had no gate. G191 (`scripts/phase0_dig_gate.py`) checks: phase0.py's defaults
+against NRF-CM and NRF-ICPU0; DD 43's numbers from its measured inputs (127.7 ms, printed 128 in DD 43; 5.1 %; 1.82 J/h; 2.0 %;
+k_dp <= 3.9, static_868 <= 1.6); `--phase0Timing` output-only (56 CSVs identical, one PHASE0 line); survival() against DEBRUY-T2's
+fractions; the dig-time formula; the four system policies unchanged when the truth moves (the oracle changes); range_or_dig's start
+rule on synthetic sigmas. Five mutated copies (a policy reading the truth, a survival step, the dig-time formula, the CoreMark and
+current defaults) each fail the check they break. score_dig.py's orderings moved into `policies()`, a pure refactor: output identical
+on seven COLLAPSE-13 runs and option sets.
+
+## 77. DD 75 enters the preset, collapse only (owner decision 2026-11-27, option (b))
+
+COLLAPSE-13 (H60-H63 hold) made DD 75 the candidate for the collapse preset's published uncertainty. The owner approved it on the
+condition of a digging-order re-run. DIG-75 (`report/PREREG_DIG75.md`) found that D1 and D2 hold but D3 fails: ranking by DD 75's wider bound loses 0.38
+expected survivors on average (worst -2.92, K8). The owner chose option (b): adopt DD 75 for collapse, and register the study that ranks the dig order
+by the filter's own covariance (DIG-77, `report/PREREG_DIG77.md`).
+- `kSpecProfile` sets `--sigmaShadow=true`, and DD 75 acts only under `--collapse`, whether the preset or an explicit flag sets it, as DD 63's
+  `--tdoaRubbleDelay` does. The open site is unchanged, and the preset equals its own settings given as flags (G24 EQUIV). A first version
+  (83870b64b) let an explicit flag act off the pile. The full suite caught it: G24 EQUIV, 5 of 56 CSVs differing, because eq_flags passes every preset
+  entry explicitly. It was corrected before any campaign used that binary off the pile. DD 75's open-site development check (seeds 811-813)
+  ran on COLLAPSE-13's frozen binary and cannot be repeated on the current one.
+- `PIN_PRE_DD65` and `PIN_PRE_DD67` now also carry `--sigmaShadow=false`, so every gate pinned to an earlier preset is unchanged. The new `PIN_PRE_DD77`
+  pins only DD 75. G190 uses it: that gate tests DD 75 as a switch on DD 67's preset.
+- `score_dig.py` gains the `sptf` policy (spt keyed by pxx + pyy). It is present only when the traces carry the covariance (`--traceCovariance`,
+  `--traceSubjectConsistency`). G191's no-leak check covers it, with a sixth fixture (sptf reading the truth).
+- Checked (seed 731, 600 s; the new build against d8c364a4c's): open-site preset 56 CSVs identical (no DD75 line). Collapse preset with
+  `--sigmaShadow=false` against the old preset: 133 CSVs identical. Collapse preset against the old preset with `--sigmaShadow=true`: 133 CSVs identical (DD75
+  line present). `spec_profile.txt` lists `sigmaShadow=true` in both, as DD 67's `tdoaRubbleDelay`. G191 passes (6 fixtures); score_dig.py's output on
+  COLLAPSE-13's traces (no covariance columns) is unchanged.
+- Re-checked after the correction (seed 731, 600 s, against d8c364a4c's build): open site 56/56, collapse pinned 133/133, collapse default against the old build with DD 75 on 133/133 identical. G24 EQUIV is 0 of 56 differing again; G24's remaining reds are the recorded population zeros (tier-1 TDoA solves, relayed ranges, subjects' TDoA solves). G190 passes. DIG-77's collapse runs are unaffected: under `--collapse` the corrected binary equals the one they used.
+
+## 78. `--finderDigestBothLora`: a searcher with both LoRa radios asks on both (2026-11-27; default false)
+
+REALISTIC-11 H1 failed at CLUS3 (ours +121 s against 2.4 GHz only) and ROAD3F4 (+542 s). Cause, from its run logs: DD 30 let a 2.4 GHz-only party poll
+for position entries (DIGEST) and steer on its 2.4 GHz table; every other arm's searchers, though they carry a 2.4 GHz radio, still polled and steered on 868 MHz
+only. At the end of CLUS3 s1501 the searchers' casualty entry was 2128.8 s old under ours and 27.5 s under 2.4 GHz only (polls on 2.4 GHz 0 against 720), and
+over seeds 1501-1520 they circled a stale last known position 2019 finder-cycles against 586 (ROAD3F4 3981 against 1444; RAND3, where ours wins, 1201 against 1116).
+The searchers' 868 MHz cap (DD 60) is not the cause: with it off (dev seeds 771-778; 771-773 were also DD 73's, collapse cells) the circling was unchanged
+(1998 -> 2041, 4066 -> 4025). A cap on replies alone (half the budget) was dropped before any arrival run: replies never exceeded 1.21 %.
+With the switch, under every arm with both LoRa radios (not static_868, static_2p4, static_uwb) each searcher also sends its DIGEST on 2.4 GHz and every read of
+its table returns the fresher of its 868 MHz and 2.4 GHz entries. 2.4 GHz has no duty cap; the frames are charged as any other. System side only.
+Off: byte-identical (218 CSVs against 7c2700c3d's simulator, seed 779); with it on, static_2p4 and static_868 are byte-identical too.
+Dev seeds 794-799 (ours - 2.4 GHz only, arrival): CLUS3 +150 [-3, 405] -> -4 [-13, 3]; ROAD3F4 +449 [-10, 1275] -> +375 [-77, 1224] (one scenario, 796, where
+the worker's own estimate is 58 m off, carries it); ROAD1 and RAND3 not clearly changed (+90 [-217, 542], +30 [-25, 97]). Casualty-entry age 2047 -> 15 s at CLUS3.
+Gate G192 with selftest (8 fixtures). Registered as REALISTIC-14. Evidence: ~/catbl_work/diag_h1/keep/DEV_DD78.md.

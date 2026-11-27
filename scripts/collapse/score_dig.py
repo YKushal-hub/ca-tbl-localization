@@ -67,7 +67,8 @@ def load(run, arm, decide):
                 pick = cand[-1]
         workers[sid] = dict(est=(float(pick["estX"]), float(pick["estY"])),
                             true=(float(pick["trueX"]), float(pick["trueY"])),
-                            sigma=float(pick["traceSigma"]), t=float(pick["t"]))
+                            sigma=float(pick["traceSigma"]), t=float(pick["t"]),
+                            sigmaf=(float(pick["pxx"]) + float(pick["pyy"])) if pick.get("pxx") not in (None, "") else None)
     return workers
 
 
@@ -122,6 +123,26 @@ def schedule(order, W, teams, tdig, r, start_h):
     return alive, wasted, done
 
 
+def policies(W, tdig, r, base):
+    """The orderings. id, nearest, confident and spt read only the system's est and sigma; oracle reads the truth."""
+    s2 = lambda s: max(s, 1e-6)
+    exp_t = {k: tdig * (1 + (s2(w["sigma"]) ** 2 / r ** 2) * math.exp(-r ** 2 / s2(w["sigma"]) ** 2)) for k, w in W.items()}
+    true_t = {k: dig_time(math.dist(w["est"], w["true"]), tdig, r) for k, w in W.items()}
+    out = {
+        "id": sorted(W),
+        "nearest": sorted(W, key=lambda k: math.dist(W[k]["est"], base)),
+        "confident": sorted(W, key=lambda k: W[k]["sigma"]),
+        "spt": sorted(W, key=lambda k: exp_t[k]),
+        "oracle": sorted(W, key=lambda k: true_t[k]),
+    }
+    if W and all(w.get("sigmaf") is not None for w in W.values()):
+        # DIG-77: spt keyed by the filter's own covariance trace (pxx + pyy, traced by --traceCovariance /
+        # --traceSubjectConsistency) instead of the published traceSigma (DD 75's bound under the DD 77 preset).
+        exp_f = {k: tdig * (1 + (s2(w["sigmaf"]) ** 2 / r ** 2) * math.exp(-r ** 2 / s2(w["sigmaf"]) ** 2)) for k, w in W.items()}
+        out["sptf"] = sorted(W, key=lambda k: exp_f[k])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
@@ -137,17 +158,7 @@ def main():
         raise SystemExit("no traces for that arm")
     bx, by = (float(v) for v in a.base.split(","))
     start_h = max(w["t"] for w in W.values()) / 3600.0
-    s2 = lambda s: max(s, 1e-6)
-    exp_t = {k: a.tdig * (1 + (s2(w["sigma"]) ** 2 / a.radius ** 2) * math.exp(-a.radius ** 2 / s2(w["sigma"]) ** 2))
-             for k, w in W.items()}
-    true_t = {k: dig_time(math.dist(w["est"], w["true"]), a.tdig, a.radius) for k, w in W.items()}
-    pol = {
-        "id": sorted(W),
-        "nearest": sorted(W, key=lambda k: math.dist(W[k]["est"], (bx, by))),
-        "confident": sorted(W, key=lambda k: W[k]["sigma"]),
-        "spt": sorted(W, key=lambda k: exp_t[k]),
-        "oracle": sorted(W, key=lambda k: true_t[k]),
-    }
+    pol = policies(W, a.tdig, a.radius, (bx, by))
     print(f"{len(W)} workers, {a.teams} teams, t_dig {a.tdig} h, radius {a.radius} m, digging starts at "
           f"{start_h:.2f} h")
     S = load_series(a.run, a.arm)

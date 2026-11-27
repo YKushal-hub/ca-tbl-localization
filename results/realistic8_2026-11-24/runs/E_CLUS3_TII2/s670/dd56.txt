@@ -1,0 +1,5 @@
+    DD56 device 1 fixed_threshold: ranging 19.801600 s, MAC 89.064448 s, of 7200.000000 s: 0.015120, trailing-hour peak 0.017065, ranging skips so far 5074
+    DD56 device 2 fixed_threshold: ranging 69.125120 s, MAC 75.619328 s, of 7200.000000 s: 0.020103, trailing-hour peak 0.023766, ranging skips so far 5074
+    DD56 device 3 fixed_threshold: ranging 88.889600 s, MAC 67.632896 s, of 7200.000000 s: 0.021739, trailing-hour peak 0.022411, ranging skips so far 5074
+    DD56 device 4 fixed_threshold: ranging 73.447424 s, MAC 83.328512 s, of 7200.000000 s: 0.021774, trailing-hour peak 0.022429, ranging skips so far 5074
+    DD56 device 5 fixed_threshold: ranging 71.278848 s, MAC 83.548160 s, of 7200.000000 s: 0.021504, trailing-hour peak 0.022277, ranging skips so far 5074

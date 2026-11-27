@@ -582,3 +582,21 @@ runs on low memory: that deadlocked the queue on 2026-11-23. Keep C: above 4 GB.
 3. Owner decision: adopt DD 54 as a default? If so, re-run the campaigns behind the paper's numbers.
 4. Trigger study on fresh development seeds, then its own registration.
 5. Hardware ranging calibration (SX1280, SX1262), out of scope so far.
+
+### Status 2026-11-24, afternoon (branch `work/2026-11-24-calibration`; supersedes the "Open" line above)
+- Cause found for the over-confident filter: an accepted two-range fix entered as an isotropic position. DD 54 (`--sparseRangeGeometry`, default off)
+  fuses its two ranges instead. Gate G184.
+- REALISTIC-7 (500 runs; `report/PREREG_REALISTIC7.md`): H1, H2, K2, K3 FAIL; H3, K1, K4 HOLD. Office coverage 0.452 -> 0.769. Most of the earlier
+  arrival-time advantage over 2.4 GHz only came from the defect (ROAD3 -1593 s -> -275 s [-828, 256]). Do not quote the earlier advantage.
+- DD 55: no tested 868 MHz-skip trigger beats the flat threshold (development seeds 711-716).
+- Full gate suite at bc68c8924: 156 PASS; G11, G24, G93 recorded reds; G137 red, gate extended to the subject range log and re-run alone.
+- REPLAY-DD54-PARETO was stopped at 235 of 960 cells, not analysed, not to be resumed (note on `work/2026-11-24-duty`). Its design breaks the duty cap.
+- REALISTIC-8 (360 runs) done: H1, H2 FAIL; H3, C1 HOLD; L1 holds as registered but the audit puts 218 of 1200 devices above 2.5 % in some hour, so it
+  is not legal (`report/PREREG_REALISTIC8.md`). REALISTIC-9 repeats it with the corrected ledger after COLLAPSE-9; both run from `~/catbl_duty`.
+- Branch `work/2026-11-24-merge` (`~/catbl_merge`) joins calibration and duty (cd4b69b48). G137 now tests `--traceRanges` and `--traceSubjectRanges`
+  separately (11 fixtures pass, run on COLLAPSE-9's frozen binary). Full gate suite at 516cd5acd (2026-11-25): 158 PASS; G11, G24, G93 recorded reds; no new red. The later duty merge adds
+  only report/, results/ and the PARETO-3/4 scripts, so it was not re-run.
+- Paper: `~/catbl_work/tii_paper/draft_2026-11-23/TriLoc_TII_v19.pdf`.
+- Open: true 868 MHz airtime is 2.6-4.8 % on all 80 development device-runs (DD 56); `duty_868` and "27 of 100" understate it. Before DD 57, emergency coverage is
+  77-87 % and the quiet office shift about 60 % against 95 %; the collapse study is not checked for the two-range defect; 16 of 52 references
+  unconfirmed (NIST TN 1540 and 1542 authors confirmed on the report covers; ILO and NIOSH 2023 open).

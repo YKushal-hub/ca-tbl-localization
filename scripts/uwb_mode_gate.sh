@@ -8,10 +8,11 @@
 # y_pre              the preset's mode with a hand-set --uwbSensitivityDbm: the explicit flag wins, the mode yields
 set -u
 cd "$(dirname "$0")/.." || exit 2
+. scripts/preset_pins.sh  # PIN_PRE_DD65: the preset this gate was written against (DESIGN_DECISIONS 65)
 BIN="$(pwd)/build/scratch/ns3.47-ca_tbl_causal_sim-optimized"
 if [ $# -ge 1 ]; then D=$1; mkdir -p "$D" || exit 2; else D=$(mktemp -d "${TMPDIR:-/tmp}/g164.XXXXXX") || exit 2; trap 'rm -rf "$D"' EXIT; fi
 run() { local n=$1; shift; mkdir -p "$D/$n"; "$BIN" "$@" --outdir="$D/$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"; }
-E="--specProfile=true --seed=7 --duration=300 --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --reportAirtime=true"
+E="--specProfile=true $PIN_PRE_DD65 --seed=7 --duration=300 --boxHalf=750 --finderMode=1 --arms=ca_tbl_full --reportAirtime=true"
 run p_leg --probe=true --probeNominalMargin=true &
 run p_6m8 --probe=true --probeNominalMargin=true --uwbMode=6m8 &
 run p_850 --probe=true --probeNominalMargin=true --uwbMode=850k &
@@ -26,5 +27,5 @@ run leg --seed=7 --trace=true --duration=300 --arms=ca_tbl_full --uwbMode=legacy
 wait
 run r_name --arms=ca_tbl_full --seed=1 --duration=10 --uwbMode=2m
 run r_both --arms=ca_tbl_full --seed=1 --duration=10 --uwbMode=6m8 --uwbSensitivityDbm=-95
-run y_pre --specProfile=true --arms=ca_tbl_full --seed=1 --duration=10 --uwbSensitivityDbm=-104
+run y_pre --specProfile=true $PIN_PRE_DD65 --arms=ca_tbl_full --seed=1 --duration=10 --uwbSensitivityDbm=-104
 python3 scripts/uwb_mode_gate.py "$D"

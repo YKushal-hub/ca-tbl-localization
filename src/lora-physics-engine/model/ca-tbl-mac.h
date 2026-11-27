@@ -900,8 +900,21 @@ class CaTblMac
 
     /** Duty-cycle state, sliding window (§2.1). */
     double GetDutyCycle(CaTblTier tier) const;
+    double GetTotalAirtimeS(CaTblTier t) const { return m_airTotalS[t]; } //!< DD 56
+    /** DD 56: the cap counts \p otherAirS too; never less than \p reserveS is kept for it. */
+    void SetSharedDuty(std::function<double()> otherAirS, double reserveS)
+    {
+        m_otherAir868 = std::move(otherAirS);
+        m_reserve868S = reserveS;
+    }
     double GetDutyCycleLimit() const { return m_cfg.isAccessPoint ? 0.10 : 0.025; }
     bool WouldViolateDutyCycle(CaTblTier tier, Time toa) const;
+    /** DD 56 audit: called after an 868 MHz frame is recorded; measures only. */
+    void SetDutyAudit(std::function<void()> f) { m_dutyAudit = std::move(f); }
+    std::function<void()> m_dutyAudit;     //!< DD 56 audit
+    std::function<double()> m_otherAir868; //!< DD 56: the device's ranging airtime in the trailing window, s
+    double m_airTotalS[CA_TBL_TIER_COUNT] = {0.0, 0.0, 0.0}; //!< DD 56: all airtime sent
+    double m_reserve868S = 0.0;            //!< DD 56: airtime kept for ranging, s per window
 
     /** Current APC transmit power. */
     double GetTxPowerDbm() const { return m_txPowerDbm; }

@@ -23,7 +23,7 @@ fi
 # N8_ring, the geometry G77 was built on: a TDoA solve needs three gateways stamping one
 # broadcast, which the preset's three gateways at 5 km give a subject rarely (G24, seeds 7/8/9:
 # 0+1+5). This gate checks the mechanism; G24 checks its population under the preset.
-B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true $PIN_PRE_DD27 --nGateways=8 --gwLayout=legacy"
+B="--arms=ca_tbl_full --seed=7 --duration=900 --trace=true --specProfile=true $PIN_PRE_DD65 $PIN_PRE_DD27 --nGateways=8 --gwLayout=legacy"
 run() {
     local n=$1
     shift

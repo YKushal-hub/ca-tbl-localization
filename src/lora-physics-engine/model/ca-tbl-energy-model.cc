@@ -243,6 +243,10 @@ CaTblEnergyModel::CanTransmit(CaTblTier tier, double nowS) const
     {
         return true;
     }
+    if (m_sharedDuty && tier == CA_TBL_TIER_868 && SharedDutyBlocks(nowS)) // DD 56
+    {
+        return false;
+    }
     return nowS >= m_nextAllowedTxS[tier];
 }
 
@@ -274,6 +278,98 @@ CaTblEnergyModel::ArmDutyCycle(CaTblTier tier, double nowS, double airtimeS)
     // Standard sub-GHz off-time rule: occupying the channel for T obliges the
     // transmitter to stay silent until T/limit has elapsed since it started.
     m_nextAllowedTxS[tier] = nowS + airtimeS / m_dutyLimit[tier];
+    if (m_sharedDuty && tier == CA_TBL_TIER_868 && !m_macFrame) // DD 56
+    {
+        m_air868TotalS += airtimeS;
+        while (!m_air868.empty() && m_air868.front().first <= nowS - kDutyWindowS)
+        {
+            m_air868.pop_front();
+        }
+        m_air868.emplace_back(nowS, airtimeS);
+        m_dutyPeakS = std::max(m_dutyPeakS, OwnAirS868(nowS) + m_otherAirS());
+        NoteDutyAudit(nowS);
+    }
+}
+
+void
+CaTblEnergyModel::EnableSharedDuty(std::function<double()> otherAirS, bool enforce, double rangeShare)
+{
+    m_sharedDuty = true;
+    m_dutyEnforce = enforce;
+    m_rangeShare = rangeShare;
+    m_otherAirS = std::move(otherAirS);
+}
+
+void
+CaTblEnergyModel::NoteCarry868(double nowS, double airtimeS)
+{
+    if (m_sharedDuty)
+    {
+        m_carryTotalS += airtimeS;
+        if (m_countCarry && m_dutyEnforce)
+        {
+            m_air868.emplace_back(nowS, airtimeS); // in the ledger: both checks see it
+        }
+        else
+        {
+            m_carry868.emplace_back(nowS, airtimeS);
+        }
+        NoteDutyAudit(nowS);
+    }
+}
+
+void
+CaTblEnergyModel::NoteDutyAudit(double nowS)
+{
+    if (!m_sharedDuty)
+    {
+        return;
+    }
+    while (!m_carry868.empty() && m_carry868.front().first <= nowS - kDutyWindowS)
+    {
+        m_carry868.pop_front();
+    }
+    double sum = OwnAirS868(nowS) + m_otherAirS();
+    for (const auto& e : m_carry868)
+    {
+        sum += e.second;
+    }
+    m_auditPeakS = std::max(m_auditPeakS, sum);
+}
+
+double
+CaTblEnergyModel::OwnAirS868(double nowS) const
+{
+    double sum = 0.0;
+    for (const auto& e : m_air868)
+    {
+        if (e.first > nowS - kDutyWindowS)
+        {
+            sum += e.second;
+        }
+    }
+    return sum;
+}
+
+bool
+CaTblEnergyModel::SharedDutyBlocks(double nowS) const
+{
+    if (!m_dutyEnforce)
+    {
+        return false;
+    }
+    const double burst = LoRaTimeOnAirS(m_sf[CA_TBL_TIER_868], m_bandwidthHz[CA_TBL_TIER_868], 20,
+                                        m_codingRate[CA_TBL_TIER_868]);
+    return OwnAirS868(nowS) + m_otherAirS() + burst > 0.995 * m_dutyLimit[CA_TBL_TIER_868] * kDutyWindowS; // 0.5 % margin (OURS)
+}
+
+bool
+CaTblEnergyModel::RangePaceBlocks(double nowS) const
+{
+    // The ranging broadcast is paced at its share of the cap; what is left is the MAC's.
+    const double burst = LoRaTimeOnAirS(m_sf[CA_TBL_TIER_868], m_bandwidthHz[CA_TBL_TIER_868], 20,
+                                        m_codingRate[CA_TBL_TIER_868]);
+    return m_dutyEnforce && nowS < m_lastRangeS + burst / (m_rangeShare * m_dutyLimit[CA_TBL_TIER_868]) - 1e-6;
 }
 
 void
@@ -566,6 +662,10 @@ CaTblEnergyModel::AccountRangingExchange(CaTblTier tier,
     }
 
     a.rangingExchanges++;
+    if (tier == CA_TBL_TIER_868)
+    {
+        m_lastRangeS = std::max(m_lastRangeS, nowS); // DD 56
+    }
     ArmDutyCycle(tier, nowS, airtimeThisExchange);
 }
 
@@ -630,6 +730,14 @@ CaTblEnergyModel::AccountTx(CaTblTier tier, double airtimeS, uint64_t frames)
     TierEnergyAccount& a = m_accounts[tier];
     Charge(tier, airtimeS, p.txCurrentMa, a.txJ, a.txTimeS);
     a.txFrames += frames;
+}
+
+void
+CaTblEnergyModel::AccountMacFrameTx(CaTblTier tier, double txStartS, double airtimeS)
+{
+    m_macFrame = true;
+    AccountFrameTx(tier, txStartS, airtimeS);
+    m_macFrame = false;
 }
 
 void

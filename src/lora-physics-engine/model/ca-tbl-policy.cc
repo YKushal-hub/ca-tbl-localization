@@ -662,6 +662,24 @@ CaTblPolicy::FuseAux()
 }
 
 void
+CaTblPolicy::FltFusePair(const CaTblRangeMeasurement& a, const CaTblRangeMeasurement& b)
+{
+    FltUpdate({a, b}, {a.sigmaM * a.sigmaM, b.sigmaM * b.sigmaM});
+}
+
+void
+CaTblPolicy::FltFuseSparse(double x, double y, double v, const CaTblRangeMeasurement& a,
+                           const CaTblRangeMeasurement& b)
+{
+    if (m_config.sparseRangeGeometry)
+    {
+        FltFusePair(a, b);
+        return;
+    }
+    FltFusePosition(x, y, v);
+}
+
+void
 CaTblPolicy::FuseAuxInflated(double rScale)
 {
     if (!AuxPassesGate(rScale))
@@ -1147,10 +1165,12 @@ CaTblPolicy::Initialize(double x0, double y0, double posStdM, double velStdMps)
         m_ekf5.SetMomentMatchedMeanShift(false);
         m_ekf5.SetRobust(m_config.ekf5Robust);
         m_ekf5.SetFinderConsider(m_config.ekf5FinderConsider, m_config.ekf5FinderConsiderVar);
+        m_ekf5.SetPeerSplitCi(m_config.peerSplitCi); // DD 57
         m_ekf5.SetRelayGate(m_config.ekf5RelayGate);
         m_ekf5.SetIterate(m_config.ekf5Iterate, m_config.ekf5IterateTolM);
         m_ekf5.SetWindow(m_config.ekf5Window, m_config.ekf5WindowMin, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
         m_ekf5.SetStateBounds(m_config.ekf5StateBoundsK, m_config.ekf5BiasSigma, m_config.ekf5ScaleSigma);
+        m_ekf5.SetWindowThetaWalk(m_config.ekf5WindowThetaWalk); // DD 59
         m_ekf5.SetCoarsePosOnly(m_config.ekf5CoarsePosOnly); // DD 33
         m_ekf5HaveHeading = false;
     }
@@ -2133,7 +2153,7 @@ CaTblPolicy::StepImpl(double dt,
             const double var = 2.0 * (a.sigmaM * a.sigmaM + b.sigmaM * b.sigmaM);
             if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
             {
-                FltFusePosition(sr.x, sr.y, var);
+                FltFuseSparse(sr.x, sr.y, var, a, b); // DD 54
                 ++m_caseAPreFuses;
                 preFused = true;
                 d.positionFuses = 1;
@@ -2211,7 +2231,7 @@ CaTblPolicy::StepImpl(double dt,
                                   meas[1].sigmaM * meas[1].sigmaM);
         if (sr.verdict == CA_TBL_SPARSE_OK && var > 0.0 && std::isfinite(var))
         {
-            FltFusePosition(sr.x, sr.y, var);
+            FltFuseSparse(sr.x, sr.y, var, meas[0], meas[1]); // DD 54
             d.positionFuses = 1;
             d.sparseX = sr.x;
             d.sparseY = sr.y;

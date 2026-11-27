@@ -235,6 +235,13 @@ class CaTblImuEkf
      *  estimated, but its covariance var I and its cross-covariance with the state are carried, so ranges to
      *  the same offset finder are not fused as independent. Off (default): ranges are fused as given. */
     void SetFinderConsider(bool on, double var) { m_consOn = on; m_consVar = var; }
+    void SetPeerSplitCi(bool on) { m_peerSci = on; } //!< DD 57
+    bool m_peerSci = false;
+    double m_sciW = 1.0;       //!< the last omega
+    uint64_t m_sciN = 0;       //!< peer ranges fused by split covariance intersection
+    uint64_t m_sciSkipped = 0; //!< peer ranges that could not shrink tr(P) and were not fused
+    //! DD 57: choose omega and scale P by 1/omega; returns the variance to fuse with, or < 0 when the range adds nothing.
+    __attribute__((noinline)) double SplitCiScale(double H0, double H1, double varM2, double relayVar);
     uint64_t ConsiderUpdates() const { return m_consN; }
     /** --ekf5RelayGate: a RELAYED range (anchored on another node's estimate) whose NIS against this filter's
      *  prior exceeds chi^2_1(0.999) = 10.83 is not fused. Only that class: the filter's own ranges are never
@@ -269,6 +276,9 @@ class CaTblImuEkf
         m_winBiasSigma = biasSigma;
         m_winScaleSigma = scaleSigma;
     }
+    /** DD 59 --ekf5WindowThetaWalk: the window carries heading per cycle, with the angle random walk the filter's own
+     *  prediction has. Off: heading is a straight line over the window and its prior, unchanged. */
+    void SetWindowThetaWalk(bool on) { m_winWalk = on; }
     uint64_t WindowSolves() const { return m_winSolves; }
     uint64_t WindowFailures() const { return m_winFails; }
     double WindowLastRms() const { return m_winLastRms; }
@@ -355,6 +365,7 @@ class CaTblImuEkf
     };
     struct WinCycle
     {
+        double th = 0.0; //!< DD 59: heading offset at this cycle (--ekf5WindowThetaWalk)
         double dt = 0.0, dist = 0.0, raw = 0.0, qStep2 = 0.0, qTheta2 = 0.0, dwellVar = 0.0;
         bool dwell = false;
         bool hasMag = false;
@@ -376,6 +387,9 @@ class CaTblImuEkf
     // Marginalisation prior on the window's first cycle: 0.5 d'L d + beta'd, d = (p0x, p0y, theta0, b, s, offsets of
     // m_winPriorF in order) - mu. Built by Schur complement when a cycle leaves the window, so its factors are kept
     // exactly once (linearised at the solution it was dropped at).
+    bool m_winWalk = false; //!< DD 59
+    void WinMarginaliseFrontWalk();
+    void WinSolveWalk();
     bool m_winPriorOn = false;
     std::vector<int> m_winPriorF;
     std::vector<double> m_winPriorMu, m_winPriorL, m_winPriorBeta;

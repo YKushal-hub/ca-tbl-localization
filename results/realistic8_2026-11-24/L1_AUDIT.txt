@@ -1,0 +1,14 @@
+cells 220 differing files 0 []
+E_CLUS3MUL_ARMS 100 mean+carry max 0.02430  audited peak max 0.02488  >2.5%: 0  carried max 0.573 s
+E_CLUS3_ARMS 100 mean+carry max 0.02487  audited peak max 0.02488  >2.5%: 0  carried max 0.660 s
+E_CREW10_ARMS 200 mean+carry max 0.02525  audited peak max 0.02594  >2.5%: 67  carried max 4.618 s
+E_CREW15_ARMS 300 mean+carry max 0.02584  audited peak max 0.02636  >2.5%: 134  carried max 6.963 s
+E_RAND3_ARMS 100 mean+carry max 0.02487  audited peak max 0.02494  >2.5%: 0  carried max 0.384 s
+E_ROAD1_ARMS 100 mean+carry max 0.02517  audited peak max 0.02533  >2.5%: 4  carried max 2.509 s
+E_ROAD3F4_ARMS 100 mean+carry max 0.02488  audited peak max 0.02507  >2.5%: 2  carried max 0.865 s
+E_ROAD3MUL_ARMS 100 mean+carry max 0.02488  audited peak max 0.02519  >2.5%: 6  carried max 1.398 s
+E_ROAD3_ARMS 100 mean+carry max 0.02500  audited peak max 0.02520  >2.5%: 5  carried max 1.439 s
+Q_CLUS3_ARMS 50 mean+carry max 0.02326  audited peak max 0.02488  >2.5%: 0  carried max 2.222 s
+Q_RAND3_ARMS 50 mean+carry max 0.02477  audited peak max 0.02532  >2.5%: 7  carried max 4.060 s
+Q_ROAD1_ARMS 50 mean+carry max 0.02412  audited peak max 0.02555  >2.5%: 34  carried max 7.240 s
+Q_ROAD3_ARMS 50 mean+carry max 0.02446  audited peak max 0.02531  >2.5%: 28  carried max 3.553 s

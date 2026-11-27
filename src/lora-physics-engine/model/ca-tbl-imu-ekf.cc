@@ -536,7 +536,14 @@ CaTblImuEkf::Update(const std::vector<CaTblRangeMeasurement>& meas, const std::v
             m_win.back().x = m_x[0];
             m_win.back().y = m_x[1];
         }
-        WinSolve(); // --ekf5Window
+        if (m_winWalk)
+        {
+            WinSolveWalk(); // DD 59
+        }
+        else
+        {
+            WinSolve(); // --ekf5Window
+        }
     }
 }
 
@@ -1283,6 +1290,46 @@ CaTblImuEkf::ConsAfterGain(const double* K, int nK, const double* H)
     }
 }
 
+double
+CaTblImuEkf::SplitCiScale(double H0, double H1, double varM2, double relayVar)
+{
+    // The peer's position error may be correlated with this filter's own in an unknown way (both may have ranged the
+    // same devices, or each other). Split covariance intersection (Julier & Uhlmann 2001): P/w, relayVar/(1-w) plus the
+    // independent range noise; w minimises the posterior position trace over a grid.
+    const double r0 = std::max(varM2 - relayVar, 1e-6);
+    const double p00 = m_P[0][0], p01 = 0.5 * (m_P[0][1] + m_P[1][0]), p11 = m_P[1][1];
+    const double hph = H0 * H0 * p00 + 2.0 * H0 * H1 * p01 + H1 * H1 * p11;
+    const double ph0 = p00 * H0 + p01 * H1, ph1 = p01 * H0 + p11 * H1;
+    double best = p00 + p11, bw = -1.0;
+    for (int i = 1; i < 50; ++i)
+    {
+        const double w = 0.5 + 0.01 * i; // (0.5, 0.99]
+        const double rr = r0 + relayVar / (1.0 - w);
+        const double s = hph / w + rr;
+        const double tr = (p00 + p11) / w - (ph0 * ph0 + ph1 * ph1) / (w * w) / s;
+        if (tr < best)
+        {
+            best = tr;
+            bw = w;
+        }
+    }
+    if (bw < 0.0)
+    {
+        ++m_sciSkipped;
+        return -1.0;
+    }
+    ++m_sciN;
+    m_sciW = bw;
+    for (int i = 0; i < N; ++i)
+    {
+        for (int j = 0; j < N; ++j)
+        {
+            m_P[i][j] /= bw;
+        }
+    }
+    return r0 + relayVar / (1.0 - bw);
+}
+
 void
 CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, const std::vector<double>& varM2)
 {
@@ -1300,6 +1347,15 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
         const double rSafe = std::max(rLin, 1e-6);
         const double H[N] = {dx / rSafe, dy / rSafe, 0.0, 0.0, 0.0};
         const double rPred = LinPred(rLin, H[0], H[1]);
+        double vk = varM2[k];
+        if (m_peerSci && mm.relayVarM2 > 0.0f) // DD 57
+        {
+            vk = SplitCiScale(H[0], H[1], vk, mm.relayVarM2);
+            if (vk < 0.0)
+            {
+                continue;
+            }
+        }
         const bool finder = (mm.sourceKind == CA_TBL_SRC_FINDER);
         ConsAnchor* ca = nullptr;
         if (finder)
@@ -1314,7 +1370,7 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             XH[i] = ca ? -(ca->X[i][0] * H[0] + ca->X[i][1] * H[1]) : 0.0;
         }
         const double haCha = ca ? m_consVar : 0.0; // Ha C Ha' with C = var I and |Ha| = 1
-        const double S = H[0] * PH[0] + H[1] * PH[1] + 2.0 * (H[0] * XH[0] + H[1] * XH[1]) + haCha + varM2[k];
+        const double S = H[0] * PH[0] + H[1] * PH[1] + 2.0 * (H[0] * XH[0] + H[1] * XH[1]) + haCha + vk;
         if (!(S > 0.0) || !std::isfinite(S))
         {
             continue;
@@ -1331,6 +1387,16 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
             if (innovation * innovation / S > 10.83)
             {
                 ++m_relayGated;
+                if (vk != varM2[k]) // DD 57: the range is not fused, so P is not left inflated
+                {
+                    for (int i = 0; i < N; ++i)
+                    {
+                        for (int q = 0; q < N; ++q)
+                        {
+                            m_P[i][q] *= m_sciW;
+                        }
+                    }
+                }
                 continue;
             }
         }
@@ -1339,7 +1405,7 @@ CaTblImuEkf::UpdateConsider(const std::vector<CaTblRangeMeasurement>& meas, cons
         if (m_winW > 0 && !m_win.empty() && !coarse)
         {
             m_win.back().ranges.push_back(
-                {mm.anchorX, mm.anchorY, mm.rangeM, varM2[k], finder ? static_cast<int>(mm.anchorId) : -1}); // --ekf5Window
+                {mm.anchorX, mm.anchorY, mm.rangeM, vk, finder ? static_cast<int>(mm.anchorId) : -1}); // --ekf5Window
         }
         if (coarse)
         {
@@ -1434,12 +1500,20 @@ CaTblImuEkf::WinOpen(double dt, double dist, double raw, double qStep2, double q
     c.dwellVar = dwellVar;
     c.x = m_x[0];
     c.y = m_x[1];
+    c.th = m_x[2] + m_x[3] * dt; // DD 59
     m_win.push_back(c);
     while (static_cast<int>(m_win.size()) > m_winW)
     {
         if (m_winHaveSol && m_win.size() >= 2)
         {
-            WinMarginaliseFront();
+            if (m_winWalk)
+            {
+                WinMarginaliseFrontWalk(); // DD 59
+            }
+            else
+            {
+                WinMarginaliseFront();
+            }
         }
         m_win.pop_front();
         if (m_winHaveSol && !m_win.empty())

@@ -2661,6 +2661,8 @@ CaTblDecodePcs(uint8_t q)
 }
 static int g_ekf5WindowMin = 8;           //!< --ekf5WindowMin
 static double g_ekf5StateBoundsK = 0.0;   //!< --ekf5StateBounds
+static uint32_t g_acquireParticleCount = 2000; //!< DD 70 --acquireParticleCount (OURS, V4's 2000)
+static bool g_ekf5WindowThetaWalk = false; //!< DD 59 --ekf5WindowThetaWalk
 static bool g_ekf5CoarsePosOnly = false;  //!< DD 33 --ekf5CoarsePosOnly
 static double g_reacquireSigmaM = 0.0;    //!< DD 34 --reacquireSigmaM
 static bool g_incidentRandom = false;     //!< DD 35 --incidentRandom
@@ -4194,6 +4196,114 @@ RunProbe(EnvironmentClass envWide,
  * Every such object in this file sets its stream explicitly, before first use, for
  * exactly that reason. Do not add one that does not.
  */
+static bool g_traceSubjectRanges = false; //!< --traceSubjectRanges
+static bool g_sharedDuty868 = false;   //!< DD 56 --sharedDuty868
+static bool g_dutyCountCarry = true;  //!< DD 56 --dutyCountCarry: carried range bytes enter the ledger; false reproduces REALISTIC-8
+static bool g_dutyReport868 = false;   //!< DD 56 --dutyReport868: count true on-air time, enforce nothing
+static double g_dutyRangeShare = 0.5;  //!< DD 56 --dutyRangeShare (OURS): half for ranging, half for messages
+static uint64_t g_sharedDutySkips = 0; //!< DD 56: ranging exchanges not made because the device's ledger was full
+
+//! DD 56. Out of line so the code round the calls compiles as it did without it.
+__attribute__((noinline)) static bool
+SharedDutySkip(CaTblEnergyModel& e, double nowS)
+{
+    if (!g_sharedDuty868 || !(e.SharedDutyBlocks(nowS) || e.RangePaceBlocks(nowS)))
+    {
+        return false;
+    }
+    e.NoteDeferred(CA_TBL_TIER_868);
+    ++g_sharedDutySkips;
+    return true;
+}
+
+//! DD 56. One ledger for a device: its ranging account and its 868 MHz MAC each count the other's airtime.
+__attribute__((noinline)) static void
+AttachSharedDuty(CaTblEnergyModel* e, CaTblMac* m)
+{
+    e->EnableSharedDuty([m]() { return m->GetDutyCycle(CA_TBL_TIER_868) * CaTblEnergyModel::kDutyWindowS; },
+                        g_sharedDuty868, g_dutyRangeShare);
+    e->SetCountCarry(g_dutyCountCarry);
+    m->SetDutyAudit([e]() { e->NoteDutyAudit(Simulator::Now().GetSeconds()); });
+    if (g_sharedDuty868)
+    {
+        m->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
+                         g_dutyRangeShare * 0.025 * CaTblEnergyModel::kDutyWindowS);
+    }
+}
+
+//! DD 60 --sharedDuty868Finders / --dutyReport868Finders: one 868 MHz ledger per searcher's device (ids 501+), over its
+//! ranging replies and its MAC's frames. Out of line, and reached only through these two, as DD 56's helpers are.
+static bool g_dutyFinders = false;        //!< --sharedDuty868Finders: enforce
+static bool g_dutyReportFinders = false;  //!< --dutyReport868Finders: count only
+static std::deque<CaTblEnergyModel> g_finderDuty; //!< per finder; rebuilt for every arm
+static uint64_t g_finderReplyRefusals = 0;
+
+__attribute__((noinline)) static bool
+FinderReplyBlocked(uint16_t id, CaTblTier tier, double nowS)
+{
+    if (!g_dutyFinders || tier != CA_TBL_TIER_868 || id < 501 || id >= 501 + g_finderDuty.size())
+    {
+        return false;
+    }
+    if (!g_finderDuty[id - 501].SharedDutyBlocks(nowS))
+    {
+        return false;
+    }
+    ++g_finderReplyRefusals;
+    return true;
+}
+
+__attribute__((noinline)) static void
+NoteFinderReply868(uint16_t id, CaTblTier tier, double nowS)
+{
+    if (tier == CA_TBL_TIER_868 && id >= 501 && id < 501 + g_finderDuty.size())
+    {
+        g_finderDuty[id - 501].AccountRangingExchange(tier, 1, 1, nowS);
+    }
+}
+
+__attribute__((noinline)) static void
+AttachFinderDuty(const std::vector<std::vector<CaTblMac*>>& macs, uint8_t sf, double bwHz)
+{
+    g_finderDuty.clear();
+    g_finderReplyRefusals = 0;
+    if (!g_dutyFinders && !g_dutyReportFinders)
+    {
+        return;
+    }
+    for (const auto& m : macs)
+    {
+        g_finderDuty.emplace_back();
+        CaTblEnergyModel* e = &g_finderDuty.back();
+        CaTblMac* mac = m[CA_TBL_TIER_868];
+        e->SetLoRaPhy(CA_TBL_TIER_868, sf, bwHz, 1);
+        e->EnableSharedDuty([mac]() { return mac->GetDutyCycle(CA_TBL_TIER_868) * CaTblEnergyModel::kDutyWindowS; },
+                            g_dutyFinders, g_dutyRangeShare);
+        mac->SetDutyAudit([e]() { e->NoteDutyAudit(Simulator::Now().GetSeconds()); });
+        if (g_dutyFinders)
+        {
+            mac->SetSharedDuty([e]() { return e->OwnAirS868(Simulator::Now().GetSeconds()); },
+                               0.0); // a searcher answers ranging; it paces no broadcast, so nothing is reserved
+        }
+    }
+}
+
+__attribute__((noinline)) static void
+ReportFinderDuty(const char* arm, const std::vector<std::vector<CaTblMac*>>& macs, double durationS)
+{
+    for (size_t i = 0; i < g_finderDuty.size(); ++i)
+    {
+        const CaTblEnergyModel& e = g_finderDuty[i];
+        const double mac = macs[i][CA_TBL_TIER_868]->GetTotalAirtimeS(CA_TBL_TIER_868);
+        std::ostringstream o;
+        o << std::fixed << std::setprecision(6) << "    DD60 finder " << (501 + i) << " " << arm << ": replies "
+          << e.DutyTotalS() << " s, MAC " << mac << " s, of " << durationS << " s: " << (e.DutyTotalS() + mac) / durationS
+          << ", audited peak " << e.DutyAuditPeakS() / 3600.0 << ", replies refused (all finders) " << g_finderReplyRefusals
+          << "\n";
+        std::cout << o.str();
+    }
+}
+
 /**
  * \brief Everything belonging to ONE target.
  *
@@ -5410,6 +5520,7 @@ RelayChain::RangeForSubject(size_t b,
         m.sigmaM = sigEff;
         m.tier = static_cast<uint8_t>(tier); // V3 --rangeBiasStates
         m.hopDepth = rr.hopDepth;
+        m.relayVarM2 = static_cast<float>(std::max(0.0, sigEff * sigEff - rr.sigmaRangeM * rr.sigmaRangeM)); // DD 57
         m.anchorId = static_cast<uint16_t>(C.nodeId);
         m.sourceKind = CaTblSourceKindOf(static_cast<uint16_t>(C.nodeId));
         meas.push_back(m);
@@ -6333,6 +6444,52 @@ struct ShsDriver
     }
 };
 
+//! DD 62 --tdoaHeightCorrect (system side): the stamps are slant times to 15 m masts, the solver is 2-D. Each pass moves every
+//! stamp by the slant minus the ground distance at the last solution (dh = 15 - 1.5 m, DD 28's surveyed mast and carry heights) and re-solves.
+static bool g_tdoaHeightCorrect = false;
+static uint64_t g_tdoaHeightPasses = 0;
+
+__attribute__((noinline)) static void
+TdoaHeightSolve(const std::vector<CaTblTdoaObs>& raw, const std::vector<CaTblTdoaRangeHint>& hints, CaTblTdoaResult& res)
+{
+    constexpr double dh = 13.5; // DD 28: 15 m mast, 1.5 m carry height
+    if (!g_tdoaHeightCorrect)
+    {
+        return;
+    }
+    for (int it = 0; it < 10 && res.verdict == CA_TBL_TDOA_OK; ++it)
+    {
+        std::vector<CaTblTdoaObs> c = raw;
+        for (auto& o : c)
+        {
+            const double g = std::hypot(res.x - o.x, res.y - o.y);
+            o.tArrS -= (std::sqrt(g * g + dh * dh) - g) / 299792458.0;
+        }
+        const double px = res.x, py = res.y;
+        const CaTblTdoaResult r2 = CaTblSolveTdoa(c, px, py, CaTblTdoaConfig(), hints);
+        if (r2.verdict != CA_TBL_TDOA_OK)
+        {
+            return; // the last accepted solution stands
+        }
+        res = r2;
+        ++g_tdoaHeightPasses;
+        if (std::hypot(res.x - px, res.y - py) < 0.01)
+        {
+            return;
+        }
+    }
+}
+
+//! DD 63 --tdoaRubbleDelay (World): an 868 MHz arrival stamp is late by the rubble path's excess delay, as the ranges are. Off: no delay.
+static bool g_tdoaRubbleDelay = false;
+static const CaTblRubbleWorld* g_stampRubble = nullptr;
+
+__attribute__((noinline)) static double
+TdoaRubbleDelayS(const Vector& a, const Vector& b)
+{
+    return (g_tdoaRubbleDelay && g_stampRubble != nullptr) ? g_stampRubble->Path(868e6, a, b).biasM / 299792458.0 : 0.0;
+}
+
 /**
  * \brief --tier1Tdoa: the gateways timestamp the node's tier-1 broadcast, the time
  *        differences are solved as hyperbolae, and the fix is fused beside the RSSI
@@ -6410,6 +6567,115 @@ struct ShsDriver
  * is one row of tdoa_<arm>_seed<N>.csv, refused solves included. Only the measured tag
  * does this; relays and peers stay RSSI-only.
  */
+//! DD 75 --sigmaShadow: the published uncertainty of a node is the larger of its filter's and a shadow's. The shadow is a
+//! 2-D information accumulator fed the cycle's own measurements, linearised at the filter's estimate, with each repeated
+//! error treated as B2 treats it (--rssiCorrInflate): an 868 MHz RSSI range's and a tier-1 TDoA fix's variance times the
+//! AR(1) long-run factor (1 + rho) / (1 - rho), rho = exp(-moved / d_corr), B2's d_corr and cap (CaTblPolicyConfig);
+//! 2.4 GHz / UWB ranges at their own sigma. Between cycles the shadow forgets by the estimate's own displacement
+//! (its square added to each axis variance). The filter and its estimate are untouched: only traceSigma, as published
+//! after Step, changes. Default false: not called.
+static bool g_sigmaShadow = false;
+static uint64_t g_sigmaShadowRaised = 0;
+static uint64_t g_sigmaShadowCycles = 0;
+struct SigmaShadowState
+{
+    double ixx = 0.0, ixy = 0.0, iyy = 0.0; //!< information
+    double lx = std::nan(""), ly = std::nan(""); //!< estimate at the previous cycle
+    std::map<uint16_t, std::pair<double, double>> lastAt; //!< estimate at each anchor's previous 868 MHz range
+    double tlx = std::nan(""), tly = std::nan(""); //!< estimate at the previous TDoA fix
+};
+struct SigmaShadowAux
+{
+    bool set = false;
+    double rxx = 0.0, rxy = 0.0, ryy = 0.0;
+};
+static std::map<const void*, SigmaShadowState> g_sigmaShadowState;
+static std::map<const void*, SigmaShadowAux> g_sigmaShadowAux; //!< the TDoA fix covariance handed to a policy this cycle
+static double SigmaShadowK(double moved, const CaTblPolicyConfig& c)
+{
+    const double rho = std::exp(-moved / std::max(1e-6, c.rssiCorrDistM));
+    return (rho >= 1.0) ? c.rssiCorrMaxFactor : std::min(c.rssiCorrMaxFactor, (1.0 + rho) / (1.0 - rho));
+}
+static __attribute__((noinline)) void
+SigmaShadowApply(CaTblDecision& d, const CaTblPolicy& policy, const std::vector<CaTblRangeMeasurement>& meas)
+{
+    SigmaShadowState& st = g_sigmaShadowState[&policy];
+    const CaTblPolicyConfig& c = policy.GetConfig();
+    const double ex = policy.EstX();
+    const double ey = policy.EstY();
+    // forget: P += moved^2 I
+    if (std::isfinite(st.lx))
+    {
+        const double m2 = (ex - st.lx) * (ex - st.lx) + (ey - st.ly) * (ey - st.ly);
+        const double det = st.ixx * st.iyy - st.ixy * st.ixy;
+        if (m2 > 0.0 && det > 0.0)
+        {
+            double pxx = st.iyy / det + m2, pyy = st.ixx / det + m2, pxy = -st.ixy / det;
+            const double dp = pxx * pyy - pxy * pxy;
+            st.ixx = pyy / dp;
+            st.iyy = pxx / dp;
+            st.ixy = -pxy / dp;
+        }
+    }
+    st.lx = ex;
+    st.ly = ey;
+    for (const auto& m : meas)
+    {
+        if (!(m.rangeM > 0.0) || !(m.sigmaM > 0.0))
+        {
+            continue;
+        }
+        const double dx = ex - m.anchorX, dy = ey - m.anchorY, r = std::hypot(dx, dy);
+        if (r < 1e-3)
+        {
+            continue;
+        }
+        double var = m.sigmaM * m.sigmaM;
+        if (m.tier == 0)
+        {
+            auto it = st.lastAt.find(m.anchorId);
+            if (it != st.lastAt.end())
+            {
+                var *= SigmaShadowK(std::hypot(ex - it->second.first, ey - it->second.second), c);
+            }
+            st.lastAt[m.anchorId] = {ex, ey};
+        }
+        const double hx = dx / r, hy = dy / r;
+        st.ixx += hx * hx / var;
+        st.ixy += hx * hy / var;
+        st.iyy += hy * hy / var;
+    }
+    SigmaShadowAux& ax = g_sigmaShadowAux[&policy];
+    if (ax.set && policy.AuxFusedLast())
+    {
+        double k = 1.0;
+        if (std::isfinite(st.tlx))
+        {
+            k = SigmaShadowK(std::hypot(ex - st.tlx, ey - st.tly), c);
+        }
+        st.tlx = ex;
+        st.tly = ey;
+        const double det = k * k * (ax.rxx * ax.ryy - ax.rxy * ax.rxy);
+        if (det > 0.0)
+        {
+            st.ixx += k * ax.ryy / det;
+            st.iyy += k * ax.rxx / det;
+            st.ixy -= k * ax.rxy / det;
+        }
+    }
+    ax.set = false;
+    ++g_sigmaShadowCycles;
+    const double det = st.ixx * st.iyy - st.ixy * st.ixy;
+    if (det > 0.0 && d.traceSigma >= 0.0)
+    {
+        const double tr = (st.ixx + st.iyy) / det;
+        if (tr > d.traceSigma)
+        {
+            d.traceSigma = tr;
+            ++g_sigmaShadowRaised;
+        }
+    }
+}
 struct Tier1Tdoa
 {
     Tier1Tdoa(uint32_t seed,
@@ -6489,7 +6755,7 @@ struct Tier1Tdoa
         o.anchorId = anchorId;
         o.x = anchorPos.x;
         o.y = anchorPos.y;
-        o.tArrS = t + d / kLightMps + ePps + eToa + excess;
+        o.tArrS = t + d / kLightMps + ePps + eToa + excess + TdoaRubbleDelayS(nodePos, anchorPos); // DD 63
         const double nlosVar = nlosFlag ? 2.0 * spreadS * spreadS : 0.0;
         o.sigmaS = std::sqrt(ppsSigmaS * ppsSigmaS + sigToaS * sigToaS + nlosVar);
         stamps.push_back(o);
@@ -6545,6 +6811,7 @@ struct Tier1Tdoa
             hints.push_back(h);
         }
         res = CaTblSolveTdoa(stamps, sx, sy, CaTblTdoaConfig(), hints);
+        TdoaHeightSolve(stamps, hints, res); // DD 62
         ++verdicts[static_cast<int>(res.verdict)];
         if (res.verdict != CA_TBL_TDOA_OK)
         {
@@ -6554,6 +6821,10 @@ struct Tier1Tdoa
         stampsUsed += stamps.size();
         repliesOnOk += billReplies ? repliesThisCycle : 0;
         downlinksOnOk += billDownlink ? 1 : 0;
+        if (g_sigmaShadow) // DD 75
+        {
+            g_sigmaShadowAux[&policy] = SigmaShadowAux{true, res.rxx, res.rxy, res.ryy};
+        }
         policy.SetAuxPositionFix(res.x, res.y, res.rxx, res.rxy, res.ryy);
     }
 
@@ -7229,6 +7500,8 @@ struct SpecOptions
     bool sparseInStep = false;
     //! Plan item 27. --caseAPreFuse: a fused set's gateway pair resolved as Case A first.
     bool caseAPreFuse = false;
+    bool sparseRangeGeometry = false; //!< DD 54
+    bool peerSplitCi = false;         //!< DD 57
     //! Plan item 9 / N.3. --subjectMobilityFromRange: subjects' mobility state and escalation handshake.
     bool subjectMobilityFromRange = false;
     //! DC-1. --imuPredict: the prediction takes a synthetic-IMU displacement.
@@ -7290,6 +7563,9 @@ struct SpecOptions
     bool finderSweepFromDispatch = false;
     //! DD 30 --finderDigestOnArmTier: under static_2p4 the searchers poll for entries on 2.4 GHz, not 868 MHz.
     bool finderDigestOnArmTier = false;
+    //! DD 78 --finderDigestBothLora: under every arm with both LoRa radios, the searchers also poll on 2.4 GHz and
+    //! steer on the fresher of their two tables' entries.
+    bool finderDigestBothLora = false;
     //! DD 29 --acquireSideOfRoad: confine the acquisition cloud to the work area's side of the gateway ridge line.
     bool acquireSideOfRoad = false;
     double acquireHpA = 0.0, acquireHpB = 0.0, acquireHpC = 0.0; //!< set in main() from the ridge
@@ -7705,6 +7981,7 @@ RunArm(CaTblPolicyMode armMode,
     }
     // DD 39 --collapse: the rubble World on every link of this arm (DD 36-37). Off: no world, no hook, no draw.
     std::unique_ptr<CaTblRubbleWorld> collapseWorld;
+    g_stampRubble = nullptr; // DD 63
     if (g_collapse.on)
     {
         CaTblRubbleBracket br = CA_TBL_RUBBLE_CENTRAL;
@@ -7712,6 +7989,7 @@ RunArm(CaTblPolicyMode armMode,
         collapseWorld.reset(new CaTblRubbleWorld(br));
         collapseWorld->AddRubble(Vector(-0.5 * g_collapse.footX, -0.5 * g_collapse.footY, 0.0),
                                  Vector(0.5 * g_collapse.footX, 0.5 * g_collapse.footY, g_collapse.pileH));
+        g_stampRubble = collapseWorld.get(); // DD 63
         engine868.SetRubbleWorld(collapseWorld.get());
         engine2p4.SetRubbleWorld(collapseWorld.get());
         engineUwb.SetRubbleWorld(collapseWorld.get());
@@ -7912,6 +8190,8 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.sparseInStep = true;
         pcfg.sparseMarginM = sparseCaseAMarginM;
         pcfg.caseAPreFuse = spec.caseAPreFuse; // plan item 27
+        pcfg.sparseRangeGeometry = spec.sparseRangeGeometry; // DD 54
+        pcfg.peerSplitCi = spec.peerSplitCi;                 // DD 57
     }
     if (spec.caseD)
     {
@@ -8044,6 +8324,7 @@ RunArm(CaTblPolicyMode armMode,
     pcfg.acquireHandoverCurvature = spec.acquireHandoverCurvature; // N.58 (false by default: off)
     pcfg.relayNisInflate = spec.relayNisInflate;     // --- B1 --- (false by default: off)
     pcfg.rssiCorrInflate = spec.rssiCorrInflate;     // --- B2 --- (false by default: off)
+    pcfg.acquireParticleCount = g_acquireParticleCount; // DD 70
     pcfg.acquireSeed = seed;
     pcfg.rangeBiasCorrM = cfg868.shadowing.correlationDistanceM.mean;
     if (nDeescalateOverride > 0) { pcfg.nDeescalate = nDeescalateOverride; }
@@ -8076,6 +8357,7 @@ RunArm(CaTblPolicyMode armMode,
         pcfg.ekf5Window = g_ekf5Window;
         pcfg.ekf5WindowMin = g_ekf5WindowMin;
         pcfg.ekf5StateBoundsK = g_ekf5StateBoundsK;
+        pcfg.ekf5WindowThetaWalk = g_ekf5WindowThetaWalk;
         pcfg.ekf5CoarsePosOnly = g_ekf5CoarsePosOnly;
         pcfg.reacquireSigmaM = g_reacquireSigmaM;
         pcfg.ekf5FinderConsiderVar = g_ekf5FinderConsiderVar;
@@ -8509,6 +8791,14 @@ RunArm(CaTblPolicyMode armMode,
         }
     }
 
+    if (g_sharedDuty868 || g_dutyReport868)
+    {
+        AttachSharedDuty(&energy, nodeMac[0]);
+        for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+        {
+            AttachSharedDuty(&tags[pi + 1].energy, peerMacs[pi][0]);
+        }
+    }
     // ---- C3: identity-scoped queries from the anchors ----------------------
     //
     // Off unless identityQueryPeriodS > 0, and then ONE driver per tier on the first
@@ -8902,7 +9192,31 @@ RunArm(CaTblPolicyMode armMode,
             fe.SetLoRaPhy(static_cast<CaTblTier>(ti), phy[ti].sf, phy[ti].bandwidthHz, 1);
         }
     }
+    AttachFinderDuty(finderMacAll, phy[CA_TBL_TIER_868].sf, phy[CA_TBL_TIER_868].bandwidthHz); // DD 60
+    // DD 78 --finderDigestBothLora: a searcher whose arm has both LoRa radios asks on both and steers on the fresher entry.
+    // Off, or an arm with one LoRa radio: the steering table alone, as before.
+    const bool finderBothLora = spec.finderDigestBothLora && mode != CA_TBL_MODE_STATIC_868 &&
+                                mode != CA_TBL_MODE_STATIC_2P4 && mode != CA_TBL_MODE_STATIC_UWB;
+    uint64_t finderDigestBoth = 0;   // DD 78: searcher polls sent on 2.4 GHz
+    uint64_t finderEntryFrom2p4 = 0; // DD 78: table reads answered by the 2.4 GHz entry
+    auto finderEntry = [&](size_t fi, uint16_t id, CaTblTableEntry& out) -> bool {
+        const bool got = finderMac[fi]->GetTableEntry(id, out);
+        if (!finderBothLora || fi >= finderMacAll.size() || finderMacAll[fi][CA_TBL_TIER_2P4] == nullptr)
+        {
+            return got;
+        }
+        CaTblTableEntry b;
+        if (finderMacAll[fi][CA_TBL_TIER_2P4]->GetTableEntry(id, b) && b.valid &&
+            !(got && out.valid && out.timestampS >= b.timestampS))
+        {
+            out = b;
+            ++finderEntryFrom2p4;
+            return true;
+        }
+        return got;
+    };
     auto billFinder = [&](uint16_t id, CaTblTier tier, double nowS) {
+        NoteFinderReply868(id, tier, nowS); // DD 60
         if (!finderEnergy.empty() && id >= 501 && id < 501 + finderEnergy.size())
         {
             finderEnergy[id - 501].AccountRangingExchange(tier, 1, 1, nowS);
@@ -9485,6 +9799,10 @@ RunArm(CaTblPolicyMode armMode,
     }
     auto caseCPeers = [&](size_t self, const Vector& selfPos, CaTblEnergyModel& en, CaTblMac* mac,
                           CaTblTier tier, double tNow, Time at, double atSec) {
+        if (tier == CA_TBL_TIER_868 && SharedDutySkip(en, atSec)) // DD 56
+        {
+            return;
+        }
         ++caseCCycles;
         const uint32_t selfId = tags[self].nodeId;
         std::vector<size_t> peers;
@@ -9568,7 +9886,11 @@ RunArm(CaTblPolicyMode armMode,
                 ? CaTblEnergyModel::UwbFrameTimeS(more) - CaTblEnergyModel::UwbFrameTimeS(base)
                 : CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, more, 1) -
                       CaTblEnergyModel::LoRaTimeOnAirS(phy[ti].sf, phy[ti].bandwidthHz, base, 1);
-        en.AccountFrameTx(tier, atSec, extra);
+        en.AccountMacFrameTx(tier, atSec, extra);
+        if (tier == CA_TBL_TIER_868)
+        {
+            en.NoteCarry868(atSec, extra); // DD 56 audit
+        }
         caseCCarryS += extra;
         caseCPending.push_back(p);
     };
@@ -10823,6 +11145,11 @@ RunArm(CaTblPolicyMode armMode,
                                                 : CA_TBL_TIER_868;
                     finderMac[fi]->Send(CA_TBL_MSG_DIGEST, dTier, 1, 0);
                     finderDigestOnArm += (dTier != CA_TBL_TIER_868) ? 1 : 0;
+                    if (finderBothLora && fi < finderMacAll.size() && finderMacAll[fi][CA_TBL_TIER_2P4] != nullptr) // DD 78
+                    {
+                        finderMacAll[fi][CA_TBL_TIER_2P4]->Send(CA_TBL_MSG_DIGEST, CA_TBL_TIER_2P4, 1, 0);
+                        ++finderDigestBoth;
+                    }
                 }
             }
         }
@@ -11238,7 +11565,7 @@ RunArm(CaTblPolicyMode armMode,
                 }
                 CaTblTableEntry cur;
                 const bool heard =
-                    finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
+                    finderEntry(me, static_cast<uint16_t>(tags[needTaskK[me]].nodeId), cur) && cur.valid;
                 if (heard)
                 {
                     needBlindSince[me] = -1.0;
@@ -11259,7 +11586,7 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     CaTblTableEntry te;
                     if (k == needTaskK[me] ||
-                        !(finderMac[me]->GetTableEntry(static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
+                        !(finderEntry(me, static_cast<uint16_t>(tags[k].nodeId), te) && te.valid))
                     {
                         continue;
                     }
@@ -11320,7 +11647,7 @@ RunArm(CaTblPolicyMode armMode,
                 {
                     CaTblTableEntry tj;
                     if (j < finderMac.size() && finderMac[j] != nullptr &&
-                        finderMac[j]->GetTableEntry(taskId, tj) && tj.valid &&
+                        finderEntry(j, taskId, tj) && tj.valid &&
                         (!have || tj.timestampS > out.timestampS))
                     {
                         out = tj;
@@ -11431,7 +11758,7 @@ RunArm(CaTblPolicyMode armMode,
                 else if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    if (finderMac[fi]->GetTableEntry(taskId, te) && te.valid)
+                    if (finderEntry(fi, taskId, te) && te.valid)
                     {
                         entrySigma = std::sqrt(std::max(0.0, te.varX + te.varY));
                         if (taskLog)
@@ -11636,7 +11963,7 @@ RunArm(CaTblPolicyMode armMode,
                         {
                             CaTblTableEntry tj;
                             if (j < finderMac.size() && finderMac[j] != nullptr &&
-                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                finderEntry(j, taskId, tj) &&
                                 (!havePe || tj.timestampS > pe.timestampS))
                             {
                                 pe = tj;
@@ -11733,7 +12060,7 @@ RunArm(CaTblPolicyMode armMode,
                 if (fi < finderMac.size() && finderMac[fi] != nullptr)
                 {
                     CaTblTableEntry te;
-                    bool haveEntry = finderMac[fi]->GetTableEntry(taskId, te);
+                    bool haveEntry = finderEntry(fi, taskId, te);
                     // TEAM SHARING: team-mates walk side by side and tell each other what they
                     // hold, so a finder steers on the freshest entry any member of its team has.
                     if (teamShare)
@@ -11755,7 +12082,7 @@ RunArm(CaTblPolicyMode armMode,
                         {
                             CaTblTableEntry tj;
                             if (j != fi && j < finderMac.size() && finderMac[j] != nullptr &&
-                                finderMac[j]->GetTableEntry(taskId, tj) &&
+                                finderEntry(j, taskId, tj) &&
                                 (!haveEntry || tj.timestampS > te.timestampS))
                             {
                                 te = tj;
@@ -12327,6 +12654,10 @@ RunArm(CaTblPolicyMode armMode,
                     {
                         return out; // N.3: a radio with no power makes no exchange, as tag 0's
                     }
+                    if (tier == CA_TBL_TIER_868 && SharedDutySkip(sb.energy, atSec)) // DD 56
+                    {
+                        return out;
+                    }
                     if (tier == CA_TBL_TIER_868 && stillQuietS) // DD 50, staggered by worker (the run's cycle count)
                     {
                         ++g_stillSkipped;
@@ -12396,6 +12727,10 @@ RunArm(CaTblPolicyMode armMode,
                     for (size_t a = 0; a < keep.size(); ++a)
                     {
                         const uint16_t aid = keep[a].id;
+                        if (FinderReplyBlocked(aid, tier, t)) // DD 60: the searcher may not answer
+                        {
+                            continue;
+                        }
                         const Vector& ap = anchorPosById.find(aid)->second;
                         bool rcv = false;
                         double range = 0.0, sigma = 0.0;
@@ -13025,6 +13360,38 @@ RunArm(CaTblPolicyMode armMode,
                     }
                     sb.policy.SetLone(!heard);
                 }
+                if (g_traceSubjectRanges)
+                {
+                    // --traceSubjectRanges: evaluation only, read by nothing here.
+                    static std::map<std::string, std::unique_ptr<std::ofstream>> subjRangeLogs;
+                    std::ostringstream fn;
+                    fn << traceDir << "/subjranges_" << CaTblPolicyModeName(armMode) << "_seed" << seed << ".csv";
+                    auto& lg = subjRangeLogs[fn.str()];
+                    if (!lg)
+                    {
+                        lg.reset(new std::ofstream(fn.str().c_str()));
+                        *lg << "t,subj,activeTier,tier,anchorId,sourceKind,rangeM,sigmaM,trueRangeM,ax,ay,axTrue,ayTrue,"
+                               "estX,estY,pxx,pxy,pyy,trueX,trueY\n";
+                    }
+                    for (const auto& m : measS)
+                    {
+                        double atx = m.anchorX, aty = m.anchorY;
+                        for (const auto& tg : tags)
+                        {
+                            if (m.sourceKind == CA_TBL_SRC_RELAY && tg.nodeId == m.anchorId)
+                            {
+                                atx = tg.pos.x;
+                                aty = tg.pos.y;
+                            }
+                        }
+                        *lg << std::fixed << std::setprecision(3) << t << "," << sb.nodeId << "," << CaTblTierName(act)
+                            << "," << static_cast<int>(m.tier) << "," << m.anchorId << "," << static_cast<int>(m.sourceKind)
+                            << "," << m.rangeM << "," << m.sigmaM << "," << std::hypot(sb.pos.x - atx, sb.pos.y - aty)
+                            << "," << m.anchorX << "," << m.anchorY << "," << atx << "," << aty << ","
+                            << sb.policy.EstX() << "," << sb.policy.EstY() << "," << sb.policy.Pxx() << ","
+                            << sb.policy.Pxy() << "," << sb.policy.Pyy() << "," << sb.pos.x << "," << sb.pos.y << "\n";
+                    }
+                }
                 CaTblDecision ds = sb.policy.Step(
                     dt, measS, hopS,
                     static_cast<int32_t>(chainUsed ? chainM.size()
@@ -13032,6 +13399,10 @@ RunArm(CaTblPolicyMode armMode,
                                              ? std::max<size_t>(3, actM.size())
                                              : actM.size()), // N.26, as tag 0's
                     static_cast<int32_t>(addressedActive + chainPk.tried), maskS);
+                if (g_sigmaShadow) // DD 75
+                {
+                    SigmaShadowApply(ds, sb.policy, measS);
+                }
                 if (g_phase0Timing) // DD 43
                 {
                     g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0a).count();
@@ -13220,7 +13591,7 @@ RunArm(CaTblPolicyMode armMode,
                         CaTblMac* tm = peerMacs[pi][static_cast<size_t>(act)];
                         tm->SendTriggeredUpdate(act, 1);
                         const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
-                        sb.energy.AccountFrameTx(
+                        sb.energy.AccountMacFrameTx(
                             act, t, frames * tm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
                         ++trigSLarge;
                         trigSBilled += frames;
@@ -13244,7 +13615,7 @@ RunArm(CaTblPolicyMode armMode,
                     if (trigS && gm != nullptr)
                     {
                         gm->SendTriggeredUpdate(act, 2);
-                        sb.energy.AccountFrameTx(act, t,
+                        sb.energy.AccountMacFrameTx(act, t,
                                                  gm->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE, act, 1));
                         ++trigSGasp;
                         *trigS << std::fixed << std::setprecision(4) << t << ',' << sb.nodeId
@@ -13596,6 +13967,10 @@ RunArm(CaTblPolicyMode armMode,
                 policy.SetQuietCycle(true); // DD 50
                 return out;
             }
+            if (tier == CA_TBL_TIER_868 && SharedDutySkip(energy, t)) // DD 56
+            {
+                return out;
+            }
             rangedThisCycle.clear();
 
             // THE POLL SET IS THE ONE-HOP NEIGHBOUR TABLE, NOT THE DEPLOYMENT.
@@ -13695,6 +14070,10 @@ RunArm(CaTblPolicyMode armMode,
             for (size_t a = 0; a < nb.size(); ++a)
             {
                 const uint16_t anchorId = nb[a].id;
+                if (FinderReplyBlocked(anchorId, tier, t)) // DD 60: the searcher may not answer
+                {
+                    continue;
+                }
                 const Vector& anchorPos = anchorPosById[anchorId];
                 ++directEngineCalls;
 
@@ -14737,6 +15116,7 @@ RunArm(CaTblPolicyMode armMode,
                     m.nlosPropagation = false;
                     m.hiddenChannelActive = false;
                     m.sigmaM = sigmaEff;
+                    m.relayVarM2 = static_cast<float>(std::max(0.0, sigmaEff * sigmaEff - rr.sigmaRangeM * rr.sigmaRangeM)); // DD 57
                     m.tier = static_cast<uint8_t>(active); // V3 --rangeBiasStates
                     m.anchorId = rr.relayId; // DC-11
                     m.sourceKind = CA_TBL_SRC_RELAY;
@@ -15096,6 +15476,10 @@ RunArm(CaTblPolicyMode armMode,
                                             static_cast<int32_t>(activeMeasAddressed +
                                                                  crossAddedThisCycle),
                                             tierEvidenceMask);
+        if (g_sigmaShadow) // DD 75
+        {
+            SigmaShadowApply(d, policy, meas);
+        }
         if (g_phase0Timing) // DD 43
         {
             g_phase0StepS += std::chrono::duration<double>(std::chrono::steady_clock::now() - p0b).count();
@@ -15452,7 +15836,7 @@ RunArm(CaTblPolicyMode armMode,
                 // attempted. A repeat the duty governor then refuses is still billed;
                 // the MC-2 line prints frames billed against frames transmitted.
                 const uint32_t frames = 3; // CaTblMacConfig::triggeredUpdateRepeats
-                energy.AccountFrameTx(active, t,
+                energy.AccountMacFrameTx(active, t,
                                       frames * nodeMac[active]->FrameAirtimeS(
                                                    CA_TBL_MSG_TRIGGERED_UPDATE, active, 1));
                 ++trig->nLarge;
@@ -15478,7 +15862,7 @@ RunArm(CaTblPolicyMode armMode,
                 // Billed like any frame on the tier that transmitted this cycle; the
                 // battery overshoots its budget by this one frame, which is stated.
                 nodeMac[active]->SendTriggeredUpdate(active, 2);
-                energy.AccountFrameTx(
+                energy.AccountMacFrameTx(
                     active, t, nodeMac[active]->FrameAirtimeS(CA_TBL_MSG_TRIGGERED_UPDATE,
                                                               active, 1));
                 ++trig->nGasp;
@@ -17726,7 +18110,7 @@ RunArm(CaTblPolicyMode armMode,
         {
             CaTblTableEntry te;
             if (finderMac[fi] != nullptr &&
-                finderMac[fi]->GetTableEntry(static_cast<uint16_t>(nodeId), te))
+                finderEntry(fi, static_cast<uint16_t>(nodeId), te))
             {
                 ++knowing;
                 sumAge += (durationS - te.timestampS);
@@ -17955,6 +18339,28 @@ RunArm(CaTblPolicyMode armMode,
             std::cout << "    B2 rssiCorrInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 868 MHz ranges inflated "
                       << policy.GetRssiCorrApplied() << ", mean variance factor " << policy.GetRssiCorrMeanFactor() << "\n";
         }
+        if (g_sharedDuty868 || g_dutyReport868)
+        {
+            auto line = [&](uint32_t id, const CaTblEnergyModel& e, const CaTblMac* m) {
+                double mac = 0.0;
+                mac = m->GetTotalAirtimeS(CA_TBL_TIER_868);
+                const std::ios_base::fmtflags fl = std::cout.flags();
+                const std::streamsize pr = std::cout.precision();
+                std::cout << std::fixed << std::setprecision(6) << "    DD56 device " << id << " " << CaTblPolicyModeName(armMode) << ": ranging " << e.DutyTotalS()
+                          << " s, MAC " << mac << " s, of " << durationS << " s: " << (e.DutyTotalS() + mac) / durationS
+                          << ", trailing-hour peak " << e.SharedDutyPeakS() / 3600.0 << ", ranging skips so far "
+                          << g_sharedDutySkips << ", carried " << e.DutyCarryTotalS() << " s, audited peak "
+                          << e.DutyAuditPeakS() / 3600.0 << "\n";
+                std::cout.flags(fl);
+                std::cout.precision(pr);
+            };
+            line(nodeId, energy, nodeMac[0]);
+            for (size_t pi = 0; pi < peerMacs.size(); ++pi)
+            {
+                line(tags[pi + 1].nodeId, tags[pi + 1].energy, peerMacs[pi][0]);
+            }
+        }
+        ReportFinderDuty(CaTblPolicyModeName(armMode), finderMacAll, durationS); // DD 60
         if (spec.relayNisInflate)
         {
             std::cout << "    B1 relayNisInflate (" << CaTblPolicyModeName(armMode) << "): tag-0 running NIS "
@@ -17995,6 +18401,12 @@ RunArm(CaTblPolicyMode armMode,
         {
             std::cout << "    DD30 finderDigestOnArmTier (" << CaTblPolicyModeName(mode) << "): searcher polls on 2.4 GHz "
                       << finderDigestOnArm << "\n";
+        }
+        if (spec.finderDigestBothLora)
+        {
+            std::cout << "    DD78 finderDigestBothLora (" << CaTblPolicyModeName(mode) << "): " << (finderBothLora ? "on" : "one LoRa radio, unused")
+                      << ", searcher polls on 2.4 GHz " << finderDigestBoth << ", entries read from the 2.4 GHz table "
+                      << finderEntryFrom2p4 << "\n";
         }
         if (spec.acquireSideOfRoad)
         {
@@ -18390,6 +18802,17 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"rssiRangeFromRxPower", "true", "DD 21 / O.9: an RSSI range reads the full received power"},
     {"pcsByteScale", "4", "DD 21 / N.7: the PCS byte carries PCS > 1, so the requester rule can refuse"},
     {"ekf5Window", "60", "DD 21 / N.62: the sliding-window smoother over 60 cycles (heading, bias and scale re-solved)"},
+    // DESIGN_DECISIONS 65 (owner 2026-11-25): DD 54, 56, 57 and 59 enter the preset.
+    {"sparseRangeGeometry", "true", "DD 54: a two-range fix keeps its two ranges' geometry"},
+    {"sharedDuty868", "true", "DD 56: one 868 MHz duty-cycle ledger per worker device"},
+    {"peerSplitCi", "true", "DD 57: peer ranges fused by split covariance intersection"},
+    {"ekf5WindowThetaWalk", "true", "DD 59: the smoother's heading random walk"},
+    // DESIGN_DECISIONS 67 (owner 2026-11-26): DD 60, 62 and 63 enter the preset; DD 49 stays off.
+    {"sharedDuty868Finders", "true", "DD 60: one 868 MHz duty-cycle ledger per searcher's device"},
+    {"tdoaHeightCorrect", "true", "DD 62: arrival stamps corrected for the mast height before the 2-D solve"},
+    {"tdoaRubbleDelay", "true", "DD 63 (World): under --collapse the 868 MHz arrival stamps carry the rubble delay"},
+    // DESIGN_DECISIONS 77 (owner 2026-11-27, COLLAPSE-13 H60-H63): DD 75 enters the preset, collapse only.
+    {"sigmaShadow", "true", "DD 77: under --collapse the published traceSigma is DD 75's correlated-error shadow (acts only under --collapse)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
     // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
@@ -19634,6 +20057,12 @@ main(int argc, char* argv[])
                  "2.4 GHz-only system would ask, and listen, on its own radio. Every other arm is unchanged. False (default): 868 MHz for every arm, "
                  "byte-identical to every earlier result. One 'DD30 finderDigestOnArmTier' line per arm when on.",
                  spec.finderDigestOnArmTier);
+    cmd.AddValue("finderDigestBothLora",
+                 "DD 78. Under every arm with both LoRa radios (not static_868, static_2p4 or static_uwb), the searchers also poll "
+                 "for position entries (DIGEST) on 2.4 GHz and steer on the fresher of their 868 MHz and 2.4 GHz tables' entries. "
+                 "DD 30 gave the 2.4 GHz-only party its own radio; a searcher carrying both radios asked on 868 MHz only. False "
+                 "(default): byte-identical to every earlier result. One 'DD78 finderDigestBothLora' line per arm when on.",
+                 spec.finderDigestBothLora);
     cmd.AddValue("acquireSideOfRoad",
                  "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
                  "area's side of the gateway line (y <= gwRidgeY * boxHalf; the work sites lie south of the ridge). Gateways "
@@ -19654,6 +20083,9 @@ main(int argc, char* argv[])
                  "(principal-axis split: a half under 2 % or Ashman's D < 3). One PFACQ_HANDOVER line per node. "
                  "Why: R1 showed a single Gaussian started at any one root stays there.",
                  spec.acquireParticles);
+    cmd.AddValue("acquireParticleCount",
+                 "DD 70. With --acquireParticles: particles per node (2000, V4's value, OURS; a sensitivity sweep, not a tuned value).",
+                 g_acquireParticleCount);
     cmd.AddValue("rangeBiasStates",
                  "V3 (master plan v3; TECH_DEBT N.51). False (default): every filter treats each range error as "
                  "independent, as in every earlier result. True: each 868 MHz range carries a per-anchor CONSIDER "
@@ -20494,6 +20926,12 @@ main(int argc, char* argv[])
                  "collapse_depth_<arm>_seed<N>.csv; the World's true depths go to collapse_truth_<arm>_seed<N>.csv. "
                  "Output only. Default false.",
                  g_collapseDepthSolve);
+    cmd.AddValue("sigmaShadow",
+                 "DD 75. Each node publishes the larger of its filter's traceSigma and a shadow's: a 2-D information sum of the "
+                 "same measurements at the filter's estimate, with 868 MHz RSSI ranges and TDoA fixes weighted by B2's AR(1) "
+                 "factor (repeated errors of a still node are not independent), forgetting by the estimate's displacement. "
+                 "The estimate is unchanged. Acts only under --collapse (DD 77). Default false.",
+                 g_sigmaShadow);
     cmd.AddValue("phase0Timing",
                  "DD 43. Time every worker's CaTblPolicy::Step() (its on-device estimation) on the host clock and print one "
                  "PHASE0 line at the end. Output-only; the run's files are unchanged. Default false.",
@@ -21521,6 +21959,36 @@ main(int argc, char* argv[])
                  "active tier, whose RECEDING branch is the one-shot push. Handshake frames are MAC frames, unbilled "
                  "in joules as tag 0's are. Needs --measuredSubjects > 1.",
                  spec.subjectMobilityFromRange);
+    cmd.AddValue("peerSplitCi",
+                 "DD 57. With --imuFilter=ekf5 and --ekf5FinderConsider: a range to a peer whose position is itself an "
+                 "estimate is fused by split covariance intersection, which is consistent whatever the correlation between "
+                 "the two filters. FALSE by default: the peer's covariance is added to the range's variance as if independent.",
+                 spec.peerSplitCi);
+    cmd.AddValue("tdoaHeightCorrect", "DD 62. Correct 868 MHz arrival stamps for the mast height before the 2-D TDoA solve (default off).", g_tdoaHeightCorrect);
+    cmd.AddValue("tdoaRubbleDelay", "DD 63. World: under --collapse, 868 MHz arrival stamps carry the rubble's excess delay (default off).", g_tdoaRubbleDelay);
+    cmd.AddValue("dutyReport868Finders", "DD 60. Print each searcher's device's 868 MHz on-air time (ranging replies plus sent "
+                 "MAC frames) and its audited trailing-hour peak. False by default; enforces nothing.", g_dutyReportFinders);
+    cmd.AddValue("sharedDuty868Finders", "DD 60. One 868 MHz duty-cycle ledger per searcher's device: a MAC frame is held back, and a "
+                 "ranging reply not sent, when the trailing hour would pass the cap. False by default.", g_dutyFinders);
+    cmd.AddValue("dutyReport868", "DD 56. Print each worker device's true 868 MHz on-air time (ranging plus sent MAC frames) and "
+                 "its trailing-hour peak. False by default; enforces nothing.", g_dutyReport868);
+    cmd.AddValue("dutyCountCarry", "DD 56. With --sharedDuty868: the range bytes carried on an entry count in the ledger too (default "
+                 "true). False reproduces REALISTIC-8, which left them out.", g_dutyCountCarry);
+    cmd.AddValue("dutyRangeShare", "DD 56. With --sharedDuty868: the share of the 2.5 % the ranging broadcast may pace at (0.5, OURS)",
+                 g_dutyRangeShare);
+    cmd.AddValue("traceSubjectRanges", "Crew ranges with their true values to subjranges_<arm>_seed<s>.csv (evaluation only). False: no file.", g_traceSubjectRanges);
+    cmd.AddValue("sharedDuty868",
+                 "DD 56. One 868 MHz duty-cycle ledger per worker device. FALSE by default: the ranging governor and the "
+                 "MAC governor each allow the full 2.5 %, so together a device can pass it. TRUE: each counts the other's "
+                 "airtime over the trailing hour; a frame is refused, and a ranging exchange not made, when the sum would "
+                 "pass the cap. The MAC always leaves the ranging broadcast's own share.",
+                 g_sharedDuty868);
+    cmd.AddValue("sparseRangeGeometry",
+                 "DD 54. An accepted two-range fix (Case A/B) enters the filter as its two ranges with their own "
+                 "geometry. FALSE by default: it enters as an isotropic position of variance 2(s0^2 + s1^2), which with "
+                 "two nearly parallel lines of sight claims metres across a direction known to hundreds of metres. "
+                 "Needs --sparseInStep.",
+                 spec.sparseRangeGeometry);
     cmd.AddValue("caseAPreFuse",
                  "Case A inside a fused set (plan item 27). FALSE by default: every result so far; Case A runs only "
                  "when the set holds EXACTLY two ranges, and in a larger set the gateway pair goes in as ranges. TRUE: "
@@ -21617,6 +22085,9 @@ main(int argc, char* argv[])
                  "gateway intersection into the wrong root and claimed +/-23 m at 400 m off. 0 (default): never, "
                  "byte-identical to every earlier result.",
                  g_reacquireSigmaM);
+    cmd.AddValue("ekf5WindowThetaWalk",
+                 "DD 59. With --ekf5Window: heading is a state per cycle, with the angle random walk between cycles (default off).",
+                 g_ekf5WindowThetaWalk);
     cmd.AddValue("ekf5CoarsePosOnly",
                  "DD 33. With --imuFilter=ekf5: an 868 MHz range corrects the POSITION only. Heading offset, gyro bias and "
                  "stride scale are consider states for it (Schmidt-Kalman gain, covariance in the general-gain form), and it "
@@ -22662,6 +23133,12 @@ main(int argc, char* argv[])
             spec.subjectTriggeredUpdates = false;
         }
     }
+    // DD 77: DD 75 acts only under --collapse, preset or explicit (as DD 63's --tdoaRubbleDelay), so the preset equals its own
+    // settings given as flags on the open site (G24 EQUIV).
+    if (g_sigmaShadow && !g_collapse.on)
+    {
+        g_sigmaShadow = false;
+    }
     // Row 55.
     if (spec.subjectIntegrityWitness &&
         (spec.measuredSubjects < 2 || (!corroborationCheckArg && !imuCrossCheckArg) ||
@@ -23027,6 +23504,41 @@ main(int argc, char* argv[])
         return 1;
     }
     // DC-4. Case D runs in Step()'s restructured sparse path, which --sparseInStep turns on.
+    // DD 65: set by the preset while the user turned a prerequisite off explicitly: unused, not refused.
+    if (specProfileOn && !explicitFlags.count("sparseRangeGeometry") && !spec.sparseInStep)
+    {
+        spec.sparseRangeGeometry = false;
+    }
+    if (spec.sparseRangeGeometry && !spec.sparseInStep)
+    {
+        std::cerr << "FATAL: --sparseRangeGeometry needs --sparseInStep\n";
+        return 1;
+    }
+    if (g_tdoaHeightCorrect)
+    {
+        std::cout << "  DD62 tdoaHeightCorrect: arrival stamps projected to the ground\n";
+    }
+    if (g_tdoaRubbleDelay)
+    {
+        std::cout << "  DD63 tdoaRubbleDelay: arrival stamps carry the rubble delay\n";
+    }
+    if (g_dutyFinders)
+    {
+        std::cout << "  DD60 sharedDuty868Finders: one 868 MHz ledger per searcher's device\n";
+    }
+    if (g_sharedDuty868)
+    {
+        std::cout << "  DD56 sharedDuty868: one 868 MHz ledger per worker device, ranging share " << g_dutyRangeShare << "\n";
+    }
+    if (!(g_dutyRangeShare > 0.0 && g_dutyRangeShare < 1.0))
+    {
+        std::cerr << "FATAL: --dutyRangeShare must be in (0, 1)\n";
+        return 1;
+    }
+    if (spec.sparseRangeGeometry)
+    {
+        std::cout << "  DD54 sparseRangeGeometry: a two-range fix enters as its two ranges\n";
+    }
     if (spec.caseAPreFuse && !spec.sparseInStep)
     {
         std::cerr << "FATAL: --caseAPreFuse needs --sparseInStep (Case A is solved inside Step)\n";
@@ -23445,6 +23957,28 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --rangeBiasStates is not built for --imuFilter=ekf5\n";
         return 1;
     }
+    if (specProfileOn && !explicitFlags.count("ekf5WindowThetaWalk") && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
+    {
+        g_ekf5WindowThetaWalk = false;
+    }
+    if (g_acquireParticleCount != 2000)
+    {
+        if (g_acquireParticleCount < 100 || g_acquireParticleCount > 200000)
+        {
+            std::cerr << "FATAL: --acquireParticleCount must be 100-200000\n";
+            return 1;
+        }
+        std::cout << "  DD70 acquireParticleCount: " << g_acquireParticleCount << " particles per node\n";
+    }
+    if (g_ekf5WindowThetaWalk && !(spec.imuFilterEkf5 && g_ekf5Window > 0))
+    {
+        std::cerr << "FATAL: --ekf5WindowThetaWalk needs --imuFilter=ekf5 and --ekf5Window > 0\n";
+        return 1;
+    }
+    if (g_ekf5WindowThetaWalk)
+    {
+        std::cout << "  DD59 ekf5WindowThetaWalk: heading per cycle, angle random walk\n";
+    }
     if (g_ekf5CoarsePosOnly && !spec.imuFilterEkf5)
     {
         std::cerr << "FATAL: --ekf5CoarsePosOnly needs --imuFilter=ekf5\n";
@@ -23523,6 +24057,19 @@ main(int argc, char* argv[])
         std::cerr << "FATAL: --ekf5Iterate needs --imuFilter=ekf5, no --ekf5Robust, a pass count in 1..50 and a "
                      "positive --ekf5IterateTolM\n";
         return 1;
+    }
+    if (specProfileOn && !explicitFlags.count("peerSplitCi") && (!spec.imuFilterEkf5 || !ekf5FinderConsiderArg))
+    {
+        spec.peerSplitCi = false;
+    }
+    if (spec.peerSplitCi)
+    {
+        if (!spec.imuFilterEkf5 || !ekf5FinderConsiderArg)
+        {
+            std::cerr << "FATAL: --peerSplitCi needs --imuFilter=ekf5 and --ekf5FinderConsider\n";
+            return 1;
+        }
+        std::cout << "  DD57 peerSplitCi: peer ranges fused by split covariance intersection\n";
     }
     if (ekf5FinderConsiderArg)
     {
@@ -24527,6 +25074,10 @@ main(int argc, char* argv[])
     if (g_collapseNominalHeights)
     {
         std::cout << "DD52 collapseNominalHeights ranges=" << g_collapseNominalApplied << "\n";
+    }
+    if (g_sigmaShadow) // DD 75
+    {
+        std::cout << "DD75 sigmaShadow cycles=" << g_sigmaShadowCycles << " raised=" << g_sigmaShadowRaised << "\n";
     }
     if (g_tofRubbleCorrect) // DD 49
     {

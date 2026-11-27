@@ -1,0 +1,3 @@
+    DD56 device 1 ca_tbl_full: ranging 40.734720 s, MAC 57.419264 s, of 1800.000000 s: 0.054530, trailing-hour peak 0.027265, ranging skips so far 0, carried 0.000000 s, audited peak 0.027265
+    DD56 device 1 static_868: ranging 40.734720 s, MAC 51.231488 s, of 1800.000000 s: 0.051092, trailing-hour peak 0.025546, ranging skips so far 0, carried 0.000000 s, audited peak 0.025546
+    DD56 device 1 static_2p4: ranging 0.000000 s, MAC 0.000000 s, of 1800.000000 s: 0.000000, trailing-hour peak 0.000000, ranging skips so far 0, carried 0.000000 s, audited peak 0.000000
