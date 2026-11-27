@@ -1527,3 +1527,17 @@ Off: byte-identical (218 CSVs against 7c2700c3d's simulator, seed 779); with it 
 Dev seeds 794-799 (ours - 2.4 GHz only, arrival): CLUS3 +150 [-3, 405] -> -4 [-13, 3]; ROAD3F4 +449 [-10, 1275] -> +375 [-77, 1224] (one scenario, 796, where
 the worker's own estimate is 58 m off, carries it); ROAD1 and RAND3 not clearly changed (+90 [-217, 542], +30 [-25, 97]). Casualty-entry age 2047 -> 15 s at CLUS3.
 Gate G192 with selftest (8 fixtures). Registered as REALISTIC-14. Evidence: ~/catbl_work/diag_h1/keep/DEV_DD78.md.
+
+## 80. DD 78 enters the preset, open site only (owner decision 2026-11-27)
+
+REALISTIC-14 (`report/PREREG_REALISTIC14.md`) ran DD 78 on for every design with both LoRa radios: no site is clearly later than 2.4 GHz only any more
+(REALISTIC-11: CLUS3 +121 s, ROAD3F4 +542 s; REALISTIC-14: CLUS3 -1 s [-5, 3], ROAD3F4 -110 s [-505, 252]); H1 and H2 still fail on wide intervals at ROAD3
+and ROAD3F4. The owner made DD 78 a default.
+- `kSpecProfile` sets `--finderDigestBothLora=true`. DD 78 acts only without `--collapse`, preset or explicit (DD 77's scope rule, so G24 EQUIV holds):
+  REALISTIC-14 tested the open site only, and every collapse result stays as registered. Extending it to the pile would need its own registered check.
+- `PIN_PRE_DD65`, `PIN_PRE_DD67` and `PIN_PRE_DD77` now also carry `--finderDigestBothLora=false`, so every gate pinned to an earlier preset is unchanged.
+  The new `PIN_PRE_DD80` pins only DD 78. G192 uses it: that gate tests DD 78 as a switch on DD 77's preset.
+- Checked (the new build against 807f55b26's, seed 779 open site at CLUS3 with four designs, 1200 s; seed 731 collapse, 600 s): open-site preset with
+  `PIN_PRE_DD80` against the old preset: 218 CSVs identical. Open-site preset against the old preset with `--finderDigestBothLora=true`: 218 identical (four
+  DD78 lines). Collapse preset against the old preset: 133 identical, and with an explicit `--finderDigestBothLora=true` also 133 identical (no DD78 line).
+  `spec_profile.txt` lists `finderDigestBothLora=true` in both, as DD 77's `sigmaShadow`. G158 passes.
