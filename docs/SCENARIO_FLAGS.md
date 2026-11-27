@@ -169,7 +169,7 @@ Added 2026-10-20 and 2026-10-21, each default off (its §3 help text gives the w
 - `--sigmaShadow` (bool, default `false`): added 2026-11-26 (DD 75, G190). DD 77 (2026-11-27): set to true by `--specProfile`; acts only under `--collapse` (preset or explicit).
 - `--ekf5WindowThetaWalk`, `--dutyReport868Finders`, `--sharedDuty868Finders`, `--tdoaHeightCorrect`, `--tdoaRubbleDelay` (rows 349-353, appended out of help order): added
   2026-11-25, all `false` (DD 59, 60, 62, 63).
-`--finderDigestBothLora` (row 137 of §3): added 2026-11-27 with its default, `false` (DD 78, G192).
+`--finderDigestBothLora` (row 137 of §3): added 2026-11-27 with its default, `false` (DD 78, G192). DD 80 (2026-11-27): set to true by `--specProfile`; acts only without `--collapse` (preset or explicit).
 
 A fresh `--PrintHelp` differs from the `ff4f8bb` one in those rows only, and adds the
 111 names. Three flags changed meaning without changing their printed default, and §1

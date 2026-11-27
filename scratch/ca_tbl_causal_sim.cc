@@ -18813,6 +18813,8 @@ static const CaTblSpecSetting kSpecProfile[] = {
     {"tdoaRubbleDelay", "true", "DD 63 (World): under --collapse the 868 MHz arrival stamps carry the rubble delay"},
     // DESIGN_DECISIONS 77 (owner 2026-11-27, COLLAPSE-13 H60-H63): DD 75 enters the preset, collapse only.
     {"sigmaShadow", "true", "DD 77: under --collapse the published traceSigma is DD 75's correlated-error shadow (acts only under --collapse)"},
+    // DESIGN_DECISIONS 80 (owner 2026-11-27, REALISTIC-14): DD 78 enters the preset, open site only.
+    {"finderDigestBothLora", "true", "DD 80: searchers with both LoRa radios poll and steer on both (acts only without --collapse)"},
     // OWNER DECISION 2026-10-21 (DESIGN_DECISIONS 19, O13): the Switching-Point Integrity Check leaves the preset.
     {"integrityCheck", "false", "DD 19 / O13: INTEG2 recall 0.03-0.10 of injected faults; INTEG3 costs +0.036 ring availability"},
     // DESIGN_DECISIONS 24 (plan item 10, 2026-10-21): two fault-path corrections. Each acts only on a node silenced
@@ -20061,7 +20063,8 @@ main(int argc, char* argv[])
                  "DD 78. Under every arm with both LoRa radios (not static_868, static_2p4 or static_uwb), the searchers also poll "
                  "for position entries (DIGEST) on 2.4 GHz and steer on the fresher of their 868 MHz and 2.4 GHz tables' entries. "
                  "DD 30 gave the 2.4 GHz-only party its own radio; a searcher carrying both radios asked on 868 MHz only. False "
-                 "(default): byte-identical to every earlier result. One 'DD78 finderDigestBothLora' line per arm when on.",
+                 "(default): byte-identical to every earlier result. One 'DD78 finderDigestBothLora' line per arm when on. "
+                 "DD 80: set by --specProfile; acts only without --collapse, preset or explicit (REALISTIC-14 tested the open site only).",
                  spec.finderDigestBothLora);
     cmd.AddValue("acquireSideOfRoad",
                  "DD 29. With --gwRidge and --acquireParticles: every node's acquisition cloud is confined to the work "
@@ -23138,6 +23141,12 @@ main(int argc, char* argv[])
     if (g_sigmaShadow && !g_collapse.on)
     {
         g_sigmaShadow = false;
+    }
+    // DD 80: DD 78 acts only off the pile (no --collapse), preset or explicit. REALISTIC-14 tested it on the open site
+    // only, and every collapse result stays as registered. Same scope rule as DD 77, so G24 EQUIV holds.
+    if (spec.finderDigestBothLora && g_collapse.on)
+    {
+        spec.finderDigestBothLora = false;
     }
     // Row 55.
     if (spec.subjectIntegrityWitness &&
